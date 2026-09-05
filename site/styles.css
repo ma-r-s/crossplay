@@ -505,8 +505,8 @@ figcaption {
   .shelf .card.wide {
     flex-basis: 76vw;
   }
-  /* And the same well. The landscape override exists so Solitaire and the
-   * reader can span two grid columns above 720px; in a one-card-at-a-time
+  /* And the same well. The landscape override exists so a .wide card can span
+   * two grid columns above 720px; in a one-card-at-a-time
    * carousel there is no second column to span, so it just produced a short
    * card with a screen's worth of dead space under it. Back to the portrait
    * well the base rule already letterboxes into, which keeps every card the
@@ -533,12 +533,28 @@ figcaption {
   flex-direction: column;
   gap: 0.85rem;
 }
-/* Two apps render landscape (Solitaire, and the xkcd reader), so the shots are
- * not one shape. Pin every well to the portrait panel ratio and letterbox the
- * wide ones, or the grid rows go ragged and the captions stop lining up. */
+/* Not every app renders portrait, so the shots are not one shape. Pin every
+ * well to the portrait panel ratio and letterbox the odd ones out, or the grid
+ * rows go ragged and the captions stop lining up. The exceptions carry .wide;
+ * naming them here is how this comment would rot. */
 .card .shot-wrap {
   background: var(--paper-2);
   padding: 10px;
+  /* content-box, and this is the line that makes a .wide card's shot start at
+   * the same height as its portrait neighbours. Under the inherited
+   * border-box, aspect-ratio sizes the well INCLUDING these 10px, while the
+   * shot is fitted into the content box -- so a portrait well came out ~13px
+   * taller than its shot needed and align-items: center split the slack,
+   * pushing the shot down 7px. A landscape shot fills its own well exactly and
+   * sat flush at the padding, so the two disagreed by those 7px: wells level,
+   * hard black image edges not. Sizing the CONTENT box means the shot fills it
+   * in both cases and every top lands at padding-top.
+   *
+   * Not align-items: flex-start, which also levels the tops but does it by
+   * shoving the dead space to the bottom, and would jam the letterboxed
+   * landscape shot to the top of its portrait well in the phone carousel
+   * below, where centring is the point. */
+  box-sizing: content-box;
   aspect-ratio: 480 / 800;
   display: flex;
   align-items: center;
@@ -551,10 +567,10 @@ figcaption {
   object-fit: contain;
 }
 
-/* Solitaire and the reader really are landscape on the device. Letterboxing
- * them into a portrait well shrinks them to illegibility, so they take two
- * columns and their own ratio instead -- the app shown at the shape it is.
- * Only above the breakpoint where the grid has two columns to give. */
+/* A .wide card really is landscape on the device. Letterboxing one into a
+ * portrait well shrinks it to illegibility, so they take two columns and their
+ * own ratio instead -- the app shown at the shape it is. Only above the
+ * breakpoint where the grid has two columns to give. */
 .card.wide .shot-wrap {
   aspect-ratio: 800 / 480;
 }

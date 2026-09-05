@@ -5,9 +5,12 @@
 #include <Memory.h>
 #include <WiFi.h>
 #include <base64.h>
+#include <esp_wifi.h>
 
 #include <functional>
 #include <string>
+
+#include "DeviceReport.h"
 
 #if defined(FREEINK_NET_WOLFSSL)
 #include <SecureHttpClient.h>
@@ -50,6 +53,23 @@ bool isRedirect(int status) {
   return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
 }
 
+// OtaUpdater.cpp already disables WiFi power-save for firmware downloads, but
+// OPDS feed/book fetches never did despite being able to run just as long for
+// a large category. Modem sleep periodically powers the radio down between
+// DTIM beacon intervals, which can drop or stall packets mid-transfer -- more
+// likely to be hit the longer a transfer takes, so small feeds mostly get
+// away with it while a large category consistently doesn't.
+struct WifiPowerSaveGuard {
+  WifiPowerSaveGuard() {
+    esp_err_t err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (err != ESP_OK) LOG_ERR("HTTP", "Failed to disable WiFi power-save: %d", err);
+  }
+  ~WifiPowerSaveGuard() {
+    esp_err_t err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    if (err != ESP_OK) LOG_ERR("HTTP", "Failed to restore WiFi power-save: %d", err);
+  }
+};
+
 #if defined(FREEINK_NET_WOLFSSL)
 // How often the abort poll is allowed to pump input. readLine() calls the abort
 // callback in a tight loop, so pumping on every call would spend the wait
@@ -75,6 +95,7 @@ bool abortPoll(Sink& sink, unsigned long& lastPumpMs) {
 #if defined(FREEINK_NET_WOLFSSL)
 HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std::string& username,
                                          const std::string& password, Sink& sink) {
+  WifiPowerSaveGuard psGuard;
   std::string url = startUrl;
 
   for (int hop = 0; hop <= MAX_REDIRECTS; ++hop) {
@@ -94,6 +115,10 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
       const String encoded = base64::encode(credentials.c_str());
       http.addHeader("Authorization", std::string("Basic ") + encoded.c_str());
     }
+    // Per hop, so a redirect off one of our hosts carries nothing onward.
+    devreport::Header report[devreport::kHeaderCount];
+    const int reportHeaders = devreport::headersFor(url.c_str(), report);
+    for (int i = 0; i < reportHeaders; ++i) http.addHeader(report[i].name, report[i].value);
 
     LOG_DBG("HTTP", "wolfSSL GET: %s", url.c_str());
     unsigned long lastPumpMs = 0;
@@ -109,6 +134,7 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
         [&sink, &lastPumpMs]() { return abortPoll(sink, lastPumpMs); });
 
     g_lastStatus = status < 0 ? 0 : status;
+    devreport::delivered(url.c_str(), status);
     if (http.aborted()) return HttpDownloader::ABORTED;
     if (status < 0) {
       LOG_ERR("HTTP", "wolfSSL request failed: %s", url.c_str());
@@ -144,8 +170,12 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
 // pushes the whole body through an event callback and reports a chunked body
 // that ends early as ESP_ERR_HTTP_INCOMPLETE_DATA, whereas the read loop streams
 // large/slow files and surfaces a short read directly.
+//
+// No device report headers on this path: every device env builds wolfSSL, so
+// this is the simulator's transport, and the simulator is not a device.
 HttpDownloader::DownloadError runGet(const std::string& url, const std::string& username, const std::string& password,
                                      Sink& sink) {
+  WifiPowerSaveGuard psGuard;
   esp_http_client_config_t config = {};
   config.url = url.c_str();
   config.buffer_size = HTTP_RX_BUF;

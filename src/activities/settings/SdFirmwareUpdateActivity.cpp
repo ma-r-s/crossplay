@@ -12,7 +12,21 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/DeviceReport.h"
 #include "network/FirmwareFlasher.h"
+
+namespace {
+
+// The SD install is the OTA screen's twin for the device report: a file
+// refused before the confirmation prompt is still an install the user tried
+// and could not have, and "who cannot update" must count it. The flash
+// itself notes its own attempt before writing.
+void noteRefused(const char* error) {
+  devreport::noteOtaAttempt("sd");
+  devreport::noteOtaFailed(error);
+}
+
+}  // namespace
 
 void SdFirmwareUpdateActivity::onEnter() {
   Activity::onEnter();
@@ -69,6 +83,7 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
   HalFile file;
   if (!Storage.openFileForRead("FW", firmwarePath.c_str(), file) || !file) {
     errorMessage = tr(STR_FIRMWARE_FILE_OPEN_FAILED);
+    noteRefused("read");
     return false;
   }
   firmwareSize = file.fileSize();
@@ -82,6 +97,7 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
   if (!dest) {
     LOG_ERR("FW", "no next-update partition available");
     errorMessage = tr(STR_INVALID_FIRMWARE);
+    noteRefused("no_partition");
     return false;
   }
   const size_t partitionLimit = dest->size;
@@ -89,6 +105,9 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
     LOG_ERR("FW", "firmware (%u bytes) exceeds partition (%u bytes)", static_cast<unsigned>(firmwareSize),
             static_cast<unsigned>(partitionLimit));
     errorMessage = tr(STR_FIRMWARE_TOO_LARGE);
+    // The 6.25MB slots of a device flashed before v1.5.3 land here, the
+    // same way they land in OtaUpdater's TOO_LARGE_ERROR.
+    noteRefused("too_large");
     return false;
   }
 
@@ -99,6 +118,7 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
   const auto vr = firmware_flash::validateImageFile(firmwarePath.c_str(), partitionLimit);
   if (vr != firmware_flash::Result::OK) {
     LOG_ERR("FW", "image validation failed: %s", firmware_flash::resultName(vr));
+    noteRefused(devreport::flashErrorName(static_cast<int>(vr)));
     if (vr == firmware_flash::Result::TOO_LARGE) {
       errorMessage = tr(STR_FIRMWARE_TOO_LARGE);
     } else if (vr == firmware_flash::Result::TOO_SMALL) {
@@ -166,9 +186,13 @@ void SdFirmwareUpdateActivity::performUpdate() {
   // pre-confirmation pass. The alreadyValidated parameter on the API stays
   // for callers (e.g. an OTA staging path) where the same byte stream was
   // just hashed and there's no removable-media gap.
+  // Recorded before the flash: success reboots the device, so the next
+  // device report infers it from the version that comes up.
+  devreport::noteOtaAttempt("sd");
   const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
   if (result != firmware_flash::Result::OK) {
     LOG_ERR("FW", "flash failed: %s", firmware_flash::resultName(result));
+    devreport::noteOtaFailed(devreport::flashErrorName(static_cast<int>(result)));
     // BAD_CHIP / WRONG_BOARD here is the TOCTOU re-validation catching a
     // wrong-device image the pre-confirmation pass missed (e.g. the SD card
     // was swapped).

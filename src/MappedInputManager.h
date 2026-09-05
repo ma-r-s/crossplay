@@ -2,6 +2,8 @@
 
 #include <HalGPIO.h>
 
+#include "util/ButtonReleaseGate.h"
+
 class GfxRenderer;
 namespace freeink {
 namespace ui {
@@ -39,7 +41,34 @@ class MappedInputManager {
 
   MappedInputManager(HalGPIO& gpio, const GfxRenderer& renderer) : gpio(gpio), renderer(renderer) {}
 
-  void update() const { gpio.update(); }
+  // The pump an activity calls only when it BLOCKED the loop (see the download
+  // and sync flows). The gate settles here as well as in
+  // ActivityManager::loop() because those flows are the second path to a
+  // release read: they advance the latch themselves, so a gate settled only by
+  // the activity stack would keep an arm standing for the whole of a blocking
+  // download and swallow the Back that cancels it. settle() is idempotent for
+  // a given frame's edges, so the two paths cannot disagree.
+  void update() const;
+
+  // ---- The press/release seam. See util/ButtonReleaseGate.h for the bug.
+  //
+  // An activity that finishes on a PRESS hands the matching RELEASE to
+  // whatever is underneath, which never saw the press. ActivityManager owns
+  // both calls: settleReleaseGate() once per frame before any activity reads
+  // input, and swallowNextReleaseOfHeldButtons() at the moment the activity on
+  // top changes. Apps need neither and must not call them -- an app that
+  // guards its own release with a "did I see the press" flag is solving this
+  // one caller at a time, which is what fifty-five files would otherwise have
+  // to do.
+  //
+  // Power is deliberately NOT covered. Its release is consumed outside the
+  // activity stack (sleep in main.cpp, the frontlight double-click window), so
+  // an arm on it could swallow a sleep, and nothing in src/ finishes an
+  // activity on a Power press.
+  void settleReleaseGate() const;
+  void swallowNextReleaseOfHeldButtons() const;
+  // For logging and tests only.
+  uint8_t heldReleaseGateMask() const { return releaseGate.armedMask(); }
 #if FREEINK_CAP_TOUCH
   // X4 Pro delays a single power click until its frontlight double-click window
   // expires. The main loop supplies that one-frame event here.
@@ -47,6 +76,9 @@ class MappedInputManager {
 #endif
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
+  // One-shot threshold event while the button is down; consumes its release.
+  bool wasLongPressed(Button button, unsigned long thresholdMs) const;
+  bool consumeSuppressedRelease() const;
   bool isPressed(Button button) const;
   bool hasTouch() const;
   bool wasScreenTapped(int& x, int& y) const;
@@ -94,6 +126,11 @@ class MappedInputManager {
   // A Home-key hold runs the configured long-press action in the reader.
   bool wasHomeKeyHold() const;
   bool wasMenuGesture() const;
+  // Bottom-edge up-swipe as the reader-menu gesture (SHOW_READER_MENU's Swipe
+  // Up option). Only meaningful on home-key boards, where Home lives on the
+  // key and the bottom edge is free; elsewhere the same swipe is the Home
+  // gesture and this returns false.
+  bool wasReaderMenuSwipeUp() const;
   // Top-edge down-swipe opens the light panel when the active board actually
   // has a frontlight. ActivityManager consumes it before activity input.
   bool wasLightPanelGesture() const;
@@ -109,10 +146,8 @@ class MappedInputManager {
   // Returns the raw front button index that was pressed this frame (or -1 if none).
   int getPressedFrontButton() const;
 
-  // True when the control axis is flipped relative to the physical buttons: the user opted into
-  // orientation-following front buttons AND the screen is *currently rendered* rotated (INVERTED /
-  // LANDSCAPE_CCW). Keyed on the live renderer orientation rather than the persisted reader setting,
-  // so portrait UI (home, settings) never swaps while the reader and its menus do.
+  // True when the control axis is flipped relative to the physical buttons: always on touch boards,
+  // or when button-only boards opt in, while the screen is currently INVERTED / LANDSCAPE_CCW.
   [[nodiscard]] bool isNavDirectionSwapped() const;
 
  private:
@@ -127,6 +162,15 @@ class MappedInputManager {
   Button mapScreenDirection(Button button) const;
   Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
+  // The ONE place a physical button index is read. Every logical button in
+  // mapButton() -- including the recursive Nav*/Screen* forms and the
+  // settings-driven front-button remap -- bottoms out here, so the release
+  // gate covers all of them by construction rather than by a list that has to
+  // be kept in step.
+  bool readButton(uint8_t buttonIndex, bool (HalGPIO::*fn)(uint8_t) const) const;
+  // The buttons the gate may arm: the six the activity stack navigates with.
+  static constexpr uint8_t GATED_BUTTONS[] = {HalGPIO::BTN_BACK,  HalGPIO::BTN_CONFIRM, HalGPIO::BTN_LEFT,
+                                              HalGPIO::BTN_RIGHT, HalGPIO::BTN_UP,      HalGPIO::BTN_DOWN};
   // SDK edge classification (fui::edgeSwipe) + the shared decode/held-time
   // bookkeeping; the wrappers below give each edge its board meaning.
   bool wasEdgeSwipe(freeink::ui::ScreenEdge edge) const;
@@ -138,10 +182,17 @@ class MappedInputManager {
   bool wasPowerConfirmClick() const;
 #endif
   void rememberTouchHeldTime() const;
+  void suppressNextRelease(Button button) const;
+
+  // Mutable for the same reason touchHeldOverride* below are: every read
+  // accessor on this class is const and the bookkeeping rides along with them.
+  mutable ButtonReleaseGate releaseGate;
 
   mutable bool touchHeldOverrideValid = false;
   mutable unsigned long touchHeldOverrideMs = 0;
   mutable unsigned long touchHeldOverrideAt = 0;
+  mutable uint16_t longPressFiredButtons = 0;
+  mutable uint16_t suppressedReleaseButtons = 0;
 #if FREEINK_CAP_TOUCH
   bool powerConfirmClickFrame = false;
 #endif

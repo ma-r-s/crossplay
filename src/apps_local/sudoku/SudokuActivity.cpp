@@ -45,7 +45,6 @@ void SudokuActivity::onEnter() {
   toybox::ensureFonts(renderer);
   screen = sk::Screen::Menu;
   menuSelected = -1;
-  levelChanged = false;
   notice = nullptr;
   lastTickMs = millis();
   // The only entropy that differs between two boots, and it enters here and
@@ -73,12 +72,29 @@ void SudokuActivity::beginGame() {
   generating = true;
   generateDeferred = true;
   generatingLevel = menuLevel;
-  levelChanged = false;
   resultRecorded = false;
   newBest = false;
   holdCell = sk::kNoCell;
   holdFired = false;
   goTo(sk::Screen::Board);
+}
+
+void SudokuActivity::cancelCarve() {
+  generating = false;
+  generateDeferred = false;
+  // beginGame() cleared this on the way in, so restore what the surviving game
+  // actually is. Otherwise cancelling a new puzzle started over a SOLVED one
+  // leaves solvedFlag set with resultRecorded false, and the board would record
+  // that solve a second time. Unreachable today only because canResume()
+  // refuses to re-open a solved game -- one menu row away from being live.
+  resultRecorded = game.solvedFlag != 0;
+}
+
+bool SudokuActivity::handleHomeGesture() {
+  cancelCarve();
+  // saveState() is not needed here: onExit() runs on the way out and writes the
+  // game this call just protected.
+  return false;
 }
 
 void SudokuActivity::tickClock() {
@@ -210,7 +226,11 @@ void SudokuActivity::loadState() {
   }
 
   int at = 1;
-  menuLevel = static_cast<sk::Level>(header[at++] % sk::kLevelCount);
+  // Range-checked rather than reduced: header[] is a long, and a negative one
+  // survives `% kLevelCount` as a negative, which becomes Level(255) and indexes
+  // record.bestMs[255] off the end of a four-element array when the menu draws.
+  const long savedLevel = header[at++];
+  menuLevel = static_cast<sk::Level>(savedLevel >= 0 && savedLevel < sk::kLevelCount ? savedLevel : 0);
   restored.elapsedMs = static_cast<uint32_t>(header[at++]);
   restored.hintsUsed = static_cast<uint8_t>(header[at++]);
   const long armed = header[at++];
@@ -227,6 +247,15 @@ void SudokuActivity::loadState() {
   game = restored;
   hasGame = savedHasGame;
   resultRecorded = game.solvedFlag != 0;
+
+  // The menu opens on the level of the puzzle it is offering to resume, which
+  // is a repair as much as a preference. `menuLevel` is a stored field and
+  // `puzzle.level` is re-derived from the clues above, so a card written while
+  // the player was merely BROWSING the difficulty row holds the two disagreeing
+  // -- and the door reads what they say, so it would offer NEW PUZZLE over a
+  // good grid. A level picked and never played is not worth carrying across a
+  // restart; a half-solved puzzle is.
+  if (hasGame && game.solvedFlag == 0) menuLevel = game.puzzle.level;
 #endif
 }
 
@@ -276,6 +305,26 @@ void SudokuActivity::saveState() {
 #endif
 }
 
+// Only two things move the pixel-to-effect map of the grid and the pad.
+//
+// `screen`, because the geometry is live only on the board while the panel may
+// still be showing the menu underneath it, and `generating`, because a puzzle
+// arriving an arbitrary number of passes later (see the generator poll in
+// loop()) makes a live grid appear with no tap at all -- the one change here
+// the player did not cause.
+//
+// `game.armed` is deliberately absent, and it is the whole reason this is not
+// simply "everything the hit-test reads". Picking a digit off the pad and
+// placing it in six cells is the app's core loop; the pad tap changes `armed`,
+// so hashing it would drop the very next cell tap every time -- including the
+// second half of picking a digit up off a clue. The cell contents are absent
+// for the same reason: they change on every entry, and gating consecutive
+// entries is the frozen-device failure. Neither moves which cell a pixel is.
+uint32_t SudokuActivity::surfaceMeaning() const {
+  const uint32_t withScreen = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(screen));
+  return paintclock::mixMeaning(withScreen, generating ? 1u : 0u);
+}
+
 void SudokuActivity::loop() {
   namespace fui = freeink::ui;
 
@@ -287,7 +336,17 @@ void SudokuActivity::loop() {
       shelf::leave(renderer, mappedInput);
       return;
     }
-    if (screen == sk::Screen::Board) saveState();
+    if (screen == sk::Screen::Board) {
+      // Back off a board that is still being carved CANCELS the carve, and that
+      // is not tidiness. The poll below does not look at `screen`, so an
+      // abandoned carve kept running on the menu and landed through
+      // startGame() -- replacing the saved game and rewriting the card from a
+      // screen the player was only reading, with no tap at all. The window is
+      // not a frame either: 24 attempts a pass carries roughly even odds at the
+      // scarcer levels, so MAKING ONE can sit there for several passes.
+      cancelCarve();
+      saveState();
+    }
     goTo(sk::back(screen));
     return;
   }
@@ -331,6 +390,14 @@ void SudokuActivity::loop() {
     int holdY = 0;
     int cell = 0;
     if (mappedInput.isScreenTouchHeld(holdX, holdY) && sudokuui::cellAt(device, holdX, holdY, cell)) {
+      if (!surfaceRevealed()) {
+        // Void the contact rather than leave its timer running against a grid
+        // the panel has not shown: the hold would otherwise fire the instant
+        // the gate opens, pencilling a cell the player never rested on.
+        holdCell = sk::kNoCell;
+        holdFired = false;
+        return;
+      }
       if (cell != holdCell) {
         // Moved to another cell, so the hold restarts there: dragging a finger
         // across the grid never pencils a cell you did not mean.
@@ -368,12 +435,16 @@ void SudokuActivity::loop() {
     int cell = 0;
     int digit = 0;
     if (sudokuui::cellAt(device, tapX, tapY, cell)) {
+      // Guarded inside the branch, so a tap that misses grid and pad still
+      // reaches route() and its own digest gate for the chrome.
+      if (!surfaceRevealed()) return;
       notice = nullptr;
       sk::tapCell(game, cell);
       requestUpdate();
       return;
     }
     if (sudokuui::padKeyAt(device, tapX, tapY, digit)) {
+      if (!surfaceRevealed()) return;
       notice = nullptr;
       game.armed = static_cast<uint8_t>(digit);
       requestUpdate();
@@ -386,7 +457,10 @@ void SudokuActivity::loop() {
     case sudokuui::ActionPlay:
       // Resuming and starting are the same door, because the difference is a
       // fact about the save rather than a choice the player should have to make.
-      if (hasGame && !levelChanged && game.solvedFlag == 0) {
+      // Which one it is has exactly one definition, shared with the label the
+      // player read before tapping: a second copy of it here is how a door does
+      // something other than what it says.
+      if (sk::canResume(game, hasGame, menuLevel)) {
         goTo(sk::Screen::Board);
         return;
       }
@@ -400,7 +474,6 @@ void SudokuActivity::loop() {
           // setting that threw the grid away and jumped to a new one would
           // apply before the player had seen it change.
           menuLevel = nextLevel(menuLevel);
-          levelChanged = true;
           menuSelected = static_cast<int>(sudokuui::MenuRow::Level);
           requestUpdate();
           return;
@@ -468,7 +541,6 @@ void SudokuActivity::render(RenderLock&&) {
       model.hasGame = hasGame;
       model.game = game;
       model.record = record;
-      model.levelChanged = levelChanged;
       model.selected = menuSelected;
       sudokuui::buildMenu(surface, model);
       break;

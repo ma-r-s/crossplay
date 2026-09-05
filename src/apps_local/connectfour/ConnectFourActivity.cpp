@@ -195,6 +195,14 @@ void ConnectFourActivity::onLinkEnded() {
   goTo(c4::Screen::Menu);
 }
 
+void ConnectFourActivity::onMatchEnded() {
+  recordResult();
+  // The same screen the solo game ends on. In a match it used to be
+  // unreachable, so the finished board went straight to ANOTHER GAME? and the
+  // loser saw nothing at all of the move that beat them.
+  goTo(c4::Screen::Result);
+}
+
 void ConnectFourActivity::gameLoop() {
   namespace fui = freeink::ui;
 
@@ -307,6 +315,14 @@ void ConnectFourActivity::gameLoop() {
       return;
 
     case c4ui::ActionDone:
+      // DONE on a finished MATCH means done with the match, not just with the
+      // screen: the radio is still up and the link screen would slam over the
+      // menu the moment the hold ended. leaveLink() is what puts the app back
+      // on its own menu, and it tells the other device on the way out.
+      if (inMatch()) {
+        leaveLink();
+        return;
+      }
       goTo(c4::Screen::Menu);
       return;
 

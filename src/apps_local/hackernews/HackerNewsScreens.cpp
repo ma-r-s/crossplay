@@ -16,6 +16,48 @@ constexpr int kBodyTop = toybox::kHeaderHeight + toybox::kGutter * 3;
 // The reader's footer: one row of three controls.
 constexpr int kFooterHeight = toybox::kPillHeight;
 
+// A control that sits ON the header band, where the ordinary pair of styles is
+// upside down.
+//
+// toybox::invertedStyles() is a solid black fill: on paper it is the loud one,
+// on this band it IS the band, so "filled" disappears and only the knocked-out
+// glyph is left. rowStyles() is a white fill with a black hairline: on the band
+// the hairline vanishes and the white fill is the loudest thing on the screen.
+// A mark styled "filled means saved" out of those two therefore reads exactly
+// backwards, and two cold testers read it backwards -- one of them removed an
+// article believing they had just kept it.
+//
+// So the band gets its own pair, the same idea re-derived against black ground:
+// present is the white chip, absent is the outline drawn in paper.
+fui::StyleSet bandFilledStyles() {
+  fui::StyleSet styles;
+  styles.explicitlySet = true;
+  styles.normal.background = fui::Paint::solid(fui::Color::White);
+  styles.normal.foreground = fui::Paint::solid(fui::Color::Black);
+  styles.selected = styles.normal;
+  styles.focused = styles.normal;
+  styles.active = styles.normal;
+  styles.disabled = styles.normal;
+  return styles;
+}
+
+fui::StyleSet bandOutlineStyles() {
+  fui::StyleSet styles;
+  styles.explicitlySet = true;
+  // The band's own black, so the chip is a shape drawn in its outline rather
+  // than a second ground. The border has to be PAPER: a black hairline on a
+  // black band is the invisible half of the bug above.
+  styles.normal.background = fui::Paint::solid(fui::Color::Black);
+  styles.normal.foreground = fui::Paint::solid(fui::Color::White);
+  styles.normal.border = fui::Paint::solid(fui::Color::White);
+  styles.normal.borderWidth = toybox::kHairline;
+  styles.selected = styles.normal;
+  styles.focused = styles.normal;
+  styles.active = styles.normal;
+  styles.disabled = styles.normal;
+  return styles;
+}
+
 // Header band, rule, and the page margin. Every screen here opens with this.
 //
 // `rightLabel` is drawn in paper, not ink. The band is solid black and the
@@ -31,11 +73,15 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
   fui::HeaderProps header;
   header.title = title;
   if (showSave) {
-    // Filled means it is on the device, outlined means it can be. The mark is
-    // the control, so there is no second button to find.
+    // The chip is filled once the piece is on the device, and it says so in a
+    // word. The mark alone cannot: this icon is one 1-bpp mask, so the glyph
+    // never fills and the only thing that ever changed was the chip behind it.
+    // A verb for what a tap will do, a past tense for what it did -- which is
+    // also the confirmation the screen owed anyone who just tapped it.
     header.trailingIcon = fui::bitmapFromIcon(icon_saved_32);
+    header.trailingLabel = saved ? "SAVED" : "SAVE";
     header.trailingAction = saved ? ActionUnsave : ActionSave;
-    header.trailingStyles = saved ? toybox::invertedStyles() : toybox::rowStyles();
+    header.trailingStyles = saved ? bandFilledStyles() : bandOutlineStyles();
     header.trailingRadius = toybox::kPillRadius / 2;
   }
   header.rightLabel = rightLabel;
@@ -143,9 +189,75 @@ void buildList(toybox::Screen& screen, const ListModel& model) {
     // An empty SAVED shelf is the ordinary state of a new device, so it gets a
     // sentence rather than a blank panel that reads as a fault.
     if (model.emptyHeadline != nullptr) {
-      screen.centeredText(model.emptyHeadline, screen.theme().titleText);
-      if (model.emptyMessage != nullptr) {
-        screen.centeredText(model.emptyMessage, screen.theme().smallText);
+      // OFF THE BAND, SO IT HAS TO BE INK. The display cut is otherwise only
+      // ever set on the header band, so its token colour is paper -- and taken
+      // as given here it painted NOTHING SAVED YET white on white paper. Same
+      // trap as the page label that went missing on the band, one screen along
+      // and the other way up.
+      //
+      // And the invisible half was hiding the visible one: centeredText centres
+      // in the content rect and CONSUMES NOTHING, so two calls draw at the same
+      // y. The headline was painted over the sentence all along and no one
+      // could see it happening. So the pair is laid out as a block, the way
+      // buildNotice stacks its own, and centred as a block.
+      fui::TextStyle headline = screen.theme().titleText;
+      headline.color = fui::Color::Black;
+      headline.align = fui::TextAlign::Center;
+      const fui::Rect body = screen.body();
+      // Both blocks reserve what the SDK's OWN WRAP will emit, never a
+      // single-line width divided by the column. Greedy wrapping breaks between
+      // words, so it does not fill a line to the edge: a sentence 2.6 columns
+      // wide needs THREE lines while the division says two, and the third is
+      // dropped with an ellipsis this cut is perfectly able to draw -- so the
+      // glyph gate stays quiet and the screenshot looks finished. That is how
+      // "Saved articles do ..." got as far as a render. measureWrappedText's
+      // own header warns against the estimate it replaces.
+      headline.maxLines = 2;
+      const int16_t headlineH =
+          fui::measureWrappedText(screen.target(), model.emptyHeadline, headline, body.width).height;
+
+      fui::TextStyle message = screen.theme().smallText;
+      message.align = fui::TextAlign::Center;
+      // A ceiling, not a target: the wrap emits what the sentence needs and the
+      // reservation follows it. Four lines is more than any wording here wants
+      // and still bounds a mistake.
+      message.maxLines = 4;
+      const bool hasMessage = model.emptyMessage != nullptr;
+      const int16_t messageH =
+          hasMessage ? fui::measureWrappedText(screen.target(), model.emptyMessage, message, body.width).height : 0;
+      const int16_t gap = hasMessage ? toybox::kGutter : 0;
+
+      // The control, when there is one. Sized like every other pill in this app
+      // so it reads as a button rather than as a second heading.
+      const bool hasAction = model.emptyActionLabel != nullptr && model.emptyAction != fui::NO_ACTION;
+      const int16_t actionH = hasAction ? static_cast<int16_t>(kFooterHeight + toybox::kGutter * 2) : 0;
+
+      // Every element ADVANCES y as it is placed, and none of them advances for
+      // an element that was not drawn. The button used to step over messageH
+      // whether or not a message had been drawn, so a headline with no sentence
+      // under it would have had the control composited on top of it -- which is
+      // the standing trap on this screen (centeredText consumes nothing, and
+      // that is how the headline came to be painted over the sentence).
+      int16_t y = static_cast<int16_t>(body.y + (body.height - headlineH - gap - messageH - actionH) / 2);
+      screen.target().text(fui::makeRect(body.x, y, body.width, headlineH), model.emptyHeadline, headline);
+      y = static_cast<int16_t>(y + headlineH);
+      if (hasMessage) {
+        y = static_cast<int16_t>(y + gap);
+        screen.target().text(fui::makeRect(body.x, y, body.width, messageH), model.emptyMessage, message);
+        y = static_cast<int16_t>(y + messageH);
+      }
+      if (hasAction) {
+        y = static_cast<int16_t>(y + toybox::kGutter * 2);
+        fui::ButtonProps button;
+        button.label = model.emptyActionLabel;
+        button.action = model.emptyAction;
+        button.styles = toybox::invertedStyles();
+        button.radius = static_cast<uint8_t>(toybox::kPillRadius);
+        // Narrower than the body and centred, so it cannot be mistaken for the
+        // full-width segment strip below it.
+        const int16_t width = static_cast<int16_t>(body.width * 3 / 4);
+        screen.button(button, fui::makeRect(static_cast<int16_t>(body.x + (body.width - width) / 2), y, width,
+                                            static_cast<int16_t>(kFooterHeight)));
       }
     } else {
       screen.centeredText("NOTHING TO READ", screen.theme().bodyText);
@@ -178,7 +290,12 @@ fui::Rect readerBody(const fui::DeviceContext& device) {
                        static_cast<int16_t>(device.height - bottom - kBodyTop));
 }
 
-void buildReader(toybox::Screen& screen, const ReaderModel& model) {
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, ReaderBody& body) {
+  if (body.wrap == nullptr) return 0;
+  return body.wrap->lineCount(target, readerBody(device).width, body.text, body.style);
+}
+
+uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body) {
   // The band carries the story's own headline. Within this app chrome is
   // Jersey and content is the reading face, and a title is content --
   // somebody's sentence, in its own case -- so the band borrows the reading
@@ -234,15 +351,29 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model) {
   // what a page turn does. Two ways of arriving at the same rectangle is how a
   // page turn starts eating a line, so there is one function and both callers
   // use it.
-  fui::TextAreaProps body;
-  body.text = model.text;
-  body.topLine = model.topLine;
-  body.showCaret = false;
-  body.style = screen.theme().bodyText;
-  fui::textArea(screen.frame(), readerBody(device), body);
+  // Through the wrap rather than fui::textArea(). A flattened comment thread
+  // is tens of kilobytes and textArea() walks it from byte zero to find the
+  // twenty lines it draws, so paging into the middle of a thread cost the
+  // whole thread -- twice per paint, counting the measure above.
+  if (body.wrap == nullptr) return 0;
+  body.wrap->draw(screen.target(), readerBody(device), body.text, body.style, model.topLine);
+  // Asked AFTER the drawing, and cheap because the wrap has just answered it.
+  return body.wrap->lineCount(screen.target(), readerBody(device).width, body.text, body.style);
 }
 
 // --- Notices -------------------------------------------------------------
+
+NoticeControl noticeControl(const bool unreadable) {
+  // An unreadable link is not a failure: the app reached Hacker News, judged the
+  // page, and is telling you so. The conversation is the thing still worth
+  // having, so the button goes onward to it.
+  if (unreadable) return {"READ THE COMMENTS", ActionNotice};
+  // Everything else is a failure, and the useful destination is the LIST --
+  // which carries both segments, so the SAVED shelf is one tap from it. Not
+  // "try again": the network has just been shown to be down, and the half of
+  // this app that does not need one is what the reader wants offered.
+  return {"BACK TO THE LIST", ActionNoticeBack};
+}
 
 void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
   // The band says the app, always, and never repaints between notices. What a
@@ -256,10 +387,16 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
 
   // Bottom-anchored, and taken first so the body can never grow into it. The
   // lesser doors sit at the bottom, where a thumb rests.
-  if (model.actionLabel != nullptr) {
+  //
+  // The action comes from the model now. It used to be hard-wired to
+  // ActionNotice -- "read the comments" -- so the only notice that could carry
+  // a control was the one that wanted that particular one, and every failure
+  // screen drew none.
+  const bool hasAction = model.actionLabel != nullptr && model.action != fui::NO_ACTION;
+  if (hasAction) {
     fui::ButtonProps action;
     action.label = model.actionLabel;
-    action.action = ActionNotice;
+    action.action = model.action;
     screen.button(action, fui::makeRect(toybox::kMargin,
                                         static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight),
                                         width, toybox::kPillHeight));
@@ -296,8 +433,7 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
   if (model.message != nullptr && model.message[0] != '\0') {
     // Through textArea because it wraps and centeredText does not: the first
     // build of this screen showed "This link is not a page of tex" and stopped.
-    const int16_t reserved =
-        model.actionLabel != nullptr ? static_cast<int16_t>(toybox::kPillHeight + toybox::kGutter) : 0;
+    const int16_t reserved = hasAction ? static_cast<int16_t>(toybox::kPillHeight + toybox::kGutter) : 0;
     const int16_t bottom = static_cast<int16_t>(device.height - toybox::kMargin - reserved);
     fui::TextAreaProps message;
     message.text = model.message;

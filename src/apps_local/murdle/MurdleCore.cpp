@@ -232,31 +232,39 @@ Mark Marks::shown(const int catA, const int itemA, const int catB, const int ite
   return Mark::Unknown;
 }
 
-void Marks::tap(const int catA, const int itemA, const int catB, const int itemB) {
+bool Marks::derived(const int catA, const int itemA, const int catB, const int itemB) const {
+  return entered(catA, itemA, catB, itemB) == Mark::Unknown && shown(catA, itemA, catB, itemB) != Mark::Unknown;
+}
+
+TapResult Marks::tap(const int catA, const int itemA, const int catB, const int itemB) {
+  TapResult out;
   switch (shown(catA, itemA, catB, itemB)) {
     case Mark::Unknown:
       enter(catA, itemA, catB, itemB, Mark::No);
-      return;
+      out.changed = true;
+      return out;
     case Mark::No:
-      // Ticking here unseats any tick that shared its row or column. Overruling
-      // yourself is the ordinary way to use a grid, and the crosses that tick
-      // was casting stop being derivable the moment it goes -- no cleanup.
+      // A tick here would contradict a tick already standing in this row or
+      // column, and the only way to write it would be to take that tick away.
+      // So it is not written: the ticks in the way are reported and the board
+      // is left exactly as the player left it. Moving a tick is still one extra
+      // tap -- clear it, then mark here -- and that tap is the player's.
       for (int i = 0; i < shape_.items; ++i) {
-        if (i != itemB)
-          enter(catA, itemA, catB, i,
-                entered(catA, itemA, catB, i) == Mark::Yes ? Mark::Unknown : entered(catA, itemA, catB, i));
-        if (i != itemA)
-          enter(catA, i, catB, itemB,
-                entered(catA, i, catB, itemB) == Mark::Yes ? Mark::Unknown : entered(catA, i, catB, itemB));
+        if (i != itemB && entered(catA, itemA, catB, i) == Mark::Yes) out.sameRow = static_cast<uint8_t>(i);
+        if (i != itemA && entered(catA, i, catB, itemB) == Mark::Yes) out.sameCol = static_cast<uint8_t>(i);
       }
+      if (out.blocked()) return out;
       enter(catA, itemA, catB, itemB, Mark::Yes);
-      return;
+      out.changed = true;
+      return out;
     case Mark::Yes:
       // Back to blank -- or back to crossed, if another tick still rules this
       // cell out. Either way it is one write.
       enter(catA, itemA, catB, itemB, Mark::Unknown);
-      return;
+      out.changed = true;
+      return out;
   }
+  return out;
 }
 
 bool Marks::complete() const {

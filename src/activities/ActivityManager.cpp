@@ -1,5 +1,6 @@
 #include "ActivityManager.h"
 
+#include <BoardConfig.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <HalDisplay.h>
@@ -19,6 +20,7 @@
 #include "home/HomeActivity.h"
 #include "home/RecentBooksActivity.h"
 #include "network/CrossPointWebServerActivity.h"
+#include "network/UsbDriveActivity.h"
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
@@ -49,19 +51,62 @@ void ActivityManager::renderTaskTrampoline(void* param) {
   self->renderTaskLoop();
 }
 
+// One line, only when a repaint was slow, saying which half of it was slow.
+//
+// GitHub issue #7 reported a 4.2s page turn and could not be taken further,
+// because the only breakdown in the firmware (the reader's own "Page render"
+// lines) is LOG_DBG and every release build compiles it out -- and even in a
+// dev build it covers renderContents() alone, so a turn that spent its time
+// waiting for the RenderLock, loading the section, or building pages reported
+// a fast render and a slow device.
+//
+// This covers every screen instead of the reader only, which is what the
+// report actually described: entering and leaving the reader and opening the
+// reader menu were all slow the same way, and those share no epub layout, no
+// glyph decompression and no section cache with a page turn. All they share is
+// build-a-framebuffer-and-show-it.
+void ActivityManager::reportRepaint(const char* activityName, const uint32_t requestedAtMs,
+                                    const unsigned long repaintStartMs) const {
+  const unsigned long now = millis();
+  const unsigned long total = now - repaintStartMs;
+  // requestedAtMs == 0 means nobody stamped this repaint (an activity that
+  // paints from its own loop(), or the very first render after begin()). Say
+  // "queued" is unknown rather than reporting the whole uptime as a queue wait.
+  const unsigned long queued = requestedAtMs != 0 ? repaintStartMs - requestedAtMs : 0;
+  if (total + queued < SLOW_REPAINT_MS) return;
+  const unsigned long panel = paintclock::panelBusy().busyMs();
+  // Saturating: panel time is billed from a second clock read, so a repaint
+  // that ends mid-millisecond can bill one more to the panel than the total.
+  const unsigned long compute = total > panel ? total - panel : 0;
+  LOG_INF("PERF", "%s repaint %lums: queued %lums, panel %lums, ours %lums", activityName, total + queued, queued,
+          panel, compute);
+}
+
 void ActivityManager::renderTaskLoop() {
   while (true) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     // Acquire the lock before reading currentActivity to avoid a TOCTOU race
     // where the main task deletes the activity between the null-check and render().
+    // Stamped before RenderLock, not after: a background build or an idle task
+    // holding the lock is time the user spends staring at the old page, and
+    // measuring from inside the lock would report that wait as zero.
+    const unsigned long repaintStartMs = millis();
+    const uint32_t requestedAtMs = updateRequestedAtMs.exchange(0);
     RenderLock lock;
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
-      // Night mode inverts only the reading surfaces (appliesNightMode):
-      // resolving the output polarity here, per render, means menus, popups,
-      // and every other activity revert to normal automatically.
-      display.setInverted(SETTINGS.screenInverted != 0 && currentActivity->appliesNightMode());
+      // Night mode is a global output polarity applied to every activity.
+      // The sleep screen forces normal polarity itself (SleepActivity).
+      display.setInverted(SETTINGS.screenInverted != 0);
+      // Stamp what a tap on the play surface will mean in the frame about to
+      // be built, before render() blocks in displayBuffer(). Taken here rather
+      // than inside each render() so a new screen cannot forget it; a no-op
+      // for every activity that does not override surfaceMeaning(). See
+      // Activity::surfaceMeaning().
+      currentActivity->noteSurfaceBuilt();
+      paintclock::panelBusy().reset();
       currentActivity->render(std::move(lock));
+      reportRepaint(currentActivity->name.c_str(), requestedAtMs, repaintStartMs);
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.
     TaskHandle_t waiter = nullptr;
@@ -76,6 +121,25 @@ void ActivityManager::renderTaskLoop() {
 }
 
 void ActivityManager::loop() {
+  // Before any activity reads input, and before the early returns below, so a
+  // home gesture or a light-panel push cannot leave an arm standing. See
+  // util/ButtonReleaseGate.h: the arm is what stops one physical press being
+  // read by two activities, and this is the only thing that takes it back off.
+  mappedInput.settleReleaseGate();
+
+  if (mappedInput.consumeSuppressedRelease()) return;
+
+  if (currentActivity && currentActivity->requiresExclusiveStorageLoop()) {
+    currentActivity->loop();
+    // An exclusive-storage activity must restart rather than navigate away:
+    // processing a pending action here could re-enable filesystem users while
+    // the USB host still owns the raw SD card.
+    if (requestedUpdate.exchange(false) && renderTaskHandle) {
+      xTaskNotify(renderTaskHandle, 1, eIncrement);
+    }
+    return;
+  }
+
   if (currentActivity) {
     if (!currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {
       if (currentActivity->handleHomeGesture()) {
@@ -85,11 +149,23 @@ void ActivityManager::loop() {
       return;
     }
 
-    // Frontlight quick panel: global top-edge down-swipe on boards where the
-    // home key freed that edge (X4 Pro). Guarded on present() so a board
-    // without a frontlight never opens a panel for one. Pushed, so it returns
-    // to whatever was underneath -- including mid-book.
-    if (Frontlight.present() && currentActivity->name != "FrontlightPanel" && mappedInput.wasLightPanelGesture()) {
+    // Tap-first control-center entry: a tap on the status-bar band of the
+    // top-level tab screens opens it, mirroring the top-edge swipe (which some
+    // panels' etched glass makes unreliable). The reader keeps its clean page
+    // (no status bar there to tap). Touch boards only, like the swipe itself.
+    bool statusBarTap = false;
+    if (mappedInput.hasTouch() &&
+        (currentActivity->name == "Home" || currentActivity->name == "FileBrowser" ||
+         currentActivity->name == "Settings" || currentActivity->name == "NetworkModeSelection")) {
+      int tx = 0;
+      int ty = 0;
+      statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44;
+    }
+    // Guarded on present() so a board without a frontlight never opens a panel
+    // for one. Pushed, so it returns to whatever was underneath -- including
+    // mid-book.
+    if (Frontlight.present() && currentActivity->name != "FrontlightPanel" &&
+        (statusBarTap || mappedInput.wasLightPanelGesture())) {
       pushActivity(std::make_unique<FrontlightPanelActivity>(renderer, mappedInput));
       return;
     }
@@ -122,7 +198,7 @@ void ActivityManager::loop() {
         continue;  // Will launch goHome immediately
 
       } else {
-        currentActivity = std::move(stackActivities.back());
+        setCurrentActivity(std::move(stackActivities.back()));
         stackActivities.pop_back();
         LOG_DBG("ACT", "Popped from activity stack, new size = %zu", stackActivities.size());
         // Handle result if necessary
@@ -163,7 +239,7 @@ void ActivityManager::loop() {
         LOG_DBG("ACT", "Pushed to activity stack, new size = %zu", stackActivities.size());
       }
       pendingAction = PendingAction::None;
-      currentActivity = std::move(pendingActivity);
+      setCurrentActivity(std::move(pendingActivity));
 
       lock.unlock();  // onEnter may acquire its own lock
       currentActivity->onEnter();
@@ -182,6 +258,22 @@ void ActivityManager::loop() {
   }
 }
 
+// The ONE place the activity on top is installed. The screen being replaced
+// may have acted on a button that is still down -- WifiSelectionActivity
+// cancels on the Back PRESS -- and that button's release is not the incoming
+// screen's to read, so the gate is armed here rather than at each caller. See
+// util/ButtonReleaseGate.h.
+//
+// A setter rather than a call at every site because the call sites are what
+// failed: the arm was written at the two sites an audit enumerated and missed
+// the third (the immediate branch of replaceActivity), which is the one a
+// crash report pops back through. host-tests/pickerseam asserts that no
+// assignment to currentActivity exists outside this function.
+void ActivityManager::setCurrentActivity(std::unique_ptr<Activity>&& next) {
+  mappedInput.swallowNextReleaseOfHeldButtons();
+  currentActivity = std::move(next);
+}
+
 void ActivityManager::exitActivity(const RenderLock& lock) {
   // Note: lock must be held by the caller
   if (currentActivity) {
@@ -198,14 +290,29 @@ void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
     pendingActivity = std::move(newActivity);
     pendingAction = PendingAction::Replace;
   } else {
-    // No current activity, safe to launch immediately
-    currentActivity = std::move(newActivity);
+    // No current activity, safe to launch immediately. Reached whenever the
+    // stack emptied first: popActivity() -> goHome(), which is how Back leaves
+    // the crash report.
+    setCurrentActivity(std::move(newActivity));
     currentActivity->onEnter();
   }
 }
 
 void ActivityManager::goToFileTransfer() {
   replaceActivity(std::make_unique<CrossPointWebServerActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToUsbDrive() {
+#if FREEINK_CAP_USB_MSC
+  auto activity = makeUniqueNoThrow<UsbDriveActivity>(renderer, mappedInput);
+  if (!activity) {
+    LOG_ERR("ACT", "OOM: USB Drive activity");
+    return;
+  }
+  replaceActivity(std::move(activity));
+#else
+  LOG_ERR("ACT", "USB Drive requested in a build without USB Drive capability");
+#endif
 }
 
 void ActivityManager::goToSettings() { replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInput)); }
@@ -257,7 +364,7 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
   replaceActivity(std::make_unique<FullScreenMessageActivity>(renderer, mappedInput, std::move(message), style));
 }
 
-void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
+void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefresh) {
   if (initialMenuItem == HomeMenuItem::NONE && currentActivity) {
     const auto& activityName = currentActivity->name;
     if (activityName == "FileBrowser") {
@@ -272,7 +379,7 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
       initialMenuItem = HomeMenuItem::SETTINGS_MENU;
     }
   }
-  replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem));
+  replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem, cleanInitialRefresh));
 }
 void ActivityManager::goToCrashReport() { replaceActivity(std::make_unique<CrashActivity>(renderer, mappedInput)); }
 
@@ -305,6 +412,10 @@ const char* ActivityManager::currentActivityName() const {
   return currentActivity ? currentActivity->name.c_str() : "";
 }
 
+bool ActivityManager::requiresExclusiveStorageLoop() const {
+  return currentActivity && currentActivity->requiresExclusiveStorageLoop();
+}
+
 bool ActivityManager::isReaderActivity() const {
   return std::any_of(stackActivities.begin(), stackActivities.end(),
                      [](const auto& activity) { return activity->isReaderActivity(); }) ||
@@ -322,7 +433,15 @@ ScreenshotInfo ActivityManager::getScreenshotInfo() const {
   return {};
 }
 
+// First request in a burst wins. Several requestUpdate() calls in one loop
+// collapse into one render, and the wait the user feels began at the first.
+void ActivityManager::noteUpdateRequested() {
+  uint32_t expected = 0;
+  updateRequestedAtMs.compare_exchange_strong(expected, static_cast<uint32_t>(millis()));
+}
+
 void ActivityManager::requestUpdate(bool immediate) {
+  noteUpdateRequested();
   if (immediate) {
     if (renderTaskHandle) {
       xTaskNotify(renderTaskHandle, 1, eIncrement);
@@ -337,6 +456,7 @@ void ActivityManager::requestUpdateAndWait() {
   if (!renderTaskHandle) {
     return;
   }
+  noteUpdateRequested();
 
   // Atomic section to perform checks
   taskENTER_CRITICAL(&activityManagerSpinlock);

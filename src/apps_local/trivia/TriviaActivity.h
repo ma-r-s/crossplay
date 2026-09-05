@@ -1,6 +1,11 @@
 #pragma once
 
-// TRIVIA: 50,000 questions on the card, two ways to play them.
+// TRIVIA: a pack of questions on the card, two ways to play them.
+//
+// No count here on purpose. The shipped pack is 50,000 clues levelled by
+// Jeopardy's dollar value; assemble_pack.py builds one holding whatever a
+// rating run has reached, so the figure changes on every build and the front
+// door reads it off the card. See docs/apps/trivia.md.
 //
 // The activity is the thin layer: it owns the pack files, the round and the
 // input. The format and the round logic are in TriviaCore.h (freestanding) and
@@ -27,6 +32,10 @@ class TriviaActivity final : public Activity {
 
  private:
   enum class View : uint8_t { Menu, Quizmaster, Solo, Notice };
+  // Which mode the HIDDEN notice came from. deal() decides whether it needs a
+  // multiple-choice question by reading view_, so the notice has to put the
+  // mode back before dealing or Quizmaster would start demanding distractors.
+  View flagReturn_ = View::Menu;
 
   bool openPack();
   void onWifiChosen(bool connected);

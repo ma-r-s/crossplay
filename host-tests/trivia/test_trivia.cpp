@@ -223,9 +223,97 @@ void testState() {
   MemorySource small(std::vector<uint8_t>(10, 0));
   PackState mismatched;
   CHECK(!mismatched.open(small, 50));
+
+  // And so does a LONGER one, which is the half that had no coverage. The pack
+  // is addressed by index and the state file is one byte per index, so the two
+  // lengths are the same fact written twice; any disagreement means the pack
+  // under the state file changed. A SHORTER file was rejected and a longer one
+  // was accepted, on the reasoning that every index still had a byte -- but the
+  // bytes describe questions that are no longer at those indices. A FLAGGED bit
+  // landing on an arbitrary question hides it from every draw with nothing on
+  // screen and no way for a player to clear it.
+  //
+  // Reachable as soon as a pack SHRINKS, which is what a rated pack does to the
+  // 50,000 it replaces.
+  MemorySource oversized(std::vector<uint8_t>(90, 0));
+  PackState stale;
+  CHECK(!stale.open(oversized, 50));
 }
 
 // --- chooser --------------------------------------------------------------
+// Consecutive draws must not be ADJACENT RECORDS. The chooser used to walk
+// forward from the previous pick, and the pack is built from a Jeopardy archive
+// ordered by game and then category -- so a real round served twelve "this
+// country" clues answering Italy every time, with the same four distractors. A
+// player who knew the first answer got the other eleven free.
+//
+// Asserted as a property of the sequence rather than of one draw: with a fresh
+// random start each call, adjacency happens at chance (about 1 in count) and
+// cannot be the rule. Walking forward makes EVERY gap exactly 1.
+// The counts must SURVIVE A REOPEN. They were maintained only in setFlag, so
+// every boot started at zero and the front door reported the current session
+// rather than the pack -- which renders perfectly plausibly and is why it took a
+// second pair of eyes on the file rather than on the screen.
+void testStateCountsSurviveReopen() {
+  constexpr int kCount = 64;
+  const auto items = sampleItems(kCount);
+  MemorySource packSrc(buildPack(items));
+  MemorySource stateSrc(std::vector<uint8_t>(kCount, 0));
+  Pack pack;
+  CHECK(pack.open(packSrc));
+
+  {
+    PackState state;
+    CHECK(state.open(stateSrc, kCount));
+    CHECK(state.seenCount() == 0);
+    CHECK(state.flaggedCount() == 0);
+    state.setFlag(3, kSeen);
+    state.setFlag(4, kSeen);
+    state.setFlag(4, kSeen);  // again: must not double-count
+    state.setFlag(9, kFlagged);
+    CHECK(state.seenCount() == 2);
+    CHECK(state.flaggedCount() == 1);
+  }
+
+  // A fresh PackState over the SAME bytes, as a reboot would build.
+  PackState reopened;
+  CHECK(reopened.open(stateSrc, kCount));
+  CHECK(reopened.seenCount() == 2);
+  CHECK(reopened.flaggedCount() == 1);
+  CHECK(reopened.count() == kCount);
+}
+
+void testChooserDoesNotServeNeighbours() {
+  constexpr int kCount = 200;
+  const auto items = sampleItems(kCount);
+  MemorySource packSrc(buildPack(items));
+  MemorySource stateSrc(std::vector<uint8_t>(kCount, 0));
+  Pack pack;
+  PackState state;
+  CHECK(pack.open(packSrc));
+  CHECK(state.open(stateSrc, kCount));
+
+  Rng rng(11);
+  Chooser chooser;
+  chooser.begin(pack, state, rng);
+
+  constexpr int kDraws = 40;
+  uint32_t previous = 0;
+  int adjacent = 0;
+  for (int i = 0; i < kDraws; ++i) {
+    uint32_t idx = 0;
+    CHECK(chooser.next(idx, false, 0));
+    if (i > 0 && idx == (previous + 1) % kCount) ++adjacent;
+    previous = idx;
+    state.setFlag(idx, kSeen);
+  }
+
+  // Forward-walking scores 39 here. Chance is well under one. Three leaves room
+  // for the scan stepping over a seen record onto its neighbour without letting
+  // the old behaviour through.
+  CHECK(adjacent <= 3);
+}
+
 void testChooser() {
   const auto items = sampleItems(60);
   MemorySource packSrc(buildPack(items));
@@ -352,6 +440,132 @@ void testChoices() {
   CHECK(!buildChoices(quizmasterOnly, rng, unused));
 }
 
+// --- options at the pack builder's boundary shape -------------------------
+// assemble_pack.py (tools_local/trivia/assemble_pack.py, STORED = 3) writes
+// exactly THREE distractors per multiple-choice question, and omits the `w`
+// key entirely when it cannot find three sound ones. Both shapes are new: the
+// shipped pack has always carried six, so every existing case above exercises
+// n == 6 or n == 0 and nothing in between.
+//
+// n == 3 is the exact boundary of buildChoices' partial Fisher-Yates. The draw
+// loop runs kOptions - 1 == 3 times over a pool of n, so its last step asks for
+// rng.below(n - i) == below(0) at n == 2 and below(1) at n == 3. At n == 3 the
+// partial shuffle is therefore a COMPLETE one and every stored distractor must
+// be used exactly once; one fewer and the loop would read pool[2], which was
+// never initialised. playableAsChoice() is the only thing standing between the
+// pack and that read, so it is asserted here as load-bearing, not cosmetic.
+void testChoicesAtThreeOptions() {
+  std::vector<Item> items(3);
+  // 0: the assemble_pack.py shape -- exactly three distractors.
+  items[0].clue = "Clue about the thing with exactly three wrong answers";
+  items[0].answer = "Correct";
+  items[0].difficulty = 3;
+  items[0].year = 2001;
+  items[0].wrong = {"WrongOne", "WrongTwo", "WrongThree"};
+  // 1: the read-aloud shape -- no `w` key at all.
+  items[1].clue = "Clue the builder could not find three sound options for";
+  items[1].answer = "Unopposed";
+  items[1].difficulty = 3;
+  items[1].year = 2002;
+  // 2: the legacy six, so this test would notice if it regressed.
+  items[2].clue = "Clue carrying the six distractors the shipped pack has";
+  items[2].answer = "Sixfold";
+  items[2].difficulty = 3;
+  items[2].year = 2003;
+  for (int w = 0; w < 6; ++w) items[2].wrong.push_back("Six" + std::to_string(w));
+
+  MemorySource src(buildPack(items));
+  Pack pack;
+  CHECK(pack.open(src));
+
+  Question three;
+  CHECK(pack.read(0, three));
+  CHECK(three.distractorCount() == 3);
+  CHECK(three.playableAsChoice());  // 3 >= kOptions - 1, the boundary itself
+
+  // nullptr-safe compare: a missing slot must print FAIL, not segfault the
+  // suite before it can say which assertion went red.
+  const auto eq = [](const char* a, const char* b) { return a != nullptr && b != nullptr && std::strcmp(a, b) == 0; };
+
+  Rng rng(7);
+  int position[kOptions] = {};
+  for (int trial = 0; trial < 4000; ++trial) {
+    Choices c;
+    CHECK(buildChoices(three, rng, c));
+
+    // Every slot is filled. An empty slot is the failure a player sees.
+    for (int i = 0; i < kOptions; ++i) CHECK(c.option[i] != nullptr && c.option[i][0] != '\0');
+
+    // No option repeats.
+    for (int i = 0; i < kOptions; ++i) {
+      for (int j = i + 1; j < kOptions; ++j) CHECK(!eq(c.option[i], c.option[j]));
+    }
+
+    // The answer is offered exactly once, and c.correct points at it.
+    int answers = 0;
+    for (int i = 0; i < kOptions; ++i) {
+      if (eq(c.option[i], three.answer())) ++answers;
+    }
+    CHECK(answers == 1);
+    CHECK(c.correct >= 0 && c.correct < kOptions);
+    CHECK(eq(c.option[c.correct], three.answer()));
+
+    // At exactly three stored, the draw has no freedom: all three must appear.
+    // A loop bound that stopped one short would silently leave a distractor
+    // out and repeat or blank a slot, and only this assertion sees it.
+    for (int d = 0; d < three.distractorCount(); ++d) {
+      int seen = 0;
+      for (int i = 0; i < kOptions; ++i) {
+        if (eq(c.option[i], three.distractor(d))) ++seen;
+      }
+      CHECK(seen == 1);
+    }
+    if (c.correct >= 0 && c.correct < kOptions) ++position[c.correct];
+  }
+  // The final shuffle still moves the answer off slot zero. With only one legal
+  // option set, position is the ONLY thing left that can be wrong at n == 3.
+  for (int i = 0; i < kOptions; ++i) {
+    CHECK(position[i] > 4000 / kOptions - 200);
+    CHECK(position[i] < 4000 / kOptions + 200);
+  }
+
+  // The `w`-absent shape is excluded cleanly: refused outright, not drawn as a
+  // partial set, and the Choices the caller passed in is left untouched rather
+  // than half-filled.
+  Question absent;
+  CHECK(pack.read(1, absent));
+  CHECK(absent.distractorCount() == 0);
+  CHECK(!absent.playableAsChoice());
+  Choices untouched;
+  CHECK(!buildChoices(absent, rng, untouched));
+  for (int i = 0; i < kOptions; ++i) CHECK(untouched.option[i] == nullptr);
+
+  // And solo mode never reaches it: the chooser filters it out, so the
+  // discarded return value of buildChoices in TriviaActivity::deal cannot bite.
+  MemorySource st(std::vector<uint8_t>(3, 0));
+  PackState state;
+  CHECK(state.open(st, 3));
+  Chooser chooser;
+  Rng cr(19);
+  chooser.begin(pack, state, cr);
+  for (int i = 0; i < 200; ++i) {
+    uint32_t got = 0;
+    if (!chooser.next(got, true, 0)) break;
+    CHECK(got != 1);  // the read-aloud record is never served to solo mode
+    Question q;
+    CHECK(pack.read(got, q));
+    CHECK(q.playableAsChoice());
+  }
+
+  // The legacy six still works, so this file covers 6, 3 and 0 together.
+  Question six;
+  CHECK(pack.read(2, six));
+  CHECK(six.distractorCount() == 6);
+  Choices sc;
+  CHECK(buildChoices(six, rng, sc));
+  for (int i = 0; i < kOptions; ++i) CHECK(sc.option[i] != nullptr && sc.option[i][0] != '\0');
+}
+
 void testAnswerMatching() {
   std::vector<Item> items(1);
   items[0].clue = "This is a clue about this thing";
@@ -406,10 +620,10 @@ void testRoomFor() {
   CHECK(trivia::roomFor(false, floor - 1, floor) == Room::Unknown);
 
   // A successful query decides on the number alone.
-  CHECK(trivia::roomFor(true, floor, floor) == Room::Ok);          // exactly the floor fits
+  CHECK(trivia::roomFor(true, floor, floor) == Room::Ok);  // exactly the floor fits
   CHECK(trivia::roomFor(true, floor + 1, floor) == Room::Ok);
   CHECK(trivia::roomFor(true, floor - 1, floor) == Room::TooSmall);
-  CHECK(trivia::roomFor(true, 0, floor) == Room::TooSmall);        // a genuinely empty-of-room card
+  CHECK(trivia::roomFor(true, 0, floor) == Room::TooSmall);  // a genuinely empty-of-room card
 
   // The floor must leave real headroom above today's pack, or it is not a floor
   // at all -- it is the pack size wearing a different name, and the next pack
@@ -430,7 +644,10 @@ int main() {
   testRejectsBadFiles();
   testState();
   testChooser();
+  testChooserDoesNotServeNeighbours();
+  testStateCountsSurviveReopen();
   testChoices();
+  testChoicesAtThreeOptions();
   testAnswerMatching();
   testRngIsDeterministic();
   testRoomFor();

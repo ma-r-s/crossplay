@@ -19,6 +19,7 @@
 #include "../../src/apps_local/chess/ChessScreens.h"
 #include "../../src/apps_local/connectfour/ConnectFourScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
+#include "../../src/apps_local/dungeon/DungeonScreens.h"
 #include "../../src/apps_local/forehead/ForeheadScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
@@ -35,9 +36,12 @@
 #include "../../src/apps_local/sudoku/SudokuScreens.h"
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
+#include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
+#include "../../src/apps_local/ui/ToyboxWrappedText.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
+#include "../../src/apps_local/xkcd/XkcdScreens.h"
 
 namespace fui = freeink::ui;
 
@@ -112,8 +116,63 @@ class FakeTarget final : public fui::DrawTarget {
   // line, where a hardcoded box overflows exactly as it does on the device.
   int16_t lineH = 20;
 
-  fui::Size measureText(const fui::FontId, const char* text, const fui::TextStyle) const override {
-    return fui::Size{static_cast<int16_t>(text ? std::strlen(text) * 10 : 0), lineH};
+  // Every measureText this target is asked for, counted. This is the
+  // instrument the reader's cost is stated in: textAreaWalk() asks for one
+  // measurement per candidate character position, so the count is the work a
+  // wrap does, and it is the same number before and after a change. A device
+  // stopwatch is not available to a host suite; an operation count is.
+  mutable long measureCalls = 0;
+
+  // A character's width. Ten unless a test is asking what happens when the
+  // reading size changes under a wrap that has already been taken.
+  int16_t charW = 10;
+  // Per-font and per-weight widths. BOTH DEFAULT TO OFF, so the eighty
+  // thousand checks that assume a uniform ten-pixel cell are untouched.
+  //
+  // They exist because a staleness test that only moves `charW` cannot tell
+  // whether the code under test passes `style` to measureText at all: every
+  // font and every weight would answer the same, so a fingerprint that
+  // ignored the style entirely would still change. These can tell.
+  std::vector<std::pair<fui::FontId, int16_t>> fontWidths;
+  int16_t boldBonus = 0;
+  // Extra width whenever `kernSeq` appears in the run. A target whose answer
+  // depends on which characters are ADJACENT, which is what kerning is: it
+  // cannot be predicted from the width of each character on its own, and it is
+  // therefore the one metrics change a per-character fingerprint can miss.
+  std::string kernSeq;
+  int16_t kernBonus = 0;
+  // More than one pair, and a pair may get NARROWER. A real change of cut
+  // moves pair widths in both directions, and it is the compensating case --
+  // one paragraph gaining a line while another loses one -- that a check
+  // counting lines cannot see at all.
+  std::vector<std::pair<std::string, int16_t>> kerns;
+
+  fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle style) const override {
+    ++measureCalls;
+    if (text == nullptr) return fui::Size{0, lineH};
+    int16_t cell = charW;
+    for (const auto& entry : fontWidths) {
+      if (entry.first == font) {
+        cell = entry.second;
+        break;
+      }
+    }
+    if (style.bold) cell = static_cast<int16_t>(cell + boldBonus);
+    int32_t w = static_cast<int32_t>(std::strlen(text)) * cell;
+    if ((kernBonus != 0 && !kernSeq.empty()) || !kerns.empty()) {
+      const std::string run(text);
+      if (kernBonus != 0 && !kernSeq.empty()) {
+        for (size_t at = run.find(kernSeq); at != std::string::npos; at = run.find(kernSeq, at + 1)) w += kernBonus;
+      }
+      for (const auto& pair : kerns) {
+        if (pair.first.empty()) continue;
+        for (size_t at = run.find(pair.first); at != std::string::npos; at = run.find(pair.first, at + 1)) {
+          w += pair.second;
+        }
+      }
+    }
+    if (w < 0) w = 0;
+    return fui::Size{static_cast<int16_t>(w), lineH};
   }
   int16_t lineHeight(const fui::FontId) const override { return lineH; }
 
@@ -270,6 +329,16 @@ const toybattle::Draft kFreshDraft{};
 struct Rendered {
   FakeTarget target;
   toybox::Interactions interactions;
+  // One per rendered screen, which is what an Activity holds: a reader keeps
+  // its wrap between paints, so a test that wants to ask "did the second paint
+  // wrap again" has to reuse the same Rendered.
+  toybox::WrappedText wrap;
+  // The words themselves, which used to ride on the model. Kept here so the
+  // helpers below hand the SAME pointer and style to the counting and the
+  // drawing, which is the whole point of bundling them. Defaulted to a
+  // sentence that wraps, so the reader tests that only care about the chrome
+  // still have a body to draw.
+  const char* bodyText = "Some words that go on for a while and wrap onto more than one line of the panel.";
 
   // Routes a tap at logical (x, y) against what was just drawn, which is the
   // whole point: the table under test is the one the paint produced.
@@ -296,6 +365,14 @@ void buildBoard(Rendered& out, const chessui::BoardModel& model) {
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
   chessui::buildBoardChrome(screen, model);
+}
+
+void buildChoice(Rendered& out, const triviaui::ChoiceModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  triviaui::buildChoice(screen, model);
 }
 
 void buildLink(Rendered& out, const linkui::LinkModel& model) {
@@ -398,6 +475,73 @@ void testTheRematchShowsBothAnswers() {
     const fui::ActionEvent event = out.tap(back->rect.x + back->rect.width / 2, back->rect.y + back->rect.height / 2);
     CHECK(event.action == linkui::ActionLeaveLink);
   }
+}
+
+// The bottom band is not a style choice, and this is the assertion that says so.
+//
+// y = 800 - kMargin - kPillHeight = 732 is where every link game's board puts
+// the status capsule that becomes PLAY AGAIN at game over. This screen replaces
+// that board in the same pass that ends the game, with no announcement and no
+// settle, so whatever occupies 732 is what a thumb already on its way there
+// hits. LEAVE used to be it: the rematch tap killed the radio instead.
+//
+// Asserted as "the destructive action is nowhere in the band" rather than as a
+// literal rect, so a layout change that moves BACK back down fails here even if
+// it moves it by a different arithmetic.
+void testTheRematchBandIsNotTheWayOut() {
+  Rendered out;
+  linkui::LinkModel model;
+  model.gameTitle = "CHESS";
+  model.headline = "CHECKMATE";
+  model.yourName = "YOU";
+  model.theirName = "LUIGI";
+  model.you = linkui::SeatState::Deciding;
+  model.them = linkui::SeatState::Deciding;
+  model.linked = true;
+  model.offerPlayAgain = true;
+  buildLink(out, model);
+
+  // The band the boards hand over: the full pill, at the full content width.
+  const int bandTop = 800 - toybox::kMargin - toybox::kPillHeight;
+  const int bandBottom = 800 - toybox::kMargin;
+  for (int y = bandTop; y < bandBottom; y += 4) {
+    for (int x = toybox::kMargin; x < 480 - toybox::kMargin; x += 16) {
+      const fui::ActionEvent event = out.tap(x, y);
+      CHECK(event.action != linkui::ActionLeaveLink);
+      CHECK(event.action == linkui::ActionPlayAgain);
+    }
+  }
+  // Battleship's capsule is inset by the opponent face, so its own game-over
+  // PLAY AGAIN starts at x=76. That exact pixel must not leave the match.
+  CHECK(out.tap(76 + 4, bandTop + toybox::kPillHeight / 2).action == linkui::ActionPlayAgain);
+
+  // And BACK is still reachable, one row up, where no board draws a control.
+  const FakeTarget::TextRun* back = out.target.find("BACK");
+  CHECK(back != nullptr);
+  if (back != nullptr) {
+    CHECK(back->rect.y < bandTop);
+    const fui::ActionEvent event = out.tap(back->rect.x + back->rect.width / 2, back->rect.y + back->rect.height / 2);
+    CHECK(event.action == linkui::ActionLeaveLink);
+  }
+
+  // The two pills must not share a pixel: a leave that overlaps the rematch by
+  // one row is the same bug wearing a smaller number.
+  const FakeTarget::TextRun* again = out.target.find("PLAY AGAIN");
+  CHECK(again != nullptr);
+  if (again != nullptr && back != nullptr) {
+    CHECK(back->rect.y + back->rect.height <= again->rect.y);
+  }
+}
+
+// Alone, BACK keeps the bottom band. Nothing is at risk there -- the only
+// screens that reach this state are the search (which replaces a menu) and an
+// opponent who has already gone -- and a single pill floating one row up over
+// an empty margin reads as a layout that lost something.
+void testTheLoneWayOutKeepsTheBottomBand() {
+  Rendered out;
+  buildLink(out, searchingModel());
+  const int bandMid = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(240, bandMid).action == linkui::ActionLeaveLink);
 }
 
 void testAnOpponentWhoHasGoneTakesTheButtonWithThem() {
@@ -702,6 +846,56 @@ void testConnectionsWonBoard() {
   CHECK(!screen.target.drew("HAIL"));
 }
 
+// Sixteen tiles, one size.
+//
+// A word too long for its tile used to be set a quarter smaller than the
+// fifteen beside it, each tile sized against its own word. On a board whose
+// premise is sixteen interchangeable candidates a size difference reads as
+// significance that is not there, and roughly three boards in five of the
+// published archive contain such a word.
+//
+// This target answers a flat ten pixels a character for every cut, so it cannot
+// say WHICH cut a board should pick -- only the real face at draw time can, and
+// that is what the simulator shots are for. What it can say is the invariant
+// that regressed: whatever cut the board picks, every tile is set in it.
+void testConnectionsTilesShareOneSize() {
+  connections::Puzzle puzzle = connectionsPuzzle();
+  // Eleven characters is 110 against the 105px a tile gives its word, so this
+  // one cannot fit and the other fifteen can. Under per-tile sizing that was
+  // enough to set it in a different cut.
+  std::snprintf(puzzle.groups[0].members[0], sizeof(puzzle.groups[0].members[0]), "%s", "DECORATIONS");
+  connections::Game game;
+  game.start(puzzle, 5);
+  CHECK(game.tileCount() == 16);
+
+  Rendered screen;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(screen.target, ctx, noInput, screen.interactions);
+  toybox::Screen built(frame, toybox::themeTokens());
+  connectionsui::BoardModel model;
+  model.game = &game;
+  model.date = game.puzzle().date;
+  const connectionsui::BoardLayout layout = connectionsui::buildBoardChrome(built, model);
+  // Everything after this index is the tile pass, which is the only text the
+  // board sizes for itself; the chrome above speaks the fork's voice.
+  const size_t chromeRuns = screen.target.texts.size();
+  connectionsui::buildBoardTiles(built, model, layout);
+  CHECK(screen.target.texts.size() > chromeRuns);
+
+  const fui::FontId cut = screen.target.texts[chromeRuns].style.font;
+  bool oneSize = true;
+  for (size_t i = chromeRuns; i < screen.target.texts.size(); ++i) {
+    if (screen.target.texts[i].style.font != cut) oneSize = false;
+  }
+  CHECK(oneSize);
+  // And the fifteen that fit are still whole words, not casualties of the
+  // sixteenth: shrinking the board must not start breaking them across lines.
+  CHECK(screen.target.drew("RACECAR"));
+  CHECK(screen.target.drew("OPTION"));
+  CHECK(screen.target.drew("SLEET"));
+}
+
 // Every date in the fullest possible month has to be reachable.
 //
 // This is the test that was missing. The calendar took an interaction slot per
@@ -886,6 +1080,518 @@ void buildBattleshipPlace(Rendered& out, const bshipui::PlaceModel& model) {
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
   bshipui::buildPlaceChrome(screen, model);
+}
+
+// The paint clock is one global counter, and every other test in this file
+// runs with it at zero -- which is exactly the "nothing has been shown yet"
+// state that leaves the gate open. A test that advances it therefore has to
+// put it back, or it silently gates the ~600 tests that come after it.
+struct PaintClockGuard {
+  uint32_t saved = paintclock::counter();
+  ~PaintClockGuard() { paintclock::counter() = saved; }
+};
+
+// The one this whole mechanism exists for.
+//
+// BattleshipScreens.cpp:160 registers the bottom capsule as
+//     gameOver ? ActionPlayAgain : (canFire ? ActionFire : NO_ACTION)
+// so one rect means FIRE for the whole game and becomes PLAY AGAIN the instant
+// the last shot lands. FIRE is tapped dozens of times a game; the player's
+// thumb lives on that pixel. The rebuild happens BEFORE displayBuffer(), which
+// blocks 0.3-2s, so without a gate the capsule is already PLAY AGAIN while the
+// panel still reads FIRE.
+//
+// This drives the real builder through that exact sequence, and it is written
+// so that "the capsule is live over a frame that still says FIRE" cannot pass.
+void testACapsuleThatChangedMeaningWaitsForThePanel() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  bshipui::BoardModel firing;
+  firing.status = "FIRE";
+  firing.canFire = true;
+  firing.theirName = "LUIGI";
+
+  // Mid-game: the board is built and the panel has shown it.
+  buildBattleshipBoard(out, firing);
+  paintclock::notePainted();
+
+  // The capsule, in the bottom band. x=300 is inside it whether or not the
+  // opponent's face has taken the left strip.
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionFire);
+
+  // The last shot lands. The activity rebuilds and has NOT painted yet: this
+  // is the window, and the panel is still showing FIRE.
+  bshipui::BoardModel over = firing;
+  over.canFire = false;
+  over.gameOver = true;
+  over.status = "PLAY AGAIN";
+  buildBattleshipBoard(out, over);
+
+  // The rect now says PLAY AGAIN in the table. A thumb already travelling to
+  // FIRE must get nothing at all -- not FIRE (the game is over) and above all
+  // not PLAY AGAIN (a rematch nobody asked for).
+  const fui::ActionEvent duringPaint = out.tap(300, capsuleY);
+  CHECK(duringPaint.action != bshipui::ActionPlayAgain);
+  CHECK(duringPaint.action != bshipui::ActionFire);
+  CHECK(duringPaint.action == fui::NO_ACTION);
+  CHECK(!out.interactions.routable());
+
+  // The panel catches up. From here the control is real and answers.
+  paintclock::notePainted();
+  CHECK(out.interactions.routable());
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionPlayAgain);
+}
+
+// The other half, and the one that decides whether this fix is worth having:
+// input must NOT go dead. MappedInputManager::rowTouch() reports Down after
+// 90ms of contact, apps repaint to highlight the row, and then act on the
+// RELEASE of that same contact. That repaint rebuilds an identical table while
+// the finger is still down, so if an ordinary repaint gated the release, every
+// list in the fork would highlight and then do nothing.
+void testARepaintThatChangedNothingStillAnswers() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  bshipui::BoardModel firing;
+  firing.status = "FIRE";
+  firing.canFire = true;
+
+  buildBattleshipBoard(out, firing);
+  paintclock::notePainted();
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionFire);
+
+  // Rebuilt with the same model, mid-contact, with no paint since. Same table,
+  // same meaning: the release still has to land.
+  buildBattleshipBoard(out, firing);
+  CHECK(out.interactions.routable());
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionFire);
+
+  // And repeatedly, because a highlight can repaint several times before the
+  // finger lifts. Nothing here may accumulate into a closed gate.
+  for (int repaint = 0; repaint < 5; ++repaint) {
+    buildBattleshipBoard(out, firing);
+    CHECK(out.tap(300, capsuleY).action == bshipui::ActionFire);
+  }
+}
+
+// A changed screen that is rebuilt again before it is ever painted must stay
+// gated. The panel is still showing the table from two builds ago, so adopting
+// the intermediate one as "shown" would reopen the gate on a frame nobody saw.
+void testAnUnshownRebuildDoesNotCountAsShown() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  bshipui::BoardModel firing;
+  firing.status = "FIRE";
+  firing.canFire = true;
+  buildBattleshipBoard(out, firing);
+  paintclock::notePainted();
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionFire);
+
+  bshipui::BoardModel over = firing;
+  over.canFire = false;
+  over.gameOver = true;
+  buildBattleshipBoard(out, over);
+  CHECK(!out.interactions.routable());
+
+  // Rebuilt again, still unpainted. FIRE is what the panel shows and PLAY
+  // AGAIN is what the table says; the gate stays shut.
+  buildBattleshipBoard(out, over);
+  CHECK(!out.interactions.routable());
+  CHECK(out.tap(300, capsuleY).action == fui::NO_ACTION);
+
+  // One paint is all it takes to open, and it opens fully.
+  paintclock::notePainted();
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionPlayAgain);
+}
+
+// Chess and Sea Salt share the shape through a different door: the capsule is
+// NO_ACTION mid-game, so the table has no entry there at all, and at game over
+// one appears. Making the action safe does not survive this window -- it is
+// precisely where the two tables disagree.
+void buildWin(Rendered& out, const dungeonui::WinModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  dungeonui::buildWin(screen, model);
+}
+
+// StateDisabled is not a cosmetic bit, and the digest has to know that.
+//
+// InteractionBuffer::findTouch skips disabled entries, so flipping
+// StateDisabled changes what a tap DOES. DungeonScreens.cpp:832 registers
+// NEXT with an identical rect, action, value and inputMask and flips only
+// that bit on model.moreToPlay. A dead control becoming live under a
+// stationary finger is the same defect as FIRE becoming PLAY AGAIN, and it
+// would slip a digest that treated state as decoration.
+void testAControlComingBackToLifeAlsoWaits() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  dungeonui::WinModel done;
+  done.dungeonName = "THE CELLAR";
+  done.solvedCount = 8;
+  done.total = 8;
+  done.moreToPlay = false;  // NEXT is registered, and disabled.
+
+  buildWin(out, done);
+  paintclock::notePainted();
+
+  // Find NEXT by its label so this does not hard-code the footer arithmetic.
+  const FakeTarget::TextRun* next = out.target.find("NEXT");
+  CHECK(next != nullptr);
+  if (next == nullptr) return;
+  const int nextX = next->rect.x + next->rect.width / 2;
+  const int nextY = next->rect.y + next->rect.height / 2;
+
+  // Disabled: the tap finds nothing, which is the point of the state.
+  CHECK(out.tap(nextX, nextY).action == fui::NO_ACTION);
+
+  // More dungeons arrive and the same pixel comes alive, with every other
+  // field of the interaction identical. Not yet painted, so not yet live.
+  dungeonui::WinModel more = done;
+  more.moreToPlay = true;
+  buildWin(out, more);
+  CHECK(!out.interactions.routable());
+  CHECK(out.tap(nextX, nextY).action == fui::NO_ACTION);
+
+  // Shown: now it answers.
+  paintclock::notePainted();
+  CHECK(out.tap(nextX, nextY).action == dungeonui::ActionButton);
+}
+
+// paintclock::RevealGate is the same decision UiAppHost makes, lifted out so
+// it can be tested: UiAppHost needs a GfxRenderer and an Arduino and cannot be
+// built here, and a restatement of its logic in a test would only ever agree
+// with itself. This exercises the object the firmware actually uses.
+void testTheRevealGateWaitsForOnePaintAndThenLatches() {
+  PaintClockGuard clock;
+  paintclock::RevealGate gate;
+
+  // Unarmed: never in the way.
+  CHECK(gate.revealed());
+
+  // A screen entry. Built, but the panel still shows the previous screen.
+  gate.arm();
+  gate.markBuilt();
+  CHECK(!gate.revealed());
+
+  // A render that rebuilds several times before its single paint (which is
+  // what UiListActivity does, up to 8 passes) must measure from the LAST
+  // build, or the gate opens on a paint that predates the table.
+  paintclock::notePainted();
+  gate.markBuilt();
+  CHECK(!gate.revealed());
+
+  // One paint from any source releases it.
+  paintclock::notePainted();
+  CHECK(gate.revealed());
+
+  // And it latches: a later build with no arm() must not re-close it, or an
+  // ordinary repaint would start eating input.
+  gate.markBuilt();
+  CHECK(gate.revealed());
+  CHECK(gate.revealed());
+
+  // Only a fresh screen entry closes it again.
+  gate.arm();
+  gate.markBuilt();
+  CHECK(!gate.revealed());
+  paintclock::notePainted();
+  CHECK(gate.revealed());
+}
+
+// The eight games that hit-test a board against GEOMETRY never reach route(),
+// so no table digest can see their taps -- and what such a tap MEANS is not in
+// the table either. MinesweeperScreens.cpp registers the FLAG capsule with an
+// identical rect, action, value and inputMask and flips only StateSelected,
+// which the digest ignores as paint, while that same mode bit decides whether
+// a grid tap digs or flags. paintclock::SurfaceGate is the decision those apps
+// make instead; this drives the object the firmware uses, not a restatement.
+void testTheSurfaceGateHoldsAChangedMeaningAndPassesAnUnchangedOne() {
+  PaintClockGuard clock;
+  paintclock::SurfaceGate gate;
+
+  // Before the first paint of all there is no shown frame to disagree with,
+  // so nothing is gated -- the boot splash window, and every other test here.
+  CHECK(gate.routable(0));
+  CHECK(gate.routable(12345));
+
+  // Minesweeper, DIG mode, on the panel.
+  const uint32_t dig = 0;
+  const uint32_t flag = 1;
+  gate.noteBuilt(dig);
+  paintclock::notePainted();
+  CHECK(gate.routable(dig));
+
+  // The FLAG capsule is tapped: flagMode flips and the board is rebuilt. The
+  // panel still reads DIG for the length of the refresh, so a grid tap in this
+  // window must NOT flag.
+  gate.noteBuilt(flag);
+  CHECK(!gate.routable(flag));
+
+  // The refresh completes. The panel now reads FLAG and the board is live.
+  paintclock::notePainted();
+  CHECK(gate.routable(flag));
+
+  // THE safety property, and the reason this is a digest rather than a
+  // suppression: a repaint that changed nothing still answers. Minesweeper
+  // holds a finger on a cell, requestUpdate() repaints the outline, and the
+  // LIFT of that same contact is what digs. Gating it would eat the move and
+  // read as a frozen device.
+  gate.noteBuilt(flag);
+  CHECK(gate.routable(flag));
+  gate.noteBuilt(flag);
+  CHECK(gate.routable(flag));
+
+  // Back to DIG on the panel, so the next block measures from a known frame.
+  paintclock::notePainted();
+  gate.noteBuilt(dig);
+  CHECK(!gate.routable(dig));
+  paintclock::notePainted();
+  CHECK(gate.routable(dig));
+
+  // A render that rebuilds several times before its single paint must measure
+  // from the frame the panel last SHOWED, not from an intermediate build the
+  // user never saw. Two builds, no paint between: the gate stays shut against
+  // the meaning that ends up built...
+  const uint32_t pencil = 2;
+  gate.noteBuilt(flag);
+  gate.noteBuilt(pencil);
+  CHECK(!gate.routable(pencil));
+  // ...and open against the one still on the glass, which is DIG and not the
+  // intermediate FLAG build. Taking the intermediate as "shown" is the bug
+  // this check exists to catch.
+  CHECK(gate.routable(dig));
+  CHECK(!gate.routable(flag));
+
+  paintclock::notePainted();
+  CHECK(gate.routable(pencil));
+}
+
+// Several small values fold into one meaning, and they must not collide when
+// they swap places: "selected e2, white to move" is not "selected d4, black to
+// move".
+void testMeaningsMixPositionally() {
+  const uint32_t a = paintclock::mixMeaning(paintclock::mixMeaning(paintclock::kMeaningSeed, 4), 7);
+  const uint32_t b = paintclock::mixMeaning(paintclock::mixMeaning(paintclock::kMeaningSeed, 7), 4);
+  CHECK(a != b);
+  const uint32_t again = paintclock::mixMeaning(paintclock::mixMeaning(paintclock::kMeaningSeed, 4), 7);
+  CHECK(a == again);
+}
+
+// OptionPopup and KeyboardEntryActivity hold their own buffers at their own
+// capacities (17 and 48) and opt into the SDK's double-buffered publish cycle,
+// which the 24-slot toybox screens do not. beginBuild() therefore has to
+// digest the PUBLISHED generation: by the time a publishing caller builds,
+// building_ has already flipped and data() is a rebuild from two generations
+// ago, which would be compared against as though the panel had shown it.
+void testAPublishingBufferDigestsWhatThePanelIsShowing() {
+  PaintClockGuard clock;
+  paintclock::RevealedInteractions<17> iact;
+  freeink::ui::InteractionBuffer<17>& raw = iact;
+
+  const auto slot = [](const freeink::ui::ActionId action, const int16_t value) {
+    freeink::ui::Interaction hit{};
+    hit.rect = fui::Rect{0, 0, 100, 40};
+    hit.action = action;
+    hit.value = value;
+    hit.inputMask = fui::InputTouch;
+    return hit;
+  };
+  const auto tap = [&iact]() {
+    fui::InputSnapshot in{};
+    in.touchReleased = true;
+    in.touchX = 10;
+    in.touchY = 10;
+    return iact.routePublished(in);
+  };
+
+  // A popup is shown and the panel catches up.
+  iact.beginBuild();
+  iact.beginPublishCycle();
+  raw.clear();
+  raw.addInteraction(slot(1, 3));
+  iact.publish();
+  paintclock::notePainted();
+  CHECK(iact.publishedRoutable());
+  CHECK(tap().value == 3);
+
+  // A second popup replaces it on the same object. Published, not yet painted:
+  // a finger resting where the first popup's row was must not select the
+  // second popup's row under it.
+  iact.beginBuild();
+  iact.beginPublishCycle();
+  raw.clear();
+  raw.addInteraction(slot(1, 9));
+  iact.publish();
+  CHECK(!iact.publishedRoutable());
+  CHECK(!tap());
+
+  paintclock::notePainted();
+  CHECK(iact.publishedRoutable());
+  CHECK(tap().value == 9);
+
+  // The touch-down highlight repaint: same options, only StateFocused moves,
+  // which the digest ignores. It must still answer, or every popup would
+  // highlight a row and then do nothing.
+  iact.beginBuild();
+  iact.beginPublishCycle();
+  raw.clear();
+  freeink::ui::Interaction focused = slot(1, 9);
+  focused.state = fui::StateFocused;
+  raw.addInteraction(focused);
+  iact.publish();
+  CHECK(iact.publishedRoutable());
+  CHECK(tap().value == 9);
+}
+
+// beginBuild() digests the PUBLISHED generation, not the one being built into.
+// The two are the same array for a caller that never publishes, and for one
+// that calls beginBuild() before beginPublishCycle() (which is what
+// OptionPopup does). They diverge for a caller that flips generations FIRST,
+// and then data() is the table from two generations ago -- compared against as
+// though the panel had shown it. This drives that order deliberately, because
+// nothing else in the suite can tell the two apart.
+void testBeginBuildDigestsThePublishedGenerationNotTheBuildingOne() {
+  PaintClockGuard clock;
+  paintclock::RevealedInteractions<17> iact;
+  freeink::ui::InteractionBuffer<17>& raw = iact;
+
+  const auto put = [&raw](const int16_t value) {
+    freeink::ui::Interaction hit{};
+    hit.rect = fui::Rect{0, 0, 100, 40};
+    hit.action = 1;
+    hit.value = value;
+    hit.inputMask = fui::InputTouch;
+    raw.clear();
+    raw.addInteraction(hit);
+  };
+
+  // Generation 1 ends up holding table A, generation 0 holding table B, and B
+  // is what the panel is showing.
+  iact.beginBuild();
+  iact.beginPublishCycle();
+  put(1);
+  iact.publish();
+  paintclock::notePainted();
+
+  iact.beginBuild();
+  iact.beginPublishCycle();
+  put(2);
+  iact.publish();
+  paintclock::notePainted();
+  CHECK(iact.publishedRoutable());
+
+  // Now the order that matters: flip generations FIRST, so data() is the stale
+  // A from two renders ago while publishedData() is still the B on the glass.
+  iact.beginPublishCycle();
+  iact.beginBuild();
+  put(1);
+  iact.publish();
+
+  // The panel shows B and the table is A, so this tap must be held. Digesting
+  // data() instead would have adopted the stale A as "shown", found the new
+  // table identical to it, and let the tap straight through.
+  CHECK(!iact.publishedRoutable());
+  paintclock::notePainted();
+  CHECK(iact.publishedRoutable());
+}
+
+// OptionPopup's real render sequence, through the SDK component it actually
+// calls. The hand-built test above proves the gate; this proves the thing a
+// hand-built table cannot -- that the touch-down HIGHLIGHT repaint produces a
+// byte-identical table. Get that wrong and every popup in the firmware lights
+// a row up and then refuses it, which is the frozen-device failure this whole
+// mechanism is shaped around, and no assertion on the gate alone would notice.
+void testAnOptionPopupHighlightRepaintStillAnswers() {
+  PaintClockGuard clock;
+  FakeTarget target;
+  paintclock::RevealedInteractions<17> interactions;
+
+  static const char* const kLabels[3] = {"ONE", "TWO", "THREE"};
+
+  // Mirrors OptionPopup::render(): beginBuild() before the publish cycle, the
+  // chrome guard rect first, the dialog after, publish() last.
+  const auto build = [&](const int selectedIndex, const uint8_t count) {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    interactions.beginBuild();
+    interactions.beginPublishCycle();
+    fui::Frame<17> frame(target, ctx, noInput, interactions);
+
+    fui::DialogOption options[3];
+    for (uint8_t i = 0; i < count; ++i) {
+      options[i].label = kLabels[i];
+      options[i].action = 1;
+      options[i].value = static_cast<int16_t>(i);
+      options[i].state = (i == selectedIndex) ? fui::StateFocused : fui::StateNormal;
+    }
+
+    fui::OptionDialogProps props;
+    props.title = "PICK";
+    props.options = options;
+    props.optionCount = count;
+    props.verticalOptions = true;
+    props.inputMask = fui::InputTouch;
+    props.buttonHeight = 40;
+
+    const fui::Rect dialog = fui::centeredRect(ctx.screen(), fui::Size{300, 300});
+    frame.hit(dialog, 2, 0, fui::InputTouch);
+    fui::optionDialog(frame, dialog, props);
+    interactions.publish();
+  };
+
+  build(0, 3);
+  paintclock::notePainted();
+  CHECK(interactions.publishedRoutable());
+  const size_t slots = interactions.publishedCount();
+  CHECK(slots > 1);  // the guard plus at least one option, or this proves nothing
+
+  // The highlight moving is the ONLY change. optionDialog derives each option
+  // rect from geometry and the state only reaches Interaction::state, which the
+  // digest reads for StateDisabled and nothing else -- so the release of the
+  // contact that caused this repaint must still route.
+  build(1, 3);
+  CHECK(interactions.publishedRoutable());
+  CHECK(interactions.publishedCount() == slots);
+  build(2, 3);
+  CHECK(interactions.publishedRoutable());
+
+  // A different popup on the same object is a different table, and waits.
+  build(0, 2);
+  CHECK(!interactions.publishedRoutable());
+  paintclock::notePainted();
+  CHECK(interactions.publishedRoutable());
+}
+
+void testACapsuleThatWasDeadMidGameAlsoWaits() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  chessui::BoardModel playing;
+  playing.status = "THEIR MOVE";
+  playing.gameOver = false;
+  buildBoard(out, playing);
+  paintclock::notePainted();
+
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(300, capsuleY).action == fui::NO_ACTION);
+
+  chessui::BoardModel finished = playing;
+  finished.gameOver = true;
+  finished.status = "CHECKMATE";
+  buildBoard(out, finished);
+  CHECK(!out.interactions.routable());
+  CHECK(out.tap(300, capsuleY).action != chessui::ActionPlayAgain);
+
+  paintclock::notePainted();
+  CHECK(out.tap(300, capsuleY).action == chessui::ActionPlayAgain);
 }
 
 void testBattleshipStartMenu() {
@@ -1118,7 +1824,6 @@ void checkShelfIconsSitOnTheirRows(const int page) {
   model.items = items + first;
   model.icons = palette + first;
   model.count = onThisPage;
-  model.selected = 0;
 
   Rendered menu;
   buildShelf(menu, model);
@@ -1165,6 +1870,60 @@ void checkShelfIconsSitOnTheirRows(const int page) {
   }
 
   CHECK(paired == onThisPage);
+}
+
+// No row of a shelf folder is ever marked.
+//
+// The X4 Pro has two physical keys, both of which PAGE, and `frontButtonConfirm`
+// resolves to an unassigned pin -- so an inverted row is a cursor that nothing
+// can move and nothing can act on. It shipped as a landmark explaining why a
+// restored folder did not open on page one, and it was read as a cursor
+// instead: the row it marked was the last app opened, so APPS wore a permanent
+// highlight on whichever app was used most.
+//
+// Asserted as ink rather than as a field so it survives the field: a selected
+// row draws its label paper-on-black, so every label being ink is the property
+// that actually matters, whatever the model grows later. The icons are checked
+// the same way, because they are drawn by this fork rather than by the list
+// component and used to invert on their own.
+void testShelfFolderMarksNoRow() {
+  constexpr int kCount = 5;
+  const freeink::Icon* const palette[kCount] = {&icon_study_32, &icon_hackernews_32, &icon_xkcd_32, &icon_games_32,
+                                                &icon_apps_32};
+  const char* titles[kCount] = {"STUDY", "HACKER NEWS", "XKCD", "GET BOOKS", "INSTAPAPER"};
+  fui::ListItem items[kCount] = {};
+  for (int i = 0; i < kCount; ++i) {
+    items[i].label = titles[i];
+    items[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  shelfui::MenuModel model;
+  model.title = "APPS";
+  model.items = items;
+  model.icons = palette;
+  model.count = kCount;
+
+  Rendered menu;
+  buildShelf(menu, model);
+
+  // Every row label present, and every one of them ink. White here would be a
+  // row drawn inverted, which is the mark under test.
+  int checked = 0;
+  for (int i = 0; i < kCount; ++i) {
+    const FakeTarget::TextRun* row = menu.target.find(titles[i]);
+    CHECK(row != nullptr);
+    if (row == nullptr) continue;
+    CHECK(row->color == fui::Color::Black);
+    ++checked;
+  }
+  CHECK(checked == kCount);
+
+  // And the icons, which invert separately from the label.
+  for (int i = 0; i < kCount; ++i) {
+    for (const auto& blit : menu.target.blits) {
+      if (blit.data == palette[i]->bits) CHECK(blit.color == fui::Color::Black);
+    }
+  }
 }
 
 void testShelfIconsFollowTheRowsWhenTheListScrolls() {
@@ -1219,7 +1978,6 @@ void testTheShelfPagesWhenAFolderOverflows() {
     model.playerName = "SPIKY GRIM BEARD";
     model.items = items + first;
     model.count = onThisPage;
-    model.selected = 0;
     model.page = page;
     model.pageCount = paging.pageCount;
 
@@ -1238,7 +1996,6 @@ void testTheShelfPagesWhenAFolderOverflows() {
   model.playerName = "SPIKY GRIM BEARD";
   model.items = items;
   model.count = paging.rowsPerPage;
-  model.selected = 0;
   model.page = 0;
   model.pageCount = paging.pageCount;
 
@@ -1287,6 +2044,329 @@ void testTheShelfPagesWhenAFolderOverflows() {
   // A cluster, not the whole bar: it must leave the edges alone or it is the
   // control this was rewritten to stop being.
   CHECK(lastHit - firstHit < band.width - 2 * toybox::kMargin);
+}
+
+// One input, one page, and the same page whichever input it was.
+//
+// The shelf pages from three places -- the two side keys, a horizontal swipe and
+// a tap on a page mark -- and they used to do their own modular arithmetic each.
+// Asserted as arithmetic because arithmetic is the half a cold tester cannot
+// see: three of them reported a single press advancing two pages, and the press
+// was never the variable. Where the folder had OPENED was.
+void testAPageStepMovesExactlyOnePage() {
+  CHECK(shelfui::pageStep(0, 3, 1) == 1);
+  CHECK(shelfui::pageStep(1, 3, 1) == 2);
+  // Wraps, because there is no cursor to run off the end of.
+  CHECK(shelfui::pageStep(2, 3, 1) == 0);
+  CHECK(shelfui::pageStep(0, 3, -1) == 2);
+  CHECK(shelfui::pageStep(2, 3, -1) == 1);
+  CHECK(shelfui::pageStep(1, 3, -1) == 0);
+  // A folder that fits has nowhere to step to, and a key that quietly moved the
+  // resumed row to the top instead would be a step that changed something
+  // without going anywhere.
+  CHECK(shelfui::pageStep(0, 1, 1) == 0);
+  CHECK(shelfui::pageStep(0, 1, -1) == 0);
+
+  // The property, not three examples of it: from any page of any folder, a step
+  // moves by exactly one page and the opposite step undoes it. A guard that
+  // fixed a double advance by making the key dead passes every example above
+  // and fails the second line here.
+  for (int pages = 2; pages <= 6; ++pages) {
+    for (int from = 0; from < pages; ++from) {
+      const int forward = shelfui::pageStep(from, pages, 1);
+      const int back = shelfui::pageStep(from, pages, -1);
+      CHECK((forward - from + pages) % pages == 1);
+      CHECK((from - back + pages) % pages == 1);
+      CHECK(shelfui::pageStep(forward, pages, -1) == from);
+      CHECK(shelfui::pageStep(back, pages, 1) == from);
+    }
+  }
+}
+
+// The shelf's own step STOPS at both ends, and that is the fix for a wrong game
+// being launched twice by two different testers.
+//
+// Every page of a folder draws its rows at the same eight screen positions, so
+// a page arrived at by accident is indistinguishable from the page that was
+// wanted until something opens. Walking forward off the last page is the step
+// nobody ever means; with a wrap it silently rehomes you two pages back, and the
+// next tap opens the game that happens to sit in that row instead.
+void testTheShelfStepStopsAtBothEnds() {
+  CHECK(shelfui::pageStepClamped(0, 3, 1) == 1);
+  CHECK(shelfui::pageStepClamped(1, 3, 1) == 2);
+  CHECK(shelfui::pageStepClamped(1, 3, -1) == 0);
+  // The two that a wrap gets wrong, and the whole reason this exists.
+  CHECK(shelfui::pageStepClamped(2, 3, 1) == 2);
+  CHECK(shelfui::pageStepClamped(0, 3, -1) == 0);
+  // A folder that fits has nowhere to step to at all.
+  CHECK(shelfui::pageStepClamped(0, 1, 1) == 0);
+  CHECK(shelfui::pageStepClamped(0, 1, -1) == 0);
+
+  // The property, not five examples of it: a step lands on a real page, moves by
+  // at most one, and moves by exactly one unless it was already at that end.
+  // Written as a property because the failure it guards is arithmetic that only
+  // misbehaves at the two rows nobody writes an example for.
+  for (int pages = 2; pages <= 6; ++pages) {
+    for (int from = 0; from < pages; ++from) {
+      const int forward = shelfui::pageStepClamped(from, pages, 1);
+      const int back = shelfui::pageStepClamped(from, pages, -1);
+      CHECK(forward >= 0 && forward < pages);
+      CHECK(back >= 0 && back < pages);
+      CHECK(forward == (from == pages - 1 ? from : from + 1));
+      CHECK(back == (from == 0 ? from : from - 1));
+      // Never around the horn. A wrap satisfies every line above except these.
+      CHECK(forward >= from);
+      CHECK(back <= from);
+    }
+  }
+
+  // A stored row that outlived its folder still lands on a page that exists, so
+  // a step from it cannot walk off either end.
+  CHECK(shelfui::pageStepClamped(9, 3, 1) == 2);
+  CHECK(shelfui::pageStepClamped(-4, 3, -1) == 0);
+}
+
+// A folder comes back to the page it was left on, and it is a ROW that carries
+// that across the reboot.
+//
+// Mario, on the device, after the restored page had been made visible: "if I
+// navigate to page two and then leave to read a book and then come back, I
+// should still be taken to page two." What was stored was the page holding the
+// game he last LAUNCHED, which is the same page right up until he browses and
+// walks away, and browsing and walking away is most of what a shelf is for.
+//
+// Asserted as arithmetic because the activity that writes the row cannot be
+// built here -- it needs the ActivityManager. What can be pinned down here is
+// the pair of rules that make the stored row mean a page at all: that a page
+// round-trips through the row that stands for it, and what happens when the page
+// it stood for is gone.
+void testAFolderComesBackToThePageItWasLeftOn() {
+  // A page is stored as its first row, and comes back as the same page. Every
+  // page of every plausible folder, not three examples: a stored row that
+  // reopened one page out is the original bug wearing different clothes.
+  for (int rows = 1; rows <= 12; ++rows) {
+    for (int page = 0; page < 9; ++page) {
+      CHECK(shelfui::pageFor(shelfui::rowForPage(page, rows), rows) == page);
+    }
+  }
+  // The first row of page one is the top of the list, which is where a folder
+  // nobody has left anywhere opens: an unvisited folder needs no stored value to
+  // behave, and page zero must not be a special case anywhere else either.
+  CHECK(shelfui::rowForPage(0, 9) == 0);
+
+  // A row inside the folder is where it says it is.
+  CHECK(shelfui::resumeRowFor(0, 19) == 0);
+  CHECK(shelfui::resumeRowFor(13, 19) == 13);
+  CHECK(shelfui::resumeRowFor(18, 19) == 18);
+
+  // A row past the end lands on the LAST page, never back at the top. This is
+  // the removed-game case: the card outlives the firmware that wrote it, so the
+  // folder can be shorter than it was, and page one throws away the one thing
+  // that was remembered.
+  for (int count = 1; count <= 24; ++count) {
+    for (int rows = 1; rows <= 10; ++rows) {
+      const int last = shelfui::pageCountFor(count, rows) - 1;
+      for (int stored = count; stored < count + 30; ++stored) {
+        const int row = shelfui::resumeRowFor(stored, count);
+        CHECK(row == count - 1);
+        CHECK(shelfui::pageFor(row, rows) == last);
+      }
+    }
+  }
+
+  // And the shrink is a real one, not a folder that collapsed to a single page:
+  // nineteen games remembered at the end, two removed, still the last page and
+  // still not page one. A "fix" that reset an out-of-range row to the top passes
+  // every check above this one and fails these two.
+  constexpr int kWas = 19;
+  constexpr int kNow = 17;
+  const shelfui::Paging paging = shelfui::pagingFor(device(), toybox::themeTokens(), true, kNow);
+  CHECK(paging.pageCount > 1);
+  const int resumed = shelfui::pageFor(shelfui::resumeRowFor(kWas - 1, kNow), paging.rowsPerPage);
+  CHECK(resumed == paging.pageCount - 1);
+  CHECK(resumed != 0);
+
+  // An empty folder has one page and it is page one. There is no such folder in
+  // the registry today, and the arithmetic must not divide by it if there ever
+  // is: a folder that shrank to nothing is the limit of the case above.
+  CHECK(shelfui::resumeRowFor(7, 0) == 0);
+  CHECK(shelfui::pageFor(shelfui::resumeRowFor(7, 0), 9) == 0);
+  CHECK(shelfui::pageCountFor(0, 9) == 1);
+
+  // A corrupt or negative row is the top, which is also what an unwritten file
+  // gives. Nothing here may go below zero and index off the front of a page.
+  CHECK(shelfui::resumeRowFor(-4, 19) == 0);
+  CHECK(shelfui::rowForPage(-1, 9) == 0);
+  CHECK(shelfui::resumeRowFor(5, -1) == 0);
+}
+
+// The marks are a control, and a control has to look like one.
+//
+// They were always tappable and always the reliable way to page; two cold
+// testers found them by accident and a third never tried them, because ten
+// pixels of ink with air around them read as decoration. The frame is the
+// smallest thing here that reads as touchable, and it has to sit on exactly the
+// strip the taps land in or it promises a hit where there is none.
+void testThePageMarksReadAsAControl() {
+  constexpr int kCount = 20;
+  fui::ListItem items[kCount] = {};
+  for (int i = 0; i < kCount; ++i) {
+    items[i].label = "GAME";
+    items[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
+  const shelfui::Paging paging = shelfui::pagingFor(device(), tokens, true, kCount);
+  CHECK(paging.pageCount > 1);
+
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.playerName = "SPIKY GRIM BEARD";
+  model.items = items;
+  model.count = paging.rowsPerPage;
+  model.page = 0;
+  model.pageCount = paging.pageCount;
+
+  Rendered menu;
+  buildShelf(menu, model);
+  const fui::Rect band = shelfui::listBand(device(), true, true);
+
+  // Probed, not recomputed, so the test cannot make the builder's arithmetic
+  // mistake twice. Both edges of the strip, because the ink has to sit ON the
+  // strip the taps land in: ink outside it promises a hit where there is none,
+  // and that is the half a screenshot cannot show.
+  int barY = -1;
+  int barBottom = -1;
+  for (int y = band.y + band.height; y < 800; ++y) {
+    if (menu.tap(device().width / 2, y).action != shelfui::ActionGoToPage) continue;
+    if (barY < 0) barY = y;
+    barBottom = y;
+  }
+  CHECK(barY > 0);
+  CHECK(barBottom > barY);
+
+  int firstHit = -1;
+  int lastHit = -1;
+  for (int x = 0; x < device().width; ++x) {
+    if (menu.tap(x, barY).action != shelfui::ActionGoToPage) continue;
+    if (firstHit < 0) firstHit = x;
+    lastHit = x;
+  }
+  CHECK(firstHit > 0);
+
+  // It stays a cluster: ink as wide as the list is the bar of slabs the marks
+  // were deliberately rewritten not to be.
+  CHECK(lastHit - firstHit < band.width);
+
+  const int pitch = (lastHit - firstHit + 1) / model.pageCount;
+  CHECK(pitch > 20);
+
+  // Every page carries a box of ink filling most of its own cell, and the
+  // current one is FILLED where the others are outlined. Ten pixels of ink in a
+  // forty-four pixel cell -- what this replaced, and what a cold tester called
+  // "the size of a full stop" -- passes "something was drawn down there" and
+  // fails the width check here.
+  for (int p = 0; p < model.pageCount; ++p) {
+    const int left = firstHit + p * pitch;
+    const int right = left + pitch - 1;
+    const auto ownCell = [&](const fui::Rect& r) {
+      if (r.y < barY || r.y + r.height - 1 > barBottom) return false;
+      if (r.x < left || r.x + r.width - 1 > right) return false;
+      return r.width * 2 >= pitch;
+    };
+    int filled = 0;
+    int outlined = 0;
+    for (const auto& r : menu.target.fills) {
+      if (ownCell(r)) ++filled;
+    }
+    for (const auto& s : menu.target.strokes) {
+      if (s.width > 0 && ownCell(s.rect)) ++outlined;
+    }
+    // Asserted as a pair, both ways round: a mutant that filled every cell says
+    // you are on all three pages, and one that outlined every cell says you are
+    // on none. Either reads as a control and answers nothing.
+    CHECK(filled == (p == model.page ? 1 : 0));
+    CHECK(outlined == (p == model.page ? 0 : 1));
+
+    // And it says which page it is, in words. This is the whole reason the
+    // marks changed: the folder resumes on the page it was left on, so the row
+    // in position two is a different game on each visit, and "which page is
+    // this" has to be answerable before any tap is safe.
+    char number[8];
+    std::snprintf(number, sizeof(number), "%d", p + 1);
+    CHECK(menu.target.drew(number));
+  }
+
+  // Said twice, and the second time in the header, where the eye already is
+  // while it is on the rows. The bar sits at the bottom of an 800px panel; a
+  // cold tester did not misread it, they never looked at it.
+  //
+  // Composed rather than written out, so the strings cannot go stale the first
+  // time a game is added and the folder gains a page.
+  char onFirst[12];
+  char onSecond[12];
+  std::snprintf(onFirst, sizeof(onFirst), "1/%d", model.pageCount);
+  std::snprintf(onSecond, sizeof(onSecond), "2/%d", model.pageCount);
+  CHECK(menu.target.drew(onFirst));
+
+  // The count moves with the page. A header that always says 1/N is worse than
+  // no header at all.
+  shelfui::MenuModel second = model;
+  second.page = 1;
+  Rendered later;
+  buildShelf(later, second);
+  CHECK(later.target.drew(onSecond));
+  CHECK(!later.target.drew(onFirst));
+
+  // A folder that fits draws no bar and no counter: "1/1" is furniture.
+  shelfui::MenuModel lone = model;
+  lone.count = 3;
+  lone.page = 0;
+  lone.pageCount = 1;
+  Rendered single;
+  buildShelf(single, lone);
+  CHECK(!single.target.drew("1/1"));
+}
+
+// A row on a restored page opens ITS OWN game, not the game at that position on
+// page one.
+//
+// The screen is handed one page as a slice, so the row a tap lands on is
+// page-relative while the game it stands for is absolute. Kept as its own test
+// because every other shelf tap test runs on page one, where the two are the
+// same number and an off-by-a-page cannot show.
+void testARowOnARestoredPageOpensItsOwnGame() {
+  fui::ListItem items[3] = {};
+  const char* titles[3] = {"MURDLE", "CHECKERS", "CONNECT FOUR"};
+  for (int i = 0; i < 3; ++i) {
+    items[i].label = titles[i];
+    items[i].actionValue = static_cast<int16_t>(8 + i);
+  }
+
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.playerName = "SPIKY GRIM BEARD";
+  model.items = items;
+  model.count = 3;
+  model.page = 1;
+  model.pageCount = 3;
+
+  Rendered menu;
+  buildShelf(menu, model);
+
+  const int rowY = toybox::kHeaderHeight + toybox::kGutter * 3 + toybox::kRowHeight + toybox::kRowHeight / 2;
+  const fui::ActionEvent hit = menu.tap(240, rowY);
+  CHECK(hit.action == shelfui::ActionOpen);
+  CHECK(hit.value == 9);
+
+  // And nothing on a restored page is marked. This is the page the mark used to
+  // live on -- it existed to explain why the list had not opened at the top --
+  // so it is the page where a reintroduced cursor would show first.
+  for (const auto& run : menu.target.texts) {
+    for (const char* title : titles) {
+      if (run.text == title) CHECK(run.color == fui::Color::Black);
+    }
+  }
 }
 
 void testAFolderWithoutADeviceNameHasNoFooter() {
@@ -1731,7 +2811,11 @@ void buildHnReader(Rendered& out, const hnui::ReaderModel& model) {
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
-  hnui::buildReader(screen, model);
+  hnui::ReaderBody body;
+  body.text = out.bodyText;
+  body.style = toybox::themeTokens().bodyText;
+  body.wrap = &out.wrap;
+  hnui::buildReader(screen, model, body);
 }
 
 void buildHnNotice(Rendered& out, const hnui::NoticeModel& model) {
@@ -1745,7 +2829,7 @@ void buildHnNotice(Rendered& out, const hnui::NoticeModel& model) {
 hnui::ReaderModel articleModel() {
   hnui::ReaderModel model;
   model.title = "A tiny e-ink game console";
-  model.text = "Some words that go on for a while and wrap onto more than one line of the panel.";
+  // set on the Rendered by the caller; see buildInstaReader/buildHnReader
   model.pageLabel = "1/3";
   model.showingComments = false;
   model.swapAvailable = true;
@@ -1759,6 +2843,42 @@ bool drewText(const Rendered& out, const char* needle) {
     if (run.text.find(needle) != std::string::npos) return true;
   }
   return false;
+}
+
+// Present is not the same as legible. drewText() sees the string the builder
+// HANDED the renderer, and the renderer is what shortens it -- so a button
+// whose box is too narrow for its own label passes every "did it draw?" check
+// while the panel says "UNDO A...". This asks the target to measure the run it
+// recorded against the rect it was given, which is the one comparison the
+// truncation is decided by.
+bool drewLabelWhole(const Rendered& out, const char* needle) {
+  bool found = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text != needle) continue;
+    found = true;
+    if (out.target.measureText(run.style.font, run.text.c_str(), run.style).width > run.rect.width) return false;
+  }
+  return found;
+}
+
+// The height this text needs with the LINE CAP LIFTED, against the width it was
+// drawn into.
+//
+// Measuring with the run's own style is a tautology wherever the builder sized
+// the rect from that same call: the check restates the line it is guarding and
+// can only fail if that line disappears entirely. Worse, it is blind to the
+// mechanism it exists to catch. layoutText clamps to style.maxLines and
+// ellipsizes whatever is left over, so a wording that needs five lines under a
+// four-line cap is silently cut, the capped measure dutifully reports four, and
+// the reserved rect matches it exactly.
+//
+// style.maxLines saturates at layoutText's own MAX_LINES (16), so asking for 16
+// is asking for as many lines as the sentence takes. Comparing THAT against the
+// reserved rect is the comparison the truncation is actually decided by.
+int16_t uncappedWrappedHeight(const FakeTarget& target, const FakeTarget::TextRun& run) {
+  fui::TextStyle uncapped = run.style;
+  uncapped.maxLines = 16;
+  return fui::measureWrappedText(target, run.text.c_str(), uncapped, run.rect.width).height;
 }
 
 void testHnReaderFooter() {
@@ -1851,7 +2971,10 @@ void testHnNotice() {
   model.headline = "NOT READABLE HERE";
   model.message = "This link is not a page of text.";
   model.mark = &icon_unreadable_32;
+  // Both halves of the control, because buildNotice now draws it only when both
+  // are set. A label with no action is a button that answers nothing.
   model.actionLabel = "READ THE COMMENTS";
+  model.action = hnui::ActionNotice;
   buildHnNotice(unreadable, model);
 
   CHECK(drewText(unreadable, "NOT READABLE HERE"));
@@ -1886,6 +3009,181 @@ void testHnNotice() {
   for (int y = 0; y < 800; y += 4) {
     CHECK(busy.tap(240, y).action != hnui::ActionNotice);
   }
+}
+
+// EVERY notice has a way off it, and the notice that is not about an unreadable
+// link is the one that did not.
+//
+// This screen has no segment strip and no list under it, so a notice with no
+// control is a full-screen dead end whose only exit is a left-edge swipe that
+// nothing on it mentions -- with the SAVED shelf, the half of this app that
+// needs no network, on the far side of it. A failed ARTICLE or THREAD fetch
+// showed exactly that, and it is the common failure: on a train every tap on a
+// cached front page lands there. The fix for a failed FRONT PAGE went into one
+// arm of the same `if` and not into its twin.
+void testHnEveryNoticeCarriesAWayOff() {
+  // The rule itself, asked directly. It cannot answer "no control": that is the
+  // whole reason it is a function rather than a ternary at the call site, where
+  // the nullptr half quietly covered four different failures.
+  for (const bool unreadable : {false, true}) {
+    const hnui::NoticeControl control = hnui::noticeControl(unreadable);
+    CHECK(control.label != nullptr);
+    CHECK(control.action != fui::NO_ACTION);
+  }
+  // And the two are DIFFERENT doors. A failure screen must not offer to fetch a
+  // thread over the network it has just reported down.
+  CHECK(hnui::noticeControl(false).action != hnui::noticeControl(true).action);
+
+  // Drawn, live, and legible. The failure notice as the Activity builds it: no
+  // mark, the same sentence the list's own failure shows, and the control the
+  // rule above hands out.
+  Rendered failure;
+  hnui::NoticeModel model;
+  model.headline = "NO LUCK";
+  model.message = "Could not reach Hacker News. Saved articles still work.";
+  const hnui::NoticeControl control = hnui::noticeControl(false);
+  model.actionLabel = control.label;
+  model.action = control.action;
+  buildHnNotice(failure, model);
+
+  // Two questions, and the first one is the one the bug was about: does ANY
+  // pixel on this screen answer a finger. Asked separately from "is it the
+  // right door" because a dead end fails the first and a mis-wired control
+  // fails only the second.
+  //
+  // The door is named by its literal id, never by control.action. Comparing a
+  // tap against control.action would make a revert that answers NO_ACTION pass
+  // vacuously: every blank pixel on the panel returns NO_ACTION, so the sweep
+  // would find its "door" in the margin. A test derived from the value under
+  // test cannot falsify it.
+  bool answersAFinger = false;
+  bool foundTheDoor = false;
+  for (int y = 0; y < 800; y += 4) {
+    for (int x = 0; x < 480; x += 8) {
+      const fui::ActionId action = failure.tap(x, y).action;
+      if (action != fui::NO_ACTION) answersAFinger = true;
+      if (action == hnui::ActionNoticeBack) foundTheDoor = true;
+    }
+  }
+  CHECK(answersAFinger);
+  CHECK(foundTheDoor);
+  // Present is not legible: a label wider than its pill is ellipsized by the
+  // renderer and drewText would still find it. Guarded so that a regression
+  // answering nullptr here reports as the named CHECKs above rather than as a
+  // segfault, which names nothing and cannot be counted.
+  if (control.label != nullptr) CHECK(drewLabelWhole(failure, control.label));
+
+  // The pairing rule, from the side that makes the control invisible rather
+  // than dead. A label with no action used to be drawable; it would paint a
+  // pill that answers nothing, which is worse than no pill at all because the
+  // reader tries it and concludes the screen is frozen.
+  Rendered orphan;
+  hnui::NoticeModel unpaired;
+  unpaired.headline = "NO LUCK";
+  unpaired.message = "Could not reach Hacker News. Saved articles still work.";
+  unpaired.actionLabel = "BACK TO THE LIST";
+  buildHnNotice(orphan, unpaired);
+  CHECK(!drewText(orphan, "BACK TO THE LIST"));
+}
+
+// The save mark, identified by being the only bitmap the reader draws and NOT
+// by its pointer: ToyboxIcons.h declares every icon `static` at namespace
+// scope, so this file's `icon_saved_32.bits` is a different array from the
+// screen builder's and a pointer comparison silently never matches.
+const FakeTarget::Blit* saveMarkIn(const Rendered& out) {
+  return out.target.blits.size() == 1 ? &out.target.blits[0] : nullptr;
+}
+
+// Whether a solid paper fill sits under `rect`. The chip is that fill, and
+// nothing else on this screen paints one.
+bool paperChipUnder(const Rendered& out, const fui::Rect& rect) {
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Paint& paint = out.target.fillPaints[i];
+    if (paint.kind != fui::PaintKind::Solid || paint.color != fui::Color::White) continue;
+    const fui::Rect& fill = out.target.fills[i];
+    if (fill.x <= rect.x && fill.y <= rect.y && fill.x + fill.width >= rect.x + rect.width &&
+        fill.y + fill.height >= rect.y + rect.height) {
+      return true;
+    }
+  }
+  return false;
+}
+
+fui::ActionEvent tapTheMark(Rendered& out, const fui::Rect& mark) {
+  return out.tap(mark.x + mark.width / 2, mark.y + mark.height / 2);
+}
+
+// The thing about this mark that a screenshot cannot tell you: the header band
+// is SOLID BLACK, so the two ordinary style sets swap weights on it. A black
+// fill IS the band and disappears; a white fill is the loudest thing on the
+// screen. Styled "filled means saved" out of those, the mark reads backwards --
+// which is exactly how two cold testers read it, one of them removing an
+// article they believed they had just kept.
+//
+// So the claim under test is about WEIGHT, not about which style was passed:
+// the state carrying the paper-coloured chip has to be the saved one.
+void testHnSaveMarkIsLoudestWhenSaved() {
+  Rendered kept;
+  hnui::ReaderModel model = articleModel();
+  model.canSave = true;
+  model.saved = true;
+  buildHnReader(kept, model);
+
+  const FakeTarget::Blit* keptMark = saveMarkIn(kept);
+  CHECK(keptMark != nullptr);
+  if (keptMark != nullptr) {
+    // On the device: a paper chip with the bookmark knocked out of it.
+    CHECK(paperChipUnder(kept, keptMark->rect));
+    CHECK(keptMark->color == fui::Color::Black);
+    CHECK(tapTheMark(kept, keptMark->rect).action == hnui::ActionUnsave);
+  }
+  // The glyph is one 1-bpp mask and never fills, so the chip was the only thing
+  // that ever changed and nothing said what a tap had just done. A word does.
+  CHECK(kept.target.drew("SAVED"));
+  CHECK(!kept.target.drew("SAVE"));
+
+  Rendered offer;
+  model.saved = false;
+  buildHnReader(offer, model);
+
+  const FakeTarget::Blit* offerMark = saveMarkIn(offer);
+  CHECK(offerMark != nullptr);
+  if (offerMark != nullptr) {
+    // The quiet state. A paper chip here is the bug: it outshouts the kept one.
+    CHECK(!paperChipUnder(offer, offerMark->rect));
+    // Drawn in paper so it is visible AT ALL on a black band -- the same trap
+    // that made the page label invisible for two renders.
+    CHECK(offerMark->color == fui::Color::White);
+    CHECK(tapTheMark(offer, offerMark->rect).action == hnui::ActionSave);
+  }
+  CHECK(offer.target.drew("SAVE"));
+  CHECK(!offer.target.drew("SAVED"));
+}
+
+// A thread carries the mark too. The stories worth keeping for a train are the
+// ones whose page will not render here, and for those the conversation is the
+// only thing there is to keep.
+void testHnAThreadCanBeKept() {
+  Rendered out;
+  hnui::ReaderModel model = articleModel();
+  model.showingComments = true;
+  model.canSave = true;
+  model.saved = false;
+  buildHnReader(out, model);
+
+  const FakeTarget::Blit* mark = saveMarkIn(out);
+  CHECK(mark != nullptr);
+  if (mark != nullptr) CHECK(tapTheMark(out, mark->rect).action == hnui::ActionSave);
+
+  // And a reader with nothing to key an entry by draws no mark at all, rather
+  // than offering a control that cannot work.
+  Rendered none;
+  hnui::ReaderModel unkeyed = articleModel();
+  unkeyed.canSave = false;
+  buildHnReader(none, unkeyed);
+  CHECK(saveMarkIn(none) == nullptr);
+  CHECK(!none.target.drew("SAVE"));
+  CHECK(!none.target.drew("SAVED"));
 }
 
 void testHnReaderShowsWhereYouAre() {
@@ -2008,6 +3306,212 @@ void testHnList() {
   toybox::Screen emptyScreen(emptyFrame, toybox::themeTokens());
   hnui::buildList(emptyScreen, none);
   CHECK(drewText(empty, "NOTHING TO READ"));
+
+  // An empty SAVED shelf is the ordinary state of a new device, and both lines
+  // of it have to be IN INK. The display cut's token colour is paper because it
+  // is otherwise only ever set on the black band, so a headline taken straight
+  // from the theme lands white on white paper and the shelf answers with one
+  // small sentence and an expanse of nothing.
+  Rendered shelf;
+  hnui::ListModel nothingSaved;
+  nothingSaved.title = "SAVED";
+  nothingSaved.showingSaved = true;
+  nothingSaved.emptyHeadline = "NOTHING SAVED YET";
+  nothingSaved.emptyMessage = "Tap SAVE while you read.";
+  toybox::Frame shelfFrame(shelf.target, ctx, noInput, shelf.interactions);
+  toybox::Screen shelfScreen(shelfFrame, toybox::themeTokens());
+  hnui::buildList(shelfScreen, nothingSaved);
+  const FakeTarget::TextRun* headline = shelf.target.find("NOTHING SAVED YET");
+  CHECK(headline != nullptr);
+  if (headline != nullptr) CHECK(headline->color == fui::Color::Black);
+  const FakeTarget::TextRun* line = shelf.target.find("Tap SAVE while you read.");
+  CHECK(line != nullptr);
+  if (line != nullptr) CHECK(line->color == fui::Color::Black);
+  // And they must not be drawn ON each other. centeredText centres in the
+  // content rect and consumes nothing, so two calls land on the same y: the
+  // headline was painted over the sentence for as long as it was invisible.
+  if (headline != nullptr && line != nullptr) {
+    CHECK(headline->rect.y + headline->rect.height <= line->rect.y);
+  }
+}
+
+// The empty front page is the screen a device that has never joined a network
+// opens on, so it is the one that has to carry a way onward. Text alone will
+// not do: an empty shelf and an unloaded front page are the same expanse of
+// paper, and a live control drawn like a dead one is one nobody tries.
+void testHnEmptyFrontPageOffersAWayOnward() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+
+  Rendered cold;
+  hnui::ListModel model;
+  model.emptyHeadline = "NOT LOADED YET";
+  model.emptyMessage = "The front page needs a connection. Saved articles do not.";
+  model.emptyActionLabel = "LOAD";
+  model.emptyAction = hnui::ActionLoadFrontPage;
+  toybox::Frame coldFrame(cold.target, ctx, noInput, cold.interactions);
+  toybox::Screen coldScreen(coldFrame, toybox::themeTokens());
+  hnui::buildList(coldScreen, model);
+
+  CHECK(drewText(cold, "NOT LOADED YET"));
+  // Whole, not merely present. drewText sees the string the builder HANDED the
+  // renderer and the renderer is what shortens it, so a pill too narrow for its
+  // own label passes every "did it draw?" check while the panel says "LO...".
+  // This control is the only way off the screen a device with no network opens
+  // on, so it is the last label in the app that can afford to be a guess.
+  CHECK(drewLabelWhole(cold, "LOAD"));
+
+  // The control is reachable by a finger, which is the only thing that makes it
+  // a control. Swept rather than tapped at one guessed point.
+  bool foundLoad = false;
+  for (int y = 0; y < ctx.height; ++y) {
+    if (cold.tap(240, y).action == hnui::ActionLoadFrontPage) foundLoad = true;
+  }
+  CHECK(foundLoad);
+
+  // It must not sit on the segment strip. The segments are the map between the
+  // two shelves, and a control stealing their taps would strand the reader on
+  // the half that needs the network. Swept across the panel rather than down one
+  // column, because the segments are half-width and the control is not.
+  int loadBottom = -1;
+  int savedTop = ctx.height;
+  bool foundSaved = false;
+  for (const int x : {60, 240, 380}) {
+    for (int y = 0; y < ctx.height; ++y) {
+      const fui::ActionEvent event = cold.tap(static_cast<int16_t>(x), static_cast<int16_t>(y));
+      if (event.action == hnui::ActionLoadFrontPage && y > loadBottom) loadBottom = y;
+      if (event.action == hnui::ActionShowSaved) {
+        foundSaved = true;
+        if (y < savedTop) savedTop = y;
+      }
+    }
+  }
+  CHECK(foundSaved);
+  CHECK(loadBottom >= 0);
+  CHECK(loadBottom < savedTop);
+  CHECK(!cold.interactions.overflowed());
+
+  // The same screen after a failed fetch is a DIFFERENT screen and still
+  // carries the control. This is where the app used to put a full-screen notice
+  // with no segments and no buttons, so a failed front page was a dead end with
+  // the offline shelf on the other side of it.
+  Rendered failed;
+  hnui::ListModel retry;
+  retry.emptyHeadline = "NO LUCK";
+  retry.emptyMessage = "Could not reach Hacker News. Saved articles still work.";
+  retry.emptyActionLabel = "TRY AGAIN";
+  retry.emptyAction = hnui::ActionLoadFrontPage;
+  toybox::Frame failedFrame(failed.target, ctx, noInput, failed.interactions);
+  toybox::Screen failedScreen(failedFrame, toybox::themeTokens());
+  hnui::buildList(failedScreen, retry);
+  CHECK(drewText(failed, "NO LUCK"));
+  CHECK(drewLabelWhole(failed, "TRY AGAIN"));
+  bool foundRetry = false;
+  for (int y = 0; y < ctx.height; ++y) {
+    if (failed.tap(240, y).action == hnui::ActionLoadFrontPage) foundRetry = true;
+  }
+  CHECK(foundRetry);
+
+  // And the empty SAVED shelf carries NO such control: it is the half that
+  // needs no network, and the only thing a button there could do is fetch the
+  // other half.
+  Rendered shelf;
+  hnui::ListModel nothingSaved;
+  nothingSaved.title = "SAVED";
+  nothingSaved.showingSaved = true;
+  nothingSaved.emptyHeadline = "NOTHING SAVED YET";
+  nothingSaved.emptyMessage = "Tap SAVE while you read.";
+  toybox::Frame shelfFrame(shelf.target, ctx, noInput, shelf.interactions);
+  toybox::Screen shelfScreen(shelfFrame, toybox::themeTokens());
+  hnui::buildList(shelfScreen, nothingSaved);
+  for (int y = 0; y < ctx.height; ++y) {
+    CHECK(shelf.tap(240, y).action != hnui::ActionLoadFrontPage);
+  }
+}
+
+// The block stacks: headline, sentence, control, none of them on each other.
+// The sentence used to reserve one line however long it was, so the line that
+// has to explain what still works with no network was ellipsised at the panel
+// edge with nothing to say it had been.
+void testHnEmptyStateStacksWithoutOverlap() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+
+  Rendered out;
+  hnui::ListModel model;
+  model.emptyHeadline = "NOT LOADED YET";
+  // Long enough to need two lines at every plausible cut, which is the case the
+  // single reserved line got wrong.
+  model.emptyMessage = "The front page needs a connection. Saved articles do not.";
+  model.emptyActionLabel = "LOAD";
+  model.emptyAction = hnui::ActionLoadFrontPage;
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  hnui::buildList(screen, model);
+
+  const FakeTarget::TextRun* headline = out.target.find("NOT LOADED YET");
+  const FakeTarget::TextRun* message = out.target.find(model.emptyMessage);
+  const FakeTarget::TextRun* label = out.target.find("LOAD");
+  CHECK(headline != nullptr);
+  CHECK(message != nullptr);
+  CHECK(label != nullptr);
+  if (headline != nullptr && message != nullptr) {
+    CHECK(headline->rect.y + headline->rect.height <= message->rect.y);
+  }
+  if (message != nullptr && label != nullptr) {
+    CHECK(message->rect.y + message->rect.height <= label->rect.y);
+  }
+  // The sentence is given the lines the SDK's own wrap will emit into it. A
+  // rect one line tall for a two-line sentence is a silent truncation: the SDK
+  // ellipsizes and logs nothing, which is how "Tap the mark on an article to
+  // ke" shipped -- and estimating the count from a single-line width divided by
+  // the column is one short whenever the wrap cannot fill a line, which is how
+  // "Saved articles do ..." reached a render on this very screen.
+  //
+  // Measured with the CAP LIFTED, which is the only version of this check that
+  // can fail. See uncappedWrappedHeight: the builder reserves
+  // measureWrappedText(style) and this used to assert against
+  // measureWrappedText(style), so it restated the production expression and
+  // went green on the exact case it names -- a wording longer than maxLines,
+  // clipped and ellipsized, with the reserved rect matching the clipped
+  // measurement perfectly.
+  if (message != nullptr) {
+    CHECK(message->rect.height >= uncappedWrappedHeight(out.target, *message));
+  }
+  if (headline != nullptr) {
+    CHECK(headline->rect.height >= uncappedWrappedHeight(out.target, *headline));
+  }
+
+  // And with no sentence between them, the control still clears the headline by
+  // the gap it is supposed to sit below by. The stack used to step over the
+  // message's height whether or not a message had been drawn, so the button
+  // landed a bare gutter below the TOP of the headline -- the same compositing
+  // bug that already put this headline on top of its own sentence.
+  //
+  // Measured against the BUTTON'S HIT RECT and against the full intended
+  // clearance, not against "does it overlap". Overlap is not expressible here:
+  // FakeTarget's line height is smaller than the gutter, so the broken layout
+  // draws them apart on this target and on top of each other on the panel,
+  // where the display cut is more than twice as tall.
+  Rendered bare;
+  hnui::ListModel terse;
+  terse.emptyHeadline = "NOT LOADED YET";
+  terse.emptyMessage = nullptr;
+  terse.emptyActionLabel = "LOAD";
+  terse.emptyAction = hnui::ActionLoadFrontPage;
+  toybox::Frame bareFrame(bare.target, ctx, noInput, bare.interactions);
+  toybox::Screen bareScreen(bareFrame, toybox::themeTokens());
+  hnui::buildList(bareScreen, terse);
+  const FakeTarget::TextRun* bareHeadline = bare.target.find("NOT LOADED YET");
+  CHECK(bareHeadline != nullptr);
+  int buttonTop = ctx.height;
+  for (int y = 0; y < ctx.height; ++y) {
+    if (bare.tap(240, static_cast<int16_t>(y)).action == hnui::ActionLoadFrontPage && y < buttonTop) buttonTop = y;
+  }
+  CHECK(buttonTop < ctx.height);
+  if (bareHeadline != nullptr) {
+    CHECK(buttonTop >= bareHeadline->rect.y + bareHeadline->rect.height + toybox::kGutter * 2);
+  }
 }
 
 // --- the study deck screen -------------------------------------------------
@@ -2586,6 +4090,78 @@ void testMurdleGridEdgesAreLive() {
   murdleui::GridCell outside;
   CHECK(!murdleui::cellAt(grid, grid.originX - 1, grid.originY, outside));
   CHECK(!murdleui::cellAt(grid, grid.originX, grid.originY - 1, outside));
+}
+
+void testMurdleRefusalDoesNotMoveTheGrid() {
+  // Mario, 2026-09-04: the refusal line "moves the whole board which is bad
+  // UX". It did, twice over -- the band was taken out of the top of the body
+  // only when there was something to put in it, so the grid's origin dropped
+  // AND its cell was re-measured against a shorter area. On this panel that is
+  // a full refresh of the one surface being read by position.
+  //
+  // Every tier, because the cell size is the min of a width fit and a height
+  // fit and only the height fit moves: a tier that happened to be height-bound
+  // would shrink where the others do not.
+  for (const murdle::Tier tier :
+       {murdle::Tier::Elementary, murdle::Tier::Nosy, murdle::Tier::HardBoiled, murdle::Tier::Impossible}) {
+    murdle::Puzzle puzzle = murdleCase(tier, 4242u);
+    murdle::Marks marks;
+    marks.reset(puzzle.shape);
+
+    murdleui::CaseModel quiet;
+    quiet.puzzle = &puzzle;
+    quiet.marks = &marks;
+    quiet.face = murdleui::Face::Grid;
+
+    murdleui::CaseModel refused = quiet;
+    // The longest thing blockedLine can produce; see the reserved band in
+    // buildCase and the measurement in host-tests/murdle.
+    refused.notice = "ALREADY TICKED: HAMMER/REVENGE AND HAMMER/REVENGE. CLEAR THEM TO TICK HERE.";
+
+    Rendered without;
+    Rendered with;
+    const murdleui::GridLayout before = buildMurdleCase(without, quiet);
+    const murdleui::GridLayout after = buildMurdleCase(with, refused);
+
+    CHECK(before.valid && after.valid);
+    CHECK(after.originX == before.originX);
+    CHECK(after.originY == before.originY);
+    CHECK(after.cell == before.cell);
+    CHECK(after.gutter == before.gutter);
+    CHECK(after.headerH == before.headerH);
+
+    // The notice really drew, or every check above is satisfied by a screen
+    // that simply threw the message away.
+    const fui::Rect grid = fui::makeRect(after.originX, static_cast<int16_t>(after.originY - after.headerH), 1, 1);
+    int noticeRuns = 0;
+    for (const auto& run : with.target.texts) {
+      if (run.text.find("ALREADY TICKED") == std::string::npos && run.text.find("CLEAR THEM") == std::string::npos) {
+        continue;
+      }
+      ++noticeRuns;
+      // And it drew ABOVE the grid rather than over the column labels, which is
+      // the way a reserved band goes wrong that a moved origin does not.
+      CHECK(run.rect.y + run.rect.height <= grid.y);
+      // The box the wrap sees, tied to the number host-tests/murdle measures
+      // the worst-case notice against rather than written down twice. This IS
+      // the body width: paragraph() draws each line into the rect it was given.
+      CHECK(run.rect.width == 448);
+    }
+    CHECK(noticeRuns > 0);
+
+    // The quiet render says nothing in the band it reserved.
+    for (const auto& run : without.target.texts) {
+      CHECK(run.text.find("ALREADY TICKED") == std::string::npos);
+    }
+
+    // The key still gets room under the grid. The band is paid for out of that
+    // slack, so this is the check that the payment did not empty it.
+    int legendRows = 0;
+    for (const auto& run : without.target.texts) {
+      if (run.text.find('=') != std::string::npos) ++legendRows;
+    }
+    CHECK(legendRows >= puzzle.shape.cats * puzzle.shape.items);
+  }
 }
 
 void testMurdleGridDrawsMarksItIsGiven() {
@@ -4474,6 +6050,58 @@ void testTheSudokuUndoDimsRatherThanVanishing() {
   CHECK(used.target.find("UNDO") != nullptr);
 }
 
+// The front door destroys the saved puzzle unless it says RESUME, so the label
+// and the caption above it have to agree about which case this is. They are
+// written from one switch on sudoku::menuOffer, but nothing in the rules suite
+// can see buildMenu -- host-tests/sudoku links only SudokuCore.cpp. So the
+// pairing is asserted HERE, on the drawn strings, where a wrong label is
+// exactly what a player would read.
+void testTheSudokuDoorAgreesWithItsCaption() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  const sudoku::Game medium = aSudokuGame(sudoku::Level::Medium);
+
+  struct Case {
+    const char* what;
+    bool hasGame;
+    bool solved;
+    sudoku::Level menuLevel;
+    const char* action;
+    const char* caption;
+  };
+  const Case cases[] = {
+      {"no save at all", false, false, sudoku::Level::Medium, "NEW PUZZLE", "NOT STARTED"},
+      {"an unsolved game at its own level", true, false, sudoku::Level::Medium, "RESUME", nullptr},
+      {"the same game, menu moved away", true, false, sudoku::Level::Hard, "NEW PUZZLE", "HARD, STARTING FRESH"},
+      {"a finished game at its own level", true, true, sudoku::Level::Medium, "NEW PUZZLE", "LAST ONE SOLVED"},
+  };
+
+  for (const auto& one : cases) {
+    sudokuui::MenuModel model;
+    model.hasGame = one.hasGame;
+    model.game = medium;
+    model.game.solvedFlag = one.solved ? 1 : 0;
+    model.level = one.menuLevel;
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    sudokuui::buildMenu(screen, model);
+
+    // RESUME appears when and ONLY when the door opens the saved grid. The
+    // shipped bug was a door labelled one thing and wired to another.
+    const bool resumes = sudoku::canResume(model.game, model.hasGame, model.level);
+    CHECK(resumes == (std::strcmp(one.action, "RESUME") == 0));
+    CHECK(out.target.find(one.action) != nullptr);
+    CHECK(out.target.find(resumes ? "NEW PUZZLE" : "RESUME") == nullptr);
+    if (one.caption != nullptr) {
+      CHECK(out.target.find(one.caption) != nullptr);
+    }
+    // "STARTING FRESH" is the warning that the door replaces the grid, so it
+    // must never sit over a RESUME.
+    CHECK(!(resumes && out.target.find("STARTING FRESH") != nullptr));
+  }
+}
+
 void testEverySudokuScreenStaysOnThePanel() {
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
@@ -5107,17 +6735,691 @@ void buildInstaReader(Rendered& out, const instapaperui::ReaderModel& model) {
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
-  instapaperui::buildReader(screen, model);
+  instapaperui::ReaderBody body;
+  body.text = out.bodyText;
+  body.style = toybox::themeTokens().bodyText;
+  body.wrap = &out.wrap;
+  instapaperui::buildReader(screen, model, body);
 }
 
 instapaperui::ReaderModel instaArticleModel() {
   instapaperui::ReaderModel model;
   model.title = "What the panel does with a long article";
-  model.text = "Some words that go on for a while and wrap onto more than one line of the panel.";
+  // set on the Rendered by the caller; see buildInstaReader/buildHnReader
   model.pageLabel = "1 / 3";
   model.canPagePrev = false;
   model.canPageNext = true;
   return model;
+}
+
+// --- What a paint of the reader costs -------------------------------------
+//
+// Mario reported it from real use: a long article takes a long time to open,
+// and every page turn pays the same again. The instrument is the count of
+// measureText() calls one paint asks the target for, because that is the work
+// a word wrap is made of -- textAreaWalk() asks for one measurement per
+// candidate character position -- and a host suite has no device stopwatch.
+//
+// The number is stated per paint and against document length, so it can be
+// read as "does the cost of a page turn depend on how long the article is",
+// which is the actual question.
+
+// A magazine feature's worth of prose, built rather than pasted so the cost
+// can be asked at more than one length.
+//
+// Deliberately NON-REPEATING. A corpus built by rotating a handful of
+// sentences wraps periodically, and a wrap read from the WRONG offset then
+// lands on a line identical to the right one -- so a staleness test compares
+// two different answers, gets the same text back, and passes because it cannot
+// tell them apart. That happened here: the kerning test below was green
+// against a repeating corpus before this was changed.
+std::string longArticle(const size_t bytes) {
+  static const char* kWords[] = {
+      "the",  "panel", "is",    "a",     "page",   "of",          "text", "and",  "reader", "holds",  "it",     "still",
+      "wrap", "walks", "every", "byte",  "asking", "font",        "how",  "wide", "each",   "prefix", "paying", "once",
+      "cost", "twice", "bug",   "three", "none",   "constraints", "said", "walk", "had",    "happen"};
+  std::string doc;
+  uint32_t seed = 12345u;
+  size_t i = 0;
+  char stamp[24];
+  while (doc.size() < bytes) {
+    // Every stretch carries its own number, then a run of words of
+    // unpredictable length, so no two parts of the document wrap alike.
+    std::snprintf(stamp, sizeof(stamp), "[%zu]", i);
+    doc += stamp;
+    seed = seed * 1103515245u + 12345u;
+    const int run = 4 + static_cast<int>((seed >> 16) % 11);
+    for (int w = 0; w < run; ++w) {
+      seed = seed * 1103515245u + 12345u;
+      doc += ' ';
+      doc += kWords[(seed >> 16) % 34];
+    }
+    doc += ' ';
+    if (++i % 6 == 0) doc += '\n';
+  }
+  return doc;
+}
+
+// One paint of Phase::Reading, in the order InstapaperActivity::render() does
+// it: count the lines of the whole document against readerBody()'s width, then
+// build the screen. Returns what that paint asked the target to measure.
+// `out` is held ACROSS paints on purpose: an Activity keeps its wrap between
+// them, so a page turn measured against a fresh one would be measuring an
+// opening and would have reported the fix as no fix at all.
+long readerPaintCost(Rendered& out, const std::string& doc, const uint32_t topLine, uint32_t* lineCountOut = nullptr) {
+  const fui::DeviceContext ctx = device();
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
+
+  out.target.measureCalls = 0;
+  // The SAME words the drawing will get. Handing the counting one document
+  // and the drawing another is what the bundling exists to prevent, and doing
+  // it here would make the wrap thrash between two texts and read as no fix
+  // at all -- which is exactly what this instrument reported when the two were
+  // briefly allowed to differ.
+  out.bodyText = doc.c_str();
+  instapaperui::ReaderBody counted;
+  counted.text = out.bodyText;
+  counted.style = tokens.bodyText;
+  counted.wrap = &out.wrap;
+  const uint32_t lines = instapaperui::readerLineCount(out.target, ctx, counted);
+  if (lineCountOut != nullptr) *lineCountOut = lines;
+
+  instapaperui::ReaderModel model;
+  model.title = "A long article";
+
+  model.topLine = topLine;
+  model.pageLabel = "3 / 40";
+  model.canPagePrev = topLine > 0;
+  model.canPageNext = true;
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, tokens);
+  instapaperui::ReaderBody body;
+  body.text = out.bodyText;
+  body.style = toybox::themeTokens().bodyText;
+  body.wrap = &out.wrap;
+  instapaperui::buildReader(screen, model, body);
+  return out.target.measureCalls;
+}
+
+void reportReaderPaintCost() {
+  const size_t kSizes[] = {4u * 1024u, 16u * 1024u, 64u * 1024u};
+  for (const size_t bytes : kSizes) {
+    const std::string doc = longArticle(bytes);
+    uint32_t lines = 0;
+    Rendered out;  // one reader, opened once and then paged, as on the device
+    const long opening = readerPaintCost(out, doc, 0, &lines);
+    const long deep = readerPaintCost(out, doc, lines > 40 ? lines - 40 : 0);
+    std::printf("READER COST  %6zu bytes  %5u lines   open %8ld   page-turn %8ld  measureText calls\n", doc.size(),
+                static_cast<unsigned>(lines), opening, deep);
+  }
+}
+
+// What fui::textArea() would have put on the panel, for the same rect, text,
+// style and topLine. The wrap is only allowed to be faster; a single line of
+// difference here is a page turn that skips or repeats a line, and Instapaper
+// computes the reading position it sends to a real account from exactly this.
+std::vector<std::string> linesFromTextArea(FakeTarget& target, const fui::Rect rect, const char* text,
+                                           const fui::TextStyle& style, const uint32_t topLine) {
+  toybox::Interactions interactions;
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(target, device(), noInput, interactions);
+  fui::TextAreaProps props;
+  props.text = text;
+  props.topLine = topLine;
+  props.showCaret = false;
+  props.style = style;
+  target.texts.clear();
+  fui::textArea(frame, rect, props);
+  std::vector<std::string> out;
+  for (const auto& run : target.texts) {
+    char where[48];
+    std::snprintf(where, sizeof(where), "%d,%d|", static_cast<int>(run.rect.x), static_cast<int>(run.rect.y));
+    out.push_back(std::string(where) + run.text);
+  }
+  return out;
+}
+
+std::vector<std::string> linesFromWrap(FakeTarget& target, toybox::WrappedText& wrap, const fui::Rect rect,
+                                       const char* text, const fui::TextStyle& style, const uint32_t topLine) {
+  target.texts.clear();
+  wrap.draw(target, rect, text, style, topLine);
+  std::vector<std::string> out;
+  for (const auto& run : target.texts) {
+    char where[48];
+    std::snprintf(where, sizeof(where), "%d,%d|", static_cast<int>(run.rect.x), static_cast<int>(run.rect.y));
+    out.push_back(std::string(where) + run.text);
+  }
+  return out;
+}
+
+// The whole promise, and the reason the count and the drawing come from one
+// object: what the window draws is what wrapping the entire document would
+// have drawn, at every page of it, in the same place, to the byte.
+void testTheWindowDrawsWhatTheWholeDocumentWouldHave() {
+  const std::string doc = longArticle(24u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+
+  FakeTarget slow;
+  FakeTarget fast;
+  toybox::WrappedText wrap;
+  const uint32_t total = wrap.lineCount(fast, body.width, doc.c_str(), style);
+  CHECK(total > 400);
+
+  const uint16_t visible = fui::textAreaVisibleLines(body, fast.lineHeight(style.font));
+  CHECK(visible > 0);
+  // Every page, not a sample of them: the first, the last, the one that ends
+  // exactly on a checkpoint and the one that straddles two.
+  int pages = 0;
+  for (uint32_t top = 0; top < total; top += visible) {
+    ++pages;
+    CHECK(linesFromWrap(fast, wrap, body, doc.c_str(), style, top) ==
+          linesFromTextArea(slow, body, doc.c_str(), style, top));
+  }
+  CHECK(pages > 10);
+  // And the awkward tops a page turn never lands on but a restored reading
+  // position does: one line in, one line short of the end, past the end.
+  const uint32_t odd[] = {1u, 2u, 15u, 16u, 17u, total > 1 ? total - 1 : 0, total};
+  for (const uint32_t top : odd) {
+    CHECK(linesFromWrap(fast, wrap, body, doc.c_str(), style, top) ==
+          linesFromTextArea(slow, body, doc.c_str(), style, top));
+  }
+}
+
+// The reported bug, as a number. Before this existed, opening a 64KB article
+// and turning one page of it cost the same 136,952 measurements each, because
+// both wrapped the whole article twice. A page turn must now cost a page.
+void testAPageTurnDoesNotCostTheWholeArticle() {
+  const std::string small = longArticle(4u * 1024u);
+  const std::string large = longArticle(64u * 1024u);
+
+  Rendered shortRead;
+  uint32_t shortLines = 0;
+  readerPaintCost(shortRead, small, 0, &shortLines);
+  const long shortTurn = readerPaintCost(shortRead, small, shortLines > 40 ? shortLines - 40 : 0);
+
+  Rendered longRead;
+  uint32_t longLines = 0;
+  const long longOpen = readerPaintCost(longRead, large, 0, &longLines);
+  const long longTurn = readerPaintCost(longRead, large, longLines > 40 ? longLines - 40 : 0);
+
+  CHECK(longLines > shortLines * 10);  // the article really is much longer
+  // Stated as a shape rather than a threshold: turning a page of the long
+  // article costs what turning a page of the short one costs. A wrap that
+  // crept back onto the render path would make this grow with longLines and
+  // there is no constant to tune that would hide it.
+  CHECK(longTurn < shortTurn * 2);
+  // And the opening, which does have to wrap once, is worlds away from it.
+  CHECK(longTurn * 20 < longOpen);
+}
+
+// Once per opening is the fix; once per paint is the bug. Asked of the wrap
+// itself so that a future change that keeps the cost down by some other route
+// still has to say out loud that it is not re-wrapping.
+void testAnArticleIsWrappedOnceHoweverManyPagesAreTurned() {
+  const std::string doc = longArticle(32u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  const uint32_t total = wrap.lineCount(target, body.width, doc.c_str(), style);
+  CHECK(wrap.wraps() == 1);
+  const uint16_t visible = fui::textAreaVisibleLines(body, target.lineHeight(style.font));
+  for (uint32_t top = 0; top < total; top += visible) {
+    wrap.draw(target, body, doc.c_str(), style, top);
+    wrap.lineCount(target, body.width, doc.c_str(), style);
+  }
+  CHECK(wrap.wraps() == 1);
+}
+
+// --- The failure this fix INTRODUCES ---------------------------------------
+//
+// Everything above is about the bug being gone. These are about the new one: a
+// wrap kept after the thing it describes has moved. It is silent by nature --
+// the lines still draw, the page label still counts, and the reading position
+// that goes to somebody's Instapaper account is simply wrong -- so each of
+// these turns a silent wrong answer into an assertion.
+
+// A rotation is a different width, and a width is the whole wrap.
+void testANarrowerPanelIsNotDrawnFromTheWiderPanelsWrap() {
+  const std::string doc = longArticle(16u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  const uint32_t wide = wrap.lineCount(target, 440, doc.c_str(), style);
+  const uint32_t narrow = wrap.lineCount(target, 260, doc.c_str(), style);
+  CHECK(wrap.wraps() == 2);
+  CHECK(narrow > wide);
+  // Not just a different number: the narrow panel's own answer.
+  toybox::WrappedText fresh;
+  FakeTarget clean;
+  CHECK(narrow == fresh.lineCount(clean, 260, doc.c_str(), style));
+  // And back again, so this is not one-way.
+  CHECK(wrap.lineCount(target, 440, doc.c_str(), style) == wide);
+}
+
+// A bigger reading size, or a different cut installed off the SD card: the
+// width is the same and the style object is the same, and every line of the
+// article is somewhere else. Nothing in the app announces this, which is why
+// the key asks the target instead of waiting to be told.
+void testABiggerReadingSizeIsNotDrawnFromTheSmallerOnesWrap() {
+  const std::string doc = longArticle(16u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  const uint32_t small = wrap.lineCount(target, body.width, doc.c_str(), style);
+  target.charW = 16;
+  const uint32_t big = wrap.lineCount(target, body.width, doc.c_str(), style);
+  CHECK(wrap.wraps() == 2);
+  CHECK(big > small);
+
+  toybox::WrappedText fresh;
+  FakeTarget clean;
+  clean.charW = 16;
+  CHECK(big == fresh.lineCount(clean, body.width, doc.c_str(), style));
+  // What is drawn moves with it, not only what is counted.
+  FakeTarget slow;
+  slow.charW = 16;
+  CHECK(linesFromWrap(target, wrap, body, doc.c_str(), style, 40) ==
+        linesFromTextArea(slow, body, doc.c_str(), style, 40));
+}
+
+// The next article, which a reader reaches by opening it -- and which can land
+// in the same buffer, at the same address, at the same length. A key made of a
+// pointer and a length would call this the same document and page through the
+// previous one's line breaks.
+void testAnotherArticleOfTheSameLengthIsNotDrawnFromTheFirstsWrap() {
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  std::string first = longArticle(8u * 1024u);
+  const uint32_t firstLines = wrap.lineCount(target, body.width, first.c_str(), style);
+  // Same buffer, same length, different words: one long unbroken run wraps
+  // into a very different number of lines from prose of the same size.
+  std::string second = first;
+  for (char& c : second) c = (c == ' ' || c == '\n') ? 'x' : c;
+  CHECK(second.size() == first.size());
+  CHECK(second != first);
+  const uint32_t secondLines = wrap.lineCount(target, body.width, second.c_str(), style);
+  CHECK(wrap.wraps() == 2);
+  CHECK(secondLines != firstLines);
+
+  toybox::WrappedText fresh;
+  FakeTarget clean;
+  CHECK(secondLines == fresh.lineCount(clean, body.width, second.c_str(), style));
+}
+
+// The gap the key cannot close, and the layer that closes it.
+//
+// The key measures every character the document is written in, one at a time
+// and then all of them run together. A target whose answer depends on which
+// characters sit NEXT TO each other -- kerning -- can move a wrap while every
+// one of those probes comes back with the number it came back with before, as
+// long as the pair does not happen to occur in the probe run. That is a real
+// metrics change the fingerprint does not see.
+//
+// So the window walk has to catch it: the walk that draws is the walk that
+// disagrees, and a disagreement rebuilds rather than draws.
+void testAKernPairTheKeyCannotSeeIsCaughtByTheWindow() {
+  // "zqx" never appears in the probe run, which is the document's alphabet in
+  // code-point order, so widening it moves the wrap and not the key.
+  // Real prose with the pair sprinkled through it, so a window read from the
+  // wrong offset shows visibly different words rather than the same sentence
+  // one repeat over.
+  std::string doc = longArticle(24u * 1024u);
+  for (size_t at = 40; at + 3 < doc.size(); at += 97) {
+    doc[at] = 'z';
+    doc[at + 1] = 'q';
+    doc[at + 2] = 'x';
+  }
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+
+  FakeTarget target;
+  toybox::WrappedText wrap;
+  const uint32_t before = wrap.lineCount(target, body.width, doc.c_str(), style);
+  const uint32_t wrapsBefore = wrap.wraps();
+
+  target.kernSeq = "zqx";
+  target.kernBonus = 90;
+  // The key is genuinely blind to it: asking for the count alone still
+  // believes the old wrap. This CHECK is the point of the test -- if it ever
+  // fails, layer 1 grew to cover this and layer 2 is no longer load-bearing
+  // here, which is worth knowing rather than silently enjoying.
+  CHECK(wrap.lineCount(target, body.width, doc.c_str(), style) == before);
+  CHECK(wrap.wraps() == wrapsBefore);
+
+  // Drawing is what notices, and it rebuilds before it draws anything.
+  FakeTarget slow;
+  slow.kernSeq = "zqx";
+  slow.kernBonus = 90;
+  const std::vector<std::string> drawn = linesFromWrap(target, wrap, body, doc.c_str(), style, 120);
+  CHECK(wrap.wraps() > wrapsBefore);
+  CHECK(drawn == linesFromTextArea(slow, body, doc.c_str(), style, 120));
+  // And the count it hands the pager afterwards is the new panel's count.
+  toybox::WrappedText fresh;
+  FakeTarget clean;
+  clean.kernSeq = "zqx";
+  clean.kernBonus = 90;
+  CHECK(wrap.lineCount(target, body.width, doc.c_str(), style) ==
+        fresh.lineCount(clean, body.width, doc.c_str(), style));
+}
+
+// Every page of the article, one after another, as the reader would see them.
+std::string everyPageConcatenated(FakeTarget& target, toybox::WrappedText& wrap, const fui::Rect rect, const char* text,
+                                  const fui::TextStyle& style) {
+  const uint16_t visible = fui::textAreaVisibleLines(rect, target.lineHeight(style.font));
+  const uint32_t total = wrap.lineCount(target, rect.width, text, style);
+  std::string seen;
+  for (uint32_t top = 0; top < total; top += visible) {
+    target.texts.clear();
+    wrap.draw(target, rect, text, style, top);
+    for (const auto& run : target.texts) seen += run.text;
+  }
+  return seen;
+}
+
+// Nothing is dropped between one page and the next.
+//
+// Asked of the DOCUMENT rather than of fui::textArea, which matters: every
+// other test here compares the wrap against the SDK, so a fault the two share
+// is invisible to all of them. This one knows what the article says. The SDK
+// promises each source byte belongs to exactly one visual line and that a
+// consumed '\n' is the only thing dropped, so the pages read end to end are
+// the article with its newlines removed -- and a break that moves under a
+// stale index deletes a word from between two pages without changing how many
+// lines there are.
+void testEveryPageTogetherIsTheWholeArticle() {
+  const std::string doc = longArticle(24u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  std::string want;
+  for (const char c : doc) {
+    if (c != '\n') want += c;
+  }
+  CHECK(everyPageConcatenated(target, wrap, body, doc.c_str(), style) == want);
+}
+
+// The one the previous version of this file could not ask.
+//
+// The old layer 2 compared how many lines the window produced against how many
+// the index recorded. A metrics change that moves where the breaks fall while
+// leaving the COUNT alone therefore slipped through it completely: the window
+// was cut at a byte the stale index chose and re-wrapped with the new metrics,
+// so the page began in the wrong place and the text between two pages was
+// simply never shown.
+//
+// The adversarial case is SEARCHED FOR rather than assumed. A hand-picked
+// kern delta that happens to change the line count tests the thing layer 2
+// already measured, which is how this survived: the test was derived from the
+// code's own assumption. Here the test hunts for a delta that preserves the
+// count and changes the words, and says so out loud if it cannot find one.
+// A document of even paragraphs, each its own block of lines, so that widening
+// one and narrowing another are independent events whose effects on a line
+// COUNT can cancel exactly.
+std::string paragraphedArticle() {
+  std::string doc;
+  char stamp[32];
+  for (int p = 0; p < 400; ++p) {
+    std::snprintf(stamp, sizeof(stamp), "[%d] ", p);
+    doc += stamp;
+    for (int w = 0; w < 14; ++w) doc += "wordy ";
+    doc += '\n';
+  }
+  return doc;
+}
+
+void testABreakThatMovesWithoutChangingTheCountIsStillCaught() {
+  // Not guessed: hunted for offline against the SDK's own wrap, then pinned
+  // here. Paragraph 5 gains a line when "zqx" widens by 52, paragraph 6 loses
+  // one when "wjv" narrows by 4, and the result is that the byte the index
+  // recorded for line 16 IS NO LONGER THE START OF A LINE -- while the number
+  // of lines between that byte and the one recorded for line 48 still comes
+  // out at 32. So a page drawn from it begins in the middle of a line, and
+  // counting the lines it produced says everything is fine.
+  //
+  // Four earlier versions of this test looked for the case and reported PASS
+  // without ever finding one. Two of them searched with a single planted
+  // token, which shifts one paragraph and changes the stretch's length -- the
+  // one thing the count check does see. The third required the stretch's ENDS
+  // to agree, which is the case that comes out right anyway, because the draw
+  // re-wraps from the end it starts at. The case that matters is the one where
+  // the START moved and the count did not.
+  std::string doc = paragraphedArticle();
+  char ka[32], kb[32];
+  std::snprintf(ka, sizeof(ka), "[%d] ", 5);
+  std::snprintf(kb, sizeof(kb), "[%d] ", 6);
+  const size_t a = doc.find(ka);
+  const size_t b = doc.find(kb);
+  CHECK(a != std::string::npos);
+  CHECK(b != std::string::npos);
+  doc.replace(a + std::strlen(ka), 3, "zqx");
+  doc.replace(b + std::strlen(kb), 3, "wjv");
+
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+
+  // A wrap taken before the cut changed.
+  FakeTarget stale;
+  toybox::WrappedText held;
+  const uint32_t was = held.lineCount(stale, body.width, doc.c_str(), style);
+  const uint32_t wrapsBefore = held.wraps();
+
+  // The cut changes. Neither pair appears in the fingerprint's run, which is
+  // the document's alphabet in code-point order, so layer 1 is genuinely
+  // blind -- and that is the point of the test, not an accident of it.
+  const std::vector<std::pair<std::string, int16_t>> cut = {{"zqx", 52}, {"wjv", -4}};
+  stale.kerns = cut;
+  FakeTarget truth;
+  truth.kerns = cut;
+  toybox::WrappedText fresh;
+  const uint32_t now = fresh.lineCount(truth, body.width, doc.c_str(), style);
+  CHECK(now == was);  // the count really is unchanged; that is the trap
+  CHECK(held.wraps() == wrapsBefore);
+
+  // Every page across the disturbed stretch must be the page the changed panel
+  // really has, not one begun at a byte the old wrap chose.
+  // EVERY top line, not every page. A reader restoring a saved position lands
+  // on an arbitrary line, and more to the point the disturbance here is two
+  // paragraphs wide: sampling only page starts stepped straight over it and
+  // read as a pass, because paragraphs realign the wrap within a few lines of
+  // any change and a window that begins past them comes out right.
+  int wrong = 0;
+  uint32_t firstWrong = 0;
+  for (uint32_t top = 0; top < 128; ++top) {
+    if (linesFromWrap(stale, held, body, doc.c_str(), style, top) !=
+        linesFromWrap(truth, fresh, body, doc.c_str(), style, top)) {
+      if (wrong == 0) firstWrong = top;
+      ++wrong;
+    }
+  }
+  CHECK(wrong == 0);
+  if (wrong != 0) {
+    std::printf("     %d page(s) drawn from a stale wrap, first at line %u\n", wrong,
+                static_cast<unsigned>(firstWrong));
+  }
+
+  // And the same page reached COLD, with no earlier page drawn first.
+  //
+  // The sweep above starts at line 0, and drawing that page walks through the
+  // first bad checkpoint and rebuilds -- so by the time it reaches the page
+  // that matters, the index has already been repaired and the test passes
+  // whatever the window does about its own starting byte. A reader reopening
+  // an article does not read from line 0: topLineFor() drops them straight
+  // onto their saved position, which is the case where the window's first
+  // checkpoint has never been walked into and is simply believed.
+  FakeTarget cold;
+  toybox::WrappedText coldWrap;
+  coldWrap.lineCount(cold, body.width, doc.c_str(), style);
+  cold.kerns = cut;
+  CHECK(linesFromWrap(cold, coldWrap, body, doc.c_str(), style, 16) ==
+        linesFromWrap(truth, fresh, body, doc.c_str(), style, 16));
+
+  // And nothing has gone missing from between the pages.
+  std::string want;
+  for (const char c : doc) {
+    if (c != '\n') want += c;
+  }
+  FakeTarget after;
+  after.kerns = cut;
+  CHECK(everyPageConcatenated(after, held, body, doc.c_str(), style) == want);
+}
+
+// A different reading size is a different FONT, not the same font drawn wider.
+// The earlier version of this moved `charW`, which every font answered to --
+// so it passed even against a fingerprint that never passed `style` to
+// measureText at all. This moves one font id and one weight.
+// The count a caller is allowed to keep is the one the PANEL was drawn from.
+//
+// buildReader() draws through the wrap, and drawing is where a wrap that no
+// longer describes this panel is caught and rebuilt. A caller that keeps the
+// count it took a moment earlier is holding the length of an article this
+// screen is not showing -- and in Instapaper that number is divided into the
+// top line and sent to somebody's real account, with nothing on screen to say
+// it was wrong. So buildReader returns the count rather than leaving it to be
+// asked for again, and this is the test that the returned one is the drawn one.
+void testTheCountBuildReaderReturnsIsTheOneItDrew() {
+  // A change of cut the fingerprint cannot see that DOES move the line count.
+  // The pinned case used elsewhere in this file is the opposite -- built so
+  // the count survives -- and against that one this test can prove nothing,
+  // because the number taken before the drawing and the number after it are
+  // equal whether the ordering is right or wrong.
+  std::string doc = longArticle(24u * 1024u);
+  for (size_t at = 40; at + 3 < doc.size(); at += 97) {
+    doc[at] = 'z';
+    doc[at + 1] = 'q';
+    doc[at + 2] = 'x';
+  }
+  const std::vector<std::pair<std::string, int16_t>> cut = {{"zqx", 90}};
+
+  Rendered out;
+  out.bodyText = doc.c_str();
+  const fui::DeviceContext ctx = device();
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
+
+  instapaperui::ReaderBody bodyText;
+  bodyText.text = out.bodyText;
+  bodyText.style = tokens.bodyText;
+  bodyText.wrap = &out.wrap;
+
+  // A wrap taken before the cut changed, then the cut changes.
+  const uint32_t before = instapaperui::readerLineCount(out.target, ctx, bodyText);
+  out.target.kerns = cut;
+  // The count taken BEFORE the drawing still believes the old wrap: neither
+  // the width nor the text moved, and the fingerprint cannot see a pair.
+  const uint32_t taken = instapaperui::readerLineCount(out.target, ctx, bodyText);
+  CHECK(taken == before);
+
+  instapaperui::ReaderModel model;
+  model.title = "A long article";
+  model.topLine = 120;
+  model.pageLabel = "2 / 40";
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, tokens);
+  const uint32_t drawn = instapaperui::buildReader(screen, model, bodyText);
+
+  // What a fresh wrap of the same document under the same cut says.
+  FakeTarget clean;
+  clean.kerns = cut;
+  toybox::WrappedText fresh;
+  const uint32_t honest = fresh.lineCount(clean, instapaperui::readerBody(ctx).width, doc.c_str(), tokens.bodyText);
+
+  CHECK(drawn == honest);
+  // And it really was a different number from the one taken beforehand, or
+  // this test would pass without the ordering mattering at all.
+  CHECK(drawn != taken);
+}
+
+void testTheFingerprintReadsTheStyleAndNotJustTheTarget() {
+  const std::string doc = longArticle(16u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+
+  FakeTarget target;
+  toybox::WrappedText wrap;
+  const uint32_t before = wrap.lineCount(target, body.width, doc.c_str(), style);
+
+  // Only THIS font gets wider. A fingerprint that ignored style.font would
+  // measure with some other id and see nothing move.
+  target.fontWidths.push_back({style.font, 16});
+  const uint32_t after = wrap.lineCount(target, body.width, doc.c_str(), style);
+  CHECK(wrap.wraps() == 2);
+  CHECK(after > before);
+
+  // And the weight, which is a style field rather than a font id.
+  FakeTarget weight;
+  toybox::WrappedText boldWrap;
+  fui::TextStyle plain = style;
+  plain.bold = false;
+  const uint32_t light = boldWrap.lineCount(weight, body.width, doc.c_str(), plain);
+  weight.boldBonus = 8;
+  fui::TextStyle heavy = style;
+  heavy.bold = true;
+  const uint32_t heavyCount = boldWrap.lineCount(weight, body.width, doc.c_str(), heavy);
+  CHECK(heavyCount > light);
+  CHECK(boldWrap.wraps() == 2);
+}
+
+// A document that ends in a newline has an empty final line, and the whole
+// document's wrap counts it. The slice the last page is cut from runs to the
+// end of the document, so it must NOT have that newline trimmed off -- and
+// nothing above would notice if it did, because the rebuild that follows
+// repairs the page and only the wrap COUNT gives it away.
+void testADocumentEndingInANewlineIsStillWrappedOnce() {
+  std::string doc = longArticle(24u * 1024u);
+  while (!doc.empty() && doc.back() == '\n') doc.pop_back();
+  doc += '\n';
+  CHECK(doc.back() == '\n');
+
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+  const uint32_t total = wrap.lineCount(target, body.width, doc.c_str(), style);
+  const uint16_t visible = fui::textAreaVisibleLines(body, target.lineHeight(style.font));
+  for (uint32_t top = 0; top < total; top += visible) {
+    wrap.draw(target, body, doc.c_str(), style, top);
+  }
+  // Once. A trim that ate the empty final line would make the last page
+  // disagree with the index and rebuild, every time it was drawn.
+  CHECK(wrap.wraps() == 1);
+}
+
+// The same shape in the other reader. Hacker News flattens a whole comment
+// thread into one buffer and pages through it, and it had the identical two
+// walks with not even a branch to hang a cache on.
+void testTheHackerNewsReaderAlsoWrapsOncePerDocument() {
+  const std::string doc = longArticle(32u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = hnui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  hnui::ReaderBody counted;
+  counted.text = doc.c_str();
+  counted.style = style;
+  counted.wrap = &wrap;
+  const uint32_t total = hnui::readerLineCount(target, device(), counted);
+  CHECK(total > 400);
+  CHECK(wrap.wraps() == 1);
+  const uint16_t visible = fui::textAreaVisibleLines(body, target.lineHeight(style.font));
+  FakeTarget slow;
+  for (uint32_t top = 0; top < total; top += visible) {
+    CHECK(linesFromWrap(target, wrap, body, doc.c_str(), style, top) ==
+          linesFromTextArea(slow, body, doc.c_str(), style, top));
+  }
+  CHECK(wrap.wraps() == 1);
 }
 
 // An empty queue still has to offer the door. It is the one moment a reader
@@ -5217,6 +7519,105 @@ void testArchiveIsLiveOnTheLastPage() {
   CHECK(sawArchive);
 }
 
+// ARCHIVE is the one control in this app that changes anything outside the
+// screen it is on, and it used to be the WIDE MIDDLE of the reader's footer --
+// the easiest target on the panel, directly between the two controls a reader
+// taps on every page. A miss while paging took the article away, silently.
+//
+// This asserts the geometry that fixes it, over every pixel of the bar rather
+// than over three sampled points: no archive pixel may sit between two page
+// pixels, and the two families may not touch.
+void testArchiveIsNotBetweenThePageControls() {
+  Rendered out;
+  instapaperui::ReaderModel model = instaArticleModel();
+  model.canPagePrev = true;
+  model.canPageNext = true;
+  buildInstaReader(out, model);
+
+  const fui::DeviceContext ctx = device();
+  const int16_t footerY = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+  int archiveLeft = ctx.width;
+  int archiveRight = -1;
+  int pageLeft = ctx.width;
+  int archivePixels = 0;
+  int prevPixels = 0;
+  int nextPixels = 0;
+  for (int x = 0; x < ctx.width; ++x) {
+    const fui::ActionEvent event = out.tap(x, footerY);
+    if (event.action == instapaperui::ActionArchive) {
+      ++archivePixels;
+      if (x < archiveLeft) archiveLeft = x;
+      archiveRight = x;
+    }
+    if (event.action == instapaperui::ActionPagePrev) ++prevPixels;
+    if (event.action == instapaperui::ActionPageNext) ++nextPixels;
+    if ((event.action == instapaperui::ActionPagePrev || event.action == instapaperui::ActionPageNext) &&
+        x < pageLeft) {
+      pageLeft = x;
+    }
+  }
+  CHECK(archivePixels > 0);
+  CHECK(prevPixels > 0);
+  CHECK(nextPixels > 0);
+  // Every archive pixel is left of every page pixel.
+  CHECK(archiveRight < pageLeft);
+  // And the two do not touch: a thumb that misses a page control has a gap to
+  // cross before it reaches the destructive one.
+  CHECK(pageLeft - archiveRight > toybox::kGutter);
+  // And the word survives whole. Its box is sized from the label rather than
+  // as a fraction of the bar, because a fraction is a number nobody re-checks
+  // when the reading face changes under it.
+  CHECK(drewLabelWhole(out, "ARCHIVE"));
+  CHECK(archiveLeft >= 0);
+  // And the page controls keep a box a thumb can hit, which is the constraint
+  // the archive box is capped BY rather than a second number about it.
+  CHECK(prevPixels >= fui::ButtonProps{}.minTouchSize);
+  CHECK(nextPixels >= fui::ButtonProps{}.minTouchSize);
+}
+
+// The undo lives on the queue and only while there is something to undo. It is
+// what makes a mis-tapped archive recoverable without charging every
+// deliberate archive a confirmation tap.
+void testTheQueueOffersUndoOnlyAfterAnArchive() {
+  fui::ListItem row{};
+  row.label = "Something to read";
+  row.subtitle = "6 min . example.com";
+  row.value = "";
+  row.actionValue = 0;
+
+  const fui::DeviceContext ctx = device();
+  const int16_t footerY = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+
+  Rendered quiet;
+  instapaperui::QueueModel model;
+  model.items = &row;
+  model.count = 1;
+  buildInstaQueue(quiet, model);
+  CHECK(!drewText(quiet, "PUT BACK"));
+  for (int x = toybox::kMargin; x < ctx.width - toybox::kMargin; x += 8) {
+    CHECK(quiet.tap(x, footerY).action != instapaperui::ActionUndoArchive);
+  }
+
+  Rendered offered;
+  model.canUndoArchive = true;
+  buildInstaQueue(offered, model);
+  // Either label is fine -- the builder drops to the short one at a cut where
+  // the long one will not fit -- but whichever it drew has to fit its box.
+  CHECK(drewLabelWhole(offered, "PUT BACK") || drewLabelWhole(offered, "BACK"));
+  bool sawUndo = false;
+  bool sawSync = false;
+  for (int x = toybox::kMargin; x < ctx.width - toybox::kMargin; x += 4) {
+    const fui::ActionId action = offered.tap(x, footerY).action;
+    if (action == instapaperui::ActionUndoArchive) sawUndo = true;
+    if (action == instapaperui::ActionSync) sawSync = true;
+  }
+  // Both, because an undo that took the whole bar would cost the reader the
+  // control they came to this screen for.
+  CHECK(sawUndo);
+  CHECK(sawSync);
+  CHECK(!offered.interactions.overflowed());
+}
+
 // A title wider than the band must be cut on a word and marked, never clipped
 // mid-word: a word broken in half reads as a rendering fault.
 void testALongTitleIsEllipsisedRatherThanClipped() {
@@ -5244,50 +7645,765 @@ void testTheReaderTextGoesInTheReaderBody() {
 // to work with, and before this it returned the ellipsis and nothing else --
 // which is how the Instapaper pairing screen came to ask "IS THIS YOU?" over a
 // row reading "...". Half an address beats none of one.
-// The strip's two hit tests each re-derive layout()'s arithmetic. Two copies of
-// one layout is how a tap zone drifts away from the marker it is meant to sit
-// under, and neither copy looks wrong on its own -- so this asserts they agree
-// with each other over every point on the panel rather than trusting either.
-void testWavelengthStripHitTestsAgree() {
-  const int16_t w = 480;
-  const int16_t h = 800;
-  int checked = 0;
-  for (int guess = 1; guess <= wavelength::kSlots; ++guess) {
-    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 3)) {
-      const int slot = wavelengthui::dialSlotAt(w, h, 240, y);
-      const int dir = wavelengthui::dialDirectionAt(w, h, guess, 240, y);
-      if (slot == 0) {
-        // Off the board for one must be off the board for the other.
-        CHECK(dir == 0);
-        continue;
-      }
-      const int expected = slot > guess ? 1 : (slot < guess ? -1 : 0);
-      if (dir != expected) {
-        std::printf("  slot %d guess %d y %d: direction %d, expected %d\n", slot, guess, static_cast<int>(y), dir,
-                    expected);
-        CHECK(false);
-        return;
-      }
-      ++checked;
-    }
-  }
-  CHECK(checked > 3000);
-}
-
 // A tap places the marker, so every slot on the strip must be reachable by one.
 // A rounding error at either end silently makes slot 1 or slot 20 untappable,
 // and those are the two the deck's clearest clues point at.
+// Every reachable WAVELENGTH screen must offer a way onward that is not the
+// hardware Back key. A practice reveal once lost its NEXT ROUND button to an
+// early return and looked entirely finished without it: a cold table tried
+// fourteen different gestures and sixteen seconds of waiting on the first round
+// of the very first session.
+// Nothing is drawn through anything else. Three separate times this app moved
+// or added one element and did not check what it landed on: a large session
+// average composited into a small reference number on the end screen, and a
+// hairline rule struck straight through the label under the guess. Both looked
+// completely finished in code and were only visible in a render.
+//
+// Two checks, because the two failures have different shapes: no two pieces of
+// text may overlap, and a RULE -- a fill thin enough to be a hairline -- may not
+// cross any text. Thick fills are buttons and legitimately sit under their own
+// labels, so they are excluded rather than special-cased away.
+void testWavelengthNothingIsDrawnThroughAnything() {
+  const auto inkOf = [](const FakeTarget::TextRun& run) {
+    const int16_t measured = static_cast<int16_t>(run.text.size() * 10);
+    const int16_t w = measured < run.rect.width ? measured : run.rect.width;
+    int16_t x = run.rect.x;
+    if (run.style.align == fui::TextAlign::Right)
+      x = static_cast<int16_t>(run.rect.x + run.rect.width - w);
+    else if (run.style.align == fui::TextAlign::Center)
+      x = static_cast<int16_t>(run.rect.x + (run.rect.width - w) / 2);
+    return fui::Rect{x, run.rect.y, w, run.rect.height};
+  };
+  const auto overlaps = [](const fui::Rect& a, const fui::Rect& b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  };
+  struct Case {
+    const char* name;
+    void (*build)(Rendered&);
+  };
+  static const Case kCases[] = {
+      {"dial",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::DialModel m;
+         m.spectrum = wavelengthui::Spectrum{"UNDERRATED LETTER OF THE ALPHABET", "MOVIE THAT GODZILLA WOULD IMPROVE"};
+         m.guess = 13;
+         m.roundNumber = 12;
+         wavelengthui::renderDial(screen, m);
+       }},
+      {"summary",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::SummaryModel m;
+         m.rounds = 7;
+         m.total = 19;
+         m.averageTenths = 27;
+         wavelengthui::renderSummary(screen, m);
+       }},
+      // Every screen the 2026-09-01 wording pass re-laid out. Two screens were
+      // covered here and eight were not, which is why a rule through a label
+      // had to be found by looking at a render.
+      {"how to play",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::renderHowTo(screen);
+       }},
+      {"menu, no session",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::MenuModel m;
+         wavelengthui::renderMenu(screen, m);
+       }},
+      {"menu, session running",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::MenuModel m;
+         m.sessionInProgress = true;
+         m.sessionRound = 7;
+         m.sessionTotal = 8;
+         m.sessionScored = 5;
+         wavelengthui::renderMenu(screen, m);
+       }},
+      {"pause",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PauseModel m;
+         m.roundNumber = 4;
+         m.total = 11;
+         m.abandoned = 2;
+         wavelengthui::renderPause(screen, m);
+       }},
+      {"pass, abandoned",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PassModel m;
+         m.roundNumber = 4;
+         m.total = 11;
+         m.abandoned = true;
+         m.abandonedCount = 2;
+         wavelengthui::renderPassLeft(screen, m);
+       }},
+      {"pass, practice",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PassModel m;
+         m.practice = true;
+         wavelengthui::renderPassLeft(screen, m);
+       }},
+      {"clue",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::ClueModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         wavelengthui::renderClue(screen, m);
+       }},
+      {"peek, revealed",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PeekModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.target = 14;
+         m.revealed = true;
+         m.everRevealed = true;
+         wavelengthui::renderPeek(screen, m);
+       }},
+      {"reveal, scored",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 12;
+         m.target = 13;
+         m.points = 4;
+         m.callWasRight = true;
+         m.roundNumber = 4;
+         m.total = 11;
+         wavelengthui::renderReveal(screen, m);
+       }},
+      // EXACT and TWO OFF depend on a random target and did not come up in
+      // twenty-five driven rounds, so the only place their layout is exercised
+      // is here: EXACT also takes the side call's NOT NEEDED branch.
+      {"reveal, exact",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 9;
+         m.target = 9;
+         m.points = wavelength::kPointsExact;
+         m.roundNumber = 6;
+         m.total = 17;
+         wavelengthui::renderReveal(screen, m);
+       }},
+      {"reveal, two off",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 9;
+         m.target = 11;
+         m.points = wavelength::kPointsOffByTwo;
+         m.roundNumber = 7;
+         m.total = 18;
+         wavelengthui::renderReveal(screen, m);
+       }},
+      {"reveal, practice",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 6;
+         m.target = 9;
+         m.practice = true;
+         wavelengthui::renderReveal(screen, m);
+       }},
+      {"resume",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::ResumeModel m;
+         m.roundNumber = 12;
+         m.total = 137;
+         m.scored = 11;
+         m.roundInFlight = true;
+         m.minutesAgo = 6 * 24 * 60;
+         wavelengthui::renderResume(screen, m);
+       }},
+      {"resume, nothing optional",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::ResumeModel m;
+         m.roundNumber = 2;
+         m.total = 0;
+         m.scored = 0;
+         wavelengthui::renderResume(screen, m);
+       }},
+  };
+
+  for (const Case& c : kCases) {
+    Rendered out;
+    c.build(out);
+    const auto& texts = out.target.texts;
+    for (size_t i = 0; i < texts.size(); ++i) {
+      for (size_t j = i + 1; j < texts.size(); ++j) {
+        if (!overlaps(inkOf(texts[i]), inkOf(texts[j]))) continue;
+        std::printf("  %s: %s overlaps %s\n", c.name, texts[i].text.c_str(), texts[j].text.c_str());
+        CHECK(false);
+        return;
+      }
+    }
+    for (const fui::Rect& f : out.target.fills) {
+      if (f.height > toybox::kRule) continue;  // a rule, not a button
+      for (const FakeTarget::TextRun& t : texts) {
+        if (!overlaps(f, inkOf(t))) continue;
+        std::printf("  %s: a rule is drawn through %s\n", c.name, t.text.c_str());
+        CHECK(false);
+        return;
+      }
+    }
+  }
+}
+
+void testWavelengthEveryRevealOffersAWayOn() {
+  for (const bool practice : {false, true}) {
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::RevealModel model;
+    model.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    model.practice = practice;
+    model.guess = 7;
+    model.target = 9;
+    wavelengthui::renderReveal(screen, model);
+    bool found = false;
+    for (const FakeTarget::TextRun& run : out.target.texts)
+      if (run.text == "NEXT ROUND") found = true;
+    if (!found) std::printf("  reveal with practice=%d has no way forward\n", static_cast<int>(practice));
+    CHECK(found);
+  }
+}
+
+// The two ends of one spectrum are a single object and must be set at a single
+// size. Sized independently, the longer pole dropped a whole cut: PHYSICAL
+// ACTIVITY printed at half the height of MENTAL ACTIVITY in the same card, and
+// a cold table read the pair as a heading with a subheading rather than as two
+// ends of a scale.
+void testWavelengthSpectrumEndsShareOneSize() {
+  const struct {
+    const char* top;
+    const char* bottom;
+  } kPairs[] = {
+      {"MENTAL ACTIVITY", "PHYSICAL ACTIVITY"},
+      {"HOT", "UNDERRATED LETTER OF THE ALPHABET"},
+      {"MOVIE THAT GODZILLA WOULD IMPROVE", "COLD"},
+      {"LOUD", "QUIET"},
+  };
+  for (const auto& pair : kPairs) {
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::PickModel model;
+    model.first = wavelengthui::Spectrum{pair.top, pair.bottom};
+    model.second = wavelengthui::Spectrum{"NEAR", "FAR"};
+    wavelengthui::renderPick(screen, model);
+
+    fui::FontId topFont = 0;
+    fui::FontId bottomFont = 0;
+    for (const FakeTarget::TextRun& run : out.target.texts) {
+      if (run.text == pair.top) topFont = run.style.font;
+      if (run.text == pair.bottom) bottomFont = run.style.font;
+    }
+    if (topFont != bottomFont)
+      std::printf("  %s / %s drawn in different slots (%d vs %d)\n", pair.top, pair.bottom, static_cast<int>(topFont),
+                  static_cast<int>(bottomFont));
+    CHECK(topFont == bottomFont);
+  }
+}
+
+// Four fixes that a reconciliation silently dropped once and shipped. Each has
+// a test now rather than a claim in a release note, because a note is written
+// by whoever did the merge and these were lost by exactly that person checking
+// one place and assuming the rest.
+void testWavelengthTheFourThatWereDropped() {
+  const int16_t w = 480;
+  const int16_t h = 800;
+
+  // 1. THE RESULT MUST NOT DRAW A BUTTON WHERE THE FINGER ALREADY IS. The lock
+  // fires while the thumb is down, so the result appears under it; if its
+  // NEXT ROUND shares the lock bar's rect, releasing presses it and the round's
+  // whole payoff is gone before the table sees it.
+  const fui::Rect lockBar = wavelengthui::lockBarRect(w, h);
+  Rendered rev;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(rev.target, ctx, noInput, rev.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::RevealModel m;
+    m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    m.guess = 13;
+    m.target = 10;
+    wavelengthui::renderReveal(screen, m);
+  }
+  bool clash = false;
+  for (const fui::Rect& f : rev.target.fills) {
+    if (f.height <= toybox::kRule) continue;
+    const bool overlapsLock = f.x < lockBar.x + lockBar.width && lockBar.x < f.x + f.width &&
+                              f.y < lockBar.y + lockBar.height && lockBar.y < f.y + f.height;
+    if (overlapsLock) clash = true;
+  }
+  if (clash) std::printf("  the reveal draws a button over the lock bar's rect\n");
+  CHECK(!clash);
+
+  // 2. THE LOCK BAR MUST NOT REACH THE BOTTOM CORNERS, where a thumb rests when
+  // a portrait slab is lifted off a table. It locked the guess at the untouched
+  // default with nobody having decided anything.
+  CHECK(lockBar.x > toybox::kMargin);
+  CHECK(lockBar.x + lockBar.width < w - toybox::kMargin);
+
+  // 3. THE STRIP'S LEFT GUTTER IS NOT THE STRIP. The numerals hang left of the
+  // board; a tap at x=25 moved the table's guess.
+  bool gutterLive = false;
+  for (int16_t y = 0; y < h; ++y)
+    if (wavelengthui::dialSlotAt(w, h, 25, y) != 0) gutterLive = true;
+  if (gutterLive) std::printf("  a tap in the numeral gutter moves the guess\n");
+  CHECK(!gutterLive);
+
+  // 4. BEFORE THE NUMBER HAS BEEN SEEN THERE IS NO SECOND BUTTON. A disabled
+  // one whose label is an imperative reads as the other way to do the thing;
+  // testers in two separate rounds tapped it and concluded the device had
+  // frozen. Exactly one filled control on that screen until it has been held.
+  Rendered peek;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(peek.target, ctx, noInput, peek.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::PeekModel m;
+    m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    m.target = 8;
+    m.everRevealed = false;
+    wavelengthui::renderPeek(screen, m);
+  }
+  int wideBars = 0;
+  for (const fui::Rect& f : peek.target.fills)
+    if (f.height > 30 && f.width > 200) ++wideBars;
+  if (wideBars != 1) std::printf("  peek shows %d full-width bars before the number is seen, want 1\n", wideBars);
+  CHECK(wideBars == 1);
+}
+
+// A STALE SAVE MUST NOT GREET A NEW TABLE WITH SOMEBODY ELSE'S ROUND 2.
+//
+// The round, the hidden number and the score are written to the card on every
+// screen change so that Home, or the device sleeping mid-argument, does not
+// cost the table its game. That save had no notion of going stale, so days
+// later a completely different group opened the app and was dropped into the
+// middle of the previous group's session with nothing on the panel saying so.
+//
+// The decision itself is wavelength::resumeFor and is tested exhaustively in
+// host-tests/wavelength. What is checked here is the screen it produces, and
+// above all WHERE ITS TWO ANSWERS SIT. This screen appears in the front door's
+// place, so a returning table's blind tap lands on it -- and every coordinate
+// below is read out of the two renders rather than written down, because a
+// second copy of a control's geometry is how three bugs in this app started.
+void testWavelengthAStaleGameIsOfferedNotTaken() {
+  const int16_t w = 480;
+  const int16_t h = 800;
+
+  const auto buildResume = [](Rendered& out, const wavelengthui::ResumeModel& m) {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::renderResume(screen, m);
+  };
+
+  wavelengthui::ResumeModel model;
+  model.roundNumber = 4;
+  model.total = 11;
+  model.scored = 3;
+  model.roundInFlight = true;
+  model.minutesAgo = 6 * 24 * 60;
+  Rendered ask;
+  buildResume(ask, model);
+
+  // The front door as it would look with that same evening on it, which is what
+  // this screen is standing in front of.
+  Rendered menu;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(menu.target, ctx, noInput, menu.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::MenuModel m;
+    m.sessionInProgress = true;
+    m.sessionRound = 4;
+    m.sessionTotal = 11;
+    m.sessionScored = 3;
+    wavelengthui::renderMenu(screen, m);
+  }
+
+  // 1. IT SAYS WHAT IT WOULD CARRY ON INTO, in the front door's own words and
+  // counted the front door's own way. A group that cannot see what they are
+  // being offered cannot tell it is not theirs, which is the whole failure.
+  bool namesTheRound = false;
+  bool namesTheScore = false;
+  bool datesIt = false;
+  bool saysNewGameCosts = false;
+  for (const FakeTarget::TextRun& run : ask.target.texts) {
+    if (run.text == "CARRY ON ROUND 4") namesTheRound = true;
+    if (run.text == "11 POINTS IN 3 ROUNDS") namesTheScore = true;
+    if (run.text == "6 DAYS AGO") datesIt = true;
+    if (run.text.find("DROPS THE SCORE") != std::string::npos) saysNewGameCosts = true;
+  }
+  if (!namesTheRound) std::printf("  the ask screen does not name the round it would carry on into\n");
+  if (!namesTheScore) std::printf("  the ask screen does not name the score it would carry on\n");
+  if (!datesIt) std::printf("  the ask screen has a date and does not show it\n");
+  if (!saysNewGameCosts) std::printf("  the ask screen does not say what starting a new game costs\n");
+  CHECK(namesTheRound);
+  CHECK(namesTheScore);
+  CHECK(datesIt);
+  CHECK(saysNewGameCosts);
+
+  // 2. WITH NO CLOCK IT SAYS NOTHING RATHER THAN GUESSING. Most devices here
+  // have no RTC or have never synced one, so this is the common case, not the
+  // odd one.
+  Rendered undated;
+  {
+    wavelengthui::ResumeModel m = model;
+    m.minutesAgo = -1;
+    buildResume(undated, m);
+  }
+  bool inventedADate = false;
+  for (const FakeTarget::TextRun& run : undated.target.texts)
+    if (run.text.find("AGO") != std::string::npos) inventedADate = true;
+  if (inventedADate) std::printf("  the ask screen dates a save it cannot date\n");
+  CHECK(!inventedADate);
+  // And it still offers both answers. A screen that loses a control when an
+  // optional row is absent is the shape that once left a reveal with no way
+  // forward at all.
+  bool undatedCarries = false;
+  bool undatedFreshens = false;
+  for (int16_t x = 0; x < w; x = static_cast<int16_t>(x + 4))
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 4)) {
+      const fui::ActionId a = undated.tap(x, y).action;
+      if (a == wavelengthui::ActionCarryOn) undatedCarries = true;
+      if (a == wavelengthui::ActionStartFresh) undatedFreshens = true;
+    }
+  if (!undatedCarries || !undatedFreshens) std::printf("  an undated ask screen has lost one of its two answers\n");
+  CHECK(undatedCarries);
+  CHECK(undatedFreshens);
+
+  // 3. NO PIXEL THAT THROWS THE EVENING AWAY DOES ANYTHING ON THE FRONT DOOR.
+  // This screen replaces the front door, so a remembered tap aimed at any of
+  // the menu's three buttons must not be able to land on START A NEW GAME.
+  // Same pixel, different action is how this fork has destroyed data before.
+  bool freshOverlapsAMenuControl = false;
+  int freshPixels = 0;
+  for (int16_t x = 0; x < w && !freshOverlapsAMenuControl; x = static_cast<int16_t>(x + 2))
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 2)) {
+      if (ask.tap(x, y).action != wavelengthui::ActionStartFresh) continue;
+      ++freshPixels;
+      if (menu.tap(x, y).action == fui::NO_ACTION) continue;
+      std::printf("  START A NEW GAME at (%d,%d) sits on a live front-door control\n", static_cast<int>(x),
+                  static_cast<int>(y));
+      freshOverlapsAMenuControl = true;
+      break;
+    }
+  if (freshPixels == 0) std::printf("  the ask screen has no way to start a new game\n");
+  CHECK(freshPixels > 0);
+  CHECK(!freshOverlapsAMenuControl);
+
+  // 4. AND THE BLIND TAP IS THE SAFE ANSWER. A table coming back to a device it
+  // left mid-evening taps PLAY ROUND N without reading, and that tap has to be
+  // harmless. Checked over the WHOLE of the shared rect in both directions,
+  // because sampling for an overlap is not the same property: a version of this
+  // screen with CARRY ON nudged 60px up still touched the front door's button
+  // and still passed, while a returning thumb would have hit dead paper.
+  const fui::Rect play = wavelengthui::frontDoorPlayRect(w);
+  bool sharedRectIsWholly = true;
+  for (int16_t x = play.x; x < play.x + play.width && sharedRectIsWholly; x = static_cast<int16_t>(x + 3))
+    for (int16_t y = play.y; y < play.y + play.height; y = static_cast<int16_t>(y + 3)) {
+      const fui::ActionId onMenu = menu.tap(x, y).action;
+      const fui::ActionId onAsk = ask.tap(x, y).action;
+      if (onMenu == wavelengthui::ActionStartRound && onAsk == wavelengthui::ActionCarryOn) continue;
+      std::printf("  (%d,%d) is not the shared primary button: menu says %d, the ask says %d\n", static_cast<int>(x),
+                  static_cast<int>(y), static_cast<int>(onMenu), static_cast<int>(onAsk));
+      sharedRectIsWholly = false;
+      break;
+    }
+  CHECK(sharedRectIsWholly);
+
+  // And nothing that plays a round on the front door may start a new one here.
+  bool blindTapIsSafe = true;
+  for (int16_t x = 0; x < w && blindTapIsSafe; x = static_cast<int16_t>(x + 2))
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 2)) {
+      if (menu.tap(x, y).action != wavelengthui::ActionStartRound) continue;
+      const fui::ActionId here = ask.tap(x, y).action;
+      if (here == fui::NO_ACTION || here == wavelengthui::ActionCarryOn) continue;
+      std::printf("  a blind PLAY ROUND tap at (%d,%d) does something else here (action %d)\n", static_cast<int>(x),
+                  static_cast<int>(y), static_cast<int>(here));
+      blindTapIsSafe = false;
+      break;
+    }
+  CHECK(blindTapIsSafe);
+
+  // 5. TWO ANSWERS AND NO THIRD. A screen with a way onward it did not mean to
+  // offer is how a group leaves by a door nobody designed.
+  bool onlyTheTwo = true;
+  for (int16_t x = 0; x < w && onlyTheTwo; x = static_cast<int16_t>(x + 2))
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 2)) {
+      const fui::ActionId a = ask.tap(x, y).action;
+      if (a == fui::NO_ACTION || a == wavelengthui::ActionCarryOn || a == wavelengthui::ActionStartFresh) continue;
+      std::printf("  the ask screen offers a third action %d at (%d,%d)\n", static_cast<int>(a), static_cast<int>(x),
+                  static_cast<int>(y));
+      onlyTheTwo = false;
+      break;
+    }
+  CHECK(onlyTheTwo);
+}
+
+// THE LOCK IS AN ORDINARY BUTTON, and the stray tap it used to guard against is
+// stopped by geometry instead of by a duration.
+//
+// It shipped as HOLD TO LOCK: the activity watched for 600ms of held finger on
+// the bar's rect and fired while the finger was still down. Two things were
+// wrong with that. Nothing on the panel said 600 -- a hold whose duration is
+// invisible is a guessing game, not a safeguard -- and firing mid-contact meant
+// the reveal drew under a finger that was already down, so the lift-off pressed
+// whatever the new screen put there. Four cold testers advanced past their own
+// score without ever seeing it.
+//
+// What the hold was really buying is that this control sits in the same footer
+// band as the strip the table has just been tapping. That is what the geometry
+// now buys instead, and these checks are the ones that go red if it drifts back.
+void testWavelengthTheLockIsAnOrdinaryButton() {
+  const int16_t w = 480;
+  const int16_t h = 800;
+  const fui::Rect lockBar = wavelengthui::lockBarRect(w, h);
+
+  Rendered dial;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(dial.target, ctx, noInput, dial.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::DialModel m;
+    m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    m.guess = 13;
+    wavelengthui::renderDial(screen, m);
+  }
+
+  // 1. ONE PRESS LOCKS. The rect has to carry the action, because that is what
+  // makes the frame route it on the touch RELEASE like every other control in
+  // the fork. With no action on it the bar was inert to the router and only the
+  // activity's hold timer could commit.
+  const int16_t midX = static_cast<int16_t>(lockBar.x + lockBar.width / 2);
+  const int16_t midY = static_cast<int16_t>(lockBar.y + lockBar.height / 2);
+  if (dial.tap(midX, midY).action != wavelengthui::ActionLock)
+    std::printf("  a tap in the middle of the lock bar does not lock\n");
+  CHECK(dial.tap(midX, midY).action == wavelengthui::ActionLock);
+  // And across the whole face of it, not just the centre.
+  bool everyPixelLocks = true;
+  for (int16_t x = lockBar.x; x < lockBar.x + lockBar.width; x = static_cast<int16_t>(x + 4))
+    for (int16_t y = lockBar.y; y < lockBar.y + lockBar.height; y = static_cast<int16_t>(y + 4))
+      if (dial.tap(x, y).action != wavelengthui::ActionLock) everyPixelLocks = false;
+  CHECK(everyPixelLocks);
+
+  // 2. AND IT SAYS SO. A label asking for a hold is the thing Mario named: the
+  // player cannot know whether it wants 200ms or four seconds.
+  bool sawLabel = false;
+  bool askedForAHold = false;
+  for (const FakeTarget::TextRun& run : dial.target.texts) {
+    if (run.text == "LOCK IT IN") sawLabel = true;
+    if (run.text.find("HOLD") != std::string::npos) askedForAHold = true;
+  }
+  if (!sawLabel) std::printf("  the dial has no LOCK IT IN button\n");
+  if (askedForAHold) std::printf("  the dial still asks for a hold\n");
+  CHECK(sawLabel);
+  CHECK(!askedForAHold);
+
+  // 3. THE STRIP'S COLUMN AND THE BUTTON'S COLUMN ARE DISJOINT. This is the
+  // replacement for the hold and the only one of these checks that stops the
+  // stray tap the hold existed for: the table moves the marker by tapping the
+  // strip, dozens of times a round, and the bar used to span x=80..399 while
+  // dialSlotAt answers out to x=226. A finger sliding off the bottom of the
+  // board was over the commit control. Now nothing below the strip is live at
+  // all -- not a smaller target, no target.
+  bool sharesAColumn = false;
+  for (int16_t x = lockBar.x; x < lockBar.x + lockBar.width && !sharesAColumn; ++x)
+    for (int16_t y = 0; y < h; ++y)
+      if (wavelengthui::dialSlotAt(w, h, x, y) != 0) {
+        std::printf("  the lock button shares column x=%d with the strip (slot at y=%d)\n", static_cast<int>(x),
+                    static_cast<int>(y));
+        sharesAColumn = true;
+        break;
+      }
+  CHECK(!sharesAColumn);
+  // The other direction: nothing that moves the marker can also lock.
+  bool oneTapDoesBoth = false;
+  for (int16_t x = 0; x < w && !oneTapDoesBoth; ++x)
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 3)) {
+      if (wavelengthui::dialSlotAt(w, h, x, y) == 0) continue;
+      if (dial.tap(x, y).action != wavelengthui::ActionLock) continue;
+      std::printf("  a tap at (%d,%d) both moves the marker and locks it\n", static_cast<int>(x), static_cast<int>(y));
+      oneTapDoesBoth = true;
+      break;
+    }
+  CHECK(!oneTapDoesBoth);
+
+  // 4. AND THERE IS DEAD PAPER BETWEEN THEM, not merely a column boundary: the
+  // strip's live region has to stop well above the button, or an overshoot that
+  // drifts right lands on it anyway.
+  int16_t lowestLive = 0;
+  for (int16_t y = 0; y < h; ++y)
+    for (int16_t x = 0; x < w; ++x)
+      if (wavelengthui::dialSlotAt(w, h, x, y) != 0 && y > lowestLive) lowestLive = y;
+  if (lockBar.y - lowestLive < 32)
+    std::printf("  only %dpx of paper between the strip and the lock button\n",
+                static_cast<int>(lockBar.y - lowestLive));
+  CHECK(lockBar.y - lowestLive >= 32);
+
+  // 5. NEITHER BOTTOM CORNER. Stronger than testWavelengthTheFourThatWereDropped
+  // asks for, which is the point: that test set the floor at the old 64px inset
+  // and the button no longer needs to be anywhere near the left one.
+  CHECK(lockBar.x > toybox::kMargin + 64);
+  CHECK(lockBar.x + lockBar.width <= w - toybox::kMargin - 64);
+
+  // 6. THE REVEAL PUTS NOTHING WHERE THE LOCK WAS. testWavelengthTheFourThatWereDropped
+  // checks this against the FILLS, which catches a button drawn there; this
+  // checks the routing table, which is the thing that actually fires. The rule
+  // is about the rect's MEANING changing across the transition, so separating
+  // the coordinates is the only defence -- the touch table is live before the
+  // panel has painted, so "the action is harmless" is not one.
+  Rendered reveal;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(reveal.target, ctx, noInput, reveal.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::RevealModel m;
+    m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    m.guess = 13;
+    m.target = 10;
+    wavelengthui::renderReveal(screen, m);
+  }
+  bool revealAnswersUnderTheLock = false;
+  for (int16_t x = lockBar.x; x < lockBar.x + lockBar.width && !revealAnswersUnderTheLock;
+       x = static_cast<int16_t>(x + 2))
+    for (int16_t y = lockBar.y; y < lockBar.y + lockBar.height; y = static_cast<int16_t>(y + 2)) {
+      const fui::ActionId landed = reveal.tap(x, y).action;
+      if (landed == 0) continue;
+      std::printf("  the reveal answers action %d at (%d,%d), inside the lock button's rect\n",
+                  static_cast<int>(landed), static_cast<int>(x), static_cast<int>(y));
+      revealAnswersUnderTheLock = true;
+      break;
+    }
+  CHECK(!revealAnswersUnderTheLock);
+  // And the reverse: the reveal's own control must not sit over anything that
+  // locks, or a double tap on NEXT ROUND would commit the next round's guess.
+  bool sharedPixel = false;
+  for (int16_t x = 0; x < w && !sharedPixel; x = static_cast<int16_t>(x + 2))
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 2)) {
+      if (reveal.tap(x, y).action != wavelengthui::ActionNextRound) continue;
+      if (dial.tap(x, y).action != wavelengthui::ActionLock) continue;
+      std::printf("  NEXT ROUND and LOCK IT IN share the pixel (%d,%d)\n", static_cast<int>(x), static_cast<int>(y));
+      sharedPixel = true;
+      break;
+    }
+  CHECK(!sharedPixel);
+
+  CHECK(!dial.interactions.overflowed());
+}
+
 void testWavelengthEverySlotIsTappable() {
   const int16_t w = 480;
   const int16_t h = 800;
   bool seen[wavelength::kSlots + 1] = {};
   for (int16_t y = 0; y < h; ++y) {
-    const int slot = wavelengthui::dialSlotAt(w, h, 240, y);
+    const int slot = wavelengthui::dialSlotAt(w, h, 140, y);
     if (slot >= 1 && slot <= wavelength::kSlots) seen[slot] = true;
   }
   for (int i = 1; i <= wavelength::kSlots; ++i) {
     if (!seen[i]) std::printf("  slot %d cannot be tapped\n", i);
     CHECK(seen[i]);
+  }
+
+  // One slot of overshoot at either end clamps to that end rather than being
+  // ignored. Beyond that it is off the board and must stay inert.
+  bool sawTop = false;
+  bool sawBottom = false;
+  bool clampedFarAway = false;
+  for (int16_t y = 0; y < h; ++y) {
+    const int slot = wavelengthui::dialSlotAt(w, h, 140, y);
+    if (slot == wavelength::kSlots) sawTop = true;
+    if (slot == 1) sawBottom = true;
+  }
+  CHECK(sawTop);
+  CHECK(sawBottom);
+  if (wavelengthui::dialSlotAt(w, h, 140, 0) != 0) clampedFarAway = true;
+  if (wavelengthui::dialSlotAt(w, h, 140, static_cast<int16_t>(h - 1)) != 0) clampedFarAway = true;
+  if (clampedFarAway) std::printf("  a tap far off the board still moves the mark\n");
+  CHECK(!clampedFarAway);
+
+  // And the other half: the instruction column is not part of the board.
+  for (int16_t y = 0; y < h; ++y) {
+    if (wavelengthui::dialSlotAt(w, h, 300, y) != 0) {
+      std::printf("  tapping the instruction column at y=%d moves the mark\n", static_cast<int>(y));
+      CHECK(false);
+      return;
+    }
   }
 }
 
@@ -5318,7 +8434,336 @@ void testFitLinesCutsAnUnbreakableTokenRatherThanVanishing() {
   CHECK(std::string("one two three four five six seven").compare(0, kept.size(), kept) == 0);
 }
 
+// --- trivia ------------------------------------------------------------------
+
+// Every option must register its OWN index. Frame::hit's value parameter
+// defaults to 0, so all four boxes reported option 1: solo scoring was decided
+// by whether the answer happened to land in the top slot, and a cold tester
+// measured 3/12 across twelve questions, which is chance. It shipped in v1.12.0.
+//
+// Nothing caught it because nothing in this repo had ever tapped a solo option
+// -- shoot-trivia.sh taps QUIZMASTER and REVEAL, and no host suite compiled
+// these screens at all until now. Taps are routed against the table the paint
+// produced, so this fails if the index is dropped again.
+void testTriviaOptionsCarryTheirIndex() {
+  triviaui::ChoiceModel model;
+  model.clue = "Which one?";
+  static const char* kLabels[trivia::kOptions] = {"ALPHA", "BRAVO", "CHARLIE", "DELTA"};
+  for (int i = 0; i < trivia::kOptions; ++i) model.option[i] = kLabels[i];
+  model.correct = 2;
+
+  Rendered out;
+  buildChoice(out, model);
+
+  for (int i = 0; i < trivia::kOptions; ++i) {
+    const FakeTarget::TextRun* run = out.target.find(kLabels[i]);
+    CHECK(run != nullptr);
+    if (run == nullptr) continue;
+    const fui::ActionEvent event = out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+    CHECK(event.action == triviaui::ActionOption);
+    CHECK(event.value == i);
+  }
+}
+
+// The way out, in both states and in the SAME place. Solo had no exit at all:
+// no footer action before an answer, no header target, and the app is
+// touch-only, so Back did nothing and only the HOME key escaped -- which also
+// meant there was no way to finish deliberately and see a score.
+// With no question at the chosen difficulty the clue carries the message and
+// there are no options -- so no option boxes, and nothing tappable that would
+// score a question that is not there. Found by looking at a render, not by a
+// suite: four empty boxes draw exactly like four real ones.
+void testTriviaDrawsNoOptionsWithoutAQuestion() {
+  triviaui::ChoiceModel model;
+  model.clue = "No multiple-choice question available at this difficulty.";
+  // option[] left null, which is what the activity passes in this state.
+
+  Rendered out;
+  buildChoice(out, model);
+
+  CHECK(out.target.drew("No multiple-choice question available at this difficulty."));
+  // No question means no difficulty meter. Five pips beside that message
+  // described a question that was not there, filled from a default rather than
+  // from anything the player had set.
+  CHECK(!out.target.drew("DIFFICULTY"));
+  // The way out is still offered; it is the only control that should exist here.
+  CHECK(out.target.drew("END"));
+
+  // Nothing in the option band answers a tap. The boxes sat above the footer,
+  // so probe the band rather than one point.
+  for (int y = 430; y <= 700; y += 30) {
+    const fui::ActionEvent event = out.tap(240, y);
+    CHECK(event.action != triviaui::ActionOption);
+  }
+}
+
+void testTriviaAlwaysOffersAWayOut() {
+  triviaui::ChoiceModel model;
+  model.clue = "Which one?";
+  static const char* kLabels[trivia::kOptions] = {"ALPHA", "BRAVO", "CHARLIE", "DELTA"};
+  for (int i = 0; i < trivia::kOptions; ++i) model.option[i] = kLabels[i];
+  model.correct = 2;
+
+  fui::Rect unanswered{};
+  {
+    Rendered out;
+    buildChoice(out, model);
+    CHECK(out.target.drew("END"));
+    CHECK(!out.target.drew("NEXT"));  // nothing to advance to yet
+    const FakeTarget::TextRun* end = out.target.find("END");
+    CHECK(end != nullptr);
+    if (end != nullptr) {
+      unanswered = end->rect;
+      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2, end->rect.y + end->rect.height / 2);
+      CHECK(event.action == triviaui::ActionQuit);
+    }
+  }
+
+  model.chosen = 0;
+  {
+    Rendered out;
+    buildChoice(out, model);
+    CHECK(out.target.drew("END"));
+    CHECK(out.target.drew("NEXT"));
+    const FakeTarget::TextRun* end = out.target.find("END");
+    CHECK(end != nullptr);
+    if (end != nullptr) {
+      // Same place with NEXT beside it. A way out that moves under the finger
+      // when the question is answered would be its own bug.
+      CHECK(end->rect.x == unanswered.x);
+      CHECK(end->rect.y == unanswered.y);
+      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2, end->rect.y + end->rect.height / 2);
+      CHECK(event.action == triviaui::ActionQuit);
+    }
+  }
+}
+
+// --- the header band under the bezel ---------------------------------------
+//
+// Every other test in this file builds against device(), whose safeArea is
+// empty -- which pins the same geometry with and without the glass BY
+// CONSTRUCTION, and is exactly why nothing here could see this. The X4 Pro's
+// bezel covers the panel's top ten rows and one column each side
+// (docs/bezel-insets.md), and a band that starts painting below them leaves
+// paper where the eye expects ink. Head-on that strip is under the glass and
+// invisible; from below, the glass sits above the panel and the eye sees past
+// its edge, so a white line appears over every black header in the fork. Mario
+// reported it off-axis on APPS and GAMES; it was on every toybox band in the
+// fork -- 41 call sites across 27 files.
+
+// The X4 Pro's frame WITH its measured insets. Only a context that has them can
+// fail the checks below.
+fui::DeviceContext bezelDevice() {
+  fui::DeviceContext ctx = device();
+  ctx.safeArea = fui::Insets{10, 1, 0, 1};
+  return ctx;
+}
+
+bool blackPaintCovers(const FakeTarget& target, const int16_t x, const int16_t y) {
+  for (size_t i = 0; i < target.fills.size() && i < target.fillPaints.size(); ++i) {
+    const fui::Paint& paint = target.fillPaints[i];
+    if (paint.kind == fui::PaintKind::Solid && paint.color == fui::Color::Black && target.fills[i].contains(x, y)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// No paper anywhere in the covered rows, across the full panel width. Asserted
+// per pixel row rather than as one rect: the band is assembled from more than
+// one fill, and what matters is the union leaving no gap.
+void checkBandReachesThePanelTop(const FakeTarget& target, const char* what) {
+  const fui::DeviceContext ctx = bezelDevice();
+  bool covered = true;
+  for (int16_t y = 0; y < ctx.safeArea.top; ++y) {
+    for (const int16_t x :
+         {static_cast<int16_t>(0), static_cast<int16_t>(ctx.width / 2), static_cast<int16_t>(ctx.width - 1)}) {
+      if (!blackPaintCovers(target, x, y)) covered = false;
+    }
+  }
+  check(covered, what, __LINE__);
+}
+
+// The other two sides. A band taken off the safe rect was inset on THREE edges,
+// and a check that only reads the covered rows calls half of that fixed: the
+// white columns down the sides are the same defect seen from the side of the
+// device rather than from below. Sampled just under the covered rows, where the
+// band is certainly still band whatever height the chrome gave it.
+void checkBandReachesThePanelSides(const FakeTarget& target, const char* what) {
+  const fui::DeviceContext ctx = bezelDevice();
+  const int16_t y = static_cast<int16_t>(ctx.safeArea.top + 1);
+  const bool covered =
+      blackPaintCovers(target, 0, y) && blackPaintCovers(target, static_cast<int16_t>(ctx.width - 1), y);
+  check(covered, what, __LINE__);
+}
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void renderWithBezel(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, bezelDevice(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+void testNoPaperAboveAnyHeaderBand() {
+  // The shelf: absolute chrome, the band's bottom pinned at kHeaderHeight. This
+  // is the screen Mario was looking at.
+  {
+    fui::ListItem items[2] = {};
+    items[0].label = "CHESS";
+    items[1].label = "BATTLESHIP";
+    shelfui::MenuModel model;
+    model.title = "GAMES";
+    model.items = items;
+    model.count = 2;
+    Rendered out;
+    renderWithBezel<shelfui::MenuModel, shelfui::buildMenu>(out, model);
+    checkBandReachesThePanelTop(out.target, "shelf folder: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "shelf folder: band reaches the panel sides");
+  }
+
+  // The five game screens that took their band from the safe rect instead, so
+  // it was inset on three sides: a white strip above it AND a white column down
+  // each side. Their menus never were, which is what made the seam show up
+  // between a game's own screens.
+  {
+    c4ui::BoardModel model;
+    connectfour::start(model.game);
+    model.open = connectfour::openColumns(model.game);
+    Rendered out;
+    renderWithBezel<c4ui::BoardModel, c4ui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "connect four board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "connect four board: band reaches the panel sides");
+  }
+  {
+    checkui::BoardModel model;
+    checkers::start(model.game);
+    Rendered out;
+    renderWithBezel<checkui::BoardModel, checkui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "checkers board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "checkers board: band reaches the panel sides");
+  }
+  {
+    mineui::BoardModel model;
+    Rendered out;
+    renderWithBezel<mineui::BoardModel, mineui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "minesweeper board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "minesweeper board: band reaches the panel sides");
+  }
+  {
+    knuckleui::BoardModel model;
+    Rendered out;
+    renderWithBezel<knuckleui::BoardModel, knuckleui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "knucklebones board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "knucklebones board: band reaches the panel sides");
+  }
+  {
+    xkcdui::MenuModel model;
+    Rendered out;
+    renderWithBezel<xkcdui::MenuModel, xkcdui::buildMenu>(out, model);
+    checkBandReachesThePanelTop(out.target, "xkcd menu: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "xkcd menu: band reaches the panel sides");
+  }
+}
+
+// The other half of the split: paint bleeds under the glass, ink does not. A
+// band filled to row 0 by a fix that also moved the title up there would pass
+// the check above and be a worse bug than the one it closed.
+void testTheHeaderTitleStaysOutOfTheCoveredRows() {
+  fui::ListItem items[1] = {};
+  items[0].label = "CHESS";
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.items = items;
+  model.count = 1;
+
+  Rendered out;
+  renderWithBezel<shelfui::MenuModel, shelfui::buildMenu>(out, model);
+  const FakeTarget::TextRun* title = out.target.find("GAMES");
+  CHECK(title != nullptr);
+  if (title != nullptr) {
+    // Centred in the VISIBLE part, not in the whole band: equal air above and
+    // below, measured from the bezel's safe top rather than from row 0. Filling
+    // the band to row 0 and centring the title over all of it passes every
+    // coverage check above and drops the title's air into rows nobody can see,
+    // which is the bug this fix could easily have introduced.
+    const fui::Rect ink = inkBandOf(*title);
+    const int above = ink.y - bezelDevice().safeArea.top;
+    const int below = toybox::kHeaderHeight - ink.bottom();
+    CHECK(above > 0);
+    CHECK(above - below <= 1 && below - above <= 1);
+  }
+}
+
+// And the third: the band's BOTTOM edge is what every layout below it is tuned
+// against, so widening the paint upward must not move it. Under absolute chrome
+// that edge is kHeaderHeight, with or without the glass.
+void testTheHeaderBandBottomIgnoresTheBezel() {
+  fui::ListItem items[1] = {};
+  items[0].label = "CHESS";
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.items = items;
+  model.count = 1;
+
+  Rendered bare;
+  {
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(bare.target, device(), noInput, bare.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    shelfui::buildMenu(screen, model);
+  }
+  Rendered glassed;
+  renderWithBezel<shelfui::MenuModel, shelfui::buildMenu>(glassed, model);
+
+  const FakeTarget::TextRun* bare0 = bare.target.find("CHESS");
+  const FakeTarget::TextRun* glassed0 = glassed.target.find("CHESS");
+  CHECK(bare0 != nullptr);
+  CHECK(glassed0 != nullptr);
+  if (bare0 != nullptr && glassed0 != nullptr) {
+    CHECK(bare0->rect.y == glassed0->rect.y);
+  }
+}
+
+// The ink rule again, for the labels apps draw on the band THEMSELVES.
+//
+// The header component centres each run on its own line box, so an app whose
+// right label uses a different cut from the title draws it by hand -- and then
+// owns the centring headerBand() would have done. Boxed over the whole band it
+// centres partly in rows the bezel covers and sits above the title beside it,
+// which is the same bug as the white strip wearing the other face: paint that
+// stops at the safe top, ink that starts at the panel top.
+void testAHandDrawnRightLabelSitsOnTheTitlesLine() {
+  triviaui::QuestionModel model;
+  model.clue = "WHAT IS THE CAPITAL OF PERU";
+  model.difficulty = 3;
+
+  Rendered out;
+  renderWithBezel<triviaui::QuestionModel, triviaui::buildQuestion>(out, model);
+  const FakeTarget::TextRun* title = out.target.find("TRIVIA");
+  const FakeTarget::TextRun* label = out.target.find("QUESTION");
+  CHECK(title != nullptr);
+  CHECK(label != nullptr);
+  if (title != nullptr && label != nullptr) {
+    // Their ink centres agree. Not their rects: the two runs use different cuts
+    // on purpose, and it is the ink the eye lines up, which is the whole reason
+    // the label is drawn by hand rather than handed to HeaderProps.
+    const fui::Rect titleInk = inkBandOf(*title);
+    const fui::Rect labelInk = inkBandOf(*label);
+    const int titleMid = titleInk.y + titleInk.height / 2;
+    const int labelMid = labelInk.y + labelInk.height / 2;
+    CHECK(titleMid - labelMid <= 2 && labelMid - titleMid <= 2);
+  }
+}
+
 int main() {
+  testNoPaperAboveAnyHeaderBand();
+  testAHandDrawnRightLabelSitsOnTheTitlesLine();
+  testTheHeaderTitleStaysOutOfTheCoveredRows();
+  testTheHeaderBandBottomIgnoresTheBezel();
+  testTriviaOptionsCarryTheirIndex();
+  testTriviaAlwaysOffersAWayOut();
+  testTriviaDrawsNoOptionsWithoutAQuestion();
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
   testTheSeaSaltCallChoiceSaysWhatEachWordCosts();
@@ -5347,12 +8792,14 @@ int main() {
   testTheSudokuBoardSpendsThreeInteractions();
   testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
   testTheSudokuUndoDimsRatherThanVanishing();
+  testTheSudokuDoorAgreesWithItsCaption();
   testEverySudokuScreenStaysOnThePanel();
   testEverySudokuLessonPagesAndClearsItsButton();
   testTheSudokuOrnamentCarriesTheGame();
   testTheSudokuFrontDoorNeverSharesInkBetweenTwoLines();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
+  testMurdleRefusalDoesNotMoveTheGrid();
   testMurdleGridDrawsMarksItIsGiven();
   testMurdleClueFaceIsPagedAndNeverOverflows();
   testMurdleSettingsPicksAnAbsoluteTier();
@@ -5360,6 +8807,19 @@ int main() {
   testMurdleMenuHeadlineIsTheDoorAcrossItsWidth();
   testSeatsSayWhatEachPlayerHasDecided();
   testTheRematchShowsBothAnswers();
+  testTheRematchBandIsNotTheWayOut();
+  testTheLoneWayOutKeepsTheBottomBand();
+  testACapsuleThatChangedMeaningWaitsForThePanel();
+  testARepaintThatChangedNothingStillAnswers();
+  testAnUnshownRebuildDoesNotCountAsShown();
+  testACapsuleThatWasDeadMidGameAlsoWaits();
+  testAControlComingBackToLifeAlsoWaits();
+  testTheRevealGateWaitsForOnePaintAndThenLatches();
+  testTheSurfaceGateHoldsAChangedMeaningAndPassesAnUnchangedOne();
+  testMeaningsMixPositionally();
+  testAPublishingBufferDigestsWhatThePanelIsShowing();
+  testBeginBuildDigestsThePublishedGenerationNotTheBuildingOne();
+  testAnOptionPopupHighlightRepaintStillAnswers();
   testAnOpponentWhoHasGoneTakesTheButtonWithThem();
   testRowModel();
   testSettingsOpenedFromTheMenuOffersOnlyPreferences();
@@ -5368,6 +8828,7 @@ int main() {
   testBoardChrome();
   testConnectionsLostBoard();
   testConnectionsWonBoard();
+  testConnectionsTilesShareOneSize();
   testConnectionsCalendarEveryDayIsReachable();
   testConnectionsMenuOrnamentOpensArchive();
   testConnectionsHowToFitsOnePage();
@@ -5379,9 +8840,14 @@ int main() {
   testHnReaderSwapLabelFollowsMode();
   testHnReaderTextStaysInItsRect();
   testHnNotice();
+  testHnEveryNoticeCarriesAWayOff();
   testHnList();
+  testHnEmptyFrontPageOffersAWayOnward();
+  testHnEmptyStateStacksWithoutOverlap();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
+  testHnSaveMarkIsLoudestWhenSaved();
+  testHnAThreadCanBeKept();
   testTheColumnYouTapIsTheColumnTheRulesGet();
   testRowZeroIsDrawnAtTheBottom();
   testTheConnectFourGridKeepsOffTheChrome();
@@ -5396,8 +8862,14 @@ int main() {
   testTheResultNamesTheOutcomeFromYourSeat();
   testTheCheckersHowToPagesAndEnds();
   testShelfFolderDrawsItsOwnNameAndRows();
+  testShelfFolderMarksNoRow();
   testShelfIconsFollowTheRowsWhenTheListScrolls();
   testTheShelfPagesWhenAFolderOverflows();
+  testAPageStepMovesExactlyOnePage();
+  testTheShelfStepStopsAtBothEnds();
+  testAFolderComesBackToThePageItWasLeftOn();
+  testThePageMarksReadAsAControl();
+  testARowOnARestoredPageOpensItsOwnGame();
   testAFolderWithoutADeviceNameHasNoFooter();
   testTheShelfFooterIsADoorWithAFaceOnIt();
   testPlayerOffersThreeSeparateWords();
@@ -5440,14 +8912,35 @@ int main() {
   testMurdleGridResolvesEveryCellItDrew();
   testTheCellYouTapIsTheCellTheRulesGet();
 
+  reportReaderPaintCost();
+  testTheWindowDrawsWhatTheWholeDocumentWouldHave();
+  testAPageTurnDoesNotCostTheWholeArticle();
+  testAnArticleIsWrappedOnceHoweverManyPagesAreTurned();
+  testANarrowerPanelIsNotDrawnFromTheWiderPanelsWrap();
+  testABiggerReadingSizeIsNotDrawnFromTheSmallerOnesWrap();
+  testAnotherArticleOfTheSameLengthIsNotDrawnFromTheFirstsWrap();
+  testAKernPairTheKeyCannotSeeIsCaughtByTheWindow();
+  testEveryPageTogetherIsTheWholeArticle();
+  testABreakThatMovesWithoutChangingTheCountIsStillCaught();
+  testTheCountBuildReaderReturnsIsTheOneItDrew();
+  testTheFingerprintReadsTheStyleAndNotJustTheTarget();
+  testADocumentEndingInANewlineIsStillWrappedOnce();
+  testTheHackerNewsReaderAlsoWrapsOncePerDocument();
   testTheEmptyQueueStillOffersSync();
   testTappingAQueueRowOpensThatArticle();
   testTheQueueTitleWidthLeavesRoomForThePosition();
   testTheReaderPagesAndArchives();
   testArchiveIsLiveOnTheLastPage();
+  testArchiveIsNotBetweenThePageControls();
+  testTheQueueOffersUndoOnlyAfterAnArchive();
   testALongTitleIsEllipsisedRatherThanClipped();
   testTheReaderTextGoesInTheReaderBody();
-  testWavelengthStripHitTestsAgree();
+  testWavelengthSpectrumEndsShareOneSize();
+  testWavelengthNothingIsDrawnThroughAnything();
+  testWavelengthEveryRevealOffersAWayOn();
+  testWavelengthTheFourThatWereDropped();
+  testWavelengthTheLockIsAnOrdinaryButton();
+  testWavelengthAStaleGameIsOfferedNotTaken();
   testWavelengthEverySlotIsTappable();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 

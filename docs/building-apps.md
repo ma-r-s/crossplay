@@ -360,12 +360,52 @@ straight through the subtitle underneath it. The component supports a wrapping
 label _or_ a subtitle, never both; put the secondary value in the `value` slot
 instead, which sits in the band beside the label.
 
-**A glyph the font does not have draws as nothing.** No box, no fallback, no
-log line. Toybox's face is subset to ASCII, so text from the web silently loses
-its curly quotes, en dashes and ellipses -- a real Hacker News comment rendered
-as "(Ive turned off duplicate detection...)" and only looking at the panel
-caught it. Fold typographic punctuation to ASCII before drawing anything that
-came from someone else's server; `hn::foldTypography` is the reference.
+**A glyph the font does not have draws as nothing.** No box, no fallback.
+`EpdFont::getGlyph` answers nullptr and the pen does not advance, so the
+character is not merely wrong, it is absent. A real Hacker News comment
+rendered as "(Ive turned off duplicate detection...)" and only looking at the
+panel caught it.
+
+The renderer does log it -- `No glyph for codepoint N`, from `renderCharImpl`
+-- and `scripts_local/sim-shot.sh` fails a run that produces one. That gate is
+worth knowing about and worth not trusting alone: it only sees the screens a
+scripted run visits, with the data that run happens to have, so a headline
+pulled live from someone else's server is exactly the case it never reaches.
+
+**Fold external text with `utf8FoldTypography` (`lib/Utf8/Utf8.h`) at the point
+it enters your app** -- the JSON field, the parsed index row, the file you just
+read off the card -- and not at the point you draw it, so nothing downstream has
+to remember. It turns curly quotes, the dash family, the ellipsis, the space
+family and the f-ligatures into the ASCII every cut carries, and it is a
+provable no-op on text that is already ASCII.
+
+Which cut you are drawing in decides what is left, and the cuts differ more than
+they look:
+
+| cut | slot it usually fills | carries |
+| --- | --- | --- |
+| `toybox_14/20/30/44/64` | button, UI, display | U+0020..U+007E and nothing else |
+| `reading_serif_*` | body, on the reading screens | ASCII plus Latin-1, and nothing above U+00FF |
+| `toybox_10`, `instrument_*` | small / tile | most of Latin-1, most of Latin Extended-A, the curly quotes, U+2013 and U+2014, U+2026, U+20AC |
+| `ubuntu_10/12` | the system UI, the OPDS browser, the Wi-Fi picker | the common punctuation, but no U+FFFD, so what it lacks is a hole like anywhere else |
+| `notosans_*`, `notoserif_*` | the EPUB reader's page | the widest set, plus a U+FFFD box for the rest |
+
+Read that third row carefully: "most of" is doing work. `toybox_10` is missing
+twelve Latin-1 codepoints and 29 of the 128 Latin Extended-A ones, and its dash
+family is U+2013 and U+2014 and nothing else. The exact answer is not in this
+table, on purpose -- `host-tests/typefold/` derives all of it from the font data
+on every run, and a number copied out of a font into prose is a number that
+rots.
+
+So an accented letter is safe in body copy and lost in a Jersey title band.
+Three gaps stay open on purpose and are asserted in that suite: Latin
+Extended-A (a Polish or Turkish name still loses a letter in the reading cut);
+any non-ASCII in a Jersey cut; and the rarer marks in the system UI, where
+`ubuntu_12` cannot draw 32 of the 67 folded codepoints and has no U+FFFD to
+show a box with. The first two are not folded because folding a letter means
+writing a DIFFERENT letter. The third is not folded because the OPDS title also
+becomes a FILENAME (`src/util/OpdsFilename.cpp`), and rewriting a character
+there renames a book on the card.
 
 **A light shape must be knocked out before it is stroked.** Drawing only an
 outline leaves the shape hollow and the surface beneath shows through. Fill with
@@ -524,6 +564,7 @@ class MyActivity final : public linkplay::LinkActivity {
   void onRematch() override;                      // both said yes
   void onLinkEnded() override;                    // back to solo
   bool matchGameOver() const override;
+  void onMatchEnded() override;                   // count it, and show it
   void gameLoop() override;                       // what loop() used to be
   void gameRender() override;                     // what render() used to be
 
@@ -533,6 +574,20 @@ class MyActivity final : public linkplay::LinkActivity {
 
 `enterLink(GameId::MyGame)` when the player taps PLAY NEARBY, and that is the
 whole integration.
+
+#### `onMatchEnded()` is where a link game is recorded
+
+Record the result there and go to whatever screen shows the finished game. Do
+**not** record it in `gameLoop()`: the moment the match ends, the link layer
+stops giving your game the pass, so anything at the end of `gameLoop()` is
+unreachable in multiplayer. Five games were written that way and none of them
+ever counted a single link match -- no crash, no log, just a tally that stayed
+at zero -- which is why the hook is pure virtual rather than defaulted.
+
+The layer then keeps your final screen on the panel for a couple of seconds
+before it offers another game, so the player who just lost sees the move that
+beat them. You get that for free; you only have to put something worth looking
+at on the screen. See `src/apps_local/link/LinkEndgame.h`.
 
 The row is called **PLAY NEARBY** in every game, and it carries the mark below.
 Do not invent another wording: "click where it says multiplayer" only works if
@@ -660,6 +715,48 @@ Two simulators, their own SD cards (`fs_link_a`, `fs_link_b`), launched together
 because discovery is the thing under test. Screenshots get `-a`/`-b` suffixes;
 `SIM_LINK_INPUT_B` drives the second device differently, which is how you check
 what one shows when the other walks away.
+
+**Save at every position, not at the door.** `onExit()` is more reliable than it
+looks -- the Home gesture and deep sleep both replace the activity, and
+`replaceActivity()` runs the outgoing `onExit()` first -- but writing only there
+still loses everything to a panic, a watchdog reset or a flat battery, and it
+makes what survives depend on which fields that one function happens to
+serialise. WAVELENGTH shipped an `onExit()` that dutifully wrote the all-time
+record and nothing about the round in progress, so a cold tester pressed Home
+one key from Back and lost the round, the hidden number and the session score.
+Fixing `onExit()` would not have helped; the round had never been written down.
+
+The shape that works, and it is worth copying:
+
+- **A freestanding `pack()` / `unpack()` module beside the rules**, taking no
+  renderer and no storage, so the round-trip is host-testable. See
+  `src/apps_local/wavelength/WavelengthSave.{h,cpp}` and its tests in
+  `host-tests/wavelength/`. Version the file and make `unpack` accept the older
+  version rather than rejecting it, or an upgrade throws away a year of record.
+- **Write on every state change**, not on the way out: the screen change and the
+  cursor move both. It is around a hundred bytes beside a panel repaint that
+  costs a hundred times more.
+- **Write to a temp file and rename**, and do it BEFORE you raise the write
+  frequency. `Storage.openFileForWrite()` carries `O_TRUNC`, so writing in
+  place empties the file at open: power lost in that window leaves nothing at
+  all, and going from one write a game to fifteen a round multiplies that
+  window by fifteen. Write to `<name>.tmp`, `flush()`, release the handle,
+  check the byte count, then `remove` + `rename`. `ConnectionsActivity::
+  saveResult()` is the reference. Without this the frequent-write rule above
+  trades a small loss mode for a total one, which is worse than what it fixed.
+- **Refuse to resume what the file cannot support.** A screen number is only
+  meaningful with the state behind it, so validate before restoring and fall
+  back to your front door with the session intact rather than to a half-drawn
+  board.
+- **Ask what a resumed screen SHOWS.** If your app has a secret, the resume must
+  not land on the screen that displays it.
+- **Clear the in-progress state when the game genuinely ends.** State that
+  outlives the thing it belonged to is its own bug, and it is the one this
+  mechanism introduces.
+
+Chess reached the first half of this on its own and says so at the call site: it
+saves on the completed move rather than the completed game. TOY BATTLE and
+JAIPUR still write only in `onExit()` and on the way out to their own menus.
 
 **A match is not your saved game.** This is the one that bit hardest: three
 separate defects, all the same shape. Two rules, and each wants a different

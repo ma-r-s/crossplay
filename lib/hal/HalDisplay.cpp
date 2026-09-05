@@ -45,7 +45,6 @@ void HalDisplay::drawImageTransparent(const uint8_t* imageData, uint16_t x, uint
   einkDisplay.drawImageTransparent(imageData, x, y, w, h, fromProgmem);
 }
 
-
 EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
   switch (mode) {
     case HalDisplay::FULL_REFRESH:

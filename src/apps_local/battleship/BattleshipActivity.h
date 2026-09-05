@@ -41,6 +41,12 @@ class BattleshipActivity final : public linkplay::LinkActivity {
   void onRematch() override;
   void onLinkEnded() override;
   bool matchGameOver() const override { return gameOver(); }
+  // Battleship is the one game that already counted its matches: finishGame()
+  // runs from fireAtAimed() when your shot sinks the last ship and from
+  // takeOpponentState() when theirs does, and both of those run inside a match.
+  // Calling it again here would double-count, because it has no once-only
+  // guard. So this is deliberately empty. See link/LinkEndgame.h.
+  void onMatchEnded() override {}
   void onLinkPhaseChanged() override { sendFleetIfReady(); }
   void drawLinkArt(const Rect& slot) override { drawMiniGrid(slot); }
   void gameLoop() override;
@@ -180,6 +186,9 @@ class BattleshipActivity final : public linkplay::LinkActivity {
   // reads it, so single player and multiplayer share one set of eyes.
   uint8_t mySide = 0;
   uint32_t seed = 1;
+
+  // What a tap on the play surface means. See Activity::surfaceMeaning().
+  uint32_t surfaceMeaning() const override;
 
   View view = View::Menu;
   int startIndex = 0;

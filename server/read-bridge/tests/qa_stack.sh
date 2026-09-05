@@ -149,15 +149,21 @@ PYEOF
   # on Home and the taps below, which start at the app's own SYNC control, open
   # whatever the shelf happens to have under them.
   READ_BRIDGE_URL="$(url)" CROSSPLAY_AUTOSTART=INSTAPAPER "$REPO/scripts_local/sim-shot.sh" \
-    '1500:TAP:240,756;3200:ENTER;26000:TAP:240,700;34000:TAP:240,700;70000:QUIT' > /dev/null 2>&1 &
+    '1500:TAP:240,756;3200:ENTER;16000:TAP:240,700;22000:TAP:240,700;28000:TAP:240,700;34000:TAP:240,700;40000:TAP:240,700;46000:TAP:240,700;52000:TAP:240,700;58000:TAP:240,700;90000:QUIT' > /dev/null 2>&1 &
   SIMPID=$!
 
-  # Two confirm taps, not one. The gate only appears after the claim lands,
-  # and the claim happens while this script is still polling for the code -- so
-  # its moment is not fixed. The second tap costs nothing on the verdict screen
-  # behind it. This is insurance, not the fix: when this script paired zero
-  # times out of five, the cause was the claim going to a route that does not
-  # accept POST, and no tap schedule could have saved it.
+  # Tap the gate on a CADENCE rather than at a guessed moment. The gate
+  # appears only once the claim lands, and the claim waits on a poll for the
+  # code, so its instant is not knowable when this string is written. Eight
+  # taps six seconds apart cover the whole window: the ones before the gate
+  # land on the QR screen and the ones after land on the verdict, both inert.
+  #
+  # The cadence is NOT what made this work. Five runs failed here and every
+  # one was read as a tap-timing problem; the cause was the claim below going
+  # to a GET-only route and being answered 405 while the check looked only at
+  # the body. No tap schedule could have rescued a code nobody had claimed.
+  # Keep the cadence anyway -- it costs nothing and the gate's moment really
+  # is not fixed -- but suspect the claim, not the taps, when this fails.
 
   # sim-shot TRUNCATES sim.log when it starts and builds first, so a grep issued
   # too early reads the PREVIOUS run's code. The claim then returns 200 and
@@ -177,42 +183,48 @@ PYEOF
   CSRF="$(printf '%s' "$PAIR_PAGE" | grep -o "name=csrf value='[^']*'" | sed "s/.*'\(.*\)'/\1/" || true)"
   [ -n "$CSRF" ] || { kill $SIMPID 2>/dev/null || true; echo "FAIL: /pair came back signed out"; exit 1; }
 
-  # /api/pair/claim, which is what the form on /pair posts to. /pair itself has
-  # only a GET: posting to it is answered 405 {"detail":"Method Not Allowed"},
-  # no claim is recorded, and the device's poll still says pending.
+  # The claim goes to /api/pair/claim, which is what the form on /pair posts
+  # to. /pair itself is a GET-only page: posting there answers 405, and 405 is
+  # not "not found" or "expired", so a body-only check called it a success and
+  # the device polled a code nobody had claimed until the run timed out. That
+  # was read as a tap-timing problem for five runs.
   #
-  # Assert what a SUCCESS says, never the absence of a failure. A refused claim
-  # answers 200 with a person-facing "Not found" page, and the 405 above is
-  # neither -- so a guard that greps for "not found|expired" passes on both and
-  # the run reports a claim that never happened.
-  CLAIM="$(curl -sS -H "Cookie: read_session=$SESSION" -X POST \
+  # So BOTH are checked, and each catches what the other cannot. The status
+  # catches a wrong route, a stale cookie, a rejected CSRF. The body catches a
+  # refused claim, which really does answer 200 with a person-facing page.
+  CLAIM_STATUS="$(curl -sS -o "$STATE/claim.html" -w '%{http_code}' \
+    -H "Cookie: read_session=$SESSION" \
     -d "code=$CODE&csrf=$CSRF" "$(url)/api/pair/claim")"
-  case "$CLAIM" in
-    *"confirm on the reader"*) echo "  claimed; waiting for the reader to confirm" ;;
-    *)
-      kill $SIMPID 2>/dev/null || true
-      echo "FAIL: the claim was refused. The bridge said:"
-      printf '%s' "$CLAIM" | grep -o '<title>[^<]*</title>\|<p>[^<]*</p>\|{.*}' | head -2
-      exit 1
-      ;;
-  esac
+  CLAIM="$(cat "$STATE/claim.html")"
+  if [ "$CLAIM_STATUS" != "200" ]; then
+    kill $SIMPID 2>/dev/null || true
+    echo "FAIL: the claim was answered $CLAIM_STATUS, not 200."
+    printf '%s' "$CLAIM" | head -c 400
+    echo
+    exit 1
+  fi
+  if printf '%s' "$CLAIM" | grep -qi 'not found\|expired'; then
+    kill $SIMPID 2>/dev/null || true
+    echo "FAIL: the claim was refused. The page said:"
+    printf '%s' "$CLAIM" | grep -o '<p>[^<]*</p>' | head -2
+    exit 1
+  fi
 
   wait $SIMPID 2>/dev/null || true
   if [ ! -f "$REPO/fs_agent/.crosspoint/instapaper/.bridge" ]; then
-    # The claim was accepted -- the check above asserts the success page -- so
-    # the servers are up and the account is signed in. What did not happen is
-    # the on-device confirm tap landing on the gate. Finish it by hand rather
-    # than guessing at a schedule; the stack stays up, so the code the reader
-    # shows on that run is claimable from the browser at $(url)/pair:
+    # The claim was accepted, so what did not happen is the on-device confirm
+    # tap. Do NOT retry by hand with another qa_shot.sh run: a new simulator
+    # shows a NEW pairing code, so the claim above is for a code the device is
+    # no longer displaying and the gate would have nothing to confirm. Run
+    # 'down' then 'up' again, which pairs from scratch.
     echo
-    echo "SERVERS UP, SIGNED IN, BUT THE DEVICE IS NOT PAIRED YET."
-    echo "The confirm gate needs one tap. Run this, and tap YES when it appears:"
+    echo "SERVERS UP AND SIGNED IN, BUT THE DEVICE IS NOT PAIRED."
     echo
-    echo "  ./server/read-bridge/tests/qa_shot.sh \\"
-    echo "    '1500:TAP:240,756;3200:ENTER;20000:TAP:240,700;60000:QUIT' \\"
-    echo "    '18000:./qa-artifacts/gate.png'"
+    echo "The claim was accepted, so this is the confirm tap and not the"
+    echo "route. Look at qa-artifacts/sim.log: the last thing there should be"
+    echo "the confirm screen being drawn. Then 'down' and 'up' again."
     echo
-    echo "Then: qa_stack.sh status  -- it will say whether .bridge appeared."
+    echo "The servers are still up. qa_stack.sh down stops them."
     exit 2
   fi
 

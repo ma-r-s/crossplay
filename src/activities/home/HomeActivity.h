@@ -42,6 +42,7 @@ class HomeActivity final : public Activity {
   // Row gap actually drawn; the touch grid must use the same one.
   std::vector<RecentBook> recentBooks;
   const HomeMenuItem initialMenuItem;
+  const bool cleanInitialRefresh;
 
   // Convert HomeMenuItem to menu index (used in onEnter)
   static int menuItemToIndex(HomeMenuItem item, bool hasOpdsUrl) {
@@ -85,8 +86,10 @@ class HomeActivity final : public Activity {
 
  public:
   explicit HomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                        HomeMenuItem initialMenuItemValue = HomeMenuItem::NONE)
-      : Activity("Home", renderer, mappedInput), initialMenuItem(initialMenuItemValue) {}
+                        HomeMenuItem initialMenuItemValue = HomeMenuItem::NONE, bool cleanInitialRefresh = false)
+      : Activity("Home", renderer, mappedInput),
+        initialMenuItem(initialMenuItemValue),
+        cleanInitialRefresh(cleanInitialRefresh) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

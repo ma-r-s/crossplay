@@ -2,7 +2,6 @@
 #include <expat.h>
 
 #include <cstddef>
-
 #include <string>
 
 /**

@@ -43,6 +43,11 @@ class ChessActivity final : public linkplay::LinkActivity {
   void onRematch() override;
   void onLinkEnded() override;
   bool matchGameOver() const override { return gameOver; }
+  // Chess keeps no W/L tally to write, so the only half of this that applies is
+  // the screen -- and the board it is already on IS the final position, with
+  // the mating move on it. Verified 2026-09-04: ChessActivity has kSettingsPath
+  // and kSavePath and no played/won counter anywhere. See link/LinkEndgame.h.
+  void onMatchEnded() override {}
   void onLinkPhaseChanged() override { refreshTurnLabel(); }
   void drawLinkArt(const Rect& slot) override { drawMiniBoard(slot); }
   void gameLoop() override;
@@ -121,6 +126,13 @@ class ChessActivity final : public linkplay::LinkActivity {
   void loadSettings();
 
   void refreshLegalMoves();
+  // The repetition window: the key of every position since the last capture or
+  // pawn move, oldest first, the position on the board last. Kept here rather
+  // than derived from `history` because history holds SAN text and undo data,
+  // and a resumed game has the first but not the second.
+  void resetRepetition();
+  void pushRepetitionKey();
+  int currentRepetitionCount() const;
   bool isLegalDestination(int square) const;
   // Applies the selected-to-target move if one is legal. Promotion always takes
   // a queen for now; underpromotion needs a picker and is not worth a dialog on
@@ -190,9 +202,30 @@ class ChessActivity final : public linkplay::LinkActivity {
   chess::Undo historyUndo[kMaxHistory] = {};
   int historyCount = 0;
   int historyBase = 0;
+  // The first ply whose undo data is real. A resumed game restores the SAN
+  // list for the move sheet but not historyMove/historyUndo -- those cannot be
+  // recovered from the save, which stores the position and the notation, not
+  // the plies. Take-back therefore stops here rather than unmaking a
+  // zero-initialised Move, which put the board back wrong: it moved nothing
+  // (a1 to a1) while restoring castling = 0 and dropping a move from the sheet.
+  int undoableFrom = 0;
+
+  // 128 covers any window the fifty-move rule allows to exist (it draws at 100
+  // halfmoves), so the shift below is a backstop rather than a normal path.
+  static constexpr int kRepWindow = 128;
+  uint64_t repKeys[kRepWindow] = {};
+  int repCount = 0;
+  // Why the game ended, when it ended in a draw. Checkmate and stalemate are
+  // still read off the position; these two cannot be, because they are facts
+  // about the game rather than about the board.
+  enum class DrawReason : uint8_t { None, Repetition, FiftyMove };
+  DrawReason drawReason = DrawReason::None;
 
   int selectedSquare = -1;
   bool gameOver = false;
+  // What a tap on the play surface means. See Activity::surfaceMeaning().
+  uint32_t surfaceMeaning() const override;
+
   bool engineThinking = false;
 
   // Chess opens here. Multiplayer is a row on it rather than a saved setting,

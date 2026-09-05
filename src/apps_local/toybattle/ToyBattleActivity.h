@@ -39,6 +39,10 @@ class ToyBattleActivity final : public linkplay::LinkActivity {
   void onRematch() override;
   void onLinkEnded() override;
   bool matchGameOver() const override;
+  // Counted here and nowhere else in a match. It used to be counted only inside
+  // gameLoop(), which multiplayer stops running the moment the game ends, so no
+  // link battle was ever recorded. See link/LinkEndgame.h.
+  void onMatchEnded() override;
   void gameLoop() override;
   void gameRender() override;
   void drawLinkArt(const Rect& area) override;
@@ -50,6 +54,7 @@ class ToyBattleActivity final : public linkplay::LinkActivity {
   void cycleSetupRow(tbui::SetupRow row);
   void refreshSaveLine();
   void takeOpponentTurn();
+  void recordResult();
   void goTo(toybattle::Screen next);
   const char* promptText() const;
 
@@ -87,7 +92,6 @@ class ToyBattleActivity final : public linkplay::LinkActivity {
   // A finish is recorded once, in one place. render() runs more than once per
   // move, so a screen builder that counted a win would count several.
   bool recorded = false;
-
 
   // A move is only sent when the rules AND the link both say it is your turn.
   // Asking whether they agree is not the same question and passes on the

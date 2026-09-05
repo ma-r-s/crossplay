@@ -43,6 +43,9 @@ class ActivityManager {
   std::unique_ptr<Activity> currentActivity;
 
   void exitActivity(const RenderLock& lock);
+  // The only way currentActivity is assigned. Arms the release gate first --
+  // see the definition, and util/ButtonReleaseGate.h for the seam.
+  void setCurrentActivity(std::unique_ptr<Activity>&& next);
 
   // Pending activity to be launched on next loop iteration
   std::unique_ptr<Activity> pendingActivity;
@@ -53,6 +56,8 @@ class ActivityManager {
   TaskHandle_t renderTaskHandle = nullptr;
   static void renderTaskTrampoline(void* param);
   [[noreturn]] virtual void renderTaskLoop();
+  void reportRepaint(const char* activityName, uint32_t requestedAtMs, unsigned long repaintStartMs) const;
+  void noteUpdateRequested();
 
   // Set by requestUpdateAndWait(); read and cleared by the render task after render completes.
   // Note: only one waiting task is supported at a time
@@ -65,6 +70,28 @@ class ActivityManager {
   // Whether to trigger a render after the current loop()
   // This variable must only be set by the main loop, to avoid race conditions
   std::atomic<bool> requestedUpdate{false};
+
+  // millis() at the moment a repaint was first asked for, or 0 when none is
+  // outstanding. Only the FIRST request in a burst is stamped: several
+  // requestUpdate() calls in one loop collapse into a single render, and the
+  // wait the user feels started at the first of them.
+  //
+  // Read by the render task to say how long a repaint sat queued before it
+  // began. That gap is invisible to every timer inside render(), and it is one
+  // of the two places a page turn can lose time without anything logging it --
+  // the other being the RenderLock a background task may be holding.
+  std::atomic<uint32_t> updateRequestedAtMs{0};
+
+  // Repaints slower than this get one INF line naming where the time went.
+  //
+  // A threshold rather than a line per repaint, because LOG_INF also writes the
+  // sixteen-line RTC ring that /api/dev/crash reads: an unconditional line per
+  // screen update would erase every crash tail within seconds. 400ms is above
+  // any healthy repaint on any panel in the fork (the X4 Pro's own FAST
+  // waveform is ~260ms) and well below the 4.2s of GitHub issue #7, so a
+  // device that is behaving stays silent and a device that is not explains
+  // itself on the cable, in a release build, without a rebuild.
+  static constexpr unsigned long SLOW_REPAINT_MS = 400;
 
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -82,6 +109,7 @@ class ActivityManager {
 
   // goTo... functions are convenient wrapper for replaceActivity()
   void goToFileTransfer();
+  void goToUsbDrive();
   void goToSettings();
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
@@ -91,7 +119,7 @@ class ActivityManager {
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();
-  void goHome(HomeMenuItem initialMenuItem = HomeMenuItem::NONE);
+  void goHome(HomeMenuItem initialMenuItem = HomeMenuItem::NONE, bool cleanInitialRefresh = false);
 
   // This will move current activity to stack instead of deleting it
   void pushActivity(std::unique_ptr<Activity>&& activity);
@@ -101,6 +129,7 @@ class ActivityManager {
   void popActivity();
 
   bool preventAutoSleep() const;
+  bool requiresExclusiveStorageLoop() const;
   bool isReaderActivity() const;
 
   // The name of the activity on screen, or "" when there is none. A

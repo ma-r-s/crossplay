@@ -551,3 +551,27 @@ play-test: their move went into the capsule and waited to be acknowledged, which
 put a press between the player and every single one of their own turns. What you
 lose without it is that a fast player can miss the line; what you gain is that
 the game never stops. The board itself shows what changed anyway.
+
+### The running strip
+
+The line above the market is `SEALS 1-0   YOU 39   THEM 34+2?   DECK 12`, and
+the two totals are one measurement taken twice:
+`Game::visibleScore(viewer, seat)`, everything the player holding the device may
+honestly know about that seat.
+
+That is nearly everything. Goods tokens are face up, both herds are face up, and
+the camel token follows the herds, so all three count in either column. The one
+genuine secret is the value printed on the back of a bonus token: you looked at
+your own when you drew it, and of theirs you only ever knew the count. Theirs is
+therefore a number plus `+N?`, and that question mark is the screen's only "not
+yet known".
+
+**The camel token is projected for both seats rather than held back until the
+round is scored.** It is public, the board prints both herds two rows further
+down, and a player can work it out by eye; deferring it would also put the strip
+at odds with the round-over table, which totals with `Game::score`. The first
+build credited it to your column alone, so a fresh deal where the opponent held
+the only camel read `YOU 0 THEM 0` over a table standing 0-5, and your own total
+dropped by 5 the moment they took the herd lead, with no sale to explain it. The
+strip can still be wrong about who is ahead, but only by the hidden bonus
+tokens, and the `?` is what says so.

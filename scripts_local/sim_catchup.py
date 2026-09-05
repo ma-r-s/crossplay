@@ -87,6 +87,102 @@ patch(
     marker="freeBytes",
 )
 
+# The 2026-09-04 upstream sync brought USB Drive (mass storage) in: lib/hal
+# gained prepareForDeepSleep(), beginUsbDrive(), disconnectUsbDriveHost(),
+# endUsbDrive() and usbDriveState(), plus the UsbDriveState enum they answer
+# with. The simulator ships its own HalStorage that shadows lib/hal, so it
+# needs all six or the build stops dead -- which is exactly what happened.
+#
+# These ARE stubs, unlike freeBytes above, and deliberately so: there is no
+# USB host attached to a host-side simulator, so the honest answer is
+# Unsupported. That is a real state the enum already carries and the UI
+# already has to handle, not a pretend success. beginUsbDrive() returning
+# false means "this board cannot", which is the truth here.
+# Simulator dep drift, 2026-09-04: upstream crosspoint changed
+# HalGPIO::verifyPowerButtonWakeup() to take no arguments (it reads the settings
+# itself now), and main.cpp calls it that way. The published simulator package
+# still declares the older two-argument form, so the sim build fails on a call
+# that is correct for lib/hal. Bring the simulator's copy to the current
+# signature; its body was already a constant true, because the host wake path is
+# synthetic and there is no button to hold.
+patch(
+    src / "HalGPIO.h",
+    "  bool verifyPowerButtonWakeup(uint16_t requiredDurationMs,\n"
+    "                               bool shortPressAllowed);",
+    "  bool verifyPowerButtonWakeup();",
+    "HalGPIO::verifyPowerButtonWakeup (drop the removed arguments)",
+    marker="verifyPowerButtonWakeup();",
+)
+
+patch(
+    src / "HalGPIO.cpp",
+    "bool HalGPIO::verifyPowerButtonWakeup(uint16_t /*requiredDurationMs*/,\n"
+    "                                      bool /*shortPressAllowed*/) {",
+    "bool HalGPIO::verifyPowerButtonWakeup() {",
+    "HalGPIO::verifyPowerButtonWakeup impl (drop the removed arguments)",
+    marker="verifyPowerButtonWakeup() {",
+)
+
+# Upstream's X4 Classic support (2026-09-04 sync) calls BoardConfig::isX4Classic()
+# from the reader. The simulator ships its own BoardConfig.h that shadows the
+# SDK's, and its Board enum has no XteinkX4Classic at all -- the simulator is an
+# X4 Pro. So the honest answer here is a constant false, not a board test: there
+# is no X4 Classic to be.
+patch(
+    src / "BoardConfig.h",
+    "inline bool hasTouch()",
+    "inline bool isX4Classic() { return false; }  // no X4 Classic profile in the simulator\n"
+    "inline bool hasTouch()",
+    "BoardConfig::isX4Classic (simulator has no such board)",
+    marker="isX4Classic",
+)
+
+patch(
+    src / "HalStorage.h",
+    "class HalFile;",
+    "class HalFile;\n"
+    "\n"
+    "enum class UsbDriveState : uint8_t {\n"
+    "  Unsupported,\n"
+    "  WaitingForHost,\n"
+    "  Connected,\n"
+    "  Ejected,\n"
+    "  Disconnected,\n"
+    "  IoError,\n"
+    "};",
+    "UsbDriveState enum (header)",
+    marker="enum class UsbDriveState",
+)
+
+patch(
+    src / "HalStorage.h",
+    "  bool removeDir(const char *path);",
+    "  void prepareForDeepSleep();\n"
+    "  bool beginUsbDrive();\n"
+    "  bool disconnectUsbDriveHost();\n"
+    "  void endUsbDrive();\n"
+    "  UsbDriveState usbDriveState() const;\n"
+    "  bool removeDir(const char *path);",
+    "HalStorage USB Drive + deep sleep (header)",
+    marker="usbDriveState",
+)
+
+patch(
+    src / "HalStorage.cpp",
+    "bool HalStorage::begin() {",
+    "void HalStorage::prepareForDeepSleep() {}\n"
+    "bool HalStorage::beginUsbDrive() { return false; }\n"
+    "bool HalStorage::disconnectUsbDriveHost() { return false; }\n"
+    "void HalStorage::endUsbDrive() {}\n"
+    "UsbDriveState HalStorage::usbDriveState() const {\n"
+    "  return UsbDriveState::Unsupported;\n"
+    "}\n"
+    "\n"
+    "bool HalStorage::begin() {",
+    "HalStorage USB Drive + deep sleep (impl)",
+    marker="HalStorage::usbDriveState",
+)
+
 patch(
     src / "HalStorage.cpp",
     "#include <sys/stat.h>",
@@ -239,6 +335,28 @@ patch(
     "  static constexpr unsigned long IDLE_DOWNCLOCK_MS = 500;",
     "HalPowerManager::IDLE_POWER_SAVING_MS (mirrors lib/hal)",
     marker="IDLE_POWER_SAVING_MS",
+)
+
+
+# lib/hal/HalSystem.h gained panicReasonRecorded() so the heartbeat can tell a
+# fresh panic reason from a stale one (the capture marker, read before
+# checkPanic() clears it). The simulator ships its own HalSystem, and its
+# copy never panics: no reason is ever recorded, so it answers false.
+patch(
+    src / "HalSystem.h",
+    "bool isRebootFromPanic();",
+    "bool isRebootFromPanic();\nbool panicReasonRecorded();",
+    "HalSystem::panicReasonRecorded (header)",
+    marker="panicReasonRecorded",
+)
+
+patch(
+    src / "HalSystem.cpp",
+    "bool HalSystem::isRebootFromPanic() { return false; }",
+    "bool HalSystem::isRebootFromPanic() { return false; }\n"
+    "bool HalSystem::panicReasonRecorded() { return false; }",
+    "HalSystem::panicReasonRecorded (impl)",
+    marker="HalSystem::panicReasonRecorded",
 )
 
 

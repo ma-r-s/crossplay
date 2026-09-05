@@ -1,6 +1,7 @@
 #pragma once
 #include <FreeInkUIGfxRenderer.h>
 #include <GfxRenderer.h>
+#include <PaintClock.h>
 
 #include <atomic>
 #include <cstdint>
@@ -52,14 +53,21 @@ class KeyboardEntryActivity : public Activity {
   // layouts (with the always-visible number row); the URL layers are
   // app-defined tables in the .cpp.
   freeink::ui::KeyboardLayoutId layoutId = freeink::ui::KeyboardLayoutId::QwertyEn;
+  // Asks the SDK for a layout variant with the language key. Only the Latin
+  // layouts honour it; the Cyrillic and Hebrew tables carry the key either way.
+  // Resolved once in onEnter(): the set cannot change while a keyboard is on
+  // screen, and currentLayout() runs on every loop pass.
+  bool showLangKey = false;
   bool shifted = false;
   bool symbols = false;
   bool urlPanel = false;  // URL snippet panel replaces the letter layer
 
-  // Key hit rects registered by the keyboard component during render();
-  // loop() routes touch snapshots against them. 5-row EN layout registers 41
-  // keys, so 48 leaves headroom.
-  freeink::ui::InteractionBuffer<48> interactions;
+  // Key hit rects registered by the keyboard component during render(); loop()
+  // routes touch snapshots against them. The 5-row EN layout registers 41 keys,
+  // Cyrillic's wider rows (12/11/11 against 10/9/9) exactly 48, so 56 restores
+  // the headroom. Two generations of 16-byte entries: 256 bytes for the eight
+  // extra slots, no heap.
+  freeink::ui::InteractionBuffer<56> interactions;
 
   // GPIO selection over the current layout grid (row/col in layout terms;
   // the bottom action row is just the last row).
@@ -98,6 +106,26 @@ class KeyboardEntryActivity : public Activity {
   // on dual-core targets.
   std::atomic<bool> interactionsReady{false};
 
+  // interactionsReady opens when the table is PUBLISHED; the panel does not
+  // show it until displayBuffer() returns, 0.3-2s later. For that whole window
+  // the screen under the user's finger is still whatever pushed this activity
+  // -- a settings list, a Wi-Fi picker -- and a tap where one of ITS rows was
+  // lands on a key. This latch keeps touch shut until the first paint.
+  //
+  // Armed on screen ENTRY only, and revealed() latches, so no later render
+  // re-arms it. That is deliberate and is the difference between this and the
+  // digest gate the toybox screens use (paintclock::RevealedInteractions).
+  // Digesting this table would gate every LAYER change, and shift swaps the
+  // whole layout -- builtinKeyboardLayout(layoutId, shifted, ...) returns a
+  // different table with different key VALUES per layer, and shift
+  // auto-releases after one character. Every capital letter would therefore be
+  // followed by a full refresh of dead keyboard, which is the frozen-device
+  // failure this mechanism exists to avoid. A layer change is also the benign
+  // half of the problem: it is caused by the user's own released tap, so the
+  // next tap is a deliberate new contact, not a stationary finger being
+  // betrayed by a change it did not cause.
+  paintclock::RevealGate revealGate;
+
   int delPressCount = 0;
   bool hintVisible = false;
   unsigned long hintShowTime = 0;
@@ -109,6 +137,7 @@ class KeyboardEntryActivity : public Activity {
   // Advance of s[start, end) measured in place by temporarily null-terminating
   // at `end` — avoids a substr temporary per measurement.
   int measureRange(std::string& s, int start, int end) const;
+  bool rangeIsRtl(std::string& s, int start, int end) const;
   // Largest line end in (start, s.length()] whose advance fits maxWidth.
   // Binary search over the monotonic prefix advance; always advances at least
   // one byte so an oversized glyph cannot stall the wrap loop.

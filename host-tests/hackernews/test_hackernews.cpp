@@ -169,7 +169,21 @@ void testEntities() {
   // Non-ASCII arrives as a numeric escape and has to come out as UTF-8, because
   // that is what the renderer reads.
   CHECK_EQ(decoded("caf&#233;"), "caf\xc3\xa9");
-  CHECK_EQ(decoded("&#x2014;"), "\xe2\x80\x94");
+
+  // ...unless the reading cut has no glyph for it, in which case UTF-8 is what
+  // the renderer reads and NOTHING is what it draws. This expectation used to
+  // be "\xe2\x80\x94" and it was a test agreeing with the bug: the em dash
+  // decoded correctly, reached drawText correctly, and vanished. Decoding is
+  // where HN's punctuation comes into existence -- it is an entity on the wire
+  // and a codepoint after this function -- so it is where it gets folded.
+  CHECK_EQ(decoded("&#x2014;"), "--");
+  CHECK_EQ(decoded("&#8217;"), "'");
+  CHECK_EQ(decoded("&#x201C;quoted&#x201D;"), "\"quoted\"");
+  CHECK_EQ(decoded("wait&#8230;"), "wait...");
+  // Latin-1 letters are not folded: the reading cut draws them, and "cafe" for
+  // "caf\xc3\xa9" would be a downgrade rather than a fix. The line above says
+  // so; this says the fold did not quietly grow to cover letters.
+  CHECK_EQ(decoded("Bj&#246;rn"), "Bj\xc3\xb6rn");
 
   // One pass, so a double-encoded entity decodes exactly one level. Decoding
   // until nothing changes would turn text *about* entities into the thing it
@@ -194,7 +208,9 @@ void testHnHtml() {
   // A real comment: <p> separators, <i> emphasis, a <pre><code> block.
   const auto verse = hn::paragraphsFromHnHtml(fixtures::kComment1);
   CHECK(verse.size() >= 3);
-  CHECK(verse[0] == "Thank you for the quote.  Here is the verse in full\xe2\x80\xa6");
+  // "...", not U+2026: the ellipsis is folded on the way out of the decoder,
+  // because this cut has no glyph for one and it drew as nothing.
+  CHECK(verse[0] == "Thank you for the quote.  Here is the verse in full...");
   for (const std::string& paragraph : verse) {
     CHECK(paragraph.find('<') == std::string::npos);
     CHECK(paragraph.find("&#") == std::string::npos);
@@ -234,6 +250,15 @@ void testExtractorSplit() {
   const hn::Extracted pdf = hn::splitExtractorResponse(fixtures::kPdfExtract);
   CHECK(hn::proseChars(pdf.body) == 0);
 
+  // The title is drawn as the article's first line and as the header band, and
+  // it comes from the same page as the body, so it gets the same fold.
+  const hn::Extracted curly = hn::splitExtractorResponse(
+      "Title: The \xe2\x80\x9c"
+      "best\xe2\x80\x9d"
+      " way \xe2\x80\x94"
+      " revisited\nMarkdown Content:\nbody");
+  CHECK_EQ(curly.title, "The \"best\" way -- revisited");
+
   // No marker: keep everything and report no title, rather than losing the body.
   const hn::Extracted plain = hn::splitExtractorResponse("just some text");
   CHECK_EQ(plain.body, "just some text");
@@ -267,6 +292,25 @@ void testMarkdownFlattening() {
   const auto bullets = hn::paragraphsFromMarkdown("* first\n* second");
   CHECK(bullets.size() == 1);
   if (bullets.size() == 1) CHECK_EQ(bullets[0], "- first - second");
+
+  // The extractor answers with somebody else's page, so unlike HN's own HTML it
+  // carries real curly quotes and em dashes rather than numeric entities. This
+  // is the article body -- the screen a reader spends the most time on -- and
+  // the reading cut has no glyph for any of it, so it drew with holes in it.
+  const auto typographic = hn::paragraphsFromMarkdown(
+      "He said \xe2\x80\x9c"
+      "it\xe2\x80\x99"
+      "s fine\xe2\x80\x9d"
+      " \xe2\x80\x94"
+      " and left\xe2\x80\xa6");
+  CHECK(typographic.size() == 1);
+  if (typographic.size() == 1) CHECK_EQ(typographic[0], "He said \"it's fine\" -- and left...");
+
+  // And the letters the reading cut CAN draw are left alone, so an author's
+  // name is not quietly rewritten on the way to the panel.
+  const auto accented = hn::paragraphsFromMarkdown("Written by Bj\xc3\xb6rn in a caf\xc3\xa9.");
+  CHECK(accented.size() == 1);
+  if (accented.size() == 1) CHECK_EQ(accented[0], "Written by Bj\xc3\xb6rn in a caf\xc3\xa9.");
 
   // Blank lines separate paragraphs; a single newline is soft wrapping.
   const auto wrapped = hn::paragraphsFromMarkdown("one\nline\n\ntwo");
@@ -327,6 +371,17 @@ void testCommentOrdering() {
   }
   // The root is the story, not a comment, so it must not appear.
   for (const hn::Comment& comment : comments) CHECK(comment.author != "story");
+
+  // An author's name is drawn beside their comment and is not run through the
+  // HTML decoder the body is, so it needs the fold of its own. HN usernames are
+  // ASCII, but the scanner is fed whatever the API returns.
+  const std::string typographic = R"({"author":"story","children":[)"
+                                  "{\"author\":\"o\xe2\x80\x99"
+                                  "brien\",\"children\":[],\"text\":\"hi\"}"
+                                  R"(],"text":"the story"})";
+  const auto folded = scan(typographic, 4096, {});
+  CHECK(folded.size() == 1);
+  if (folded.size() == 1) CHECK_EQ(folded[0].author, "o'brien");
 }
 
 void testCommentTree() {

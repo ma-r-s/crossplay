@@ -51,8 +51,11 @@ struct MenuModel {
   // it is rather than which row.
   const fui::ListItem* items = nullptr;
   int count = 0;
-  // Page-relative, matching `items`. -1 draws no cursor at all.
-  int selected = 0;
+  // There is no selection field, and that is the design. Navigation here is
+  // touch: the two side keys page, and `frontButtonConfirm` is an unassigned
+  // pin, so nothing can move an inverted row and nothing can act on one. Which
+  // page you are on is said by the pips, which is a fact about the list rather
+  // than a cursor over it.
   // This device's name, shown to anyone it plays with. It lives here rather
   // than inside any game because it belongs to the device: a DS asked once and
   // every game used it.
@@ -72,13 +75,22 @@ struct MenuModel {
   // Which page is showing, and how many there are. A pageCount of 1 draws no
   // page bar at all, so a folder that fits keeps every row it has.
   //
-  // The bar is pips rather than prev/next arrows, and that is not decoration.
-  // Arrows are up to pageCount-1 taps to reach the far end; pips are always one,
-  // which matters most on the panel that is slowest to redraw. They also say
-  // where you are, which arrows do not. A right chevron was the obvious glyph
-  // for "next" and is exactly what could not be used: on this device a right
-  // chevron already means "opens", and it is the only affordance the player bar
-  // has.
+  // The bar is marks rather than prev/next arrows, and that is not decoration.
+  // Arrows are up to pageCount-1 taps to reach the far end; a mark is always
+  // one, which matters most on the panel that is slowest to redraw. They also
+  // say where you are, which arrows do not. A right chevron was the obvious
+  // glyph for "next" and is exactly what could not be used: on this device a
+  // right chevron already means "opens", and it is the only affordance the
+  // player bar has.
+  //
+  // Each mark carries its page NUMBER, and the current one is a filled slab.
+  // They were 10px squares, filled for here and outlined for elsewhere, and a
+  // cold tester called them "the size of a full stop": at that size the
+  // difference between the two states is the only thing saying where you are,
+  // and it is smaller than the ink of one letter. The list resumes on the page
+  // it was left on, so the row in position two is a different game on each
+  // visit -- which makes "which page is this" the one question the screen has
+  // to answer before any tap is safe.
   int page = 0;
   int pageCount = 1;
 };
@@ -93,8 +105,8 @@ Paging pagingFor(const fui::DeviceContext& device, const fui::ThemeTokens& token
 // that always starts in the same place is one a thumb can learn.
 //
 // Split out from the builder so the activity can keep the value it owns, and so
-// a test can check that a selection below the fold actually brings its page into
-// view rather than being styled on a row that is never drawn.
+// a test can check that a row below the fold actually brings its page into view
+// rather than being asked for on a page that does not hold it.
 int pageFor(int selected, int rowsPerPage);
 
 // How many pages `itemCount` rows need. Beside pageFor because it is the same
@@ -102,6 +114,60 @@ int pageFor(int selected, int rowsPerPage);
 // without reaching for the whole Paging struct (which needs a device and a
 // token set it does not have in loop()).
 int pageCountFor(int itemCount, int rowsPerPage);
+
+// The row that stands for `page`: its first one.
+//
+// A folder remembers the page it was left on, and it remembers it as a ROW,
+// because a row survives things a page number does not. Rows per page is a
+// property of the panel and the chrome -- the player bar costs one, the page bar
+// costs another -- so a stored page number means a different set of games the
+// first time a token moves, silently. A stored row is the same game either way,
+// and pageFor() puts it back on whichever page now holds it.
+//
+// pageFor(rowForPage(p, n), n) == p for every page of every folder, which is the
+// property that makes "come back to the page I was on" true rather than likely.
+int rowForPage(int page, int rowsPerPage);
+
+// The row a folder actually resumes on, given what it remembered and how many
+// items it holds NOW.
+//
+// The two disagree when the registry has shrunk since: a game removed by a
+// firmware update, and a card that outlives the firmware that wrote it. When
+// the remembered row is past the end this pins it to the LAST row, so the
+// folder opens on its LAST page.
+//
+// Last rather than first, deliberately. What was remembered was "near the end of
+// this folder", and the nearest surviving place to that is the end, not the top;
+// falling back to page one would throw away the only thing that was stored.
+// Naming it here rather than leaving it to a clamp because a clamp that cannot
+// produce the last page is exactly what made this area unpredictable before, and
+// an unnamed rule cannot be tested.
+int resumeRowFor(int rememberedRow, int itemCount);
+
+// The page one step of `delta` away, wrapping at both ends. The one place a
+// page key, a swipe and a pip tap all agree on what "next" means, so no route
+// can move by a different amount than another -- one input, one page, and the
+// same page whichever input it was.
+//
+// Wraps because there is no cursor to run off the end of, and a page key that
+// stops working at the last page reads as a broken key. That argument holds
+// where the screen has no legible page indicator to explain the stop; the shelf
+// has one and takes pageStepClamped instead. Kept because Hacker News's story
+// list steps through this.
+int pageStep(int page, int pageCount, int delta);
+
+// The same step, STOPPING at both ends rather than wrapping.
+//
+// A wrap is only safe when the user can see where it put them. Every page of a
+// folder draws its rows at the same eight screen positions, so a page arrived at
+// by accident looks exactly like the page that was wanted, and the next tap
+// opens a different game. A cold tester walked forward off the last page and
+// launched CHECKERS believing it was TRIVIA -- forward from the last page is the
+// one step nobody ever means, so it is the one step that does nothing.
+//
+// The far page stays one tap away on the page bar, which is the same one tap the
+// wrap cost and is why the bar carries marks rather than arrows.
+int pageStepClamped(int page, int pageCount, int delta);
 
 // The body rect the list occupies. `hasPages` is what the page bar costs it, and
 // it is a separate argument rather than derived because pagingFor has to ask

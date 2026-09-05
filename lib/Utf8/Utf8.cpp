@@ -207,3 +207,188 @@ std::string utf8CollapseWhitespace(const std::string& in) {
   }
   return out;
 }
+
+namespace {
+
+// Sorted by codepoint; binary-searched. Every entry is at or above U+00A0, so
+// ASCII cannot be touched by construction -- which is what makes the fast path
+// below a shortcut rather than a special case.
+//
+// An entry earns its place by answering yes to both: does at least one cut that
+// carries external text AND reaches past ASCII lack the glyph (measured in
+// host-tests/typefold/), and does the ASCII spelling mean the same thing?
+//
+// The vulgar fractions were in this table and are not any more, which is the
+// clearest statement of that first test. The reading cut draws U+00BD in 24px
+// and "1/2" in 39px, so folding it made body text wider and worse to rescue the
+// tile cut, which is the exact trade this change declines for accented letters
+// one paragraph down. A row is for a character the cut that carries the PROSE
+// cannot draw. Letters fail the second test and
+// are absent on purpose. So are the bidi controls (U+200E, U+200F,
+// U+202A..U+202E, U+2066..U+2069): they carry no ink either, but MiniBidi reads
+// them during shaping and deleting them here would change the order glyphs come
+// out in, which is a different bug from the one this fixes.
+constexpr Utf8TypographyFold kFolds[] = {
+    {0x00A0, " "},     // NO-BREAK SPACE
+    {0x00AD, ""},      // SOFT HYPHEN. Removed rather than turned into a
+                       // hyphen, and this is the one row that is not just
+                       // closing a hole: the reading cuts DO carry a glyph for
+                       // it, 8 pixels of ink at 14px, so a soft hyphen inside
+                       // a word currently draws a hyphen there. Nothing in
+                       // this firmware breaks lines on one, so it is noise
+                       // either way -- measured in host-tests/typefold/.
+    {0x02BC, "'"},     // MODIFIER LETTER APOSTROPHE
+    {0x2000, " "},     // EN QUAD
+    {0x2001, " "},     // EM QUAD
+    {0x2002, " "},     // EN SPACE
+    {0x2003, " "},     // EM SPACE
+    {0x2004, " "},     // THREE-PER-EM SPACE
+    {0x2005, " "},     // FOUR-PER-EM SPACE
+    {0x2006, " "},     // SIX-PER-EM SPACE
+    {0x2007, " "},     // FIGURE SPACE
+    {0x2008, " "},     // PUNCTUATION SPACE
+    {0x2009, " "},     // THIN SPACE
+    {0x200A, " "},     // HAIR SPACE
+    {0x200B, ""},      // ZERO WIDTH SPACE
+    {0x200C, ""},      // ZERO WIDTH NON-JOINER
+    {0x200D, ""},      // ZERO WIDTH JOINER
+    {0x2010, "-"},     // HYPHEN
+    {0x2011, "-"},     // NON-BREAKING HYPHEN
+    {0x2012, "-"},     // FIGURE DASH
+    {0x2013, "-"},     // EN DASH
+    {0x2014, "--"},    // EM DASH
+    {0x2015, "--"},    // HORIZONTAL BAR
+    {0x2018, "'"},     // LEFT SINGLE QUOTATION MARK
+    {0x2019, "'"},     // RIGHT SINGLE QUOTATION MARK -- the apostrophe in prose
+    {0x201A, "'"},     // SINGLE LOW-9 QUOTATION MARK
+    {0x201B, "'"},     // SINGLE HIGH-REVERSED-9 QUOTATION MARK
+    {0x201C, "\""},    // LEFT DOUBLE QUOTATION MARK
+    {0x201D, "\""},    // RIGHT DOUBLE QUOTATION MARK
+    {0x201E, "\""},    // DOUBLE LOW-9 QUOTATION MARK
+    {0x201F, "\""},    // DOUBLE HIGH-REVERSED-9 QUOTATION MARK
+    {0x2022, "*"},     // BULLET
+    {0x2023, "*"},     // TRIANGULAR BULLET
+    {0x2026, "..."},   // HORIZONTAL ELLIPSIS
+    {0x2028, " "},     // LINE SEPARATOR
+    {0x2029, " "},     // PARAGRAPH SEPARATOR
+    {0x202F, " "},     // NARROW NO-BREAK SPACE
+    {0x2032, "'"},     // PRIME
+    {0x2033, "\""},    // DOUBLE PRIME
+    {0x2039, "<"},     // SINGLE LEFT-POINTING ANGLE QUOTATION MARK
+    {0x203A, ">"},     // SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
+    {0x2043, "-"},     // HYPHEN BULLET
+    {0x2044, "/"},     // FRACTION SLASH
+    {0x205F, " "},     // MEDIUM MATHEMATICAL SPACE
+    {0x2060, ""},      // WORD JOINER
+    {0x20AC, "EUR"},   // EURO SIGN: present in the tile cut, absent from the
+                       // reading cut, and the only hole a census of 3665 live
+                       // Hacker News strings found that the rest of this table
+                       // did not already close
+    {0x2122, "(TM)"},  // TRADE MARK SIGN
+    {0x2190, "<-"},    // LEFTWARDS ARROW
+    {0x2192, "->"},    // RIGHTWARDS ARROW
+    {0x2194, "<->"},   // LEFT RIGHT ARROW
+    {0x21D2, "=>"},    // RIGHTWARDS DOUBLE ARROW
+    {0x2212, "-"},     // MINUS SIGN
+    {0x2215, "/"},     // DIVISION SLASH
+    {0x2248, "~="},    // ALMOST EQUAL TO
+    {0x2260, "!="},    // NOT EQUAL TO
+    {0x2264, "<="},    // LESS-THAN OR EQUAL TO
+    {0x2265, ">="},    // GREATER-THAN OR EQUAL TO
+    {0x25AA, "*"},     // BLACK SMALL SQUARE
+    {0x25CF, "*"},     // BLACK CIRCLE
+    {0x25E6, "*"},     // WHITE BULLET
+    {0x3000, " "},     // IDEOGRAPHIC SPACE
+    {0xFB00, "ff"},    // the f-ligatures a PDF extractor emits in article text
+    {0xFB01, "fi"},
+    {0xFB02, "fl"},
+    {0xFB03, "ffi"},
+    {0xFB04, "ffl"},
+    // U+FE00..U+FE0F, the variation selectors, are a contiguous range handled in
+    // foldFor() rather than sixteen rows saying the same thing. They are not in
+    // this table at all, and that matters: the table is what the tests walk.
+    {0xFEFF, ""},  // ZERO WIDTH NO-BREAK SPACE / byte order mark
+};
+
+const char* foldFor(const uint32_t cp) {
+  // Stated here as well as enforced by the table, because this is where the
+  // next special case will be written. ASCII never folds: the caller does not
+  // even decode it (a byte below 0x80 is copied straight through) and a whole
+  // string of it returns without allocating, so a row or a branch added below
+  // for an ASCII codepoint would be dead code that reads like a feature.
+  if (cp < 0xA0) return nullptr;
+  // The variation selectors are a contiguous run of sixteen; spelling all of
+  // them into the table would be sixteen lines saying the same thing.
+  if (cp >= 0xFE00 && cp <= 0xFE0F) return "";
+  int lo = 0;
+  int hi = static_cast<int>(sizeof(kFolds) / sizeof(kFolds[0])) - 1;
+  while (lo <= hi) {
+    const int mid = (lo + hi) / 2;
+    if (kFolds[mid].cp < cp) {
+      lo = mid + 1;
+    } else if (kFolds[mid].cp > cp) {
+      hi = mid - 1;
+    } else {
+      return kFolds[mid].ascii;
+    }
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+const Utf8TypographyFold* utf8TypographyFolds(size_t* count) {
+  if (count != nullptr) *count = sizeof(kFolds) / sizeof(kFolds[0]);
+  return kFolds;
+}
+
+std::string utf8FoldTypography(const std::string& in) {
+  // Nothing in the table is below U+00A0, so a string of pure ASCII cannot
+  // change. Returning it untouched is the proof as well as the shortcut.
+  bool hasHighByte = false;
+  for (const unsigned char c : in) {
+    if (c >= 0x80) {
+      hasHighByte = true;
+      break;
+    }
+  }
+  if (!hasHighByte) return in;
+
+  std::string out;
+  out.reserve(in.size());
+  // Bounded by size(), not by the terminator. A NUL inside the string is a byte
+  // like any other and everything after it has to survive: an article read off
+  // the card comes back from readWholeFile() as raw bytes, and a `while (*p)`
+  // walk returned only what preceded the first NUL -- on the path that does
+  // work, too, since the pure-ASCII shortcut above returns the whole string.
+  // utf8CollapseWhitespace beside this is a range-for for the same reason.
+  const unsigned char* const begin = reinterpret_cast<const unsigned char*>(in.c_str());
+  const unsigned char* const end = begin + in.size();
+  const unsigned char* p = begin;
+  while (p < end) {
+    if (*p < 0x80) {
+      out.push_back(static_cast<char>(*p++));
+      continue;
+    }
+    const unsigned char* const start = p;
+    // The decoder treats a NUL exactly as it treats any other invalid
+    // continuation byte, advancing only by what it consumed, so it cannot walk
+    // past `end`: the byte at `end` is c_str()'s terminator.
+    const uint32_t cp = utf8NextCodepoint(&p);
+    if (p == start) {  // unreachable today; a decoder that stalled would spin here
+      out.push_back(static_cast<char>(*p++));
+      continue;
+    }
+    const char* const ascii = foldFor(cp);
+    if (ascii != nullptr) {
+      out.append(ascii);
+      continue;
+    }
+    // Not folded: copy the ORIGINAL bytes rather than re-encoding the decoded
+    // codepoint. utf8NextCodepoint answers REPLACEMENT_GLYPH for a malformed
+    // sequence, and re-encoding would turn text we merely could not read into
+    // text we changed.
+    out.append(reinterpret_cast<const char*>(start), static_cast<size_t>(p - start));
+  }
+  return out;
+}

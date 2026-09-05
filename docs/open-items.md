@@ -11,6 +11,49 @@ to age.
 
 Ordered by what would embarrass the project soonest, not by effort.
 
+## Trivia's wrong answers: two faults closed, one only apparently
+
+Added 2026-09-01, revised the same evening after a cold review of the
+measurement. `tools_local/trivia/distractors.py` rewrote the option picker
+after a cold player answered 30 of 42 four-option sets without knowing the
+fact.
+
+**Closed, and counted on every stored option rather than sampled:** two options
+that are one thing 5.3% -> 0.0%, options not capitalised alike 9.9% -> 0.0%.
+**Improved, sampled:** a region named with only one option in it 15.5% -> 5.5%.
+Playable questions went 14,388 -> 18,485 **on the shipped 50,000**, whose
+options come from questions of the same type. A pack assembled from the local
+rating run uses that run's own candidate options and lands at 76.6% playable,
+flat across the five levels (72.7% to 82.5%).
+
+**What is still open, in the order it will be noticed:**
+
+- **The anachronism fix only covers names somebody wrote down.** The check had
+  two halves; one WAS the picker's own `existed()` table, so it reported 0 by
+  construction, and adding it in made a tautology look like a 38.5% -> 5.6%
+  result. The corpus-derived half moved 2.2% -> 1.8%, which is noise. Julius
+  Caesar against Dorian Gray for a 46 B.C. clue is still shipped.
+- **The type number is mostly circular and must not be quoted as "the options
+  are the same kind".** The sampler agrees with the picker's own head noun
+  99.8% of the time, and two deliberately wrong merges each changing 10,000+
+  sets moved it by zero. It proves one thing: the first-word-after-"this"
+  mis-typing is gone.
+- **Homonym heads are not solved.** `state` was fixed by reading the `of` tail
+  (`state of matter`); `star` had no such tail and was struck out entirely,
+  which loses the celestial questions. `school`, `plant` and `organ` are the
+  same shape of problem.
+- **The region leak is 5%, not 0**, and its own gazetteer undercounts the new
+  pack about 28% against the old pack's 5% -- so the before/after is biased
+  toward the fix. It sees a country named outright, never "the Swiss city" or
+  "the Kremlin".
+- **Nothing measures whether a wrong option is FAIR.** Four real rivers is what
+  the picker is FOR. The 42-set human read is the only instrument that found
+  the problem and the one to repeat after any change here.
+- **The new pack is built but NOT published.** Mario authorises the
+  `trivia-pack` prerelease himself. And **a device that already has
+  `/trivia/pack.dat` never re-downloads**, so publishing does not reach an
+  existing install; the file has to be deleted.
+
 ## Someone has now run this on a physical device, once
 
 Updated 2026-08-14. A tester flashed v1.2.1 to an X4 Pro and played most of the
@@ -339,3 +382,37 @@ Trivia invented its own spelling and shipped the bug. Four independent
 rediscoveries of one idiom is the signal: a `Storage.ensureDir(path)` would mean
 the sixth caller inherits the contract instead of inventing it. Not urgent, but
 the next one will get it wrong the same way.
+
+## `app/crossplayhosts` would break Study sync and Get Books
+
+Added 2026-09-03, found while publishing the Instapaper bridge.
+
+That branch moves `sync.ma-r-s.com` to `sync.crossplay.ma-r-s.com` and
+`books.ma-r-s.com` to `books.crossplay.ma-r-s.com`. Both new names are TWO
+labels below the apex, and **this zone cannot serve a two-label name over
+HTTPS.** ma-r-s.com is on Cloudflare's free plan, whose Universal SSL
+certificate has exactly two SANs, `ma-r-s.com` and `*.ma-r-s.com`. Anything
+deeper gets no certificate at all: the edge answers the handshake with alert
+40 and no peer certificate. You can see it in one command, without deploying
+anything:
+
+    echo | openssl s_client -connect 104.21.2.163:443 \
+      -servername sync.crossplay.ma-r-s.com     # alert 40, no peer certificate
+
+So merging that branch would not produce a slow rollout or a redirect to fix
+later. It would produce two shipped, compiled-in hostnames that fail TLS on
+devices already in the field, whose owners have no way to learn why -- the
+exact failure `StudySync.h`'s own comment exists to prevent, arriving through
+the certificate rather than through DNS.
+
+The Instapaper bridge hit this first because its constant named
+`read.crossplay.ma-r-s.com`, and it was free to fix: nothing had ever paired,
+because that name had never resolved. It is now `read.ma-r-s.com` and live.
+Study and Get Books do not have that freedom.
+
+**Two ways out, and one of them costs money.** Buy Advanced Certificate
+Manager (about $10/month) and order a certificate covering
+`*.crossplay.ma-r-s.com` BEFORE changing any constant; or drop the
+`crossplay.` level and keep one-label names, which is what all three working
+services use today. That is Mario's call, not a code decision, and until it is
+made the branch should not be merged.

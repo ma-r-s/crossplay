@@ -1,8 +1,8 @@
 # Blank issues are on. The templates that used to live beside this file were
 # CrossPoint's, and one of them made you tick a box swearing your idea was "not
 # an interactive app (game, calculator, notepad)" before you could file it.
-# CrossPlay is eight games and a news reader, so nobody could have filed a
-# truthful feature request here.
+# Interactive apps are the entire reason this fork exists, so nobody could
+# have filed a truthful feature request here.
 blank_issues_enabled: true
 
 contact_links:

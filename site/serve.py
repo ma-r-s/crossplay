@@ -10,12 +10,22 @@ this site has. Without it the Install button is untestable off Vercel: it fails
 at the download with a 404 from the static handler, which looks exactly like a
 broken endpoint and is only a missing one.
 
+Dev only: with INBOX_FIXTURE set to a JSON file, POST /api/inbox is answered
+from that file whatever the passphrase (op `list` returns its `list` object,
+`numbers` its `numbers` object, `answer` says {ok: true} and changes nothing).
+That is how the inbox page's layout gets looked at without a passphrase or a
+board; inbox/fixture.json is the file. Without the variable the endpoint says
+the inbox is not set up, which is what production says without its secrets.
+Production never runs this file, so the fixture can never reach it.
+
   serve.py [port]
+  INBOX_FIXTURE=site/inbox/fixture.json serve.py [port]
 """
 
 import functools
 import http.server
 import json
+import os
 import pathlib
 import re
 import socketserver
@@ -47,7 +57,72 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.split("?")[0] == "/api/firmware":
             self.serve_firmware()
             return
+        if self.path.split("?")[0] == "/api/board-config":
+            self.serve_board_config()
+            return
         super().do_GET()
+
+    def do_POST(self):
+        if self.path.split("?")[0] == "/api/inbox":
+            self.serve_inbox()
+            return
+        self.fail(404, "Nothing answers POST here.")
+
+    def serve_inbox(self):
+        # Mirrors api/inbox.js only in shape. The real function checks a
+        # passphrase and reads the board; this reads INBOX_FIXTURE and checks
+        # nothing, so the page can be laid out and looked at offline. See the
+        # header. Without the variable it answers as production does without
+        # its secrets, so the page shows its "not set up" line and not a
+        # parse error from the static handler's 501 page.
+        fixture = os.environ.get("INBOX_FIXTURE", "")
+        if not fixture:
+            self.fail(503, "The inbox is not set up on this deployment.")
+            return
+        try:
+            with open(fixture, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError) as err:
+            self.fail(500, f"INBOX_FIXTURE could not be read: {err}")
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            self.fail(400, "Unreadable request.")
+            return
+        op = body.get("op") if isinstance(body, dict) else None
+        if op == "list":
+            answer = data.get("list", {"inbox": [], "cards": []})
+        elif op == "numbers":
+            answer = data.get("numbers", {})
+        elif op == "answer":
+            answer = {"ok": True}
+        else:
+            self.fail(400, "Unknown operation.")
+            return
+        out = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
+    def serve_board_config(self):
+        # Mirrors api/board-config.js: the inbox page asks for the board's
+        # address and public key. Source .board/supabase.env before running
+        # serve.py to work on the inbox locally; without it the page says so.
+        url = os.environ.get("SUPABASE_URL", "")
+        anon = os.environ.get("SUPABASE_ANON_KEY", "")
+        if not url or not anon:
+            self.fail(503, "The board is not set up on this deployment.")
+            return
+        body = json.dumps({"url": url, "anonKey": anon}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def serve_firmware(self):
         query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)

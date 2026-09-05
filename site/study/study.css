@@ -18,40 +18,17 @@
   gap: 0.4rem;
 }
 
-/* --- head: title and mode ----------------------------------------------- */
+/* --- head: the title ------------------------------------------------------ */
 
+/* A row until the mode switch beside the title was retired; the eyebrow and
+   the title are all that is left, so it is a block with a little air on top. */
 .wiz-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
   padding-top: 0.9rem;
 }
 
 .wiz-title {
   font-size: clamp(1.5rem, 3.2vw, 2.2rem);
   margin: 0.1rem 0 0;
-}
-
-.wiz-mode {
-  display: flex;
-  border: 1.5px solid var(--ink);
-}
-
-.wiz-mode button {
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 0.45rem 0.9rem;
-  background: var(--paper);
-  color: var(--ink);
-  border: none;
-  cursor: pointer;
-}
-
-.wiz-mode button[aria-selected="true"] {
-  background: var(--ink);
-  color: var(--paper);
 }
 
 /* --- stepper -------------------------------------------------------------- */
@@ -105,10 +82,6 @@
 .wiz-stepper button:disabled {
   cursor: default;
   opacity: 0.45;
-}
-
-.wiz-stepper.is-hidden {
-  visibility: hidden;
 }
 
 /* --- the step area -------------------------------------------------------- */
@@ -388,15 +361,13 @@
   display: block;
 }
 
-/* --- step 4 and sync ------------------------------------------------------- */
+/* --- step 4 --------------------------------------------------------------- */
 
-.wiz-write,
-.wiz-sync {
+.wiz-write {
   max-width: 46rem;
 }
 
-.wiz-write p,
-.wiz-sync p {
+.wiz-write p {
   font-size: 0.95rem;
   margin-top: 0;
 }

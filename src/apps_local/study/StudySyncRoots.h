@@ -108,7 +108,6 @@ inline constexpr char kBridgeCaRoots[] =
     "BBSATNbrdP9JNqPV2Py1PsVq8JQdjDAKBggqhkjOPQQDAwNpADBmAjEA6ED/g94D\n"
     "9J+uHXqnLrmvT/aDHQ4thQEd0dlq7A/Cr8deVl5c1RxYIigL9zC2L7F8AjEA8GE8\n"
     "p/SgguMh1YQdc4acLa/KNJvxn7kjNuK8YAOdgLOaVsjh4rsUecrNIdSUtUlD\n"
-    "-----END CERTIFICATE-----\n"
-    ;
+    "-----END CERTIFICATE-----\n";
 
 }  // namespace study

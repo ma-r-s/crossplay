@@ -16,18 +16,18 @@ pairing-code scans (A3), not to be fair schedulers.
 """
 
 import asyncio
-import base64
-import hashlib
 import json
+import html
 import logging
+import pathlib
 import secrets
 import struct
 import time
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import accounts, decks, engine, jobs, pairing, store, wire
+from . import accounts, chrome, decks, engine, events, jobs, pairing, store, wire
 from .ratelimit import Window
 from .journal import Journal
 
@@ -105,6 +105,21 @@ def require_device(request: Request) -> tuple[str, str]:
     return uid, th
 
 
+# ------------------------------------------------------------ device reports
+@app.middleware("http")
+async def device_reports(request: Request, call_next):
+    """A device never makes a request just to report. Whatever it has to say
+    (a crash, an update attempt) rides the X-CrossPlay-Report header of the
+    request it was making anyway, on every endpoint, so it is read here and
+    not in one handler. Posted after the answer, and only for an answer the
+    device will count as delivered, so a request it retries does not post
+    the same crash twice. events.Client.report never raises."""
+    response = await call_next(request)
+    if response.status_code < 400:
+        events.client_for(request).report(via="anki")
+    return response
+
+
 # -------------------------------------------------------------------- healthz
 @app.get("/healthz")
 async def healthz():
@@ -113,15 +128,26 @@ async def healthz():
 
 
 # ------------------------------------------------------------------ the pages
-def page(title: str, body: str) -> HTMLResponse:
-    return HTMLResponse(
-        "<!doctype html><meta charset=utf-8>"
-        "<meta name=viewport content='width=device-width,initial-scale=1'>"
-        f"<title>{title}</title>"
-        "<style>body{font:16px/1.5 system-ui;max-width:26rem;margin:8vh auto;"
-        "padding:0 1rem}input,button{font:inherit;padding:.5rem;width:100%;"
-        "box-sizing:border-box;margin:.25rem 0}button{cursor:pointer}"
-        "small{color:#666}</style>" + body
+def page(title: str, body: str, *, step: int | None = None) -> HTMLResponse:
+    """Every page this service serves. The look lives in chrome.py; this stays
+    so the call sites read the same as they always did."""
+    return chrome.page(title, body, step=step)
+
+
+# The two typefaces the chrome asks for. An allowlist rather than a static
+# mount: this process is on the public internet holding AnkiWeb credentials,
+# and a directory served by name is a traversal bug waiting for a bad joiner.
+_ASSETS = {"jersey25.woff2", "instrumentserif.woff2"}
+
+
+@app.get("/assets/{name}")
+async def asset(name: str):
+    if name not in _ASSETS:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(
+        pathlib.Path(__file__).parent / "static" / name,
+        media_type="font/woff2",
+        headers={"cache-control": "public, max-age=31536000, immutable"},
     )
 
 
@@ -135,15 +161,19 @@ async def home(request: Request):
     if s and request.query_params.get("again") != "1":
         return RedirectResponse("/devices")
     return page(
-        "CrossPlay sync",
-        "<h1>CrossPlay sync</h1>"
-        "<p>Sign in with your AnkiWeb account. The password is exchanged for"
-        " a session key and never stored.</p>"
+        "Sign in",
+        "<h1>Your Anki deck, on paper</h1>"
+        "<p class=lede>Review the cards you already have in Anki, on the"
+        " reader in your hand.</p>" + chrome.service_flow() +
         "<form method=post action=/login>"
-        "<input name=username placeholder='AnkiWeb email' autocomplete=username>"
-        "<input name=password type=password placeholder='AnkiWeb password'"
-        " autocomplete=current-password>"
-        "<button>Sign in</button></form>",
+        "<label for=u>AnkiWeb email</label>"
+        "<input id=u name=username autocomplete=username autofocus>"
+        "<label for=p>AnkiWeb password</label>"
+        "<input id=p name=password type=password autocomplete=current-password>"
+        "<button>Sign in</button></form>"
+        "<p class=small>The password is exchanged for a session key and never"
+        " stored.</p>",
+        step=1,
     )
 
 
@@ -154,11 +184,21 @@ async def login(request: Request):
     password = str(form.get("password", ""))
     ip = client_ip(request)
     if not LOGIN_IP.allow(ip) or not LOGIN_USER.allow(username.lower()):
-        return page("Slow down", "<p>Too many attempts. Wait a few minutes.</p>")
+        return page(
+            "Slow down",
+            chrome.mark(False) + "<h1>Slow down</h1>"
+            "<p class=lede>Too many attempts. Wait a few minutes.</p>",
+        )
     try:
         st = await asyncio.to_thread(accounts.login, username, password)
     except ValueError as e:
-        return page("Sign in failed", f"<p>{e}</p><p><a href=/>Try again</a></p>")
+        return page(
+            "Sign in failed",
+            chrome.mark(False) + "<h1>Sign in failed</h1>"
+            f"<p class=lede>{e}</p>"
+            "<a class=btn href=\"/\">Try again</a>",
+            step=1,
+        )
     except Exception:
         # Whatever broke, the user gets a sentence and the log gets the
         # traceback -- never a bare Internal Server Error on the one page
@@ -166,8 +206,9 @@ async def login(request: Request):
         log.exception("login failed unexpectedly")
         return page(
             "Something broke",
-            "<p>The bridge hit a problem on its side; nothing about your"
-            " account was stored. Try again in a minute.</p>",
+            chrome.mark(False) + "<h1>Something broke</h1>"
+            "<p class=lede>The bridge hit a problem on its side; nothing about"
+            " your account was stored. Try again in a minute.</p>",
         )
     resp = RedirectResponse("/devices", status_code=303)
     resp.set_cookie(
@@ -186,22 +227,40 @@ async def pair_page(request: Request):
     s = session_of(request)
     if not s:
         return page(
-            "Pair",
-            "<p>Sign in first, then scan the code on your reader again.</p>"
-            "<p><a href=/>Sign in</a></p>",
+            "Sign in first",
+            "<h1>Sign in first</h1>"
+            "<p class=lede>Your reader is asking to be paired to an account,"
+            " and this browser is not signed in to one yet.</p>"
+            + chrome.service_flow() +
+            "<a class=btn href=\"/\">Sign in</a>"
+            "<p class=small>Then press SYNC on the reader for a fresh code:"
+            " they last five minutes.</p>",
+            step=1,
         )
     return page(
-        "Pair this e-reader?",
-        "<h1>Pair this e-reader?</h1>"
-        "<p>Type the code your reader is showing. Only do this for a device"
-        " in your hands.</p>"
-        "<form method=post action=/api/pair/claim>"
-        f"<input type=hidden name=csrf value='{s['csrf']}'>"
-        "<input name=code placeholder='Code on the reader' autofocus"
-        " autocomplete=off style='text-transform:uppercase'>"
-        "<button>Pair this e-reader</button></form>"
+        "Pair this reader",
+        "<h1>Pair this reader</h1>"
+        "<p class=lede>Type the code your reader is showing.</p>"
+        + chrome.reader_with_code() + pair_form(s["csrf"]) +
+        "<p class=small>Only do this for a device in your hands. Codes last"
+        " five minutes.</p>"
         "<script>const c=location.hash.slice(1);if(c)document."
         "querySelector('[name=code]').value=c;</script>",
+        step=2,
+    )
+
+
+def pair_form(csrf: str, action: str = "Pair this reader") -> str:
+    """The code field, wherever someone needs it. It lives on /pair and on the
+    empty /devices, because that page used to draw the box the code goes in and
+    then not give anyone a box to type it in."""
+    return (
+        "<form method=post action=/api/pair/claim>"
+        f"<input type=hidden name=csrf value='{csrf}'>"
+        "<label for=code>Code on the reader</label>"
+        "<input id=code class=code name=code autofocus autocomplete=off"
+        " autocapitalize=characters maxlength=8 spellcheck=false>"
+        f"<button>{action}</button></form>"
     )
 
 
@@ -213,32 +272,45 @@ async def devices_page(request: Request):
     state = store.UserStore(s["uid"]).load_state()
     rows = ""
     for th, d in state["devices"].items():
+        # One date format for both dates. They were %Y-%m-%d and %b %d %H:%M in
+        # the same sentence, which read as two different kinds of fact.
         seen = (
-            time.strftime("%b %d %H:%M", time.localtime(d["last_seen"]))
+            "last synced "
+            + time.strftime("%Y-%m-%d %H:%M", time.localtime(d["last_seen"]))
             if d.get("last_seen")
-            else "never synced"
+            else "not synced yet"
         )
         rows += (
-            f"<form method=post action=/devices/revoke><li>{d['name']}"
-            f" <small>paired {time.strftime('%Y-%m-%d', time.localtime(d['created']))}"
-            f" &middot; last seen {seen}</small>"
+            f"<form method=post action=/devices/revoke><li>{chrome.READER}"
+            f"<span class=reader-name><b>{d['name']}</b>"
+            f"<small>paired {time.strftime('%Y-%m-%d', time.localtime(d['created']))}"
+            f" &middot; {seen}</small></span>"
             f"<input type=hidden name=csrf value='{s['csrf']}'>"
             f"<input type=hidden name=token_hash value='{th}'>"
-            "<button style='width:auto'>Unpair</button></li></form>"
+            "<button>Unpair</button></li></form>"
         )
+    who = html.escape(str(s.get("username", "")))
+    # The rail tells the truth about where this account actually is: an empty
+    # list is not step three, it is someone still waiting to pair -- and that
+    # page gets the pairing form itself, not a picture of one.
     return page(
-        "Your readers",
-        "<h1>Your readers</h1>"
-        + (
-            f"<ul>{rows}</ul>"
+        "Your readers" if rows else "Pair your reader",
+        (
+            chrome.mark(True) + "<h1>Your readers</h1>"
+            f"<p class=lede>Signed in as {who}. These readers sync your"
+            " collection.</p>"
+            f"<ul class=readers>{rows}</ul>"
             if rows
-            else "<p>No reader paired yet. Press SYNC"
-            " in Study on the device and scan the code it shows.</p>"
+            else "<h1>Almost there</h1>"
+            "<p class=lede>No reader paired yet. Press SYNC in Study on the"
+            " device and type the code it shows.</p>"
+            + chrome.reader_with_code() + pair_form(s["csrf"])
         )
-        + "<p><small>Sync acting up on every device? <a href='/?again=1'>"
-        "Reconnect your AnkiWeb account</a> -- AnkiWeb sometimes retires the"
-        " bridge's session key, and signing in again mints a fresh one."
-        "</small></p>",
+        + "<footer><p class=small>Sync acting up on every device? "
+        "<a href='/?again=1'>Reconnect your AnkiWeb account</a>. AnkiWeb"
+        " sometimes retires the session key CrossPlay syncs with, and signing"
+        " in again mints a fresh one.</p></footer>",
+        step=3 if rows else 2,
     )
 
 
@@ -270,13 +342,24 @@ async def pair_claim(request: Request):
     if not okay:
         return page(
             "Not found",
-            "<p>That code is unknown or expired. Codes last five minutes;"
-            " press SYNC on the reader for a fresh one.</p>",
+            chrome.mark(False) + "<h1>That code did not work</h1>"
+            "<p class=lede>That code is unknown or expired. Codes last five"
+            " minutes; press SYNC on the reader for a fresh one.</p>"
+            "<a class=btn href=\"/pair\">Type another code</a>",
+            step=2,
         )
+    # Still step two: the pairing is not real until the human presses the
+    # button on the device, and saying "done" here would be a lie the user
+    # discovers standing at a reader that never paired.
     return page(
         "Almost done",
-        "<p>Now confirm on the reader: it shows who it is pairing to and"
-        " asks for a button press. Nothing is stored until then.</p>",
+        "<h1>Now look at the reader</h1>"
+        "<p class=lede>Now confirm on the reader: it shows who it is pairing to"
+        " and asks for a button press. Nothing is stored until then.</p>"
+        + chrome.confirm_on_reader() + chrome.waiting() +
+        "<a class=btn href=\"/devices\">The reader says it is paired</a>"
+        "<a class=\"btn quiet\" href=\"/pair\">Type another code</a>",
+        step=2,
     )
 
 
@@ -488,7 +571,19 @@ async def start_sync(request: Request, dev=Depends(require_device)):
         summary["failedDecks"] = failed
         return summary
 
-    job = jobs.JOBS.start(uid, work)
+    job = jobs.JOBS.start(
+        uid,
+        work,
+        service="anki",
+        # The device's own id, board, version and health, read off its
+        # headers. A reader that sends no id is counted under its token hash,
+        # salted once more: the board can name none of them, and the raw
+        # token never reaches this line at all.
+        client=events.client_for(request, default_device=events.device_id(th)),
+        # cards: what the reader posted, its whole hand across the chosen
+        # decks; reviews: what this sync carried up into the collection.
+        props=lambda s: {"cards": len(device_cards), "reviews": s["applied"]},
+    )
     return {"job": job.id, "ackOffsets": acks}
 
 
@@ -542,4 +637,7 @@ async def startup():
     logging.basicConfig(level=logging.INFO)
     if decks.TOOLS is None:
         log.error("tools_local/study not found; deck builds will fail loudly")
+    # Says "events are off" once when the two variables are not both set.
+    if events.enabled():
+        log.info("events on: syncs and failures post to the board")
     log.info("bridge up; tools at %s", decks.TOOLS)

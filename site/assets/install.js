@@ -404,13 +404,68 @@
         els.doneText.textContent = meta.restart;
         els.done.hidden = false;
         setBusy(false);
+        tellBoard("info", null);
       })
       .catch(function (err) {
         progress(null);
         say(friendly(err), "bad");
         note("error: " + ((err && err.message) || String(err)));
         setBusy(false);
+        tellBoard(userSide(err) ? "info" : "error", (err && err.message) || String(err));
       });
+  }
+
+  /* --- the board --------------------------------------------------------- */
+
+  // One site/install event per attempt, so the Numbers page can say how many
+  // installs the button did and how many failed on what. A failed install
+  // posts an error, which opens a card by the board's own rule, unless the
+  // failure is the person's own: a port picker they closed, a device that
+  // would not answer on the cable. Those are info with the message, counted
+  // and not carded (cards 153 and 157 were two of them). The message is the
+  // flasher's, with nothing about the person. Best effort throughout: no
+  // board, no key, no network, and the install itself is unaffected.
+  function userSide(err) {
+    var name = (err && err.name) || "";
+    var msg = String((err && err.message) || err || "");
+    return (
+      name === "NotFoundError" || // "No port selected by the user"
+      name === "NotAllowedError" || // the browser's permission prompt, declined
+      name === "SecurityError" || // not a secure context, or a policy
+      name === "AbortError" ||
+      /No port selected/i.test(msg) ||
+      /Failed to connect with the device/i.test(msg) || // esptool-js: no sync on the cable
+      /The port is already open|Failed to open serial port/i.test(msg)
+    );
+  }
+  function tellBoard(level, message) {
+    if (typeof fetch !== "function") return;
+    fetch("/api/board-config")
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (cfg) {
+        if (!cfg || !cfg.url || !cfg.anonKey) return;
+        var body = {
+          service: "site",
+          event: "install",
+          level: level,
+          version: state.tag ? String(state.tag).replace(/^v/, "") : null,
+          board: state.device || null,
+          props: message ? { message: String(message).slice(0, 300) } : {},
+        };
+        return fetch(cfg.url + "/rest/v1/events", {
+          method: "POST",
+          headers: {
+            apikey: cfg.anonKey,
+            Authorization: "Bearer " + cfg.anonKey,
+            "Content-Type": "application/json",
+            Prefer: "return=minimal",
+          },
+          body: JSON.stringify(body),
+        });
+      })
+      .catch(function () {});
   }
 
   /* --- wiring ------------------------------------------------------------ */

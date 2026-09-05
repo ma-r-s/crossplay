@@ -9,6 +9,7 @@ The device never sees this script; it reads the finished pack from the SD card.
 import argparse, collections, csv, hashlib, json, math, os, random, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import distractors
 import textfit
 
 # The clue box, from the app's layout. A clue is rejected here rather than
@@ -92,74 +93,164 @@ ABBREV = [
     (re.compile(r"\bLt\."), "Lieutenant"),     (re.compile(r"\bSgt\."), "Sergeant"),
     (re.compile(r"\bMt\."), "Mount"),          (re.compile(r"\bMts\."), "Mountains"),
     (re.compile(r"\bFt\."), "Fort"),           (re.compile(r"\bSt\.(?=\s[A-Z])"), "Saint"),
-    (re.compile(r"\bN\.(?=\s[A-Z])"), "North"), (re.compile(r"\bS\.(?=\s[A-Z])"), "South"),
-    (re.compile(r"\bE\.(?=\s[A-Z])"), "East"),  (re.compile(r"\bW\.(?=\s[A-Z])"), "West"),
     (re.compile(r"\bcent\.(?=\s|$)"), "century"), (re.compile(r"\bpop\.(?=\s\d)"), "population"),
     (re.compile(r"\bmil\.(?=[\s,;.]|$)"), "million"), (re.compile(r"\bbil\.(?=[\s,;.]|$)"), "billion"),
     (re.compile(r"\byrs\."), "years"),         (re.compile(r"\bc\.\s*(?=\d)"), "circa "),
     (re.compile(r"\bno\.\s*(?=\d)", re.I), "number "),
 ]
 
+# The four compass initials cannot be a plain search-and-replace, and being one
+# corrupted 350 clues: "U.S. Army" shipped as "U.South Army" (280 times) and
+# "Robert E. Lee" as "Robert East Lee" (20). A bare \bS\. matches the tail of
+# an initialism and any middle initial, because neither is distinguishable from
+# a compass point by shape alone -- only by what sits either side of it.
+_DIRECTION = {"N": "North", "S": "South", "E": "East", "W": "West"}
+_DIR_RX = re.compile(r"\b([NSEW])\.(?=\s[A-Z])")
+_INITIALISM = re.compile(r"[A-Za-z]\.\s*$")        # "U.S." , "P.W."
+_NAME_LEAD = re.compile(r"\b[A-Z][a-z]+\s+$")      # "Robert E." , "Harry S."
+# Words that make the initial a compass point no matter what precedes it, so
+# "This N. Korean city" still expands while "Robert E. Lee" does not.
+_GEO_TAIL = re.compile(
+    r"(Korea|Dakota|Carolina|Virginia|German|Vietnam|America|Africa|Asia|"
+    r"Pacific|Atlantic|Yemen|Ireland|Zealand|Hemisphere|Pole|Coast|Indies|"
+    r"India|Island|Sea|Bank|Wales|England|Europe)"
+)
+
+def expand_direction(s):
+    """Expand a compass initial ONLY where it is really a compass point.
+
+    Errs toward leaving it alone: an unexpanded "N." costs a quizmaster one
+    spoken letter, while a wrong expansion rewrites somebody's name and is
+    invisible afterwards. test_pack's abbreviation check does not look at
+    these four, so leaving one costs nothing there either.
+    """
+    def repl(m):
+        before = s[: m.start()]
+        after = s[m.end():].lstrip()
+        if _INITIALISM.search(before):
+            return m.group(0)
+        if _GEO_TAIL.match(after):
+            return _DIRECTION[m.group(1)]
+        if _NAME_LEAD.search(before):
+            return m.group(0)
+        return _DIRECTION[m.group(1)]
+    return _DIR_RX.sub(repl, s)
+
+
 def expand_abbrev(s):
     for rx, full in ABBREV:
         s = rx.sub(full, s)
+    s = expand_direction(s)
     return re.sub(r'\s+', ' ', s).strip()
 
-# --- answer type, for solo multiple choice ----------------------------------
-# A Jeopardy clue names the answer's type: "this country", "this author".
-# Distractors are drawn from the same type AND length-matched, because the
-# longest-option tell is the defect every published corpus leaks (measured at
-# 31-38% against a 25% baseline). Precomputed here so the device never scans.
-TYPE_STOP = {'many', 'one', 'the', 'future', 'largest', 'smallest', 'other', 'same', 'type',
-             'kind', 'word', 'term', 'name', 'number', 'first', 'last', 'group', 'form', 'part',
-             'way', 'thing', 'item', 'list', 'phrase', 'title', 'little', 'new', 'old', 'famous',
-             'great', 'well', 'only', 'sort', 'next'}
-TYPE_SYN = {'nation': 'country', 'capital': 'city', 'town': 'city', 'author': 'writer',
-            'novelist': 'writer', 'singer': 'musician', 'composer': 'musician',
-            'band': 'musician', 'actress': 'actor', 'flick': 'film', 'movie': 'film',
-            'tune': 'song', 'veggie': 'vegetable'}
-TYPE_RX = re.compile(r"\bthis\s+((?:[a-z][\w'-]*\s+){0,3}?)([a-z][\w-]{2,})(?:'s)?\b")
 
-def answer_type(clue):
-    m = TYPE_RX.search(clue)
-    if not m:
-        return None
-    w = m.group(2).lower().strip("'")
-    if w.endswith('s') and not w.endswith('ss'):
-        w = w[:-1]
-    if w in TYPE_STOP:
-        return None
-    return TYPE_SYN.get(w, w)
+# Repairing what the old rule already wrote into the shipped pack. The Jeopardy
+# source is not in this repo, and rebuilding from it would recompute difficulty
+# and break index stability (pack.state is addressed by index), so the pack is
+# repaired in place instead -- clue text only, never d/y/answer.
+_GLUED = re.compile(r"\b([A-Z])\.(North|South|East|West)\b")
+_UNGLUE = {"North": "N", "South": "S", "East": "E", "West": "W"}
 
-MIN_TYPE_POOL = 25      # below this a type cannot supply plausible distractors
-DISTRACTORS = 6         # stored; the device picks 3, so a replay differs
+# Hand-checked, one trigram at a time, against the clue each appears in. A
+# pattern cannot do this half: "Alfred North Whitehead" is the philosopher's
+# real name and has exactly the shape of the damage, so it is deliberately
+# ABSENT here and a test asserts it stays absent.
+_NAME_FIXES = {
+    "Robert East Lee": "Robert E. Lee",
+    "Harry South Truman": "Harry S. Truman",
+    "George South Kaufman": "George S. Kaufman",
+    "George West Bush": "George W. Bush",
+    "James West Christy": "James W. Christy",
+    "Milton South Hershey": "Milton S. Hershey",
+    "Thomas South Lubbock": "Thomas S. Lubbock",
+    "Adlai East Stevenson": "Adlai E. Stevenson",
+    "Alfred East Smith": "Alfred E. Smith",
+    "Before North Webster": "Before N. Webster",
+    "Caspar West Collins": "Caspar W. Collins",
+    "Charles North Haskell": "Charles N. Haskell",
+    "Charles West Eliot": "Charles W. Eliot",
+    "Chester West Nimitz": "Chester W. Nimitz",
+    "Clyde West Tombaugh": "Clyde W. Tombaugh",
+    "Evan South Connell": "Evan S. Connell",
+    "Francis East Warren": "Francis E. Warren",
+    "General East Richardson": "General E. Richardson",
+    "Harold South Vanderbilt": "Harold S. Vanderbilt",
+    "Harvey South Firestone": "Harvey S. Firestone",
+    "House North Longworth": "House N. Longworth",
+    "Hunter South Thompson": "Hunter S. Thompson",
+    "Jann South Wenner": "Jann S. Wenner",
+    "John South Brook": "John S. Brook",
+    "John South Smith": "John S. Smith",
+    "Larson East Whipsnade": "Larson E. Whipsnade",
+    "Lil East Tee": "Lil E. Tee",
+    "Louis South St": "Louis S. St",
+    "Mount East Hubbard": "Mount E. Hubbard",
+    "Ole East Rolvaag": "Ole E. Rolvaag",
+    "Pearl South Buck": "Pearl S. Buck",
+    "Philip West Bonsal": "Philip W. Bonsal",
+    "Pieter West Botha": "Pieter W. Botha",
+    "Richard East Byrd": "Richard E. Byrd",
+    "Richard West Riley": "Richard W. Riley",
+    "Robert East Sherwood": "Robert E. Sherwood",
+    "Robert West Service": "Robert W. Service",
+    "Thomas East Dewey": "Thomas E. Dewey",
+    "Ulysses South Grant": "Ulysses S. Grant",
+    "Warren East Burger": "Warren E. Burger",
+    "William East Borah": "William E. Borah",
+    "William South Burroughs": "William S. Burroughs",
+    "Actor North Shelley": "Actor N. Shelley",
+    # The one case where restoring the initial would leave an abbreviation
+    # mid-sentence, so it takes the word the expander should have produced.
+    "in South South America": "in southern South America",
+}
 
-def add_distractors(pack, rng):
-    by = collections.defaultdict(list)
-    for x in pack:
-        if x.get('t'):
-            by[x['t']].append(x)
-    for x in pack:
-        t = x.get('t')
-        if not t or len(by[t]) < MIN_TYPE_POOL:
-            x.pop('t', None)
+
+def repair_expansions(items):
+    """Undo the damage the old directional rule wrote into clue text.
+
+    Returns the number of clues changed. Clue text only: d, y, answer and
+    every option are untouched, so difficulty stays exactly as built and the
+    record at each index still asks the same question.
+    """
+    n = 0
+    for x in items:
+        q = x.get("q")
+        if not q:
             continue
-        L = len(x['a'])
-        pool = sorted((y for y in by[t] if y['a'].lower() != x['a'].lower()),
-                      key=lambda y: abs(len(y['a']) - L))[:40]
-        seen, picks = {x['a'].lower()}, []
-        for c in rng.sample(pool, len(pool)):
-            if c['a'].lower() in seen:
-                continue
-            seen.add(c['a'].lower())
-            picks.append(c['a'])
-            if len(picks) == DISTRACTORS:
-                break
-        if len(picks) >= 3:
-            x['w'] = picks
-        else:
-            x.pop('t', None)
-    return pack
+        was = q
+        q = _GLUED.sub(lambda m: f"{m.group(1)}.{_UNGLUE[m.group(2)]}.", q)
+        for bad, good in _NAME_FIXES.items():
+            if bad in q:
+                q = q.replace(bad, good)
+        if q != was:
+            x["q"] = q
+            n += 1
+    return n
+
+# Answer types and option selection live in distractors.py, which
+# redistract.py also imports. They were duplicated here once; the copy in this
+# file was the one that shipped, and the fix landed on the other one.
+
+# Jersey and the reading serif have no glyph for U+2014, and a missing glyph
+# draws NOTHING -- so "great--now on" reached the panel as "greatnow on", a
+# non-word, with only a log line to say why. Normalised at BUILD time rather
+# than at read time: the device should not carry a codepoint it cannot draw.
+DASHES = str.maketrans({'\u2014': '-', '\u2013': '-'})
+
+
+def dedash(items):
+    """Em and en dashes to a plain hyphen, across every text field."""
+    n = 0
+    for x in items:
+        for k in ('q', 'a'):
+            if k in x and ('\u2014' in x[k] or '\u2013' in x[k]):
+                x[k] = x[k].translate(DASHES)
+                n += 1
+        for k in ('alt', 'w'):
+            if k in x:
+                x[k] = [v.translate(DASHES) for v in x[k]]
+    return n
+
 
 # --- rejection rules ---------------------------------------------------------
 EVENT = re.compile(r'(Teen|College|Kids|Celebrity|Tournament of Champions|Battle of the Decades'
@@ -249,9 +340,6 @@ def build(src, keep_events=False):
         score = round(2.0 * math.log1p(af) + math.log1p(cf) - (0.6 if ev else 0), 3)
         item = {'id': hashlib.sha1(k.encode()).hexdigest()[:12],
                 'q': clue, 'a': primary, 'd': d, 'y': int(r['air_date'][:4]), 'g': score}
-        t = answer_type(clue)
-        if t:
-            item['t'] = t
         if accepts:
             item['alt'] = accepts
         if ev:
@@ -296,7 +384,8 @@ def main():
         pack = pack[:a.limit]
     # distractors are drawn from the SHIPPED slice, so an option is never an
     # answer the player could not otherwise meet
-    add_distractors(pack, random.Random(20260830))
+    dedash(pack)
+    distractors.redistract(pack, random.Random(20260901))
 
     with open(a.out, 'w', encoding='utf-8') as f:
         for x in pack:

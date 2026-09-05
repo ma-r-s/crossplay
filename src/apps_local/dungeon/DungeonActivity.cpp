@@ -104,7 +104,21 @@ void DungeonActivity::settleWin() {
   requestUpdate();
 }
 
+// board.index() rather than the layout member render() writes: the layout is
+// derived from the puzzle, and hashing the member would stamp the previous
+// frame's copy (surfaceMeaning() runs before render()). The index is what
+// picks the puzzle, and settleWin() swaps it for the NEXT dungeon a pass after
+// the winning tap, then asks for a full flash refresh -- the longest unshown
+// window in the fork, over a completely different board.
+uint32_t DungeonActivity::surfaceMeaning() const {
+  const uint32_t withView = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(view));
+  return paintclock::mixMeaning(withView, static_cast<uint32_t>(board.index()));
+}
+
 void DungeonActivity::routeBoardTap(const int x, const int y) {
+  // The board registers as one rect; which cell this pixel is comes from the
+  // layout, and route() cannot see that. See Activity::surfaceMeaning().
+  if (!surfaceRevealed()) return;
   int row = 0;
   int col = 0;
   if (!layout.cellAt(x, y, row, col)) return;
@@ -215,6 +229,9 @@ void DungeonActivity::loop() {
       // sixty-four hit rects do not fit the interaction buffer; the layout that
       // drew the cells resolves the tap, so the region cannot drift from the
       // pixels.
+      // Only the -1 branch is geometry; a real value came from route() and is
+      // already digest-gated, so guarding both would gate it twice.
+      if (action.value < 0 && !surfaceRevealed()) break;
       const int picked = action.value >= 0 ? action.value : dungeon::kCampaignFirst + pickerLayout.indexAt(tapX, tapY);
       if (!dungeon::isPlayable(picked) || picked == selected) break;
       selected = picked;

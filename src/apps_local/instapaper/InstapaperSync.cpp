@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <Logging.h>
+#include <Utf8.h>
 
 #include <cstdio>
 
@@ -19,8 +20,9 @@ constexpr bridge::Endpoint kEndpoint = {
 
 int request(const char* method, const std::string& path, const std::string& token, const std::string& body,
             std::string& response, std::string& message) {
-  return bridge::request(kEndpoint, method, path, token, body.empty() ? nullptr : reinterpret_cast<const uint8_t*>(body.data()),
-                         body.size(), response, message);
+  return bridge::request(kEndpoint, method, path, token,
+                         body.empty() ? nullptr : reinterpret_cast<const uint8_t*>(body.data()), body.size(), response,
+                         message);
 }
 
 // A 401 means this reader is no longer paired, and it is the one status worth
@@ -35,9 +37,7 @@ bool refusedForToken(const int status, Sync& sync, std::string& message) {
 
 }  // namespace
 
-std::string Sync::pairUrl(const std::string& code) {
-  return std::string("https://") + kBridgeHost + "/pair#" + code;
-}
+std::string Sync::pairUrl(const std::string& code) { return std::string("https://") + kBridgeHost + "/pair#" + code; }
 
 bool Sync::pairStart(PairStart& out, std::string& message) {
   std::string response;
@@ -165,8 +165,10 @@ std::string Sync::syncStatus(const BridgeState& state, const std::string& jobId,
     if (a.id == 0) continue;
     a.hash = item["hash"] | "";
     a.sha = item["sha"] | "";
-    a.title = item["title"] | "";
-    a.domain = item["domain"] | "";
+    // Somebody else's headline, from somebody else's page: curly quotes, em
+    // dashes and ellipses, none of which the reading cut can draw.
+    a.title = utf8FoldTypography(item["title"] | "");
+    a.domain = utf8FoldTypography(item["domain"] | "");
     a.savedAt = item["savedAt"] | 0u;
     a.words = item["words"] | 0u;
     a.minutes = static_cast<uint16_t>(item["minutes"] | 0u);

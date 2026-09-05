@@ -141,6 +141,22 @@ static void checkInvariants(const Game& g, const char* where) {
     abort();
   }
 
+  // The running strip prints one quantity twice, once per seat, and both
+  // columns are read from the same chair. The only thing a viewer may not know
+  // is the other seat's bonus tokens, whose values are printed on the back.
+  // Everything else is face up and counts for either seat, the camel token
+  // included, because both herds are face up on the table.
+  for (int v = 0; v < kSeats; ++v) {
+    for (int s = 0; s < kSeats; ++s) {
+      const int hidden = v == s ? 0 : g.bonusRupees(s);
+      if (g.visibleScore(v, s) != g.score(s) - hidden) {
+        printf("FAIL %s: seat %d reads %d for seat %d, expected %d\n", where, v, g.visibleScore(v, s), s,
+               g.score(s) - hidden);
+        abort();
+      }
+    }
+  }
+
   // The observation must never be constructible into knowing their hand: the
   // unseen multiset has to cover what they are actually holding.
   for (int s = 0; s < kSeats; ++s) {
@@ -659,6 +675,94 @@ int main() {
     }
     printf("link       %d checks, 0 failed  (%d matches, %d packets, %d passes, %d deals)\n", checks, matches, packets,
            passes, deals);
+  }
+
+  // --- 7: the running strip -----------------------------------------------
+  //
+  // The board header is two numbers, and they have to be the same measurement
+  // taken twice. It shipped as score() for your column and goods tokens alone
+  // for theirs, so the 5 rupee camel token was credited to you and never to
+  // them: at a fresh deal where they held the only camel the header read
+  // "YOU 0 THEM 0" over a table standing 0-5.
+  {
+    int checks = 0;
+
+    // Turn zero, the three ways the herds can sit. Nothing is banked yet, so
+    // the camel token is the only thing either number can contain, and the
+    // tie is the case neither column may claim it.
+    static const uint8_t kHerds[3][2] = {{3, 0}, {0, 3}, {2, 2}};
+    for (int shape = 0; shape < 3; ++shape) {
+      Game g;
+      g.newGame(rnd(), 0);
+      g.herd[0] = kHerds[shape][0];
+      g.herd[1] = kHerds[shape][1];
+      for (int viewer = 0; viewer < kSeats; ++viewer) {
+        for (int seat = 0; seat < kSeats; ++seat) {
+          const int expected = g.herd[seat] > g.herd[1 - seat] ? kCamelTokenValue : 0;
+          if (g.visibleScore(viewer, seat) != expected) {
+            printf("FAIL: herds %d-%d, seat %d reads %d for seat %d, expected %d\n", g.herd[0], g.herd[1], viewer,
+                   g.visibleScore(viewer, seat), seat, expected);
+            abort();
+          }
+          ++checks;
+        }
+      }
+    }
+
+    // And the moment it changes hands, mid-game, with tokens already banked:
+    // the two numbers must move by -5 and +5 together. One column dropping 5
+    // on its own is what a player sees as their score falling with no sale.
+    for (int match = 0; match < 200; ++match) {
+      Game g;
+      g.newGame(rnd(), static_cast<uint8_t>(rnd() & 1));
+      for (int step = 0; step < 24 && g.currentPhase() == Phase::Playing; ++step) {
+        const Observation obs = observe(g, g.turn);
+        uint32_t r = rnd();
+        g.apply(chooseMove(obs, Skill::Merchant, r));
+      }
+      // Same position, the herd lead handed from one seat to the other. Only
+      // the camel token can move, so nothing else in either number may.
+      const uint8_t held[2] = {g.herd[0], g.herd[1]};
+      for (int viewer = 0; viewer < kSeats; ++viewer) {
+        g.herd[0] = 4;
+        g.herd[1] = 1;
+        const int zeroAhead[2] = {g.visibleScore(viewer, 0), g.visibleScore(viewer, 1)};
+        g.herd[0] = 1;
+        g.herd[1] = 4;
+        const int oneAhead[2] = {g.visibleScore(viewer, 0), g.visibleScore(viewer, 1)};
+        if (zeroAhead[0] - oneAhead[0] != kCamelTokenValue || oneAhead[1] - zeroAhead[1] != kCamelTokenValue) {
+          printf("FAIL: seat %d watches the lead change and reads %d/%d then %d/%d\n", viewer, zeroAhead[0],
+                 zeroAhead[1], oneAhead[0], oneAhead[1]);
+          abort();
+        }
+        // A tie takes it off the table for both, which is the third case a
+        // two-sided test would otherwise never reach.
+        g.herd[0] = 2;
+        g.herd[1] = 2;
+        if (g.visibleScore(viewer, 0) != oneAhead[0] || g.visibleScore(viewer, 1) != zeroAhead[1]) {
+          printf("FAIL: seat %d reads a tied herd as %d/%d\n", viewer, g.visibleScore(viewer, 0),
+                 g.visibleScore(viewer, 1));
+          abort();
+        }
+        checks += 3;
+      }
+      g.herd[0] = held[0];
+      g.herd[1] = held[1];
+
+      // Theirs still hides exactly one thing: the value on the back of their
+      // bonus tokens. The strip prints that as a "+N?" count beside the number.
+      for (int viewer = 0; viewer < kSeats; ++viewer) {
+        const int them = 1 - viewer;
+        if (g.visibleScore(viewer, them) + g.bonusRupees(them) != g.score(them)) {
+          printf("FAIL: seat %d reads %d for a seat worth %d with %d in bonuses\n", viewer,
+                 g.visibleScore(viewer, them), g.score(them), g.bonusRupees(them));
+          abort();
+        }
+        ++checks;
+      }
+    }
+
+    printf("strip      %d checks, 0 failed  (camel token in both columns, tie in neither)\n", checks);
   }
 
   return 0;

@@ -19,6 +19,8 @@
 // without trial and error, and a puzzle carrying four redundant clues is
 // unique, solvable, and boring.
 
+#include <EpdFont.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -27,6 +29,7 @@
 #include "../../src/apps_local/murdle/MurdleCast.h"
 #include "../../src/apps_local/murdle/MurdleCore.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
+#include "../../src/apps_local/ui/fonts/toybox_10.h"
 
 namespace {
 
@@ -165,8 +168,26 @@ void testRandomTappingKeepsTheGridHonest() {
       const int a = static_cast<int>(rng.below(static_cast<uint32_t>(cats)));
       int b = static_cast<int>(rng.below(static_cast<uint32_t>(cats - 1)));
       if (b >= a) ++b;
-      marks.tap(a, static_cast<int>(rng.below(static_cast<uint32_t>(items))), b,
-                static_cast<int>(rng.below(static_cast<uint32_t>(items))));
+      const int ta = static_cast<int>(rng.below(static_cast<uint32_t>(items)));
+      const int tb = static_cast<int>(rng.below(static_cast<uint32_t>(items)));
+
+      // 4. A tap writes its own cell and no other. Everything the board shows
+      //    beyond that is derived, so the only way for a tap to reach another
+      //    cell is to have deleted something the player entered -- which is how
+      //    one tap on a finished grid took two answers away and blanked a third.
+      Marks was = marks;
+      marks.tap(a, ta, b, tb);
+      for (int x = 0; x < cats; ++x) {
+        for (int y = x + 1; y < cats; ++y) {
+          for (int p = 0; p < items; ++p) {
+            for (int q = 0; q < items; ++q) {
+              const bool tapped = (x == a && y == b && p == ta && q == tb) || (x == b && y == a && p == tb && q == ta);
+              if (tapped) continue;
+              CHECK(marks.entered(x, p, y, q) == was.entered(x, p, y, q));
+            }
+          }
+        }
+      }
 
       for (int x = 0; x < cats; ++x) {
         for (int y = x + 1; y < cats; ++y) {
@@ -199,6 +220,121 @@ void testRandomTappingKeepsTheGridHonest() {
       }
     }
   }
+}
+
+// THE ONE THING A TAP MAY NOT DO: TAKE AWAY A MARK THE PLAYER MADE.
+//
+// A cold tester finished a case -- 27 of 27, every square right -- tapped one
+// false square, and watched three squares they had never touched change: two
+// locked-in answers became crosses and a third went blank. Nothing was flagged
+// and cycling the tapped square back did not bring any of them back.
+//
+// The board derives crosses from ticks, so unseating the two ticks that crossed
+// the tapped square out also un-derived the cross a third square was getting
+// from them. One tap, three cells, no undo. This rebuilds that exact board.
+void testATapNeverTakesAwayAMarkThePlayerMade() {
+  const Shape shape = shapeOf(Tier::Elementary);
+  Marks marks;
+  marks.reset(shape);
+
+  // A finished 3x3 block: weapon i is in place i. Every other square in it is
+  // crossed by those three ticks and by nothing else.
+  const int wCat = static_cast<int>(Cat::Weapon);
+  const int lCat = static_cast<int>(Cat::Location);
+  for (int i = 0; i < shape.items; ++i) marks.enter(wCat, i, lCat, i, Mark::Yes);
+
+  // Weapon 0 with place 1: shown crossed, and the cross is the board's own.
+  CHECK(marks.shown(wCat, 0, lCat, 1) == Mark::No);
+  CHECK(marks.derived(wCat, 0, lCat, 1));
+
+  const TapResult result = marks.tap(wCat, 0, lCat, 1);
+  CHECK(!result.changed);
+  CHECK(result.blocked());
+  CHECK(result.sameRow == 0);  // the tick at weapon 0 x place 0
+  CHECK(result.sameCol == 1);  // the tick at weapon 1 x place 1
+
+  // Every tick still stands, and so does every cross that followed from one.
+  for (int i = 0; i < shape.items; ++i) CHECK(marks.entered(wCat, i, lCat, i) == Mark::Yes);
+  CHECK(marks.entered(wCat, 0, lCat, 1) == Mark::Unknown);
+  CHECK(marks.shown(wCat, 1, lCat, 0) == Mark::No);
+  CHECK(marks.decided() == marks.cells() / (shape.cats * (shape.cats - 1) / 2));
+
+  // And the message names both of them rather than restating the rule.
+  Scratch scratch;
+  Puzzle puzzle;
+  CHECK(makeCase(Tier::Elementary, 12345u, scratch, puzzle));
+  char line[96];
+  murdletext::blockedLine(puzzle, wCat, 0, lCat, 1, result, line, sizeof(line));
+  CHECK(std::strstr(line, murdletext::label(puzzle, wCat, 0)) != nullptr);
+  CHECK(std::strstr(line, murdletext::label(puzzle, lCat, 0)) != nullptr);
+  CHECK(std::strstr(line, murdletext::label(puzzle, wCat, 1)) != nullptr);
+  CHECK(std::strstr(line, murdletext::label(puzzle, lCat, 1)) != nullptr);
+  CHECK(std::strstr(line, " AND ") != nullptr);
+
+  // One blocker on its own is named on its own.
+  Marks single;
+  single.reset(shape);
+  single.enter(wCat, 0, lCat, 0, Mark::Yes);
+  const TapResult one = single.tap(wCat, 0, lCat, 1);
+  CHECK(!one.changed);
+  CHECK(one.sameRow == 0);
+  CHECK(one.sameCol == kNoBlocker);
+  murdletext::blockedLine(puzzle, wCat, 0, lCat, 1, one, line, sizeof(line));
+  CHECK(std::strstr(line, " AND ") == nullptr);
+  CHECK(std::strlen(line) > 0);
+}
+
+// The other half of that guard, and the half a guard gets wrong: refusing taps
+// that were fine. A board this game cannot mark is worse than one that loses a
+// mark, and on a panel that takes a second to answer it presents identically --
+// as a screen that has stopped responding.
+void testOrdinaryMarkingStillWorks() {
+  const Shape shape = shapeOf(Tier::HardBoiled);
+  Marks marks;
+  marks.reset(shape);
+  const int sCat = static_cast<int>(Cat::Suspect);
+  const int wCat = static_cast<int>(Cat::Weapon);
+
+  // The whole cycle on an empty board, twice round.
+  for (int lap = 0; lap < 2; ++lap) {
+    CHECK(marks.tap(sCat, 1, wCat, 2).changed);
+    CHECK(marks.shown(sCat, 1, wCat, 2) == Mark::No);
+    CHECK(!marks.derived(sCat, 1, wCat, 2));
+    CHECK(marks.tap(sCat, 1, wCat, 2).changed);
+    CHECK(marks.shown(sCat, 1, wCat, 2) == Mark::Yes);
+    CHECK(marks.tap(sCat, 1, wCat, 2).changed);
+    CHECK(marks.shown(sCat, 1, wCat, 2) == Mark::Unknown);
+  }
+
+  // Moving a tick: clear the old one, then mark the new one. Three taps, all of
+  // which have to land.
+  CHECK(marks.tap(sCat, 0, wCat, 0).changed);
+  CHECK(marks.tap(sCat, 0, wCat, 0).changed);
+  CHECK(marks.shown(sCat, 0, wCat, 0) == Mark::Yes);
+  CHECK(marks.tap(sCat, 0, wCat, 0).changed);  // back to blank
+  CHECK(marks.tap(sCat, 0, wCat, 1).changed);
+  CHECK(marks.tap(sCat, 0, wCat, 1).changed);
+  CHECK(marks.shown(sCat, 0, wCat, 1) == Mark::Yes);
+  CHECK(marks.shown(sCat, 0, wCat, 0) == Mark::No);
+
+  // A cross the player entered by hand still ticks in one tap: the refusal is
+  // about ticks in the way, not about the square looking crossed.
+  Marks byHand;
+  byHand.reset(shape);
+  CHECK(byHand.tap(sCat, 3, wCat, 3).changed);
+  CHECK(byHand.entered(sCat, 3, wCat, 3) == Mark::No);
+  CHECK(byHand.tap(sCat, 3, wCat, 3).changed);
+  CHECK(byHand.shown(sCat, 3, wCat, 3) == Mark::Yes);
+
+  // A tick in ANOTHER block never blocks: the rule is per block, and reading it
+  // any wider would refuse most of the board once a few answers were in.
+  const int lCat = static_cast<int>(Cat::Location);
+  Marks wide;
+  wide.reset(shape);
+  wide.enter(sCat, 0, wCat, 0, Mark::Yes);
+  CHECK(wide.tap(sCat, 0, lCat, 1).changed);
+  CHECK(wide.tap(sCat, 0, lCat, 1).changed);
+  CHECK(wide.shown(sCat, 0, lCat, 1) == Mark::Yes);
 }
 
 // ---------------------------------------------------------------------------
@@ -855,6 +991,138 @@ void testDenialNamesTheRuledOutItem() {
 }
 
 // ---------------------------------------------------------------------------
+// The refusal notice has to fit the band the grid reserves for it
+
+// The greedy wrap MurdleScreens.cpp::paragraph() performs, restated. It is
+// restated rather than shared because that function needs FreeInkUI and a draw
+// target, and this suite deliberately has neither -- what it has instead is the
+// real font, which is the half that matters here. Two rules, and they are the
+// whole of it: words are split on spaces, and a line is kept while the
+// ASSEMBLED string (spaces included) measures no wider than the box.
+int noticeLines(const EpdFont& face, const char* text, const int boxWidth) {
+  const auto width = [&face](const char* s) {
+    int w = 0, h = 0;
+    face.getTextDimensions(s, &w, &h);
+    return w;
+  };
+  int lines = 0;
+  // The same buffer paragraph() assembles into, so a line long enough to be cut
+  // short is cut short at the same place.
+  char line[128] = {};
+  int fill = 0;
+  const char* at = text;
+  while (true) {
+    while (*at == ' ') ++at;
+    if (*at == '\0') break;
+    int n = 0;
+    while (at[n] != '\0' && at[n] != ' ') ++n;
+    const int kept = fill;
+    if (fill != 0 && fill + 1 < static_cast<int>(sizeof(line))) line[fill++] = ' ';
+    for (int i = 0; i < n && fill + 1 < static_cast<int>(sizeof(line)); ++i) line[fill++] = at[i];
+    line[fill] = '\0';
+    if (kept != 0 && width(line) > boxWidth) {
+      line[kept] = '\0';
+      ++lines;
+      fill = 0;
+      for (int i = 0; i < n && fill + 1 < static_cast<int>(sizeof(line)); ++i) line[fill++] = at[i];
+      line[fill] = '\0';
+    }
+    at += n;
+  }
+  if (fill != 0) ++lines;
+  return lines;
+}
+
+// The grid face reserves a band of exactly this many lines whether there is a
+// notice or not, so that a refused tap does not move the board. A notice that
+// needed a third line would push the grid back down, which is the bug the band
+// exists to close -- so the band is only honest while this holds.
+//
+// The measurement is over the WHOLE cross product of the cast tables rather
+// than a sample or a hand-picked longest pair, because "widest name" is a
+// pixel question and greedy wrapping is not monotone in character count. It
+// runs against the real toybox_10 cut, so a regenerated cut moves this too.
+constexpr int kNoticeLines = 2;
+// The face's body width, which is what paragraph() wraps against. Asserted
+// against the real layout by testMurdleRefusalDoesNotMoveTheGrid in
+// host-tests/ui, which reads it off a drawn run rather than restating it.
+constexpr int kNoticeBoxWidth = 448;
+
+void testEveryRefusalFitsTheReservedBand() {
+  static const EpdFont tile(&toybox_10);
+  static Scratch scratch;
+  Puzzle puzzle;
+  CHECK(makeCase(Tier::Impossible, 99u, scratch, puzzle));
+
+  // A cell is always two DIFFERENT categories, and blockedLine names one item
+  // of each on both sides of its two pairs. Driving it through `puzzle.cast`
+  // uses the real tables and the real format string, so a new fixture or a
+  // reworded message is measured without anybody editing this test.
+  murdle::TapResult refused;
+  refused.changed = false;
+  refused.sameRow = 0;
+  refused.sameCol = 1;
+
+  int worst = 0;
+  int worstOneSided = 0;
+  char line[96];
+  char longest[96] = {};
+  for (int catA = 0; catA < kMaxCats; ++catA) {
+    for (int catB = 0; catB < kMaxCats; ++catB) {
+      if (catA == catB) continue;
+      for (int a0 = 0; a0 < castSize(catA); ++a0) {
+        for (int b0 = 0; b0 < castSize(catB); ++b0) {
+          for (int a1 = 0; a1 < castSize(catA); ++a1) {
+            for (int b1 = 0; b1 < castSize(catB); ++b1) {
+              // itemA/sameCol pick the two catA names, itemB/sameRow the two
+              // catB ones. Items 0 and 1 of each category carry them.
+              puzzle.cast[catA][0] = static_cast<uint8_t>(a0);
+              puzzle.cast[catA][1] = static_cast<uint8_t>(a1);
+              puzzle.cast[catB][0] = static_cast<uint8_t>(b0);
+              puzzle.cast[catB][1] = static_cast<uint8_t>(b1);
+              murdletext::blockedLine(puzzle, catA, 0, catB, 1, refused, line, sizeof(line));
+              const int lines = noticeLines(tile, line, kNoticeBoxWidth);
+              if (lines > worst) {
+                worst = lines;
+                std::snprintf(longest, sizeof(longest), "%s", line);
+              }
+            }
+          }
+          // And the one-blocker wording, which is shorter but wraps by its own
+          // arithmetic and so is not covered by the two-blocker worst case.
+          murdle::TapResult oneSided;
+          oneSided.changed = false;
+          oneSided.sameRow = 1;
+          puzzle.cast[catA][0] = static_cast<uint8_t>(a0);
+          puzzle.cast[catB][1] = static_cast<uint8_t>(b0);
+          murdletext::blockedLine(puzzle, catA, 0, catB, 0, oneSided, line, sizeof(line));
+          const int lines = noticeLines(tile, line, kNoticeBoxWidth);
+          if (lines > worstOneSided) worstOneSided = lines;
+        }
+      }
+    }
+  }
+
+  if (worst > kNoticeLines) std::printf("  a notice needing %d lines: %s\n", worst, longest);
+  CHECK(worst > 0);
+  CHECK(worst <= kNoticeLines);
+  CHECK(worstOneSided > 0);
+  CHECK(worstOneSided <= kNoticeLines);
+
+  // And the check can fail: one line narrower than the real box and the same
+  // sweep must find something that needs a third. Without this the assertion
+  // above would also pass on a box nothing could overflow.
+  int over = 0;
+  for (int entry = 0; entry < castSize(static_cast<int>(Cat::Weapon)); ++entry) {
+    puzzle.cast[static_cast<int>(Cat::Weapon)][0] = static_cast<uint8_t>(entry);
+    murdletext::blockedLine(puzzle, static_cast<int>(Cat::Weapon), 0, static_cast<int>(Cat::Suspect), 1, refused, line,
+                            sizeof(line));
+    if (noticeLines(tile, line, kNoticeBoxWidth / 2) > kNoticeLines) ++over;
+  }
+  CHECK(over > 0);
+}
+
+// ---------------------------------------------------------------------------
 // Mutation check
 //
 // A suite that passes more easily than expected is a suite that cannot fail.
@@ -1374,6 +1642,8 @@ int runTests() {
   testRngIsUnbiased();
   testGridIsOrderIndependent();
   testRandomTappingKeepsTheGridHonest();
+  testATapNeverTakesAwayAMarkThePlayerMade();
+  testOrdinaryMarkingStillWorks();
   testCastTableIsDrawable();
   testEveryNameIsOneWord();
   testEveryCaseHasSixteenDistinctInitials();
@@ -1387,6 +1657,7 @@ int runTests() {
   testStatementsDoNotGiveTheCaseAway();
   testComparativeHeightMasks();
   testDossierBiasNeverStarvesGeneration();
+  testEveryRefusalFitsTheReservedBand();
   testTheChecksCanFail();
 
   const int seedsPerTier = 400;

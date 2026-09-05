@@ -122,7 +122,12 @@ int openFolderIndex = -1;
 //   CrossPoint restores Home's selection by matching the departing activity's
 //   name against its own HomeMenuItem list, which cannot know about ours, so
 //   without this you leave GAMES and the cursor is sitting on Browse Files.
-// - `lastItem`: per folder, the row that was opened last.
+// - `resumeRow`: per folder, the row it reopens on. The row of the item last
+//   opened from it, or -- when you paged and then walked out without opening
+//   anything -- the first row of the page you were looking at. It is the page
+//   you were ON, not the page holding the game you last played; those are the
+//   same thing until you browse and leave, and browsing and leaving is the case
+//   that was wrong.
 // - `openTitle`: the item that was open when the device went to sleep, which is
 //   what wake reopens instead of dropping you on Home.
 //
@@ -212,7 +217,7 @@ void saveState() {
 // Every path that reads or writes the remembered position goes through this
 // first. Lazily rather than at boot because the shelf has no init hook, and
 // unconditionally rather than only on the read paths because openFolder passes
-// the current lastItem back in: without the load, the first navigation of a
+// the current resumeRow back in: without the load, the first navigation of a
 // session would write the defaults over the saved file and the persistence
 // would silently do nothing.
 void ensureLoaded() {
@@ -222,11 +227,11 @@ void ensureLoaded() {
 // Only when something actually changed. Opening a folder happens on every Back,
 // and SPIFFS sectors have a finite erase count, so an unconditional write here
 // would be a write per navigation for no gain.
-void saveIfChanged(const int folder, const int item) {
+void saveIfChanged(const int folder, const int row) {
   ensureLoaded();
-  if (state.lastFolder == folder && (folder < 0 || state.lastItem[folder] == item)) return;
+  if (state.lastFolder == folder && (folder < 0 || state.resumeRow[folder] == row)) return;
   state.lastFolder = folder;
-  if (folder >= 0) state.lastItem[folder] = item;
+  if (folder >= 0) state.resumeRow[folder] = row;
   saveState();
 }
 
@@ -277,7 +282,7 @@ void openFolder(const int index, GfxRenderer& renderer, MappedInputManager& mapp
   // some route that did not go through leave().
   openFolderIndex = -1;
   ensureLoaded();
-  saveIfChanged(index, state.lastItem[index]);
+  saveIfChanged(index, state.resumeRow[index]);
   setOpenTitle(nullptr);
   replaceWith(ShelfFolderActivity::create(renderer, mappedInput, index), kFolders[index].title);
 }
@@ -384,9 +389,21 @@ int lastFolderOnHome() {
   return state.lastFolder;
 }
 
-int lastItemIn(const int index) {
+int resumeRowIn(const int index) {
   ensureLoaded();
-  return index >= 0 && index < kFolderCount ? state.lastItem[index] : 0;
+  return index >= 0 && index < kFolderCount ? state.resumeRow[index] : 0;
+}
+
+void rememberRowIn(const int index, const int row) {
+  if (index < 0 || index >= kFolderCount) {
+    LOG_ERR("SHELF", "Bad folder index: %d", index);
+    return;
+  }
+  if (row < 0 || row >= kFolders[index].count) {
+    LOG_ERR("SHELF", "Bad row %d in %s", row, kFolders[index].title);
+    return;
+  }
+  saveIfChanged(index, row);
 }
 
 const freeink::Icon* folderMark(const int index) {

@@ -6,20 +6,64 @@
 # `xteink` once did not build for three commits because every local check.sh ran
 # against a dirty tree.
 #
-# Deliberately narrow. It builds the firmware and the simulator and runs the
-# host suites, and it does not try to reproduce clang-format or cppcheck --
-# those are upstream's jobs, they run on every pull request already, and a
-# second copy would only drift.
+# It builds the firmware and the simulator and runs the host suites. Since
+# 2026-09-04 it also carries clang-format, the cmake unit tests and cppcheck:
+# those were upstream's ci.yml's jobs, which ran on every pull request until
+# that workflow was disabled (red on the fork's own code for a week, and read
+# by nobody). Its four device builds duplicated the one below, so the workflow
+# stays off and the three jobs the fork had nowhere else live here.
 name: CrossPlay
 
 on:
   push:
     branches: [xteink]
+    # CI's OWN emulator rebuild is not a change to test, and running it costs
+    # a whole release cycle. After every merge, crossplay-emulator.yml commits
+    # site/emulator/{BUILT_FROM,crossplay.js,crossplay.wasm} back to xteink --
+    # three files, no byte of which reaches a device. That push started a
+    # SECOND CrossPlay run which cancelled the merge's own run, so every merge
+    # cost two full builds and the first was always thrown away. Seen
+    # 2026-09-04: merge 52b2a677 at 17:02:13, emulator commit eb79a542 at
+    # 17:07:20, the 17:02 run cancelled five minutes in, and the autorelease
+    # that fired at 17:07:23 skipped because a cancelled run is not a success.
+    #
+    # crossplay-autorelease.yml already assumed this could not happen -- its
+    # comment reads "pushed with the workflow token, so no CI run ever comes
+    # for it" -- and built the right behaviour on that assumption: a tip that
+    # moved only by emulator rebuilds releases from the tip. The assumption
+    # stopped being true; this restores it explicitly rather than by relying
+    # on a token's side effect.
+    paths-ignore:
+      - 'site/emulator/**'
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# One run per branch at a time. A push on top of a pull request supersedes
+# the run for the commit it replaced; five runs of one branch were once
+# sharing the runners while a merge waited on its own build.
+#
+# Not on xteink, and this is the whole reason for the expression below.
+# Superseding was meant to fold two quick merges into one run that releases
+# them together, which works when a run survives to the end. It does not
+# survive a STREAM of merges: on the night of 2026-09-03 they landed at
+# 22:58, 23:05, 23:42, 23:47 (three), 23:56, 00:16 and 00:29 -- every 13 to
+# 20 minutes, and this build takes longer than that. Each merge cancelled the
+# previous merge's run, three in a row reached no conclusion at all, and
+# crossplay-autorelease.yml fires on `workflow_run` with conclusion success.
+# A cancelled run is not a success, so nothing released for six merges while
+# RELEASE_HOLD was 0 and nobody was holding anything. Every individual
+# cancellation looked exactly like this rule working correctly.
+#
+# So pull requests still supersede, and xteink queues. crossplay-emulator.yml
+# already does the second thing (cancel-in-progress: false), which is why its
+# run for 2b9f3a84 finished while this workflow's run for the same commit was
+# cancelled -- the same merge, the two rules, two outcomes.
+concurrency:
+  group: crossplay-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/xteink' }}
 
 jobs:
   build:
@@ -59,43 +103,48 @@ jobs:
       - name: Install the simulator's host libraries
         run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libssl-dev
 
-      # The two flags only add .su and .ci files beside the objects; they change
-      # no code, so this is still the build the next step checks. Asking for them
-      # here rather than in a second build keeps CI one firmware compile long.
-      - name: Build the x4pro firmware
-        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e x4pro
+      # ONE BUILD STEP. Five envs in five invocations became three in one.
+      #
+      # CI used to build x4pro and sticky (dev) as well. Their only extra code
+      # is CROSSPOINT_DEV_SERIAL_BRIDGE, and a break in it costs the next
+      # person who wants to drive a device over the cable -- never a user. That
+      # is a real cost but a deferred one, and it is not worth paying on every
+      # pull request when a plain local check.sh still builds both.
+      #
+      # ONE invocation for all three, and that is not an optimisation. `pio run`
+      # calls clean_build_dir() once per INVOCATION against the whole
+      # .pio/build root, and wipes it when compute_project_checksum() differs.
+      # This project's pre-scripts write gitignored headers into src/ and lib/
+      # as the build runs, so on a fresh checkout invocation #2 opens by
+      # deleting invocation #1's output. That is what broke v1.12.14 and
+      # v1.12.15. One invocation, one checksum, nothing to delete.
+      #
+      # The flags only add .su and .ci files beside the objects; they change no
+      # code, so this is still the build the checks below read. Measuring the
+      # RELEASE images rather than the dev ones is also strictly better: it is
+      # the stack of the binary a user actually runs.
+      - name: Build everything
+        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e gh_release_x4pro -e gh_release_sticky -e simulator_x4_pro
 
       # v1.0.0 shipped a render task that needed 8016 bytes of an 8192-byte
       # stack and crashed on the first device that ever ran it. Nothing here
       # measured stack, and nothing on a host could: frame sizes belong to the
       # target ABI. This reads the numbers the firmware compiler just emitted.
+      #
+      # Both checks now read build directories that nothing between them
+      # removes. stack_budget.py refuses rather than passing empty -- it exits
+      # on no frames and fails a task whose entry is missing -- so the old
+      # arrangement would have gone red rather than quiet. That is why this is
+      # a fragility fix and not a bug fix.
       - name: Stack fits its task (x4pro)
-        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/x4pro
+        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_x4pro
 
       # The Sticky compiles SDK code the x4pro build never sees (mic, buzzer,
       # sensors, IMU) and carries its own device flag, so a green x4pro build
       # does not prove the sticky env compiles. Same stack discipline, same
       # reasons.
-      - name: Build the sticky firmware
-        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e sticky
-
       - name: Stack fits its task (sticky)
-        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/sticky
-
-      - name: Build the simulator
-        run: pio run -e simulator_x4_pro
-
-      # THE ENVS THAT ACTUALLY SHIP. x4pro and sticky above define
-      # CROSSPOINT_DEV_SERIAL_BRIDGE, so every release-only branch in main.cpp
-      # is preprocessed away in both of them -- and until this step existed,
-      # gh_release_* was compiled for the first time by the release workflow,
-      # i.e. after the tag was already pushed. A typo in release-only code cost
-      # a delete-and-retag to find.
-      - name: Build the release firmware (x4pro)
-        run: pio run -e gh_release_x4pro
-
-      - name: Build the release firmware (sticky)
-        run: pio run -e gh_release_sticky
+        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_sticky
 
       # Nothing is forgiven. ui:paperOnTheBand was a real baseline failure
       # once, and this step carried a carefully shaped exemption for it until
@@ -111,5 +160,158 @@ jobs:
       - name: Host tests
         run: |
           for suite in host-tests/*/run.sh; do
+            # relwatch has its own job. It runs a real postgres in docker, and
+            # sharing a runner with a 20-minute cross-compile starved it: the
+            # container's own log showed it had not begun INITIALISING seven
+            # minutes after `docker run` returned. Raising the timeout twice
+            # and pre-pulling the image both failed, because neither was the
+            # problem -- contention was. It has failed four unrelated pull
+            # requests this way; see the relwatch job below.
+            case "$suite" in */relwatch/*) continue;; esac
             bash "$suite"
           done
+
+  # relwatch runs a real postgres in docker, and it gets its OWN runner.
+  #
+  # It shared the build job until 2026-09-04, where it failed four pull
+  # requests whose diffs could not touch a database -- a Forehead word list, a
+  # worktree script, a trivia pack and a docs change. Two timeout bumps (60 ->
+  # 180 -> 420) and a pre-pull of the image all failed, because none of them
+  # was the problem: the container's own log showed it had not begun
+  # INITIALISING seven minutes after `docker run` returned, with the image
+  # already local. A 20-minute cross-compile was starving it of IO.
+  #
+  # Alone on a runner it has the machine to itself. This also fails
+  # independently, so a database that will not start no longer hides whether
+  # the firmware compiles.
+  relwatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull the database image
+        run: docker pull postgres:16-alpine
+      - name: The release watcher's suite
+        run: bash host-tests/relwatch/run.sh
+
+  # check.sh runs the same formatter check (clang-format 21, pinned there too)
+  # and the same cmake suite locally; CI is the copy nobody can skip.
+  # A packaging change cuts a release and cannot describe itself.
+  #
+  # scripts_local/device-build-needed.sh classifies
+  # .github/workflows/crossplay-release.yml as `quiet`: changing it changes
+  # what a person downloads, so it releases, but nothing in a build workflow
+  # says anything in a player's words. release_notes.py therefore gives such a
+  # landing a bullet only when its pull request wrote one, and otherwise leaves
+  # the page silent about it and shouts in the autorelease log.
+  #
+  # Silent is the wrong outcome for the case this exists for: PR #42 repaired
+  # the defect that shipped v1.12.14 and v1.12.15 with bootloader.bin,
+  # firmware.bin and partitions.bin missing from the published image. Somebody
+  # whose install was broken needs telling it is fixed. So the line is asked
+  # for HERE, where the person who knows what changed is still reading, rather
+  # than discovered weeks later by a reader of a job log.
+  release-notes-line:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: A change to what the release publishes must say what is new
+        env:
+          # Through the environment, never interpolated into the script: a pull
+          # request body is attacker-controlled text and `${{ }}` inside run:
+          # pastes it in as shell source.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          git fetch -q origin "$BASE"
+          if ! git diff --name-only --no-renames "origin/$BASE...HEAD" |
+               grep -qx '.github/workflows/crossplay-release.yml'; then
+            echo "This pull request does not change what the release publishes."
+            exit 0
+          fi
+          if printf '%s' "$PR_BODY" |
+             grep -qiE '^[[:space:]]*(-[[:space:]]*)?(\*\*)?what is new(\*\*)?[[:space:]]*[:-]'; then
+            echo "It changes what the release publishes, and it says what is new. Good."
+            exit 0
+          fi
+          echo "::error::This pull request changes .github/workflows/crossplay-release.yml, so merging it will cut a release. Nothing in a build workflow describes itself in a player's words, so the release page would either print this pull request's title or say nothing about the change at all. Add a line to the description, written for someone who installs the firmware: 'What is new: <one sentence>'."
+          exit 1
+
+  clang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install clang-format-21
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get update
+          sudo apt-get install -y clang-format-21
+
+      - name: Every file is formatted
+        run: |
+          PATH="/usr/lib/llvm-21/bin:$PATH" ./bin/clang-format-fix
+          git diff --exit-code || (echo "Run bin/clang-format-fix with clang-format 21 and commit the result" && exit 1)
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+
+      - name: Cache googletest source
+        uses: actions/cache@v4
+        with:
+          path: build/test/_deps/googletest-src
+          key: ${{ runner.os }}-googletest-${{ hashFiles('test/CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake -S test -B build/test -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build/test
+
+      - name: Run tests
+        run: ctest --test-dir build/test --output-on-failure -j
+
+  # High severity blocks: that is the class that names a real bug (a reference
+  # to a temporary, in the one finding the fork had). The medium and low
+  # findings (18 and 374 on 2026-09-04) are card #136's backlog; this job's log
+  # lists them on every run, so the number is never a guess.
+  cppcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: cppcheck, high severity blocks
+        run: pio check --fail-on-defect high

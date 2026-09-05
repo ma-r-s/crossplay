@@ -34,6 +34,8 @@ void LinkActivity::enterLink(const GameId gameId) {
   gameId_ = gameId;
   requested_ = true;
   rematch_ = false;
+  endgame_.reset();
+  lastEndgameStage_ = Endgame::Stage::Live;
   lastPhase_ = Phase::Off;
   you_ = linkui::SeatState::Ready;
   them_ = linkui::SeatState::Looking;
@@ -49,12 +51,20 @@ void LinkActivity::leaveLink() {
   linkState().stop();
   requested_ = false;
   rematch_ = false;
+  endgame_.reset();
+  lastEndgameStage_ = Endgame::Stage::Live;
   lastPhase_ = Phase::Off;
   onLinkEnded();
 }
 
 bool LinkActivity::linkOwnsScreen() const {
-  return requested_ && (linkPhase() == Phase::Searching || linkPhase() == Phase::Over || rematch_);
+  if (!requested_) return false;
+  // The final board outranks everything the link layer would otherwise put on
+  // the panel, including the opponent walking away in the same second. A player
+  // who has just lost must see the move that beat them; being told THEY LEFT
+  // instead is the same bug wearing a different screen.
+  if (endgame_.showingFinal()) return false;
+  return linkPhase() == Phase::Searching || linkPhase() == Phase::Over || rematch_;
 }
 
 bool LinkActivity::driveLink() {
@@ -105,9 +115,22 @@ bool LinkActivity::driveLink() {
 
   if (takeOpponentState()) requestUpdate();
 
-  // A finished game is a question, so it goes to the same screen the rematch
-  // uses rather than leaving a dead board with an inert capsule on it.
-  if (matchGameOver() && !rematch_ && inMatch()) {
+  // A finished game is a question, but not yet. The board that ended it goes up
+  // first and stays there long enough to read, and the match is counted on the
+  // same pass -- both of those are Endgame's, and this is the only place either
+  // happens. See LinkEndgame.h.
+  //
+  // A local class in a member function has that member's access, which is how
+  // the game's protected hooks reach a helper that knows nothing about
+  // Activity. No vtable and no allocation: Endgame::update is a template.
+  struct EndgameHost {
+    LinkActivity& self;
+    bool matchGameOver() const { return self.matchGameOver(); }
+    void onMatchEnded() const { self.onMatchEnded(); }
+    void onEndgameChanged() const { self.requestUpdate(); }
+  } endgameHost{*this};
+  endgame_.update(endgameHost, inMatch(), millis());
+  if (endgame_.offering() && !rematch_) {
     rematch_ = true;
     you_ = linkui::SeatState::Deciding;
     them_ = linkui::SeatState::Deciding;
@@ -139,6 +162,14 @@ bool LinkActivity::driveLink() {
     interactionsReady = false;
     ownedScreen_ = owns;
   }
+  // Same invariant, second handover: onMatchEnded() sends the game to its own
+  // final screen mid-pass with nobody having touched the panel, and the table
+  // on the panel still describes the board. Without this the first tap after a
+  // game ends is routed against the screen it just left.
+  if (endgame_.stage() != lastEndgameStage_) {
+    interactionsReady = false;
+    lastEndgameStage_ = endgame_.stage();
+  }
 
   if (owns) {
     routeLinkScreen();
@@ -153,6 +184,9 @@ void LinkActivity::proposeRematch() {
   // asking: the seats had been left on Ready by the match handshake, so the
   // proposal saw agreement that had never been given.
   const bool theyAlreadyAgreed = rematch_ && them_ == linkui::SeatState::Ready;
+  // Asked for while the final board was still up: they have seen what the hold
+  // exists to show them, so it stops holding rather than swallowing the tap.
+  endgame_.skip();
   you_ = linkui::SeatState::Ready;
   linkState().say(kNotePlayAgain);
   if (theyAlreadyAgreed) {
@@ -167,6 +201,8 @@ void LinkActivity::proposeRematch() {
 }
 
 void LinkActivity::startRematch() {
+  endgame_.reset();
+  lastEndgameStage_ = Endgame::Stage::Live;
   rematch_ = false;
   you_ = linkui::SeatState::Deciding;
   them_ = linkui::SeatState::Deciding;
@@ -259,7 +295,16 @@ void LinkActivity::render(RenderLock&&) {
     renderer.displayBuffer();
     return;
   }
+  // Read BEFORE the frame is built and reported after: a repaint of the old
+  // board can already be in flight when the match ends, and a hold started from
+  // that frame is a hold the player never saw.
+  const Endgame::Stage stageAtBuild = endgame_.stage();
   gameRender();
+  // Reported after gameRender() rather than before, because gameRender() ends
+  // in displayBuffer(): this is the moment the frame is actually on the panel,
+  // and drawn is not seen until it is. Endgame decides whether this was the
+  // final board; every frame is reported so that decision has one home.
+  endgame_.notePainted(stageAtBuild, millis());
 }
 
 }  // namespace linkplay

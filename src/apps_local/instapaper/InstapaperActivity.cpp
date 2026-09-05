@@ -3,6 +3,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <Utf8.h>
 #include <WiFi.h>
 
 #include <cstdio>
@@ -34,6 +35,16 @@ constexpr int64_t kClockFloor = 1700000000;
 // converts a handful of articles, so this is seconds rather than tens of them,
 // and each poll is one HTTP round trip on a battery.
 constexpr uint32_t kPollIntervalMs = 1500;
+// Consecutive polls that never reached the bridge before a sync is called off.
+// Six of them is nine seconds of silence, which is longer than any hiccup this
+// reader survives on the desk and shorter than a reader will wait for a screen
+// that is lying about being busy.
+// A poll that fails at the transport carries a 30s timeout of its own
+// (BridgeHttp), so counting misses would have bounded this by anything
+// between nine seconds and three minutes depending on HOW they failed. The
+// bound a reader actually experiences is time, so time is what is measured:
+// three quarters of a minute of no contact ends the sync.
+constexpr uint32_t kPollMissWindowMs = 45000;
 
 }  // namespace
 
@@ -259,6 +270,12 @@ void InstapaperActivity::loop() {
   int tapY = 0;
   if (!mappedInput.wasScreenTapped(tapX, tapY) || !interactionsReady_) return;
 
+  // A tap that arrives within kSettleMs of this screen appearing is answering
+  // the PREVIOUS screen -- see the note beside kSettleMs. Dropped rather than
+  // queued: re-routing it once the window closes would still act on something
+  // the user had not read.
+  if (everShown_ && millis() - phaseShownAtMs_ < kSettleMs) return;
+
   fui::InputSnapshot input;
   input.touchReleased = true;
   input.touchX = static_cast<int16_t>(tapX);
@@ -268,7 +285,6 @@ void InstapaperActivity::loop() {
   switch (event.action) {
     case instapaperui::ActionOpenArticle:
       if (event.value >= 0 && event.value < static_cast<int>(rowIds_.size())) {
-        selected_ = event.value;
         openArticle(rowIds_[static_cast<size_t>(event.value)]);
       }
       break;
@@ -287,6 +303,9 @@ void InstapaperActivity::loop() {
       break;
     case instapaperui::ActionArchive:
       archiveCurrent();
+      break;
+    case instapaperui::ActionUndoArchive:
+      undoArchive();
       break;
     case instapaperui::ActionPairConfirm:
       if (!pendingToken_.empty()) {
@@ -347,19 +366,39 @@ bool InstapaperActivity::doPairPoll() {
 // --- Syncing -------------------------------------------------------------
 
 bool InstapaperActivity::doSyncStart() {
+  // Per sync, not per poll: a miss left over from a previous attempt would
+  // spend this one's tolerance before it had lost anything.
+  pollMissedSinceMs_ = 0;
   library_.load();
   std::vector<int64_t> archive;
   for (const instapaper::Article& a : library_.articles()) {
     if (a.archivePending) archive.push_back(a.id);
   }
 
+  // Only the rows whose text is really on the card: claiming one whose file
+  // is missing suppresses it at Instapaper and deadlocks its download. See
+  // composeHave in InstapaperIndex.h.
+  std::vector<instapaper::Article> have = instapaper::composeHave(library_.articles(), library_.presentIds());
+
   // A clock that has never been set must not stamp a reading position. The
   // index keeps the progress either way -- it is only the timestamp that is
   // withheld, and without one the bridge leaves Instapaper's own value alone.
-  std::vector<instapaper::Article> have = library_.articles();
   if (nowOrZero() == 0) {
     for (instapaper::Article& a : have) a.progressAt = 0;
   }
+
+  // Counted from `have` rather than from the library, because `have` is what
+  // syncStart will actually put on the wire: a device whose clock has never
+  // been set had its stamps cleared two lines up, and syncStart carries a
+  // position only when it has one.
+  sentPositions_ = 0;
+  for (const instapaper::Article& a : have) {
+    if (a.progressDirty && a.progress > 0.0f && a.progressAt > 0) ++sentPositions_;
+  }
+  // The intent is on its way up; taking it back locally from here would leave
+  // the card and the account disagreeing about an article the service has
+  // already been told to archive.
+  undoArchiveId_ = 0;
 
   std::string message;
   if (!sync_.syncStart(bridge_, have, archive, jobId_, message)) {
@@ -405,15 +444,35 @@ bool InstapaperActivity::doSyncPoll() {
     return true;
   }
   if (status == "running" || status == "queued") {
+    pollMissedSinceMs_ = 0;
     delay(kPollIntervalMs);
     request(Step::SyncPoll, "SYNCING");
     return true;
+  }
+  // An empty verdict is a request that never reached the bridge -- no answer,
+  // no refusal, nothing to show a reader. The job on the other side is not
+  // affected by it: it keeps fetching, and its summary is waiting whenever
+  // the next poll gets through. A full sync takes fifteen seconds of Wi-Fi
+  // over a tunnel, so treating the first lost packet as the end of the sync
+  // threw away work that had already succeeded and said NOT SYNCED about it.
+  if (status.empty()) {
+    // 0 is the sentinel for "getting through", so never store it as a time.
+    if (pollMissedSinceMs_ == 0) pollMissedSinceMs_ = millis() | 1u;
+    if (millis() - pollMissedSinceMs_ < kPollMissWindowMs) {
+      delay(kPollIntervalMs);
+      request(Step::SyncPoll, "SYNCING");
+      return true;
+    }
   }
   if (sync_.unpaired) {
     bridge_ = instapaper::BridgeState{};
     library_.clearBridgeState();
   }
-  showNotice("NOT SYNCED", message.empty() ? "The service stopped answering. Try again." : message);
+  if (message.empty()) {
+    message = status.empty() ? "The reader lost contact with the service. Try syncing again."
+                             : "The service stopped answering. Try again.";
+  }
+  showNotice("NOT SYNCED", message);
   return false;
 }
 
@@ -458,8 +517,34 @@ void InstapaperActivity::finishSync() {
   // on the device: an article that could not be prepared, one that did not
   // arrive, and the ones still to come. Saying SYNCED and leaving a gap is
   // the failure this paragraph exists to avoid.
-  char body[192];
-  int used = std::snprintf(body, sizeof(body), "%d new or updated.", downloaded_);
+  char body[224];
+  int used = 0;
+  // The upward half, first, because it is the half a reader did on purpose and
+  // the half that used to be invisible: a sync that pushed an archive and one
+  // that did nothing both said "0 new or updated", to the byte.
+  //
+  // Archives are reported from what the service CONFIRMED. An intent it
+  // refused stays pending and is re-sent, so counting what was OFFERED here
+  // would be a sentence about something that did not happen.
+  const int archived = static_cast<int>(summary_.archived.size());
+  if (archived > 0 || sentPositions_ > 0) {
+    used = std::snprintf(body, sizeof(body), "Sent up:");
+    if (archived > 0 && used > 0 && used < static_cast<int>(sizeof(body))) {
+      used +=
+          std::snprintf(body + used, sizeof(body) - used, " %d archived%s", archived, sentPositions_ > 0 ? "," : ".");
+    }
+    if (sentPositions_ > 0 && used > 0 && used < static_cast<int>(sizeof(body))) {
+      used += std::snprintf(body + used, sizeof(body) - used, " %d reading position%s.", sentPositions_,
+                            sentPositions_ == 1 ? "" : "s");
+    }
+  }
+  // Appended, never restarted. Writing the down count from body[0] on a full
+  // buffer would silently drop the half above it.
+  if (used == 0) {
+    used = std::snprintf(body, sizeof(body), "%d new or updated.", downloaded_);
+  } else if (used < static_cast<int>(sizeof(body))) {
+    used += std::snprintf(body + used, sizeof(body) - used, " %d new or updated.", downloaded_);
+  }
   if (summary_.withheld > 0 && used > 0 && used < static_cast<int>(sizeof(body))) {
     used += std::snprintf(body + used, sizeof(body) - used, " %d more next sync.", summary_.withheld);
   }
@@ -491,7 +576,19 @@ void InstapaperActivity::openArticle(const int64_t id) {
     return;
   }
 
+  // The article is somebody else's prose, off somebody else's page: curly
+  // quotes, em dashes and ellipses on nearly every screen of it, none of which
+  // the reading cut has a glyph for. Folded when the file is READ rather than
+  // when it is written, so the file on the card stays exactly what the bridge
+  // sent and an article downloaded before this existed reads correctly the next
+  // time it is opened. After the two early returns above, not before: the
+  // not-showable path already knows it will draw none of this.
+  document_ = utf8FoldTypography(document_);
+
   RenderLock lock(*this);
+  // Moving on to something else is the end of the undo offer: an UNDO button
+  // still sitting there afterwards no longer says what it would undo.
+  undoArchiveId_ = 0;
   openId_ = id;
   readerTitle_ = article->title;
   phase_ = Phase::Reading;
@@ -504,15 +601,12 @@ void InstapaperActivity::openArticle(const int64_t id) {
 }
 
 void InstapaperActivity::closeArticle() {
-  // The reading position, in Instapaper's own terms: the top edge of the
-  // viewport as a share of the article's length. Reaching the end counts as
-  // finished rather than as "topLine_/lineCount_", which would report about
-  // 90% for an article somebody just read to the last word.
+  // The reading position, in Instapaper's own terms. progressFor() owns what
+  // that means, including that reaching the end is 1.0 rather than the top of
+  // the last page over the length.
   instapaper::Article* article = library_.find(openId_);
   if (article != nullptr && lineCount_ > 0) {
-    const float progress = (topLine_ + visibleLines_ >= lineCount_)
-                               ? 1.0f
-                               : static_cast<float>(topLine_) / static_cast<float>(lineCount_);
+    const float progress = instapaper::progressFor(topLine_, visibleLines_, lineCount_);
     const uint32_t stamp = nowOrZero();
     // Only ever forward: a reader who pages back to check something has not
     // un-read the article, and Instapaper resolves conflicts by timestamp, so
@@ -555,19 +649,33 @@ void InstapaperActivity::archiveCurrent() {
   // the flag is on the card.
   article->archivePending = true;
   library_.saveIndex();
+  undoArchiveId_ = id;
+  rowsFitted_ = false;
+  LOG_INF("INSTA", "archive pending for %lld", static_cast<long long>(id));
+  showQueue();
+}
+
+void InstapaperActivity::undoArchive() {
+  // Local only, and that is what makes it safe rather than a second protocol:
+  // an archive is a flag on the card until a sync carries it, and doSyncStart
+  // drops the offer the moment it does. Nothing here can contradict the
+  // service, because the service has not been told yet.
+  const int64_t id = undoArchiveId_;
+  undoArchiveId_ = 0;
+  if (id == 0) return;
+  instapaper::Article* article = library_.find(id);
+  if (article != nullptr && article->archivePending) {
+    article->archivePending = false;
+    library_.saveIndex();
+    LOG_INF("INSTA", "archive of %lld taken back", static_cast<long long>(id));
+  }
   rowsFitted_ = false;
   showQueue();
 }
 
 void InstapaperActivity::turnPage(const int delta) {
   if (phase_ != Phase::Reading || visibleLines_ == 0) return;
-  const uint32_t span = visibleLines_;
-  const uint32_t maxTop = lineCount_ > span ? lineCount_ - span : 0;
-  if (delta > 0) {
-    topLine_ = topLine_ + span > maxTop ? maxTop : topLine_ + span;
-  } else {
-    topLine_ = topLine_ > span ? topLine_ - span : 0;
-  }
+  topLine_ = instapaper::turnedTopLine(topLine_, visibleLines_, lineCount_, delta);
   requestUpdate();
 }
 
@@ -610,8 +718,7 @@ void InstapaperActivity::render(RenderLock&&) {
 
     case Phase::Pairing: {
       const fui::Rect qr = instapaperui::buildPairQr(screen, pairCode_.c_str());
-      QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height},
-                          instapaper::Sync::pairUrl(pairCode_));
+      QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, instapaper::Sync::pairUrl(pairCode_));
       what = "Instapaper pairing";
       break;
     }
@@ -631,8 +738,7 @@ void InstapaperActivity::render(RenderLock&&) {
       name.align = fui::TextAlign::Center;
       name.color = fui::Color::Black;
       name.maxLines = 2;
-      const std::string shown =
-          toybox::fitLines(target, pendingUser_.c_str(), layout.username.width, 2, name);
+      const std::string shown = toybox::fitLines(target, pendingUser_.c_str(), layout.username.width, 2, name);
       target.text(layout.username, shown.c_str(), name);
       screen.frame().hit(layout.pill, instapaperui::ActionPairConfirm, 0);
       what = "Instapaper confirm";
@@ -644,11 +750,23 @@ void InstapaperActivity::render(RenderLock&&) {
       // the same rect the text is drawn into: readerBody() is the one function
       // that owns that rectangle, so a page turn cannot skip a line and the
       // progress sent to Instapaper is computed against what was really shown.
+      //
+      // It used to wrap the WHOLE article here, on every paint, and then
+      // buildReader() wrapped it again to draw one page of it. Opening a long
+      // read was slow and every page turn was slow again by exactly the same
+      // amount, which is what Mario reported. wrap_ wraps once per opening and
+      // hands both this count and the drawing the same answer; it re-wraps by
+      // itself if anything about the panel, the cut or the text moves under
+      // it, because a count that stopped describing the page would send a
+      // wrong reading position to a real account. See ToyboxWrappedText.h.
       const fui::Rect body = instapaperui::readerBody(device);
       const int16_t lineHeight = target.lineHeight(tokens.bodyText.font);
       visibleLines_ = fui::textAreaVisibleLines(body, lineHeight);
-      const uint32_t measured =
-          fui::textAreaMeasure(target, body.width, document_.c_str(), tokens.bodyText, 0).lineCount;
+      instapaperui::ReaderBody bodyText;
+      bodyText.text = document_.c_str();
+      bodyText.style = tokens.bodyText;
+      bodyText.wrap = &wrap_;
+      const uint32_t measured = instapaperui::readerLineCount(target, device, bodyText);
 
       if (lineCount_ == 0 && measured > 0) {
         // First paint of this opening: put the reader back where they were.
@@ -656,29 +774,42 @@ void InstapaperActivity::render(RenderLock&&) {
         // not exist until something has measured the text.
         lineCount_ = measured;
         const instapaper::Article* article = library_.find(openId_);
-        if (article != nullptr && article->progress > 0.0f && article->progress < 1.0f) {
-          const uint32_t span = visibleLines_ > 0 ? visibleLines_ : 1;
-          const uint32_t maxTop = lineCount_ > span ? lineCount_ - span : 0;
-          const uint32_t restored = static_cast<uint32_t>(article->progress * static_cast<float>(lineCount_));
-          topLine_ = restored > maxTop ? maxTop : restored;
-        }
+        if (article != nullptr) topLine_ = instapaper::topLineFor(article->progress, visibleLines_, lineCount_);
       } else {
         lineCount_ = measured;
       }
 
-      const uint32_t pages = visibleLines_ > 0 ? (lineCount_ + visibleLines_ - 1) / visibleLines_ : 1;
-      const uint32_t page = visibleLines_ > 0 ? topLine_ / visibleLines_ + 1 : 1;
-      std::snprintf(pageLabel_, sizeof(pageLabel_), "%lu / %lu", static_cast<unsigned long>(page),
-                    static_cast<unsigned long>(pages < 1 ? 1 : pages));
+      const instapaper::Pages pages = instapaper::pagesFor(topLine_, visibleLines_, lineCount_);
+      std::snprintf(pageLabel_, sizeof(pageLabel_), "%lu / %lu", static_cast<unsigned long>(pages.page),
+                    static_cast<unsigned long>(pages.count));
 
       instapaperui::ReaderModel model;
       model.title = readerTitle_.c_str();
-      model.text = document_.c_str();
       model.topLine = topLine_;
       model.pageLabel = pageLabel_;
       model.canPagePrev = topLine_ > 0;
       model.canPageNext = visibleLines_ > 0 && topLine_ + visibleLines_ < lineCount_;
-      instapaperui::buildReader(screen, model);
+      // The count the PANEL was drawn from, which is not always `measured`
+      // above.
+      //
+      // The drawing is where a wrap that no longer describes this panel is
+      // caught: buildReader() goes through the same wrap, and the wrap throws
+      // its index away and rebuilds if the window disagrees with it. So on the
+      // one paint where that happens, `measured` above is the count of an
+      // article this panel is not showing -- and closeArticle() would compute
+      // the reading position from THAT and send it to a real Instapaper
+      // account. The fraction would be wrong on somebody's phone, with nothing
+      // on screen to say so, which is the exact failure the whole cache was
+      // built to avoid.
+      //
+      // A change asks for one more paint, because the page label and the
+      // forward control were computed from the old count too.
+      lineCount_ = instapaperui::buildReader(screen, model, bodyText);
+      if (lineCount_ != measured) {
+        LOG_INF("INSTA", "wrap changed under the paint: %lu lines, was %lu", static_cast<unsigned long>(lineCount_),
+                static_cast<unsigned long>(measured));
+        requestUpdate();
+      }
       what = "Instapaper reader";
       break;
     }
@@ -756,7 +887,7 @@ void InstapaperActivity::render(RenderLock&&) {
         // appears beside an empty list that already says what to do.
         if (bridge_.lastSyncAt > 0) {
           const time_t when = static_cast<time_t>(bridge_.lastSyncAt);
-          struct tm parts {};
+          struct tm parts{};
           localtime_r(&when, &parts);
           std::snprintf(lastSyncLabel_, sizeof(lastSyncLabel_), "%02d:%02d", parts.tm_hour, parts.tm_min);
         } else {
@@ -779,9 +910,16 @@ void InstapaperActivity::render(RenderLock&&) {
       instapaperui::QueueModel model;
       model.items = rows_.empty() ? nullptr : rows_.data();
       model.count = static_cast<int>(rows_.size());
-      model.selected = selected_;
+      // No selected row. An inverted row is read as a cursor, and there is
+      // nothing here that can move one: the X4 Pro's Confirm is an unassigned
+      // pin, so a cursor could be walked and never used. What the highlight
+      // used to mark -- row 0 until a tap moved it -- was not a fact about the
+      // queue at all. The position column already says which articles are
+      // started.
+      model.selected = -1;
       model.topIndex = topIndex_;
       model.lastSync = lastSyncLabel_;
+      model.canUndoArchive = undoArchiveId_ != 0;
       instapaperui::buildQueue(screen, model);
       what = "Instapaper queue";
       break;
@@ -790,13 +928,31 @@ void InstapaperActivity::render(RenderLock&&) {
 
   interactionsReady_ = true;
   toybox::reportOverflow(interactions_, what);
+  const bool phaseChanged = !everShown_ || phase_ != lastShownPhase_;
 
   // The two side keys do different things on the two screens that use them, so
   // the hints have to say which. Everything else here is reached by tapping,
   // because four of the six logical buttons are unassigned pins on the X4 Pro
   // and a control only a key can reach is a control nobody can reach.
+  //
+  // Both devices this fork builds for have touch, and drawButtonHints() returns
+  // early on any board that does, so these labels reach no panel today. Kept
+  // because every app here passes them and a lone exception would read as an
+  // oversight -- but do not reach for them to explain a key: on the queue the
+  // side keys page the list, and the only thing that said otherwise was an
+  // inverted row pretending to be a cursor, which is gone.
   const bool reading = phase_ == Phase::Reading;
   const auto labels = mappedInput.mapLabels("Back", "", reading ? "Prev" : "Up", reading ? "Next" : "Down");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
+
+  // Stamped AFTER the panel has been written, so the settle window measures
+  // from when a person could first have seen this screen rather than from when
+  // the state changed. displayBuffer() blocks on the panel, so by here it is
+  // showing.
+  if (phaseChanged) {
+    lastShownPhase_ = phase_;
+    phaseShownAtMs_ = millis();
+    everShown_ = true;
+  }
 }

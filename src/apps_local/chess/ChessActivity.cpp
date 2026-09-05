@@ -115,6 +115,8 @@ void ChessActivity::resetGame() {
   engineThinking = false;
   historyCount = 0;
   historyBase = 0;
+  undoableFrom = 0;
+  resetRepetition();
   refreshLegalMoves();
   // Playing Black means the engine opens.
   if (engineToMove() && !gameOver) engineThinking = true;
@@ -436,20 +438,39 @@ bool ChessActivity::loadGame() {
 
   selectedSquare = -1;
   engineThinking = false;
+  // The plies just read back are notation only: the save stores the position
+  // and the move sheet, never the undo data. Neither take-back nor repetition
+  // may look behind this point.
+  undoableFrom = historyCount;
+  // Repetition starts again from the resumed position. The keys of the
+  // positions before it are not recoverable from the save, and counting a
+  // repetition against keys we do not have is the one outcome worth ruling
+  // out: it would end a live game in a draw that never happened.
+  resetRepetition();
   refreshLegalMoves();
   LOG_INF("CHESS", "Resumed saved game (%d plies)", historyCount);
   return true;
 }
 
 void ChessActivity::applyMove(const chess::Move& move) {
-  // recordMove appends and may shift the whole buffer down first, so the slot
-  // to fill is only known afterwards.
-  recordMove(move);
-  chess::Undo undo;
-  chess::makeMove(position, move, undo);
-  historyMove[historyCount - 1] = move;
-  historyUndo[historyCount - 1] = undo;
-  refreshLegalMoves();
+  {
+    // The renderer runs on its own task and draws these squares directly, so
+    // the board has to change under the same lock the render task holds.
+    // Without it a repaint landing inside makeMove() shows the moving piece on
+    // both squares or on neither.
+    RenderLock lock;
+    // recordMove appends and may shift the whole buffer down first, so the slot
+    // to fill is only known afterwards.
+    recordMove(move);
+    chess::Undo undo;
+    chess::makeMove(position, move, undo);
+    historyMove[historyCount - 1] = move;
+    historyUndo[historyCount - 1] = undo;
+    // After the move, so the key is the position this ply produced. Before
+    // refreshLegalMoves, which is what reads the window back.
+    pushRepetitionKey();
+    refreshLegalMoves();
+  }
   // The move is on our board; put it on theirs. Only after refreshLegalMoves,
   // so a move that ends the game travels with the position that proves it.
   if (linkRequested() && linkYourTurn()) sendPosition();
@@ -460,7 +481,9 @@ bool ChessActivity::canTakeBack() const {
   // back here would need their agreement, which is a conversation this design
   // deliberately has no way to have.
   if (linkPlaying()) return false;
-  return historyCount >= 1 && !engineThinking;
+  // undoableFrom rather than 0: a resumed game has notation for its earlier
+  // plies but no way to unmake them.
+  return historyCount > undoableFrom && !engineThinking;
 }
 
 void ChessActivity::takeBack() {
@@ -471,13 +494,20 @@ void ChessActivity::takeBack() {
   // to the other player. Against the engine, undoing one ply would just let it
   // move again, so it takes back the pair.
   const int plies = vsComputer() ? (engineToMove() ? 1 : 2) : 1;
-  for (int i = 0; i < plies && historyCount > 0; ++i) {
-    --historyCount;
-    chess::unmakeMove(position, historyMove[historyCount], historyUndo[historyCount]);
+  {
+    RenderLock lock;
+    for (int i = 0; i < plies && historyCount > undoableFrom; ++i) {
+      --historyCount;
+      chess::unmakeMove(position, historyMove[historyCount], historyUndo[historyCount]);
+      // One key per ply applied, so one key per ply undone. Never below the
+      // position the window started from.
+      if (repCount > 1) --repCount;
+    }
+    selectedSquare = -1;
+    // gameOver is refreshLegalMoves()'s to set now that a draw can end the
+    // game: clearing it here would have been overwritten a line later anyway.
+    refreshLegalMoves();
   }
-  selectedSquare = -1;
-  gameOver = false;
-  refreshLegalMoves();
   saveGame();
   requestUpdate();
 }
@@ -493,6 +523,7 @@ void ChessActivity::recordMove(const chess::Move& move) {
     }
     --historyCount;
     ++historyBase;
+    if (undoableFrom > 0) --undoableFrom;
   }
   chess::moveToSan(position, move, history[historyCount]);
   ++historyCount;
@@ -572,7 +603,47 @@ int ChessActivity::squareAtPoint(const int x, const int y) const {
 
 void ChessActivity::refreshLegalMoves() {
   chess::generateLegalMoves(position, legalMoves);
-  gameOver = legalMoves.count == 0;
+  drawReason = DrawReason::None;
+  // Mate and stalemate first. Mate on the hundredth halfmove is mate, and a
+  // position repeated for the third time with no move to make is stalemate --
+  // in both cases the side to move having no move is the older, stronger fact.
+  if (legalMoves.count == 0) {
+    gameOver = true;
+    return;
+  }
+  if (currentRepetitionCount() >= 3) {
+    drawReason = DrawReason::Repetition;
+  } else if (position.halfmoveClock >= 100) {
+    // 100 halfmoves, not 50: the rule counts moves by both players.
+    drawReason = DrawReason::FiftyMove;
+  }
+  gameOver = drawReason != DrawReason::None;
+}
+
+void ChessActivity::resetRepetition() {
+  repCount = 0;
+  pushRepetitionKey();
+}
+
+void ChessActivity::pushRepetitionKey() {
+  const uint64_t key = chess::positionKey(position);
+  // Two consecutive positions can never share a key: the side to move flips
+  // every ply, and it is hashed. So an equal key is the same state offered
+  // twice -- a retransmit from the other device -- and counting it would
+  // manufacture a repetition out of the radio.
+  if (repCount > 0 && repKeys[repCount - 1] == key) return;
+  if (repCount == kRepWindow) {
+    // Unreachable while the fifty-move draw above fires at 100 halfmoves, and
+    // here anyway: dropping the oldest key is the one safe way to lose
+    // information, because a shorter window can only miss a repetition.
+    for (int i = 1; i < kRepWindow; ++i) repKeys[i - 1] = repKeys[i];
+    --repCount;
+  }
+  repKeys[repCount++] = key;
+}
+
+int ChessActivity::currentRepetitionCount() const {
+  return chess::repetitionCount(repKeys, repCount, position.halfmoveClock);
 }
 
 bool ChessActivity::isLegalDestination(const int square) const {
@@ -641,7 +712,19 @@ void ChessActivity::playEngineMove() {
   // far, rather than stalling the loop and tripping the watchdog.
   static constexpr int kDepthForLevel[3] = {1, 3, 4};
   constexpr uint32_t kNodeBudget = 60000;
-  const chess::SearchResult result = chess::search(position, kDepthForLevel[level], searchBuffers, kNodeBudget);
+  // A COPY, and this is the whole of the flicker fix. search() makes and
+  // unmakes thousands of moves on whatever position it is handed, and the
+  // render task reads `position` straight out of this object while the main
+  // task is inside the search. Handed the live board, a repaint drew the
+  // middle of the search: a wrong position on screen for as long as the search
+  // took, then the real one when the move landed.
+  //
+  // The one-pass deferral in handleSquareActivated() was written to prevent
+  // exactly this and cannot, because requestUpdate() only NOTIFIES the render
+  // task. The repaint it asks for is still in flight when the search starts,
+  // so deferring by a pass moved the race rather than closing it.
+  chess::Position scratch = position;
+  const chess::SearchResult result = chess::search(scratch, kDepthForLevel[level], searchBuffers, kNodeBudget);
   LOG_DBG("CHESS", "engine: %u nodes, score %d%s", static_cast<unsigned>(result.nodes), result.score,
           result.budgetExhausted ? " (budget hit)" : "");
   if (!result.hasMove) {
@@ -662,6 +745,11 @@ void ChessActivity::playEngineMove() {
 
 const char* ChessActivity::resultText() const {
   if (!gameOver) return "";
+  // Named rather than a bare "DRAW". A game that stops on its own needs to say
+  // why, or it reads as the app having given up: both of these arrive with no
+  // move played and nothing on the board to point at.
+  if (drawReason == DrawReason::Repetition) return "DRAW: REPETITION";
+  if (drawReason == DrawReason::FiftyMove) return "DRAW: 50 MOVES";
   if (chess::isInCheck(position)) return position.whiteToMove ? "BLACK WINS" : "WHITE WINS";
   return "STALEMATE";
 }
@@ -679,6 +767,29 @@ const char* ChessActivity::statusText() const {
   if (linkPlaying()) return turnLabel;
   if (!vsComputer()) return position.whiteToMove ? "WHITE TO MOVE" : "BLACK TO MOVE";
   return engineToMove() ? "THINKING" : "YOUR MOVE";
+}
+
+// whiteAtBottom() is the reason this app cannot get away with a mode bit. In
+// Pass-and-Play it is position.whiteToMove, so the board turns 180 degrees on
+// every half-move and every pixel becomes a different square; a rematch flips
+// the player's colour and does the same. That is the pixel-to-square map, and
+// nothing else in the fork remaps this completely.
+//
+// The live/dead bit covers the changes that arrive without a tap: the engine
+// replying on the pass after your move, and a link opponent's move handing the
+// turn back through driveLink().
+//
+// selectedSquare is deliberately absent: select-then-move is every move in the
+// game, the select repaints, and hashing it would drop the destination tap.
+// The position is absent for the same reason -- it changes on every move and
+// does not move which square a pixel is, except through whiteAtBottom(), which
+// is hashed above precisely because it does.
+uint32_t ChessActivity::surfaceMeaning() const {
+  uint32_t meaning = paintclock::mixMeaning(paintclock::kMeaningSeed, showingMenu ? 1u : 0u);
+  meaning = paintclock::mixMeaning(meaning, showingSettings ? 1u : 0u);
+  meaning = paintclock::mixMeaning(meaning, whiteAtBottom() ? 1u : 0u);
+  const bool live = !gameOver && !engineThinking && !engineToMove() && !(linkPlaying() && !linkYourTurn());
+  return paintclock::mixMeaning(meaning, live ? 1u : 0u);
 }
 
 void ChessActivity::gameLoop() {
@@ -739,6 +850,9 @@ void ChessActivity::gameLoop() {
     if (!gameOver) {
       const int square = squareAtPoint(touchX, touchY);
       if (square >= 0) {
+        // Sixty-four squares do not fit the interaction table, so this never
+        // reaches route(). See Activity::surfaceMeaning().
+        if (!surfaceRevealed()) return;
         handleSquareActivated(square);
       }
     }
@@ -872,7 +986,13 @@ void ChessActivity::drawMoveList(const int top, const int height) const {
 
 Rect ChessActivity::gearRect() const {
   const int size = 40;
-  return Rect{renderer.getScreenWidth() - toybox::kMargin - size, (toybox::kHeaderHeight - size) / 2, size, size};
+  // Centred in the VISIBLE part of the band, the same rule toybox::bandCenterY
+  // gives the shelf's folder mark and toy battle's medals: the bezel covers the
+  // band's top rows, so centring over the whole band rides high on the panel.
+  int viewTop, viewRight, viewBottom, viewLeft;
+  renderer.getOrientedViewableTRBL(&viewTop, &viewRight, &viewBottom, &viewLeft);
+  return Rect{renderer.getScreenWidth() - toybox::kMargin - size,
+              viewTop + (toybox::kHeaderHeight - viewTop - size) / 2, size, size};
 }
 
 void ChessActivity::activateMenuRow(const MenuRow row) {
@@ -1078,10 +1198,20 @@ void ChessActivity::adoptRemote(const ChessWire& wire) {
     LOG_ERR("CHESS", "could not read the position the other device sent");
     return;
   }
-  position = next;
-  if (wire.lastMove[0] != '\0') recordRemoteMove(wire.lastMove);
-  selectedSquare = -1;
-  refreshLegalMoves();
+  {
+    // Same reason as applyMove(): the whole board changes here, one struct
+    // assignment wide, and the render task reads it from another core.
+    RenderLock lock;
+    position = next;
+    if (wire.lastMove[0] != '\0') recordRemoteMove(wire.lastMove);
+    selectedSquare = -1;
+    // Their move is a position transition like any other, so the window has to
+    // see it. Skipping it would leave repetitionCount() comparing a key that is
+    // no longer the board -- and in a match every second ply arrives this way,
+    // so the window would otherwise be half the game.
+    pushRepetitionKey();
+    refreshLegalMoves();
+  }
 }
 
 void ChessActivity::recordRemoteMove(const char* san) {

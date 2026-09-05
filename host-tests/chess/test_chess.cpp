@@ -55,6 +55,24 @@ bool hasMove(const chess::Position& position, const char* algebraic) {
   return false;
 }
 
+// Plays the move written in long algebraic ("g1f3"). Returns false if it is
+// not legal here, so a typo in a sequence fails the test rather than silently
+// playing nothing.
+bool play(chess::Position& position, const char* algebraic) {
+  chess::MoveList list;
+  chess::generateLegalMoves(position, list);
+  char buffer[6];
+  for (int i = 0; i < list.count; ++i) {
+    chess::moveToString(list.moves[i], buffer);
+    if (std::strcmp(buffer, algebraic) == 0) {
+      chess::Undo undo;
+      chess::makeMove(position, list.moves[i], undo);
+      return true;
+    }
+  }
+  return false;
+}
+
 int legalMoveCount(const char* fen) {
   chess::Position position;
   if (!chess::parseFen(fen, position)) return -1;
@@ -535,6 +553,117 @@ void testDeeperSearchIsNotWorse() {
   CHECK(depth1.score == bestByHand);
 }
 
+// --- repetition ------------------------------------------------------------
+
+void testPositionKeyDistinguishes() {
+  chess::Position a;
+  chess::Position b;
+  CHECK(chess::parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", a));
+  CHECK(chess::parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", b));
+  CHECK(chess::positionKey(a) == chess::positionKey(b));
+
+  // The move counters are NOT part of the identity: the same position reached
+  // by a different route is the same position for repetition.
+  CHECK(chess::parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 7 12", b));
+  CHECK(chess::positionKey(a) == chess::positionKey(b));
+
+  // Side to move is. This is the one that matters most: without it a shuffle
+  // would count each half of the cycle as a repetition of the other.
+  CHECK(chess::parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1", b));
+  CHECK(chess::positionKey(a) != chess::positionKey(b));
+
+  // So are the castling rights: a king that has lost the right to castle is in
+  // a different position from one that has not, on an identical board.
+  CHECK(chess::parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w Kkq - 0 1", b));
+  CHECK(chess::positionKey(a) != chess::positionKey(b));
+
+  // And the en passant square.
+  chess::Position c;
+  CHECK(chess::parseFen("rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq c6 0 2", a));
+  CHECK(chess::parseFen("rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2", c));
+  CHECK(chess::positionKey(a) != chess::positionKey(c));
+}
+
+void testRepetitionCountWindow() {
+  const uint64_t a = 111;
+  const uint64_t b = 222;
+  const uint64_t keys[] = {a, b, a, b, a};
+
+  // Five plies with nothing irreversible: the position on the board is its
+  // third occurrence.
+  CHECK(chess::repetitionCount(keys, 5, 4) == 3);
+
+  // The window is the halfmove clock, and it is a correctness bound rather
+  // than a speed one. A capture two plies ago means the identical key before
+  // it belongs to a position this game can no longer reach.
+  CHECK(chess::repetitionCount(keys, 5, 2) == 2);
+  CHECK(chess::repetitionCount(keys, 5, 1) == 1);
+  CHECK(chess::repetitionCount(keys, 5, 0) == 1);
+
+  // Degenerate inputs answer rather than read off the end.
+  CHECK(chess::repetitionCount(keys, 1, 99) == 1);
+  CHECK(chess::repetitionCount(keys, 0, 99) == 0);
+  CHECK(chess::repetitionCount(nullptr, 5, 4) == 0);
+
+  // A window longer than the history stops at the start of it.
+  CHECK(chess::repetitionCount(keys, 5, 400) == 3);
+}
+
+void testThreefoldFromKnightShuffle() {
+  // The repetition every player actually meets: both sides walk a knight out
+  // and back twice. The third time the starting position appears, it is a draw.
+  chess::Position position;
+  chess::setStartPosition(position);
+
+  uint64_t keys[16];
+  int count = 0;
+  keys[count++] = chess::positionKey(position);
+
+  const char* shuffle[] = {"g1f3", "b8c6", "f3g1", "c6b8", "g1f3", "b8c6", "f3g1", "c6b8"};
+  for (int ply = 0; ply < 8; ++ply) {
+    CHECK(play(position, shuffle[ply]));
+    keys[count++] = chess::positionKey(position);
+
+    // Knight moves are reversible, so the clock never resets and the window is
+    // the whole game so far.
+    CHECK(position.halfmoveClock == ply + 1);
+
+    const int seen = chess::repetitionCount(keys, count, position.halfmoveClock);
+    // The whole second lap is a repetition, not just the moment the start
+    // position comes back: ply 5 repeats the position after ply 1, ply 6 the
+    // one after ply 2, and so on. Writing this as "1 except at plies 4 and 8"
+    // was the first version of this test, and it failed on exactly those three
+    // plies -- the code was right and the expectation was not.
+    if (ply < 3) {
+      CHECK(seen == 1);
+    } else if (ply == 7) {
+      CHECK(seen == 3);
+    } else {
+      CHECK(seen == 2);
+    }
+  }
+  // And the board really is back where it started, so the count above is about
+  // the position it claims to be about.
+  chess::Position start;
+  chess::setStartPosition(start);
+  CHECK(chess::positionKey(position) == chess::positionKey(start));
+}
+
+void testCaptureEndsTheRepetitionWindow() {
+  // The window bound doing its job on a real board rather than on an array.
+  // After a capture the clock is 0, so nothing before it can be a repetition
+  // even if the key matched -- and here the shuffle around it is deliberate.
+  chess::Position position;
+  CHECK(chess::parseFen("4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1", position));
+  CHECK(play(position, "e4d5"));  // capture
+  CHECK(position.halfmoveClock == 0);
+
+  uint64_t keys[8];
+  int count = 0;
+  keys[count++] = chess::positionKey(position);
+  CHECK(chess::repetitionCount(keys, count, position.halfmoveClock) == 1);
+}
+
 }  // namespace
 
 int main() {
@@ -555,6 +684,11 @@ int main() {
   testSearchLeavesPositionUntouched();
   testNodeBudgetStopsSearch();
   testDeeperSearchIsNotWorse();
+
+  testPositionKeyDistinguishes();
+  testRepetitionCountWindow();
+  testThreefoldFromKnightShuffle();
+  testCaptureEndsTheRepetitionWindow();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

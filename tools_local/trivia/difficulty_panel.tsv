@@ -1,0 +1,98 @@
+# A blind head-to-head, frozen so the levels can be checked against something
+# that is NOT the ratings they were cut from.
+#
+# Three judges were each shown the same 60 pairs, one question against another,
+# with the level hidden and the slot randomised, and asked which one more
+# groups of four ordinary adults in a bar would get. They never saw a rating.
+# Kept here: the pairs they all decided the same way, as (easier, harder).
+#
+# The check is then simply that the pack agrees: the question the panel called
+# easier must sit at a lower-numbered level. Shuffle the ratings across
+# questions and this collapses towards chance (measured: 34%), which is the one
+# thing every other difficulty assertion in this repo cannot see, because they
+# are all computed from the cut itself. Score it with panel_score.py.
+#
+# What it does NOT cover: the pairs are level 1 against level 5, so it proves
+# the extremes are ordered and says nothing about levels 2, 3 and 4 against each
+# other. Judges 2 and 3 differ from judge 1 only in being separate runs of the
+# same model on the same prompt -- they are a consistency check on the ratings,
+# not human testers, and no human has scored this pack.
+#
+# Regenerate with a fresh panel whenever the rating scale changes; do not edit
+# by hand to make a check pass.
+#
+# HOW THE PAIRS WERE SAMPLED, which decides what a score means. Candidates were
+# drawn as level 1 against level 5 AS THE CLOUD RATING FILE CUT THEM, and the
+# pairs kept are those the judges then decided unanimously. So the score is not
+# comparable across raters: that file is being asked about its own extremes and
+# any other rater is being asked about somebody else's.
+#
+#   the cloud ratings the pairs came from   50/50 = 100%   (0 pairs same level)
+#   the LOCAL run that builds the pack      36/50 =  72%   (5 pairs same level)
+#   the local run, raw r, cut removed       38/50 =  76%
+#   the local run, shuffled                 17/50 =  34%
+#
+# READ THAT 100% AS SAMPLING, NOT QUALITY. The cloud file is 9,597 single-judge
+# rows out of 9,617 -- only the 20 anchors carry more -- and the owner's HOLD on
+# PR #19 records a fresh judge agreeing with it at only +0.58 / +0.64 while two
+# fresh judges agree with EACH OTHER at +0.92 / +0.895. It is the noisy party.
+# The two files agree with each other at Spearman +0.34 on the 9,597 questions
+# both cover.
+#
+# So this file does not say the local rater is worse. There is no threshold here
+# that transfers to it. What survives is 50 blind pairwise verdicts that cost
+# something to make and can be re-scored against any future rater, and the shape
+# of the one difficulty check that is not computed from the ratings themselves.
+# Draw a fresh panel from the shipping rater's own extremes before using a bar.
+#
+# easier_id	harder_id	judges_agreeing	judges_voting
+0102225d5a20	44ca0bd7de5e	3	3
+02c7eded25a2	aa8229dcb157	3	3
+083bb3076234	75ee51573fa9	3	3
+1f14a3fe5fe7	7d550c2770dd	3	3
+29e0e74a1cac	60fe234097ef	3	3
+2b66d44cd845	0782bfb41b4f	3	3
+2df475e93556	05e3fd12ac82	3	3
+31028b1ebbe8	29fca0fb269e	3	3
+3804fa363ac5	2784502b7382	3	3
+3d0600982689	062165d74702	3	3
+3d878f6ac0c9	2d93c291345f	3	3
+3da38b24b1ae	42607c76f574	3	3
+434ce4be7762	4dfa6bbb00bd	3	3
+46b45c3d5af4	b70a414aa600	3	3
+4ee79d272d68	0ec5f5eda23f	3	3
+56edb9b92743	f0979a48423e	3	3
+5a2428304dbe	a3f45a515137	3	3
+6ac57a28113e	2a34ff6e8c2c	3	3
+6b38f3a2d32f	9327df622e52	3	3
+6b571a39f821	b29d1d37a529	3	3
+72e7981bd7f7	bb80186aa060	3	3
+760834aab9dc	6b6136aa17e0	3	3
+78063e5e3791	5ca77b5bfb73	3	3
+7903dd42b24f	a6905a541410	3	3
+7f6f1adee588	21642a418edf	3	3
+869acf4869c7	7e4ef6c4eaea	3	3
+904e95413669	683cd6da07a5	3	3
+9215856e5948	e0ad6eb138d4	3	3
+97e1571923b2	723a796b3612	2	3
+97f240045bf3	5f1a6da91ca5	3	3
+989fe7acfc5e	2149e596534f	3	3
+a089f0fa0111	b2c071836e58	3	3
+a0eaf27a3a42	346d29f248c0	3	3
+a2958c52d332	282a9003cea8	3	3
+a45e26730348	3da04842e1f9	1	3
+a52e8ddf3b6b	f73f467bff35	3	3
+a6a5140061ff	2e63b4f4c199	3	3
+b1aa525d55a0	fe267f816b7f	3	3
+c408f76c5bbd	7ec22fa04762	3	3
+c430e4ba70e3	348e03089b68	3	3
+c7c1ec6e0d0a	0492f816687f	3	3
+c8b2996eb658	1b9d5f160a4b	3	3
+cdc88c08a22f	7f78a8a9ec9b	3	3
+d3be24344b50	05ef347df277	3	3
+d54fa2978bff	098bfc34cb6f	3	3
+d6b5b76f7d96	7d8036486e4a	3	3
+ee2535f3925d	1935ca72c841	3	3
+f06e61a7cadf	0d81b95cbb6f	3	3
+fabef47f3426	eaaf00206b83	3	3
+fffef0a4a9f7	758dc6919e57	3	3

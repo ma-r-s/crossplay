@@ -4,7 +4,9 @@
 #include <Logging.h>
 #include <Utf8.h>
 
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>  // memcpy, in compactSingleGlyph
 
 FontDecompressor::~FontDecompressor() { deinit(); }
 
@@ -56,7 +58,15 @@ bool FontDecompressor::ensureCapacity(uint8_t*& buf, uint32_t& capacity, uint32_
 uint16_t FontDecompressor::getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex) {
   // O(1) path for frequency-grouped fonts with glyphToGroup mapping
   if (fontData->glyphToGroup != nullptr) {
-    return fontData->glyphToGroup[glyphIndex];
+    // Normalised to the SAME not-found sentinel the scan below returns, so this
+    // function has one postcondition -- a valid index, or exactly groupCount --
+    // and no caller has to know which path produced its answer. The raw value is
+    // a uint16_t straight out of the font's data with nothing else validating
+    // it; clamping here rather than at each call site is what stops the next
+    // caller forgetting, which is exactly how prewarmCache came to differ from
+    // getBitmap in the first place.
+    const uint16_t gi = fontData->glyphToGroup[glyphIndex];
+    return gi < fontData->groupCount ? gi : fontData->groupCount;
   }
 
   // Contiguous-group fonts: linear scan
@@ -331,13 +341,58 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
 
   // Step 2: Compute total buffer size and collect unique groups
   uint32_t totalBytes = 0;
-  uint16_t neededGroups[128];
+  // Both stack arrays here and the cap that gates them are sized from
+  // MAX_PAGE_GROUPS, so they cannot drift apart the way three hand-written
+  // `128`s could. What one constant still cannot enforce is the width of the
+  // counter that indexes them: widen the constant past what a uint8_t holds and
+  // groupCount wraps, turning the cap check into an out-of-bounds WRITE.
+  static_assert(MAX_PAGE_GROUPS <= UINT8_MAX, "groupCount is a uint8_t; widen it too before raising MAX_PAGE_GROUPS");
+  uint16_t neededGroups[MAX_PAGE_GROUPS];
   uint8_t groupCount = 0;
   bool groupCapWarned = false;
+  uint16_t ungrouped = 0;
+  bool ungroupedWarned = false;
 
   for (uint16_t i = 0; i < glyphCount; i++) {
+    // Counted even for a glyph skipped just below. The slot still gets a lookup
+    // entry for it in step 3, and writeOffset only advances for glyphs actually
+    // extracted, so the few unused bytes are harmless -- whereas sizing the
+    // buffer smaller than the entries it serves would not be.
     totalBytes += fontData->glyph[neededGlyphs[i]].dataLength;
     uint16_t gi = getGroupIndex(fontData, neededGlyphs[i]);
+
+    // getGroupIndex() promises a valid index or exactly groupCount, never more.
+    // Indexing groups[] with the sentinel reads past its end, and the
+    // EpdFontGroup read from there goes on to size a malloc and to index the
+    // glyph array, so the damage does not stay local. getBitmap() has always
+    // tested for this; prewarmCache() did not, and that asymmetry was the bug.
+    //
+    // NOT reachable with any font this firmware can load today, and the guard is
+    // deliberate anyway. Every built-in font takes the contiguous path and its
+    // groups tile the glyph array exactly, so the sentinel never fires -- but
+    // that is a property of the generator's output, not of the format, and
+    // scripts/verify_compression.py does not check group coverage. Nothing in CI
+    // regenerates or re-verifies fonts either, so the day a regenerated cut left
+    // one glyph out of every group, this would be a wild read under every app
+    // that draws text rather than one glyph that fails to appear.
+    //
+    // Skipping is safe rather than lossy. The glyph keeps its page-buffer entry
+    // with bufferOffset == UINT32_MAX, so getBitmap() finds it, falls through to
+    // the hot-group path and declines it there -- the same answer it gives for a
+    // font that was never prewarmed at all. The predicate here is identical to
+    // getBitmap's, evaluated by the same pure function on the same fontData, so
+    // the skipped set is a subset of what getBitmap refuses anyway: nothing that
+    // could have been drawn stops being drawn.
+    if (gi >= fontData->groupCount) {
+      ungrouped++;
+      if (!ungroupedWarned) {
+        LOG_ERR("FDC", "Glyph %u names group %u but the font has %u; skipping (further ones silent)", neededGlyphs[i],
+                gi, fontData->groupCount);
+        ungroupedWarned = true;
+      }
+      continue;
+    }
+
     bool found = false;
     for (uint8_t j = 0; j < groupCount; j++) {
       if (neededGroups[j] == gi) {
@@ -346,10 +401,11 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
       }
     }
     if (!found) {
-      if (groupCount < 128) {
+      if (groupCount < MAX_PAGE_GROUPS) {
         neededGroups[groupCount++] = gi;
       } else if (!groupCapWarned) {
-        LOG_DBG("FDC", "Group cap (128) reached during prewarm; some groups will use hot-group fallback");
+        LOG_DBG("FDC", "Group cap (%u) reached during prewarm; some groups will use hot-group fallback",
+                MAX_PAGE_GROUPS);
         groupCapWarned = true;
       }
     }
@@ -392,7 +448,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
 
   // Step 3b: Pre-scan to compute each needed glyph's byte-aligned offset within its group.
   // This avoids recomputing aligned offsets per group during extraction in step 4.
-  uint32_t groupAlignedTracker[128] = {};  // running byte-aligned offset for each needed group
+  uint32_t groupAlignedTracker[MAX_PAGE_GROUPS] = {};  // running byte-aligned offset for each needed group
 
   if (fontData->glyphToGroup) {
     // Frequency-grouped: single O(totalGlyphs) pass through glyphToGroup
@@ -499,10 +555,10 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     free(tempBuf);
   }
 
-  LOG_DBG("FDC", "Prewarm: %u glyphs in %u bytes from %u groups (%d missed)", glyphCount, writeOffset, groupCount,
-          missed);
+  LOG_DBG("FDC", "Prewarm: %u glyphs in %u bytes from %u groups (%d missed, %u ungrouped)", glyphCount, writeOffset,
+          groupCount, missed, ungrouped);
 
-  return missed;
+  return missed + ungrouped;
 }
 
 // --- Stats ---

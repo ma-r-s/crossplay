@@ -242,6 +242,13 @@ int Game::score(const int seat) const {
   return total;
 }
 
+int Game::visibleScore(const int viewer, const int seat) const {
+  int total = goodsRupees(seat);
+  if (camelTokenSeat() == seat) total += kCamelTokenValue;
+  if (viewer == seat) total += bonusRupees(seat);
+  return total;
+}
+
 int Game::roundWinner() const {
   const int a = score(0);
   const int b = score(1);

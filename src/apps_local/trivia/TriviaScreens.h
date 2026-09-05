@@ -26,7 +26,7 @@ enum : fui::ActionId {
   ActionMenuRow = 1,  // the front door's list; ListItem carries which row
   ActionReveal = 2,   // quizmaster: turn the answer over
   ActionNext = 3,
-  ActionFlag = 4,    // "this question is bad" -- the whole curation loop
+  ActionFlag = 4,  // "this question is bad" -- the whole curation loop
   // Carries which of the four in the event VALUE. Frame::hit's value parameter
   // defaults to 0, so a caller that forgets it makes every option read as the
   // first one -- which shipped in v1.12.0 and made solo play a coin toss. This
@@ -53,6 +53,7 @@ struct MenuModel {
   int selected = -1;
   int difficulty = 0;  // 0 = any
   uint32_t packCount = 0;
+  uint32_t seenCount = 0;  // how many of packCount have been served
   bool packMissing = false;
 };
 
@@ -63,7 +64,11 @@ struct QuestionModel {
   const char* clue = "";
   const char* answer = nullptr;
   const char* alternate = nullptr;
-  int difficulty = 1;
+  // 0 means there is no question, so no difficulty to report. A real question
+  // is always 1..kDifficulties. Defaulting to 1 made the empty screen claim a
+  // level it did not have, and the meter is the one thing on that screen a
+  // player could mistake for their own setting.
+  int difficulty = 0;
   int asked = 0;
 };
 
@@ -74,7 +79,7 @@ struct ChoiceModel {
   const char* option[trivia::kOptions] = {};
   int correct = 0;
   int chosen = -1;
-  int difficulty = 1;
+  int difficulty = 0;  // 0 = no question; see QuestionModel
   int asked = 0;
   int right = 0;
 };

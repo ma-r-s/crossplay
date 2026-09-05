@@ -15,7 +15,7 @@
 #include "../../activities/Activity.h"
 
 // Template for a fork-local app. Copy this directory, rename the class, and add
-// one row to kLocalApps in ../LocalApps.cpp. Nothing else needs to change.
+// one row to kGames or kApps in ../Shelf.cpp. Nothing else needs to change.
 //
 // Local apps run under the same resource protocol as the reader: allocate in
 // onEnter(), free in onExit(), keep locals under 256 bytes, and never hardcode

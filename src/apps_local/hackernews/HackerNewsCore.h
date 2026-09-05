@@ -82,9 +82,16 @@ bool urlCanBeArticle(std::string_view url);
 
 // Decode the entity forms HN emits: the five named ones it actually uses, plus
 // &#NN; and &#xNN; numeric escapes.
+//
+// ALSO FOLDS. HN writes its apostrophes and quotes as numeric entities, so this
+// function is where U+2019 and U+201C come into existence -- and the reading cut
+// has no glyph for either, so they draw as nothing. utf8FoldTypography is
+// applied on the way out. Text through here is for DISPLAY; do not point it at
+// a URL or anything else that is hashed or compared.
 void decodeEntities(std::string& text);
 
-// An HN comment or text post as paragraphs of plain text.
+// An HN comment or text post as paragraphs of plain text, folded for display
+// (see decodeEntities).
 //
 // Tags are stripped before entities are decoded, never the other way round: a
 // comment discussing HTML contains &lt;script&gt;, and decoding first would
@@ -98,15 +105,15 @@ std::vector<std::string> paragraphsFromHnHtml(std::string_view html);
 // line. Split it, because the title is worth showing and the header must not be
 // scored as prose.
 struct Extracted {
-  std::string title;
+  std::string title;  // folded for display; the body is folded per paragraph below
   std::string body;
 };
 Extracted splitExtractorResponse(std::string_view response);
 
-// Markdown as paragraphs of plain text. Link labels survive and their targets
-// do not, images go entirely, and heading, emphasis, quote and rule syntax is
-// removed. There is no styled text on this panel, so anything that cannot
-// become a word is noise.
+// Markdown as paragraphs of plain text, folded for display (see
+// decodeEntities). Link labels survive and their targets do not, images go
+// entirely, and heading, emphasis, quote and rule syntax is removed. There is no styled text on this panel, so anything
+// that cannot become a word is noise.
 std::vector<std::string> paragraphsFromMarkdown(std::string_view markdown);
 
 // --- The model the screens draw ------------------------------------------

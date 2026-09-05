@@ -13,6 +13,30 @@ The API, as documented at instapaper.com/api/full and as used here:
   POST /api/1/bookmarks/archive    idempotent
   POST /api/1/account/verify_credentials
 
+WHAT bookmarks/list ACTUALLY ANSWERS, observed against the live API on
+2026-09-03 rather than read off the documentation, because the documentation
+is what produced the bug this paragraph exists to close:
+
+    [ {"type": "meta"},                      # or with "delete_ids"
+      {"type": "user", "user_id": int, "username": str,
+       "subscription_is_active": str},
+      {"type": "bookmark", "bookmark_id": int, "hash": str, "url": str,
+       "title": str, "description": str, "time": int, "progress": float,
+       "progress_timestamp": int, "starred": str, "private_source": str,
+       "tags": list}, ... ]
+
+A JSON ARRAY of typed objects. Not an object with a "bookmarks" key -- that
+is what this file used to require, and the first real sync was refused by it.
+There is no top-level "highlights" key either.
+
+And the detail that matters more than the envelope: **delete_ids arrives
+inside the meta element as a COMMA-SEPARATED STRING**, not a list. Iterating
+that string yields characters, and every character of "424242424,424242425"
+passes an isdigit() test -- so a reader that merely stopped demanding a dict
+would have handed the engine the bookmark ids 4, 2, 4, 2 ... and deleted
+cached articles nobody named. parse_delete_ids() below is the whole answer to
+that, and it is why the envelope fix is not a one-line fix.
+
 Deliberately NOT wrapped, and this is a security property rather than an
 oversight: bookmarks/delete. The token this service holds can permanently
 destroy a user's reading list, and no code path here can ask it to.
@@ -144,6 +168,174 @@ FRIENDLY = {
 }
 
 
+UNKNOWN_LIST = "Instapaper answered the article list in a shape this bridge does not know."
+
+# A "type" value is a protocol discriminator ("meta", "user", "bookmark",
+# "error") and is the one field describe_shape may quote. Constrained to short
+# lowercase tokens so that no title, URL, username or token can ever match it.
+_TYPE_CHARS = set("abcdefghijklmnopqrstuvwxyz_")
+
+
+def _kind(v) -> str:
+    """The TYPE of a value and, for the sized ones, its size. Never the value."""
+    if isinstance(v, bool):
+        return "bool"
+    if v is None:
+        return "null"
+    if isinstance(v, int):
+        return "int"
+    if isinstance(v, float):
+        return "float"
+    if isinstance(v, str):
+        return f"str[{len(v)}]"
+    if isinstance(v, list):
+        return f"list[{len(v)}]"
+    if isinstance(v, dict):
+        return f"dict{{{len(v)}}}"
+    return type(v).__name__
+
+
+def _fields(d: dict, depth: int = 0) -> str:
+    """The field names and value types of one object.
+
+    Descends ONE level into a nested list or object, because a wrapper is the
+    shape where the answer is one level down: "results: list[2]" on its own
+    says nothing about what results holds, and that is precisely the body
+    somebody will be staring at."""
+    out = []
+    for k in sorted(d):
+        v = d[k]
+        if k == "type" and isinstance(v, str) and 0 < len(v) <= 24 and set(v) <= _TYPE_CHARS:
+            out.append(f"type={v!r}")
+        elif depth < 1 and isinstance(v, dict) and v:
+            out.append(f"{k}: {_kind(v)} " + _fields(v, depth + 1))
+        elif depth < 1 and isinstance(v, list) and v:
+            out.append(f"{k}: {_kind(v)} of [{_elements(v, depth + 1)}]")
+        else:
+            out.append(f"{k}: {_kind(v)}")
+    return "{" + ", ".join(out) + "}"
+
+
+def _elements(items: list, depth: int = 0, max_shapes: int = 5) -> str:
+    """Each DISTINCT element shape in a list, with how many share it. Distinct
+    rather than just the first, because the element that differs is usually the
+    one that explains the body -- the meta object is element zero exactly once."""
+    shapes: dict = {}
+    other = 0
+    for item in items:
+        sig = tuple(sorted(item)) if isinstance(item, dict) else _kind(item)
+        if sig in shapes:
+            shapes[sig][1] += 1
+        elif len(shapes) < max_shapes:
+            shapes[sig] = [_fields(item, depth) if isinstance(item, dict) else _kind(item), 1]
+        else:
+            other += 1
+    inner = ", ".join(f"{desc} x{n}" for desc, n in shapes.values())
+    if other:
+        inner += f", +{other} of further shapes"
+    return inner
+
+
+def describe_shape(data, max_shapes: int = 5) -> str:
+    """A refusal that does not say what it refused cannot be diagnosed.
+
+    This is the sentence that goes in the log when a body is not understood:
+    the top-level type, the keys present, the type of every value, a list's
+    length and the field set of each distinct element shape it holds.
+
+    KEYS AND TYPES ONLY. No titles, no URLs, no usernames, no tokens, no
+    bookmark text -- this runs against a real person's reading list, and a
+    log that helps is worth nothing if it is a log that leaks. String values
+    are reported as their length; only a field literally named "type" is
+    quoted, and only when it is a short lowercase token."""
+    if isinstance(data, dict):
+        return f"dict{{{len(data)}}} " + _fields(data)
+    if not isinstance(data, list):
+        return _kind(data)
+    return f"list[{len(data)}] of [{_elements(data, 0, max_shapes)}]"
+
+
+def parse_delete_ids(raw) -> list[int]:
+    """-> whole integer ids, from whatever Instapaper felt like sending.
+
+    The live API sends a comma-separated STRING in the meta element; the
+    documentation's envelope implies a list. Both are accepted, and so is a
+    bare id. Strictness lives HERE rather than in the caller: every id this
+    returns costs the reader an article, so a fragment that is not a whole
+    integer is dropped and logged rather than guessed at. See this module's
+    docstring for the character-splitting failure this closes."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = raw.split(",")
+    elif isinstance(raw, (list, tuple, set)):
+        parts = list(raw)
+    else:
+        parts = [raw]
+    out, dropped = [], 0
+    for part in parts:
+        text = str(part).strip()
+        if not text:
+            continue
+        try:
+            out.append(int(text))
+        except (TypeError, ValueError):
+            dropped += 1
+    if dropped:
+        log.warning("ignored %d delete id(s) that were not whole integers", dropped)
+    return out
+
+
+def normalise_listing(data) -> dict:
+    """Either bookmarks/list shape -> {"bookmarks", "user", "delete_ids"}.
+
+    Liberal on purpose: this API is old, its documentation is inaccurate, and
+    the cost of refusing a listing we could have read is a reader that will
+    not sync at all. So an array of typed objects (what the live API sends)
+    and an object with a "bookmarks" key (what the docs imply) both parse,
+    an element missing its "type" is still taken as a bookmark if it carries
+    a bookmark_id, and delete_ids is read from wherever it turns up.
+
+    What it will NOT do is invent a deletion. Everything unrecognised becomes
+    an empty result, never a delete id -- an empty listing costs a stale row
+    until the next sync, and a wrong delete id costs an article."""
+    if isinstance(data, list):
+        bookmarks, user, delete_ids, saw_dict = [], {}, [], False
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            saw_dict = True
+            if "delete_ids" in item:
+                delete_ids.extend(parse_delete_ids(item.get("delete_ids")))
+            kind = str(item.get("type") or "").strip().lower()
+            if kind == "bookmark" or (not kind and "bookmark_id" in item):
+                bookmarks.append(item)
+            elif kind == "user" and not user:
+                user = item
+        # A listing with no bookmarks in it is NORMAL and must not refuse:
+        # `have` suppresses everything the device already holds, so a fully
+        # up-to-date reader gets back exactly meta + user. Only a non-empty
+        # body with no object in it at all is a shape we cannot read.
+        if data and not saw_dict:
+            log.warning("bookmarks/list not understood; shape was %s", describe_shape(data))
+            raise ApiError(UNKNOWN_LIST)
+        return {"bookmarks": bookmarks, "user": user, "delete_ids": delete_ids}
+
+    if isinstance(data, dict):
+        if "bookmarks" not in data:
+            log.warning("bookmarks/list not understood; shape was %s", describe_shape(data))
+            raise ApiError(UNKNOWN_LIST)
+        user = data.get("user")
+        return {
+            "bookmarks": [b for b in (data.get("bookmarks") or []) if isinstance(b, dict)],
+            "user": user if isinstance(user, dict) else {},
+            "delete_ids": parse_delete_ids(data.get("delete_ids")),
+        }
+
+    log.warning("bookmarks/list not understood; shape was %s", describe_shape(data))
+    raise ApiError(UNKNOWN_LIST)
+
+
 class Instapaper:
     """One user's authenticated session. Blocking; callers use to_thread."""
 
@@ -177,7 +369,16 @@ class Instapaper:
             data = r.json()
         except ValueError:
             # The documented contract: output that is not valid JSON means a
-            # 503, whatever status line came with it.
+            # 503, whatever status line came with it. Logged with its shape
+            # rather than its bytes, for the same reason describe_shape
+            # exists: a refusal nobody can diagnose is half a bug.
+            log.warning(
+                "%s answered %s with %s, %d bytes, and it is not JSON",
+                path,
+                r.status_code,
+                r.headers.get("content-type", "no content-type"),
+                len(r.content),
+            )
             raise ApiError("Instapaper is busy right now. Try again in a while.") from None
         if isinstance(data, dict):
             return data
@@ -211,9 +412,13 @@ class Instapaper:
 
     def verify_credentials(self) -> dict:
         data = self._json("/api/1/account/verify_credentials", {})
-        for item in data:
-            if item.get("type") == "user":
+        # A list of typed objects, same as bookmarks/list. The isinstance
+        # guard is not defensive noise: a bare string in that array would
+        # otherwise raise AttributeError and be reported as a bridge fault.
+        for item in data if isinstance(data, list) else [data]:
+            if isinstance(item, dict) and item.get("type") == "user":
                 return item
+        log.warning("verify_credentials not understood; shape was %s", describe_shape(data))
         raise ApiError("Instapaper did not recognise this connection.")
 
     # -------------------------------------------------------------- bookmarks
@@ -221,10 +426,7 @@ class Instapaper:
         body = {"limit": LIST_LIMIT, "folder_id": folder}
         if have:
             body["have"] = have
-        data = self._json("/api/1/bookmarks/list", body)
-        if not isinstance(data, dict):
-            raise ApiError("Instapaper answered the article list in a shape this bridge does not know.")
-        return data
+        return normalise_listing(self._json("/api/1/bookmarks/list", body))
 
     def get_text(self, bookmark_id: int) -> str:
         r = self._post("/api/1/bookmarks/get_text", {"bookmark_id": bookmark_id})
@@ -239,6 +441,14 @@ class Instapaper:
                 if isinstance(item, dict) and item.get("type") == "error":
                     code = int(item.get("error_code") or 0)
                     raise ApiError(FRIENDLY.get(code, "Instapaper could not send this article."), code)
+        # A non-200 carrying no error element: the same blind refusal that
+        # cost a day on bookmarks/list, in the twin path. Say what arrived.
+        log.warning(
+            "get_text answered %s with %d bytes and no error element; shape was %s",
+            r.status_code,
+            len(r.content),
+            describe_shape(items) if items else "not JSON",
+        )
         raise ApiError("Instapaper could not send this article.")
 
     def archive(self, bookmark_id: int) -> None:

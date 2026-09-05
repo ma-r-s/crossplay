@@ -25,6 +25,7 @@
 #include <string>
 
 #include "../ui/ToyboxScreen.h"
+#include "../ui/ToyboxWrappedText.h"
 
 namespace instapaperui {
 
@@ -42,6 +43,7 @@ enum : fui::ActionId {
   ActionArchive = 324,
   ActionNotice = 325,
   ActionPairConfirm = 326,
+  ActionUndoArchive = 327,
 };
 
 // --- The queue -----------------------------------------------------------
@@ -57,6 +59,9 @@ struct QueueModel {
   // Drawn on the band, right-aligned: "SYNCED 14:32" or "NEVER SYNCED". The
   // one fact a reader wants before deciding whether to pull again.
   const char* lastSync = "";
+  // An archive is on the card and has not gone up yet, so it can still be
+  // taken back. The footer splits to offer it; see buildQueue.
+  bool canUndoArchive = false;
 };
 
 void buildQueue(toybox::Screen& screen, const QueueModel& model);
@@ -74,17 +79,46 @@ int16_t queueTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext&
 
 // --- The reader ----------------------------------------------------------
 
+// The reader's body: the words, the cut they are set in, and the wrap that
+// counts AND draws them. One object rather than three arguments, because two
+// arguments that must agree are two arguments that can disagree -- and a style
+// handed to the counting but not to the drawing makes the two fingerprints
+// differ, so the article is re-wrapped twice on every paint. That is exactly
+// the bug this mechanism exists to remove, restored silently, and no test in
+// this fork could catch it: a fake draw target answers every font the same.
+struct ReaderBody {
+  const char* text = "";
+  fui::TextStyle style{};
+  toybox::WrappedText* wrap = nullptr;
+};
+
 struct ReaderModel {
   const char* title = "";
-  // The whole article, NUL-terminated and contiguous, as textArea wants it.
-  const char* text = "";
   uint32_t topLine = 0;
   const char* pageLabel = "";  // "3 / 12", built by the Activity
   bool canPagePrev = false;
   bool canPageNext = false;
 };
 
-void buildReader(toybox::Screen& screen, const ReaderModel& model);
+// The body is passed rather than kept, and by reference, so a caller cannot
+// build this screen without one. The alternative was a nullable pointer with a
+// fall-back to wrapping the whole article again, which would have brought the
+// bug back the first time somebody wrote a new call site.
+// RETURNS THE LINE COUNT THE PANEL WAS ACTUALLY DRAWN FROM, which is not
+// necessarily the one readerLineCount() gave a moment ago: drawing is where a
+// wrap that no longer describes this panel is caught and rebuilt. Returned
+// rather than left for the caller to ask again, because the caller that
+// forgets to ask sends a reading position computed against an article this
+// screen is not showing -- and that is a wrong number on somebody's phone with
+// nothing on screen to say so. Take this value; do not keep the earlier one.
+uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body);
+
+// The article's length in lines, wrapped to the width the reader will really
+// draw it at. The Activity needs it before it can say which page it is on and
+// what reading position to send back to Instapaper. Same object, same rect and
+// same style as the drawing, so the two cannot disagree about where a line
+// ends -- which is the whole reason readerBody() is exported.
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, ReaderBody& body);
 
 // Where the reader's text goes. Exported for the same reason as queueBand():
 // the Activity pages by counting the lines that fit in this exact rect, and a

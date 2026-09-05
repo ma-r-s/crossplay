@@ -42,7 +42,7 @@ class WritableByteSource : public ByteSource {
 inline constexpr uint32_t kMaxRecordBytes = 448;
 inline constexpr int kMaxAlternates = 4;
 inline constexpr int kMaxDistractors = 6;
-inline constexpr int kOptions = 4;          // one right, three wrong
+inline constexpr int kOptions = 4;  // one right, three wrong
 inline constexpr int kDifficulties = 5;
 
 inline constexpr uint8_t kMagic[8] = {'X', 'T', 'R', 'I', 'V', 'I', 'A', 0};
@@ -62,21 +62,15 @@ class Question {
 
   const char* clue() const { return field(0); }
   const char* answer() const { return field(1); }
-  const char* alternate(const int i) const {
-    return (i >= 0 && i < altCount_) ? field(2 + i) : nullptr;
-  }
-  const char* distractor(const int i) const {
-    return (i >= 0 && i < wrongCount_) ? field(2 + altCount_ + i) : nullptr;
-  }
+  const char* alternate(const int i) const { return (i >= 0 && i < altCount_) ? field(2 + i) : nullptr; }
+  const char* distractor(const int i) const { return (i >= 0 && i < wrongCount_) ? field(2 + altCount_ + i) : nullptr; }
   // Quizmaster questions have no distractors, so only some of the pack can be
   // played as multiple choice. That is why the app has two modes, not one.
   bool playableAsChoice() const { return wrongCount_ >= kOptions - 1; }
 
  private:
   friend class Pack;
-  const char* field(const int i) const {
-    return (i >= 0 && i < fieldCount_) ? bytes_ + offset_[i] : "";
-  }
+  const char* field(const int i) const { return (i >= 0 && i < fieldCount_) ? bytes_ + offset_[i] : ""; }
 
   uint8_t difficulty_ = 0;
   uint16_t year_ = 0;
@@ -87,8 +81,9 @@ class Question {
   char bytes_[kMaxRecordBytes] = {};
 };
 
-// The pack file. Holds NO index in RAM: 195KB of offsets for a 50k pack is
-// memory the device does not have, so an index entry is itself a read.
+// The pack file. Holds NO index in RAM: four bytes per question plus a sentinel
+// is memory the device does not have to spare at any pack size, so an index
+// entry is itself a read.
 class Pack {
  public:
   bool open(ByteSource& source);
@@ -118,9 +113,24 @@ class PackState {
   bool seen(const uint32_t i) const { return (flags(i) & kSeen) != 0; }
   bool flagged(const uint32_t i) const { return (flags(i) & kFlagged) != 0; }
 
+  // How many questions have been served, out of count(). Counted once when the
+  // state file is opened and kept up to date by setFlag, because the answer is
+  // wanted on the front door every time it draws and a rescan there would read
+  // the whole file per paint.
+  uint32_t seenCount() const { return seenCount_; }
+  // How many a player has rejected. Counted in the same pass as seenCount --
+  // one scan of the file answers both, and the flag screen wants to say how
+  // many so the action has a visible effect.
+  uint32_t flaggedCount() const { return flaggedCount_; }
+  uint32_t count() const { return count_; }
+
  private:
+  void scanCounts();
+
   WritableByteSource* source_ = nullptr;
   uint32_t count_ = 0;
+  uint32_t seenCount_ = 0;
+  uint32_t flaggedCount_ = 0;
 };
 
 // Deterministic, seedable, and ours -- so a host test can assert an exact
@@ -151,7 +161,6 @@ class Chooser {
   const Pack* pack_ = nullptr;
   PackState* state_ = nullptr;
   Rng* rng_ = nullptr;
-  uint32_t cursor_ = 0;
 };
 
 // Lays out the four options for solo mode: the answer plus three distractors,
@@ -191,7 +200,8 @@ enum class Room : uint8_t { Ok, Unknown, TooSmall };
 // the server's Content-Length -- after the point where refusing is still free.
 // So this is a deliberate over-estimate with room for a larger pack and for the
 // FAT to record it. Raise it if the pack approaches it; never pin it to the
-// current byte count.
+// current byte count -- and do NOT lower it when a pack shrinks. The number
+// sizes by who else needs the card, not by what this download writes.
 constexpr uint64_t kPackFreeFloorBytes = 12ull * 1024 * 1024;
 
 // queryOk mirrors HalStorage::freeBytes()'s return exactly: false means the card
