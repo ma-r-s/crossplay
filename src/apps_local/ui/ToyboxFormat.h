@@ -48,4 +48,10 @@ constexpr int kSlashCounterChars = 2 * kIntChars + literalChars("/") + 1;
 // "%d" -- a bare number: a page pip, a tray count, a clue's index.
 constexpr int kIntTextChars = kIntChars + 1;
 
+// What "%u" and "%lu" can print. No sign to carry, and unsigned long is ten
+// digits on the device and twenty on a 64-bit host, so both are taken from the
+// type rather than from whichever machine the author happened to be on.
+constexpr int kUIntChars = std::numeric_limits<unsigned>::digits10 + 1;
+constexpr int kULongChars = std::numeric_limits<unsigned long>::digits10 + 1;
+
 }  // namespace toybox

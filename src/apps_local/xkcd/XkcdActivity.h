@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "../../activities/Activity.h"
+#include "../ui/ToyboxFormat.h"
 #include "XkcdCore.h"
 #include "XkcdScreens.h"
 
@@ -102,7 +103,14 @@ class XkcdActivity final : public Activity {
   static constexpr int kRowTextCap = 56;
   int listFirst_ = 0;
   int listSelected_ = 0;
-  char rowLabels_[kPageRows][kRowTextCap] = {};
+  // "%u  %s": the comic number and the WHOLE of a kRowTextCap title. Sized at
+  // kRowTextCap the number ate the title's tail, and this is the one place in
+  // the fork where that cut was reachable -- xkcd titles run past fifty
+  // characters and the row lost them with no ellipsis to say so. The title is
+  // still capped at kRowTextCap on the way in; that cap is deliberate, this
+  // second one was not. 96 bytes across the eight rows.
+  static constexpr int kRowLabelCap = toybox::kUIntChars + toybox::literalChars("  ") + kRowTextCap;
+  char rowLabels_[kPageRows][kRowLabelCap] = {};
   char rowValues_[kPageRows][16] = {};
   freeink::ui::ListItem rowItems_[kPageRows] = {};
   int rowCount_ = 0;

@@ -11,6 +11,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxTheme.h"
@@ -592,7 +593,7 @@ void JaipurActivity::drawHandCounter(const Rect& box, const int good, const int 
   inner.x += 4;
   inner.width -= 8;
 
-  char count[12];
+  char count[toybox::kSlashCounterChars];
   if (picked > 0) {
     std::snprintf(count, sizeof(count), "%d/%d", picked, held);
   } else {
