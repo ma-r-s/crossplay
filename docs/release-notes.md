@@ -21,6 +21,11 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.30
+
+- Two glance-read icons -- pass arrow + peek eye (#261)
+- Derive layout from content top; honest disabled score label (#262)
+
 ### 1.12.29
 
 - Make the header band absolute in headerBand, so every screen's is 76
