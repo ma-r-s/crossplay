@@ -31,6 +31,20 @@ Two things are cut that he asked about, both because the data does not exist:
 (Spanish barely exists in the corpus). Region-locked filtering beyond US-centric
 needs a format change and is deferred rather than cut.
 
+**And one thing he should probably push back on, which a cold reviewer raised
+and I did not cut on my own authority.** The evidence says the service is
+premature: `tools_local/trivia/verdicts.tsv` holds **one verdict in its entire
+life**, `flags.txt` (which `docs/trivia-curation.md:165` says the device writes)
+**does not exist anywhere in the tree**, and there is no tool that reads flags off
+a card at all. So the curation loop this card wants to put on the internet has
+never once run locally. A public, rate-limited, de-duplicating endpoint is
+machinery for a volume of reports that has never existed.
+
+The counter-argument is that CrossPlay is published and the loop has never run
+*because* it needs a card reader and a person. Both are true. It is his call,
+and it is only about **when**, not whether — nothing else in this design depends
+on the service.
+
 One thing needs doing whether or not any of this ships: **card #326**, the rated
 corpus lives in one gitignored scratch directory that `wt.sh prune` will delete.
 
@@ -93,8 +107,8 @@ the same question can be reported forever.
 |     | Identity                                                       | Survives a text repair | Survives a rebuild       | Cost                                                                 |
 | --- | -------------------------------------------------------------- | ---------------------- | ------------------------ | -------------------------------------------------------------------- |
 | A   | sha1 of the clue (today's `verdicts.tsv` key)                  | **no**                 | yes                      | zero, and it is the bug                                              |
-| B   | a new immutable id minted per question, carried in the record  | yes                    | yes                      | format bump, +8 bytes x 50k, and the corpus has no such column today |
-| C   | `(pack id, index)`, resolved to a corpus row **on the server** | yes                    | yes, via a per-build map | a manifest the builder already has the data for                      |
+| B   | a new immutable id minted per question, carried in the record | yes | yes | format bump, +4 bytes x 50k (~6%). **The sticky column DOES exist** -- in the scratch corpus, and nowhere in git |
+| C   | `(pack id, index)`, resolved to a corpus row **on the server** | only via a manifest **captured at build time** | yes | a manifest the builder must emit and something must keep forever |
 
 ### Recommendation: C
 
@@ -106,6 +120,23 @@ noticed: _index stability was preserved while id stability was not._ `pack.state
 is index-addressed, one byte per question at the question's own index. The index
 is the only handle the device has that is cheap, already correct, and already
 load-bearing.
+
+**The thing C does NOT get for free, found by the critic round.** `corpus_id` is
+not a stable id: `build_pack.py:341` mints it as `sha1(norm_key(clue))[:12]` —
+option A's key, by another name. So "index → corpus_id" is "index → a hash of the
+clue **as it read on build day**", and a later repair moves it.
+
+C still works, but only for a reason that has to be built rather than assumed:
+**the manifest is a snapshot, captured at build time, and kept.** The old pack's
+manifest holds the old id; `corpus_repaired.jsonl` holds old-id-beside-new-text
+(`assemble_pack.py:55-66`, and card #146 is exactly this). Resolution walks that
+chain. Which means the first draft's objection to option B — "the corpus has no
+such column today" — was **backwards**: the sticky column is the one thing that
+does exist, in a scratch file, and nowhere in git.
+
+So C's real cost is not "a manifest the builder already has the data for". It is
+**a manifest that must be emitted and then kept forever**, and the section below
+is why that is not a safe assumption today.
 
 Three consequences worth stating plainly:
 
@@ -265,19 +296,24 @@ running together.** Splitting them is the main correction this design makes.
 | Pack       | Bytes                                            | Container                                                                                       | How it changes                                    |
 | ---------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | trivia     | `pack.dat`, 3.4-5.4 MB                           | one blob, index + records                                                                       | rows **removed and edited** in place              |
-| xkcd       | `index.dat` + `text.dat` + `images.dat`, ~140 MB | three blobs                                                                                     | **append only** — comics are added, never revised |
+| xkcd | `index.dat` + `text.dat` + `images.dat`, **217 MB** (`xkcd-pack-format.md:211`) | three blobs | content appends; the **artifact is rebuilt and `--clobber`ed wholesale** |
 | wallpapers | `wallpapers.dat`, 1,009,302 bytes                | **no format at all** — a bare concatenation of 48062-byte images, no magic, no header, no count | a set: added and removed                          |
 
 So _"can I tell whether I am stale, and what will it cost me to fix that"_ is one
 question with one answer for all three. _"Can I fetch only the difference"_ is
 three different mechanisms:
 
-- **xkcd** is append-only, so its difference is a byte range at the end — or a
-  second asset holding comics since N. It also already has a live incremental
-  path (`runUpdate()` asks xkcd.com what is new) entirely separate from its bulk
-  pack fetch.
-- **wallpapers** is a set of independent items and already skips items present
-  on the card.
+- **xkcd**'s _content_ appends, so its difference is usually a byte range at the
+  end. Its _artifact_ does not: `xkcd-pack-format.md:38-51` says the hosted pack
+  is rebuilt and `gh release upload --clobber`ed, and the closer-rendition change
+  rewrote it. A ditherer tweak rewrites every byte of a 217 MB file — exactly
+  when a byte-range delta is most wanted and exactly when it stops working. It
+  does already have a live incremental path (`runUpdate()` asks xkcd.com what is
+  new) separate from the bulk fetch.
+- **wallpapers** skips images already on the card, but at **unpack** time
+  (`WallpapersActivity.cpp:720`), after downloading the whole `wallpapers.dat`
+  (`:504`). That saves SD writes, not bytes. The conclusion holds because the
+  file is 1 MB, not for the reason the first draft gave.
 - **trivia** is the only one that gets _edited_, and editing is what a blob
   cannot do incrementally.
 
@@ -475,6 +511,14 @@ says so. Do not ship the arithmetic. The fork's own rule (three arrangements
 rendered side by side before any new screen) applies here more than usual,
 because this is a list whose length is a design output rather than a given.
 
+**One reason is sharper than it looks.** With US questions off, `Chooser::next`
+already skips marked records (`TriviaCore.cpp:214`), so a player with the toggle
+off can only ever meet a US-centric question the pack **failed to mark**. `us` is
+therefore not a taste report at all — it repairs a bit, not a row, and it is the
+only reason whose fix is one byte. Word the row as "THIS IS A US QUESTION"
+rather than "TOO AMERICAN", which invites the taste report the toggle already
+handles.
+
 **One departure from the card worth flagging:** Mario listed "wrong difficulty"
 as one reason. Split into TOO HARD and TOO EASY it is actionable (it moves the
 level in a known direction); unsplit it is not. TOO HARD is also already on his
@@ -489,7 +533,7 @@ reason a player can file:
 | ------------------------- | ------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | US questions              | SETTINGS (**shipped**)   | `us`          | done, build on it                                                                                                                                                   |
 | Hide questions I reported | nothing — already true   | all           | `FLAGGED` already does this. Say so on the screen; do not build it twice.                                                                                           |
-| Region-locked generally   | SETTINGS                 | `regional`    | **needs a pack flag that does not exist.** The difficulty byte's bit 7 is spent on US-centric; there is no second free bit. Costs a format bump. Defer, and say so. |
+| Region-locked generally | SETTINGS | `regional` | **needs a pack flag that does not exist**, and the obstacle is not the one it looks like -- see under the table. Defer. |
 | Difficulty                | front door (**shipped**) | `hard`/`easy` | done                                                                                                                                                                |
 | Category on/off           | —                        | nothing       | **the record has no category field.** `build_pack.py:300-316` reads the category to drop wordplay and category-dependent clues, then does not store it. Not a filter that can exist without a format change. Cut.                                                                  |
 | Language                  | —                        | nothing       | `trivia-sources` records Spanish barely exists. One honest setting is not a filter. Cut.                                                                            |
@@ -621,11 +665,138 @@ would create it.
   residual in `trivia-pack-format.md` stays open, and this design does not close
   it.
 
+## The critic round
+
+A cold agent with no context fact-checked this document against the tree. Four
+claims were wrong and are corrected above. What follows is what it broke that
+needed more than an edit.
+
+### The local half is NOT done, and that reorders the card
+
+The first draft opened by saying the flag indices "are read back off the card by
+hand into `verdicts.tsv`", as though only the route off the device were missing.
+Checked, that is false in three ways:
+
+- **`flags.txt` does not exist.** `docs/trivia-curation.md:165` says "the device
+  appends the id to `flags.txt` on the SD card". Nothing in the tree writes,
+  reads or mentions such a file outside that line and a comment in
+  `verdicts.tsv`. It is a documented mechanism that was never built.
+- **There is no tool to extract flags at all.** `pack.state` is `count` raw
+  bytes; `verdicts.tsv` is keyed on content-hash ids; the only bridge is
+  `pack_format.py dump()`, whose own header says its ids are re-derived and "not
+  a join key".
+- **`verdicts.tsv` holds exactly one verdict** in its entire life, under four
+  comment lines.
+
+So the curation loop the pack-format doc describes has never run. **The smallest
+useful thing this card can ship is not a service and not a sync button: it is a
+small tool that reads `pack.state` beside `pack.dat` and emits `id<TAB>bad`
+lines, plus deleting the stale `flags.txt` paragraph.** That closes the loop for
+the population that exists today, and it makes everything else here optional
+rather than prerequisite. It is now step 0.5.
+
+**What I did not change, and why.** The critic's headline recommendation was to
+cut the service from the first cut outright, on the evidence above. That is a
+product decision — Mario asked for the sync-and-report service by name — so it
+is his to make, not mine to cut. It is surfaced in "What Mario is being asked to
+confirm" instead, with the evidence attached. The ordering, which is a code-level
+call, I have changed: the service moved behind the extraction tool.
+
+### Traps that would each have cost a session
+
+- **`bridge::request` sends a POST body with no `Content-Type`.**
+  `SecureHttpClient::writeRequest` adds Host, User-Agent, Connection, optional
+  auth, caller headers and Content-Length, and nothing in `BridgeHttp.cpp` adds
+  one — while the **simulator** path does (`BridgeHttp.cpp:223`, `-H
+  'Content-Type: application/json'`). Device and sim send materially different
+  requests, so this is a bug the simulator cannot show you.
+  `site/api/report.js`'s `readBody()` already survives it by falling back to the
+  raw stream; the trivia handler must copy that, not assume a parsed body.
+- **`streamToFile` adds `Authorization: Bearer <token>` unconditionally**
+  (`BridgeHttp.cpp:172`) with no empty-token guard, unlike `request` (`:122`). A
+  tokenless pack fetch would send `Bearer `.
+- **`events` has no `reporter_hash` column.** "Rate-limit exactly as
+  `report.js` does it" does not port: `report.js` counts `cards.reporter_hash`,
+  and `events` is id/at/service/event/level/device/version/board/props/
+  fingerprint/card_id, indexed on at, (service,event,at), device and
+  fingerprint. Counting a `props->>'ip_hash'` means scanning the table every
+  heartbeat and download also lands in. So either the limiter gets its own small
+  table with its own index, or the first cut has no per-address limit and says
+  so. "No new table" and the rate-limit design contradicted each other.
+
+### `pack.meta` is not bound to `pack.dat`, and the failure is silent
+
+Saying "no format bump is needed, the manifest carries the id and the device
+stores it beside the pack" recreates the pack-format doc's own residual in a
+**weaker** form: `pack.state` at least has the count check, `pack.meta` has
+none. Two concrete breaks:
+
+- **Hand-copy**, which the format doc documents as a real case. Replace
+  `pack.dat` and not `pack.meta`, and every report names the wrong pack id and
+  joins to the wrong corpus rows — undetectable server-side, invisible to the
+  player, and the outcome is good questions deleted on the strength of reports
+  about other questions. **That is strictly worse than today**, where a bad
+  report is a no-op.
+- **Ordering.** `TriviaActivity.cpp:329-334` removes then renames; any
+  `pack.meta` write is a separate unordered step, so a power loss between them
+  leaves a new pack wearing an old id.
+
+**The guard is free and the design already had it and never used it: the
+manifest carries `count`.** The device sends the count it actually opened
+alongside the pack id, and the service rejects any batch whose `(pack id, count)`
+disagrees with its own manifest. That closes the hand-copy case and most of the
+ordering one, and costs one integer.
+
+### Report UI corrections
+
+- **`WHY?` does not fit the notice, and my own draft committed the mis-tap it
+  cited.** `NoticeModel` carries exactly one action, drawn by `drawAction` as a
+  full-width bar (`TriviaScreens.cpp:232`). Adding a second means
+  `drawActionPair`, which shrinks `NEXT QUESTION` to `full - kAsideWidth - gap`
+  and **moves its centre** — so a player who learned to tap the right of that bar
+  to continue now opens the reason list. That is `same-pixel-different-action`,
+  on the one screen the design invoked the rule to protect. Fix: `NEXT QUESTION`
+  keeps the full-width bar exactly where it is, and `WHY?` goes in the aside,
+  which is empty on this notice today.
+- **How the reason list pages is unspecified, and paging is the binding limit,
+  not the 24-slot ceiling.** This fork has a recorded failure where swipe, page
+  dots and RIGHT were all dead on a list (`the-shelf-opens-the-wrong-game`). Nine
+  reasons over two pages with no working pager is the most likely way to get
+  zero reasons — the exact failure Mario's own "demanding a category is how you
+  get no reports" warns about. Either it fits one screen or the list is cut to
+  what fits. Render it before choosing.
+- **There is no un-report.** "Un-hide them all" does not retract a flushed
+  report, and it throws away every deliberate hide to fix one mis-tap. A
+  per-question undo on the `HIDDEN` notice ("that was a mistake") is the cheap
+  version and should be in the first cut, because the notice is already on screen
+  and already knows the index.
+- **Truncate-on-2xx is lossy.** Reports appended between building the request and
+  truncating the file are destroyed. Truncate to the offset that was sent, not to
+  zero.
+
+### Publishing is unbound
+
+The pack is fetched from a GitHub release; a manifest served from the site is a
+git commit under `site/` plus a deploy (`site/vercel.json` gates on
+`git diff --quiet HEAD^ HEAD ./`), while the asset is `--clobber`ed
+independently. Nothing keeps the two in step, and the design never said who
+writes the manifest or what happens when they disagree — for the mechanism that
+is the entire point of the card. **Publish the manifest as a release asset beside
+`pack.dat`, in the same upload**, so they cannot skew; the site function reads it
+rather than owning it.
+
 ## Order of work
+
 
 0. **Card #326 first**, because it is the only step whose cost rises with delay:
    put the rated corpus somewhere durable. Nothing else here is safe to build on
    top of a join table that one `wt.sh prune` deletes, and step 2 needs it.
+0.5. **The extraction tool, and the stale doc.** A small tool that reads
+   `pack.state` beside `pack.dat` and emits `id<TAB>bad` lines into
+   `verdicts.tsv`, and delete the `flags.txt` paragraph at
+   `docs/trivia-curation.md:165` describing a file nothing writes. This is the
+   whole curation loop for the people who exist today, it is the smallest thing
+   on this list, and every step below it is optional once it is done.
 1. **#253 next, for the shared half**: a manifest per pack, a `PackMeta`
    sibling file, and one honest sync screen. Trivia consumes it. This is also
    the step that makes a device with a pack able to receive a new one at all,
