@@ -1948,6 +1948,50 @@ else
 fi
 
 
+# --- the undo guard: a branch that undoes what trunk recently landed ---------
+#
+# The block is lifted between its own markers and run in a fixture repository
+# with a trunk of sixty-line commits and refs/remotes/origin/xteink pointing at
+# its tip. Fires on a stale tree committed on top of the moved trunk; stays
+# silent on an ordinary branch, on a branch deleting its own additions, and
+# when CHECK_ALLOW_UNDO says the revert is meant.
+python3 - "$CHECK" >"$WORK/undo.sh" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+a = next(i for i, l in enumerate(lines) if 'undo guard begin' in l)
+b = next(i for i, l in enumerate(lines) if 'undo guard end' in l)
+print('\n'.join(lines[a + 1:b]))
+PY
+[ -s "$WORK/undo.sh" ] || { echo "FAIL checksh  could not lift the undo guard out of check.sh"; failed=$((failed + 1)); }
+grep -q 'die$' "$WORK/undo.sh" || { echo "FAIL checksh  the undo guard no longer calls die, so it cannot refuse"; failed=$((failed + 1)); }
+
+undo_repo() {  # builds $WORK/undo with trunk T (base + 3 commits x 30 lines) and origin/xteink = T
+  rm -rf "$WORK/undo"; mkdir -p "$WORK/undo"
+  ( cd "$WORK/undo" && git init -q -b xteink && git config user.email t@t && git config user.name t
+    seq 1 5 | sed 's/^/base line number /' > a.txt && git add -A && git commit -qm base && git tag base
+    for f in f1 f2 f3; do seq 1 30 | sed "s/^/trunk $f added this distinctive line /" > "$f.txt"; git add -A; git commit -qm "add $f"; done
+    git update-ref refs/remotes/origin/xteink HEAD )
+}
+undo_run() {  # echoes fired|silent for HEAD of $WORK/undo; die leaves a marker, since the block's own output is captured
+  rm -f "$WORK/undo.fired"
+  ( cd "$WORK/undo" && die() { : >"$WORK/undo.fired"; exit 0; } && . "$WORK/undo.sh" >"$WORK/undo.out" 2>&1 )
+  [ -e "$WORK/undo.fired" ] && echo fired || echo silent
+}
+undo_expect() {  # label, fired|silent
+  local got; got="$(undo_run)"
+  checks=$((checks + 1))
+  if [ "$got" != "$2" ]; then failed=$((failed + 1)); echo "FAIL checksh  undo guard: $1: got $got, wanted $2"; sed 's/^/       /' "$WORK/undo.out"; fi
+}
+undo_repo; ( cd "$WORK/undo" && git checkout -q -b app/ok && echo "my own new file" > mine.txt && git add -A && git commit -qm mine )
+undo_expect "an ordinary branch on top of trunk is silent" silent
+undo_repo; ( cd "$WORK/undo" && git checkout -q -b app/stale && git read-tree base && git commit -qm "stale tree committed on the moved trunk" >/dev/null )
+undo_expect "a stale tree committed on the moved trunk fires" fired
+grep -q 'f1.txt (-30)' "$WORK/undo.out" && checks=$((checks + 1)) || { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL checksh  undo guard: the refusal does not name the undone files"; }
+rm -f "$WORK/undo.fired"; ( cd "$WORK/undo" && export CHECK_ALLOW_UNDO=1 && die() { : >"$WORK/undo.fired"; exit 0; } && . "$WORK/undo.sh" >"$WORK/undo.out" 2>&1 )
+[ ! -e "$WORK/undo.fired" ] && checks=$((checks + 1)) || { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL checksh  undo guard: CHECK_ALLOW_UNDO=1 did not let a meant revert through"; }
+undo_repo; ( cd "$WORK/undo" && git checkout -q -b app/own && seq 1 80 | sed 's/^/my branch added this line and took it back /' > tmp.txt && git add -A && git commit -qm add && git rm -q tmp.txt && git commit -qm remove )
+undo_expect "a branch deleting its own additions is silent" silent
+
 # --- a test file its suite never runs -----------------------------------------
 #
 # The block that lists test files run.sh never names is lifted between its
