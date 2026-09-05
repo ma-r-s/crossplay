@@ -17,6 +17,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxMetrics.h"
 #include "../ui/ToyboxTheme.h"
 #include "StudyStats.h"
@@ -2378,7 +2379,9 @@ void StudyActivity::runSyncFlow() {
     }
     if (!status.empty()) transportBlips = 0;
     const uint32_t elapsed = (millis() - started) / 1000;
-    char clock[16];
+    // "%um%02us"
+    constexpr int kClockChars = toybox::kUIntChars + toybox::kUIntChars + toybox::literalChars("ms") + 1;
+    char clock[kClockChars];
     if (elapsed < 60) {
       std::snprintf(clock, sizeof(clock), "%us", static_cast<unsigned>(elapsed / 5 * 5));
     } else {

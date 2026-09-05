@@ -250,7 +250,7 @@ void boardStrip(toybox::Screen& screen, const BoardModel& model) {
   const int16_t modeWidth = static_cast<int16_t>(strip.width / 3);
   screen.button(mode, fui::makeRect(static_cast<int16_t>(strip.right() - modeWidth), strip.y, modeWidth, strip.height));
 
-  char line[24];
+  char line[toybox::kOfCounterChars];
   std::snprintf(line, sizeof(line), "%d OF %d", ms::minesRemaining(model.game), ms::kMines);
   fui::TextStyle count;
   count.font = toybox::kDisplayFont;

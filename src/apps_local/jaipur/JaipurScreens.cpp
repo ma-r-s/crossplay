@@ -140,7 +140,7 @@ void cardWithMark(toybox::Screen& screen, const fui::Rect& box, const freeink::I
 // A goods token: a rupee value, as a chip. Solid when it is the one being
 // taken, so a diagram can say "this one, off the top".
 void tokenChip(toybox::Screen& screen, const fui::Rect& box, const int value, const bool taken) {
-  char text[8];
+  char text[toybox::kIntTextChars];
   std::snprintf(text, sizeof(text), "%d", value);
   if (taken) {
     screen.target().fill(box, fui::Paint::solid(fui::Color::Black), 8);

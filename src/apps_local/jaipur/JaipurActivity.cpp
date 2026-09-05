@@ -622,7 +622,7 @@ void JaipurActivity::drawPile(const Rect& box, const int good) const {
   inner.width -= 6;
 
   const int valueBand = 30;
-  char value[8];
+  char value[toybox::kIntTextChars];
   std::snprintf(value, sizeof(value), "%d", game.nextTokenValue(static_cast<Good>(good), depth));
   drawCentered(renderer, inner, box.y + 4, valueBand, left > 0 ? value : "-", true);
 
@@ -666,7 +666,9 @@ void JaipurActivity::drawBonusStack(const Rect& box, const int stack) const {
   renderer.fillRoundedRect(box.x, box.y, box.width, box.height, 6, White);
   renderer.drawRect(box.x, box.y, box.width, box.height, toybox::kHairline, true);
 
-  char label[24];
+  // "%d+ x%d"
+  constexpr int kLabelChars = toybox::kIntChars + toybox::kIntChars + toybox::literalChars("+ x") + 1;
+  char label[kLabelChars];
   std::snprintf(label, sizeof(label), "%d+ x%d", stack + 3, left);
   Rect inner = box;
   inner.x += 4;
@@ -679,7 +681,9 @@ void JaipurActivity::drawHerdBox(const Rect& box, const int camels, const int pi
   if (!tappable) renderer.fillRectDither(box.x + 3, box.y + 3, box.width - 6, box.height - 6, LightGray);
   renderer.drawRect(box.x, box.y, box.width, box.height, picked > 0 ? toybox::kFrame : toybox::kHairline, true);
 
-  char label[32];
+  // "YOUR CAMELS %d/%d"
+  constexpr int kCamelLabelChars = toybox::kIntChars + toybox::kIntChars + toybox::literalChars("YOUR CAMELS /") + 1;
+  char label[kCamelLabelChars];
   if (picked > 0) {
     std::snprintf(label, sizeof(label), "YOUR CAMELS %d/%d", picked, camels);
   } else {
@@ -715,7 +719,10 @@ void JaipurActivity::drawScoreStrip(const Rect& box) const {
   // is face up plus a count of what is not, because a bonus token's value is
   // printed on the back. Camels are face up for both, so the 5 rupee token
   // counts wherever the herds say it sits.
-  char line[80];
+  // Sized for the WIDER of the two formats below, the one with the bonus-token
+  // count in it: "SEALS %d-%d   YOU %d   THEM %d+%d?   DECK %d".
+  constexpr int kLineChars = 6 * toybox::kIntChars + toybox::literalChars("SEALS -   YOU    THEM +?   DECK ") + 1;
+  char line[kLineChars];
   const int yours = game.visibleScore(seat, seat);
   const int theirs = game.visibleScore(seat, them);
   const int theirBonusCount = game.bonusTokenCount(them);
@@ -929,7 +936,7 @@ void JaipurActivity::drawPriceList(const Rect& slot) const {
     blitIcon(renderer, mark, slot.x + (markW - mark.w) / 2, y + (rowH - mark.h) / 2);
 
     for (int i = 0; i < jaipur::kPileDepth[g]; ++i) {
-      char value[8];
+      char value[toybox::kIntTextChars];
       std::snprintf(value, sizeof(value), "%d", jaipur::kGoodsTokens[g][i]);
       const Rect at{slot.x + markW + i * cell, y, cell, rowH};
       drawCentered(renderer, at, y, rowH, value, true);

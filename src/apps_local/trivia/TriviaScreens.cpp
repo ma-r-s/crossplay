@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "../ui/ToyboxFormat.h"
+
 namespace triviaui {
 namespace {
 
@@ -332,7 +334,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 }
 
 void buildChoice(toybox::Screen& screen, const ChoiceModel& model) {
-  char score[16] = {};
+  char score[toybox::kSlashCounterChars] = {};
   if (model.asked > 0) {
     std::snprintf(score, sizeof(score), "%d/%d", model.right, model.asked);
   }

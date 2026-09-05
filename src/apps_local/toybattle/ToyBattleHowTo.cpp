@@ -1,5 +1,6 @@
 #include <cstdio>
 
+#include "../ui/ToyboxFormat.h"
 #include "ToyBattleMenus.h"
 #include "ToyBattleScreens.h"
 
@@ -473,7 +474,7 @@ constexpr int kWalkCount = static_cast<int>(sizeof(kWalkPages) / sizeof(kWalkPag
 
 void buildWalkthrough(toybox::Screen& screen, const int page) {
   const WalkPage& content = kWalkPages[page];
-  char counter[16];
+  char counter[toybox::kSlashCounterChars];
   std::snprintf(counter, sizeof(counter), "%d/%d", page + 1, kWalkCount);
   chrome(screen, content.title, counter);
 

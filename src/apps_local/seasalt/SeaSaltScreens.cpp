@@ -124,7 +124,7 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
   blitIcon(screen, fui::makeRect(cell.x + 7, cell.y + 7, markSize, markSize), *kColourMarks[tile.colour]);
 
   if (tile.groupPoints >= 0) {
-    char points[8];
+    char points[toybox::kIntTextChars];
     std::snprintf(points, sizeof(points), "%d", tile.groupPoints);
     target.text(toybox::inkCentred(fui::makeRect(cell.x, cell.y + 5, cell.width - 9, 24), toybox::kUiCut), points,
                 styled(toybox::kUiFont, fui::TextAlign::Right));
@@ -150,7 +150,9 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
                 kKindNames[tile.kind], styled(toybox::kSmallFont, fui::TextAlign::Center));
   }
 
-  char census[12];
+  // "X%d"
+  constexpr int kCensusChars = toybox::kIntChars + toybox::literalChars("X") + 1;
+  char census[kCensusChars];
   std::snprintf(census, sizeof(census), "X%d", tile.supply);
   target.text(toybox::inkCentred(fui::makeRect(cell.x, censusTop, cell.width, kLineBand), toybox::kTileCut), census,
               styled(toybox::kSmallFont, fui::TextAlign::Center));
@@ -167,7 +169,7 @@ void drawPileTile(toybox::Screen& screen, const fui::Rect& cell, const PileTile&
     return;
   }
   blitIcon(screen, fui::makeRect(cell.x + 6, cell.y + 6, 20, 20), *kColourMarks[pile.colour]);
-  char depth[8];
+  char depth[toybox::kIntTextChars];
   std::snprintf(depth, sizeof(depth), "%d", pile.size);
   target.text(toybox::inkCentred(fui::makeRect(cell.x, cell.y + 5, cell.width - 8, 24), toybox::kUiCut), depth,
               styled(toybox::kUiFont, fui::TextAlign::Right));
@@ -341,7 +343,7 @@ void drawFacts(toybox::Screen& screen, const fui::Rect& strip, const BoardModel&
     const int16_t x = static_cast<int16_t>(strip.x + i * cellW);
     if (i > 0)
       target.fill(fui::makeRect(x, strip.y, toybox::kHairline, strip.height), fui::Paint::solid(fui::Color::Black));
-    char value[8];
+    char value[toybox::kIntTextChars];
     std::snprintf(value, sizeof(value), "%d", cells[i].value);
     target.text(fui::makeRect(x + 8, strip.y, 28, strip.height), value, styled(toybox::kUiFont, fui::TextAlign::Left));
     const int16_t half = static_cast<int16_t>(strip.height / 2);
@@ -351,7 +353,7 @@ void drawFacts(toybox::Screen& screen, const fui::Rect& strip, const BoardModel&
   // BEST: the count, the mark, the caption.
   const int16_t x = static_cast<int16_t>(strip.x + 3 * cellW);
   target.fill(fui::makeRect(x, strip.y, toybox::kHairline, strip.height), fui::Paint::solid(fui::Color::Black));
-  char value[8];
+  char value[toybox::kIntTextChars];
   std::snprintf(value, sizeof(value), "%d", model.bestColourCount);
   target.text(fui::makeRect(x + 8, strip.y, 28, strip.height), value, styled(toybox::kUiFont, fui::TextAlign::Left));
   blitIcon(screen, fui::makeRect(x + 32, strip.y + (strip.height - 20) / 2, 20, 20), *kColourMarks[model.bestColour]);
@@ -425,7 +427,9 @@ int cardIndexAt(const fui::Rect& grid, const int count, const int16_t x, const i
 }
 
 fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model) {
-  char score[16];
+  // "%d - %d"
+  constexpr int kScoreChars = toybox::kIntChars + toybox::kIntChars + toybox::literalChars(" - ") + 1;
+  char score[kScoreChars];
   std::snprintf(score, sizeof(score), "%d - %d", model.yourTotal, model.theirTotal);
   toyboxChrome(screen, "SEA SALT", score);
 
@@ -445,7 +449,7 @@ fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model) {
     const int16_t mid = static_cast<int16_t>(deck.y + deck.height / 2);
     target.text(fui::makeRect(deck.x, deck.y + 8, deck.width, mid - deck.y - 8), "DECK",
                 styled(toybox::kSmallFont, fui::TextAlign::Center));
-    char n[8];
+    char n[toybox::kIntTextChars];
     std::snprintf(n, sizeof(n), "%d", model.deckCount);
     target.text(fui::makeRect(deck.x, mid, deck.width, deck.height / 2 - 8), n,
                 styled(toybox::kUiFont, fui::TextAlign::Center));
@@ -481,7 +485,9 @@ fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model) {
     primary.borderEdges = fui::EdgesNone;
     screen.button(primary, fui::makeRect(pillRow.x, pillRow.y, static_cast<int16_t>(pillRow.width - callW - kCardGap),
                                          pillRow.height));
-    char call[20];
+    // "%d - CALL IT"
+    constexpr int kCallChars = toybox::kIntChars + toybox::literalChars(" - CALL IT") + 1;
+    char call[kCallChars];
     fui::ButtonProps callPill;
     if (model.canCall) {
       std::snprintf(call, sizeof(call), "%d - CALL IT", model.callPoints);

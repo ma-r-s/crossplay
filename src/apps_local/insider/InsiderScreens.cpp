@@ -305,7 +305,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 
   const insider::Record blank;
   const insider::Record& record = model.record ? *model.record : blank;
-  char stats[72];
+  // "%d ROUNDS   %d CAUGHT   %d AWAY   %d RAN OUT"
+  constexpr int kStatsChars = toybox::kIntChars + toybox::kIntChars + toybox::kIntChars + toybox::kIntChars +
+                              toybox::literalChars(" ROUNDS    CAUGHT    AWAY    RAN OUT") + 1;
+  char stats[kStatsChars];
   std::snprintf(stats, sizeof(stats), "%d ROUNDS   %d CAUGHT   %d AWAY   %d RAN OUT", record.rounds, record.won,
                 record.lost, record.outOfTime);
   screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(ruleY + 14), body.width, 22), stats,
@@ -482,7 +485,9 @@ void buildPass(toybox::Screen& screen, const PassModel& model) {
 // ---------------------------------------------------------------------------
 
 void buildQuestions(toybox::Screen& screen, const QuestionsModel& model) {
-  char count[16];
+  // "%d PLAYERS"
+  constexpr int kCountChars = toybox::kIntChars + toybox::literalChars(" PLAYERS") + 1;
+  char count[kCountChars];
   std::snprintf(count, sizeof(count), "%d PLAYERS", model.players);
   chrome(screen, "QUESTIONS", count);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});

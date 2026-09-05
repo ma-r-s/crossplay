@@ -12,6 +12,7 @@
 #include "../player/PlayerName.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxScreen.h"
 #include "../ui/ToyboxTheme.h"
 #include "ChessPieces.h"
@@ -348,10 +349,17 @@ void ChessActivity::saveGame() const {
     LOG_ERR("CHESS", "Could not open %s for write", kSavePath);
     return;
   }
-  char line[96];
+  // One buffer, three formats, so it is sized for the widest: "%s\n%d\n" with a
+  // whole FEN in the %s. At 96 it held 95 of the 103 that format can print, and
+  // the shortfall lands in the SAVE FILE rather than on the panel -- a cut FEN
+  // is a position that will not load. Today's margin is one byte: a 89-char FEN
+  // and a three-digit move number is 95.
+  constexpr int kFenChars = 90;
+  constexpr int kSaveLineChars = (kFenChars - 1) + toybox::kIntChars + toybox::literalChars("\n\n") + 1;
+  char line[kSaveLineChars];
   snprintf(line, sizeof(line), "%d\n", kSaveVersion);
   file.write(reinterpret_cast<const uint8_t*>(line), strlen(line));
-  char fen[90];
+  char fen[kFenChars];
   chess::positionToFen(position, fen);
   snprintf(line, sizeof(line), "%s\n%d\n", fen, historyBase);
   file.write(reinterpret_cast<const uint8_t*>(line), strlen(line));
@@ -362,7 +370,10 @@ void ChessActivity::saveGame() const {
 }
 
 void ChessActivity::saveSettings() const {
-  char line[48];
+  // "%d %d %d %d %d\n"
+  constexpr int kSettingsLineChars = toybox::kIntChars + toybox::kIntChars + toybox::kIntChars + toybox::kIntChars +
+                                     toybox::kIntChars + toybox::literalChars("    \n") + 1;
+  char line[kSettingsLineChars];
   snprintf(line, sizeof(line), "%d %d %d %d %d\n", kSaveVersion, static_cast<int>(level), humanPlaysWhite ? 1 : 0,
            showHints ? 1 : 0, static_cast<int>(opponent));
   Storage.writeFile(kSettingsPath, String(line));

@@ -217,7 +217,9 @@ int dialSlotAt(const int16_t screenW, const int16_t screenH, const int16_t x, co
 // on?" without backing out of it.
 void roundTag(toybox::Screen& screen, const int roundNumber, const bool practice) {
   const int16_t w = screen.device().screen().width;
-  char tag[16];
+  // "ROUND %d"
+  constexpr int kTagChars = toybox::kIntChars + toybox::literalChars("ROUND ") + 1;
+  char tag[kTagChars];
   if (practice) {
     snprintf(tag, sizeof(tag), "PRACTICE");
   } else {
@@ -781,7 +783,7 @@ void renderCall(toybox::Screen& screen, const CallModel& model) {
   // The locked number sits BETWEEN the two ends, in the strip's own order, so
   // the screen is a picture of the question rather than two buttons and a
   // floating caption pointing at nothing.
-  char lockedNum[8];
+  char lockedNum[toybox::kIntTextChars];
   snprintf(lockedNum, sizeof(lockedNum), "%d", model.guess);
   caps(screen, fui::makeRect(toybox::kMargin, 360, inner, toybox::kDisplayCut.lineHeight), lockedNum, toybox::kBodyFont,
        fui::TextAlign::Center);
@@ -974,7 +976,9 @@ void ornament(toybox::Screen& screen, const fui::Rect& box, const wavelength::Re
       // that says most about how the table is doing.
       fill(screen, mark);
     }
-    char count[8];
+    // "%u"
+    constexpr int kCountChars = toybox::kUIntChars + 1;
+    char count[kCountChars];
     snprintf(count, sizeof(count), "%u", static_cast<unsigned>(record.buckets[i]));
     caps(screen, fui::makeRect(static_cast<int16_t>(box.x + box.width - 60), y, 46, rowH), count, toybox::kSmallFont,
          fui::TextAlign::Right);
@@ -1220,7 +1224,9 @@ void renderResume(toybox::Screen& screen, const ResumeModel& model) {
 
   // The front door's own button rect, shared rather than repeated: see
   // frontDoorPlayRect. A blind tap aimed at PLAY ROUND N carries the round on.
-  char play[24];
+  // "CARRY ON ROUND %d"
+  constexpr int kPlayChars = toybox::kIntChars + toybox::literalChars("CARRY ON ROUND ") + 1;
+  char play[kPlayChars];
   snprintf(play, sizeof(play), "CARRY ON ROUND %d", model.roundNumber);
   action(screen, frontDoorPlayRect(w), play, ActionCarryOn);
 

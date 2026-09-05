@@ -790,7 +790,10 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
     for (int i = 0; i < puzzle.clueCount; ++i) {
       if (model.struck & (1u << i)) ++done;
     }
-    char count[48];
+    // "%d / %d      %d OF %d DONE"
+    constexpr int kCountChars = toybox::kIntChars + toybox::kIntChars + toybox::kIntChars + toybox::kIntChars +
+                                toybox::literalChars(" /        OF  DONE") + 1;
+    char count[kCountChars];
     std::snprintf(count, sizeof(count), "%d / %d      %d OF %d DONE", report.page + 1, report.pages, done,
                   puzzle.clueCount);
     screen.target().text(

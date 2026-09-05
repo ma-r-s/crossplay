@@ -148,7 +148,7 @@ const char* categoryName(const int index) {
 
 // A number right-aligned at `right`, on its line.
 void drawNumber(toybox::Screen& screen, const int16_t right, const int16_t y, const int value, const bool bold) {
-  char text[8];
+  char text[toybox::kIntTextChars];
   std::snprintf(text, sizeof(text), "%d", value);
   fui::TextStyle style;
   style.font = bold ? toybox::kBodyFont : toybox::kSmallFont;
@@ -176,7 +176,7 @@ void drawEmptyBox(toybox::Screen& screen, const int16_t right, const int16_t y) 
 // has no outline, so committed and pencilled never look alike.
 void drawPreview(toybox::Screen& screen, const int16_t right, const int16_t y, const int value) {
   drawEmptyBox(screen, right, y);
-  char text[8];
+  char text[toybox::kIntTextChars];
   std::snprintf(text, sizeof(text), "%d", value);
   // Right-aligned INSIDE the box, matching drawNumber, so a column of thirteen
   // rows has one edge. Centring the previews and right-aligning the committed
@@ -299,7 +299,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   label.align = fui::TextAlign::Center;
   screen.target().text(fui::makeRect(content.x, blockTop, content.width, 24), "PERSONAL BEST", label);
 
-  char bestText[8];
+  char bestText[toybox::kIntTextChars];
   std::snprintf(bestText, sizeof(bestText), "%d", model.best);
   fui::TextStyle big;
   big.font = toybox::kDisplayFont;
@@ -525,7 +525,9 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
   for (int column = 0; column < 2; ++column) {
     const yz::Card& card = column == 0 ? yours : theirs;
     const int16_t right = column == 0 ? kYourRight : kTheirRight;
-    char cell[16];
+    // "%d MORE"
+    constexpr int kCellChars = toybox::kIntChars + toybox::literalChars(" MORE") + 1;
+    char cell[kCellChars];
     if (yz::bonusEarned(card) > 0) {
       std::snprintf(cell, sizeof(cell), "+%d", yz::kUpperBonus);
     } else if (yz::upperBonusStillPossible(card)) {
@@ -631,7 +633,9 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
     if (bestIndex < 0 || bestGap == 0) break;
     used[bestIndex] = true;
     screen.target().text(fui::makeRect(area.x, y, 260, kLineHeight), categoryName(bestIndex), small);
-    char scores[24];
+    // "%d - %d"
+    constexpr int kScoresChars = toybox::kIntChars + toybox::kIntChars + toybox::literalChars(" - ") + 1;
+    char scores[kScoresChars];
     std::snprintf(scores, sizeof(scores), "%d - %d", model.yours.box[bestIndex], model.theirs.box[bestIndex]);
     screen.target().text(fui::makeRect(static_cast<int16_t>(area.x + area.width - 140), y, 140, kLineHeight), scores,
                          right);
@@ -640,7 +644,9 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
 
   // And the bonus, which is a 35-point swing that appears in no box at all.
   if (yahtzee::bonusEarned(model.yours) != yahtzee::bonusEarned(model.theirs)) {
-    char bonus[40];
+    // "TOP HALF BONUS  %d - %d"
+    constexpr int kBonusChars = toybox::kIntChars + toybox::kIntChars + toybox::literalChars("TOP HALF BONUS   - ") + 1;
+    char bonus[kBonusChars];
     std::snprintf(bonus, sizeof(bonus), "TOP HALF BONUS  %d - %d", yahtzee::bonusEarned(model.yours),
                   yahtzee::bonusEarned(model.theirs));
     screen.target().text(fui::makeRect(area.x, y, area.width, kLineHeight), bonus, small);

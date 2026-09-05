@@ -25,6 +25,11 @@ mkdir -p "$BUILD_DIR"
 # were provably too small for their own formats (card 256). The three files
 # from jaipur down are compiled here for that warning alone -- no strict
 # suite built them, so the class had nowhere to be caught in them at all.
+# (Four files: JaipurScreens, SolitaireCore, SolitaireScreens, YahtzeeScreens.)
+#
+# The flag is NOT the gate for this class, though -- host-tests/fmtwidth is.
+# -Wformat-truncation is a middle-end warning and every suite here compiles
+# at -O0, where it reports nothing at all. See host-tests/fmtwidth/check_widths.py.
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -Wno-comment \
   -I"$SDK/include" -I"$ICONS/include" \
   "$SDK/src/FreeInkUI.cpp" \
