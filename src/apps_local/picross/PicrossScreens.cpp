@@ -26,6 +26,13 @@ constexpr int kStatusStrip = 34;
 // enormous squares floating in the panel.
 constexpr int kMaxCell = 68;
 
+// Air between the clue gutter and the grid. The board frame is stroked OUTSIDE
+// the play area (kBoardFrame wide), so without this the last clue in a row ran
+// under the frame and the bottom column clue sat on row 0 -- clues bleeding into
+// the playfield, which is exactly what Mario rejected. Reserve the frame plus a
+// few pixels of visible separation, the way the dungeon board does.
+constexpr int kClueGap = toybox::kBoardFrame + 6;
+
 // Clue numbers are at most two digits ("10"), so the gutter slots are sized for
 // that plus a little air. Two ladders: the 5x5 boards have room for the UI cut,
 // the 10x10 boards use the tile cut so four numbers still fit the gutter.
@@ -123,24 +130,33 @@ void drawCell(toybox::Screen& screen, const fui::Rect& cell, const picross::Cell
 }
 
 // A clue number, centred in `box`. When its line is satisfied the number is
-// dimmed -- honest here only because a wrong fill never becomes a Filled cell,
-// so a satisfied count is a solved line and not a lucky miscount (see
+// struck through -- honest here only because a wrong fill never becomes a Filled
+// cell, so a satisfied count is a solved line and not a lucky miscount (see
 // PicrossCore::rowSatisfied; the note there is load-bearing for the free-erase
 // switch).
 void drawClueNumber(toybox::Screen& screen, const fui::Rect& box, const int value, const ClueMetrics& cm,
                     const bool satisfied) {
   char text[toybox::kIntTextChars];
   std::snprintf(text, sizeof(text), "%d", value);
-  // A dithered chip behind a satisfied clue, never a strike through it: a strike
-  // turns a single-digit clue into a "+" (the losing variant did exactly that),
-  // and there is no grey ink on this panel to dim the number itself with.
+  // A satisfied line's clue is struck through (Mario's pick). A struck lone "1"
+  // is the trap: a horizontal rule crossing a single vertical stroke at its
+  // centre IS a plus. Three things together defeat that and none alone does:
+  //   - a dithered "done" chip behind, so the digit reads as greyed-out first;
+  //   - a hairline rule, a thin cancel line rather than a bar of a plus's weight;
+  //   - the rule dropped BELOW centre, so it cannot be the symmetric crossbar a
+  //     plus needs -- it reads as a line through the lower body of the number.
+  // Chip first, then the digit, then the rule over it.
   if (satisfied)
-    screen.target().fill(box.inset(fui::Insets{2, 1, 2, 1}), fui::Paint::dither(fui::Color::LightGray),
+    screen.target().fill(box.inset(fui::Insets{1, 1, 1, 1}), fui::Paint::dither(fui::Color::LightGray),
                          static_cast<uint8_t>(3));
   fui::TextStyle style;
   style.font = cm.font;
   style.align = fui::TextAlign::Center;
   screen.target().text(toybox::inkCentred(box, cm.cut), text, style);
+  if (satisfied) {
+    const int16_t y = static_cast<int16_t>(box.y + (box.height * 5) / 8);
+    screen.target().fill(fui::makeRect(box.x, y, box.width, toybox::kHairline), fui::Paint::solid(fui::Color::Black));
+  }
 }
 
 void drawColClues(toybox::Screen& screen, const picross::Board& board, const Layout& layout, const ClueMetrics& cm) {
@@ -150,12 +166,13 @@ void drawColClues(toybox::Screen& screen, const picross::Board& board, const Lay
     const bool satisfied = board.colSatisfied(c);
     const int16_t x = static_cast<int16_t>(layout.board.x + c * layout.cell);
     if (k == 0) {  // an all-empty column shows a single 0 nearest the board
-      const fui::Rect box = fui::makeRect(x, static_cast<int16_t>(layout.board.y - cm.slotH), layout.cell, cm.slotH);
+      const fui::Rect box =
+          fui::makeRect(x, static_cast<int16_t>(layout.board.y - kClueGap - cm.slotH), layout.cell, cm.slotH);
       drawClueNumber(screen, box, 0, cm, satisfied);
       continue;
     }
     for (int i = 0; i < k; ++i) {
-      const int16_t top = static_cast<int16_t>(layout.board.y - (k - i) * cm.slotH);
+      const int16_t top = static_cast<int16_t>(layout.board.y - kClueGap - (k - i) * cm.slotH);
       const fui::Rect box = fui::makeRect(x, top, layout.cell, cm.slotH);
       drawClueNumber(screen, box, buf[i], cm, satisfied);
     }
@@ -169,12 +186,13 @@ void drawRowClues(toybox::Screen& screen, const picross::Board& board, const Lay
     const bool satisfied = board.rowSatisfied(r);
     const int16_t y = static_cast<int16_t>(layout.board.y + r * layout.cell);
     if (k == 0) {
-      const fui::Rect box = fui::makeRect(static_cast<int16_t>(layout.board.x - cm.numW), y, cm.numW, layout.cell);
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(layout.board.x - kClueGap - cm.numW), y, cm.numW, layout.cell);
       drawClueNumber(screen, box, 0, cm, satisfied);
       continue;
     }
     for (int i = 0; i < k; ++i) {
-      const int16_t left = static_cast<int16_t>(layout.board.x - (k - i) * cm.numW);
+      const int16_t left = static_cast<int16_t>(layout.board.x - kClueGap - (k - i) * cm.numW);
       const fui::Rect box = fui::makeRect(left, y, cm.numW, layout.cell);
       drawClueNumber(screen, box, buf[i], cm, satisfied);
     }
@@ -329,8 +347,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
 
   const fui::Rect body = screen.body();
   const ClueMetrics cm = clueMetricsFor(n);
-  const int16_t rowGutter = static_cast<int16_t>(maxRunsInRows(board) * cm.numW);
-  const int16_t colGutter = static_cast<int16_t>(maxRunsInCols(board) * cm.slotH);
+  const int16_t rowGutter = static_cast<int16_t>(maxRunsInRows(board) * cm.numW + kClueGap);
+  const int16_t colGutter = static_cast<int16_t>(maxRunsInCols(board) * cm.slotH + kClueGap);
 
   int cell = (body.width - rowGutter) / n;
   const int availCellH = (body.height - colGutter) / n;
