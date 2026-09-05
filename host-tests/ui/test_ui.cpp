@@ -4100,6 +4100,13 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
   // AND its cell was re-measured against a shorter area. On this panel that is
   // a full refresh of the one surface being read by position.
   //
+  // Mario, 2026-09-05: the fixed band was in the wrong place -- "on top of the
+  // screen" -- and he wants it "between the board and between the bottom names
+  // of the objects, people, places, and motives". So the band now sits BETWEEN
+  // the grid and the key, and this test pins all three facts that made the move
+  // safe: the grid does not move whether or not a notice shows (no-jump), the
+  // band draws below the grid and above the key, and the key does not move.
+  //
   // Every tier, because the cell size is the min of a width fit and a height
   // fit and only the height fit moves: a tier that happened to be height-bound
   // would shrink where the others do not.
@@ -4131,27 +4138,37 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
     CHECK(after.gutter == before.gutter);
     CHECK(after.headerH == before.headerH);
 
+    // The bottom edge of the last grid cell, and the top of the first key row.
+    // The band has to fall strictly between them: below the grid, above the
+    // key. Reserving the band off the bottom of the grid's room puts it there.
+    const int16_t gridCellsBottom = static_cast<int16_t>(after.originY + after.groups * after.items * after.cell);
+    const int16_t lineH = with.target.lineHeight(toybox::kTileFont);
+    int16_t firstKeyRowY = 0x7fff;
+    for (const auto& run : with.target.texts) {
+      if (run.text.find('=') != std::string::npos && run.rect.y < firstKeyRowY) firstKeyRowY = run.rect.y;
+    }
+    CHECK(firstKeyRowY != 0x7fff);  // the key really drew
+
     // The notice really drew, or every check above is satisfied by a screen
     // that simply threw the message away.
-    const fui::Rect grid = fui::makeRect(after.originX, static_cast<int16_t>(after.originY - after.headerH), 1, 1);
     int noticeRuns = 0;
     for (const auto& run : with.target.texts) {
       if (run.text.find(murdletext::kBlockedNotice) == std::string::npos) continue;
       ++noticeRuns;
-      // And it drew ABOVE the grid rather than over the column labels, which is
-      // the way a reserved band goes wrong that a moved origin does not.
-      CHECK(run.rect.y + run.rect.height <= grid.y);
+      // BETWEEN THE GRID AND THE KEY. The band starts 8px under the last grid
+      // cell -- the reserved gap it has always carried -- and its foot clears
+      // the top of the first key row. Above the grid (the old placement) or
+      // over the key both fail here.
+      CHECK(run.rect.y == gridCellsBottom + 8);
+      CHECK(run.rect.y >= gridCellsBottom);
+      CHECK(run.rect.y + run.rect.height <= firstKeyRowY);
       // The box the wrap sees, tied to the number host-tests/murdle measures
       // the worst-case notice against rather than written down twice. This IS
       // the body width: paragraph() draws each line into the rect it was given.
       CHECK(run.rect.width == 448);
-      // THE BAND IS ONE LINE, and this is the assertion that says so. Mario,
-      // 2026-09-05: the two-line band "moved [the board] down which now looks
-      // awful, specially when no message is showing" -- it is reserved on every
-      // frame, so a second line is a line of dead space on every frame of the
-      // face. The gap from the top of the notice to the top of the grid IS the
-      // band, plus the 8px it has always carried.
-      CHECK(grid.y - run.rect.y == with.target.lineHeight(toybox::kTileFont) + 8);
+      // THE BAND IS ONE LINE. Reserved on every frame, so a second line is a
+      // line of dead space on every frame of the face.
+      CHECK(run.rect.height == lineH);
     }
     // One run, because the message is one line. Two runs is the wording that
     // wrapped, which is the other half of what made the band cost two lines.
@@ -4160,6 +4177,27 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
     // The quiet render says nothing in the band it reserved.
     for (const auto& run : without.target.texts) {
       CHECK(run.text.find(murdletext::kBlockedNotice) == std::string::npos);
+    }
+
+    // NO JUMP, proved on the drawn rects and not just the layout struct: the
+    // only difference between the quiet render and the one carrying a notice is
+    // the single notice run inserted between the grid and the key. Every other
+    // run -- every grid label AND every key row -- is at a byte-identical rect,
+    // so neither the grid nor the key moves when a tap is refused or cleared.
+    std::vector<const FakeTarget::TextRun*> quietRuns;
+    for (const auto& run : without.target.texts) quietRuns.push_back(&run);
+    std::vector<const FakeTarget::TextRun*> loudRuns;
+    for (const auto& run : with.target.texts) {
+      if (run.text.find(murdletext::kBlockedNotice) != std::string::npos) continue;
+      loudRuns.push_back(&run);
+    }
+    CHECK(loudRuns.size() == quietRuns.size());
+    for (size_t i = 0; i < loudRuns.size() && i < quietRuns.size(); ++i) {
+      CHECK(loudRuns[i]->text == quietRuns[i]->text);
+      CHECK(loudRuns[i]->rect.x == quietRuns[i]->rect.x);
+      CHECK(loudRuns[i]->rect.y == quietRuns[i]->rect.y);
+      CHECK(loudRuns[i]->rect.width == quietRuns[i]->rect.width);
+      CHECK(loudRuns[i]->rect.height == quietRuns[i]->rect.height);
     }
 
     // The key still gets room under the grid. The band is paid for out of that

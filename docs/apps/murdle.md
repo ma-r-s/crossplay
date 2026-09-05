@@ -353,14 +353,22 @@ and the refusal is three words: `ALREADY TICKED ELSEWHERE`. Changing your mind
 costs two more taps than it did -- clear the old lock, then rule the new square
 out and lock it in -- and every one of them is the player's own.
 
-**The refusal has a band of its own, reserved whether it says anything or not.**
-It used to appear above the grid only when there was something to say, which
-pushed the board down the moment a tap was refused and pulled it back up on the
-next tap. On a panel that takes a second to answer, that is the one surface
-being read by position moving under the reader's finger. The band is **one line**
-of the tile cut, measured against the real face in `host-tests/murdle`; the grid
-is width-bound at every tier, so it pays for the band out of the slack the key
-was spreading into and loses no cell size.
+**The refusal has a band of its own, reserved whether it says anything or not,
+and it sits between the grid and the key.** It used to appear above the grid
+only when there was something to say, which pushed the board down the moment a
+tap was refused and pulled it back up on the next tap. On a panel that takes a
+second to answer, that is the one surface being read by position moving under
+the reader's finger. Reserving the band stopped the movement; putting it
+between the grid and the key rather than above the grid is where Mario wanted
+it (2026-09-05) -- a refusal sends the player to the key to check, so the
+message reads next to the thing it points at. The band is reserved off the
+**bottom** of the grid's room, so the grid draws at the top of the face and the
+reserved height falls in the gap above the key; the grid is top-anchored and
+width-bound at every tier, so its origin and every cell stay put whether or not
+a notice shows, and the key keeps the top and height it always had. The band is
+**one line** of the tile cut, measured against the real face in
+`host-tests/murdle`; it pays for itself out of the slack the key was spreading
+into and loses no cell size.
 
 One line is what makes reserving it on every frame the right trade, and getting
 there is why the wording is three words. The refusal used to name both blocking
