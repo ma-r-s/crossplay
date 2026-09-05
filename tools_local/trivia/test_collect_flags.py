@@ -173,6 +173,38 @@ def test_queue():
                 lambda: CF.collect(pack, queue_path=q), "not a multiple")
 
 
+def test_repairs_are_not_removals():
+    """`bad` DELETES a question. Three reasons do not ask for that.
+
+    Written because collect_flags emitted `bad` for every reason, so a player
+    tapping TOO EASY would have deleted the question on the next build -- the
+    opposite of what they asked for, silently, and unrecoverably once the
+    corpus row is gone.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        pack, _ = build(tmp, 8, flags=(0, 1, 2, 3))
+        q = os.path.join(tmp, "reports.dat")
+        RP.write(q, "p1", 8, [
+            (0, RP.CODES["wrong"]),
+            (1, RP.CODES["easy"]),
+            (2, RP.CODES["us"]),
+            (3, RP.CODES["hard"]),
+        ])
+        rows, _ = CF.collect(pack, queue_path=q)
+        verdicts = {r[3]: r[1] for r in rows}
+        check("a wrong answer is a removal", verdicts[0] == "bad", f"got {verdicts}")
+        check("too easy is NOT a removal", verdicts[1] != "bad", f"got {verdicts}")
+        check("a us-centric miss is NOT a removal", verdicts[2] != "bad", f"got {verdicts}")
+        check("too hard is NOT a removal", verdicts[3] != "bad", f"got {verdicts}")
+
+        # A report with no reason at all still means "this is bad".
+        RP.write(q, "p1", 8, [(0, RP.NONE)])
+        rows, _ = CF.collect(pack, queue_path=q)
+        check("a reasonless report is still a removal", rows[0][1] == "bad", f"got {rows[0]}")
+        check("every reason is classified one way or the other",
+              all(isinstance(RP.removes(r), bool) for r in RP.REASONS.values()))
+
+
 def test_queue_format():
     with tempfile.TemporaryDirectory() as tmp:
         q = os.path.join(tmp, "r.dat")
@@ -242,7 +274,7 @@ def test_refusal_exit_code():
 
 
 if __name__ == "__main__":
-    for fn in (test_stale_state, test_ids, test_queue, test_queue_format,
+    for fn in (test_stale_state, test_ids, test_queue, test_repairs_are_not_removals, test_queue_format,
                test_apply_is_idempotent, test_refusal_exit_code):
         print(fn.__name__)
         fn()

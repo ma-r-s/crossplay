@@ -108,6 +108,17 @@ struct NoticeModel {
 
 // The WHY? list. Labels and their wire values are supplied by the activity, so
 // this screen has no opinion about what a reason means.
+// How many rows the WHY? screen can actually DRAW at its 52px row height,
+// measured by rendering rather than derived: eleven fit and the twelfth falls
+// outside the band. The list is virtualised, so a row that does not fit is not
+// drawn AND not registered for interaction -- it is a reason nobody can choose,
+// with nothing on screen to say so.
+//
+// host-tests/trivia asserts the selectable reasons stay within this. Raising it
+// is not a code change, it is a re-measurement: change the row height or the
+// screen's furniture, render it, count.
+inline constexpr int kMaxReasonRows = 11;
+
 struct ReasonModel {
   static constexpr int kMax = 10;
   int count = 0;

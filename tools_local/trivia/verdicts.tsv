@@ -1,5 +1,12 @@
 # Permanent record of human judgements on individual questions.
 # id<TAB>verdict<TAB>reason        verdict is "bad" (remove) or "good" (pin in)
-# ids are content hashes of the clue, so they survive pack rebuilds.
+# "repair" is a THIRD verdict no builder applies: it marks a report that asks
+# for a fix rather than a deletion (a US question the pack failed to mark, or a
+# level that is wrong). A person acts on those; emitting them as "bad" would
+# delete a good question for a one-byte defect.
+# ids are content hashes of the clue. They survive a REBUILD and they do NOT
+# survive an edit to the clue itself -- board #146, where an in-place repair
+# moved 349 ids and orphaned 76 ratings silently. collect_flags.py --manifest
+# takes the id frozen at build time, which is the only form that holds.
 # Appended to by hand, and by collect_flags.py reading a card's pack.state.
 d3f0a6986d78	bad	expired present-tense claim: no longer the sole inmate on Imrali

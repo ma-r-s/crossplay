@@ -199,7 +199,12 @@ def collect(pack_path, state_path=None, queue_path=None, manifest_path=None):
         else:
             qid = rederive(item["q"])
             rederived += 1
-        rows.append((qid, "bad", reasons.get(index, "none"), index))
+        reason = reasons.get(index, "none")
+        # A verdict of `bad` DELETES the question, so only the reasons that
+        # actually ask for that get one. TOO EASY, TOO HARD and THIS IS A US
+        # QUESTION are repairs; emitting `bad` for them would throw away a good
+        # question for a one-byte defect, silently, on the next build.
+        rows.append((qid, "bad" if RP.removes(reason) else "repair", reason, index))
 
     if rederived:
         notes.append(
@@ -237,6 +242,14 @@ def main(argv=None):
 
     known = existing_ids(a.verdicts)
     fresh = [r for r in rows if r[0] not in known]
+    repairs = [r for r in fresh if r[1] != "bad"]
+    if repairs:
+        print(
+            f"note: {len(repairs)} report(s) ask for a REPAIR, not a removal "
+            f"({', '.join(sorted({r[2] for r in repairs}))}). They are written with the "
+            "verdict `repair`, which no builder applies -- a person has to act on them.",
+            file=sys.stderr,
+        )
     print(
         f"{len(rows)} flagged, {len(rows) - len(fresh)} already in {a.verdicts}, {len(fresh)} new",
         file=sys.stderr,

@@ -514,7 +514,13 @@ void buildReasons(toybox::Screen& screen, const ReasonModel& model) {
   //
   // 52 is right on its own terms rather than as a squeeze: these rows carry a
   // label and nothing else -- no subtitle, no value, no icon -- and the theme's
-  // 62 is sized for rows that do. Ten rows then need 556px of the 603 available.
+  // 62 is sized for rows that do.
+  //
+  // MEASURED CAPACITY AT THIS HEIGHT IS kMaxReasonRows, and that constant is
+  // the thing to re-derive if this number changes. The band's own height is
+  // deliberately not written here: an earlier draft quoted it and was wrong by
+  // 17px, which is the derived-facts-written-as-literals shape in a comment
+  // rather than in code.
   list.rowHeight = 52;
   screen.list(list);
 }

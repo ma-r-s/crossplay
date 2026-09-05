@@ -70,11 +70,25 @@ REASONS = {
 }
 CODES = {name: code for code, name in REASONS.items()}
 
-# `us` repairs a BIT, not a row, and that makes it the odd one out. With the US
-# toggle off, Chooser::next already skips marked records, so a player who sees a
-# US question at all is looking at one the pack failed to mark. The fix is to
-# set bit 7 of that record's difficulty byte, not to remove the question.
-BIT_REPAIRS = {"us"}
+# WHICH REASONS MEAN "REMOVE THIS QUESTION", and which do not.
+#
+# verdicts.tsv understands two verdicts and `bad` deletes the row. Three reasons
+# are not deletion requests and applying them as one throws away a perfectly
+# good question for a fixable defect:
+#
+#   us    repairs a BIT. With the US toggle off Chooser::next already skips
+#         marked records, so a player who MEETS a US question is looking at one
+#         the pack failed to mark. The fix is bit 7 of its difficulty byte.
+#   hard  the level is wrong, not the question. Move it.
+#   easy  the same, the other way.
+#
+# Everything else -- including a report with no reason at all, which means "this
+# is bad" and nothing more -- is a removal.
+REPAIRS = {"us": "mark us-centric", "hard": "level it harder", "easy": "level it easier"}
+
+
+def removes(reason):
+    return reason not in REPAIRS
 
 
 class Refused(Exception):

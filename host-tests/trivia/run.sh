@@ -163,6 +163,12 @@ if wire_by_value != reports.REASONS:
 screens = open(f"{src}/TriviaScreens.h", encoding="utf-8").read()
 kmax = int(re.search(r"kMax\s*=\s*(\d+)", screens).group(1))
 selectable = len(reports.REASONS) - 1  # every code except `none`, which is not a row
+fits = int(re.search(r"kMaxReasonRows = (\d+)", screens).group(1))
+if selectable > fits:
+    print(f"FAIL trivia  {selectable} selectable reasons but only {fits} rows can be DRAWN")
+    print("              The extra rows are not laid out and cannot be tapped.")
+    print("              Re-measure buildReasons by rendering it, then set kMaxReasonRows.")
+    sys.exit(1)
 if kmax < selectable:
     print(f"FAIL trivia  {selectable} selectable reasons but ReasonModel::kMax is {kmax}")
     print("              The extra rows would not be drawn and could not be tapped.")
@@ -170,5 +176,5 @@ if kmax < selectable:
     sys.exit(1)
 
 print(f"parity ok: {len(reports.REASONS)} reason codes and wire names agree; "
-      f"{selectable} selectable rows fit kMax {kmax}")
+      f"{selectable} selectable rows fit kMax {kmax} and {fits} drawable")
 PARITY
