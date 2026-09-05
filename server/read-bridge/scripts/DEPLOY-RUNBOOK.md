@@ -231,13 +231,22 @@ which is a drift generator, not a defence.
 
 ### Apply
 
-Edit in place on the pi. Never rsync'd, never pasted into a command where it
-would land in shell history and `ps` output.
+Edit in place on the pi, in an editor, on the box. The `.env` files belong to
+the ssh user (`deploy.sh` writes `/srv/<service>/` without sudo), so no sudo is
+needed. **REPLACE the existing line rather than appending a second one:** a
+`.env` with a key twice is legal and compose takes the last occurrence, which
+is a fine way to leave a file nobody can read confidently.
 
-    ssh orange   # then, on the box:
-    sudo -e /srv/readbridge/.env    # READ_ALLOWLIST=*
-    sudo -e /srv/ankibridge/.env    # BRIDGE_ALLOWLIST=*
-    sudo -e /srv/getbooks/.env      # GETBOOKS_PUBLIC_USER / GETBOOKS_PUBLIC_PASS
+    ssh orange     # then, on the box, one editor session per file:
+    #  /srv/readbridge/.env   READ_ALLOWLIST=*            (was: owner address)
+    #  /srv/ankibridge/.env   BRIDGE_ALLOWLIST=*          (was: owner address)
+    #  /srv/getbooks/.env     GETBOOKS_PUBLIC_USER=crossplay
+    #                         GETBOOKS_PUBLIC_PASS=<the pair in OpdsServerStore.cpp>
+
+**Do not `export READ_ALLOWLIST=*` in a shell.** In a `.env` file the `*` is a
+literal; in a shell it is a glob and expands to whatever files are in the
+directory, which would write a nonsense allowlist that fails closed and looks
+exactly like every other way of getting this wrong.
 
 Then recreate. **`docker compose restart` is the wrong command and it fails
 silently:** it restarts the existing container with the environment it was
@@ -294,5 +303,13 @@ name: no `~/.ssh/config` entry, and `known_hosts` holding 192.168.68.x,
 So: a failing `ssh` says nothing about the pi. Check the tunnel before
 concluding anything about the box, and read the failure carefully: a DNS error
 on `read.ma-r-s.com` means the record is gone, a TLS alert means the name is
-too deep for the zone's certificate (step 4), and a 502 means the tunnel is up
-but cannot reach the service container. Those are three different repairs.
+too deep for the zone's certificate (step 4), a **530 means the tunnel is up
+and the ORIGIN is not** (the box is off, which is where it was on 2026-09-05),
+and a 502 means the tunnel is up but cannot reach the service container. Those
+are four different repairs.
+
+**The name resolves through Tailscale, and there is no `~/.ssh/config` entry**
+-- checked 2026-09-05, because this file records a session losing time to
+exactly that. `orange` is `orange.tail77e8d2.ts.net`, `100.75.152.70`, via
+MagicDNS. So if `ssh orange` ever fails to RESOLVE rather than to connect, the
+repair is the tailnet on this Mac, not the pi and not `known_hosts`.
