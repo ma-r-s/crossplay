@@ -242,7 +242,7 @@ def test_pack_shape():
     )
 
 
-# --- rule 4: US-centric is filtered at the build, never deleted ---------------
+# --- rule 4: US-centric ships tagged, and the device toggle hides it ----------
 def us_row(flag):
     corpus = [
         {
@@ -260,50 +260,59 @@ def us_row(flag):
     return corpus, enriched
 
 
-def test_us_default():
+def test_us_ships_tagged():
+    # A US-centric question SHIPS now -- the filter moved to the device toggle,
+    # which reads this flag. The build no longer drops anything.
     corpus, enriched = us_row(True)
     pack, stats = A.assemble(corpus, enriched)
     check(
-        "a us_centric question does NOT ship by default",
-        len(pack) == 0,
+        "a us_centric question ships (no build-time drop)",
+        len(pack) == 1,
         f"{len(pack)} rows reached the pack",
     )
     check(
-        "and the drop is counted rather than silent",
-        any(k.startswith("rejected: us_centric") for k in stats),
+        "and it carries the us flag the toggle reads",
+        pack[0].get("us") is True,
+        str(pack[0]),
+    )
+    check(
+        "nothing is dropped for being us_centric",
+        not any(k.startswith("rejected: us_centric") for k in stats),
         str(dict(stats)),
     )
-    # Checked on the KICKING path, which is the only path that reads the flag.
-    # Asserting this after a --keep-us run instead proves nothing: `kick_us and
-    # e.get("us")` short-circuits there, so a filter that consumed the flag
-    # would never run and the check would pass. Two paths, one of them live.
-    check(
-        "kicking reads the flag without consuming it",
-        enriched["d" * 12].get("us") is True,
-        "the default path mutated the ratings; --keep-us could not restore it",
-    )
-    # Not vacuous: the identical row without the flag must ship, or the check
-    # above would pass for any reason at all.
-    corpus, enriched = us_row(False)
-    check(
-        "the same question without the flag still ships",
-        len(A.assemble(corpus, enriched)[0]) == 1,
-    )
-    # Mario's decision was "not removed from our data". --keep-us must rebuild
-    # the inclusive pack from the very same inputs, with no re-rating.
-    corpus, enriched = us_row(True)
-    pack, _ = A.assemble(corpus, enriched, kick_us=False)
-    check("--keep-us brings it back from the same inputs", len(pack) == 1)
+    # The rating record is read, never consumed: a future re-rating is not
+    # needed to flip the toggle, and "not removed from our data" holds.
     check(
         "the rating record still carries its us flag afterwards",
         enriched["d" * 12].get("us") is True,
-        "assemble() mutated the ratings; a future toggle would need re-rating",
+        "assemble() mutated the ratings",
     )
     check(
         "the corpus row is untouched too",
         corpus[0]["q"].startswith("This president"),
     )
-    check("kicking is the default, not the flag", A.KICK_US_BY_DEFAULT is True)
+
+    # An international question ships with us:false -- the flag distinguishes
+    # the two, which is the whole point of carrying it.
+    corpus, enriched = us_row(False)
+    pack, _ = A.assemble(corpus, enriched)
+    check("an international question ships", len(pack) == 1)
+    check(
+        "and is tagged us:false so the toggle keeps it visible",
+        pack[0].get("us") is False,
+        str(pack[0]),
+    )
+
+    # The calibrator still measures the international-only population: the levels
+    # mean "hard for an international table", so survivors() must still be able
+    # to drop the US-centric rows when the calibrator asks.
+    corpus, enriched = us_row(True)
+    intl_only = list(A.survivors(corpus, enriched, kick_us=True))
+    check(
+        "survivors(kick_us=True) still hides US-centric for the calibrator",
+        len(intl_only) == 0,
+        f"{len(intl_only)} rows survived the calibrator's international filter",
+    )
 
 
 # --- the thresholds are re-derivable, not hand-tuned --------------------------
@@ -394,7 +403,7 @@ def main():
         test_answer_never_longest,
         test_band_holds,
         test_pack_shape,
-        test_us_default,
+        test_us_ships_tagged,
         test_calibrator_models_the_shipped_mapping,
         test_calibration_is_minimax,
     ):

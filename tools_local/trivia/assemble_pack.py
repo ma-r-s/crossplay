@@ -26,9 +26,12 @@ Inputs:
         --out pack.jsonl --dat pack.dat
     python3 tools_local/trivia/test_pack.py pack.jsonl
 
-US-centric questions are DROPPED BY DEFAULT (rule 4). `--keep-us` builds the
-inclusive pack from the same inputs; nothing is deleted from the corpus or from
-the ratings, so a future in-app toggle needs no re-rating.
+US-centric questions SHIP, each carrying a `us` flag (rule 4). The device hides
+them by default and a settings toggle brings them back, so the choice moved
+from build time to runtime; nothing is deleted from the corpus or from the
+ratings, and the flag is what the toggle reads. `calibrate_levels.py` still
+measures the international-only population, because the levels mean "hard for an
+international table" and that is the population the default player sees.
 
 Four rules here were each paid for. Do not quietly undo any of them; the tests
 in test_assemble.py exist to make undoing one loud.
@@ -179,26 +182,34 @@ def pick_options(answer, alts, model_w, rule_w, want=3):
 STORED = 3
 
 
-# --- rule 4: US-centric questions do not ship, and are not deleted either -----
+# --- rule 4: US-centric questions ship with a flag, and are never deleted -----
 # Mario's call, 2026-09-04: "US centric trivia needs to go. At least for now.
-# Not removed from our data, but for now and until we decide to write a toggle.
-# They shouldn't show up."
+# Not removed from our data, but for now and until we decide to write a toggle."
+# 2026-09-05, the toggle: they should be FILTERABLE, not gone. So the pack now
+# carries every US-centric question with a `us: true` flag, and the device
+# hides them by default and shows them from a settings toggle
+# (CrossPointSettings::triviaShowUsCentric -> Chooser::next(allowUsCentric)).
+# pack_format packs the flag into bit 7 of the difficulty byte; nothing grows.
 #
-# So the filter lives HERE, at the pack build, and nowhere upstream of it.
-# enrich_pack.py still writes `us` as a field rather than a deletion, the
-# ratings file still carries every US-centric row with its rating intact, and
-# --keep-us rebuilds the inclusive pack from exactly the same inputs. When the
-# toggle is written, nothing needs re-rating.
+# The choice moved from build time to runtime, so the pack no longer drops
+# anything. enrich_pack.py still writes `us` as a field, the ratings file still
+# carries every US-centric row with its rating intact, and no re-rating is ever
+# needed to flip the toggle.
+#
+# survivors() KEEPS its kick_us parameter for one reason: calibrate_levels.py
+# calibrates the r->d floors against the international-only population (kick_us
+# True), because a level means "hard for an international table". The pack build
+# calls it with kick_us False and tags each row instead.
 KICK_US_BY_DEFAULT = True
 
 
 def survivors(corpus, enriched, kick_us=KICK_US_BY_DEFAULT, stats=None):
     """Yield (corpus_row, rating_row) for every question that reaches the pack.
 
-    Split out of assemble() so that calibrate_levels.py measures the population
-    that actually SHIPS rather than a second, hand-copied idea of it. A
-    calibration run against a different filter would choose thresholds for a
-    pack nobody builds, and would look exactly like a correct one.
+    Split out of assemble() so that calibrate_levels.py measures the
+    international-only population (kick_us True) that the levels are calibrated
+    against, rather than a second, hand-copied idea of it. The pack build passes
+    kick_us False and tags the survivors; the calibrator passes True.
     """
     if stats is None:
         stats = collections.Counter()
@@ -214,27 +225,38 @@ def survivors(corpus, enriched, kick_us=KICK_US_BY_DEFAULT, stats=None):
             stats["rejected: unanswerable"] += 1
             continue
         if kick_us and e.get("us"):
-            stats["rejected: us_centric (default; --keep-us to include)"] += 1
+            # Only the calibrator passes kick_us=True, and from its
+            # international-only view these rows are genuinely rejected. The pack
+            # build passes kick_us=False and ships them tagged instead (bit 7 of
+            # the difficulty byte, hidden by default). calibrate_levels.py keys
+            # off this "rejected: us_centric" prefix, so keep it.
+            stats["rejected: us_centric (calibrator's international view only)"] += 1
             continue
         yield x, e
 
 
-def assemble(corpus, enriched, kick_us=KICK_US_BY_DEFAULT, seed=20260904):
-    """corpus and enriched are lists/dicts of already-parsed rows."""
+def assemble(corpus, enriched, seed=20260904):
+    """corpus and enriched are lists/dicts of already-parsed rows.
+
+    Every rated, answerable question ships, US-centric ones included and tagged
+    `us: True`. The device hides them by default; the toggle shows them.
+    """
     stats = collections.Counter()
 
-    # Pass 1: which questions survive, on ratings alone. The rule-based picker
-    # draws from the SHIPPED slice, so it has to be indexed over the survivors
-    # rather than over the corpus -- an option must be an answer the player
-    # could otherwise have met.
+    # Pass 1: which questions survive, on ratings alone. kick_us=False -- the
+    # US-centric questions ship too, marked. The rule-based picker draws from
+    # the SHIPPED slice, so it has to be indexed over the survivors rather than
+    # over the corpus -- an option must be an answer the player could otherwise
+    # have met.
     keep = []
-    for x, e in survivors(corpus, enriched, kick_us, stats):
+    for x, e in survivors(corpus, enriched, kick_us=False, stats=stats):
         item = {
             "id": x["id"],
             "q": x["q"],
             "a": x["a"],
             "d": level(e["r"]),
             "y": x["y"],
+            "us": bool(e.get("us")),
         }
         if x.get("alt"):
             item["alt"] = list(x["alt"])
@@ -331,7 +353,8 @@ def main():
     ap.add_argument(
         "--keep-us",
         action="store_true",
-        help="include us_centric questions (default: they are dropped)",
+        help="deprecated no-op: US-centric questions always ship tagged now, "
+        "and the device toggle hides or shows them at runtime",
     )
     ap.add_argument(
         "--verdicts",
@@ -349,7 +372,7 @@ def main():
     corpus = apply_verdicts(corpus, a.verdicts)
     n_verdict = before - len(corpus)
 
-    pack, stats = assemble(corpus, enriched, kick_us=not a.keep_us)
+    pack, stats = assemble(corpus, enriched)
 
     # What re-deriving the ids would have cost, printed whether or not it is
     # zero. It is the number card #146 is about and it is invisible everywhere
@@ -382,9 +405,14 @@ def main():
         f"  read-aloud only : {stats['_readaloud']:,} (no sound option set; card #172)"
     )
     print(f"  with alternates : {sum(1 for x in pack if x.get('alt')):,}")
-    print(
-        f"  difficulty      : {dict(sorted(collections.Counter(x['d'] for x in pack).items()))}"
+    n_us = sum(1 for x in pack if x.get("us"))
+    print(f"  us-centric      : {n_us:,} (tagged; hidden by default, toggle shows)")
+    full = dict(sorted(collections.Counter(x["d"] for x in pack).items()))
+    intl = dict(
+        sorted(collections.Counter(x["d"] for x in pack if not x.get("us")).items())
     )
+    print(f"  difficulty full : {full}  (toggle ON: US shown)")
+    print(f"  difficulty intl : {intl}  (default: US hidden -- what most see)")
     print(f"  size            : {os.path.getsize(a.out) / 1e6:.1f} MB")
 
     if a.dat:

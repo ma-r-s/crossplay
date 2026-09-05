@@ -51,13 +51,24 @@ local rating run was 3.39 MB at 25,866 questions.
 
 Each record:
 
-    difficulty  uint8       1-5, derived (see below)
+    difficulty  uint8       low 7 bits: level 1-5, derived (see below).
+                            bit 7 (0x80): us_centric flag (see below).
     year        uint16      air year, for a recency filter
     alt_count   uint8       number of alternate accepted answers
     wrong_count uint8       number of stored distractors (0 = quizmaster only)
     fields      uint16 length + UTF-8 bytes, repeated
                 (2 + alt_count + wrong_count) times: question, answer, each
                 alternate, then each distractor
+
+**The difficulty byte carries the us_centric flag in its top bit.** The level is
+1-5, so bit 7 is free, and a US-centric question is marked there rather than in a
+second byte or a version bump an old reader would refuse. `Pack::read` masks it
+off (`difficulty()` is always the level, `usCentric()` is the flag) and the
+chooser skips the marked questions unless the `triviaShowUsCentric` setting is
+on. The pack ships international by default; the toggle opts a US player back in.
+A pack built without ratings (`build_pack.py`) never sets the bit, which reads
+back as `us=false` everywhere -- the honest answer for a pack with no US signal.
+See board #191/#223 and `assemble_pack.py` rule 4.
 
 **Every record must fit `kMaxRecordBytes` (448), and one that does not is
 REJECTED, not truncated.** Measured on the pack built 2026-09-01: largest
@@ -164,7 +175,6 @@ Nobody copies files to a card. Following xkcd: a rolling `trivia-pack` GitHub
 first run offers to fetch it. Files land as `.part` and are renamed only when
 complete, so a torn download leaves the card exactly as it was.
 
-
 ## Solo multiple choice
 
 Not every question carries precomputed distractors; the rest are
@@ -202,12 +212,12 @@ teaches the player the pool rather than the answer.
 **Four other things an option may not do**, each of them something a player
 could use without knowing the fact:
 
-| Rule | The set it removes |
-| --- | --- |
-| same period | the USSR for an 1818 event, Zaire for 2010, the United States for 1499 -- but only for names somebody wrote into the table, which is why the measured period rate barely moves |
-| same place | "the financial hub of **Switzerland**" answered Zurich, against Stockholm, Charlotte and Boulder |
+| Rule                | The set it removes                                                                                                                                                                                                                                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| same period         | the USSR for an 1818 event, Zaire for 2010, the United States for 1499 -- but only for names somebody wrote into the table, which is why the measured period rate barely moves                                                                                                     |
+| same place          | "the financial hub of **Switzerland**" answered Zurich, against Stockholm, Charlotte and Boulder                                                                                                                                                                                   |
 | same capitalisation | `ear / sun / Nose / head`, and `Casey at the Bat / Fencing / bullfighting / Softball` -- three one way, the answer the other. A name that keeps its OWN spelling (`neBRAska`, `e.e. cummings`) cannot be normalised without losing the joke, so it becomes quizmaster-only instead |
-| no twins | "van Gogh" beside "Van Gogh"; "Egypt" beside "ancient Egypt". 486 sets shipped with one |
+| no twins            | "van Gogh" beside "Van Gogh"; "Egypt" beside "ancient Egypt". 486 sets shipped with one                                                                                                                                                                                            |
 
 Periods come from a table of names with a birthday plus, for people and works,
 the years the corpus's own clues put them in. Places come from the clues too: a
