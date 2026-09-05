@@ -8,7 +8,9 @@ a compaction or a restart it reads both and continues.
 
 Every tick (a `/loop`, twenty to thirty minutes), in this order:
 
-1. **Read.** `board list --open`. For each card with a bound branch, `board
+1. **Read.** `board list --open`, then `board issues` (or `board tick`, which
+   is both). Nothing else fetches a GitHub issue: it is pulled by that
+   command or it never arrives. For each card with a bound branch, `board
 show <id>` derives what git and GitHub say (commits ahead, dirty files, PR
    state). Move states from facts: a PR open is `review`, merged is `merged`,
    a tag containing the merge is `released`.
@@ -47,14 +49,14 @@ integrator --session <your id>`) only while you resolve a conflict or
    outlives its card. Once a tick, `./scripts/wt.sh prune`: it drops every
    tree that is merged, clean and idle, and nothing else; a tree it keeps
    has work in it, and that work has a card or needs one.
-7. **Cards that arrive by themselves.** Three kinds need no dispatcher:
-   `source: error` (an error event opened it; the count on the card's
-   fingerprint says how often; treat it as a bug owned by the service it
-   names), `source: github` (from `board issues`, run every tick; when its
-   card is released, `board issues --close-released` closes the issue with
-   a comment), and `source: site` (a stranger's report; triage it like an
-   internal one, and if it needs a reply the reporter's email is on the
-   card for Mario, never for you).
+7. **Cards nobody dispatched.** Two arrive by themselves; GitHub is a command
+   you run. Pushed: `source: error` (an error event opened it; the count on
+   the card's fingerprint says how often; treat it as a bug owned by the
+   service it names) and `source: site` (a stranger's report; triage it like
+   an internal one, and if it needs a reply the reporter's email is on the
+   card for Mario, never for you). Pulled: `source: github` exists only
+   because you typed `board issues` in step 1, and closing is manual too,
+   `board issues --close-released` once a card is released.
 8. **Upstream.** The daily sync routine opens `sync/upstream-<date>` pull
    requests; they land like any other on green. A sync that stopped on a
    conflict of intent leaves a pushed branch and a card: yours to resolve
