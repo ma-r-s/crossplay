@@ -464,7 +464,8 @@ numbers, on the new population. See "Recalibrating the thresholds" below.
 Mario's call on 2026-09-04: they should not show up until a toggle is written;
 2026-09-05, the toggle (#191/#223). The pack now carries every us_centric
 question with a `us` flag (bit 7 of the difficulty byte), and the
-`triviaShowUsCentric` setting decides at runtime whether the chooser deals them.
+`triviaShowUsCentric` setting decides at runtime whether the chooser deals them
+(TRIVIA > SETTINGS > US QUESTIONS since card #311; the stored key is unchanged).
 The default is hidden, so the pack is international by default. `enrich_pack.py`
 still writes `us` as a field rather than a deletion, every US-centric row keeps
 its rating, and no re-rating is ever needed to flip the toggle. Deleting the
