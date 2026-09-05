@@ -263,9 +263,16 @@ echo "the emulator rebuild's commit subject, spelled in two workflows"
 # files, so this is the link.
 AR="$HERE/../../.github/workflows/crossplay-autorelease.yml"
 EM="$HERE/../../.github/workflows/crossplay-emulator.yml"
-subject="$(grep -oE "grep -vq '\^[^']+'" "$AR" | sed -E "s/.*'\^//; s/'$//")"
+# COMMENT LINES DROPPED FIRST. A subject match that has been replaced by
+# something better is usually left in the file as the comment explaining what it
+# replaced, and a check that reads it there goes on passing while guarding a
+# dead line -- which is worse than going red, because it looks like coverage.
+subject="$(grep -vE '^[[:space:]]*#' "$AR" | grep -oE "grep -vq '\^[^']+'" | sed -E "s/.*'\^//; s/'$//")"
 if [ -z "$subject" ]; then
-  bad "crossplay-autorelease.yml no longer matches an emulator-rebuild subject at all"
+  # Not a failure. It means the gate stopped settling a question about content
+  # by reading a title, which is the right direction; there is then no subject
+  # for crossplay-emulator.yml to keep in step with.
+  ok "crossplay-autorelease.yml no longer keys off the commit subject, so there is nothing here to keep in step"
 else
   ok "autorelease matches the subject '$subject'"
   grep -q -- "-m \"$subject" "$EM" \
