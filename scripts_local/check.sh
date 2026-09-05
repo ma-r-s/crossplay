@@ -652,6 +652,40 @@ done
 # Skipped LOUDLY: a check that did not run must not scroll past looking like one
 # that passed.
 echo "cross-compiler"
+# --- gcc suites begin ---
+# Derived, never listed. The list this replaced named three suites while
+# nineteen compiled app sources under -Werror (card #316), and it stayed that
+# way exactly as its own comment predicted: for the other sixteen, GCC first
+# saw the code in CI, which is the gap this stage exists to close. A suite
+# qualifies when its run.sh compiles src/ or lib/ with -Werror; one that does
+# but ignores CXX would run clang here and read as GCC-green, so that shape is
+# a failure rather than a silent omission. Measured on 2026-09-05 with g++-16:
+# thirty-five suites qualify and cost 114s together (murdle 21s, toybattle
+# 17s, fittedtitle 14s, link 10s, the rest a few seconds each), so every gate
+# runs all of them rather than a guessed subset; a subset chosen by "what
+# this branch touched" would miss a header change that reaches a suite
+# through an include, which is the class this stage exists to catch.
+gcc_suites=""
+gcc_blind=""
+for gcc_dir in host-tests/*/; do
+  gcc_run="$gcc_dir/run.sh"
+  [ -f "$gcc_run" ] || continue
+  # Non-comment lines only: a suite that TALKS about compiling src/ under
+  # -Werror in a comment (this stage's own test suite did) is not one that
+  # does. The flag and the path may sit on different lines: most run.sh files
+  # keep the flags in a variable and the sources in the command.
+  gcc_body="$(grep -v '^[[:space:]]*#' "$gcc_run")"
+  printf '%s\n' "$gcc_body" | grep -q -- '-Werror' || continue
+  # An app source is src/ or lib/ by path, or through the variables the
+  # suites use for them ($LIB, $SRC) and the SDK's own sources ($SDK).
+  printf '%s\n' "$gcc_body" | grep -qE '(^|[ "])((\.\./\.\./|\$ROOT/|\$REPO/)?(src|lib)/|\$(LIB|SRC|SDK)/)' || continue
+  if grep -q 'CXX' "$gcc_run"; then
+    gcc_suites="$gcc_suites $(basename "$gcc_dir")"
+  else
+    gcc_blind="$gcc_blind $(basename "$gcc_dir")"
+  fi
+done
+# --- gcc suites end ---
 GCC=""
 for candidate in g++-16 g++-15 g++-14 g++-13; do
   command -v "$candidate" >/dev/null 2>&1 && GCC="$candidate" && break
@@ -663,7 +697,12 @@ else
   T0=$(date +%s)
   say_stage "gcc"
   gcc_failed=0
-  for gcc_suite in ui tilefit wallcaption; do
+  if [ -n "$gcc_blind" ]; then
+    printf "  %-12s FAILED: compiles app sources under -Werror but ignores CXX, so GCC never sees it:%s\n" "gcc" "$gcc_blind"
+    printf "  %-12s take the compiler from \${CXX:-c++} in that run.sh\n" ""
+    gcc_failed=1
+  fi
+  for gcc_suite in $gcc_suites; do
     if ! CXX="$GCC" "host-tests/$gcc_suite/run.sh" > "$LOGS/gcc-$gcc_suite.log" 2>&1; then
       gcc_failed=1
       printf "  %-12s FAILED under %s in host-tests/%s (%s)\n" "gcc" "$GCC" "$gcc_suite" "$(since $T0)"
@@ -671,7 +710,7 @@ else
     fi
   done
   if [ "$gcc_failed" -eq 0 ]; then
-    printf "  %-12s ok (%s, %s)\n" "gcc" "$GCC" "$(since $T0)"
+    printf "  %-12s ok (%s, %s suite(s), %s)\n" "gcc" "$GCC" "$(echo $gcc_suites | wc -w | tr -d ' ')" "$(since $T0)"
   else
     FAILED=1
   fi
