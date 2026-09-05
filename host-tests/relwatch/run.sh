@@ -1,5 +1,7 @@
 #!/bin/bash
-# The release watcher, on a real postgres running the board's real migrations.
+# The board's SQL, on a real postgres running the board's real migrations:
+# the release watcher it was built for, and since card #209 the rule that a
+# card addressed to Mario is an item in his inbox.
 #
 # On 2026-09-04 two releases failed, four workflow runs over five hours, and
 # every visible signal said healthy: the autorelease reported success, tags
@@ -114,6 +116,31 @@ if ! psql < "$HERE/checks.sql" > "$WORK/checks.out" 2>&1; then
   tail -30 "$WORK/checks.out"
   exit 1
 fi
+
+# The backfill in 20260905000300 ran against an empty board (the migrations
+# apply before anything here inserts a card), so the half of that file which
+# repairs cards dropped before the rule existed would never have been executed
+# by anything. checks.sql leaves two behind the trigger's back; re-applying the
+# file runs the backfill over them. The file's definitions are re-runnable
+# (create or replace, drop trigger if exists); the backfill itself is a plain
+# INSERT and production applies it exactly once, through board_migrations.
+if ! psql < "$MIG/20260905000300_mario_inbox.sql" > "$WORK/backfill.out" 2>&1; then
+  echo "FAIL relwatch  the mario-inbox migration is not re-runnable"; tail -20 "$WORK/backfill.out"; exit 1
+fi
+# `if ! ... exit 1`, like every other psql in this file. Under `set -uo pipefail`
+# with no -e, a bare `psql -c ... >/dev/null` that errored would simply not
+# insert its row, and the report below counts only what landed: the suite would
+# print "N passed, 0 failed" for a check that never ran.
+for q in \
+  "select t('the backfill files the open card that was dropped',
+            (select count(*)::text from inbox where title = 'A decision that aged in reported'), '1')" \
+  "select t('and leaves the settled one out of his inbox',
+            (select count(*)::text from inbox where title = 'A decision he already took'), '0')"
+do
+  if ! psql -c "$q" >/dev/null 2>"$WORK/backfill.out"; then
+    echo "FAIL relwatch  a backfill check did not run:"; sed 's/^/  /' "$WORK/backfill.out"; exit 1
+  fi
+done
 
 # The keys under test contain '|', which is psql's own column separator, so the
 # report is formatted in SQL and read back as whole lines.

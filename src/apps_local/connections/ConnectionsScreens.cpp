@@ -767,14 +767,40 @@ void buildImport(toybox::Screen& screen, const ImportModel& model) {
   }
   const fui::Color ink = model.done ? fui::Color::White : fui::Color::Black;
 
-  char hero[16];
-  std::snprintf(hero, sizeof(hero), "%d", model.puzzles);
-  fui::TextStyle number;
-  number.font = toybox::kDisplayFont;
-  number.align = fui::TextAlign::Center;
-  number.color = ink;
-  screen.target().text(toybox::inkCentred(fui::makeRect(panel.x, panel.y + 28, panel.width, 52), toybox::kDisplayCut),
-                       model.failed ? "--" : hero, number);
+  // The panel's upper half. A NUMBER ONLY WHEN THERE IS ONE: nothing repaints
+  // while the fetch blocks, so a count drawn during the wait would sit at zero
+  // for the whole minute and read as "found nothing" rather than as progress.
+  // The working state spends that space on the sentence that actually helps.
+  const fui::Rect heroBox = fui::makeRect(panel.x, panel.y + 28, panel.width, 52);
+  if (model.done || model.failed) {
+    char hero[16];
+    std::snprintf(hero, sizeof(hero), "%d", model.puzzles);
+    fui::TextStyle number;
+    number.font = toybox::kDisplayFont;
+    number.align = fui::TextAlign::Center;
+    number.color = ink;
+    screen.target().text(toybox::inkCentred(heroBox, toybox::kDisplayCut), model.failed ? "--" : hero, number);
+  } else {
+    // Two sentences, and they are the whole fix for "the device has crashed":
+    // one says the wait is expected, the other says the stillness is expected.
+    // Written as one string with a space rather than an embedded newline --
+    // the serif cut has no glyph for '\n', and a glyph a face lacks draws as
+    // NOTHING, so the break would have vanished and taken the space with it.
+    fui::TextStyle waiting;
+    waiting.font = toybox::kUiFont;
+    waiting.align = fui::TextAlign::Center;
+    waiting.color = ink;
+    waiting.maxLines = 2;
+    // Its own box, taller than the digit's and starting higher. The sentence
+    // wraps to two lines of the serif's 35px line box, and dropped into the
+    // 52px slot a number sits in, the second line lands ON the doubled rule
+    // below -- which is what the first render of this screen showed. Sized
+    // from the cut rather than from the number's box: 2 * kSerifTileCut plus
+    // air, and the rule at +96 keeps nine pixels of clearance.
+    const fui::Rect waitBox = fui::makeRect(panel.x + toybox::kGutter, panel.y + 14, panel.width - 2 * toybox::kGutter,
+                                            2 * toybox::kSerifTileCut.lineHeight);
+    screen.target().text(waitBox, "THIS TAKES A MINUTE. THE SCREEN WILL SIT STILL.", waiting);
+  }
 
   // The doubled line, the header band's own motif, so the panel belongs to the
   // same family rather than being a box that happens to be here.
@@ -783,21 +809,12 @@ void buildImport(toybox::Screen& screen, const ImportModel& model) {
   screen.target().fill(fui::makeRect(panel.x + 70, panel.y + 104, panel.width - 140, toybox::kHairline),
                        fui::Paint::solid(ink));
 
-  // While working this is the year the download has reached, so the wait reads
-  // as sweeping forward through the archive rather than as nothing happening.
+  // Under the rule: what the app is doing RIGHT NOW, in its own words. On a
+  // working frame that is the step ("JOINING WI-FI", "DOWNLOADING"); on a
+  // finished one it is what the number above it counts; on a failure it is why.
   char caption[64];
-  if (model.failed) {
-    std::snprintf(caption, sizeof(caption), "%s", model.detail);
-  } else if (model.done) {
+  if (model.done) {
     std::snprintf(caption, sizeof(caption), "PUZZLES ON THE CARD");
-  } else if (model.reachedDate > 0) {
-    std::snprintf(caption, sizeof(caption), "REACHED %u", model.reachedDate / 10000);
-  } else if (model.wifiDone) {
-    // The fetch blocks, so this screen will sit perfectly still for about half a
-    // minute. Saying so costs one line and turns "is it broken" into "it is
-    // working" -- which is the whole benefit a progress bar would have bought,
-    // for none of the cost of getting one onto the screen.
-    std::snprintf(caption, sizeof(caption), "THIS TAKES A MINUTE.\nTHE SCREEN WILL SIT STILL.");
   } else {
     std::snprintf(caption, sizeof(caption), "%s", model.detail);
   }

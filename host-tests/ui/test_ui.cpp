@@ -1143,6 +1143,91 @@ void testConnectionsHowToFitsOnePage() {
   CHECK(hit.action == connectionsui::ActionHowTo);
 }
 
+void buildConnectionsImport(Rendered& out, const connectionsui::ImportModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  connectionsui::buildImport(screen, model);
+}
+
+// GET PUZZLES fetches a 1.3MB archive over a socket that blocks the loop for
+// about a minute, and for the whole of that minute the panel holds whatever
+// frame was on it when the fetch began. This screen IS the fix: the bug was
+// never that the download is slow, it was that `default:` in
+// ConnectionsActivity::render() sat on the same label as View::Menu, so the
+// import painted the menu -- byte-identical to the frame before the tap -- and
+// a person holding the device put it down believing it had crashed.
+//
+// So what this asserts is not that a builder exists. It is that the frame the
+// user stares at for a minute answers the only question they are asking.
+void testConnectionsImportSaysSomethingIsHappening() {
+  // --- while it works -------------------------------------------------------
+  Rendered working;
+  connectionsui::ImportModel busy;
+  busy.detail = "DOWNLOADING";
+  buildConnectionsImport(working, busy);
+
+  CHECK(!working.interactions.overflowed());
+  // It is a different screen from the menu, and it says which screen.
+  CHECK(working.target.drew("GET PUZZLES"));
+  // The two sentences that turn "it has crashed" into "it is working": the
+  // wait is expected, AND the stillness is expected. Either alone is half an
+  // answer -- a screen that says only "please wait" still looks hung.
+  CHECK(working.target.drew("THIS TAKES A MINUTE. THE SCREEN WILL SIT STILL."));
+  // And what it is doing right now, in its own words.
+  CHECK(working.target.drew("DOWNLOADING"));
+  // The control says working rather than offering an action that cannot act.
+  // See the disabled-styling rule: a control that cannot act must not look
+  // like one that can.
+  CHECK(working.target.drew("WORKING"));
+
+  // NO COUNT while it works. Nothing repaints during the fetch, so a counter
+  // drawn here would sit on 0 for the whole minute and read as "found
+  // nothing" -- a number that lies is worse than no number. A climbing count
+  // was written into this screen once and could never climb.
+  CHECK(!working.target.drew("0"));
+
+  // --- when it finishes -----------------------------------------------------
+  Rendered done;
+  connectionsui::ImportModel finished;
+  finished.puzzles = 1140;
+  finished.done = true;
+  buildConnectionsImport(done, finished);
+  CHECK(done.target.drew("1140"));
+  CHECK(done.target.drew("PUZZLES ON THE CARD"));
+  CHECK(done.target.drew("PLAY"));
+  // The waiting sentence is gone the moment there is nothing to wait for.
+  CHECK(!done.target.drew("THIS TAKES A MINUTE. THE SCREEN WILL SIT STILL."));
+
+  // --- when it fails --------------------------------------------------------
+  Rendered failed;
+  connectionsui::ImportModel broke;
+  broke.detail = "DOWNLOAD FAILED";
+  broke.failed = true;
+  buildConnectionsImport(failed, broke);
+  CHECK(failed.target.drew("--"));
+  CHECK(failed.target.drew("DOWNLOAD FAILED"));
+  // A way onward that is not the hardware Back key.
+  CHECK(failed.target.drew("BACK"));
+
+  // No embedded newline anywhere, in any state. The caption used to be one
+  // string with a '\n' in it, and the serif cut carries no glyph for that --
+  // a glyph a face lacks draws as NOTHING, so the sentence break vanished and
+  // took the space with it. This is the only place that can see it: the
+  // simulator's glyph gate reports a missing glyph only at the 10px cut.
+  for (const Rendered* screen : {&working, &done, &failed}) {
+    for (const auto& run : screen->target.texts) {
+      CHECK(run.text.find('\n') == std::string::npos);
+      // And nothing is set wider than the box it was given. FakeTarget bills a
+      // flat ten pixels a character, so this is the same arithmetic the target
+      // used, asked of the layout rather than of the renderer's ellipsis.
+      const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+      CHECK(static_cast<int>(run.text.size()) * screen->target.charW <= run.rect.width * lines);
+    }
+  }
+}
+
 // --- battleship -------------------------------------------------------------
 
 void buildBattleshipStart(Rendered& out, const bshipui::StartModel& model) {
@@ -9798,6 +9883,7 @@ int main() {
   testConnectionsCalendarEveryDayIsReachable();
   testConnectionsMenuOrnamentOpensArchive();
   testConnectionsHowToFitsOnePage();
+  testConnectionsImportSaysSomethingIsHappening();
   testBattleshipStartMenu();
   testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo();
   testBattleshipWaitingCapsuleIsNotDithered();
