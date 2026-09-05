@@ -812,10 +812,18 @@ void testBackFrom() {
   // classified here rather than falling into whatever the switch's default
   // happens to be.
   int leaves = 0;
-  for (const View view : {View::Menu, View::Quizmaster, View::Solo, View::Notice}) {
+  for (const View view : {View::Menu, View::Quizmaster, View::Solo, View::Notice, View::Settings}) {
     if (trivia::backFrom(view, true) == Back::LeaveApp) ++leaves;
   }
   CHECK(leaves == 1);
+
+  // The fifth screen, and the sweep above is what forced it to be classified.
+  // SETTINGS is the app's own options (card #311), reached only from the menu,
+  // so Back returns there -- the same place its BACK TO MENU button goes. It
+  // needs no packOpen case: its door is on the menu, so a card with no pack
+  // can never be standing on it.
+  CHECK(trivia::backFrom(View::Settings, true) == Back::ToMenu);
+  CHECK(trivia::backFrom(View::Settings, false) == Back::ToMenu);
 
   // And with no pack there is nothing but the notice, so both reachable
   // screens leave. The play screens are unreachable in that state; asserting
