@@ -320,6 +320,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // by default and off means nothing is added and nothing is recorded; see
   // src/network/DeviceReport.h.
   uint8_t deviceReport = 1;
+  // Show US-centric questions in Trivia (0 = hidden, 1 = shown). The pack ships
+  // international by default -- the levels are calibrated for an international
+  // table -- and this opts a US player back into the US-centric questions,
+  // which Trivia's chooser reads through Chooser::next(allowUsCentric).
+  uint8_t triviaShowUsCentric = 0;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
   // Tilt-based page turning (X3 only — requires QMI8658 IMU)

@@ -26,9 +26,12 @@ Inputs:
         --out pack.jsonl --dat pack.dat
     python3 tools_local/trivia/test_pack.py pack.jsonl
 
-US-centric questions are DROPPED BY DEFAULT (rule 4). `--keep-us` builds the
-inclusive pack from the same inputs; nothing is deleted from the corpus or from
-the ratings, so a future in-app toggle needs no re-rating.
+US-centric questions SHIP, each carrying a `us` flag (rule 4). The device hides
+them by default and a settings toggle brings them back, so the choice moved
+from build time to runtime; nothing is deleted from the corpus or from the
+ratings, and the flag is what the toggle reads. `calibrate_levels.py` still
+measures the international-only population, because the levels mean "hard for an
+international table" and that is the population the default player sees.
 
 Four rules here were each paid for. Do not quietly undo any of them; the tests
 in test_assemble.py exist to make undoing one loud.
@@ -76,26 +79,37 @@ def rederive(clue):
 # r is "out of ten groups, how many get it right", so HIGH r is EASY and level
 # 1 is the easiest tier -- the same direction as build_pack.py's dollar tiers.
 #
-# CALIBRATED ON: the INTERNATIONAL half of the rating run, 2026-09-04, 20,063
-# surviving rows (25,968 rated, minus the 5,905 flagged us_centric that no
-# longer ship). That population is the whole reason these numbers changed. The
-# previous floors (9, 7, 5, 3) were chosen when US-centric questions still
-# shipped, and for an international table those questions genuinely ARE the
-# hard ones: 68% of them rate r<=1, against 2% of the rest. Dropping them took
-# level 5 from 5,926 questions to 845 and the pack failed test_pack.py's
-# difficulty spread. These floors are the same fixed-constant scheme measured
-# against the population that actually ships.
+# CALIBRATED ON: the INTERNATIONAL survivors of the FINISHED rating run,
+# 2026-09-05, 38,883 surviving rows (49,980 rated, minus the 11,075 flagged
+# us_centric that are hidden by default). The previous floors (9, 8, 7, 5) were
+# chosen on 2026-09-04 against a PARTIAL run of 20,063 rows; the run then
+# roughly doubled and on the completed population they no longer hold -- the
+# calibrator's "rated last" view (the second half of the append order) scored
+# 3.587 on them, past the 2.5 spread limit, i.e. level 5 over-stuffed relative
+# to the earlier tiers. calibrate_levels.py's minimax over its three views now
+# picks these floors (worst spread 2.513 vs the old floors' 3.587). A constant
+# derived from a population that has since changed is the exact failure the
+# curation notes warn about; these are re-derived on the full data.
 #
-# Bands are narrow at the easy end and wide at the hard end because that is
-# where the international mass sits, not as a balancing trick: level 1 still
-# means "9 or 10 groups in 10 get it" and level 5 still means "at most 4 do".
+# For an international table the US-centric questions genuinely ARE the hard
+# ones -- 73.4% of them rate r<=1, against 3.2% of the rest -- which is why they
+# are calibrated out here (they ship tagged and hidden, rule 4).
 #
-# Re-derive them in one command when the rating run finishes:
+# On the shipping international population these floors deal:
+#     level 1  r 9-10   6,630 (17.1%)      level 4  r 4-5   9,968 (25.6%)
+#     level 2  r 8      6,511 (16.7%)      level 5  r 0-3   5,337 (13.7%)
+#     level 3  r 6-7   10,437 (26.8%)
+# level 1 still means "9 or 10 groups in 10 get it" and level 5 now means "at
+# most 3 groups in 10 do". Bands are narrowest at the ends and widest in the
+# middle because that is where the international mass sits, not as a balancing
+# trick.
+#
+# Re-derive them in one command when the rating run changes:
 #     python3 tools_local/trivia/calibrate_levels.py \
 #         --corpus .rate/corpus_repaired.jsonl --enriched .rate/enriched.jsonl
 # It prints how these constants stand on the current data and what it would
 # choose instead. See docs/trivia-curation.md.
-LEVELS = ((9, 1), (8, 2), (7, 3), (5, 4))
+LEVELS = ((9, 1), (8, 2), (6, 3), (4, 4))
 
 
 def level(r):
@@ -179,26 +193,34 @@ def pick_options(answer, alts, model_w, rule_w, want=3):
 STORED = 3
 
 
-# --- rule 4: US-centric questions do not ship, and are not deleted either -----
+# --- rule 4: US-centric questions ship with a flag, and are never deleted -----
 # Mario's call, 2026-09-04: "US centric trivia needs to go. At least for now.
-# Not removed from our data, but for now and until we decide to write a toggle.
-# They shouldn't show up."
+# Not removed from our data, but for now and until we decide to write a toggle."
+# 2026-09-05, the toggle: they should be FILTERABLE, not gone. So the pack now
+# carries every US-centric question with a `us: true` flag, and the device
+# hides them by default and shows them from a settings toggle
+# (CrossPointSettings::triviaShowUsCentric -> Chooser::next(allowUsCentric)).
+# pack_format packs the flag into bit 7 of the difficulty byte; nothing grows.
 #
-# So the filter lives HERE, at the pack build, and nowhere upstream of it.
-# enrich_pack.py still writes `us` as a field rather than a deletion, the
-# ratings file still carries every US-centric row with its rating intact, and
-# --keep-us rebuilds the inclusive pack from exactly the same inputs. When the
-# toggle is written, nothing needs re-rating.
+# The choice moved from build time to runtime, so the pack no longer drops
+# anything. enrich_pack.py still writes `us` as a field, the ratings file still
+# carries every US-centric row with its rating intact, and no re-rating is ever
+# needed to flip the toggle.
+#
+# survivors() KEEPS its kick_us parameter for one reason: calibrate_levels.py
+# calibrates the r->d floors against the international-only population (kick_us
+# True), because a level means "hard for an international table". The pack build
+# calls it with kick_us False and tags each row instead.
 KICK_US_BY_DEFAULT = True
 
 
 def survivors(corpus, enriched, kick_us=KICK_US_BY_DEFAULT, stats=None):
     """Yield (corpus_row, rating_row) for every question that reaches the pack.
 
-    Split out of assemble() so that calibrate_levels.py measures the population
-    that actually SHIPS rather than a second, hand-copied idea of it. A
-    calibration run against a different filter would choose thresholds for a
-    pack nobody builds, and would look exactly like a correct one.
+    Split out of assemble() so that calibrate_levels.py measures the
+    international-only population (kick_us True) that the levels are calibrated
+    against, rather than a second, hand-copied idea of it. The pack build passes
+    kick_us False and tags the survivors; the calibrator passes True.
     """
     if stats is None:
         stats = collections.Counter()
@@ -214,27 +236,38 @@ def survivors(corpus, enriched, kick_us=KICK_US_BY_DEFAULT, stats=None):
             stats["rejected: unanswerable"] += 1
             continue
         if kick_us and e.get("us"):
-            stats["rejected: us_centric (default; --keep-us to include)"] += 1
+            # Only the calibrator passes kick_us=True, and from its
+            # international-only view these rows are genuinely rejected. The pack
+            # build passes kick_us=False and ships them tagged instead (bit 7 of
+            # the difficulty byte, hidden by default). calibrate_levels.py keys
+            # off this "rejected: us_centric" prefix, so keep it.
+            stats["rejected: us_centric (calibrator's international view only)"] += 1
             continue
         yield x, e
 
 
-def assemble(corpus, enriched, kick_us=KICK_US_BY_DEFAULT, seed=20260904):
-    """corpus and enriched are lists/dicts of already-parsed rows."""
+def assemble(corpus, enriched, seed=20260904):
+    """corpus and enriched are lists/dicts of already-parsed rows.
+
+    Every rated, answerable question ships, US-centric ones included and tagged
+    `us: True`. The device hides them by default; the toggle shows them.
+    """
     stats = collections.Counter()
 
-    # Pass 1: which questions survive, on ratings alone. The rule-based picker
-    # draws from the SHIPPED slice, so it has to be indexed over the survivors
-    # rather than over the corpus -- an option must be an answer the player
-    # could otherwise have met.
+    # Pass 1: which questions survive, on ratings alone. kick_us=False -- the
+    # US-centric questions ship too, marked. The rule-based picker draws from
+    # the SHIPPED slice, so it has to be indexed over the survivors rather than
+    # over the corpus -- an option must be an answer the player could otherwise
+    # have met.
     keep = []
-    for x, e in survivors(corpus, enriched, kick_us, stats):
+    for x, e in survivors(corpus, enriched, kick_us=False, stats=stats):
         item = {
             "id": x["id"],
             "q": x["q"],
             "a": x["a"],
             "d": level(e["r"]),
             "y": x["y"],
+            "us": bool(e.get("us")),
         }
         if x.get("alt"):
             item["alt"] = list(x["alt"])
@@ -331,7 +364,8 @@ def main():
     ap.add_argument(
         "--keep-us",
         action="store_true",
-        help="include us_centric questions (default: they are dropped)",
+        help="deprecated no-op: US-centric questions always ship tagged now, "
+        "and the device toggle hides or shows them at runtime",
     )
     ap.add_argument(
         "--verdicts",
@@ -349,7 +383,7 @@ def main():
     corpus = apply_verdicts(corpus, a.verdicts)
     n_verdict = before - len(corpus)
 
-    pack, stats = assemble(corpus, enriched, kick_us=not a.keep_us)
+    pack, stats = assemble(corpus, enriched)
 
     # What re-deriving the ids would have cost, printed whether or not it is
     # zero. It is the number card #146 is about and it is invisible everywhere
@@ -382,9 +416,14 @@ def main():
         f"  read-aloud only : {stats['_readaloud']:,} (no sound option set; card #172)"
     )
     print(f"  with alternates : {sum(1 for x in pack if x.get('alt')):,}")
-    print(
-        f"  difficulty      : {dict(sorted(collections.Counter(x['d'] for x in pack).items()))}"
+    n_us = sum(1 for x in pack if x.get("us"))
+    print(f"  us-centric      : {n_us:,} (tagged; hidden by default, toggle shows)")
+    full = dict(sorted(collections.Counter(x["d"] for x in pack).items()))
+    intl = dict(
+        sorted(collections.Counter(x["d"] for x in pack if not x.get("us")).items())
     )
+    print(f"  difficulty full : {full}  (toggle ON: US shown)")
+    print(f"  difficulty intl : {intl}  (default: US hidden -- what most see)")
     print(f"  size            : {os.path.getsize(a.out) / 1e6:.1f} MB")
 
     if a.dat:

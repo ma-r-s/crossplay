@@ -75,7 +75,8 @@ bool Pack::read(const uint32_t index, Question& out) const {
   if (!source_->read(base_ + start, buffer, length)) return false;
   if (length < 5) return false;
 
-  out.difficulty_ = buffer[0];
+  out.difficulty_ = static_cast<uint8_t>(buffer[0] & kDifficultyMask);
+  out.usCentric_ = (buffer[0] & kUsCentric) != 0;
   out.year_ = readU16(buffer + 1);
   out.altCount_ = buffer[3];
   out.wrongCount_ = buffer[4];
@@ -182,7 +183,7 @@ void Chooser::begin(const Pack& pack, PackState& state, Rng& rng) {
   rng_ = &rng;
 }
 
-bool Chooser::next(uint32_t& indexOut, const bool requireChoice, const int difficulty) {
+bool Chooser::next(uint32_t& indexOut, const bool requireChoice, const int difficulty, const bool allowUsCentric) {
   if (pack_ == nullptr || state_ == nullptr || pack_->count() == 0) return false;
   const uint32_t count = pack_->count();
 
@@ -210,7 +211,8 @@ bool Chooser::next(uint32_t& indexOut, const bool requireChoice, const int diffi
       if ((flags & kFlagged) != 0) continue;  // a player rejected it
       if (pass == 0 && (flags & kSeen) != 0) continue;
       Question q;
-      if (!pack_->read(i, q)) continue;  // torn record, skip
+      if (!pack_->read(i, q)) continue;                // torn record, skip
+      if (!allowUsCentric && q.usCentric()) continue;  // international by default
       if (requireChoice && !q.playableAsChoice()) continue;
       if (difficulty != 0 && q.difficulty() != difficulty) continue;
       indexOut = i;

@@ -226,6 +226,18 @@ inline int16_t headerTitleWidth(Screen& screen, const freeink::ui::Rect& band, c
 // twenty-fifth copy will not have.
 inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   namespace fui = freeink::ui;
+  // Absolute chrome, done HERE so no screen can forget it. It was an opt-in
+  // call placed before this one, and screens forgot it exactly the way they
+  // forgot the rule: Yahtzee called it on its menu and not on its card or its
+  // result, so the card's band began at the bezel's safe top instead of row 0
+  // and painted 85 rows where the menu painted 76. Mario saw the two screens
+  // side by side and asked why one header was taller, which is the only way
+  // this was ever going to be found -- every band looks right alone.
+  //
+  // Safe to do unconditionally: it is idempotent for the 25 screens that
+  // already call it, and no screen in the fork insets its content before its
+  // band, so there is no inset here to clobber.
+  absoluteChrome(screen);
   const fui::Rect band = screen.takeTop(screen.theme().headerHeight);
   const int16_t safeTop = screen.frame().safeRect().y;
   const int16_t inkTop = band.y > safeTop ? band.y : safeTop;

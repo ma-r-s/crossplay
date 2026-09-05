@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "../../CrossPointSettings.h"
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
 #include "../../network/HttpDownloader.h"
@@ -362,8 +363,11 @@ void TriviaActivity::deal() {
   haveQuestion_ = false;
 
   uint32_t index = 0;
-  if (!chooser_.next(index, solo, difficulty_)) {
-    LOG_ERR("TRIVIA", "No question available (difficulty %d, solo %d)", difficulty_, solo ? 1 : 0);
+  // US-centric questions are hidden unless the player opted in from Settings.
+  const bool allowUsCentric = SETTINGS.triviaShowUsCentric != 0;
+  if (!chooser_.next(index, solo, difficulty_, allowUsCentric)) {
+    LOG_ERR("TRIVIA", "No question available (difficulty %d, solo %d, us %d)", difficulty_, solo ? 1 : 0,
+            allowUsCentric ? 1 : 0);
     return;
   }
   if (!pack_.read(index, question_)) {
