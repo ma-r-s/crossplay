@@ -88,9 +88,11 @@ never stored, only the picture, so the clues cannot disagree with it.
 python3 tools_local/picross/gen_picross.py   # a second or two; one line per puzzle
 ```
 
-Expect designs to be rejected -- SAILBOAT and KEY were for admitting two pictures
-each, and about one authored picture in five is dropped for not being
-line-solvable. That is the tool working.
+Expect designs to be rejected, on any of the three grounds. SAILBOAT and an early
+KEY admitted two pictures each; about one authored picture in five is not
+line-solvable; and a key and a crescent moon at 15x15 could not be drawn to touch
+all four edges at all, so they became ENVELOPE and STAR instead. That is the tool
+working -- a rejected drawing is cheaper than an unfair puzzle or a lying label.
 
 **In C++, against the header that ships.**
 [`host-tests/picross/`](../../host-tests/picross/) carries a second, brute-force
