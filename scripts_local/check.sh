@@ -1021,12 +1021,14 @@ if true; then
   if bash "$REPO/scripts_local/emulator-stale.sh" "$REPO" >/dev/null 2>&1; then
     echo
     echo "browser artifact is STALE"
-    echo "  site/emulator/ was built at $(git log -1 --format=%h\ %s -- site/emulator | cut -c1-58)"
+    echo "  the browser artefact was last published at $(git log -1 --format=%h\ %s -- site/emulator site/emulator-manifest.json | cut -c1-58)"
     # shellcheck disable=SC2086
     echo "  but $(git log -1 --format=%h\ %s -- $EMU_SOURCES | cut -c1-58) came after it"
     echo "  the live page would ship code older than this branch. Rebuild:"
     echo "    pio run -e simulator_x4_pro -t compiledb"
     echo "    source ../.emsdk/emsdk_env.sh && python3 tools_local/wasm/build.py"
+    echo "  then publish it -- the bytes are no longer committed, only the pointer:"
+    echo "    python3 tools_local/site/publish_emulator.py"
     echo "  anything the page previews is running that older firmware."
     if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLOY_BRANCH" ]; then
       FAILED=1

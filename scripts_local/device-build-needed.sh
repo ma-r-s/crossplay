@@ -159,13 +159,19 @@ classify() {
     # devices, merges the images and uploads the assets a person downloads;
     # PR #42's fix for the missing bootloader lived here.
     #
-    # Checked rather than assumed, over all eight workflow files: it is the
-    # only one carrying softprops/action-gh-release, the only action in the
-    # tree that writes a GitHub release. The rest either verify
-    # (crossplay-ci.yml, ci.yml, pr-formatting-check.yml), schedule
+    # Checked rather than assumed, over every workflow file (nine since
+    # crossplay-site-live.yml): it is the only one carrying
+    # softprops/action-gh-release, the action that writes the release a person
+    # downloads. crossplay-emulator.yml does now write to a release too, via
+    # `gh release upload` -- but to the `emulator` prerelease, which carries no
+    # firmware and which /releases/latest excludes by definition, so nobody's
+    # updater can ever see it. The rest either verify
+    # (crossplay-ci.yml, ci.yml, pr-formatting-check.yml, crossplay-site-live.yml), schedule
     # (crossplay-autorelease.yml decides WHEN, never what), or rebuild the
-    # website (crossplay-emulator.yml, which commits site/emulator/ -- the
-    # website deploys continuously and is not part of a release). Upstream's
+    # website (crossplay-emulator.yml, which publishes the browser build to the
+    # `emulator` release and commits the pointer to it -- the website deploys
+    # continuously and is not part of a release; that release carries no
+    # firmware and nobody's updater looks at it). Upstream's
     # release.yml and release_candidate.yml do upload, but to
     # actions/upload-artifact: files attached to a workflow RUN, which nobody's
     # updater ever asks for. Both are `on: workflow_dispatch` and nothing else

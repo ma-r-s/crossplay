@@ -18,9 +18,16 @@ upstream's to own. We do not fork it, improve it, or diverge from it. Anything
 that makes reading better belongs upstream, so send it there.
 
 What we add is **games and small tools that make the device worth carrying
-instead of a phone**. Twenty-one apps are here now: seventeen games, a
-spaced-repetition trainer, a Hacker News reader, an xkcd viewer and a
-catalog browser.
+instead of a phone**: a shelf of games, plus the small apps beside them -- a
+spaced-repetition trainer, readers for Hacker News and xkcd, a catalog browser,
+a read-later queue.
+
+`src/apps_local/Shelf.cpp` is the list of what is here, and it is the only one.
+No total is written down in this file, for the same reason the count of
+upstream files we own is not: a number in prose is a claim nobody re-derives,
+and this sentence sat at "twenty-one apps, seventeen games" while the shelf
+grew past both. The shelf itself never had that problem, because `Folder`
+computes its `count` from its own table rather than being told.
 
 ## The one rule that keeps this sustainable
 

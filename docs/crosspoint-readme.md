@@ -1,5 +1,13 @@
 # CrossPoint Reader
 
+> **This is upstream's README, kept as a record, not as instructions.** CrossPlay
+> took the `README.md` filename, so upstream's landed here; only its internal
+> links were re-based. Everything below describes **CrossPoint** on the ESP32-C3
+> Xteink X4 and X3, and its `pio run --target upload` flashes a C3 image. This
+> fork builds ESP32-S3 (`-e x4pro`, `-e sticky`). To build or flash CrossPlay,
+> read [contributing/getting-started.md](contributing/getting-started.md); to
+> install it on a device, read [install.md](install.md).
+
 [![Fund contributors](https://img.shields.io/badge/%F0%9F%91%91_Fund_contributors-royalty.dev-BB953A?style=for-the-badge&labelColor=1a1a1a)](https://app.royalty.dev/crosspoint-reader/crosspoint-reader)
 
 CrossPoint is open-source e-reader firmware - community-built, fully hackable, free forever. It's maintained by a growing community of developers and readers who believe your device should do what you want - not what a manufacturer decided for you.
@@ -12,7 +20,7 @@ CrossPoint is open-source e-reader firmware - community-built, fully hackable, f
 
 ## What can CrossPoint do?
 
-- **Reader engine**: EPUB 2/3 rendering with embedded-style option, image handling, hyphenation, kerning, chapter navigation, footnotes, bookmarks, dictionary lookups ([StarDict](dictionary.md)), go-to-percent, auto page turn, orientation control, focus reading, KOReader progress sync and more. 
+- **Reader engine**: EPUB 2/3 rendering with embedded-style option, image handling, hyphenation, kerning, chapter navigation, footnotes, bookmarks, dictionary lookups ([StarDict](dictionary.md)), go-to-percent, auto page turn, orientation control, focus reading, KOReader progress sync and more.
 
 - **Various formats**: native handling for `.epub`, `.xtc/.xtch`, `.txt`, and `.bmp`.
 
@@ -25,7 +33,7 @@ CrossPoint is open-source e-reader firmware - community-built, fully hackable, f
 - **Library workflow**: folder browser, hidden-file toggle, long-press delete, recent books, SD-cache management.
 
 - **Wireless workflows**:
-  
+
   - File transfer web UI
   - EPUB Optimizer
   - Web settings UI/API (edit many device settings from browser)
@@ -63,9 +71,9 @@ https://crosspointreader.com/#unlock-tool before you can flash CrossPoint.
 USB port or browser before assuming the device is locked. Only reach for the unlocker if the device still doesn't appear.
 
 > ### ⚠️ WARNING: READ THIS BEFORE USING THE UNLOCKER ⚠️
-> 
+>
 > **The only officially supported firmwares in the unlock tool are CrossPoint and CrossInk.**
-> 
+>
 > Flashing any other firmware on a USB-locked device may **permanently brick the device** or leave it **permanently
 > stuck on that firmware with no recovery path**. Once USB flashing is re-locked, your only way back is via OTA, and if
 > the firmware you flashed doesn't support OTA, **there is no way out**.
@@ -274,7 +282,7 @@ One of the best things about open source is that anyone can take the code in a d
 
 - ~~[PlusPoint](https://github.com/ngxson/pluspoint-reader) — custom JS apps support.~~ (Unmaintained)
 
-- [crosspoint-reader-papers3](https://github.com/juicecultus/crosspoint-reader-papers3) — Crosspoint port for M5Stack Paper S3. 
+- [crosspoint-reader-papers3](https://github.com/juicecultus/crosspoint-reader-papers3) — Crosspoint port for M5Stack Paper S3.
 
 - [t5s3-reader](https://github.com/ShallowGreen123/t5s3-reader) — Crosspoint port for LilyGo T5 ePaper S3 / T5S3 4.7-inch e-paper device.
 
