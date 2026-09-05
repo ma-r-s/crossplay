@@ -25,7 +25,9 @@ constexpr int16_t kOkWidth = 56;
 // The top of any body: below the header band and the rule Toybox draws under
 // it. Shared by every screen here so they line up with each other and with the
 // shelf the reader just came from.
-constexpr int16_t kBodyTop = kHeaderBand + toybox::kGutter * 3;
+// From the whole chrome. kHeaderBand is the BAND's height, which is what the
+// theme token wants and not what a body top wants.
+constexpr int16_t kBodyTop = toybox::kChromeHeight + toybox::kGutter * 3;
 
 // The menu's bands, laid out once. Both the builder and the Activity need the
 // mosaic's rect, and two functions that compute it separately are the defect
@@ -92,7 +94,6 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = 
   }
   toybox::headerBand(screen, header);
 
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 

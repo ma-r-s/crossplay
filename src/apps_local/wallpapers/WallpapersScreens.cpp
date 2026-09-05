@@ -12,9 +12,11 @@ namespace wallpapersui {
 
 namespace {
 
-// The top of the body: below the header band and the rule Toybox draws under
-// it, matching the other apps so the grid lines up with the shelf it came from.
-constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter);
+// The top of the body: below the header band AND the rule Toybox draws under
+// it, which is what kChromeHeight names -- kHeaderHeight is the band alone, so
+// this read as a gutter of clearance and was five pixels. Matching the other
+// apps so the grid lines up with the shelf it came from.
+constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter);
 // A fixed strip under the chrome for the free-space advisory or the "nothing is
 // set yet" hint. Fixed so the grid's top does not jump when a hint appears.
 constexpr int16_t kHintH = 30;
@@ -158,7 +160,6 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
     header.subtitleText.color = fui::Color::White;
   }
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 

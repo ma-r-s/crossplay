@@ -28,7 +28,6 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
@@ -49,7 +48,13 @@ constexpr int16_t kCell = 73;
 constexpr int16_t kCellGap = 6;
 constexpr int16_t kGridSide = kCell * kb::kColumns + kCellGap * (kb::kColumns - 1);
 constexpr int16_t kScoreBand = 28;
-constexpr int16_t kTheirsTop = 90;
+// The opponent's grid, and the one number on this ladder that had to move: its
+// dithered ground is outset 4px, so a grid at the old literal 90 painted its
+// marker at 86, three pixels under the header rule. Derived rather than typed,
+// so it tracks the chrome instead of agreeing with whatever it was when
+// somebody measured a screenshot.
+constexpr int16_t kGroundOutset = 4;
+constexpr int16_t kTheirsTop = toybox::kChromeHeight + toybox::kGutter + kGroundOutset;
 constexpr int16_t kTheirsScoreTop = kTheirsTop + kGridSide + 4;  // 325
 constexpr int16_t kDieTop = 371;
 constexpr int16_t kYoursTop = 452;

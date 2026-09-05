@@ -15,10 +15,12 @@ namespace {
 // Seven columns across 800 pixels is what sets every other number here: the
 // card width falls out of it, the card height follows the width at roughly the
 // proportion of a real playing card, and what is left over vertically is the
-// fan room. A slim 48px header rather than the usual 76 is the one concession,
-// and it is worth it -- in portrait the header costs a tenth of the screen, in
-// landscape it would cost a sixth of a dimension the tableau needs.
-constexpr int kHeader = 56;
+// fan room. A slim header rather than the usual 76 is the one concession, and
+// it is worth it -- in portrait the header costs a tenth of the screen, in
+// landscape it would cost a sixth of a dimension the tableau needs. The height
+// itself is solitaireui::kHeaderBand, in the header, because the Activity has
+// to set the theme token to the same number these builders lay out against.
+constexpr int kHeader = kHeaderBand;
 constexpr int kSideMargin = 16;
 constexpr int kPitch = 112;
 constexpr int kCardW = 92;
@@ -28,7 +30,10 @@ constexpr int kCardH = 122;
 // which on e-ink reads as a panel artefact next to deliberate ink.
 constexpr int kRadius = 8;
 constexpr int kEdge = 2;
-constexpr int kTopRowY = kHeader + 16;
+// Below the whole chrome -- the band, the gap under it and the rule -- plus a
+// gutter. kHeader + 16 counted the band only, which left the top row of cards
+// nine pixels under a line the arithmetic could not see.
+constexpr int kTopRowY = toybox::chromeBelow(kHeader) + toybox::kGutter;
 constexpr int kTableauY = kTopRowY + kCardH + 24;
 constexpr int kBottomMargin = 16;
 
@@ -329,7 +334,6 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  target.fill(fui::makeRect(0, kHeader + 4, band.width, toybox::kRule), ink);
 
   // The two standing actions live in the header band, knocked out of the black.
   // They are always available and never move, so they cost no layout anywhere
@@ -495,7 +499,6 @@ void buildWin(toybox::Screen& screen, const WinModel& model) {
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  target.fill(fui::makeRect(0, kHeader + 4, band.width, toybox::kRule), ink);
 
   // The cascade. Every physical solitaire ends with the deck coming off the
   // foundations and bouncing down the table, and it is the one image everyone
@@ -580,7 +583,6 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  target.fill(fui::makeRect(0, kHeader + 4, band.width, toybox::kRule), ink);
 
   // Two columns, because 480 pixels of height will not take the portrait front
   // door and squeezing it would only make it worse. Left is what you would say

@@ -33,6 +33,7 @@
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
+#include "../../src/apps_local/solitaire/SolitaireScreens.h"
 #include "../../src/apps_local/study/StudyScreens.h"
 #include "../../src/apps_local/sudoku/SudokuScreens.h"
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
@@ -329,6 +330,126 @@ fui::DeviceContext device() {
 // CI, and this is the second time that gap has been a compiler and not a test.
 const toybattle::Draft kFreshDraft{};
 
+// --- the chrome probe ------------------------------------------------------
+//
+// What Mario reported twice: content sitting on the header. The header work
+// that answered it both times fixed the HEADER, and the header was never the
+// half that was wrong -- every screen decides for itself where its content
+// starts, and a dozen of them decided it from toybox::kHeaderHeight, a constant
+// that names the black band and knows nothing about the rule drawn under it.
+//
+// So this is not a per-screen test. A per-screen test is the thing that failed:
+// it covers the screen you thought of, and Mario opens the other one. It lives
+// in ~Rendered, so EVERY screen this suite renders is measured -- including the
+// ones written after this comment by someone who never read it.
+//
+// The rule: the chrome owns rows 0..kChromeHeight (the band, the gap, the
+// rule), and the first content pixel below it clears kGutter. That is the same
+// number card #295 gave the Yahtzee dice, so this is the fork's own answer to
+// "how far must content clear the header" applied everywhere rather than once.
+// A screen may still draw INSIDE the band -- folder marks, medal tallies, face
+// doors -- and those are placed by bandCenterY()/headerInkRect() on purpose.
+//
+// Text is measured as INK, not as its line box. A run's rect is the box the
+// text was given and the glyphs sit inset within it (see inkTopIn), so
+// measuring the rect would report collisions the eye cannot see and move type
+// that already clears.
+
+// The band a render actually painted, or 0. Taken from the paint rather than
+// from kHeaderHeight, because the band is a THEME token and Solitaire raises
+// it: a probe keyed to the constant would measure that screen against a line
+// seven rows from where its rule is, and would have to be told to skip it --
+// which is how a screen ends up outside the only check that would have caught
+// it. headerBand() paints one full-width rect at row 0 and nothing else does.
+fui::Rect bandRectOf(const FakeTarget& t) {
+  fui::Rect band{};
+  for (size_t i = 0; i < t.fills.size(); ++i) {
+    const fui::Rect& r = t.fills[i];
+    // Full-bleed from the panel's top-left corner. The width is not asserted
+    // against 480: Solitaire is landscape, and a probe that assumed portrait
+    // would silently stop looking at the one app whose band is not standard.
+    if (r.x != 0 || r.y != 0 || r.width < 480 || r.height <= 0) continue;
+    if (r.height > toybox::kHeaderHeight) continue;
+    // And its RULE. A black strip at row 0 is not on its own a header: the
+    // Forehead round screen paints one across each long edge to label the two
+    // physical keys, and it has no header at all. headerBand() draws the band
+    // and the rule together, so the pair is the signature and a lone strip is
+    // not.
+    bool ruled = false;
+    for (size_t j = 0; j < t.fills.size(); ++j) {
+      const fui::Rect& q = t.fills[j];
+      if (q.x == 0 && q.width == r.width && q.height == toybox::kRule && q.y == r.height + toybox::kBandRuleGap) {
+        ruled = true;
+        break;
+      }
+    }
+    if (!ruled) continue;
+    if (r.height > band.height) band = r;
+  }
+  return band;
+}
+
+// The first row below the chrome that content may use.
+int16_t chromeFloorFor(const fui::Rect& band) {
+  return static_cast<int16_t>(band.height + toybox::kBandRuleGap + toybox::kRule + toybox::kGutter);
+}
+
+// True for the two rects headerBand() itself paints, which are allowed to be
+// exactly where they are and nowhere else.
+bool isChromePaint(const fui::Rect& r, const fui::Rect& band) {
+  if (r.x != 0 || r.width != band.width) return false;
+  if (r.y == 0 && r.height == band.height) return true;                                     // the band
+  if (r.y == band.height + toybox::kBandRuleGap && r.height == toybox::kRule) return true;  // the rule
+  return false;
+}
+
+// Anything wholly inside the band is band ink, and belongs there.
+bool insideBand(const fui::Rect& r, const fui::Rect& band) { return r.bottom() <= band.height; }
+
+struct ChromeHit {
+  fui::Rect rect{};
+  std::string what;
+  bool found = false;
+};
+
+void noteHit(ChromeHit& hit, const fui::Rect& r, const std::string& what) {
+  if (hit.found && hit.rect.y <= r.y) return;
+  hit = ChromeHit{r, what, true};
+}
+
+// The topmost thing that fails to clear the chrome, or nothing.
+ChromeHit chromeIntrusion(const FakeTarget& t, const fui::Rect& band) {
+  ChromeHit hit;
+  const int16_t floor = chromeFloorFor(band);
+  for (size_t i = 0; i < t.fills.size(); ++i) {
+    const fui::Rect& r = t.fills[i];
+    if (isChromePaint(r, band) || insideBand(r, band) || r.height <= 0 || r.width <= 0) continue;
+    if (r.y < floor) noteHit(hit, r, "fill");
+  }
+  for (const auto& run : t.texts) {
+    const fui::Rect ink = inkBandOf(run);
+    if (insideBand(ink, band)) continue;
+    if (ink.y < floor) noteHit(hit, ink, "text \"" + run.text + "\"");
+  }
+  for (const auto& blit : t.blits) {
+    if (insideBand(blit.rect, band)) continue;
+    if (blit.rect.y < floor) noteHit(hit, blit.rect, "bitmap");
+  }
+  for (const auto& st : t.strokes) {
+    if (insideBand(st.rect, band)) continue;
+    if (st.rect.y < floor) noteHit(hit, st.rect, "stroke");
+  }
+  return hit;
+}
+
+// The title, so a failure says which screen without anyone having to guess.
+std::string bandLabel(const FakeTarget& t, const fui::Rect& band) {
+  for (const auto& run : t.texts) {
+    if (insideBand(inkBandOf(run), band)) return run.text;
+  }
+  return "?";
+}
+
 // One rendered screen, with everything the assertions need to inspect.
 struct Rendered {
   FakeTarget target;
@@ -352,6 +473,28 @@ struct Rendered {
     input.touchX = static_cast<int16_t>(x);
     input.touchY = static_cast<int16_t>(y);
     return interactions.route(input);
+  }
+
+  // Set by the handful of renders that deliberately cover the chrome: a modal
+  // that owns the whole panel, or a screen drawn with no band at all and then
+  // checked for something else. It has to be stated per render rather than
+  // inferred, because "this screen meant to do that" is exactly the claim the
+  // probe exists to stop anyone making silently.
+  bool coversChrome = false;
+
+  // Measured on the way out, so no test has to remember to ask. See the chrome
+  // probe above for why this is not a per-screen assertion.
+  ~Rendered() {
+    const fui::Rect band = bandRectOf(target);
+    if (coversChrome || band.height == 0) return;
+    const ChromeHit hit = chromeIntrusion(target, band);
+    if (hit.found) {
+      std::printf("FAIL chrome: [%s] %s at y=%d clears the %dpx band's rule by %d, needs %d\n",
+                  bandLabel(target, band).c_str(), hit.what.c_str(), static_cast<int>(hit.rect.y),
+                  static_cast<int>(band.height),
+                  static_cast<int>(hit.rect.y - band.height - toybox::kBandRuleGap - toybox::kRule), toybox::kGutter);
+    }
+    check(!hit.found, "content clears the header chrome by a gutter", __LINE__);
   }
 };
 
@@ -764,6 +907,100 @@ void testSettingsRouting() {
 // headerBand() itself rather than against any one app's screen: a per-app
 // assertion is precisely what let 12 of the fork's 41 band sites ship with no
 // rule at all, the Yahtzee card among them.
+// --- Solitaire ------------------------------------------------------------
+//
+// The one app the ui suite COMPILED and never rendered. That is not a gap in
+// its own tests -- host-tests/solitaire covers the rules -- it is a gap in this
+// file's chrome probe, which measures whatever is rendered here and therefore
+// measured nothing at all for the only landscape screen in the fork and the
+// only one that raises its header band. Card #248 found it by asking which
+// screens the probe had actually seen, which a green run does not say.
+//
+// Three renders, because Solitaire has three bands and the fault it had -- a
+// top row nine pixels under the rule, plus a rule drawn a second time by hand
+// on top of the one headerBand() draws -- was on all three.
+fui::DeviceContext solitaireDevice() {
+  fui::DeviceContext ctx;
+  ctx.width = 800;
+  ctx.height = 480;
+  ctx.hasTouch = true;
+  ctx.hasButtons = true;
+  return ctx;
+}
+
+toybox::Screen solitaireScreen(toybox::Frame& frame, fui::ThemeTokens& tokens) {
+  tokens = toybox::themeTokens();
+  tokens.headerHeight = solitaireui::kHeaderBand;
+  return toybox::Screen(frame, tokens);
+}
+
+void solitaireDrawsOneRuleAndClearsIt() {
+  const fui::DeviceContext ctx = solitaireDevice();
+  const fui::InputSnapshot noInput{};
+  solitaire::Game game;
+  game.deal(12345, false);
+
+  // The board. ~Rendered measures the clearance; what is asserted here is the
+  // half a clearance check cannot see: exactly ONE rule under the band.
+  Rendered board;
+  {
+    toybox::Frame frame(board.target, ctx, noInput, board.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = solitaireScreen(frame, tokens);
+    solitaireui::BoardModel model;
+    model.game = &game;
+    solitaireui::Layout layout;
+    solitaireui::buildBoard(screen, model, layout);
+  }
+  int rules = 0;
+  for (size_t i = 0; i < board.target.fills.size(); ++i) {
+    const fui::Rect& r = board.target.fills[i];
+    if (r.x == 0 && r.width == ctx.width && r.height == toybox::kRule &&
+        r.y == solitaireui::kHeaderBand + toybox::kBandRuleGap) {
+      ++rules;
+    }
+  }
+  // Two, until this card: headerBand() draws the rule for every screen in the
+  // fork, and this app kept drawing its own on the same pixels. Identical ink,
+  // so nothing looked wrong -- which is the point. A second copy of the
+  // chrome's geometry in an app file is a bug that is waiting rather than a bug
+  // that is showing.
+  CHECK(rules == 1);
+
+  Rendered menu;
+  {
+    toybox::Frame frame(menu.target, ctx, noInput, menu.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = solitaireScreen(frame, tokens);
+    solitaireui::MenuModel model;
+    model.hasSave = true;
+    model.savedMoves = 42;
+    model.played = 9;
+    model.wins = 3;
+    model.streak = 1;
+    solitaireui::buildMenu(screen, model);
+  }
+  CHECK(menu.target.drew("SOLITAIRE"));
+
+  Rendered win;
+  {
+    toybox::Frame frame(win.target, ctx, noInput, win.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = solitaireScreen(frame, tokens);
+    solitaireui::WinModel model;
+    model.moves = 120;
+    model.wins = 4;
+    model.streak = 2;
+    solitaireui::buildWin(screen, model);
+  }
+  CHECK(win.target.texts.size() > 0);
+
+  // And the band this app raises is the number the Activity hands the theme.
+  // It was 56 typed twice in two files; the builders and the token could
+  // disagree and nothing would say so.
+  CHECK(solitaireui::kHeaderBand == 56);
+}
+
 void everyBandCarriesItsRule() {
   Rendered out;
   const fui::DeviceContext ctx = device();
@@ -774,11 +1011,20 @@ void everyBandCarriesItsRule() {
   props.title = "TITLE";
   toybox::headerBand(screen, props);
 
-  // Half one, and the constraint that shaped the whole fix: the header still
-  // reserves exactly kHeaderHeight, so not one pixel of content anywhere in
-  // the fork moves. Adding the rule BELOW the band would have pushed every
-  // board, table and card down by six.
-  CHECK(screen.body().y == toybox::kHeaderHeight);
+  // Half one: the chrome reserves every row it paints. The band's black stops
+  // at kHeaderHeight and the rule is drawn kBandRuleGap below that, so the
+  // first row a screen owns is kChromeHeight -- and screen.body().y says so.
+  //
+  // This assertion used to read `== kHeaderHeight`, on the reasoning that no
+  // screen's content should move to buy the rule. That was true of the rule
+  // and false of the body: it left body().y pointing at the top of a line the
+  // header had already drawn, so the honest way of laying out a screen -- take
+  // the body and add a gutter -- put content five pixels under the rule. The
+  // Connections calendar and the Wallpapers grid both did precisely that, and
+  // both are correct now without either file being touched, which is the only
+  // kind of fix that survives the next twenty screens. See card #248.
+  CHECK(screen.body().y == toybox::kChromeHeight);
+  CHECK(screen.body().y == toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule);
 
   // Half two: a black, full-bleed rule, kBandRuleGap below the band.
   bool ruled = false;
@@ -9450,8 +9696,10 @@ void testTheBandIsAbsoluteWithoutBeingAsked() {
 
   // The bezel must not push the band down. Both numbers matter: a band that
   // starts at the safe top AND keeps its height ends kHeaderHeight + 10 down
-  // the panel, which is the 85px band Mario saw.
-  CHECK(screen.body().y == toybox::kHeaderHeight);
+  // the panel, which is the 85px band Mario saw. Measured at the body's top,
+  // which is the band plus the rule under it -- the whole chrome, because the
+  // whole chrome is what a screen has to clear.
+  CHECK(screen.body().y == toybox::kChromeHeight);
 
   bool paintedFromRowZero = false;
   for (size_t i = 0; i < out.target.fills.size(); ++i) {
@@ -10134,6 +10382,7 @@ int main() {
   testAShortBoxIsWhatMakesTheCorrectionNecessary();
   testAMinesweeperDigitIsCentredInItsCell();
   testAKnucklebonesColumnTotalClearsItsBand();
+  solitaireDrawsOneRuleAndClearsIt();
   everyBandCarriesItsRule();
   yahtzeeDiceClearTheHeader();
 
