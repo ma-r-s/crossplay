@@ -125,7 +125,7 @@ log_sweep_prune_stale "$BASE" "$SELF" 1 >/dev/null 2>&1
 [ -d "$BASE/xteink-check-self" ]     && ok "and STILL spares self across windows" \
                                      || bad "self was swept once the window shrank"
 
-echo "check.sh: green drops its own dir, failure keeps it"
+echo "check.sh: green drops everything but its transcript, failure keeps it all"
 
 # Lift the verdict tail (the outer FAILED==0 block, which contains the green
 # rm) out of check.sh and run it, the way host-tests/checksh lifts the gate.
@@ -152,28 +152,57 @@ PY
 if [ ! -s "$WORK/verdicttail.sh" ]; then
   bad "could not lift the verdict tail out of check.sh"
 else
-  # sanity: the lifted block must actually carry the rm it exists to test.
-  grep -q 'rm -rf "\$LOGS"' "$WORK/verdicttail.sh" \
-    && ok "the lifted verdict tail contains the log-dir rm" \
-    || bad "the lifted verdict tail has no rm -- the green cleanup left the block"
+  # sanity: the lifted block must actually carry the cleanup it exists to test.
+  # Named on $LOGS rather than on one spelling of it: card #314 turned the
+  # single `rm -rf "$LOGS"` into a find that keeps one file back, and an
+  # extractor that recognises only yesterday's spelling turns tomorrow's
+  # regression into "could not extract" instead of a failing assertion.
+  grep -q '"\$LOGS"' "$WORK/verdicttail.sh" \
+    && ok "the lifted verdict tail still cleans up \$LOGS" \
+    || bad "the lifted verdict tail no longer touches \$LOGS -- the green cleanup left the block"
 
-  run_tail() { # $1 FAILED value, $2 LOGS dir
+  run_tail() { # $1 FAILED value, $2 LOGS dir, $3 transcript basename
     ( set +e
       qualifier_text() { echo ""; }   # stub: the real one reads git state
       DEVICE_BUILDS_SKIPPED=""
-      FAILED="$1"; LOGS="$2"
+      FAILED="$1"; LOGS="$2"; CHECK_RUNLOG="$2/$3"
       . "$WORK/verdicttail.sh" ) >/dev/null 2>&1
   }
 
-  G="$BASE/greenlogs"; mkdir -p "$G"; echo x > "$G/ui.log"
-  run_tail 0 "$G"
-  [ ! -d "$G" ] && ok "a green verdict removes this run's own log dir" \
-               || bad "green run left its log dir behind (card #144 unfixed)"
+  # THE GREEN CLEANUP, card #144 as amended by card #314.
+  #
+  # #144: a passing run's logs record only passing suites, so a green verdict
+  # drops them -- that is what stops 503 directories and 5.1GB piling up in
+  # TMPDIR. #314 keeps exactly ONE file back: the transcript, whose path this
+  # run PRINTED on its first line for somebody else to read. Deleting the file
+  # you told a reader to poll is the same silent lie as another session
+  # overwriting it, which is the bug #314 is about.
+  #
+  # So both halves are asserted, and the second one is the interesting one: the
+  # bytes must still go.
+  G="$BASE/greenlogs"; mkdir -p "$G/cmake-build.999"
+  echo x > "$G/ui.log"; echo x > "$G/cmake-build.999/a.o"; echo t > "$G/run.mine"
+  echo old > "$G/run.ancient"; touch -t 202501010000 "$G/run.ancient"
+  run_tail 0 "$G" run.mine
 
-  Fd="$BASE/faillogs"; mkdir -p "$Fd"; echo x > "$Fd/ui.log"
-  run_tail 1 "$Fd"
+  [ ! -f "$G/ui.log" ] && ok "a green verdict drops this run's suite logs" \
+                      || bad "green run kept its suite logs (card #144 unfixed)"
+  [ ! -d "$G/cmake-build.999" ] && ok "and the build tree inside it, which is where the bytes are" \
+                              || bad "green run kept a whole cmake build tree; this is the 5.1GB"
+  [ -f "$G/run.mine" ] && ok "but KEEPS this run's transcript, the one path it published" \
+                      || bad "green run deleted the transcript it printed on its own first line (card #314)"
+  # Transcripts are text and tiny, but "tiny" is not "bounded": one per run,
+  # forever, is still growth. They age out on the same window log-sweep.sh uses
+  # for whole directories.
+  [ ! -f "$G/run.ancient" ] && ok "and prunes transcripts older than the sweep window" \
+                           || bad "old transcripts accumulate forever; the count grows per run again"
+
+  Fd="$BASE/faillogs"; mkdir -p "$Fd"; echo x > "$Fd/ui.log"; echo t > "$Fd/run.mine"
+  run_tail 1 "$Fd" run.mine
   [ -d "$Fd" ] && ok "a failing run KEEPS its log dir for debugging" \
               || bad "a failure deleted its own logs -- nothing left to debug"
+  [ -f "$Fd/ui.log" ] && ok "including the suite logs that say what broke" \
+                     || bad "a failure kept the directory and dropped the logs in it"
 fi
 
 echo "check.sh: --committed reuses THIS tree's log dir instead of minting one per run"
