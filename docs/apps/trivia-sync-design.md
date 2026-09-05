@@ -952,6 +952,46 @@ written into the migration's comments. `pack.meta` was described in three files.
 `BIT_REPAIRS` documented that `us` repairs a bit and was referenced by no code.
 Prose is where this design kept its invariants, and prose does not run.
 
+## What has actually been run
+
+Not "the tests pass". These are the things that were executed end to end.
+
+**The whole report loop, in the simulator, against a real card image.** Seed a
+one-question pack with a manifest and a `pack.meta`, open the app, answer,
+HIDE, WHY?, pick WRONG ANSWER. The device wrote:
+
+```
+fs_agent/trivia/reports.dat   60 bytes = 52 header + 1 entry
+pack_id='4b14eca98670' count=1 entries=[(0, 'wrong')]
+```
+
+read back by `tools_local/trivia/reports.py`, which is the same reader that will
+read a real card. That single line is what proves the feature is switched on:
+before `adoptManifest` existed, this file was never created at all, and every
+test still passed.
+
+**The screens.** All ten reason rows drawn and none truncated; `NEXT QUESTION`
+identical with and without the second row; settings on a card with no
+`pack.meta` reading "1 QUESTION. BUILD UNKNOWN UNTIL YOU SYNC".
+
+**The C++ writer read by the Python reader**, in `host-tests/trivia`, including a
+withdrawn entry the reader must skip and a cursor it must honour.
+
+**The endpoint's precedent**, live: an empty POST to `/api/report` answers 400,
+and since that handler returns 503 first when its keys are missing, the 400
+proves the neighbouring function is deployed and credentialed.
+
+### What has NOT been run
+
+- **No hardware.** Nothing here has touched a device.
+- **No real network request.** `runSync` has never made one: the simulator has
+  no radio, so the upload path, the manifest fetch and the TLS chain are
+  reasoned about and not exercised. The cross-signature that makes the site's
+  certificate verify against the baked roots was checked with `openssl`, not by
+  the device.
+- **No SQL executed.** The migration and its two functions are reviewed, not
+  run.
+
 ## Order of work, and where it actually got to
 
 | | Step | State |
