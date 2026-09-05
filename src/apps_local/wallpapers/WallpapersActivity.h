@@ -60,6 +60,7 @@ class WallpapersActivity final : public Activity {
   void onWifiChosen(bool connected);
   void runSetDownload();  // blocking: fetch the pack, then unpack it
   bool unpackSet();       // pack -> individual .bmp files, resumable
+  void prewarmThumbs();   // build the thumbnail cache while the bar is still up
   void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
   void openAdd();  // build the address and show the QR screen
   void loadActive();
@@ -69,6 +70,9 @@ class WallpapersActivity final : public Activity {
   void clampPage();
   void ensureThumbsForPage();  // decode this page's cells if not cached
   Thumb decodeThumb(const std::string& path, int16_t cellW, int16_t cellH) const;
+  // Cached decode: reads /wallpapers/.thumbs/<name>.thb when it still matches
+  // the source and the cell size, otherwise decodes and writes it.
+  Thumb thumbFor(const std::string& name, const std::string& path, int16_t cellW, int16_t cellH, int* decoded);
   void drawGrid(const wallpapersui::GridGeom& geom);
   void drawAddTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th);
   void drawGetSetTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th) const;
@@ -78,10 +82,13 @@ class WallpapersActivity final : public Activity {
   std::vector<std::string> names_;  // library file names, sorted
   int activeIndex_ = -1;            // which name is pinned, or -1
   int builtInsMissing_ = 0;         // how many of the built-in set are not on the card
+  bool warningPending_ = false;     // the free-space walk, deferred until after the first paint
+  bool painted_ = false;            // the panel has shown something at least once
   int page_ = 0;
   int fetchDone_ = 0;
   int fetchTotal_ = 0;
   bool fetchCancel_ = false;
+  int fetchPhase_ = 0;  // 0 fetch, 1 unpack, 2 thumbnails -- thirds of one bar
   bool fetchQueued_ = false;
   std::string noticeHead_;
   std::string noticeBody_;

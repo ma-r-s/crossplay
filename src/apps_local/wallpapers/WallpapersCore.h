@@ -88,6 +88,17 @@ inline constexpr size_t kBuiltInCount = 21;
 size_t builtInCount();
 const char* builtInStem(size_t index);
 
+// Is this file one of the built-in set? The picker sorts a user's OWN
+// wallpapers in front of the built-ins, so this decides the order and it has to
+// be a real predicate rather than a binary_search over a list that is no longer
+// plainly sorted.
+bool isBuiltInFile(std::string_view fileName);
+
+// Sort order for the picker: user uploads first, then the built-ins, each
+// alphabetical. Mario's ask -- your own pictures should not be buried behind
+// twenty-one defaults.
+bool sortsBefore(std::string_view a, std::string_view b);
+
 enum class Room : uint8_t { Ok, TooFull, Unknown };
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes);
 
