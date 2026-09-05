@@ -1305,5 +1305,79 @@ else
   echo "FAIL checksh  could not lift the submodule wiring, freshness wiring, verdict or qualifier out of check.sh"
 fi
 
+# -- a skip must be VISIBLE, and it must be a FAILURE in CI -------------------
+#
+# check.sh surfaces a suite's skips with one grep (`grep -E "^SKIP"`), which is
+# the entire mechanism by which a check that did not run is distinguished from
+# one that passed. host-tests/autorelease printed its skip INDENTED, so that
+# anchor never matched it: the suite could skip its only real-repository range
+# and say nothing a human would see. It also had no CI guard, unlike release,
+# relwatch and boardmigrate, so the same skip was silent on the runner too --
+# unguarded and unseen, the two halves that make each other invisible.
+#
+# Written to DISCOVER rather than to assert: it walks every suite, finds every
+# SKIP any of them can print, and holds each against check.sh's own pattern
+# lifted out of check.sh. A copy of the pattern here would drift the moment
+# somebody tightened the real one.
+python3 - "$CHECK" "$HERE/.." <<'SKIPS' >"$WORK/skips"
+import os, re, sys
+
+check_src = open(sys.argv[1]).read()
+suites = sys.argv[2]
+
+# The detector itself, lifted. If it ever stops existing, everything below is
+# checking a contract nothing enforces, so that is the first failure.
+m = re.search(r'grep -E "([^"]*SKIP[^"]*)"', check_src)
+if not m:
+    print("FAIL checksh  check.sh no longer greps a suite's log for SKIP, so nothing "
+          "surfaces a check that did not run -- and every assertion below would pass "
+          "by having no contract to test")
+    raise SystemExit(0)
+anchor = m.group(1)
+pattern = re.compile(anchor)
+print("ok    check.sh surfaces skips with %s" % anchor)
+
+# What a suite can print as a skip: the text of an echo whose message begins
+# with SKIP. That deliberately does not match "FAIL ... SKIPPED ..." messages,
+# which are failures already, or the word inside a grep.
+echoed = re.compile(r'echo\s+"([^"]*)"')
+is_skip = re.compile(r'\s*SKIP\b')
+
+found = False
+for name in sorted(os.listdir(suites)):
+    run = os.path.join(suites, name, "run.sh")
+    if not os.path.isfile(run):
+        continue
+    src = open(run).read()
+    msgs = [t for t in echoed.findall(src) if is_skip.match(t)]
+    if not msgs:
+        continue
+    found = True
+    for t in msgs:
+        if pattern.search(t):
+            print("ok    %s: %r is visible to check.sh" % (name, t))
+        else:
+            print("FAIL checksh  host-tests/%s prints %r, which check.sh's own %s does "
+                  "not match: that suite can skip and NOTHING says so" % (name, t, anchor))
+    # Crude on purpose -- one mention of ${CI:-} anywhere in the file, rather
+    # than an attempt to decide statically which branch it guards. A suite that
+    # can skip and never mentions CI cannot be turning a skip into a failure
+    # there, which is the shape this is looking for.
+    if "${CI:-}" in src:
+        print("ok    %s: it knows about CI" % name)
+    else:
+        print("FAIL checksh  host-tests/%s can print a SKIP and never mentions ${CI:-}: "
+              "on the runner, where every input is meant to be present, the check does "
+              "not run and the suite still exits 0" % name)
+
+if not found:
+    print("FAIL checksh  no suite prints a SKIP at all; this just checked nothing")
+SKIPS
+
+while IFS= read -r line; do
+  checks=$((checks + 1))
+  case "$line" in FAIL*) failed=$((failed + 1)); echo "$line" ;; esac
+done < "$WORK/skips"
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

@@ -1,5 +1,19 @@
 name: CI (build)
 
+# FORK CHANGE: DISABLED ON GITHUB (disabled_manually), and nothing in the file
+# said so. Its triggers below are still `push: branches: [master]` -- a branch
+# this fork does not have -- and `pull_request`, which is live-looking and was
+# live: it went red on every pull request for a week, on the fork's own code
+# rather than upstream's, and was read by nobody.
+#
+# Its three jobs that had nowhere else to run (clang-format, the cmake unit
+# tests, cppcheck) moved into crossplay-ci.yml on 2026-09-04, card 170. Its four
+# device builds duplicated crossplay-ci.yml's.
+#
+# Kept rather than deleted because deleting it conflicts on every sync from
+# upstream. Re-enable it in the Actions tab if you ever want upstream's own
+# checks back; the trigger is untouched on purpose, so re-enabling is one click
+# and not a merge.
 on:
   push:
     branches: [master]

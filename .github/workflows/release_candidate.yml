@@ -1,5 +1,20 @@
 name: Compile Release Candidate
 
+# FORK CHANGE: this workflow CANNOT run here, and reads as though it can.
+#
+# Two things have to line up and never do. It is dispatch-only, so nothing
+# starts it by itself; and its one job is gated on a ref name beginning with
+# `release/`, which no branch in this fork has -- work happens on `app/*` and
+# lands on `xteink`. Dispatching it therefore produces a green run with zero
+# jobs, which is indistinguishable from a release candidate that built.
+#
+# It also builds four upstream boards (gh_release_rc, sticky, x4pro,
+# papermono) with the RC envs, none of which is what this fork ships:
+# crossplay-release.yml owns v* tags and builds gh_release_x4pro and
+# gh_release_sticky.
+#
+# Kept rather than deleted because deleting it conflicts on every sync from
+# upstream, and left exactly as upstream wrote it for the same reason.
 on:
   workflow_dispatch:
 

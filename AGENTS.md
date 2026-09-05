@@ -968,6 +968,19 @@ build_flags =
 
 ### CI/CD Pipeline Awareness
 
+> **In CrossPlay, not one of the four workflows in this table runs.** `ci.yml`
+> and `pr-formatting-check.yml` are disabled on GitHub; `release.yml` and
+> `release_candidate.yml` are dispatch-only, and the latter is also gated on a
+> `release/` ref this fork's `app/*` branches never match. All four are kept
+> rather than deleted so upstream syncs stay clean, and each carries a
+> `FORK CHANGE:` note saying so.
+>
+> What actually runs here is `crossplay-ci.yml` (build, clang-format, unit
+> tests, cppcheck, host suites) on every pull request and every push to
+> `xteink`, `crossplay-release.yml` on a `v*` tag, and `crossplay-autorelease.yml`
+> and `crossplay-emulator.yml` after a green run on `xteink`. The table below is
+> upstream's.
+
 **GitHub Actions** run automatically on pull requests:
 
 | Workflow      | File                                        | Purpose                |

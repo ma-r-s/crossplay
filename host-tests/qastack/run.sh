@@ -26,15 +26,29 @@ SCRIPT="$HERE/../../server/read-bridge/tests/qa_stack.sh"
 checks=0
 failed=0
 
-[ -r "$SCRIPT" ] || { echo "SKIP qastack  $SCRIPT is not readable"; echo "0 checks, 0 failed"; exit 0; }
+# Same rule as host-tests/release, relwatch and boardmigrate: a skip is
+# information on a laptop, and a FAILURE in CI, where every input is meant to be
+# present. Both paths below are things CI has -- the script is committed, and nc
+# is on the runner image -- so a skip here means CI stopped being the machine
+# this suite thinks it is, which is worth a red rather than a line nobody reads.
+skip() {
+  if [ -n "${CI:-}" ]; then
+    echo "FAIL qastack  $1 (a skip is a failure in CI: the inputs should be present here)"
+    echo "1 checks, 1 failed"
+    exit 1
+  fi
+  echo "SKIP qastack  $1"
+  echo "0 checks, 0 failed"
+  exit 0
+}
+
+[ -r "$SCRIPT" ] || skip "$SCRIPT is not readable"
 
 # nc is not optional here: down()'s wait is written with `nc -z`, and so is up()'s
 # port guard. Without it the wait breaks out of its loop on the first iteration
 # and this suite would pass while proving nothing, which is the failure mode this
 # whole file exists to refuse.
-command -v nc >/dev/null 2>&1 || {
-  echo "SKIP qastack  no nc on PATH; qa_stack.sh's port wait cannot be exercised"
-  echo "0 checks, 0 failed"; exit 0; }
+command -v nc >/dev/null 2>&1 || skip "no nc on PATH; qa_stack.sh's port wait cannot be exercised"
 
 WORK="$(mktemp -d)"
 trap 'for p in "$WORK"/*.pid; do [ -f "$p" ] && kill -9 "$(cat "$p")" 2>/dev/null; done; rm -rf "$WORK"' EXIT

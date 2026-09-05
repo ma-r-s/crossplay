@@ -22,12 +22,16 @@ trap 'rm -rf "$WORK"' EXIT
 
 [ -f "$YML" ] || { echo "FAIL cannot find $YML"; exit 1; }
 
-# Lift the step body out of the yaml and dedent it, so this test cannot drift
-# from the text CI actually runs.
-python3 - "$YML" >"$WORK/step.sh" <<'PY'
+# Lift a named step's shell body out of a workflow and dedent it, so these
+# tests cannot drift from the text the runner actually executes. ONE extractor
+# for every caller below: this python was copied three times in this file, and a
+# step whose name stops matching is a "could not extract" rather than a silent
+# pass in each copy separately.
+lift_step() {  # <workflow.yml> <step name>  -> that step's run: block, dedented
+  python3 - "$1" "$2" <<'PY'
 import sys
 lines = open(sys.argv[1]).read().splitlines()
-i = next(i for i, l in enumerate(lines) if l.strip() == '- name: Host tests')
+i = next(i for i, l in enumerate(lines) if l.strip() == '- name: ' + sys.argv[2])
 j = next(j for j in range(i, len(lines)) if lines[j].strip() == 'run: |')
 body, indent = [], None
 for l in lines[j + 1:]:
@@ -42,7 +46,9 @@ for l in lines[j + 1:]:
     body.append(l[indent:])
 print('\n'.join(body))
 PY
+}
 
+lift_step "$YML" 'Host tests' >"$WORK/step.sh"
 [ -s "$WORK/step.sh" ] || { echo "FAIL could not extract the Host tests step"; exit 1; }
 
 fake() {  # name, exit code, stdout
@@ -137,24 +143,7 @@ esac
 # present but inverted fails here and nowhere else. v1.12.16 was built and
 # published twice on 2026-09-04, one run per path, before either existed.
 AYML="$HERE/../../.github/workflows/crossplay-autorelease.yml"
-python3 - "$AYML" 'Build and publish the release' >"$WORK/publish.sh" <<'PY'
-import sys
-lines = open(sys.argv[1]).read().splitlines()
-i = next(i for i, l in enumerate(lines) if l.strip() == '- name: ' + sys.argv[2])
-j = next(j for j in range(i, len(lines)) if lines[j].strip() == 'run: |')
-body, indent = [], None
-for l in lines[j + 1:]:
-    if not l.strip():
-        body.append('')
-        continue
-    cur = len(l) - len(l.lstrip())
-    if indent is None:
-        indent = cur
-    if cur < indent:
-        break
-    body.append(l[indent:])
-print('\n'.join(body))
-PY
+lift_step "$AYML" 'Build and publish the release' >"$WORK/publish.sh"
 [ -s "$WORK/publish.sh" ] || { echo "FAIL could not extract the publish step from crossplay-autorelease.yml"; exit 1; }
 mkdir -p "$WORK/bin"
 printf '#!/bin/sh\necho "gh $*" >> "%s/gh.calls"\n' "$WORK" >"$WORK/bin/gh"; chmod +x "$WORK/bin/gh"
@@ -292,6 +281,133 @@ else
     echo "FAIL ci  the step demands release prose from a pull request that publishes nothing"
   fi
 fi
+
+# -- the emulator rebuild must be able to FAIL -------------------------------
+#
+# scripts_local/emulator-stale.sh answers three ways, and says so in its own
+# header: 0 stale, 1 fresh, 2 it could not look. crossplay-emulator.yml asked it
+# inside `if bash ...; then stale=true; else stale=false; fi`, which keeps only
+# "was that a zero" -- so the crash was recorded as fresh. Every later step in
+# that job is gated on `steps.stale.outputs.stale == 'true'`, so all of them
+# were skipped, and the job ended green having rebuilt nothing. That is
+# byte-for-byte the outcome of a genuinely fresh emulator, and site/emulator/ is
+# what the web page runs.
+#
+# EXECUTED against a fake script rather than grepped, for the reason at the top
+# of this file: the broken shape and the fixed one both contain the script's
+# name, both mention GITHUB_OUTPUT, and a grep for either matches both.
+EYML="$HERE/../../.github/workflows/crossplay-emulator.yml"
+lift_step "$EYML" 'Is the emulator behind its sources?' >"$WORK/stale.sh"
+[ -s "$WORK/stale.sh" ] || { echo "FAIL could not extract the staleness step from crossplay-emulator.yml"; exit 1; }
+
+stale_says() {  # label, the script's exit code, wanted step outcome, wanted output line
+  local label="$1" rc="$2" want="$3" line="$4" code got
+  rm -rf "$WORK/emu"; mkdir -p "$WORK/emu/scripts_local"
+  # "gone" is the script deleted or renamed rather than any exit code, which is
+  # the same family of non-answer and used to be filed as 'fresh' too.
+  if [ "$rc" != gone ]; then
+    printf '#!/bin/sh\necho "pretending"\nexit %s\n' "$rc" >"$WORK/emu/scripts_local/emulator-stale.sh"
+  fi
+  : >"$WORK/emu/gh_output"
+  # bash -eo pipefail is what GitHub Actions gives a `run:` block, and it is
+  # half of what made this subtle: a bare `bash script` returning 1 under -e
+  # would abort the step, so the fix has to hold the code without tripping it.
+  ( cd "$WORK/emu" && GITHUB_OUTPUT="$WORK/emu/gh_output" bash -eo pipefail "$WORK/stale.sh" ) >"$WORK/emu/log" 2>&1
+  code=$?
+  got=pass; [ $code -ne 0 ] && got=fail
+  checks=$((checks + 1))
+  if [ "$got" != "$want" ]; then
+    failed=$((failed + 1))
+    echo "FAIL ci-emulator  $label: emulator-stale.sh exited $rc and the step $got, wanted $want"
+    sed 's/^/       /' "$WORK/emu/log"
+    return
+  fi
+  checks=$((checks + 1))
+  if [ -n "$line" ] && ! grep -qx "$line" "$WORK/emu/gh_output"; then
+    failed=$((failed + 1))
+    echo "FAIL ci-emulator  $label: exit $rc did not record '$line' ($(tr '\n' ' ' < "$WORK/emu/gh_output"))"
+  elif [ -z "$line" ] && grep -q 'stale=' "$WORK/emu/gh_output"; then
+    failed=$((failed + 1))
+    echo "FAIL ci-emulator  $label: exit $rc still recorded '$(tr '\n' ' ' < "$WORK/emu/gh_output")'; a script that could not answer must not be filed as an answer, least of all as the answer that skips the rebuild"
+  fi
+}
+
+stale_says "0 means stale, and the rebuild runs"  0 pass "stale=true"
+stale_says "1 means fresh, and the job does nothing" 1 pass "stale=false"
+stale_says "2 is the script telling us it could not look" 2 fail ""
+# The script deleted, renamed or not executable: 127 is not one of the two real
+# answers either, and it used to be filed as 'fresh' by the same else branch.
+stale_says "a missing script is not an answer" gone fail ""
+
+# -- the long jobs have a cap on being stuck ---------------------------------
+#
+# No job in any workflow here had timeout-minutes, so every one of them
+# inherited GitHub's SIX HOUR default. A hung step -- a fetch retrying forever,
+# a build waiting on a lock -- therefore holds a runner for a quarter of a day
+# while the thing that started it reads as still running, which is the same
+# display as a build that is merely slow.
+#
+# Only the two that cross-compile are asserted: they are the ones long enough
+# that "slow" and "stuck" look alike, and a blanket rule over every job would be
+# a number to maintain in six places for jobs that finish in one minute.
+job_timeout() {  # <workflow.yml> <job name>
+  python3 - "$1" "$2" <<'TMO'
+import re, sys
+lines = open(sys.argv[1]).read().splitlines()
+try:
+    i = next(i for i, l in enumerate(lines) if l.rstrip() == '  ' + sys.argv[2] + ':')
+except StopIteration:
+    print('NOJOB'); raise SystemExit(0)
+for l in lines[i + 1:]:
+    if l.strip() and not l.startswith('    '):
+        break
+    m = re.match(r'\s*timeout-minutes:\s*(\d+)', l)
+    if m:
+        print(m.group(1)); raise SystemExit(0)
+print('NONE')
+TMO
+}
+for pair in "$YML:build" "$HERE/../../.github/workflows/crossplay-release.yml:release"; do
+  f="${pair%:*}"; j="${pair##*:}"
+  checks=$((checks + 1))
+  t="$(job_timeout "$f" "$j")"
+  case "$t" in
+    NOJOB)
+      failed=$((failed + 1))
+      echo "FAIL ci  $(basename "$f") has no job called '$j'; this assertion is looking at nothing" ;;
+    NONE)
+      failed=$((failed + 1))
+      echo "FAIL ci  $(basename "$f")'s '$j' job has no timeout-minutes, so a hung step holds a runner for GitHub's default six hours and reads as a slow build the whole time" ;;
+    *) : ;;
+  esac
+done
+
+# -- an inherited workflow must say what it does HERE -------------------------
+#
+# ci.yml and pr-formatting-check.yml are disabled_manually on GitHub and said
+# nothing about it in the file: ci.yml still reads `on: pull_request`, which is
+# as live-looking a trigger as exists. release_candidate.yml is worse -- it is
+# dispatch-only AND gated on a `release/` ref that this fork's `app/*` branches
+# can never match, so dispatching it produces a green run with zero jobs, which
+# is indistinguishable from a release candidate that built.
+#
+# None of them is deleted, because deleting them conflicts on every sync from
+# upstream. So the rule is that they carry the reason instead, in release.yml's
+# shape.
+#
+# Written over "every workflow that is not this fork's own" rather than over a
+# list of the four, so the NEXT upstream workflow a sync brings in arrives red
+# until somebody says whether it runs here.
+for wf in "$HERE/../.."/.github/workflows/*.yml; do
+  case "$(basename "$wf")" in crossplay-*) continue ;; esac
+  checks=$((checks + 1))
+  if grep -q "FORK CHANGE" "$wf"; then
+    :
+  else
+    failed=$((failed + 1))
+    echo "FAIL ci  $(basename "$wf") is inherited from upstream and carries no 'FORK CHANGE:' note saying whether it runs in this fork; a disabled or unreachable workflow reads exactly like a live one"
+  fi
+done
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
