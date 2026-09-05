@@ -66,6 +66,14 @@ size, runs a honeypot, rate-limits on a salted hash of the address so the
 address is never stored, and writes to the board with the service key. It is
 the precedent for the trivia endpoint and most of it is copyable.
 
+Checked live rather than read: an empty `POST` to
+`https://crossplay.ma-r-s.com/api/report` answers **400** with the handler's own
+sentence. That is the evidence that matters, because the very first thing the
+handler does is return **503** when `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY`
+is missing. A 400 therefore proves the function is deployed, routed, **and**
+holds working board credentials — so a second function beside it needs no new
+environment, no new project and no new secret.
+
 **An events table and a device-identity convention.** `docs/workflow/events.md`
 defines `events` on the board and the three device headers; `X-CrossPlay-Device`
 is `sha256(MAC + a per-device secret that never leaves the device)`, so it is
