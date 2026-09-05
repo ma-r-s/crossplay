@@ -152,7 +152,7 @@ void drawDoneChip(toybox::Screen& screen, const int16_t cx, const int16_t cy, co
 }
 
 // A clue number, centred in `box`. When its line is satisfied the number is
-// struck through -- honest here only because a wrong fill never becomes a Filled
+// crossed out -- honest here only because a wrong fill never becomes a Filled
 // cell, so a satisfied count is a solved line and not a lucky miscount (see
 // PicrossCore::rowSatisfied; the note there is load-bearing for the free-erase
 // switch).
@@ -169,16 +169,27 @@ void drawClueNumber(toybox::Screen& screen, const fui::Rect& box, const int valu
   const int16_t cx = static_cast<int16_t>(box.x + box.width / 2);
   const int16_t cy = static_cast<int16_t>(box.y + box.height / 2);
 
-  // A satisfied line's clue is struck through (Mario's pick). A struck lone "1"
-  // reads as a "+" only when a centred rule is CONTAINED within the single
-  // vertical stroke, the way a plus's crossbar is. Two things stop that and the
-  // strike still reads as a cancel: it is centred on the digit (not dropped
-  // below it), and it OVERSHOOTS the glyph on both sides -- a plus does not.
-  // Chip first, then the digit over it, then the rule over both.
-  if (satisfied) {
+  // A "0" clue is NEVER crossed out. An empty line has nothing to satisfy, so
+  // the mark says nothing -- and a struck zero reads as a slashed zero or a
+  // theta, which looks like a different symbol rather than a finished clue.
+  const bool crossOut = satisfied && value > 0;
+
+  // The cross-out is DIAGONAL, and it has to be. A horizontal rule through the
+  // centre of a "1" IS a cross: the digit is a vertical stem, so a bar meeting
+  // it at right angles makes a dagger no matter how far it overshoots or what
+  // sits behind it -- geometry beats every cosmetic defence, and the earlier
+  // centred-and-overshooting horizontal rule still read as a "t". A diagonal
+  // still passes through the centre of the number (what Mario asked for) and
+  // still reads unmistakably as "crossed out", but it cannot be mistaken for a
+  // plus or a dagger because neither has a slanted bar. One consistent 45-degree
+  // angle for EVERY struck clue -- a special case for the "1"s would itself look
+  // like a bug. Chip first, then the digit, then the cross over both.
+  int16_t chipHalfW = 0;
+  int16_t chipHalfH = 0;
+  if (crossOut) {
     const int16_t glyphW = screen.target().measureText(cm.font, text, style).width;
-    int16_t chipHalfW = static_cast<int16_t>(glyphW / 2 + 4);
-    int16_t chipHalfH = static_cast<int16_t>(cm.cut.inkHeight / 2 + 2);
+    chipHalfW = static_cast<int16_t>(glyphW / 2 + 4);
+    chipHalfH = static_cast<int16_t>(cm.cut.inkHeight / 2 + 2);
     // Never spill into the neighbouring stacked clue or the playfield.
     if (chipHalfW > box.width / 2 - 1) chipHalfW = static_cast<int16_t>(box.width / 2 - 1);
     if (chipHalfH > box.height / 2 - 1) chipHalfH = static_cast<int16_t>(box.height / 2 - 1);
@@ -187,14 +198,18 @@ void drawClueNumber(toybox::Screen& screen, const fui::Rect& box, const int valu
 
   screen.target().text(toybox::inkCentred(box, cm.cut), text, style);
 
-  if (satisfied) {
-    const int16_t glyphW = screen.target().measureText(cm.font, text, style).width;
-    const int16_t overshoot = 3;
-    const int16_t half = static_cast<int16_t>(glyphW / 2 + overshoot);
-    const int16_t y = static_cast<int16_t>(cy - toybox::kHairline / 2);
-    screen.target().fill(
-        fui::makeRect(static_cast<int16_t>(cx - half), y, static_cast<int16_t>(half * 2), toybox::kHairline),
-        fui::Paint::solid(fui::Color::Black));
+  if (crossOut && chipHalfW > 0 && chipHalfH > 0) {
+    // Square the reach so the angle is the same on every clue, and keep it a
+    // pixel inside the chip on both axes: the rule used to poke past the chip's
+    // edges, which read as unfinished.
+    int16_t reach = chipHalfW < chipHalfH ? chipHalfW : chipHalfH;
+    reach = static_cast<int16_t>(reach - 1);
+    if (reach > 0) {
+      const uint8_t weight = static_cast<uint8_t>(cm.cut.inkHeight >= 20 ? 3 : 2);
+      screen.target().line(fui::Point{static_cast<int16_t>(cx - reach), static_cast<int16_t>(cy + reach)},
+                           fui::Point{static_cast<int16_t>(cx + reach), static_cast<int16_t>(cy - reach)}, weight,
+                           fui::Paint::solid(fui::Color::Black));
+    }
   }
 }
 

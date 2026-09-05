@@ -27,8 +27,8 @@ The shipped rule is the classic Nintendo Picross one, and it was Mario's call:
 Because a wrong fill becomes a locked mistake rather than a filled cell, a
 _filled_ cell is always a correct one. Two things depend on that invariant:
 
-1. The **satisfied-clue dimming** (a clue number greys once its line is done) is
-   honest -- a line's fill count can equal its clue total only when the line is
+1. The **satisfied-clue cross-out** (a clue is crossed out once its line is done)
+   is honest -- a line's fill count can equal its clue total only when the line is
    actually solved, never by a lucky miscount.
 2. **Win** is "every solid cell filled", one comparison, with no separate rule
    checker.
@@ -73,7 +73,13 @@ derives each puzzle's clues from its picture, then:
   line-solvable AND unique -- a line-solver that fixes every cell has proved
   every cell was forced, which is exactly what one solution means;
 - runs an **independent exhaustive count** (a different algorithm: row-by-row
-  DFS with column pruning) and requires the count to be exactly 1.
+  DFS with column pruning) and requires the count to be exactly 1;
+- requires the picture to **fill the grid it claims**: no empty first or last row,
+  no empty first or last column. An uncropped drawing makes a puzzle smaller than
+  its label, and the SIZE LABEL is what tells the player the difficulty tier -- a
+  15x15 whose ink only spans eight rows is a 15x8 lying about its tier. Interior
+  empty lines stay legal (a picture may genuinely have a gap), which is the only
+  way a "0" clue should ever appear.
 
 It refuses to write the header unless every puzzle passes both. The clues are
 never stored, only the picture, so the clues cannot disagree with it.
@@ -107,6 +113,21 @@ is exactly equivalent to "correct" because the solution is unique, and that
 uniqueness is what the pipeline above proves. Implementing a solver on the device
 would mean two implementations that must agree forever, for nothing the player
 can see.
+
+## The satisfied clue is crossed out, diagonally
+
+A clue whose line is finished sits on a light dotted "done" chip and is crossed
+out. The cross is **diagonal, at one consistent angle, on every struck clue**,
+and that is not a style choice: a "1" is a vertical stem, so any HORIZONTAL rule
+through its centre makes a dagger or a plus no matter how far it overshoots or
+what sits behind it. Geometry beats every cosmetic defence -- a centred,
+overshooting horizontal rule still read as a "t" at native size. A diagonal still
+passes through the centre of the number and still reads as "crossed out", but
+cannot be mistaken for a plus. The cross stays a pixel inside the chip on both
+axes (it used to poke past, which read as unfinished), and a **"0" clue is never
+crossed out**: an empty line has nothing to satisfy, and a struck zero reads as a
+slashed zero. Prove it on a render at NATIVE resolution every time -- a struck
+lone "1" is the specific test, and a 4x zoom will flatter it.
 
 ## The picker does not spoil
 

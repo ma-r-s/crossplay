@@ -24,8 +24,10 @@ the pictures are ours, so there is nothing to launder and no licence to breach.
 `tools_local/picross/gen_picross.py` DERIVES each puzzle's clues from its
 picture and REFUSES to emit any puzzle that is not both:
 
-- **unique** -- exactly one grid satisfies the derived clues, and
-- **line-solvable** -- reachable by single-line reasoning with no guessing.
+- **unique** -- exactly one grid satisfies the derived clues,
+- **line-solvable** -- reachable by single-line reasoning with no guessing, and
+- **filling its grid** -- no empty first/last row or column, so a picture cannot
+  claim a size tier it does not actually use (interior gaps are still allowed).
 
 Run `python3 tools_local/picross/gen_picross.py --curate` to triage candidates
 (it reports PASS/FAIL per picture without emitting); the strict default run

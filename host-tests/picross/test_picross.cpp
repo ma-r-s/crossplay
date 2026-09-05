@@ -422,10 +422,89 @@ void progressAndRestore() {
   CHECK(fixed.cell(er, ec) == picross::Cell::Blank);
 }
 
+
+// Every picture must USE the grid it claims: no empty first or last row, no
+// empty first or last column. An empty edge line means the drawing was never
+// cropped to its bounding box, so a puzzle labelled 15x15 can really be a 13x13
+// -- and once was a 15x8 (WEDGE). The SIZE LABEL is what tells the player the
+// difficulty tier, so a picture that does not fill its grid is a label that
+// lies. Interior empty lines stay legal: a picture may genuinely have a gap.
+// The generator refuses these; this re-proves it over the header that ships.
+void bankFillsItsGrid() {
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    const picross::Puzzle& z = picross::kPuzzles[p];
+    const int n = z.size;
+    const uint16_t mask = static_cast<uint16_t>((1u << n) - 1u);
+    const bool firstRow = (z.rows[0] & mask) != 0;
+    const bool lastRow = (z.rows[n - 1] & mask) != 0;
+    bool firstCol = false;
+    bool lastCol = false;
+    for (int r = 0; r < n; ++r) {
+      if (z.rows[r] & uint16_t{1}) firstCol = true;
+      if (z.rows[r] & static_cast<uint16_t>(uint16_t{1} << (n - 1))) lastCol = true;
+    }
+    if (!firstRow || !lastRow || !firstCol || !lastCol)
+      std::printf("  %s %dx%d does not fill its grid (row0=%d rowN=%d col0=%d colN=%d)\n", z.name, n, n,
+                  static_cast<int>(firstRow), static_cast<int>(lastRow), static_cast<int>(firstCol),
+                  static_cast<int>(lastCol));
+    CHECK(firstRow);
+    CHECK(lastRow);
+    CHECK(firstCol);
+    CHECK(lastCol);
+  }
+}
+
+// rowSatisfied and colSatisfied are ONE question asked along two axes, and this
+// fork's most expensive recurring bug is repairing one of a symmetric pair and
+// leaving its twin. On a fully solved board every row AND every column must be
+// satisfied. With exactly one solid cell left unfilled, exactly the row and the
+// column through that cell must be the only unsatisfied lines -- which is the
+// state a half-solved board renders, and the one a reader mistook for a bug.
+void satisfiedAgreesOnBothAxes() {
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    picross::Board board;
+    board.load(p);
+    const int n = board.size();
+    for (int r = 0; r < n; ++r)
+      for (int c = 0; c < n; ++c)
+        if (board.solid(r, c)) board.fill(r, c);
+    CHECK(board.solved());
+    for (int r = 0; r < n; ++r) CHECK(board.rowSatisfied(r));
+    for (int c = 0; c < n; ++c) CHECK(board.colSatisfied(c));
+  }
+
+  picross::Board board;
+  board.load(picross::kPuzzleCount - 1);
+  const int n = board.size();
+  // The hole must sit OFF the diagonal. With row == col a swapped axis gives the
+  // same answer, so the obvious choice (the first solid cell, usually on the
+  // diagonal) makes this test blind to exactly the bug it exists to catch --
+  // confirmed by mutating colSatisfied to use the row counts and watching a
+  // diagonal hole still pass.
+  int hr = -1;
+  int hc = -1;
+  for (int r = 0; r < n && hr < 0; ++r)
+    for (int c = 0; c < n && hr < 0; ++c)
+      if (r != c && board.solid(r, c)) {
+        hr = r;
+        hc = c;
+      }
+  CHECK(hr >= 0);
+  CHECK(hr != hc);
+  for (int r = 0; r < n; ++r)
+    for (int c = 0; c < n; ++c)
+      if (board.solid(r, c) && !(r == hr && c == hc)) board.fill(r, c);
+  CHECK(!board.solved());
+  for (int r = 0; r < n; ++r) CHECK(board.rowSatisfied(r) == (r != hr));
+  for (int c = 0; c < n; ++c) CHECK(board.colSatisfied(c) == (c != hc));
+}
+
 }  // namespace
 
 int main() {
   validateBank();
+  bankFillsItsGrid();
+  satisfiedAgreesOnBothAxes();
   clueDerivation();
   mistakeAndWin();
   freeEraseMode();

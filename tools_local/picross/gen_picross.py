@@ -225,6 +225,23 @@ def evaluate(name, cells):
     n = len(cells)
     if n not in SIZES:
         return False, "size %d not in %r" % (n, SIZES)
+    # The picture must USE the grid it claims. An empty edge row or column means
+    # the drawing is not cropped to its bounding box, so the puzzle is smaller
+    # than its label -- and the label is what tells the player how hard it is.
+    # Interior empty lines are legitimate (a picture may genuinely have a gap);
+    # only the four edges are required to carry ink.
+    used_rows = [r for r in range(n) if any(cells[r])]
+    used_cols = [c for c in range(n) if any(cells[r][c] for r in range(n))]
+    if not used_rows or not used_cols:
+        return False, "the picture is empty"
+    r0, r1 = used_rows[0], used_rows[-1]
+    c0, c1 = used_cols[0], used_cols[-1]
+    if r0 != 0 or r1 != n - 1 or c0 != 0 or c1 != n - 1:
+        return False, (
+            "does not fill its %dx%d grid -- ink spans rows %d..%d, cols %d..%d "
+            "(%dx%d). Redraw it to touch all four edges, or move it to a smaller tier."
+            % (n, n, r0, r1, c0, c1, r1 - r0 + 1, c1 - c0 + 1)
+        )
     rows = row_clues(cells)
     cols = col_clues(cells)
     solved = line_solve(rows, cols, n)
