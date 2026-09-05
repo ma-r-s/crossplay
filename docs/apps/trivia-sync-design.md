@@ -104,6 +104,10 @@ So the single copy of the join table this feature depends on is one prune away
 from being gone, and nothing would report an error — the reports would simply
 stop resolving, months later, with no way to reconstruct why.
 
+Filed as card **#326**, because the risk is real whether or not this design
+ships: `corpus_repaired.jsonl` is also the one file card #146 names as holding
+pre-repair ids beside post-repair text, so losing it re-opens #146 permanently.
+
 **This is a blocker on collecting reports at all, and it is cheap to clear:**
 publish the `index -> corpus_id` map for each pack as a release asset beside
 `pack.dat` at build time. That asset is small, is versioned by the release it
