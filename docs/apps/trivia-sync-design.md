@@ -721,13 +721,30 @@ The endpoint is public, unauthenticated, and writes to a database. Precedent is
 10 per hour.
 
 - **Per address, 20 batches per hour**, counted against a salted hash of the
-  address, exactly as `report.js` does it — the address itself is never stored.
+  address so the address itself is never stored. **Not** "exactly as
+  `report.js` does it", which was the plan and does not port: `report.js` counts
+  rows in `cards` via a `reporter_hash` column, and `events` has none. Counting
+  a `props->>'ip_hash'` there would scan a table every heartbeat and download
+  writes to. So the counter lives in its own small table with no report content
+  in it, which also keeps it unjoinable to the reports.
+- **The increment is one statement inside Postgres**, not a read followed by a
+  write. As a read-then-write it was not a limiter at all: concurrent requests
+  all read the same count and all wrote `count + 1`, so a burst of any size
+  advanced it by one — and a burst is the traffic it exists to stop.
 - **Batch caps**: at most 64 reports per request, at most 8 KB of body,
-  `index < count` of the named pack, reason must be a known code. Anything else
+  `index < count` of the named pack **and** below a hard ceiling when the batch
+  declares no count (without which any integer up to 2^53 was accepted), reason
+  must be a known code. Anything else
   is a 400 with a sentence.
 - **Per pack, per index, per device: one.** Re-reporting the same question is
   idempotent, which removes the incentive to loop.
-- **A global ceiling** so a distributed flood cannot fill the table.
+- **A global ceiling**, 240 batches a minute across everyone, because a
+  per-address limit is defeated by having many addresses and that is exactly
+  what a distributed flood has. Set far above any real rate, so it is a backstop
+  and not a throttle. Its cost is the same one `GLOBAL_LOGIN` pays in
+  `docs/bridge-security.md`: a flood can deny reporting to everyone while it
+  lasts, and a bounded queue that is briefly unavailable beats an unbounded one
+  that is always up.
 - **No CAPTCHA and no honeypot.** `report.js` needs a honeypot because a form
   bot fills every input; there is no form here.
 - **The reports are advisory.** Nothing auto-removes a question. A report opens

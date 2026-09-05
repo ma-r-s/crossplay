@@ -62,6 +62,17 @@ const MAX_INDEX = 10 * 1000 * 1000;
 const MAX_BODY = 8 * 1024;
 const WINDOW_MS = 60 * 60 * 1000;
 const BATCHES_PER_WINDOW = 20;
+// The ceiling with only ONE of it. A per-address limit is defeated by having
+// many addresses, which is exactly what a distributed flood has, and this
+// endpoint has no account and no edge rule in front of it. Set far above any
+// real rate so it is a backstop rather than a throttle -- the same reasoning as
+// GLOBAL_LOGIN in docs/bridge-security.md, including its cost: a flood can deny
+// reporting to everyone while it lasts, and a bounded queue that is briefly
+// unavailable beats an unbounded one that is always up.
+const GLOBAL_WINDOW_MS = 60 * 1000;
+const GLOBAL_PER_WINDOW = 240;
+// Not an address, so it can never collide with sha256 output, which is hex.
+const GLOBAL_BUCKET = "GLOBAL";
 
 // The codes, and they must match tools_local/trivia/reports.py exactly. A code
 // meaning "wrong answer" on one side and "too easy" on the other is a silent
@@ -163,25 +174,35 @@ async function rest(path, init) {
 // counter table hiccupped is a worse outcome than one extra batch. But it no
 // longer fails open on a REST error being mistaken for "no row yet", which is
 // how the old version reset the window on any transient failure.
+async function take(bucket, windowMs) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/trivia_rate_take`, {
+    method: "POST",
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      p_ip_hash: bucket,
+      p_window: `${Math.round(windowMs / 1000)} seconds`,
+    }),
+  });
+  if (!r.ok) return null;
+  const taken = await r.json();
+  return Number.isFinite(taken) ? taken : null;
+}
+
 async function allow(ipHash) {
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/trivia_rate_take`, {
-      method: "POST",
-      headers: {
-        apikey: SERVICE_KEY,
-        Authorization: `Bearer ${SERVICE_KEY}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        p_ip_hash: ipHash,
-        p_window: `${Math.round(WINDOW_MS / 1000)} seconds`,
-      }),
-    });
-    if (!r.ok) return true;
-    const taken = await r.json();
-    if (!Number.isFinite(taken)) return true;
-    return taken <= BATCHES_PER_WINDOW;
+    const mine = await take(ipHash, WINDOW_MS);
+    if (mine !== null && mine > BATCHES_PER_WINDOW) return false;
+    // Both counters are taken even when the first one refuses would be enough,
+    // because a caller who is over their own limit is still part of the load
+    // the global ceiling is measuring.
+    const all = await take(GLOBAL_BUCKET, GLOBAL_WINDOW_MS);
+    if (all !== null && all > GLOBAL_PER_WINDOW) return false;
+    return true;
   } catch (err) {
     return true;
   }

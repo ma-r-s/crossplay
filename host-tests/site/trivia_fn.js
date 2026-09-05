@@ -22,6 +22,7 @@ let calls = [];
 // What trivia_rate_take returns: the count THIS caller took. rateOk false makes
 // the RPC itself fail, which must fail open.
 let rateTaken = 1;
+let globalTaken = 1;
 let rateOk = true;
 global.fetch = async function (url, opts) {
   opts = opts || {};
@@ -29,7 +30,11 @@ global.fetch = async function (url, opts) {
   calls.push({ url: u, method: opts.method || "GET", body: opts.body });
   if (u.includes("/rpc/trivia_rate_take")) {
     if (!rateOk) return new Response("boom", { status: 500 });
-    return new Response(JSON.stringify(rateTaken), { status: 200 });
+    const bucket = JSON.parse(opts.body).p_ip_hash;
+    return new Response(
+      JSON.stringify(bucket === "GLOBAL" ? globalTaken : rateTaken),
+      { status: 200 },
+    );
   }
   return new Response("", { status: 201 });
 };
@@ -269,8 +274,21 @@ const DEVICE = "9f2c" + "a".repeat(60);
   rateTaken = 1;
   res = await post({ pack: "abc123", count: 10, reports: [{ i: 1 }] });
   check("a fresh window is allowed", res.statusCode === 202);
-  check("the count is taken in ONE call, not a read plus a write",
-    calls.filter((c) => String(c.url).includes("trivia_rate")).length === 1);
+  check("each counter is taken in ONE call, not a read plus a write",
+    calls.filter((c) => String(c.url).includes("trivia_rate")).length === 2,
+    "one for this address, one for the global ceiling; a read plus a write cannot be atomic");
+
+  // The ceiling with only one of it. A per-address limit is defeated by having
+  // many addresses, which is what a distributed flood has.
+  globalTaken = 241;
+  res = await post({ pack: "abc123", count: 10, reports: [{ i: 1 }] });
+  check("a flood past the GLOBAL ceiling gets 429 even from a fresh address",
+    res.statusCode === 429, `got ${res.statusCode}`);
+  check("and nothing is stored", inserted() === null);
+  globalTaken = 240;
+  res = await post({ pack: "abc123", count: 10, reports: [{ i: 1 }] });
+  check("the last request under the global ceiling is allowed", res.statusCode === 202);
+  globalTaken = 1;
 
   // A counter that is unreachable must not cost a reader their reports.
   rateOk = false;
