@@ -1081,6 +1081,95 @@ else
   echo "FAIL release  the release must build both devices in ONE pio run invocation (found $runs); a second invocation wipes the first one's .pio/build"
 fi
 
+# ...and a step ON THE RUNNER that checks the build outputs are really there.
+#
+# Read the two together, because they are not the same kind of check and the
+# difference is the point. The one above reads the workflow TEXT, and its scope
+# rests on an assumption: that a second pio run is the only way .pio/build
+# empties. That is the cause we know about, not the condition we care about.
+# The workflow STEP asserted below is the half that tests the condition, on the
+# runner, where the files either exist or do not.
+#
+# THIS assertion is text on text like everything else in this file, so it has
+# to be written to fail. The first version of it parsed the step's `for`
+# headers and never looked at what the `[ -f ... ]` expression referenced, so a
+# guard whose loops promised two envs by four files while its body tested
+# firmware.bin four times passed it -- the same error the guard exists to
+# correct, one layer down. So: derive coverage from the test EXPRESSION,
+# expanded over the loops its own variables come from, and assert separately
+# that the step is ARMED. A guard that prints ::error:: and lets the job carry
+# on is the failure being guarded against, wearing the guard's clothes.
+guard_hits=$(grep -nE '\[ +-f +"?\.pio/build' "$WF" | cut -d: -f1)
+n_guard=$(printf '%s' "$guard_hits" | grep -c . || true)
+if [ "$n_guard" -eq 0 ]; then
+  bad "no step checks that .pio/build still holds the build outputs before the merge steps read them; both builds report SUCCESS when it is empty (v1.12.14, v1.12.15)"
+elif [ "$n_guard" -gt 1 ]; then
+  bad "$n_guard separate .pio/build existence tests; which one is the guard is ambiguous, and a decoy above the real one would be all this ever inspected"
+else
+  guard="$guard_hits"
+
+  # The step that line belongs to, so the arming checks read the right block.
+  step_start=$(awk -v g="$guard" 'NR<=g && /^      - name:/ {n=NR} END {print n+0}' "$WF")
+  step_end=$(awk -v g="$guard" 'NR>g && /^      - name:/ {print NR; exit}' "$WF")
+  [ -n "$step_end" ] || step_end=$(wc -l < "$WF")
+  step=$(sed -n "${step_start},${step_end}p" "$WF")
+
+  # ARMED, part one: it must be able to fail the job at all. `exit 0`, or a
+  # flag that is never set to anything, is a guard that reports and shrugs.
+  exit_var=$(printf '%s\n' "$step" | sed -nE 's/^ *exit +\$\{?([A-Za-z_][A-Za-z0-9_]*)\}? *$/\1/p' | tail -1)
+  if [ -z "$exit_var" ]; then
+    bad "the on-disk check does not end in 'exit \$<var>', so nothing it finds can fail the release build"
+  elif ! printf '%s\n' "$step" | grep -qE "^ *$exit_var=[0-9]*[1-9][0-9]* *$"; then
+    bad "the on-disk check exits \$$exit_var but never assigns it a non-zero value, so a missing file cannot fail the release build"
+  else
+    ok
+  fi
+
+  # ARMED, part two: the step must run, and its failure must count.
+  if printf '%s\n' "$step" | grep -qE '^ *continue-on-error:'; then
+    bad "the on-disk check carries continue-on-error, so the release proceeds over a missing build output"
+  elif printf '%s\n' "$step" | grep -qE '^ {8}if:'; then
+    bad "the on-disk check is conditional; it must run on every release build"
+  else
+    ok
+  fi
+
+  # COVERAGE, derived from the expression itself. Every variable in it is
+  # expanded over the nearest `for <var> in ...` above the test, longest name
+  # first so $f cannot eat the tail of $file. A body that stops mentioning one
+  # of the loop variables collapses the cross product and fails right here.
+  gexpr=$(sed -n "${guard}p" "$WF" | grep -oE '\.pio/build/[^"]*' | head -1)
+  covered="$gexpr"
+  for v in $(printf '%s' "$gexpr" | grep -oE '\$\{?[A-Za-z_][A-Za-z0-9_]*\}?' | tr -d '${}' \
+             | awk '{print length, $0}' | sort -rn | cut -d' ' -f2- | awk '!seen[$0]++'); do
+    list=$(sed -n "1,${guard}p" "$WF" | grep -oE "for +$v +in +[^;]*" | tail -1 | sed -E "s/for +$v +in +//")
+    next=""
+    for item in $list; do
+      for c in $covered; do
+        next="$next $(printf '%s' "$c" | sed -e "s/\${$v}/$item/g" -e "s/\$$v/$item/g")"
+      done
+    done
+    covered="$next"
+  done
+
+  # What the workflow READS out of .pio/build, taken from the workflow with
+  # comments excluded. The env pattern is deliberately wide: papermono-gh_release
+  # is already an env in platformio.ini, and a pattern of gh_release_[a-z0-9]+
+  # would not see a third board's artefacts at all -- the coverage loop would
+  # simply never ask about them, and report clean.
+  for path in $(grep -vE '^ *#' "$WF" \
+                | grep -oE '\.pio/build/[A-Za-z0-9_.-]+/[A-Za-z0-9._-]+' | sort -u); do
+    consumer=$(grep -nF -- "$path" "$WF" | grep -vE ':[[:space:]]*#' | head -1 | cut -d: -f1)
+    if ! printf ' %s ' $covered | grep -qF " $path "; then
+      bad "the on-disk check never tests $path, which the workflow reads; a guard that misses a file clears a build it never looked at"
+    elif [ -n "$consumer" ] && [ "$guard" -gt "$consumer" ]; then
+      bad "the on-disk check (line $guard) runs after $path is read (line $consumer)"
+    else
+      ok
+    fi
+  done
+fi
+
 # The release must not be started twice for one tag.
 #
 # crossplay-release.yml triggers on a tag push AND on workflow_dispatch. A tag

@@ -30,6 +30,7 @@ file store so the hooks never need the network.
     board state <id> reported|triaged|working|review|merged|released|done|parked
     board owner <app> [--session <sid>] [--tree wt/x]  who owns an app (lookup with no flags)
     board route <id>                                   which session a card goes to
+    board tick                                         the issue sweep, then the open board
     board show <id> | board list [--open] | board inbox | board import <file.md>
     board sync                                         copy the file store into Supabase, once
 
@@ -1063,6 +1064,17 @@ def cmd_issues(st, a):
     print(f"board: {made} new card(s) from issues, {closed} issue(s) closed")
 
 
+def cmd_tick(st, a):
+    """A tick's read in one command: sweep GitHub for new issues, then the open board.
+
+    Never closes an issue. Closing stays a command typed on purpose.
+    """
+    ns = argparse.Namespace(repo=a.repo, from_json=a.from_json, close_released=False)
+    cmd_issues(st, ns)
+    print()
+    cmd_list(st, argparse.Namespace(open=True))
+
+
 def cmd_sync(st, a):
     """Copy the file store into Supabase, keeping ids. Run once, then the file store is only a mirror."""
     if not isinstance(st, SupaStore):
@@ -1205,6 +1217,10 @@ def main(argv=None):
     s.add_argument("--from-json")
     s.add_argument("--close-released", action="store_true")
     s.set_defaults(fn=cmd_issues)
+    s = sub.add_parser("tick", help="the issue sweep, then the open board")
+    s.add_argument("--repo", default="ma-r-s/crossplay")
+    s.add_argument("--from-json")
+    s.set_defaults(fn=cmd_tick)
 
     a = p.parse_args(argv)
     st = open_store(find_root())
