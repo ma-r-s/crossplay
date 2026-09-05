@@ -106,9 +106,33 @@ limiting rules**, and add:
   ```
 
 - **Characteristics**: IP
-- **Rate**: 20 requests per 1 minute
-- **Action**: Block, **Duration** 1 hour
+- **Rate**: 20 requests per 10 seconds
+- **Action**: Block, **Duration** 10 seconds
 - **Response**: default (429)
+
+  **These are not the numbers this section used to specify, and the difference
+  is the Free plan, not a preference.** It said 20 requests per 1 minute,
+  blocked for 1 hour. Neither is settable: the API refuses any period but 10
+  seconds (`not entitled to use the period 60, can only use a period among
+  [10]`) and any mitigation timeout different from the period (`not entitled
+  to use a mitigation timeout different from 10`). The dashboard offers the
+  same choices, because it is the same entitlement. Applied 2026-09-05 by API;
+  the rule is live in the zone.
+
+  What that costs, stated plainly so nobody reads more protection into this
+  than it has: a single IP can sustain about 120 POSTs a minute to the auth
+  paths instead of 20, and a blocked address is free again after ten seconds
+  instead of an hour. What it still buys is the thing this layer exists for --
+  flood volume stops at Cloudflare instead of costing the pi a socket and a
+  scheduling slot. The design intent survives intact in the direction that
+  matters: a real person does one to three of these requests, so at twenty per
+  ten seconds this rule still only ever fires on traffic the app was already
+  going to refuse.
+
+  The app-layer limiters are therefore doing more of the work than this
+  section originally implied. `CLAIM_IP` at 20 per 5 minutes is now the
+  binding constraint on a slow brute force, not the edge rule. If the zone
+  ever moves to Pro, restore 20/minute and a 1 hour block here first.
 
 Twenty POSTs to those three paths in one minute is not a person: a real sign-in
 is one request, a real pairing is one claim and one start. It is four times the
