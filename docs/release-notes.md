@@ -1,5 +1,3 @@
-# CrossPlay release history
-
 What was new in every tagged release from 1.12.1 onward, newest first.
 Anything older is on the GitHub releases page and was never in this file.
 
@@ -22,6 +20,12 @@ match today's rules stops being one.
 Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
+
+### 1.12.22
+
+- Wt: prune must not delete a tree somebody is working in
+- Count a link match, and show the board that ended it (#35, #36)
+- Plus 2 changes nothing on the device can see.
 
 ### 1.12.21
 
