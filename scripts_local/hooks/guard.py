@@ -51,6 +51,146 @@ HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\s*\1\s*(?=\n|$)", r
 
 RAW_PIO = re.compile(r"(^|[;&|(]\s*|&&\s*)pio\s+run\b")
 
+# `tee out.txt`, `tee -a out.txt`: the other way output reaches a file.
+TEE_TARGET = re.compile(r"(?<![\w-])tee(?:\s+-[\w-]+)*\s+(\S+)")
+
+
+def scratch_root_of(path, workspace=None):
+    """The scratchpad directory this path sits DIRECTLY in, or None.
+
+    Only the flat top level is refused. `<scratchpad>/<ns>/gate.log` is the
+    remedy and has to stay allowed, so this looks at the immediate parent and
+    nothing higher. A `scratchpad/` inside the repository (there is none today)
+    is somebody's source file and is none of this rule's business.
+    """
+    if not path:
+        return None
+    try:
+        p = pathlib.Path(str(path))
+    except (TypeError, ValueError):
+        return None
+    if p.parent.name != "scratchpad":
+        return None
+    if workspace is not None:
+        # BOTH sides resolved. Comparing a resolved workspace against an
+        # unresolved path silently fails under any symlinked component (/var ->
+        # /private/var on macOS is the common one), and the exemption then does
+        # not apply to the thing it exists for.
+        try:
+            ws = pathlib.Path(workspace).resolve()
+            rp = pathlib.Path(str(p)).resolve()
+            if ws == rp.parent or ws in rp.parents:
+                return None
+        except OSError:
+            pass
+    return p.parent
+
+
+def scratch_ns(board, sid, cwd):
+    """The name of this worker's own subdirectory inside the shared scratchpad.
+
+    One card, one branch, one worktree is the workflow's own rule, so the tree
+    name is a faithful per-worker key -- and it is the only thing that told the
+    colliding runs apart on 2026-09-05, when `pgrep -f "check.sh --committed"`
+    returned four pids across three worktrees and a session nearly killed two
+    siblings' gates. Falls back to the bound card, then to the session id, so
+    it always answers something.
+    """
+    try:
+        parts = pathlib.Path(cwd or ".").parts
+    except (TypeError, ValueError):
+        parts = ()
+    if "wt" in parts:
+        i = len(parts) - 1 - list(reversed(parts)).index("wt")
+        if i + 1 < len(parts):
+            return parts[i + 1]
+    card = (board.session(sid) or {}).get("card")
+    if card is not None:
+        return "card%s" % card
+    return "s-" + (norm_sid(sid)[:8] or "unknown")
+
+
+def scratch_targets(cmd, cwd):
+    """Every path this command would WRITE that lands in a scratchpad directory.
+
+    Redirects and `tee`, which is every shape the three incidents took. A `cd`
+    into the scratchpad carries, because `cd <scratchpad> && cat > pr.md` is the
+    same write spelled differently.
+
+    A heredoc's BODY is data and is dropped, but its opening line is kept: the
+    redirect in `python3 - <<'PY' > out.json` sits after the `<<` on that line,
+    and dropping the whole construct (which is what writes_into_tree does) loses
+    it. That is one of the two spellings the PR-body incident actually used.
+    """
+    body = HEREDOC.sub(lambda m: m.group(0).split("\n", 1)[0], cmd)
+
+    # A `>` INSIDE a quoted string is text, not a redirect. `writes_into_tree`
+    # learned this the expensive way (its comment names four read-only commands
+    # refused on 2026-09-04) and answers it by deleting quoted strings outright
+    # -- which here would also delete `> "<scratchpad>/gate.log"`, the very
+    # thing being looked for. So each quoted string becomes a placeholder and is
+    # put back only if it turns out to BE a target: `git log --grep="a > /x"`
+    # then carries no redirect at all, while `> "/x"` still carries one.
+    quoted = []
+
+    def _stash(m):
+        quoted.append(m.group(0)[1:-1])
+        return " __Q%d__ " % (len(quoted) - 1)
+
+    body = QUOTED.sub(_stash, body)
+
+    def _unstash(text):
+        m = re.fullmatch(r"__Q(\d+)__", text)
+        return quoted[int(m.group(1))] if m else text
+
+    here = cwd or ""
+    out = []
+    for seg in re.split(r"&&|\|\||;|\|", body):
+        seg = seg.strip()
+        if not seg:
+            continue
+        # A leading `(`, `{` or `pushd` is the same `cd`. Not exhaustive -- a
+        # path held in a shell variable defeats this whole scan -- but these
+        # three are what an agent actually types.
+        m = re.match(r"[({]?\s*(?:cd|pushd)\s+(\S+)", seg)
+        if m:
+            here = _unstash(m.group(1)).strip("\"'")
+            continue
+        cands = [r.group(1) for r in REDIRECT.finditer(seg)]
+        cands += [t.group(1) for t in TEE_TARGET.finditer(seg)]
+        for target in cands:
+            # A trailing `)`/`}`/`;` is the shell closing a group, not part of
+            # the name. It only affects the path this refusal PRINTS, but the
+            # refusal's whole value is that the remedy can be pasted.
+            target = _unstash(target).strip("\"'").rstrip(")};")
+            if not target or target.startswith("/dev/"):
+                continue
+            if not target.startswith("/") and here:
+                target = here.rstrip("/") + "/" + target
+            if "/scratchpad/" in target:
+                out.append(target)
+    return out
+
+
+def scratch_refusal(board, sid, cwd, path, sroot):
+    ns = scratch_ns(board, sid, cwd)
+    name = pathlib.PurePath(str(path)).name
+    return (
+        "Refused: %s is at the top of the SHARED agent scratchpad.\n"
+        "It is described as session-specific and it is not: several agents run under one "
+        "session id, and every one of them independently reaches for gate.log, pr.md, "
+        "out.txt, check.log. On 2026-09-05 that truncated one agent's gate log mid-build -- "
+        "it read 'all green.' while its own gate was still compiling -- and put another "
+        "session's text into the body of PR #117. The corruption is silent: a "
+        "truncated-then-rewritten file reads as a legitimate result, never as damage.\n"
+        "Write into your own subdirectory, which nothing else can choose:\n"
+        "  mkdir -p %s/%s   then use %s/%s/%s\n"
+        "And a gate's verdict is not a file at all: run check.sh, grep CHECKSH-VERDICT in "
+        "its own captured output, or read the transcript path it prints on its first line."
+        % (path, sroot, ns, sroot, ns, name)
+    )
+
+
 
 def find_root():
     env = os.environ.get("BOARD_ROOT")
@@ -244,6 +384,9 @@ def pretool(board, data):
 
     if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
         path = inp.get("file_path") or inp.get("notebook_path") or ""
+        sroot = scratch_root_of(path, root)
+        if sroot is not None:
+            block(scratch_refusal(board, sid, data.get("cwd"), path, sroot))
         if under_integration_tree(root, path) and not board.is_integrator(sid):
             block(
                 "Refused: that file is in firmware-next, the integration tree. Work happens in "
@@ -254,6 +397,10 @@ def pretool(board, data):
 
     if tool == "Bash":
         cmd = inp.get("command") or ""
+        for target in scratch_targets(cmd, data.get("cwd") or ""):
+            sroot = scratch_root_of(target, root)
+            if sroot is not None:
+                block(scratch_refusal(board, sid, data.get("cwd"), target, sroot))
         if RAW_PIO.search(cmd) and "check.sh" not in cmd and "lib-sim.sh" not in cmd:
             block(
                 "Refused: a raw `pio run` bypasses the workspace build lock and can corrupt another "
@@ -371,6 +518,12 @@ def session_start(board, data):
     bc = board_cmd(board.root)
     lines = []
     lines.append(f"[bugflow] Your session id is {sid}.")
+    lines.append(
+        "[bugflow] Your scratchpad is SHARED, not private: several agents run under one "
+        f"session id. Write only inside <scratchpad>/{scratch_ns(board, sid, data.get('cwd', ''))}/ "
+        "-- a write to the flat top level is refused, because every agent picks the same "
+        "names and one of those collisions reached GitHub (card #314)."
+    )
     if board.is_orchestrator(sid):
         lines.append(
             "[bugflow] You are the ORCHESTRATOR. Runbook: docs/workflow/orchestrator.md in the tree."
