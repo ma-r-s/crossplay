@@ -6,6 +6,7 @@
 #include <string>
 
 #include "../ui/ToyboxText.h"
+#include "WallpapersCore.h"
 
 namespace wallpapersui {
 
@@ -53,13 +54,6 @@ fui::TextStyle onPaper(fui::TextStyle style, fui::TextAlign align) {
   style.color = fui::Color::Black;
   return style;
 }
-
-// Which arrangement of the BEFORE screen to build. Three are rendered side by
-// side for Mario to choose from; the losers and this macro go in the same
-// commit as the decision (docs/building-apps.md).
-#ifndef WALLPAPERS_OFFER_VARIANT
-#define WALLPAPERS_OFFER_VARIANT 1
-#endif
 
 // A button: filled black, white label, hit-tested. 64 tall because that is the
 // fork's finger target and the reason the offer is not a 30px strip.
@@ -120,34 +114,9 @@ void inkRect(fui::DrawTarget& t, const fui::Rect& clip, int x, int y, int w, int
          fui::Paint::solid(fui::Color::Black));
 }
 
-[[maybe_unused]] void paintChecker(fui::DrawTarget& t, const fui::Rect& r, const int cell) {
-  for (int gy = 0; gy * cell < r.height; ++gy) {
-    for (int gx = 0; gx * cell < r.width; ++gx) {
-      if (((gx + gy) & 1) == 0) continue;
-      inkRect(t, r, r.x + gx * cell, r.y + gy * cell, cell, cell);
-    }
-  }
-}
-
-// The lattice from gen_geoB.py: translation vectors (2u, 2u) and (3u, u), with
-// only the HORIZONTAL brick inked. The vertical brick is background -- inking
-// both, as the first draft did, tiles to solid black at any u.
-[[maybe_unused]] void paintHerringbone(fui::DrawTarget& t, const fui::Rect& r, const int u) {
-  const int L = u * 2;
-  const int span = (r.width + r.height) / u + 4;
-  for (int i = -span; i <= span; ++i) {
-    for (int j = -span; j <= span; ++j) {
-      const int bx = r.x + i * (2 * u) + j * (3 * u);
-      const int by = r.y + i * (2 * u) + j * u;
-      if (bx > r.x + r.width || by > r.y + r.height || bx + L < r.x || by + u < r.y) continue;
-      inkRect(t, r, bx, by, L, u);
-    }
-  }
-}
-
 // Quarter arcs, two orientations per cell -- the shipped truchet, sampled as
 // short segments because there is no arc primitive here.
-[[maybe_unused]] void paintTruchet(fui::DrawTarget& t, const fui::Rect& r, const int cell) {
+void paintTruchet(fui::DrawTarget& t, const fui::Rect& r, const int cell) {
   const int thick = cell / 5 < 2 ? 2 : cell / 5;
   const int steps = 12;
   for (int gy = 0; gy * cell < r.height; ++gy) {
@@ -167,24 +136,6 @@ void inkRect(fui::DrawTarget& t, const fui::Rect& clip, int x, int y, int w, int
               cy + static_cast<int>((cy == y0 ? 1.0f : -1.0f) * (static_cast<float>(cell) / 2.0f) * std::sin(a));
           inkRect(t, r, px - thick / 2, py - thick / 2, thick, thick);
         }
-      }
-    }
-  }
-}
-
-// Dogtooth: a solid square with a stepped tail, which is what makes it read as
-// houndstooth rather than as a check.
-[[maybe_unused]] void paintHoundstooth(fui::DrawTarget& t, const fui::Rect& r, const int cell) {
-  const int step = cell / 4 < 1 ? 1 : cell / 4;
-  for (int gy = 0; gy * cell < r.height + cell; ++gy) {
-    for (int gx = 0; gx * cell < r.width + cell; ++gx) {
-      if (((gx + gy) & 1) != 0) continue;
-      const int x0 = r.x + gx * cell;
-      const int y0 = r.y + gy * cell;
-      inkRect(t, r, x0, y0, cell, cell);
-      for (int k = 0; k < 4; ++k) {
-        inkRect(t, r, x0 + cell + k * step, y0 + k * step, step, step);
-        inkRect(t, r, x0 - (k + 1) * step, y0 + cell - (k + 1) * step, step, step);
       }
     }
   }
@@ -388,18 +339,6 @@ void buildOffer(toybox::Screen& screen, const OfferModel& model) {
   char headline[40];
   std::snprintf(headline, sizeof(headline), "%d WALLPAPERS", remaining);
 
-  // The one sentence that has to carry the size, so nobody taps a download of
-  // unknown weight on a metered connection.
-  char shortWeight[80];
-  std::snprintf(shortWeight, sizeof(shortWeight), "%d wallpapers, about %s", remaining, size);
-
-  char weight[96];
-  if (model.alreadyHave > 0) {
-    std::snprintf(weight, sizeof(weight), "The %d you are missing. About %s over WiFi.", remaining, size);
-  } else {
-    std::snprintf(weight, sizeof(weight), "About %s over WiFi, onto the card.", size);
-  }
-
   const fui::Rect body = screen.body();
   const int16_t left = static_cast<int16_t>(body.x);
   const int16_t width = body.width;
@@ -408,77 +347,32 @@ void buildOffer(toybox::Screen& screen, const OfferModel& model) {
   // the defect this screen exists to avoid.
   const int16_t buttonY = static_cast<int16_t>(body.y + body.height - kButtonH - 96);
 
-#if WALLPAPERS_OFFER_VARIANT == 1
-  // A: POSTER. The artwork is the screen and the words sit on a card laid over
-  // it. A wallpaper set on a panel whose whole appeal is how pictures look on
-  // it should lead with a picture, and this one is real: the same herringbone
-  // the user is being offered, drawn rather than described.
-  paintHerringbone(screen.target(), body, 26);
-  // The button and its footnote get a white mat: a black button on a black
-  // motif is not a button, it is a hole.
-  screen.target().fill(fui::makeRect(left, static_cast<int16_t>(buttonY - 14), width,
-                                     static_cast<int16_t>(body.y + body.height - buttonY + 14)),
-                       fui::Paint::solid(fui::Color::White));
-
-  const fui::Rect card = fui::makeRect(static_cast<int16_t>(left + 6), static_cast<int16_t>(body.y + 92),
-                                       static_cast<int16_t>(width - 12), 236);
-  screen.target().fill(card, fui::Paint::solid(fui::Color::White));
-  screen.target().stroke(card, fui::Paint::solid(fui::Color::Black), 3);
-
-  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Center);
-  screen.target().text(fui::makeRect(static_cast<int16_t>(card.x + 10), static_cast<int16_t>(card.y + 22),
-                                     static_cast<int16_t>(card.width - 20), 58),
-                       headline, head);
-  drawProse(screen,
-            fui::makeRect(static_cast<int16_t>(card.x + 16), static_cast<int16_t>(card.y + 96),
-                          static_cast<int16_t>(card.width - 32), 128),
-            weight, fui::TextAlign::Center);
-
-#elif WALLPAPERS_OFFER_VARIANT == 2
-  // B: THE ARTWORK LEADS. Four real motifs at tile scale in the picker's own
-  // two-column shape, captioned with their real names, and the count demoted to
-  // a caption underneath. No headline: the pictures say what this is.
+  // THE COVER. A band of real artwork across the top, type below it, the way a
+  // book cover carries its title. Mario picked this over a full-bleed poster and
+  // over an artwork-led grid: it leads with the most beautiful thing in the set
+  // at a scale that suits the panel, and still keeps a real headline and a
+  // scannable layout underneath.
   //
-  // This is what the rejected empty-frame version was reaching for. An outlined
-  // box reads as an image that failed to load; a drawn motif reads as the
-  // wallpaper it actually is.
-  const int16_t tw = 100;
-  const int16_t thh = 167;
-  const int16_t gx = 24;
-  const int16_t startX = static_cast<int16_t>(left + (width - (tw * 2 + gx)) / 2);
-  // No per-tile caption: "Herringbone" needs about 157px in this cut and a tile
-  // is 100, so it cut to "Herrin...". The names ride in one line underneath
-  // instead, which fits and reads better than four cropped words.
-  for (int i = 0; i < 4; ++i) {
-    const int16_t cx = static_cast<int16_t>(startX + (i % 2) * (tw + gx));
-    const int16_t cy = static_cast<int16_t>(body.y + 8 + (i / 2) * (thh + 16));
-    const fui::Rect tile = fui::makeRect(cx, cy, tw, thh);
-    if (i == 0) paintHerringbone(screen.target(), tile, 13);
-    if (i == 1) paintChecker(screen.target(), tile, 17);
-    if (i == 2) paintHoundstooth(screen.target(), tile, 24);
-    if (i == 3) paintTruchet(screen.target(), tile, 33);
-    screen.target().stroke(tile, fui::Paint::solid(fui::Color::Black), 1);
-  }
-  // Names, count and size in one sentence, because the pictures have already
-  // said what this is and the facts still have to be on screen.
-  char blurb[160];
-  std::snprintf(blurb, sizeof(blurb), "Herringbone, checker, houndstooth, truchet and %d more. About %s.",
-                remaining - 4, size);
-  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(body.y + 8 + 2 * thh + 16 + 14), width, 130), blurb,
-            fui::TextAlign::Center);
-
-#else
-  // C: COVER. A full-bleed band of one motif across the top, type below it, the
-  // way a book cover carries its title. The band is truchet, whose curves read
-  // at a glance where a fine check would just look like grey.
-  const fui::Rect band = fui::makeRect(left, body.y, width, 286);
+  // Truchet because its curves read at a glance; a fine check at this size just
+  // looks like grey. Drawn by gen_geoA.py's rules rather than shipped as an
+  // asset, which is the whole reason this screen costs no flash.
+  const fui::Rect band = fui::makeRect(left, body.y, width, 260);
   paintTruchet(screen.target(), band, 72);
   screen.target().stroke(band, fui::Paint::solid(fui::Color::Black), 2);
 
   fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Left);
-  screen.target().text(fui::makeRect(left, static_cast<int16_t>(body.y + 306), width, 56), headline, head);
-  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(body.y + 372), width, 130), weight, fui::TextAlign::Left);
-#endif
+  screen.target().text(fui::makeRect(left, static_cast<int16_t>(body.y + 276), width, 56), headline, head);
+
+  // What is actually IN the pack. The cover shows one motif, and without this
+  // line it undersells twenty-one: a band of curves says nothing about the
+  // Durer woodcut or the star chart, which are the strongest things here.
+  // Names come from displayName() so they match the captions in the picker.
+  char blurb[192];
+  std::snprintf(blurb, sizeof(blurb), "%s, %s, %s and %d more. About %s over WiFi.",
+                wallpapers::displayName("durer-horsemen").full.c_str(),
+                wallpapers::displayName("celestial").full.c_str(), wallpapers::displayName("bauhaus").full.c_str(),
+                remaining - 3, size);
+  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(body.y + 340), width, 134), blurb, fui::TextAlign::Left);
 
   drawButton(screen, fui::makeRect(left, buttonY, width, kButtonH), "GET THEM", ActionGetSet);
 
