@@ -45,6 +45,24 @@ def check(ok, label, detail=""):
         print(f"FAIL vendored  {label}" + (f": {detail}" if detail else ""))
 
 
+def skip(label):
+    """Locally a missing submodule is information; in CI it is a failure.
+
+    The only thing these checks need that a checkout may lack is a submodule,
+    and the distribution is lopsided: check.sh's throwaway worktree
+    deliberately does NOT recurse (pulling lucide cost 237s of a 244s run), so
+    a local --committed run skips them every time, while CI checks out
+    submodules: recursive in the build job that runs host-tests and so has
+    them every time. Without this guard the five checks would run ONLY in CI,
+    and the guard against "this suite never ran" would itself be unguarded --
+    the same defect wearing the other face. Modelled on host-tests/release.
+    """
+    if os.environ.get("CI"):
+        check(False, f"{label} (a skip is a failure in CI: submodules are checked out here)")
+    else:
+        print(f"  SKIP vendored  {label}")
+
+
 tracked = [t for t in subprocess.run(["git", "-C", root, "ls-files", "-z"],
                                      capture_output=True, text=True).stdout.split("\0") if t]
 
@@ -129,7 +147,7 @@ for rel in generators:
             continue
         missing_sm = absent_submodule(p)
         if missing_sm:
-            print(f"  SKIP vendored  {rel} reads {p}: submodule {missing_sm} is not checked out here")
+            skip(f"{rel} reads {p}: submodule {missing_sm} is not checked out here")
             continue
         check(os.path.exists(os.path.join(root, p)),
               f"{rel} can still find {p}",
@@ -178,7 +196,7 @@ for rel in tracked:
         empty = [sm for sm in SUBMODULES
                  if not os.path.isdir(os.path.join(root, sm)) or not os.listdir(os.path.join(root, sm))]
         if empty:
-            print(f"  SKIP vendored  {rel} names {named}, unresolvable: {', '.join(empty)} not checked out")
+            skip(f"{rel} names {named}, unresolvable: {', '.join(empty)} not checked out")
             continue
         check(False, f"{rel} names a generator that exists ({named})",
               "the header points at a script no path in the tree ends with")
