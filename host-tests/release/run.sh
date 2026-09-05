@@ -900,8 +900,9 @@ PATS
   # only ever adds the release being made, so nothing self-corrects -- a gap
   # opened by hand stays open, and the claim quietly goes on being wrong.
   #
-  # Every v1.12+ tag reachable here must have a block. Older tags are excluded
-  # deliberately: 1.12.1 is where this file starts and the sentence says so.
+  # Every v1.12+ tag reachable from THIS tree's HEAD must have a block. Older
+  # tags are excluded deliberately: 1.12.1 is where this file starts and the
+  # sentence says so.
   # 1.12.14 and 1.12.15 have no tags in this repository or on the remote --
   # they are the two releases that published a -full.bin with its bootloader
   # missing -- so a tag-driven check cannot ask for them and the preamble
@@ -909,6 +910,18 @@ PATS
   # grep -xF, not -E: the version is a fixed string and escaping its dots into
   # a regex inside a nested command substitution is how the first attempt at
   # this check died on `set -u`.
+  # --merged HEAD, not the bare list, and that scoping is the point. Every
+  # worktree shares one object store, so the instant autorelease cuts v1.12.N
+  # its tag is visible from every tree at once -- but a tree behind
+  # origin/xteink has NOT merged the bump commit that carries that release's
+  # ### entry, so a bare `tag --list` would demand an entry the tree cannot
+  # have yet and red-gate a release it does not even contain. --merged HEAD
+  # lists only tags whose commit is an ancestor of HEAD: on xteink (and in CI)
+  # HEAD contains every release, so the gate still asks for all of them and is
+  # unchanged where it ships; on a behind tree the new tag drops out until the
+  # tree merges xteink, which brings the tag's commit AND its ### entry in
+  # together, so the tag reappears in the list already satisfied. An
+  # orphan/upstream tag never in xteink's history stays excluded, correctly.
   MISSING_TAGS=""
   while IFS= read -r tagname; do
     [ -n "${tagname:-}" ] || continue
@@ -916,7 +929,7 @@ PATS
     [ "$ver" = "1.12.0" ] && continue
     grep -qxF "### $ver" "$ROOT/docs/release-notes.md" || MISSING_TAGS="$MISSING_TAGS $ver"
   done <<EOF
-$(git -C "$ROOT" tag --list 'v1.12.*' 2>/dev/null)
+$(git -C "$ROOT" tag --list 'v1.12.*' --merged HEAD 2>/dev/null)
 EOF
   if [ -z "${MISSING_TAGS// /}" ]; then
     ok
