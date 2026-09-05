@@ -305,7 +305,7 @@ The rules this fork already learned apply directly:
   `drawAsideAction` owns the footer aside. A report control must go in the
   **aside**, where `END` and `HIDE` already live, and must not push the option
   stack.
-- **`screens-overflow-silently`**: 24 interaction slots. Solo already spends four
+- **`screens-overflow-silently`**: 24 interaction slots (`kMaxInteractions`, `src/apps_local/ui/ToyboxScreen.h:45`). Solo already spends four
   on options plus the footer. A reason list drawn _on the question screen_ is how
   you find that ceiling.
 - **`a-tap-is-a-touch-down`** and the `HIDDEN` notice precedent: the action must
