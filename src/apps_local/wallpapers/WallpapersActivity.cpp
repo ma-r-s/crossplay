@@ -31,6 +31,18 @@ constexpr int16_t kBorderInset = 3;
 constexpr int16_t kDotSize = 12;
 constexpr int16_t kDotGap = 10;
 
+// Ordered 8x8 Bayer thresholds. A thumbnail is an AREA AVERAGE of the source
+// re-dithered at thumbnail size: a 50% threshold collapses a dense engraving
+// into a flat blob ("grey mush"), while re-dithering keeps its tone as texture,
+// which is the difference between a picker that looks designed and one that
+// looks broken. Ordered rather than error diffusion, the house rule: error
+// diffusion is what makes flat fields look dirty.
+constexpr uint8_t kBayer8[64] = {
+    0,  48, 12, 60, 3,  51, 15, 63, 32, 16, 44, 28, 35, 19, 47, 31, 8,  56, 4,  52, 11, 59,
+    7,  55, 40, 24, 36, 20, 43, 27, 39, 23, 2,  50, 14, 62, 1,  49, 13, 61, 34, 18, 46, 30,
+    33, 17, 45, 29, 10, 58, 6,  54, 9,  57, 5,  53, 42, 26, 38, 22, 41, 25, 37, 21,
+};
+
 // Extract a 2-bpp pixel (0=black .. 3=white) from readNextRow's packed output.
 inline uint8_t px2(const uint8_t* data, int x) {
   return static_cast<uint8_t>((data[x >> 2] >> (6 - ((x & 3) * 2))) & 0x3);
@@ -205,10 +217,12 @@ WallpapersActivity::Thumb WallpapersActivity::decodeThumb(const std::string& pat
     if (dy < 0 || dy >= dh) return;
     uint8_t* outRow = t.bits.data() + static_cast<size_t>(bytesPerRow) * dy;
     for (int dx = 0; dx < dw; ++dx) {
-      // Majority dark in the box -> ink.
-      if (cnt[dx] > 0 && static_cast<int>(acc[dx]) * 2 >= static_cast<int>(cnt[dx])) {
-        outRow[dx >> 3] |= static_cast<uint8_t>(0x80 >> (dx & 7));
-      }
+      if (cnt[dx] == 0) continue;
+      // How much of the source box was ink, 0..255, then dithered against the
+      // ordered matrix so a half-dark box becomes texture rather than a blob.
+      const int ink = static_cast<int>(acc[dx]) * 255 / static_cast<int>(cnt[dx]);
+      const int threshold = (static_cast<int>(kBayer8[(dy & 7) * 8 + (dx & 7)]) * 255) / 64;
+      if (ink > threshold) outRow[dx >> 3] |= static_cast<uint8_t>(0x80 >> (dx & 7));
     }
     std::fill(acc.begin(), acc.end(), 0);
     std::fill(cnt.begin(), cnt.end(), 0);
