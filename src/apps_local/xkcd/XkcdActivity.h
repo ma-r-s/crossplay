@@ -114,7 +114,8 @@ class XkcdActivity final : public Activity {
   char rowValues_[kPageRows][16] = {};
   freeink::ui::ListItem rowItems_[kPageRows] = {};
   int rowCount_ = 0;
-  char listRight_[24] = {0};
+  // "%d OF %d" -- which page of the archive the list is showing.
+  char listRight_[toybox::kOfCounterChars] = {0};
 
   // One bit per comic number. 3300 comics is 413 bytes, so this is held whole
   // rather than paged: the menu's mosaic asks about sixty of them at once and
