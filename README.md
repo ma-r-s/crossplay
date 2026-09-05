@@ -154,10 +154,17 @@ Most of the shelf never touches the network. Of the parts that do:
 ## Build it
 
 ```bash
-pio run -e x4pro                 # the firmware
-pio run -e simulator_x4_pro      # a desktop simulator, SDL2 + a FreeRTOS shim
-./scripts_local/check.sh         # host tests and both builds
+git submodule update --init --recursive   # freeink-sdk, and nothing builds without it
+pio run -e x4pro                          # the firmware
+pio run -e simulator_x4_pro               # a desktop simulator, SDL2 + a FreeRTOS shim
+./scripts_local/check.sh                  # host tests and both builds
 ```
+
+Always name an environment. A bare `pio run` builds `[env:default]`, which is
+upstream's ESP32-C3 target: the chip the install warning above says not to
+write an S3 image to. [docs/contributing/](docs/contributing/) is the long
+version of all of this -- prerequisites, the clone, the hooks, what CI checks
+and how a branch lands.
 
 The apps live in `src/apps_local/`, which is what keeps the merge with upstream
 close to conflict-free. Read [LOCAL_SCOPE.md](LOCAL_SCOPE.md) for what the fork

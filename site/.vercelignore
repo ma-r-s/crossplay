@@ -3,6 +3,13 @@
 # scripts on a public URL for no reason.
 #
 # Keep this in step with site/README.md: every script it documents belongs here.
+#
+# TWO DELIBERATE EXCEPTIONS, both of which look exactly like things that belong
+# in this list and would break every deploy if added. fetch-emulator.mjs IS the
+# build command (see vercel.json), and emulator-manifest.json is the file it
+# reads; ignoring either leaves the build unable to find it and the emulator
+# unable to reach the site. They are two more public files on a public
+# repository's site, which is the whole cost.
 *.py
 README.md
 # sim-shot capture recipes: replay scripts for regenerating the screenshots,
