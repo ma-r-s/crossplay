@@ -4114,9 +4114,9 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
     quiet.face = murdleui::Face::Grid;
 
     murdleui::CaseModel refused = quiet;
-    // The longest thing blockedLine can produce; see the reserved band in
+    // The only thing blockedLine can produce; see the reserved band in
     // buildCase and the measurement in host-tests/murdle.
-    refused.notice = "ALREADY TICKED: HAMMER/REVENGE AND HAMMER/REVENGE. CLEAR THEM TO TICK HERE.";
+    refused.notice = murdletext::kBlockedNotice;
 
     Rendered without;
     Rendered with;
@@ -4135,9 +4135,7 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
     const fui::Rect grid = fui::makeRect(after.originX, static_cast<int16_t>(after.originY - after.headerH), 1, 1);
     int noticeRuns = 0;
     for (const auto& run : with.target.texts) {
-      if (run.text.find("ALREADY TICKED") == std::string::npos && run.text.find("CLEAR THEM") == std::string::npos) {
-        continue;
-      }
+      if (run.text.find(murdletext::kBlockedNotice) == std::string::npos) continue;
       ++noticeRuns;
       // And it drew ABOVE the grid rather than over the column labels, which is
       // the way a reserved band goes wrong that a moved origin does not.
@@ -4146,12 +4144,21 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
       // the worst-case notice against rather than written down twice. This IS
       // the body width: paragraph() draws each line into the rect it was given.
       CHECK(run.rect.width == 448);
+      // THE BAND IS ONE LINE, and this is the assertion that says so. Mario,
+      // 2026-09-05: the two-line band "moved [the board] down which now looks
+      // awful, specially when no message is showing" -- it is reserved on every
+      // frame, so a second line is a line of dead space on every frame of the
+      // face. The gap from the top of the notice to the top of the grid IS the
+      // band, plus the 8px it has always carried.
+      CHECK(grid.y - run.rect.y == with.target.lineHeight(toybox::kTileFont) + 8);
     }
-    CHECK(noticeRuns > 0);
+    // One run, because the message is one line. Two runs is the wording that
+    // wrapped, which is the other half of what made the band cost two lines.
+    CHECK(noticeRuns == 1);
 
     // The quiet render says nothing in the band it reserved.
     for (const auto& run : without.target.texts) {
-      CHECK(run.text.find("ALREADY TICKED") == std::string::npos);
+      CHECK(run.text.find(murdletext::kBlockedNotice) == std::string::npos);
     }
 
     // The key still gets room under the grid. The band is paid for out of that
