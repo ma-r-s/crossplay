@@ -75,7 +75,6 @@ std::unique_ptr<Activity> OpdsBookBrowserActivity::create(GfxRenderer& renderer,
 
 void OpdsBookBrowserActivity::onEnter() {
   Activity::onEnter();
-
   state = BrowserState::CHECK_WIFI;
   entries.clear();
   navigationHistory.clear();
@@ -93,6 +92,7 @@ void OpdsBookBrowserActivity::onEnter() {
   app.on(ACTION_CANCEL, &OpdsBookBrowserActivity::onCancelEvent, this);
   app.on(ACTION_SAVED_DONE, &OpdsBookBrowserActivity::onSavedDoneEvent, this);
   app.setScreen(&OpdsBookBrowserActivity::rootScreen, this);
+
   requestUpdate();
 
   checkAndConnectWifi();
@@ -599,19 +599,84 @@ void OpdsBookBrowserActivity::buildStatusScreen(UiScreen& screen) {
   fui::TextStyle centered = screen.theme().bodyText;
   centered.align = fui::TextAlign::Center;
   if (state == BrowserState::ERROR) {
-    const int16_t lh = screen.target().lineHeight(centered.font);
-    const int16_t gap = screen.theme().spaceMd;
-    const bool showTapHint = mappedInput.hasTouch();
-    const int16_t blockH = static_cast<int16_t>(lh * (showTapHint ? 3 : 2) + gap * (showTapHint ? 2 : 1));
-    const fui::Rect body = screen.body();
-    if (body.height > blockH) screen.spacer(static_cast<int16_t>((body.height - blockH) / 2));
-    screen.target().text(screen.takeTop(lh, gap), tr(STR_ERROR_MSG), centered);
-    screen.target().text(screen.takeTop(lh, gap), errorMessage.c_str(), centered);
-    if (showTapHint) screen.target().text(screen.takeTop(lh), tr(STR_TAP_TO_RETRY), centered);
+    buildErrorScreen(screen, centered);
     return;
   }
+
   // CHECK_WIFI / LOADING (and the brief child-activity handoff states).
   screen.centeredText(statusMessage.c_str(), centered);
+}
+
+// The download-failure screen: the book that failed, then what happened to it.
+//
+// It keeps the cover, title and author exactly where the download screen had
+// them and changes only what is under the rule, so a failure reads as THIS
+// DOWNLOAD stopping rather than as a new screen arriving. The cover costs
+// nothing: a download cannot be reached without passing through the detail
+// screen, so downloadCoverPath is already on the card.
+//
+// Chosen by Mario from three rendered arrangements; see the card for the two
+// that lost. What all three fixed: the old screen led with an "Error:" heading
+// that said nothing the line under it did not, never named the book though it
+// had the title in hand, and rendered six different causes identically.
+void OpdsBookBrowserActivity::buildErrorScreen(UiScreen& screen, const freeink::ui::TextStyle& centered) {
+  const auto& theme = screen.theme();
+  const int16_t gap = theme.spaceMd;
+
+  fui::TextStyle titleStyle = centered;
+  titleStyle.font = theme.fontTitle;
+  // One line, not two: the title sits above a rule here, and a second line
+  // would push the reason off the block this screen centres.
+  titleStyle.maxLines = 1;
+  fui::TextStyle quiet = centered;
+  quiet.font = theme.fontSmall;
+
+  const int16_t lh = screen.target().lineHeight(centered.font);
+  const int16_t tlh = screen.target().lineHeight(titleStyle.font);
+  const int16_t slh = screen.target().lineHeight(quiet.font);
+  const fui::Rect body = screen.body();
+  const bool haveBook = !statusMessage.empty();
+  const bool haveCover = haveBook && !downloadCoverPath.empty();
+
+  // The sentence that says what to do about THIS cause. Matched on the rendered
+  // message rather than a code, because errorMessage is the one thing every
+  // failure path sets -- and matched by PREFIX, not equality: the feed and auth
+  // failures append the HTTP status, so "Authentication Failed" reaches here as
+  // "Authentication Failed (401)" and an == would fall through to the generic
+  // line on exactly the failure with the most specific advice to give.
+  const auto begins = [this](const char* prefix) { return errorMessage.rfind(prefix, 0) == 0; };
+  const char* advice = tr(STR_TAP_TO_RETRY);
+  if (begins(tr(STR_WIFI_CONN_FAILED))) {
+    advice = tr(STR_ERR_ADVICE_WIFI);
+  } else if (begins(tr(STR_AUTH_FAILED))) {
+    advice = tr(STR_ERR_ADVICE_AUTH);
+  } else if (begins(tr(STR_NO_SERVER_URL))) {
+    advice = tr(STR_ERR_ADVICE_NO_SERVER);
+  } else if (begins(tr(STR_DOWNLOAD_FAILED))) {
+    advice = tr(STR_ERR_ADVICE_DOWNLOAD);
+  }
+
+  const int16_t coverW = 168, coverH = 252;
+  prepCoverRect = fui::Rect{};
+  // Measured line for line against what is drawn below. Counting a line at the
+  // wrong cut is what sat the whole block low on the panel.
+  const int16_t blockH = static_cast<int16_t>((haveCover ? coverH + gap : 0) + (haveBook ? tlh + gap + slh + gap : 0) +
+                                              kErrorRuleH + gap + lh + gap + slh);
+  if (body.height > blockH) screen.spacer(static_cast<int16_t>((body.height - blockH) / 2));
+
+  if (haveCover) {
+    const fui::Rect slot = screen.takeTop(coverH, gap);
+    prepCoverRect = fui::Rect{static_cast<int16_t>(slot.x + (slot.width - coverW) / 2), slot.y, coverW, coverH};
+  }
+  if (haveBook) {
+    screen.target().text(screen.takeTop(tlh, gap), statusMessage.c_str(), titleStyle);
+    screen.target().text(screen.takeTop(slh, gap), downloadAuthor.c_str(), quiet);
+  }
+  // The break: the book is above it, what happened to the book is below.
+  const fui::Rect rule = screen.takeTop(kErrorRuleH, gap).inset(fui::Insets{0, 60, 0, 60});
+  screen.target().fill(rule, fui::Paint::solid(fui::Color::Black));
+  screen.target().text(screen.takeTop(lh, gap), errorMessage.c_str(), centered);
+  screen.target().text(screen.takeTop(slh), advice, quiet);
 }
 
 void OpdsBookBrowserActivity::render(RenderLock&&) {
@@ -644,7 +709,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderUi();
-  if (state == BrowserState::DOWNLOADING) paintPrepareCover();
+  if (state == BrowserState::DOWNLOADING || state == BrowserState::ERROR) paintPrepareCover();
   renderer.displayBuffer();
 }
 
