@@ -121,6 +121,7 @@ QueueOpen ReportQueue::open(WritableByteSource& source, const char* packId, cons
   count_ = 0;
   sent_ = 0;
   packCount_ = 0;
+  withdrawnPending_ = 0;
   packId_[0] = '\0';
 
   // No id means the card's build is unknown. Nothing may be queued: a report
@@ -165,6 +166,14 @@ QueueOpen ReportQueue::open(WritableByteSource& source, const char* packId, cons
     source_ = &source;
     count_ = stored;
     sent_ = storedSent;
+    // One pass, once per open, to make pending() honest. Bounded by
+    // kMaxQueuedReports, and the alternative is rescanning on every paint.
+    for (uint32_t i = sent_; i < count_; ++i) {
+      uint8_t rec[kReportEntryBytes] = {};
+      if (source.read(entryOffset(i), rec, kReportEntryBytes) && readU32(rec) == kWithdrawnIndex) {
+        ++withdrawnPending_;
+      }
+    }
     return QueueOpen::Ready;
   }
 
@@ -179,6 +188,12 @@ QueueOpen ReportQueue::open(WritableByteSource& source, const char* packId, cons
     source_ = &source;
     count_ = stored;
     sent_ = storedSent;
+    for (uint32_t i = sent_; i < count_; ++i) {
+      uint8_t rec[kReportEntryBytes] = {};
+      if (source.read(entryOffset(i), rec, kReportEntryBytes) && readU32(rec) == kWithdrawnIndex) {
+        ++withdrawnPending_;
+      }
+    }
     return QueueOpen::Foreign;
   }
   // Reusing a fully delivered queue for a DIFFERENT pack. The file cannot
@@ -207,6 +222,7 @@ QueueOpen ReportQueue::open(WritableByteSource& source, const char* packId, cons
   }
   count_ = stored;
   sent_ = stored;
+  withdrawnPending_ = 0;  // every tombstone is behind the cursor, so none is pending
   return writeHeader() ? QueueOpen::Started : QueueOpen::Unusable;
 }
 
@@ -288,7 +304,9 @@ bool ReportQueue::withdraw(const uint32_t index) {
   uint8_t rec[kReportEntryBytes] = {};
   writeU32(rec, kWithdrawnIndex);
   rec[4] = static_cast<uint8_t>(Reason::None);
-  return source_->write(entryOffset(slot), rec, kReportEntryBytes) && source_->flush();
+  if (!source_->write(entryOffset(slot), rec, kReportEntryBytes) || !source_->flush()) return false;
+  ++withdrawnPending_;
+  return true;
 }
 
 bool ReportQueue::markSent(const uint32_t n) {
@@ -296,7 +314,16 @@ bool ReportQueue::markSent(const uint32_t n) {
   // Never moves backwards, and never past what exists. A server that answers
   // for more than was sent is not a reason to forget reports.
   if (n > count_ || n < sent_) return false;
+  // Some of the entries just retired may have been tombstones, so the pending
+  // count is recomputed rather than adjusted by a delta nobody tracked.
   sent_ = n;
+  withdrawnPending_ = 0;
+  for (uint32_t i = sent_; i < count_; ++i) {
+    uint8_t rec[kReportEntryBytes] = {};
+    if (source_->read(entryOffset(i), rec, kReportEntryBytes) && readU32(rec) == kWithdrawnIndex) {
+      ++withdrawnPending_;
+    }
+  }
   return writeHeader();
 }
 

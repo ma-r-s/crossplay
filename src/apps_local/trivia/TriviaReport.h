@@ -94,7 +94,14 @@ class ReportQueue {
   bool isOpen() const { return source_ != nullptr; }
   uint32_t count() const { return count_; }
   uint32_t sent() const { return sent_; }
-  uint32_t pending() const { return count_ - sent_; }
+  // Undelivered reports that will ACTUALLY be sent. Withdrawn entries are
+  // tombstones the file cannot shrink away, so `count_ - sent_` overstates the
+  // number by however many the player took back -- and that figure is on the
+  // SETTINGS screen, where "3 NOT YET SENT" for one real report is a small lie
+  // the player has no way to check. Kept as a counter rather than rescanned:
+  // this is read on every paint of that screen and each entry is a seek and a
+  // read on the card.
+  uint32_t pending() const { return count_ - sent_ - withdrawnPending_; }
   uint32_t packCount() const { return packCount_; }
   const char* packId() const { return packId_; }
   bool full() const { return count_ >= kMaxQueuedReports; }
@@ -131,6 +138,9 @@ class ReportQueue {
   uint32_t count_ = 0;
   uint32_t sent_ = 0;
   uint32_t packCount_ = 0;
+  // Tombstones at or after `sent_`. Counted once when the queue is opened and
+  // kept in step by withdraw(), the only thing that makes one.
+  uint32_t withdrawnPending_ = 0;
   char packId_[kPackIdBytes + 1] = {};
 };
 

@@ -246,6 +246,32 @@ void testWithdraw() {
   CHECK(!q.withdraw(2));
   CHECK(q.entry(1, index, reason) && index == 2);
 
+  // pending() must count what will ACTUALLY be sent. A tombstone is an entry
+  // the file cannot shrink away, so count_ - sent_ overstates it -- and that
+  // number is on the SETTINGS screen, where "2 NOT YET SENT" for one real
+  // report is a lie the player cannot check.
+  {
+    MemSource c2;
+    ReportQueue p;
+    CHECK(p.open(c2, kPack, 50) == QueueOpen::Started);
+    CHECK(p.add(10, Reason::Wrong));
+    CHECK(p.add(11, Reason::Broken));
+    CHECK(p.pending() == 2);
+    CHECK(p.withdraw(10));
+    CHECK(p.pending() == 1);
+    CHECK(p.count() == 2);  // the entry is still there, it just will not be sent
+
+    // And it survives a reopen: the count is rebuilt from the file, not carried.
+    ReportQueue p2;
+    CHECK(p2.open(c2, kPack, 50) == QueueOpen::Ready);
+    CHECK(p2.pending() == 1);
+    CHECK(p2.count() == 2);
+
+    // Retiring everything leaves nothing pending, tombstone or not.
+    CHECK(p2.markSent(p2.count()));
+    CHECK(p2.pending() == 0);
+  }
+
   // The tombstone survives a reopen and is still skipped by the reader.
   ReportQueue again;
   CHECK(again.open(card, kPack, 50) == QueueOpen::Ready);
