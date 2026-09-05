@@ -664,17 +664,38 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
   fui::Rect body = screen.body();
 
   if (model.face == Face::Grid) {
-    // The notice comes out of the grid's own room rather than the key's. The
-    // key is what the message's names have to be looked up in, so squeezing it
-    // to make space for the message would take away the thing the message
-    // sends you to -- and the grid is width-bound at three categories, so at
-    // this tier it does not shrink at all.
+    // The notice band is reserved on EVERY render of this face, empty or not,
+    // for the same reason the pager strip below is. Taking it only when there
+    // is something to say moved the grid down the moment a tap was refused and
+    // back up when the next tap cleared it, which on this panel is a full
+    // refresh of the one surface the player is reading by position. It also
+    // re-measured the cell against a shorter area, which every tier survived
+    // only because every tier is width-bound today.
+    //
+    // The band comes out of the grid's own room rather than the key's. The key
+    // is what the message's names have to be looked up in, so squeezing it to
+    // make space for the message would take away the thing the message sends
+    // you to -- and the grid is width-bound at every tier, so it loses no cell
+    // size to this, only the slack the key was spreading into.
+    //
+    // TWO LINES, measured rather than chosen. blockedLine's longest form is
+    // "ALREADY TICKED: <A>/<B> AND <A>/<B>. CLEAR THEM TO TICK HERE." with
+    // every name out of the MurdleCast tables; taken to the real tile cut at
+    // this face's 448px body the widest of those is 710px, which the greedy
+    // wrap in paragraph() breaks into two lines and never three.
+    // host-tests/murdle measures the whole cross product against the font
+    // itself, so a longer fixture name fails a suite rather than quietly
+    // pushing the grid down again.
+    constexpr int kNoticeLines = 2;
+    const int16_t noticeH = static_cast<int16_t>(screen.target().lineHeight(toybox::kTileFont) * kNoticeLines + 8);
+    // Top of the band, not centred in it: a one-line refusal and a two-line one
+    // then start on the same row, which is the same rule one level down.
     if (model.notice != nullptr && model.notice[0] != '\0') {
-      const int16_t used =
-          paragraph(screen, styled(toybox::kTileFont, fui::TextAlign::Center), model.notice, body, true);
-      body = fui::makeRect(body.x, static_cast<int16_t>(body.y + used + 8), body.width,
-                           static_cast<int16_t>(body.height - used - 8));
+      paragraph(screen, styled(toybox::kTileFont, fui::TextAlign::Center), model.notice,
+                fui::makeRect(body.x, body.y, body.width, noticeH), true);
     }
+    body = fui::makeRect(body.x, static_cast<int16_t>(body.y + noticeH), body.width,
+                         static_cast<int16_t>(body.height - noticeH));
     layout = layoutGrid(screen, puzzle, body);
     drawGrid(screen, puzzle, *model.marks, layout);
     screen.frame().hit(fui::makeRect(static_cast<int16_t>(layout.originX - layout.gutter),

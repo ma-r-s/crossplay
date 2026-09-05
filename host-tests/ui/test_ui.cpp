@@ -4092,6 +4092,78 @@ void testMurdleGridEdgesAreLive() {
   CHECK(!murdleui::cellAt(grid, grid.originX, grid.originY - 1, outside));
 }
 
+void testMurdleRefusalDoesNotMoveTheGrid() {
+  // Mario, 2026-09-04: the refusal line "moves the whole board which is bad
+  // UX". It did, twice over -- the band was taken out of the top of the body
+  // only when there was something to put in it, so the grid's origin dropped
+  // AND its cell was re-measured against a shorter area. On this panel that is
+  // a full refresh of the one surface being read by position.
+  //
+  // Every tier, because the cell size is the min of a width fit and a height
+  // fit and only the height fit moves: a tier that happened to be height-bound
+  // would shrink where the others do not.
+  for (const murdle::Tier tier :
+       {murdle::Tier::Elementary, murdle::Tier::Nosy, murdle::Tier::HardBoiled, murdle::Tier::Impossible}) {
+    murdle::Puzzle puzzle = murdleCase(tier, 4242u);
+    murdle::Marks marks;
+    marks.reset(puzzle.shape);
+
+    murdleui::CaseModel quiet;
+    quiet.puzzle = &puzzle;
+    quiet.marks = &marks;
+    quiet.face = murdleui::Face::Grid;
+
+    murdleui::CaseModel refused = quiet;
+    // The longest thing blockedLine can produce; see the reserved band in
+    // buildCase and the measurement in host-tests/murdle.
+    refused.notice = "ALREADY TICKED: HAMMER/REVENGE AND HAMMER/REVENGE. CLEAR THEM TO TICK HERE.";
+
+    Rendered without;
+    Rendered with;
+    const murdleui::GridLayout before = buildMurdleCase(without, quiet);
+    const murdleui::GridLayout after = buildMurdleCase(with, refused);
+
+    CHECK(before.valid && after.valid);
+    CHECK(after.originX == before.originX);
+    CHECK(after.originY == before.originY);
+    CHECK(after.cell == before.cell);
+    CHECK(after.gutter == before.gutter);
+    CHECK(after.headerH == before.headerH);
+
+    // The notice really drew, or every check above is satisfied by a screen
+    // that simply threw the message away.
+    const fui::Rect grid = fui::makeRect(after.originX, static_cast<int16_t>(after.originY - after.headerH), 1, 1);
+    int noticeRuns = 0;
+    for (const auto& run : with.target.texts) {
+      if (run.text.find("ALREADY TICKED") == std::string::npos && run.text.find("CLEAR THEM") == std::string::npos) {
+        continue;
+      }
+      ++noticeRuns;
+      // And it drew ABOVE the grid rather than over the column labels, which is
+      // the way a reserved band goes wrong that a moved origin does not.
+      CHECK(run.rect.y + run.rect.height <= grid.y);
+      // The box the wrap sees, tied to the number host-tests/murdle measures
+      // the worst-case notice against rather than written down twice. This IS
+      // the body width: paragraph() draws each line into the rect it was given.
+      CHECK(run.rect.width == 448);
+    }
+    CHECK(noticeRuns > 0);
+
+    // The quiet render says nothing in the band it reserved.
+    for (const auto& run : without.target.texts) {
+      CHECK(run.text.find("ALREADY TICKED") == std::string::npos);
+    }
+
+    // The key still gets room under the grid. The band is paid for out of that
+    // slack, so this is the check that the payment did not empty it.
+    int legendRows = 0;
+    for (const auto& run : without.target.texts) {
+      if (run.text.find('=') != std::string::npos) ++legendRows;
+    }
+    CHECK(legendRows >= puzzle.shape.cats * puzzle.shape.items);
+  }
+}
+
 void testMurdleGridDrawsMarksItIsGiven() {
   murdle::Puzzle puzzle = murdleCase(murdle::Tier::Elementary, 5u);
   murdle::Marks marks;
@@ -8727,6 +8799,7 @@ int main() {
   testTheSudokuFrontDoorNeverSharesInkBetweenTwoLines();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
+  testMurdleRefusalDoesNotMoveTheGrid();
   testMurdleGridDrawsMarksItIsGiven();
   testMurdleClueFaceIsPagedAndNeverOverflows();
   testMurdleSettingsPicksAnAbsoluteTier();
