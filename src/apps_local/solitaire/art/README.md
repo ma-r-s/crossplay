@@ -24,7 +24,7 @@ uses (18px corner index, 46px card centre) and compared side by side:
   pedestal, which gives them a shared deliberate base and is the feature that
   survives at 18px; the club's lobes are smaller with more air between them.
 
-Regenerate with `tools/gen_suit_icons.sh`, which runs the SDK's own
+Regenerate with `tools_local/solitaire/gen_suit_icons.sh`, which runs the SDK's own
 `freeink-sdk/libs/assets/Icons/tools/gen_icons.py` over these files. Extracting
 the glyphs again needs fontTools and the font, neither of which is in the repo;
 the SVGs here are the checked-in source of truth.
