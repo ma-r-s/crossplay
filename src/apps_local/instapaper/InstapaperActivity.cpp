@@ -164,7 +164,40 @@ void InstapaperActivity::showDisconnectConfirm() {
   requestUpdate();
 }
 
+// Busy screen, painted immediately, for a caller that is about to block on a
+// socket in this same call stack. requestUpdate(true) notifies the render task
+// now; the default defers to a flag ActivityManager::loop() consumes at a tail
+// it cannot reach until the blocking call returns, so nothing would repaint at
+// all. The frame RACES the socket rather than being guaranteed ahead of it --
+// rendering is milliseconds and a network call is seconds, so it wins in
+// practice, and losing means the message is late rather than absent.
+//
+// request() above defers on purpose: its work happens on the NEXT loop pass, so
+// that tail IS reached. This is for the callers that block inline. Card #306.
+//
+// A helper because there are TWO of these on the same TLS client one switch
+// branch apart, and the first fix landed only on the one in front of me. See
+// fix-the-twin-too.
+void InstapaperActivity::paintBusyNow(const char* headline) {
+  {
+    RenderLock lock(*this);
+    phase_ = Phase::Busy;
+    busyMessage_ = headline;
+    // Only the download step writes this, and nothing else cleared it, so a
+    // busy screen could carry "3 of 5" left over from a previous download.
+    busyDetail_[0] = '\0';
+    step_ = Step::None;
+  }
+  requestUpdate(true);
+}
+
 void InstapaperActivity::performDisconnect() {
+  // pairAbandon() below is a TLS round trip on a blocking socket, and this
+  // function had no busy state of any kind: the panel held the DISCONNECT
+  // confirm -- the question the reader had just answered -- for the length of
+  // a handshake, which reads as the wipe having hung half way.
+  paintBusyNow("DISCONNECTING");
+
   // Best-effort server revoke, and only if the radio is already up. Possession
   // of the device token is the whole authorization -- POST /api/pair/abandon
   // resolves it to a uid and revokes it with no session -- so this hands the
@@ -235,6 +268,12 @@ void InstapaperActivity::loop() {
         // Walking away from a pairing is worth telling the bridge about: the
         // code stops being claimable, and a registration the confirm screen
         // declined is revoked rather than left as a device nobody holds.
+        //
+        // Painted first for the same reason performDisconnect() is: the same
+        // blocking TLS call on the same client, one switch branch away, and
+        // without it the QR code sits frozen on the glass through the
+        // handshake. #306, and fix-the-twin-too.
+        paintBusyNow("CANCELLING");
         sync_.pairAbandon(pollToken_, pendingToken_);
         pollToken_.clear();
         pendingToken_.clear();
