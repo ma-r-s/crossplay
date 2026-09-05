@@ -43,6 +43,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import sys
 import time
 
@@ -124,6 +125,41 @@ def parse_non_dir(path, sizes):
 FORMATS = {"janko-json": parse_janko_json, "non-dir": parse_non_dir}
 
 
+class GateTimeout(Exception):
+    pass
+
+
+def gated(name, cells, seconds):
+    """evaluate() with a wall-clock ceiling, or (None, why) when it runs over.
+
+    The gate is NOT changed by this -- it is the same evaluate(), reaching the
+    same verdict -- but a corpus is not a hand-drawn batch of twenty, and its
+    cost per puzzle spans orders of magnitude. `count_solutions` is exhaustive,
+    and a handful of grids in any large collection send it into the hundreds of
+    seconds. Waiting is pointless: a puzzle that expensive to prove is one this
+    bank can simply not take, and the alternative to a ceiling is an import that
+    looks hung with nothing to read.
+
+    Reported as its own outcome rather than folded into a failure, because
+    "too slow to decide" and "decided against" are different facts.
+    """
+    if seconds <= 0:
+        return evaluate(name, cells)
+
+    def ring(_signum, _frame):
+        raise GateTimeout()
+
+    previous = signal.signal(signal.SIGALRM, ring)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        return evaluate(name, cells)
+    except GateTimeout:
+        return None, "gate did not finish within %gs" % seconds
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 def _natural(key):
     """Sort '9_15x15' before '1051_10x10' rather than after it."""
     return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", key)]
@@ -160,6 +196,12 @@ def main():
         help="comma-separated board sizes to keep",
     )
     ap.add_argument("--limit", type=int, default=0, help="stop after N passes")
+    ap.add_argument(
+        "--gate-timeout",
+        type=float,
+        default=20.0,
+        help="seconds to spend proving one puzzle before giving up on it (0 = forever)",
+    )
     args = ap.parse_args()
 
     sizes = tuple(int(part) for part in args.sizes.split(",") if part.strip())
@@ -196,10 +238,12 @@ def main():
         # for ten minutes. The per-puzzle timing is the useful half: a silent
         # run cannot tell "slow corpus" from "stuck on one pathological grid".
         before = time.time()
-        ok, reason = evaluate(name, cells)
+        ok, reason = gated(name, cells, args.gate_timeout)
         spent = time.time() - before
         seen += 1
-        if spent > 5.0:
+        if ok is None:
+            print("  SKIP  %-14s %2dx%-2d  %s" % (name, size, size, reason))
+        elif spent > 5.0:
             print("  SLOW  %-14s %2dx%-2d  %.0fs in the gate" % (name, size, size, spent))
         if seen % 50 == 0:
             print(
