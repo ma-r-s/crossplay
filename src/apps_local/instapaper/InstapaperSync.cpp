@@ -4,8 +4,6 @@
 #include <Logging.h>
 #include <Utf8.h>
 
-#include <cstdio>
-
 #include "../bridge/BridgeHttp.h"
 
 namespace instapaper {
@@ -163,8 +161,26 @@ std::string Sync::syncStatus(const BridgeState& state, const std::string& jobId,
     Article& a = delivery.article;
     a.id = item["id"] | static_cast<int64_t>(0);
     if (a.id == 0) continue;
-    a.hash = item["hash"] | "";
-    a.sha = item["sha"] | "";
+    // Normalised here as well as at every write, and for a reason the write
+    // alone does not cover: the index on the card holds the sanitised form,
+    // so an Article kept raw in RAM would compare unequal to its own saved
+    // row and mergeSummary would queue a download for it on every single
+    // sync, forever, with nothing on screen to say why. Same rule, one
+    // definition -- InstapaperIndex.h.
+    const std::string rawHash = item["hash"] | "";
+    const std::string rawSha = item["sha"] | "";
+    a.hash = sanitizeToken(rawHash);
+    a.sha = sanitizeToken(rawSha);
+    if (a.hash != rawHash || a.sha != rawSha) {
+      // Not a crash and not a refusal: the article still syncs and still
+      // reads. But the bridge and this reader now disagree about its key, so
+      // it will be re-delivered every time, and that is the kind of slow
+      // waste nobody finds without a line saying it happened.
+      // ERR rather than INF because it is the only level that survives every
+      // LOG_LEVEL, and this one has to be findable a month later.
+      LOG_ERR("INSTASYNC", "article %lld sent a hash/sha this format cannot hold; cut to %u chars",
+              static_cast<long long>(a.id), static_cast<unsigned>(kTokenLimit));
+    }
     // Somebody else's headline, from somebody else's page: curly quotes, em
     // dashes and ellipses, none of which the reading cut can draw.
     a.title = utf8FoldTypography(item["title"] | "");
@@ -216,8 +232,14 @@ bool Sync::downloadToPart(const BridgeState& state, const Article& article, cons
     message = "The service did not say how big that article is.";
     return false;
   }
-  char path[96];
-  std::snprintf(path, sizeof(path), "/api/article/%lld/%s", static_cast<long long>(article.id), article.hash.c_str());
+  // The index writer's twin: this used to be a char[96] fed article.hash
+  // straight, so the same unbounded wire string that could cut a row short
+  // could also cut this path short and fetch a different article -- or spell
+  // "/api/article/7/../../etc/passwd", which only the bridge's own resolve
+  // check was stopping. Sanitised here rather than trusted from the Article,
+  // and built as a string so no length can be got wrong again.
+  const std::string path =
+      "/api/article/" + std::to_string(static_cast<long long>(article.id)) + "/" + sanitizeToken(article.hash);
   return bridge::streamToFile(kEndpoint, path, state.token, partPath, expectedBytes,
                               "An article did not arrive whole. Try syncing again.", cancel, message);
 }
