@@ -20,9 +20,11 @@ Measured against the source, not assumed. Everything here was verified.
   with tap scripts that were never saved, plus `og.png`, which is a Playwright
   composite built _from_ `games.png` (`site/make-og.py:54`). `site/assets/post/`
   holds four more.
-- **`site/emulator/crossplay.{js,wasm,data}` is checked in**, last built
-  2026-08-07. It is the real firmware, so when it is stale the page lets people
-  _play_ an old version.
+- **`site/emulator/crossplay.{js,wasm,data}` is no longer committed** (it was
+  when this was written, at ~20MB of history a day). CI publishes it to the
+  `emulator` GitHub release and commits `site/emulator-manifest.json`; see
+  site/README.md. It is the real firmware, so when it is stale the page lets
+  people _play_ an old version.
 - **`.claude/skills/` is committed** and reaches every worktree (all 9 trees
   carry 6 files).
 - **`crossplay-ci.yml` fires on push to `xteink` and on every pull request**, and
