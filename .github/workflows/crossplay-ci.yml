@@ -67,12 +67,38 @@ permissions:
 # RELEASE_HOLD was 0 and nobody was holding anything. Every individual
 # cancellation looked exactly like this rule working correctly.
 #
-# So pull requests still supersede, and xteink queues. crossplay-emulator.yml
-# already does the second thing (cancel-in-progress: false), which is why its
-# run for 2b9f3a84 finished while this workflow's run for the same commit was
-# cancelled -- the same merge, the two rules, two outcomes.
+# QUEUEING DID NOT FIX IT, and `cancel-in-progress: false` is not what anyone
+# reads it as. A concurrency group holds at most ONE run in progress and ONE
+# run pending. cancel-in-progress governs the first of those two. Nothing
+# governs the second: when a third run arrives, GitHub cancels whatever was
+# pending to make room for it, and it does so whether cancel-in-progress is
+# true or false. So a stream of merges still loses runs, silently, one per
+# merge that lands while a build is running and another is waiting.
+#
+# MEASURED, on 2026-09-05, over the 36 hours after `cancel-in-progress:
+# ${{ github.ref != 'refs/heads/xteink' }}` landed in 52d0907f: 41 runs of this
+# workflow on xteink were cancelled, and `actions/runs/<id>/jobs` returns
+# total_count 0 for all 41 of them. Not one had started a job. They were killed
+# while pending, by the next merge, exactly as they were before -- and the
+# merges they belonged to therefore reached no conclusion, so
+# crossplay-autorelease.yml never fired for any of them.
+#
+# So the group has to be one a merge cannot share. On xteink it is the COMMIT:
+# two merges are never in one group, nothing ever pends behind anything, and
+# GitHub has nothing to cancel. Runs are then parallel rather than queued,
+# which costs runner minutes (this repository is public, so they are free) and
+# nothing else -- this workflow takes `permissions: contents: read` and writes
+# nothing that another run of it could race.
+#
+# Pull requests keep the branch group and keep superseding: a push there really
+# does replace the commit before it, and no release listens to that ref.
+#
+# Folding several merges into one release still happens, and this is where it
+# belongs: each merge now gets its own verdict, and crossplay-autorelease.yml
+# collapses whatever has landed since the newest tag into a single release. It
+# was never CI's job to do that by throwing builds away.
 concurrency:
-  group: crossplay-ci-${{ github.ref }}
+  group: crossplay-ci-${{ github.ref == 'refs/heads/xteink' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/xteink' }}
 
 jobs:
