@@ -5,6 +5,9 @@
 #
 # Two sub-suites, and the second is the one that matters most:
 #   test_trivia    -- reader, chooser and shuffle, over a pack built in C++
+#   test_report    -- the outbound report queue, pack.meta and the manifest
+#                     reader, plus a parity check that the wire codes mean the
+#                     same thing here and in tools_local/trivia/reports.py
 #   test_realpack  -- the SAME reader over a pack written by the Python writer,
 #                     which is the only check that the two halves of the format
 #                     actually agree. A reader tested only against its own
@@ -58,3 +61,120 @@ with open(os.path.join(build, 'real.tsv'), 'w', encoding='utf-8') as f:
         f.write(f"{it['d']}\t{it['y']}\t{len(it.get('alt',[]))}\t{len(it.get('w',[]))}\t{us}\t{it['q']}\t{it['a']}\n")
 PY
 "$BUILD_DIR/test_realpack" "$BUILD_DIR/real.dat" "$BUILD_DIR/real.tsv"
+
+# The report queue and pack.meta. Same argument as above: freestanding, so the
+# refusals can be checked without a panel -- and they are almost all refusals,
+# because the failure they prevent is a report that names the wrong pack, which
+# downstream deletes a question nobody reported.
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 -I$SRC \
+  test_report.cpp "$SRC/TriviaReport.cpp" -o "$BUILD_DIR/test_report"
+"$BUILD_DIR/test_report"
+
+# THE FORMAT ITSELF, across the language boundary. The queue is written by a
+# hand-rolled C++ struct and read by a Python struct.Struct, and until this
+# nothing made them meet: each side was only ever tested against its own writer,
+# which is exactly the arrangement test_realpack exists to prevent for pack.dat.
+# A disagreement here means a card full of real reports that collect_flags.py
+# reads as garbage, or worse, as different questions.
+"$BUILD_DIR/test_report" --write-fixture "$BUILD_DIR/reports.dat"
+python3 - "$TOOLS" "$BUILD_DIR/reports.dat" <<'CROSSREAD'
+import sys
+sys.path.insert(0, sys.argv[1])
+import reports
+
+# reports.read RAISES on a format it cannot parse -- a drifted magic, a torn
+# tail, a version bump. Uncaught that is a traceback, and check.sh surfaces a
+# failing suite by grepping FAIL|error:, so the one line explaining what broke
+# would not be among the five it shows. Caught and restated.
+try:
+    pack_id, count, entries = reports.read(sys.argv[2])
+except reports.Refused as err:
+    print("FAIL trivia  Python cannot read the queue the C++ writer just wrote:")
+    print(f"                  {err}")
+    print("              The two halves of the reports.dat format have drifted.")
+    sys.exit(1)
+want = [(7, "wrong"), (99, "none"), (123, "easy")]
+bad = []
+if pack_id != "fixture0001":
+    bad.append(f"pack id came back {pack_id!r}")
+if count != 500:
+    bad.append(f"pack count came back {count}")
+if entries != want:
+    bad.append(f"entries {entries} != {want}")
+# The C++ side wrote FOUR entries and withdrew one. The reader must skip the
+# tombstone rather than report an index of 4294967295, and must not renumber
+# the rest.
+import os
+size = os.path.getsize(sys.argv[2])
+if size != reports.HEADER.size + 4 * reports.ENTRY.size:
+    bad.append(f"file is {size} bytes, not a header plus four entries")
+if bad:
+    for b in bad:
+        print(f"FAIL trivia  C++ writer vs Python reader: {b}")
+    sys.exit(1)
+print(f"cross-read ok: {len(entries)} reports out of 4 written, one withdrawn, cursor honoured")
+CROSSREAD
+
+# The wire codes are shared with the Python side, and a code that means "wrong
+# answer" here and "too easy" there is a silent corpus edit that no build error
+# would catch. Compared by NAME and VALUE, in both directions, so adding a code
+# to one side alone fails too.
+python3 - "$SRC" "$TOOLS" <<'PARITY'
+import re, sys
+src, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+import reports
+
+header = open(f"{src}/TriviaReport.h", encoding="utf-8").read()
+block = re.search(r"enum class Reason : uint8_t \{(.*?)\};", header, re.S).group(1)
+cpp = {}
+for name, value in re.findall(r"(\w+)\s*=\s*(\d+)\s*,", block):
+    cpp[int(value)] = name
+count = cpp.pop(max(cpp))  # the Count sentinel is not a reason
+cpp_named = {v: n.lower() for v, n in cpp.items()}
+
+if cpp_named != reports.REASONS:
+    print("FAIL trivia  reason codes differ between TriviaReport.h and reports.py")
+    print(f"      C++   : {cpp_named}")
+    print(f"      Python: {reports.REASONS}")
+    sys.exit(1)
+if len(reports.REASONS) != int(re.search(r"Count = (\d+)", block).group(1)):
+    print("FAIL trivia  Reason::Count does not match the number of Python codes")
+    sys.exit(1)
+# reasonName() is what actually goes on the wire, so compare THAT too rather
+# than only the enumerator spellings -- they are two different facts and only
+# one of them reaches the endpoint.
+impl = open(f"{src}/TriviaReport.cpp", encoding="utf-8").read()
+body = re.search(r"const char\* reasonName\(const Reason reason\) \{(.*?)\n\}", impl, re.S).group(1)
+wire = dict(re.findall(r"case Reason::(\w+):\s*\n\s*return \"(\w*)\";", body))
+wire_by_value = {v: wire[n] for v, n in cpp.items() if n in wire}
+if wire_by_value != reports.REASONS:
+    print("FAIL trivia  reasonName() disagrees with reports.py")
+    print(f"      wire  : {wire_by_value}")
+    print(f"      Python: {reports.REASONS}")
+    sys.exit(1)
+
+# The reason SCREEN has to be able to show every reason at once. Its list is
+# virtualised -- a row that does not fit is not drawn and not registered for
+# interaction -- so an eleventh reason would silently become unreachable in the
+# one combination that shows them all (solo, US questions off). ReasonModel::kMax
+# is the buffer, and buildReasons' rowHeight comment carries the arithmetic; this
+# only makes adding a reason a deliberate act rather than a quiet overflow.
+screens = open(f"{src}/TriviaScreens.h", encoding="utf-8").read()
+kmax = int(re.search(r"kMax\s*=\s*(\d+)", screens).group(1))
+selectable = len(reports.REASONS) - 1  # every code except `none`, which is not a row
+fits = int(re.search(r"kMaxReasonRows = (\d+)", screens).group(1))
+if selectable > fits:
+    print(f"FAIL trivia  {selectable} selectable reasons but only {fits} rows can be DRAWN")
+    print("              The extra rows are not laid out and cannot be tapped.")
+    print("              Re-measure buildReasons by rendering it, then set kMaxReasonRows.")
+    sys.exit(1)
+if kmax < selectable:
+    print(f"FAIL trivia  {selectable} selectable reasons but ReasonModel::kMax is {kmax}")
+    print("              The extra rows would not be drawn and could not be tapped.")
+    print("              Raise kMax AND re-check the fit in buildReasons.")
+    sys.exit(1)
+
+print(f"parity ok: {len(reports.REASONS)} reason codes and wire names agree; "
+      f"{selectable} selectable rows fit kMax {kmax} and {fits} drawable")
+PARITY

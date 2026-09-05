@@ -161,9 +161,27 @@ removes the question permanently; a `good` verdict pins it in regardless of scor
 
 This is the only layer that scales, and the cheapest to build.
 
-While a question is on screen you are already reading it. One button marks it
-bad; the device appends the id to `flags.txt` on the SD card. At the next pack
-build those ids merge into `verdicts.tsv`.
+While a question is on screen you are already reading it. HIDE marks it bad; the
+device sets the question's `FLAGGED` bit in `/trivia/pack.state`, and its reason,
+if the player gave one, goes in `/trivia/reports.dat`
+(`tools_local/trivia/reports.py` is the format). Read them back off the card
+with:
+
+```bash
+python3 tools_local/trivia/collect_flags.py /Volumes/<card>/trivia/pack.dat --apply
+```
+
+**This paragraph used to describe a `flags.txt` that nothing ever wrote.** No
+file of that name has existed anywhere in the tree, no tool read a card, and
+`verdicts.tsv` accumulated exactly one verdict in its lifetime -- so the loop
+below was described, believed and never run. Board card #257.
+
+`collect_flags.py` REFUSES rather than resolves whenever it cannot prove an
+index still names the question it named: a `pack.state` whose length is not the
+pack's count, a manifest for another build, a reports queue filed against a
+different pack. Downstream a verdict is applied without review, so a wrong id
+deletes a question nobody reported and the only symptom is a slightly smaller
+pack.
 
 **Why this is the important one**: you will only ever flag questions you actually
 saw, which is precisely the set worth judging. It turns curation from a 366,000-
