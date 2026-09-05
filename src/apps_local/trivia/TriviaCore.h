@@ -48,6 +48,15 @@ inline constexpr int kDifficulties = 5;
 inline constexpr uint8_t kMagic[8] = {'X', 'T', 'R', 'I', 'V', 'I', 'A', 0};
 inline constexpr uint16_t kFormatVersion = 1;
 
+// The difficulty byte is 1-5, so its top bit is free. Bit 7 marks a US-centric
+// question; the low 7 bits are the level. Pack::read splits them, so
+// difficulty() is always the level and usCentric() is the flag. The chooser
+// deals the marked questions only when a settings toggle asks for them, which
+// is what makes the pack international by default without a second pack. A pack
+// built before the flag existed simply has the bit clear everywhere.
+inline constexpr uint8_t kUsCentric = 0x80;
+inline constexpr uint8_t kDifficultyMask = 0x7F;
+
 // pack.state bits, one byte per question at the question's own index.
 inline constexpr uint8_t kSeen = 0x01;
 inline constexpr uint8_t kFlagged = 0x02;
@@ -56,6 +65,9 @@ inline constexpr uint8_t kFlagged = 0x02;
 class Question {
  public:
   uint8_t difficulty() const { return difficulty_; }
+  // Marked in the pack (bit 7 of the difficulty byte). The chooser skips these
+  // unless the caller allows them; see Chooser::next.
+  bool usCentric() const { return usCentric_; }
   uint16_t year() const { return year_; }
   int alternateCount() const { return altCount_; }
   int distractorCount() const { return wrongCount_; }
@@ -73,6 +85,7 @@ class Question {
   const char* field(const int i) const { return (i >= 0 && i < fieldCount_) ? bytes_ + offset_[i] : ""; }
 
   uint8_t difficulty_ = 0;
+  bool usCentric_ = false;
   uint16_t year_ = 0;
   uint8_t altCount_ = 0;
   uint8_t wrongCount_ = 0;
@@ -154,8 +167,10 @@ class Chooser {
  public:
   void begin(const Pack& pack, PackState& state, Rng& rng);
   // requireChoice restricts to questions carrying distractors (solo mode).
-  // difficulty 0 means any.
-  bool next(uint32_t& indexOut, bool requireChoice, int difficulty);
+  // difficulty 0 means any. allowUsCentric false skips US-centric questions,
+  // which is the pack's international-by-default behaviour; the settings toggle
+  // passes true to include them.
+  bool next(uint32_t& indexOut, bool requireChoice, int difficulty, bool allowUsCentric);
 
  private:
   const Pack* pack_ = nullptr;

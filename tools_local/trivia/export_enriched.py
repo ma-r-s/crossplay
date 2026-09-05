@@ -22,10 +22,10 @@ tool exports RATINGS, so it stays inclusive by default: a US-inclusive pack has
 to remain buildable from exactly the same data, which is why enrich_pack.py
 stored the two as separate fields in the first place.
 
-The decision about what SHIPS lives in assemble_pack.py, which drops us_centric
-by default (rule 4) and takes --keep-us to put them back. The two defaults point
-opposite ways on purpose: nothing is removed from the data, and nothing
-US-centric reaches a player. See docs/trivia-curation.md.
+The decision about what SHIPS lives in assemble_pack.py, which now ships every
+us_centric question TAGGED (rule 4) and lets the device toggle
+(triviaShowUsCentric) hide or show them at runtime. Nothing is removed from the
+data, and the pack is international by default. See docs/trivia-curation.md.
 
     python3 tools_local/trivia/export_enriched.py --enriched .rate/enriched.jsonl \\
         --out-ratings .rate/local_difficulty.tsv \\

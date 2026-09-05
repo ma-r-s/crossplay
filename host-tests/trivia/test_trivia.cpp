@@ -60,6 +60,7 @@ struct Item {
   uint8_t difficulty;
   uint16_t year;
   std::vector<std::string> alts, wrong;
+  bool usCentric = false;
 };
 
 void put16(std::vector<uint8_t>& v, uint16_t n) {
@@ -72,7 +73,7 @@ void put32(std::vector<uint8_t>& v, uint32_t n) {
 
 std::vector<uint8_t> record(const Item& it) {
   std::vector<uint8_t> r;
-  r.push_back(it.difficulty);
+  r.push_back(static_cast<uint8_t>(it.difficulty | (it.usCentric ? kUsCentric : 0)));
   put16(r, it.year);
   r.push_back(static_cast<uint8_t>(it.alts.size()));
   r.push_back(static_cast<uint8_t>(it.wrong.size()));
@@ -302,7 +303,7 @@ void testChooserDoesNotServeNeighbours() {
   int adjacent = 0;
   for (int i = 0; i < kDraws; ++i) {
     uint32_t idx = 0;
-    CHECK(chooser.next(idx, false, 0));
+    CHECK(chooser.next(idx, false, 0, true));
     if (i > 0 && idx == (previous + 1) % kCount) ++adjacent;
     previous = idx;
     state.setFlag(idx, kSeen);
@@ -332,7 +333,7 @@ void testChooser() {
   int distinct = 0;
   for (int i = 0; i < 60; ++i) {
     uint32_t idx = 0;
-    CHECK(chooser.next(idx, false, 0));
+    CHECK(chooser.next(idx, false, 0, true));
     if (!drawn[idx]) {
       drawn[idx] = true;
       ++distinct;
@@ -343,7 +344,7 @@ void testChooser() {
 
   // Exhausted, it must keep dealing rather than dead-end.
   uint32_t idx = 0;
-  CHECK(chooser.next(idx, false, 0));
+  CHECK(chooser.next(idx, false, 0, true));
 
   // Flagged questions are never served again.
   MemorySource s2(std::vector<uint8_t>(60, 0));
@@ -355,7 +356,7 @@ void testChooser() {
   c2.begin(pack, st2, r2);
   for (int i = 0; i < 20; ++i) {
     uint32_t got = 0;
-    CHECK(c2.next(got, false, 0));
+    CHECK(c2.next(got, false, 0, true));
     CHECK(got == 59);
   }
 
@@ -368,7 +369,7 @@ void testChooser() {
   Rng r3(3);
   c3.begin(pack, st3, r3);
   uint32_t none = 0;
-  CHECK(!c3.next(none, false, 0));
+  CHECK(!c3.next(none, false, 0, true));
 
   // Solo mode may only be handed questions that carry distractors.
   MemorySource s4(std::vector<uint8_t>(60, 0));
@@ -379,7 +380,7 @@ void testChooser() {
   c4.begin(pack, st4, r4);
   for (int i = 0; i < 40; ++i) {
     uint32_t got = 0;
-    CHECK(c4.next(got, true, 0));
+    CHECK(c4.next(got, true, 0, true));
     Question q;
     CHECK(pack.read(got, q));
     CHECK(q.playableAsChoice());
@@ -395,11 +396,146 @@ void testChooser() {
   c5.begin(pack, st5, r5);
   for (int i = 0; i < 10; ++i) {
     uint32_t got = 0;
-    CHECK(c5.next(got, false, 4));
+    CHECK(c5.next(got, false, 4, true));
     Question q;
     CHECK(pack.read(got, q));
     CHECK(q.difficulty() == 4);
     st5.setFlag(got, kSeen);
+  }
+}
+
+// --- the US-centric toggle -------------------------------------------------
+// The pack ships every question, US-centric ones tagged (bit 7 of the
+// difficulty byte). The chooser deals them only when the caller allows it,
+// which is how a settings toggle makes the pack international by default. Board
+// #191/#223.
+void testUsCentricFilter() {
+  // 25 international questions, five at each level 1..5, then 15 US-centric ones
+  // all at level 5. So level 5 has both kinds, and the international half of it
+  // is never empty -- the property the toggle's default state must keep.
+  std::vector<Item> items;
+  for (int i = 0; i < 25; ++i) {
+    Item it;
+    it.clue = "Intl clue " + std::to_string(i);
+    it.answer = "Intl" + std::to_string(i);
+    it.difficulty = static_cast<uint8_t>(1 + (i % 5));
+    it.year = 2000;
+    for (int w = 0; w < 3; ++w) it.wrong.push_back("W" + std::to_string(i) + "_" + std::to_string(w));
+    items.push_back(it);
+  }
+  for (int i = 0; i < 15; ++i) {
+    Item it;
+    it.clue = "US clue " + std::to_string(i);
+    it.answer = "US" + std::to_string(i);
+    it.difficulty = 5;
+    it.usCentric = true;
+    it.year = 2000;
+    for (int w = 0; w < 3; ++w) it.wrong.push_back("UW" + std::to_string(i) + "_" + std::to_string(w));
+    items.push_back(it);
+  }
+  const int n = static_cast<int>(items.size());  // 40
+
+  MemorySource packSrc(buildPack(items));
+  Pack pack;
+  CHECK(pack.open(packSrc));
+  CHECK(pack.count() == 40);
+
+  // The flag survives the writer/reader round trip, and the difficulty it rode
+  // in on is unmasked back to 1..5 rather than 133.
+  for (int i = 0; i < n; ++i) {
+    Question q;
+    CHECK(pack.read(static_cast<uint32_t>(i), q));
+    CHECK(q.usCentric() == items[i].usCentric);
+    CHECK(q.difficulty() == items[i].difficulty);
+  }
+
+  // --- toggle OFF (default): no US-centric question is ever dealt -----------
+  {
+    MemorySource stateSrc(std::vector<uint8_t>(40, 0));
+    PackState state;
+    CHECK(state.open(stateSrc, 40));
+    Chooser chooser;
+    Rng rng(9);
+    chooser.begin(pack, state, rng);
+    int distinct = 0;
+    bool drawn[40] = {};
+    for (int i = 0; i < 200; ++i) {
+      uint32_t idx = 0;
+      CHECK(chooser.next(idx, false, 0, /*allowUsCentric=*/false));
+      Question q;
+      CHECK(pack.read(idx, q));
+      CHECK(!q.usCentric());  // RED if the filter is removed
+      if (!drawn[idx]) {
+        drawn[idx] = true;
+        ++distinct;
+      }
+      state.setFlag(idx, kSeen);
+    }
+    CHECK(distinct == 25);  // every international question is reachable
+  }
+
+  // Level 5 with the toggle OFF is still playable: its international half is
+  // non-empty, and only international questions come back.
+  {
+    MemorySource stateSrc(std::vector<uint8_t>(40, 0));
+    PackState state;
+    CHECK(state.open(stateSrc, 40));
+    Chooser chooser;
+    Rng rng(4);
+    chooser.begin(pack, state, rng);
+    int seen = 0;
+    for (int i = 0; i < 30; ++i) {
+      uint32_t idx = 0;
+      CHECK(chooser.next(idx, false, 5, /*allowUsCentric=*/false));
+      Question q;
+      CHECK(pack.read(idx, q));
+      CHECK(q.difficulty() == 5);
+      CHECK(!q.usCentric());  // RED if the filter is removed
+      state.setFlag(idx, kSeen);
+      ++seen;
+    }
+    CHECK(seen == 30);  // never dead-ended: the level-5 intl pool exists
+  }
+
+  // --- toggle ON: US-centric questions can be dealt ------------------------
+  {
+    MemorySource stateSrc(std::vector<uint8_t>(40, 0));
+    PackState state;
+    CHECK(state.open(stateSrc, 40));
+    Chooser chooser;
+    Rng rng(2);
+    chooser.begin(pack, state, rng);
+    int usDealt = 0;
+    for (int i = 0; i < 40; ++i) {
+      uint32_t idx = 0;
+      CHECK(chooser.next(idx, false, 0, /*allowUsCentric=*/true));
+      Question q;
+      CHECK(pack.read(idx, q));
+      if (q.usCentric()) ++usDealt;
+      state.setFlag(idx, kSeen);
+    }
+    CHECK(usDealt == 15);  // all 15 US-centric questions are reachable when on
+  }
+
+  // Level 5 with the toggle ON reaches the US-centric questions specifically.
+  {
+    MemorySource stateSrc(std::vector<uint8_t>(40, 0));
+    PackState state;
+    CHECK(state.open(stateSrc, 40));
+    Chooser chooser;
+    Rng rng(6);
+    chooser.begin(pack, state, rng);
+    int usAtFive = 0;
+    for (int i = 0; i < 20; ++i) {
+      uint32_t idx = 0;
+      CHECK(chooser.next(idx, false, 5, /*allowUsCentric=*/true));
+      Question q;
+      CHECK(pack.read(idx, q));
+      CHECK(q.difficulty() == 5);
+      if (q.usCentric()) ++usAtFive;
+      state.setFlag(idx, kSeen);
+    }
+    CHECK(usAtFive == 15);  // the level-5 US half is dealt only when allowed
   }
 }
 
@@ -550,7 +686,7 @@ void testChoicesAtThreeOptions() {
   chooser.begin(pack, state, cr);
   for (int i = 0; i < 200; ++i) {
     uint32_t got = 0;
-    if (!chooser.next(got, true, 0)) break;
+    if (!chooser.next(got, true, 0, true)) break;
     CHECK(got != 1);  // the read-aloud record is never served to solo mode
     Question q;
     CHECK(pack.read(got, q));
@@ -694,6 +830,7 @@ int main() {
   testRejectsBadFiles();
   testState();
   testChooser();
+  testUsCentricFilter();
   testChooserDoesNotServeNeighbours();
   testStateCountsSurviveReopen();
   testChoices();
