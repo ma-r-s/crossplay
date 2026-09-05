@@ -51,8 +51,27 @@ constexpr int16_t kDiceBandHeight = kDieSize;
 // neither. Thirty-six spends forty-five of it, which also takes the row from
 // 3.8mm to 4.15mm at 220ppi -- and this row is the only irreversible tap in the
 // game, so it should not have been the smallest target on the screen.
+// 36 and not 35, which was tried: the score boxes are sized off this, and at
+// 35 the digits' ink met the box's bottom border and read as a smudge rather
+// than a number. The fifteen pixels the top gutter needs are NOT available
+// here.
 constexpr int16_t kLineHeight = 36;
 constexpr int16_t kColumnHeaderHeight = 22;
+// The air below the dice, and the whole of this screen's remaining slack.
+//
+// tableTop must stay at 180: the table is fifteen 36px lines laid out from an
+// absolute top, the ROLL capsule comes off takeBottom, and 180 is the value
+// that leaves TOTAL clear of the capsule. From the chrome's bottom at 83 that
+// leaves exactly thirteen pixels to divide between the air ABOVE the dice and
+// the air below them -- 83 + above + 62 + below + 22 = 180. There is no
+// fourteenth pixel anywhere on this screen: kLineHeight already spent 45 of
+// the 46 that once went unassigned, and at 35 the digits meet their box.
+//
+// Twelve of the thirteen go above, because that is the gap Mario has now
+// called too tight twice. One goes below, which costs nothing visible: the
+// column header is a 22px box holding a small label, so its own padding is the
+// air between the dice and the word YOU.
+constexpr int16_t kDiceToTable = 1;
 // Where the two score columns end. The name has everything to the left of them.
 constexpr int16_t kYourRight = 336;
 constexpr int16_t kTheirRight = 464;
@@ -65,14 +84,27 @@ constexpr int kBonusLine = yz::kUpperEnd;
 constexpr int kTotalLine = yz::kCategories + 1;
 constexpr int kLines = yz::kCategories + 2;
 
-// Four pixels shaved off each of the two gaps above the table, spent below
-// it: the TOTAL row ended eight pixels from the ROLL capsule and read as
-// touching it. The whole card lifts, so the row grid keeps its rhythm and
-// dieAt / categoryAt stay in step with the drawing by construction.
-int16_t contentTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter - 4); }
-int16_t tableTop() {
-  return static_cast<int16_t>(contentTop() + kDiceBandHeight + toybox::kGutter - 4 + kColumnHeaderHeight);
-}
+// The gap above the dice is NOT shaved; the one below them is.
+//
+// Both were, once, to buy eight pixels for the bottom: the TOTAL row ended
+// eight pixels from the ROLL capsule and read as touching it. That fixed the
+// bottom by taking from the top, and the top could not afford it. Measured
+// against the chrome the dice actually sit under -- band 0..76, headerRule
+// 76..79 -- a contentTop of 84 left FIVE pixels of clearance, and Mario read
+// exactly what the comment above predicted at eight: touching.
+//
+// Only the second shave is kept, so the dice get their four back and
+// everything below the dice keeps the lift. The bottom pays four of the
+// sixteen it gained, which still leaves twice the eight that was the
+// complaint. The row grid keeps its rhythm and dieAt / categoryAt stay in
+// step with the drawing by construction, because both derive from these.
+//
+// Note what does NOT fix this, since it was tried: making the header shorter.
+// The band and the dice move together, so the clearance changes by nothing.
+// The clearance is the difference between this constant and the rule's
+// bottom, and only this constant can change it.
+int16_t contentTop() { return static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter); }
+int16_t tableTop() { return static_cast<int16_t>(contentTop() + kDiceBandHeight + kDiceToTable + kColumnHeaderHeight); }
 
 // A category's line in the table: itself, or one lower once the bonus line has
 // been passed.
@@ -410,6 +442,12 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
   header.title = "YAHTZEE";
   header.borderEdges = fui::EdgesNone;
   toybox::headerBand(screen, header);
+  // The menu face draws this and the card face did not, which is the
+  // inconsistency #248 counts across the fork: 28 files draw a band, 27 draw a
+  // rule, and nine disagree with themselves. Yahtzee was one of the nine, and
+  // it shows -- the dice sat under a bare black edge on one screen and under a
+  // ruled one on the other.
+  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   const fui::DeviceContext device = screen.device();
