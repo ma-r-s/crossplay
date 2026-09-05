@@ -359,6 +359,14 @@ asset: **8,643 bytes**, or 6,925 with JS comments stripped. `FontsPage.html`
 costs 3,267 and `FilesPage.html` 51,423. `gh_release_x4pro` last measured
 6,599,674 against an 8,323,072-byte slot, so this is 0.5% of the 1.65MB spare.
 
+That figure is the PUBLIC site's four files inlined, and the device page is not
+quite those files: it ends in a `PUT` to the card rather than a download, and it
+does not need the site's chrome. So treat 8,643 as an upper bound with the right
+order of magnitude, not as the number this will cost -- and re-measure the real
+asset before quoting it anywhere, because a byte count that came from a
+different artefact is exactly the kind of derived fact that rots
+(`derived-facts-written-as-literals`).
+
 ### CHANGED: route A as first drafted opened the whole card
 
 The first draft called "no new C++ route" a win. It is not, and this is the
