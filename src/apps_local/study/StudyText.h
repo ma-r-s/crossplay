@@ -52,9 +52,13 @@ inline uint32_t nextCodepoint(const char*& p) {
 }
 
 // May a line break happen either side of this character? True for spaces and
-// for CJK, which is written without spaces and breaks almost anywhere.
+// for CJK, which is written without spaces and breaks almost anywhere, and
+// for the newline, which is not a break the wrap may take but one it MUST --
+// fitsAsDrawn measures runs with this same predicate, so a newline that was
+// not breakable here made two paragraphs look like one unbreakable run and
+// condemned the card to the fallback face.
 inline bool isBreakable(const uint32_t codepoint) {
-  if (codepoint == ' ') return true;
+  if (codepoint == ' ' || codepoint == '\n') return true;
   return (codepoint >= 0x2E80 && codepoint <= 0x9FFF) || (codepoint >= 0xF900 && codepoint <= 0xFAFF) ||
          (codepoint >= 0xFF00 && codepoint <= 0xFFEF);
 }
@@ -136,6 +140,19 @@ void wrapText(const char* text, const int maxWidth, char* line, const int lineBy
     }
     int unitBytes = static_cast<int>(unitEnd - p);
     if (unitBytes <= 0) break;
+
+    // A hard break. Anki's fields carry real structure -- a <br>, a list, the
+    // paragraphs of a Back Extra -- and flattening it to spaces ran a
+    // four-item list into one grey line. The newline is consumed rather than
+    // drawn, and still counts as a codepoint, because the span offsets the
+    // converter recorded were measured over the string as it is.
+    if (*p == '\n') {
+      flush();
+      ++cpIndex;
+      ++lineStartCp;
+      ++p;
+      continue;
+    }
 
     if (unitBytes >= lineBytes) {
       // A run with no break in it that is longer than the whole line buffer:

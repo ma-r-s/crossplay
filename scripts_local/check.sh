@@ -795,16 +795,17 @@ else
   echo "  installer    SKIPPED: no .venv-study -- the page's Python suite did NOT run"
 fi
 
-# The cloze rules. Standard library only and no Anki, so it runs even where
-# the installer suite above is skipped for want of a venv -- which matters
-# here more than anywhere: every rule it pins is a way to put the answer on
-# the question face, and a card that answers itself looks fine on the screen.
-if (cd "$REPO" && python3 tools_local/study/test_cloze.py) \
-    > "$LOGS/study-cloze.log" 2>&1; then
-  printf "  %-12s ok\n" "cloze"
+# The converter's text rules -- cloze, and what survives an Anki field's HTML.
+# Standard library only and no Anki, so it runs even where the installer suite
+# above is skipped for want of a venv, which matters here more than anywhere:
+# every cloze rule it pins is a way to put the answer on the question face,
+# and a card that answers itself looks fine on the screen.
+if (cd "$REPO" && python3 tools_local/study/test_convert_text.py) \
+    > "$LOGS/study-convert-text.log" 2>&1; then
+  printf "  %-12s ok\n" "converttext"
 else
-  printf "  %-12s FAILED\n" "cloze"
-  tail -10 "$LOGS/study-cloze.log" | sed 's/^/      /'
+  printf "  %-12s FAILED\n" "converttext"
+  tail -10 "$LOGS/study-convert-text.log" | sed 's/^/      /'
   FAILED=1
 fi
 

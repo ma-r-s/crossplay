@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Pin the cloze rules the converter has to match Anki on.
+"""Pin the text rules the converter has to match Anki on.
+
+Two families, both about what reaches the card face.
 
 Anki's {{cloze:}} is three rules and every one of them is a way to leak the
 answer if it is got wrong:
@@ -12,10 +14,14 @@ answer if it is got wrong:
      is what Anki calls an empty card, and showing it means showing a question
      with no hole in it, which is a card that answers itself.
 
+The second is what survives an Anki field's HTML: an Anki field is HTML, its
+structure is usually the point, and flattening a four-item list to one grey
+line is a card the user cannot read even though nothing failed.
+
 Standard library only, and no Anki: the rules under test are ours, and a test
 that needs a venv is a test that gets skipped. Run directly:
 
-    python3 tools_local/study/test_cloze.py
+    python3 tools_local/study/test_convert_text.py
 """
 
 import pathlib
@@ -115,6 +121,49 @@ check(conv.cloze_extra_index(["{{c1::a}}", "extra text"], 0, ["Text", "Back Extr
 check(conv.cloze_extra_index(["{{c1::a}}", "", "tail"], 0, ["Text", "Back Extra", "Source"]) == 2,
       "an empty Back Extra does not win over a filled field")
 
+# --- what clean() keeps and what it drops ------------------------------------
+#
+# An Anki field is HTML, and its structure is usually the point: a list of
+# four things, a Back Extra of two paragraphs. Flattening all of it to spaces
+# is what this did for its first year, and it is worst on exactly the note
+# types cloze brings in.
+
+check(conv.clean("<div>one</div><div>two</div>") == "one\ntwo", "a div is a line")
+check(conv.clean("a<br>b") == "a\nb", "a br is a line")
+check(conv.clean("<p>a</p><p>b</p>") == "a\nb", "so is a paragraph")
+check(conv.clean("<ul><li>x</li><li>y</li></ul>") == "\u2022 x\n\u2022 y",
+      "a list item is a line and a bullet")
+check(conv.clean("<table><tr><td>a</td><td>b</td></tr></table>") == "a b",
+      "table cells do not run together into one word")
+
+# Entities. A deck written in the Anki editor is full of these, and every one
+# that survived reached the card as literal ampersand-r-s-q-u-o.
+check(conv.clean("It&rsquo;s &#39;fine&#39; &amp; good") == "It's 'fine' & good",
+      "named and numeric entities are both decoded")
+check(conv.clean("a&nbsp;b") == "a b", "a non-breaking space is a space")
+
+# Things there is no renderer for. The delimiters go; the content stays,
+# because a formula whose source you can read beats a card showing "[latex]"
+# and beats a card showing nothing.
+check(conv.clean("[latex]E=mc^2[/latex]") == "E=mc^2", "latex delimiters are dropped")
+check(conv.clean("[$]x^2[/$]") == "x^2", "so are the short latex forms")
+check(conv.clean("x \\(a+b\\) y") == "x a+b y", "and MathJax's")
+check(conv.clean("[anki:tts lang=en_US]spoken[/anki:tts]") == "spoken",
+      "a tts tag goes and the words it would have spoken stay")
+check(conv.clean("word [sound:a.mp3]") == "word", "a sound tag goes entirely: there is no speaker")
+
+# Blank lines. The editor emits <div><br></div> for an empty line and a field
+# can carry a dozen; on a 480px panel that is the whole card.
+check(conv.clean("<div><br></div><div><br></div>real") == "real", "runs of blank lines collapse")
+check(conv.clean("  spaced   out  ") == "spaced out", "horizontal space still collapses")
+check(conv.clean("a\n\n\nb") == "a\nb", "and so do bare blank lines")
+
+# The emphasis span is located in the CLEANED text, so cleaning that moved
+# characters around would move the underline.
+_full, off, length = conv.clean_sentence("The <b>quick</b> fox&nbsp;ran.")
+check(_full == "The quick fox ran.", "a sentence cleans as one line")
+check(_full[off : off + length] == "quick", "and its emphasis still points at the right word")
+
 # --- the record budget -------------------------------------------------------
 #
 # A cloze card stores its text twice, so it is the note kind that reaches
@@ -131,6 +180,24 @@ check(note["fields"][4].endswith("…"), "with a marker saying it was cut")
 check(conv.trim_to_bytes("中文字", 5) == "…" or
       conv.trim_to_bytes("中文字", 6).endswith("…"),
       "a multi-byte string is cut on a codepoint boundary")
+
+# --- where a picture lives ---------------------------------------------------
+#
+# This looked in field 18 and nowhere else, because that is where the HSK note
+# type keeps SentenceImage -- so every other deck converted with no pictures
+# at all and nothing said why.
+
+import make_images  # noqa: E402
+
+check(make_images.first_image(["a", '<img src="x.png">', "b"]) == "x.png",
+      "a picture is found in whichever field holds it")
+check(make_images.first_image(["<img class=q src='y.jpg' alt=1>"]) == "y.jpg",
+      "single quotes are quotes too")
+check(make_images.first_image(["<img src=w.gif>"]) == "w.gif", "and so is no quote at all")
+check(make_images.first_image(['<img src="one.png"> <img src="two.png">']) == "one.png",
+      "the first picture in field order wins")
+check(make_images.first_image(["no image here", ""]) is None, "a note with no picture has none")
+check(make_images.first_image([]) is None, "and neither does a note with no fields")
 
 print(f"{'PASS' if failures == 0 else 'FAIL'} {checks} checks, {failures} failed")
 sys.exit(1 if failures else 0)

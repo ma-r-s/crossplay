@@ -151,6 +151,37 @@ void run() {
     check(out.startCp[1] == 3, "the second line starts at the fourth character");
   }
 
+  // --- hard breaks ----------------------------------------------------------
+  //
+  // Anki fields carry structure: a <br>, a list, the paragraphs of a Back
+  // Extra. The converter turns those into newlines, and a newline the wrap
+  // ignored ran a four-item list into one grey line.
+  {
+    const Laid out = lay("one\ntwo", 1000);
+    check(out.lines.size() == 2, "a newline breaks the line even when it would fit");
+    check(out.lines.size() == 2 && out.lines[0] == "one", "the first line stops at the newline");
+    check(out.lines.size() == 2 && out.lines[1] == "two", "and the newline itself is not drawn");
+    check(out.startCp.size() == 2 && out.startCp[1] == 4, "the newline still counts as a codepoint");
+  }
+  {
+    // Span offsets are measured over the string as it is, newline included,
+    // so a mark after a break has to land on the right characters.
+    const std::vector<std::string> marked = marks("one\ntwo", 1000, 4, 3);
+    check(marked.size() == 1 && marked[0] == "two", "a span after a hard break marks the right word");
+  }
+  {
+    const Laid out = lay("a\nb\nc", 1000);
+    check(out.lines.size() == 3, "several newlines make several lines");
+  }
+  {
+    // The wrap has to keep working around the break, not just at it: each
+    // paragraph wraps on its own, so two that each need two lines make four.
+    const Laid out = lay("aaa bbb ccc\nddd eee fff", 70);
+    check(out.lines.size() == 4, "each paragraph wraps on its own");
+    check(out.lines.size() == 4 && out.lines[1] == "ccc", "the first paragraph's tail is its own line");
+    check(out.lines.size() == 4 && out.lines[2] == "ddd eee", "and the second starts a new one");
+  }
+
   // --- the span, which is what cloze rides on -------------------------------
   {
     // "The capital is Paris." -- underline "Paris", codepoints 15..19.

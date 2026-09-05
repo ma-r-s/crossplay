@@ -25,6 +25,7 @@ reviewed card as brand new -- found 2026-08-25 on a deck with 6300 reviews.
 """
 
 import argparse
+import html
 import json
 import pathlib
 import re
@@ -254,6 +255,33 @@ LOOKALIKES = {
     0x0320: None,  # COMBINING MINUS SIGN BELOW: a phonetic mark, not pinyin
 }
 
+# Markup that carries a line break rather than a style. Anki fields are HTML,
+# and the editor writes <div> per line and <br> per shift-return, so a card
+# with four bullet points arrives as four <div>s. Flattening those to spaces
+# ran the list into one grey paragraph -- which is what this did for its first
+# year, and which is worst on exactly the note types cloze brought in, where
+# the Back Extra is usually a list.
+BREAK_RE = re.compile(
+    r"</?(?:br|div|p|tr|h[1-6]|blockquote|pre)\s*/?>", re.IGNORECASE
+)
+LIST_ITEM_RE = re.compile(r"<li\b[^>]*>", re.IGNORECASE)
+LIST_END_RE = re.compile(r"</li\s*>", re.IGNORECASE)
+TABLE_CELL_RE = re.compile(r"</t[dh]\s*>", re.IGNORECASE)
+
+# Anki's text-to-speech tag. There is no speaker, so the tag goes -- but its
+# CONTENT is the text being spoken and is usually the answer, so it stays.
+TTS_RE = re.compile(r"\[anki:tts[^\]]*\](.*?)\[/anki:tts\]", re.DOTALL | re.IGNORECASE)
+TTS_OPEN_RE = re.compile(r"\[/?anki:tts[^\]]*\]", re.IGNORECASE)
+
+# LaTeX and MathJax. Anki renders these to images through a TeX install; there
+# is none here and there will not be one, so the delimiters are dropped and
+# the source is left. A formula you can read the source of beats a card that
+# shows "[latex]" and beats one that shows nothing.
+LATEX_RE = re.compile(
+    r"\[latex\](.*?)\[/latex\]|\[\$\$?\](.*?)\[/\$\$?\]", re.DOTALL | re.IGNORECASE
+)
+MATHJAX_RE = re.compile(r"\\[\(\[](.*?)\\[\)\]]", re.DOTALL)
+
 CLOZE_RE = re.compile(r"\{\{c\d+::")
 # The full form, with the optional hint: {{c1::answer}} or {{c1::answer::hint}}.
 # Non-greedy on both halves, which is what makes the two shapes one pattern --
@@ -363,7 +391,9 @@ def render_cloze(raw, ordinal):
 BOLD_RE = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
 SOUND_RE = re.compile(r"\[sound:[^\]]*\]")
-WHITESPACE_RE = re.compile(r"\s+")
+# Horizontal whitespace only: the newline is now meaningful, and a \s+ that
+# ate it put the list back on one line at the last step.
+WHITESPACE_RE = re.compile(r"[^\S\n]+")
 
 
 def open_collection(path):
@@ -377,23 +407,44 @@ def open_collection(path):
 
 
 def clean(text):
-    """Strip Anki markup down to the plain text the device renders."""
+    """Strip Anki markup down to the plain text the device renders.
+
+    Line breaks SURVIVE, as newlines. An Anki field is HTML and its structure
+    is usually the point -- a list of four things, a Back Extra of two
+    paragraphs -- and the device's wrap treats a newline as a hard break. What
+    does not survive is anything that needs a renderer this device does not
+    have: styling, colour, tables as tables, images (those go through
+    make_images.py), audio (there is no speaker) and TeX (there is no TeX).
+    """
+    text = TTS_RE.sub(r"\1", text)
+    text = TTS_OPEN_RE.sub("", text)
     text = SOUND_RE.sub("", text)
-    text = re.sub(r"<br\s*/?>", " ", text, flags=re.IGNORECASE)
-    text = re.sub(r"</div>\s*<div>", " ", text, flags=re.IGNORECASE)
+    text = LATEX_RE.sub(lambda m: m.group(1) or m.group(2) or "", text)
+    text = MATHJAX_RE.sub(r"\1", text)
+    # A list item is a line AND a bullet: without the bullet, four one-word
+    # items read as a four-line sentence.
+    text = LIST_END_RE.sub("\n", text)
+    text = LIST_ITEM_RE.sub("\n\u2022 ", text)
+    # A table cell boundary is at least a space, or two columns run together
+    # into one word.
+    text = TABLE_CELL_RE.sub(" ", text)
+    text = BREAK_RE.sub("\n", text)
     text = TAG_RE.sub("", text)
-    text = (
-        text.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-    )
+    # Every named and numeric entity, not the four that used to be hard-coded:
+    # a deck written in the Anki editor is full of &rsquo; and &#39;, and each
+    # one that survived reached the card as literal ampersand-r-s-q-u-o.
+    text = html.unescape(text)
     # NFC matters: some pinyin in this collection carries combining tone marks
     # rather than precomposed vowels, and the two forms would otherwise need
     # different glyphs in every font we ship.
     text = unicodedata.normalize("NFC", text)
     text = text.translate(LOOKALIKES)
-    return WHITESPACE_RE.sub(" ", text).strip()
+    # Collapse horizontal space within a line, and any run of blank lines to
+    # one break: the editor emits <div><br></div> for an empty line and a
+    # field can carry a dozen of them, which on a 480px-tall panel is the
+    # whole card.
+    lines = [WHITESPACE_RE.sub(" ", line).strip() for line in text.split("\n")]
+    return "\n".join(line for line in lines if line)
 
 
 def clean_sentence(raw):
@@ -477,6 +528,28 @@ def _varint(buf, i):
         if not byte & 0x80:
             return result, i
         shift += 7
+
+
+def fsrs_enabled(db):
+    """Is FSRS on for this collection?
+
+    None when the collection does not say, which is every schema-11 package
+    (an AnkiWeb shared deck) -- FSRS did not exist when that schema did, so
+    "not stated" is not the same as "off" and must not be reported as it.
+
+    This matters because the device has ONE scheduler and it is FSRS. A deck
+    whose preset runs SM-2 converts, and then schedules by FSRS with default
+    weights, which is a different answer from the one Anki would give for
+    every card. That divergence is small per card and total across a deck,
+    and it used to happen in silence.
+    """
+    row = db.execute("select val from config where key = 'fsrs'").fetchone()
+    if not row or row[0] is None:
+        return None
+    raw = row[0]
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    return str(raw).strip().lower() in ("true", "1")
 
 
 def deck_config_for(db, deck_name):
@@ -1098,6 +1171,11 @@ def write_glyphs(notes, out_dir):
     for note in notes:
         for i, text in enumerate(note["fields"]):
             for ch in text:
+                # The newline is a hard break, not a character to draw.
+                # Asking the font pipeline to subset a glyph for it produces a
+                # box on every card that has one.
+                if ch < " ":
+                    continue
                 if not is_cjk(ch):
                     latin.add(ch)
                 elif i == 0:
@@ -1109,6 +1187,11 @@ def write_glyphs(notes, out_dir):
     sentence |= headword
     # Everything the app draws itself: intervals, counts, button labels.
     latin.update("0123456789dmy%+/<>?!.,:;-()[]'\" AGAINHARDGOODEASYagainhardgoodeasy")
+    # The two the converter itself writes: the bullet it turns a <li> into and
+    # the ellipsis it marks a trimmed field with. Both are in the built-in
+    # serif; neither is in a CJK face subset from a deck that happens to have
+    # no list in it, and a deck that grows one later would show a box.
+    latin.update("\u2022\u2026")
 
     sizes = {}
     for name, chars in (
@@ -1182,6 +1265,36 @@ def main():
         )
     config = deck_config_for(db, args.deck)
     replayed = seed_memory_from_revlog(db, notes, config.get("params") or None)
+
+    # Said before anything is written, because the answer is a setting in Anki
+    # and the user is still at the computer.
+    uses_fsrs = fsrs_enabled(db)
+    if uses_fsrs is False:
+        print(
+            "  WARNING: FSRS is off in this collection, and the reader has no"
+            " other scheduler."
+        )
+        print(
+            "           Cards convert and their history comes with them, but"
+            " every interval the"
+        )
+        print(
+            "           reader computes will differ from the one Anki would"
+            " compute. Turn FSRS on"
+        )
+        print(
+            "           in Deck Options and the two agree again. See"
+            " docs/apps/study-anki-compatibility.md."
+        )
+    elif uses_fsrs and not config.get("params"):
+        print(
+            "  note: FSRS is on but this preset has no optimised parameters"
+            " yet, so the reader"
+        )
+        print(
+            "        uses the same defaults Anki does. Deck Options > Optimize"
+            " changes both."
+        )
 
     args.out.mkdir(parents=True, exist_ok=True)
     name = args.name or args.deck.split("::")[-1]

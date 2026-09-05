@@ -562,14 +562,29 @@ worker.onmessage = function (event) {
       return;
     }
     $("samplePanel").hidden = false;
-    var parts = [
-      ["sampleWord", sample.headword],
-      ["sampleReading", sample.reading],
-      ["sampleMeaning", sample.meaning],
-      ["samplePos", sample.partOfSpeech],
-      ["sampleSentence", sample.sentence],
-      ["sampleSentenceMeaning", sample.sentenceMeaning],
-    ];
+    // A cloze card has no headword and no example sentence: its question is
+    // the text with the hole and its answer is the same text filled in. Laid
+    // into the same slots rather than given a panel of its own, so the
+    // preview still reads top to bottom as question then answer -- and so
+    // that a cloze deck does not preview as an empty card, which is what it
+    // did when every slot it fills was one this list did not read.
+    var parts = sample.clozeQuestion
+      ? [
+          ["sampleWord", sample.clozeQuestion],
+          ["sampleReading", ""],
+          ["sampleMeaning", sample.sentence],
+          ["samplePos", ""],
+          ["sampleSentence", ""],
+          ["sampleSentenceMeaning", sample.meaning],
+        ]
+      : [
+          ["sampleWord", sample.headword],
+          ["sampleReading", sample.reading],
+          ["sampleMeaning", sample.meaning],
+          ["samplePos", sample.partOfSpeech],
+          ["sampleSentence", sample.sentence],
+          ["sampleSentenceMeaning", sample.sentenceMeaning],
+        ];
     parts.forEach(function (pair) {
       var el = $(pair[0]);
       el.textContent = pair[1] || "";

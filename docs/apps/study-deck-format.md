@@ -259,8 +259,12 @@ preset does, verified by reading the weights back out of `meta.dat`.
 ## What the converter deliberately drops
 
 - **Audio.** Both `[sound:...]` fields. The X4 Pro has no speaker.
-- **Images.** `SentenceImage` is populated on some notes; deferred, not
-  refused. It would be the first thing to add if the sentences want it.
+- **Images** are not dropped -- `make_images.py` packs them into `images.dat`
+  and **PHOTO** shows them -- but the picture is found by looking for the
+  first `<img>` in ANY field. It read field 18 and nothing else for its first
+  year, because that is where the HSK note type keeps `SentenceImage`, so
+  every other deck in the world converted with no pictures at all and nothing
+  said why.
 - **Traditional characters** and the HSK note type's own two cloze fields.
   Mario studies simplified; carrying the rest would double the glyph set for
   nothing. (This is unrelated to cloze *notes*, which convert -- it is two

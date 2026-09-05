@@ -29,6 +29,7 @@ import re
 import sqlite3
 import struct
 import sys
+import urllib.parse
 
 MAGIC = b"XSTUDYI\0"
 VERSION = 1
@@ -38,7 +39,29 @@ VERSION = 1
 # not be doing.
 MAX_W, MAX_H = 448, 620
 
-IMG_RE = re.compile(r'<img[^>]+src="([^"]+)"', re.IGNORECASE)
+# Anki's editor writes src="..." but a hand-written template or an imported
+# deck may write src='...' or src=... unquoted, and each of those was a note
+# whose picture was simply not found.
+IMG_RE = re.compile(r"""<img[^>]+src=["']?([^"'>\s]+)""", re.IGNORECASE)
+
+
+def first_image(parts):
+    """The first picture on a note, wherever the note keeps it.
+
+    This read field 18 and nothing else, because that is where SentenceImage
+    sits on the HSK note type Mario's deck uses -- so every other deck in the
+    world converted with no pictures at all and nothing said why. A picture
+    can be in any field: the stock Basic type puts it in Front or Back, and an
+    imported deck puts it wherever its author did.
+
+    First match in field order, which is the order Anki shows them in and
+    therefore the order the author thought about them in.
+    """
+    for raw in parts:
+        match = IMG_RE.search(raw or "")
+        if match:
+            return match.group(1)
+    return None
 
 
 def open_collection(path):
@@ -127,16 +150,16 @@ def main():
 
     for card_id in order:
         parts = fields_by_card.get(card_id, [])
-        # SentenceImage is field 18 on the HSK note type; other profiles have
-        # none, and a note whose field is empty is simply an entry of zeros.
-        raw = parts[18] if len(parts) > 18 else ""
-        match = IMG_RE.search(raw)
-        if not match:
+        source = first_image(parts)
+        if not source:
             entries.append((0, 0, 0, 0))
             skipped += 1
             continue
 
-        path = media / match.group(1)
+        # Anki stores media under the name in the field, percent-decoded: the
+        # editor writes %20 for a space in a filename and the file on disk has
+        # the space.
+        path = media / urllib.parse.unquote(source)
         if not path.is_file():
             entries.append((0, 0, 0, 0))
             missing += 1

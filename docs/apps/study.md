@@ -181,8 +181,9 @@ export.
   The times on the buttons are computed the same way Anki computes them.
 - **UNDO** (footer, question side) takes back the last answer -- one level,
   during the session.
-- **PHOTO** (header, answer side) shows the card's sentence image full screen,
-  when it has one. Tap to come back.
+- **PHOTO** (header, answer side) shows the card's picture full screen, when
+  it has one -- the first `<img>` on the note, in whichever field it sits.
+  Tap to come back.
 - The deck screen shows the last two weeks, today's due count, retention, and
   the streak.
 
