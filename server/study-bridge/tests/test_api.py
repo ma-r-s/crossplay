@@ -25,6 +25,8 @@ ROOT = HERE.parent
 REPO = ROOT.parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(REPO / "tools_local" / "study"))
+sys.path.insert(0, str(HERE))
+from portguard import assert_alive, popen_group, reap, require_free_port  # noqa: E402
 
 PORT = int(os.environ.get("BRIDGE_TEST_PORT", "8996")) + 0
 USER, PW = "mario", "api-pw"
@@ -251,17 +253,26 @@ async def run(tmp):
         moved = desktop.db.scalar("select count(*) from cards where odid != 0")
         ok(moved >= 1, f"the filtered deck should have borrowed a card, got {moved}")
         desktop.sync_collection(auth, sync_media=False)
-        r = await web.post("/api/sync", headers=dev, content=struct.pack("<I", len(empty_header)) + empty_header)
+        r = await web.post(
+            "/api/sync",
+            headers=dev,
+            content=struct.pack("<I", len(empty_header)) + empty_header,
+        )
         jf = r.json()["job"]
         for _ in range(600):
             await asyncio.sleep(0.1)
-            if (await web.get("/api/sync/status", headers=dev, params={"job": jf})).json()["status"] in (
+            if (
+                await web.get("/api/sync/status", headers=dev, params={"job": jf})
+            ).json()["status"] in (
                 "done",
                 "error",
                 "frozen",
             ):
                 break
-        seen = {d["name"]: d["cards"] for d in (await web.get("/api/decks", headers=dev)).json()["decks"]}
+        seen = {
+            d["name"]: d["cards"]
+            for d in (await web.get("/api/decks", headers=dev)).json()["decks"]
+        }
         ok(
             "Custom Study Session" not in seen,
             f"a filtered deck must not be offered as a choice, got {sorted(seen)}",
@@ -293,7 +304,9 @@ async def run(tmp):
         jm = r.json()["job"]
         for _ in range(600):
             await asyncio.sleep(0.1)
-            st_m = (await web.get("/api/sync/status", headers=dev, params={"job": jm})).json()
+            st_m = (
+                await web.get("/api/sync/status", headers=dev, params={"job": jm})
+            ).json()
             if st_m["status"] in ("done", "error", "frozen"):
                 break
         ok(
@@ -307,18 +320,30 @@ async def run(tmp):
         note["Front"], note["Back"] = "sub", "SUB"
         desktop.add_note(note, parent)
         desktop.sync_collection(auth, sync_media=False)
-        r = await web.post("/api/sync", headers=dev, content=struct.pack("<I", len(empty_header)) + empty_header)
+        r = await web.post(
+            "/api/sync",
+            headers=dev,
+            content=struct.pack("<I", len(empty_header)) + empty_header,
+        )
         j2 = r.json()["job"]
         for _ in range(600):
             await asyncio.sleep(0.1)
-            if (await web.get("/api/sync/status", headers=dev, params={"job": j2})).json()["status"] in (
+            if (
+                await web.get("/api/sync/status", headers=dev, params={"job": j2})
+            ).json()["status"] in (
                 "done",
                 "error",
                 "frozen",
             ):
                 break
-        listed = {d["name"]: d["cards"] for d in (await web.get("/api/decks", headers=dev)).json()["decks"]}
-        ok("Shared" in listed, f"the parent deck should be listed, got {sorted(listed)}")
+        listed = {
+            d["name"]: d["cards"]
+            for d in (await web.get("/api/decks", headers=dev)).json()["decks"]
+        }
+        ok(
+            "Shared" in listed,
+            f"the parent deck should be listed, got {sorted(listed)}",
+        )
         ok(
             listed.get("Shared") == 1,
             f"a parent's count must include its subdecks, got {listed.get('Shared')}",
@@ -328,7 +353,9 @@ async def run(tmp):
         desktop.decks.id("Empty Parent")  # created with no cards of its own
         desktop.sync_collection(auth, sync_media=False)
         r = await web.post(
-            "/api/decks/choose", headers=dev, json={"decks": ["Default", "Empty Parent"]}
+            "/api/decks/choose",
+            headers=dev,
+            json={"decks": ["Default", "Empty Parent"]},
         )
         ok(r.status_code == 200, "choosing an unbuildable deck should be accepted")
         body = struct.pack("<I", len(empty_header)) + empty_header
@@ -405,7 +432,22 @@ async def run(tmp):
         events._urlopen = take
         # Each job reads the clock twice; pinned so `seconds` is asserted
         # exactly rather than as "some number".
-        ticks = iter([100.0, 102.5, 200.0, 200.4, 300.0, 300.1, 400.0, 400.2, 500.0, 502.0, 600.0, 600.5])
+        ticks = iter(
+            [
+                100.0,
+                102.5,
+                200.0,
+                200.4,
+                300.0,
+                300.1,
+                400.0,
+                400.2,
+                500.0,
+                502.0,
+                600.0,
+                600.5,
+            ]
+        )
         jobs_mod._clock = lambda: next(ticks, time.monotonic())
         # The syncs above spent this user's window; this block gets a fresh
         # one with the same limits.
@@ -526,8 +568,17 @@ async def run(tmp):
             "battery_pct": 50,
             "heap_min_kb": 100,
             "uptime_h": 1,
-            "crash": {"message": "assert failed: x (reset: panic)", "version": "1.12.12", "backtrace": ""},
-            "ota": {"attempted": True, "ok": False, "error": "too_large", "path": "ota"},
+            "crash": {
+                "message": "assert failed: x (reset: panic)",
+                "version": "1.12.12",
+                "backtrace": "",
+            },
+            "ota": {
+                "attempted": True,
+                "ok": False,
+                "error": "too_large",
+                "path": "ota",
+            },
         }
         talking = {
             **dev,
@@ -541,12 +592,21 @@ async def run(tmp):
             headers=talking,
             content=struct.pack("<I", len(empty_header)) + empty_header,
         )
-        ok(r.status_code == 200, f"a sync with the device headers is accepted, got {r.status_code}")
+        ok(
+            r.status_code == 200,
+            f"a sync with the device headers is accepted, got {r.status_code}",
+        )
         status = await finish(r.json()["job"])
         ok(status["status"] == "done", f"and finishes, got {status}")
         await settle(3)
-        ok(len(posted) == 3, f"the sync, the crash and the update are three events, got {len(posted)}")
-        bodies = sorted((json.loads(p.data) for p in posted), key=lambda b: (b["service"], b["event"]))
+        ok(
+            len(posted) == 3,
+            f"the sync, the crash and the update are three events, got {len(posted)}",
+        )
+        bodies = sorted(
+            (json.loads(p.data) for p in posted),
+            key=lambda b: (b["service"], b["event"]),
+        )
         ok(
             bodies[0]
             == {
@@ -556,7 +616,14 @@ async def run(tmp):
                 "device": DEV,
                 "version": "1.12.13",
                 "board": "x4pro",
-                "props": {"cards": 0, "reviews": 0, "seconds": 2.0, "battery_pct": 50, "heap_min_kb": 100, "uptime_h": 1},
+                "props": {
+                    "cards": 0,
+                    "reviews": 0,
+                    "seconds": 2.0,
+                    "battery_pct": 50,
+                    "heap_min_kb": 100,
+                    "uptime_h": 1,
+                },
             },
             f"the sync is counted under the device's own id with its health, got {bodies[0]}",
         )
@@ -569,7 +636,12 @@ async def run(tmp):
                 "device": DEV,
                 "version": "1.12.12",
                 "board": "x4pro",
-                "props": {"message": "assert failed: x (reset: panic)", "backtrace": "", "app": "firmware", "via": "anki"},
+                "props": {
+                    "message": "assert failed: x (reset: panic)",
+                    "backtrace": "",
+                    "app": "firmware",
+                    "via": "anki",
+                },
             },
             f"the crash posts as the firmware's, via anki, got {bodies[1]}",
         )
@@ -582,24 +654,42 @@ async def run(tmp):
                 "device": DEV,
                 "version": "1.12.13",
                 "board": "x4pro",
-                "props": {"attempted": True, "ok": False, "error": "too_large", "path": "ota", "app": "firmware", "message": "update failed: too_large (ota)"},
+                "props": {
+                    "attempted": True,
+                    "ok": False,
+                    "error": "too_large",
+                    "path": "ota",
+                    "app": "firmware",
+                    "message": "update failed: too_large (ota)",
+                },
             },
             f"the failed update posts as an error with its message, got {bodies[2]}",
         )
-        ok(expected_device not in "".join(p.data.decode() for p in posted), "the token hash is not used when the device names itself")
+        ok(
+            expected_device not in "".join(p.data.decode() for p in posted),
+            "the token hash is not used when the device names itself",
+        )
 
         # A report past the cap is not a report; the request is still served
         # and still counted, without health, and nothing else posts.
         del posted[:]
         oversize = dict(talking)
-        oversize["X-CrossPlay-Report"] = json.dumps({"battery_pct": 50, "crash": {"message": "x" * 1180}})
-        ok(len(oversize["X-CrossPlay-Report"]) >= 1200, "the oversize report is at least 1200 bytes")
+        oversize["X-CrossPlay-Report"] = json.dumps(
+            {"battery_pct": 50, "crash": {"message": "x" * 1180}}
+        )
+        ok(
+            len(oversize["X-CrossPlay-Report"]) >= 1200,
+            "the oversize report is at least 1200 bytes",
+        )
         r = await web.post(
             "/api/sync",
             headers=oversize,
             content=struct.pack("<I", len(empty_header)) + empty_header,
         )
-        ok(r.status_code == 200, f"an oversize report does not fail the request, got {r.status_code}")
+        ok(
+            r.status_code == 200,
+            f"an oversize report does not fail the request, got {r.status_code}",
+        )
         status = await finish(r.json()["job"])
         ok(status["status"] == "done", f"and the sync finishes, got {status}")
         await settle(1)
@@ -607,7 +697,8 @@ async def run(tmp):
         ok(len(posted) == 1, f"only the sync posts, got {len(posted)}")
         wire_body = json.loads(posted[0].data)
         ok(
-            wire_body["device"] == DEV and wire_body["board"] == "x4pro"
+            wire_body["device"] == DEV
+            and wire_body["board"] == "x4pro"
             and wire_body["props"] == {"cards": 0, "reviews": 0, "seconds": 0.5},
             f"counted under the id, with no health from the ignored report, got {wire_body}",
         )
@@ -615,7 +706,10 @@ async def run(tmp):
         # A crash on a request the service refuses is not posted: the device
         # will carry it again, and posting it now would count it twice.
         del posted[:]
-        r = await web.get("/api/decks", headers={k: v for k, v in talking.items() if k != "Authorization"})
+        r = await web.get(
+            "/api/decks",
+            headers={k: v for k, v in talking.items() if k != "Authorization"},
+        )
         ok(r.status_code == 401, "no token is still refused, headers or not")
         await asyncio.sleep(0.3)
         ok(posted == [], f"and a refused request posts nothing, got {len(posted)}")
@@ -650,20 +744,20 @@ def main():
             SYNC_HOST="127.0.0.1",
             SYNC_PORT=str(PORT),
         )
-        server = subprocess.Popen(
+        require_free_port(PORT, "the sync server")
+        server = popen_group(
             [sys.executable, "-m", "anki.syncserver"],
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.STDOUT,
         )
         wait_port(PORT)
+        assert_alive(server, "the sync server")
         asyncio.run(run(tmp))
         print(f"{checks} checks, {failures} failed")
         sys.exit(1 if failures else 0)
     finally:
-        if server:
-            server.terminate()
-            server.wait(timeout=10)
+        reap(server)
         shutil.rmtree(tmp, ignore_errors=True)
 
 

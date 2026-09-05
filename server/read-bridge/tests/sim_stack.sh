@@ -45,13 +45,23 @@ BASE="${BRIDGE_TEST_PORT:-8996}"
 FAKE_PORT=$((BASE + 4))
 BRIDGE_PORT=$((BASE + 5))
 
-for port in $FAKE_PORT $BRIDGE_PORT; do
-  if nc -z 127.0.0.1 "$port" 2>/dev/null; then
-    echo "port $port is already in use -- another run of this script, or a stray"
-    echo "server from one. Testing against it would prove nothing about this tree."
+# Refuse to drive somebody else's server (card #286). `nc -z` proves only that
+# SOMETHING listens, never that it is ours: an orphaned bridge from a deleted
+# worktree held port 9003 for four days and a suite spent an hour testing it,
+# every failure reading exactly like the bridge working. Name the holder so it
+# can be cleared instead of guessed at.
+require_free_port() {
+  if nc -z 127.0.0.1 "$1" 2>/dev/null; then
+    echo "port $1 is already in use, so $2 cannot start there and this harness"
+    echo "would drive whatever IS listening -- which proves nothing about this tree."
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | sed 's/^/  /' || true
+    echo "  clear the holder above, or set BRIDGE_TEST_PORT to move this tree's slice."
     exit 1
   fi
-done
+}
+
+require_free_port "$FAKE_PORT" "the fake Instapaper"
+require_free_port "$BRIDGE_PORT" "the bridge"
 
 WORK="$(mktemp -d)"
 PIDS=()

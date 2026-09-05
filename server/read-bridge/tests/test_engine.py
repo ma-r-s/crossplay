@@ -15,13 +15,11 @@ silent and expensive:
 Run: .venv/bin/python tests/test_engine.py
 """
 
-import asyncio
 import json
 import os
 import pathlib
 import shutil
 import socket
-import subprocess
 import sys
 import tempfile
 import time
@@ -29,6 +27,8 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(HERE))
+from portguard import assert_alive, popen_group, reap, require_free_port  # noqa: E402
 
 BASE_PORT = int(os.environ.get("BRIDGE_TEST_PORT", "8996"))
 FAKE_PORT = BASE_PORT + 3
@@ -87,7 +87,9 @@ def main():
     state_file.write_text(
         json.dumps(
             {
-                "users": {USER: {"password": "pw", "token": "tok-1", "secret": "sec-1"}},
+                "users": {
+                    USER: {"password": "pw", "token": "tok-1", "secret": "sec-1"}
+                },
                 "bookmarks": bookmarks(6),
             }
         )
@@ -115,15 +117,26 @@ def main():
         }
     )
 
-    proc = subprocess.Popen(
+    require_free_port(FAKE_PORT, "the fake Instapaper")
+    proc = popen_group(
         [
-            sys.executable, "-m", "uvicorn", "tests.fake_instapaper:app",
-            "--host", "127.0.0.1", "--port", str(FAKE_PORT), "--log-level", "warning",
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "tests.fake_instapaper:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(FAKE_PORT),
+            "--log-level",
+            "warning",
         ],
-        cwd=ROOT, env=env,
+        cwd=ROOT,
+        env=env,
     )
     try:
         wait_port(FAKE_PORT)
+        assert_alive(proc, "the fake Instapaper")
         from bridge import engine, instapaper, store
 
         st = store.UserStore("engine-test").ensure()
@@ -144,9 +157,13 @@ def main():
             cleaned[1]["progressAt"] == 0 and cleaned[1]["progress"] == 0.0,
             "a timestamp from the future loses its progress, not its place in `have`",
         )
-        ok(cleaned[1]["id"] == 2, "the id stays, or Instapaper re-sends that article forever")
         ok(
-            len(engine.sanitize_have([{"id": i} for i in range(500)])) == engine.MAX_ARTICLES,
+            cleaned[1]["id"] == 2,
+            "the id stays, or Instapaper re-sends that article forever",
+        )
+        ok(
+            len(engine.sanitize_have([{"id": i} for i in range(500)]))
+            == engine.MAX_ARTICLES,
             "the posted index is trimmed to what the reader can hold",
         )
 
@@ -157,21 +174,33 @@ def main():
             summary = engine.sync_cycle(st, "tok-1", "sec-1", [], [])
         finally:
             engine.MAX_FETCH_PER_SYNC = original_cap
-        ok(len(summary["articles"]) == 2, "a first sync delivers only what it had time to prepare")
-        ok(summary["withheld"] == 4, f"and says how many are still coming ({summary['withheld']})")
+        ok(
+            len(summary["articles"]) == 2,
+            "a first sync delivers only what it had time to prepare",
+        )
+        ok(
+            summary["withheld"] == 4,
+            f"and says how many are still coming ({summary['withheld']})",
+        )
 
         # The withheld ones are NOT in `have` next time, so they arrive later.
         have = [{"id": a["id"], "hash": a["hash"]} for a in summary["articles"]]
         summary2 = engine.sync_cycle(st, "tok-1", "sec-1", have, [])
         ok(len(summary2["articles"]) == 4, "the rest arrive on the next sync")
         ok(summary2["withheld"] == 0, "and nothing is left withheld")
-        ok(summary2["deleteIds"] == [], "the ones already held are not reported deleted")
+        ok(
+            summary2["deleteIds"] == [],
+            "the ones already held are not reported deleted",
+        )
 
         # --- the limit guard
         # Ask Instapaper for fewer than the account holds and its delete_ids
         # correctly names everything outside the window. Passing those on
         # would delete real articles off the reader.
-        every = [{"id": a["id"], "hash": a["hash"]} for a in summary["articles"] + summary2["articles"]]
+        every = [
+            {"id": a["id"], "hash": a["hash"]}
+            for a in summary["articles"] + summary2["articles"]
+        ]
         original_limit = instapaper.LIST_LIMIT
         instapaper.LIST_LIMIT = 3
         try:
@@ -185,10 +214,15 @@ def main():
 
         # And with the real limit, a genuine removal still comes through.
         remote = json.loads(state_file.read_text())
-        remote["bookmarks"] = [b for b in remote["bookmarks"] if b["bookmark_id"] != 200]
+        remote["bookmarks"] = [
+            b for b in remote["bookmarks"] if b["bookmark_id"] != 200
+        ]
         state_file.write_text(json.dumps(remote))
         after = engine.sync_cycle(st, "tok-1", "sec-1", every, [])
-        ok(after["deleteIds"] == [200], f"a real removal is reported ({after['deleteIds']})")
+        ok(
+            after["deleteIds"] == [200],
+            f"a real removal is reported ({after['deleteIds']})",
+        )
         ok(
             not st.article_dir(200).exists(),
             "and the bridge drops its cached text for it",
@@ -197,11 +231,7 @@ def main():
         print(f"{checks} checks, {failures} failed")
         return 1 if failures else 0
     finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        reap(proc)
         shutil.rmtree(tmp, ignore_errors=True)
 
 
