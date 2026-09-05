@@ -52,6 +52,23 @@ trap 'rm -rf "$WORK"' EXIT
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ok   $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL $1"; }
+# A skip is information on a laptop whose clone legitimately lacks a tag. In CI
+# every input is meant to be there, so a check that did not run is a FAILURE --
+# the shape host-tests/release, relwatch and boardmigrate already use. Without
+# it, dropping fetch-tags from the workflow puts this suite straight back to
+# passing while proving nothing about the one range taken from the real
+# repository.
+#
+# Unindented on purpose: check.sh surfaces a suite's skips with grep -E "^SKIP",
+# so a message with leading spaces is invisible LOCALLY as well -- which is how
+# this one managed to be both unguarded and unseen.
+skip() {
+  if [ -n "${CI:-}" ]; then
+    bad "$1 (a skip is a failure in CI: the inputs should be present here)"
+  else
+    echo "SKIP autorelease  $1"
+  fi
+}
 q()   { "$@" >/dev/null 2>&1; }
 
 # Both files, in the shape release_notes.py writes them. Used by every fixture
@@ -688,7 +705,7 @@ if git -C "$REPO_ROOT" rev-parse -q --verify v1.12.20 >/dev/null 2>&1 &&
     fi
   fi
 else
-  echo "  SKIP v1.12.20/v1.12.21 not in this clone; the real-range checks did not run"
+  skip "v1.12.20/v1.12.21 not in this clone; the real-range checks did not run"
 fi
 
 echo "$((PASS+FAIL)) checks, $FAIL failed"
