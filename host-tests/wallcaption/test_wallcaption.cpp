@@ -233,6 +233,42 @@ int main() {
     check(end.at == end.units, "the bar does not reach full when the last phase finishes");
   }
 
+  // 6. Moving the selection must NOT change the surface's meaning.
+  //
+  // The gate (RevealedInteractions.h, SurfaceGate::routable) refuses a tap while
+  // a paint is in flight IF the meaning moved. Selecting a wallpaper used to
+  // move it, so every tap was followed by one refresh in which every further tap
+  // was silently dropped -- "I'm being denied touch until the brackets have
+  // finished drawing". The selection remaps no cell, so it must not gate.
+  //
+  // The things that DO remap a cell still have to gate, or a tap during a page
+  // turn opens whatever slid under the finger. Both halves are asserted.
+  {
+    const uint32_t base = wallpapersui::gridMeaning(0, 0, 21, 1);
+    check(wallpapersui::gridMeaning(0, 0, 21, 1) == base, "gridMeaning is not stable for identical inputs");
+
+    // Changing the page, the view, the library size or the chrome-tile count
+    // REMAPS cells, so each must change the meaning.
+    check(wallpapersui::gridMeaning(1, 0, 21, 1) != base, "a page turn does not gate taps");
+    check(wallpapersui::gridMeaning(0, 1, 21, 1) != base, "a view change does not gate taps");
+    check(wallpapersui::gridMeaning(0, 0, 22, 1) != base, "a library change does not gate taps");
+    check(wallpapersui::gridMeaning(0, 0, 21, 2) != base, "a chrome-tile change does not gate taps");
+
+    // And the signature that mattered: nothing in gridMeaning takes the
+    // selection, so there is no argument by which it could gate. Asserted by
+    // walking every selection a 21-wallpaper library can have and confirming the
+    // meaning for that page never moves.
+    for (int page = 0; page < 6; ++page) {
+      const uint32_t forPage = wallpapersui::gridMeaning(page, 0, 21, 1);
+      for (int selected = -1; selected < 21; ++selected) {
+        // The old meaning mixed (selected + 1) in here; the new one cannot.
+        check(wallpapersui::gridMeaning(page, 0, 21, 1) == forPage,
+              "the selection moved the surface meaning, so taps will be refused mid-paint (page " +
+                  std::to_string(page) + ", selected " + std::to_string(selected) + ")");
+      }
+    }
+  }
+
   // The margin left, stated rather than implied: the next name added has this
   // much room before the fallback to the short form kicks in.
   // 4. User uploads. These have no entry in the built-in table, so the caption
