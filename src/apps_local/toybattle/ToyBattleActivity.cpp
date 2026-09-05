@@ -185,6 +185,24 @@ const char* ToyBattleActivity::promptText() const {
   return "";
 }
 
+void ToyBattleActivity::recordResult() {
+  if (recorded) return;
+  recorded = true;
+  ++played;
+  if (game.winner == seat) ++won;
+  hasSave = false;
+  if (Storage.exists(kSavePath)) Storage.remove(kSavePath);
+  requestUpdate();
+}
+
+// The first caller in a match, and for a long time there was no other: the link
+// layer used to stop giving gameLoop() the pass the moment the battle ended, so
+// the block below never ran and no link battle was ever counted. It runs again
+// now, during the couple of seconds the finished board stays up, which is
+// harmless because `recorded` latches. No screen to change either -- this game's
+// board stays put by design, and that is already the thing worth looking at.
+void ToyBattleActivity::onMatchEnded() { recordResult(); }
+
 void ToyBattleActivity::gameLoop() {
   namespace fui = freeink::ui;
 
@@ -202,6 +220,14 @@ void ToyBattleActivity::gameLoop() {
       return;
     }
     if (screen == tb::Screen::Board) {
+      // In a match, Back is leaving the match. Every other game on the link
+      // layer says so; this one walked to its own menu with the radio up and
+      // the opponent never told, and the link screen arrived over the menu a
+      // moment later. saveGame() is a no-op in a match anyway.
+      if (inMatch()) {
+        leaveLink();
+        return;
+      }
       // Leaving the board writes it, the same as leaving the app does. onExit
       // is the call that matters because sleep makes it when the player does
       // nothing, but a board abandoned by Back and then never slept would
@@ -236,21 +262,13 @@ void ToyBattleActivity::gameLoop() {
     //
     // Still the one place a result is recorded and the save is cleared: a
     // finished game must not be offered as one to continue.
-    if (!recorded) {
-      recorded = true;
-      ++played;
-      if (game.winner == seat) ++won;
-      hasSave = false;
-      if (Storage.exists(kSavePath)) Storage.remove(kSavePath);
-      requestUpdate();
-    }
+    recordResult();
     return;
   }
 
   // The brain only plays when there is nobody on the other end. In a match the
   // opposite seat is a person, and their move arrives through the link.
-  if (!inMatch() && screen == tb::Screen::Board && game.currentPhase() == tb::Phase::Playing &&
-      game.turn != seat) {
+  if (!inMatch() && screen == tb::Screen::Board && game.currentPhase() == tb::Phase::Playing && game.turn != seat) {
     notice = nullptr;
     takeOpponentTurn();
     return;
@@ -467,13 +485,13 @@ void ToyBattleActivity::gameRender() {
     case tb::Screen::HowTo: {
       tbui::HowToModel model;
       model.page = howToPage;
-          tbui::buildHowTo(surface, model);
+      tbui::buildHowTo(surface, model);
       break;
     }
     case tb::Screen::MapPick: {
       tbui::MapPickModel model;
       model.page = mapPage;
-          tbui::buildMapPick(surface, model);
+      tbui::buildMapPick(surface, model);
       break;
     }
     case tb::Screen::Setup: {
@@ -481,7 +499,7 @@ void ToyBattleActivity::gameRender() {
       model.options = options;
       model.selected = setupSelected;
       model.forLink = options.mode == tb::Mode::Link;
-          tbui::buildSetup(surface, model);
+      tbui::buildSetup(surface, model);
       break;
     }
     case tb::Screen::Lobby:
@@ -640,8 +658,9 @@ void ToyBattleActivity::drawLinkArt(const Rect& area) {
   static toybox::Interactions scratch;
   toybox::Frame frame(target, device, noInput, scratch);
   toybox::Screen surface(frame);
-  tbui::miniBoard(surface, fui::makeRect(static_cast<int16_t>(area.x), static_cast<int16_t>(area.y),
-                                         static_cast<int16_t>(area.width), static_cast<int16_t>(area.height)),
+  tbui::miniBoard(surface,
+                  fui::makeRect(static_cast<int16_t>(area.x), static_cast<int16_t>(area.y),
+                                static_cast<int16_t>(area.width), static_cast<int16_t>(area.height)),
                   game.board(), &game, 0);
 }
 

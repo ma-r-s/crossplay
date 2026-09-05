@@ -145,17 +145,12 @@ PYEOF
   # taps six seconds apart cover the whole window: the ones before the gate
   # land on the QR screen and the ones after land on the verdict, both inert.
   #
-  # The two-tap version failed three times in a row, and the printed manual
-  # fallback could not have rescued it -- a NEW simulator shows a NEW pairing
-  # code, so a claim made for the old one has nothing left to confirm. That
-  # instruction read like a thirty-second manual step and could not succeed
-  # however carefully it was followed, which is the exact failure this harness
-  # exists to prevent, built into the harness. The gate only appears after the claim lands,
-  # and the claim happens while this script is still polling for the code -- so
-  # its moment is not fixed. A single tap at a guessed millisecond fired before
-  # the gate existed, the claim succeeded, and the device stored nothing: a
-  # pairing that looks accepted from the server side and never happened on the
-  # card. The second tap costs nothing on the verdict screen behind it.
+  # The cadence is NOT what made this work. Five runs failed here and every
+  # one was read as a tap-timing problem; the cause was the claim below going
+  # to a GET-only route and being answered 405 while the check looked only at
+  # the body. No tap schedule could have rescued a code nobody had claimed.
+  # Keep the cadence anyway -- it costs nothing and the gate's moment really
+  # is not fixed -- but suspect the claim, not the taps, when this fails.
 
   # sim-shot TRUNCATES sim.log when it starts and builds first, so a grep issued
   # too early reads the PREVIOUS run's code. The claim then returns 200 and
@@ -175,11 +170,26 @@ PYEOF
   CSRF="$(printf '%s' "$PAIR_PAGE" | grep -o "name=csrf value='[^']*'" | sed "s/.*'\(.*\)'/\1/" || true)"
   [ -n "$CSRF" ] || { kill $SIMPID 2>/dev/null || true; echo "FAIL: /pair came back signed out"; exit 1; }
 
-  # A FAILED claim also returns 200 -- the bridge answers a person-facing
-  # "Not found" page rather than an error status. Check the BODY, never the
-  # status. This is the trap that makes a broken setup look green.
-  CLAIM="$(curl -sS -H "Cookie: read_session=$SESSION" \
-    -d "code=$CODE&csrf=$CSRF" "$(url)/pair")"
+  # The claim goes to /api/pair/claim, which is what the form on /pair posts
+  # to. /pair itself is a GET-only page: posting there answers 405, and 405 is
+  # not "not found" or "expired", so a body-only check called it a success and
+  # the device polled a code nobody had claimed until the run timed out. That
+  # was read as a tap-timing problem for five runs.
+  #
+  # So BOTH are checked, and each catches what the other cannot. The status
+  # catches a wrong route, a stale cookie, a rejected CSRF. The body catches a
+  # refused claim, which really does answer 200 with a person-facing page.
+  CLAIM_STATUS="$(curl -sS -o "$STATE/claim.html" -w '%{http_code}' \
+    -H "Cookie: read_session=$SESSION" \
+    -d "code=$CODE&csrf=$CSRF" "$(url)/api/pair/claim")"
+  CLAIM="$(cat "$STATE/claim.html")"
+  if [ "$CLAIM_STATUS" != "200" ]; then
+    kill $SIMPID 2>/dev/null || true
+    echo "FAIL: the claim was answered $CLAIM_STATUS, not 200."
+    printf '%s' "$CLAIM" | head -c 400
+    echo
+    exit 1
+  fi
   if printf '%s' "$CLAIM" | grep -qi 'not found\|expired'; then
     kill $SIMPID 2>/dev/null || true
     echo "FAIL: the claim was refused. The page said:"
@@ -189,33 +199,17 @@ PYEOF
 
   wait $SIMPID 2>/dev/null || true
   if [ ! -f "$REPO/fs_agent/.crosspoint/instapaper/.bridge" ]; then
-    # NOT a server fault and not fatal: the servers are up and the account is
-    # signed in. What did not happen is the on-device confirm tap, whose moment
-    # depends on when the claim landed and so cannot be pinned to a fixed
-    # millisecond in a scripted run. sim_stack.sh gets away with a fixed 16000
-    # because it claims on its own schedule; here the claim waits on a poll.
-    #
-    # Finish it by hand rather than guessing again -- the stack stays up:
+    # The claim was accepted, so what did not happen is the on-device confirm
+    # tap. Do NOT retry by hand with another qa_shot.sh run: a new simulator
+    # shows a NEW pairing code, so the claim above is for a code the device is
+    # no longer displaying and the gate would have nothing to confirm. Run
+    # 'down' then 'up' again, which pairs from scratch.
     echo
     echo "SERVERS UP AND SIGNED IN, BUT THE DEVICE IS NOT PAIRED."
     echo
-    echo "DO NOT try to finish this by hand with another qa_shot.sh run."
-    echo "A new simulator shows a NEW pairing code, so the claim this script"
-    echo "already made is for a code the device is no longer displaying, and"
-    echo "the confirm gate would have nothing to confirm. An earlier version"
-    echo "of this message told you to do exactly that; it read like a thirty-"
-    echo "second manual step and could not succeed however carefully it was"
-    echo "followed."
-    echo
-    echo "The automated pairing is UNSOLVED. Confirmed failing across five"
-    echo "runs with two-tap and eight-tap cadences, so the cause is not the"
-    echo "moment of the tap. Until it is understood:"
-    echo
-    echo "  - the PROTOCOL is provable now: server/read-bridge/tests/sim_stack.sh"
-    echo "    pairs, syncs, reads, archives and syncs again, and passes."
-    echo "  - a PERSON-DRIVEN session is blocked on this, and saying so is the"
-    echo "    honest state rather than handing over a device that may or may"
-    echo "    not be signed in."
+    echo "The claim was accepted, so this is the confirm tap and not the"
+    echo "route. Look at qa-artifacts/sim.log: the last thing there should be"
+    echo "the confirm screen being drawn. Then 'down' and 'up' again."
     echo
     echo "The servers are still up. qa_stack.sh down stops them."
     exit 2

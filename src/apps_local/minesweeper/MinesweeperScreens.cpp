@@ -365,7 +365,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   fui::HeaderProps header;
   header.title = "MINESWEEPER";
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::headerBand(screen, header);
   // The board itself is full bleed; only the strip below it keeps the margins.
   screen.insetContent(fui::Insets{0, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
@@ -441,7 +441,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   fui::HeaderProps header;
   header.title = model.won ? "CLEARED" : "BOOM";
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::headerBand(screen, header);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   fui::ButtonProps done;

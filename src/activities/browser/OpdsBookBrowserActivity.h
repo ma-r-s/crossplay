@@ -9,6 +9,7 @@
 #include "activities/Activity.h"
 #include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
+#include "util/DismissDwell.h"
 
 /**
  * Activity for browsing and downloading books from an OPDS server.
@@ -16,7 +17,11 @@
  */
 class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
  public:
-  enum class BrowserState { CHECK_WIFI, WIFI_SELECTION, LOADING, BROWSING, DOWNLOADING, ERROR, SEARCH_INPUT };
+  // SAVED is the download's verdict. It exists because failure spoke and
+  // success did not: the download screen simply vanished and the list came
+  // back, which is also what a silent abort looks like. A cold tester only
+  // learned their book had arrived by going and finding the file.
+  enum class BrowserState { CHECK_WIFI, WIFI_SELECTION, LOADING, BROWSING, DOWNLOADING, SAVED, ERROR, SEARCH_INPUT };
 
   explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server);
 
@@ -63,6 +68,17 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   std::string statusMessage;
   size_t downloadProgress = 0;
   size_t downloadTotal = 0;
+  // The rest of what the wait screen shows; statusMessage already holds the
+  // title. The cover is the file the detail screen just fetched -- a download
+  // cannot be reached without passing through that screen, so it is already on
+  // the card and costs no second request.
+  std::string downloadAuthor;
+  std::string downloadCoverPath;
+  // Reserved by buildDownloadScreen, painted after renderUi() flushes the
+  // screen tree, which would otherwise paint over the bitmap.
+  freeink::ui::Rect prepCoverRect{};
+  void paintPrepareCover();
+  static std::string cachedCoverPath();
 
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
 
@@ -76,6 +92,23 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   // callback's own input pump); exit to home after the abort unwinds.
   bool goHomeAfterCancel = false;
 
+  // What the SAVED screen says, split off the very path handed to
+  // downloadToFile() rather than recomposed from the catalog entry. The
+  // filename is NOT the title: opdsBookFilename() picks one author out of a
+  // ';'-joined list, budgets the halves separately and sanitizes both, so the
+  // name on the card routinely differs from the row that was tapped -- and
+  // that name is the whole point of this screen.
+  std::string savedName;
+  std::string savedFolder;
+  // Counts only the time the panel has actually shown the verdict with nobody
+  // touching the glass. See util/DismissDwell.h.
+  DismissDwell savedDwell;
+  // Long enough that a reader who looks up after the refresh still finds it,
+  // and it is a floor rather than the whole story: the dwell does not start
+  // until the screen is both shown and uncovered, and Done / Back / Confirm
+  // leave immediately.
+  static constexpr uint32_t SAVED_DWELL_MS = 5000;
+
   // Single screen fn dispatching on `state`: every state shares the themed
   // header and gets built through FreeInkUI.
   static void rootScreen(UiScreen& screen, void* user);
@@ -83,10 +116,13 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   static void onSearchEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onSettingsEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onCancelEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onSavedDoneEvent(const freeink::ui::ActionEvent& event, void* user);
   void screenHeader(UiScreen& screen, bool withSearch);
   void buildBrowsingScreen(UiScreen& screen);
   void buildDownloadScreen(UiScreen& screen);
+  void buildSavedScreen(UiScreen& screen);
   void buildStatusScreen(UiScreen& screen);
+  void leaveSavedScreen();
   void activateSelected();
 
   void checkAndConnectWifi();

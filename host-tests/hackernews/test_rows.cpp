@@ -181,6 +181,68 @@ void testInvalidateCoversAShelfThatChangedUnderTheSameView() {
   CHECK_EQ(std::to_string(rows.size()), "1");
 }
 
+// --- what an empty list says with no network ------------------------------
+
+// The three empty screens are three different situations, and the whole
+// offline story is whether they stay apart. An unfetched front page is an
+// invitation; the same page after a failed fetch is an error; an empty SAVED
+// shelf is neither and is COMPLETE -- there is nothing to fetch, and a control
+// offering to would promise something the screen exists to say is unnecessary.
+void testTheThreeEmptyScreensStayThree() {
+  const hn::EmptyState cold = hn::emptyState(hn::ListView::FrontPage, false);
+  const hn::EmptyState failed = hn::emptyState(hn::ListView::FrontPage, true);
+  const hn::EmptyState shelfEmpty = hn::emptyState(hn::ListView::Saved, false);
+
+  // Every one of them says something. A blank panel reads as a fault, and this
+  // is now the screen a device that has never joined a network opens on.
+  CHECK(cold.headline != nullptr && cold.message != nullptr);
+  CHECK(failed.headline != nullptr && failed.message != nullptr);
+  CHECK(shelfEmpty.headline != nullptr && shelfEmpty.message != nullptr);
+
+  // And they say DIFFERENT things. Collapsing the invitation into the error is
+  // the shape of the bug: an app that has simply not fetched yet reading as one
+  // that cannot reach Hacker News.
+  CHECK(std::string(cold.headline) != std::string(failed.headline));
+  CHECK(std::string(cold.message) != std::string(failed.message));
+  CHECK(std::string(shelfEmpty.headline) != std::string(cold.headline));
+  CHECK(std::string(shelfEmpty.headline) != std::string(failed.headline));
+
+  // And the ONE that must not be different. A dropped connection is discovered
+  // in two places -- here, when the front page does not arrive, and in the
+  // reader, when an article or a thread does not -- and the two used to say
+  // different things about it. This screen promised the saved shelf still
+  // worked; the reader's notice said to check the network, and carried no
+  // control at all. Same minute, same dropped AP, two apps as far as the reader
+  // could tell. Both take the pair from hn::kUnreachable* now, and this is what
+  // stops this end of it drifting off again.
+  CHECK_EQ(std::string(failed.headline), std::string(hn::kUnreachableHeadline));
+  CHECK_EQ(std::string(failed.message), std::string(hn::kUnreachableMessage));
+
+  // The sentence names the SAVED shelf, and that is not decoration: it is the
+  // half that still works with the radio down, and the reason this app opens
+  // without one. A rewording that drops it takes the only useful thing this
+  // screen has to say with it.
+  CHECK(std::string(hn::kUnreachableMessage).find("Saved") != std::string::npos);
+}
+
+// The tap that raises the radio, and the one screen that must not offer it.
+void testOnlyTheFrontPageOffersToLoad() {
+  // Both front-page states carry a labelled control. Without it the empty
+  // front page is a screen with no way to fill itself, which is what a device
+  // with the radio down would open on for ever.
+  CHECK(hn::emptyState(hn::ListView::FrontPage, false).actionLabel != nullptr);
+  CHECK(hn::emptyState(hn::ListView::FrontPage, true).actionLabel != nullptr);
+
+  // The shelf does not. It is the half that needs no network, and the only
+  // control it could carry would fetch the other half.
+  CHECK(hn::emptyState(hn::ListView::Saved, false).actionLabel == nullptr);
+  // And the front page's failure is not the shelf's business either: the flag
+  // belongs to one view and must not leak into the other.
+  CHECK(hn::emptyState(hn::ListView::Saved, true).actionLabel == nullptr);
+  CHECK_EQ(std::string(hn::emptyState(hn::ListView::Saved, true).headline),
+           std::string(hn::emptyState(hn::ListView::Saved, false).headline));
+}
+
 }  // namespace
 
 int main() {
@@ -190,6 +252,8 @@ int main() {
   testAnEmptyFrontPageIsStillBuilt();
   testRebuildingDropsTheFittedLabels();
   testInvalidateCoversAShelfThatChangedUnderTheSameView();
+  testTheThreeEmptyScreensStayThree();
+  testOnlyTheFrontPageOffersToLoad();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

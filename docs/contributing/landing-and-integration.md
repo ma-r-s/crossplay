@@ -15,8 +15,23 @@ scripts_local/device-build-needed.sh --device-only
 ```
 
 Exit 0 means the device gate is required before landing. Exit 1 means host-green
-is sufficient. It is deliberately conservative: anything it cannot rule out
-keeps its device build.
+is sufficient. It is an allowlist: host-green is sufficient only when every
+changed path is either unable to reach a device image at all, or a `src/`/`lib/`
+file that is present in the tree and free of device-only markers. **Anything
+else -- a new directory, a build script, a deleted file -- keeps its device
+build.**
+
+> That sentence was in this document, in almost these words, from the day it was
+> written. **The code did the opposite until 2026-09-01.** It was a denylist: it
+> demanded a device gate for `freeink-sdk`, `platformio*.ini`, `partitions.csv`
+> and marked `src`/`lib` files, and answered "host-green is sufficient" for
+> everything else -- including `scripts_local/require_build_lock.py`, which runs
+> inside every device build, `scripts/build_html.py`, which runs as part of it,
+> `nix/flake.nix`, which pins the toolchain, a brand-new top-level directory,
+> and DELETING a `src/` file. Anyone who edited build infrastructure and ran the
+> command above was told it was safe to land, and nothing ever compiled the
+> edit. The prose describing the intended behaviour is why nobody read the code
+> for two months. `host-tests/gatepath/` now tests each of those paths.
 
 ### Why the exception is not a formality
 

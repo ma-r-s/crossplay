@@ -608,4 +608,35 @@ void moveToString(const Move& move, char* out) {
   out[length] = '\0';
 }
 
+uint64_t positionKey(const Position& position) {
+  // FNV-1a. Chosen over a hand-rolled mix because it is one line to verify
+  // against the published constants, and over Zobrist because there is nothing
+  // here to update incrementally.
+  constexpr uint64_t kOffsetBasis = 14695981039346656037ULL;
+  constexpr uint64_t kPrime = 1099511628211ULL;
+  uint64_t hash = kOffsetBasis;
+  const auto mix = [&hash](const uint8_t byte) {
+    hash ^= byte;
+    hash *= kPrime;
+  };
+  for (int square = 0; square < 64; ++square) mix(position.squares[square]);
+  mix(position.whiteToMove ? 1 : 0);
+  mix(position.castling);
+  // +1 so kNoSquare (-1) becomes 0 and every real square stays distinct.
+  mix(static_cast<uint8_t>(position.epSquare + 1));
+  return hash;
+}
+
+int repetitionCount(const uint64_t* keys, const int count, const int window) {
+  if (keys == nullptr || count <= 0) return 0;
+  const uint64_t current = keys[count - 1];
+  int seen = 1;  // the position on the board is its own first occurrence
+  for (int back = 1; back <= window; ++back) {
+    const int index = count - 1 - back;
+    if (index < 0) break;
+    if (keys[index] == current) ++seen;
+  }
+  return seen;
+}
+
 }  // namespace chess

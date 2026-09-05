@@ -7,6 +7,31 @@ One exception, and it is deliberate: `api/firmware.js`, a single Vercel
 function that exists so the Install button can work at all. See **The Install
 button** below before touching it.
 
+## When it deploys, and when it does not
+
+`vercel.json` carries `"ignoreCommand": "git diff --quiet HEAD^ HEAD ./"`.
+Vercel runs it from this directory: **exit 0 skips the build, non-zero builds**.
+`git diff --quiet` exits 0 when nothing here changed, so a commit that does not
+touch `site/` never deploys.
+
+This is not tidiness. On 2026-09-04 the account hit its deployment rate limit
+and every pull request in the fork went red on a Vercel check, including ones
+whose diff was a word list or a shell script. Of the 305 commits on `xteink`
+that day, **57 touched `site/`** -- so four deploys in five built nothing new
+and the fifth could not run.
+
+Two properties worth keeping if you edit it:
+
+- **It fails towards building.** If the command errors -- a shallow clone with
+  no `HEAD^`, a git that is not there -- it exits non-zero and the deploy
+  proceeds. Never skip when unsure.
+- **`./` means this directory, not the repository root**, because the Vercel
+  project root is `site/`. Changing the project root without changing this
+  path silently stops every deploy.
+
+The emulator rebuild CI commits after a firmware merge DOES touch `site/`, so
+it still deploys. That is correct: the page really did change.
+
 ## Before it deploys
 
 Two steps, both of which fail silently if skipped:
@@ -185,6 +210,19 @@ directory it lives in, so run it from whichever worktree you want to look at
 and give each one its own port. That is how to see a change before it deploys,
 which beats finding out in production.
 
+The inbox page (`/inbox/`) needs a passphrase and a board, and a layout
+change needs neither. `serve.py` answers `POST /api/inbox` from a JSON file
+when `INBOX_FIXTURE` names one, whatever passphrase is typed:
+
+```bash
+INBOX_FIXTURE=site/inbox/fixture.json python3 site/serve.py 8099
+```
+
+`site/inbox/fixture.json` holds three open asks, forty cards and every table
+the Numbers section reads; `host-tests/site/run.sh` fails when the page starts
+reading a key the fixture lacks. Dev only: production is `api/inbox.js` and
+never runs `serve.py`, so the fixture cannot leak.
+
 Changes must be _looked at_, not reasoned about -- the same rule the device
 apps follow. `pageshot.py` renders full-page and sliced captures at any width
 and colour scheme through the Chrome already installed:
@@ -250,9 +288,18 @@ It is checked in because Vercel does not have Emscripten.
 `assets/shots/` is generated, not drawn. Every screenshot is the real firmware
 running in the simulator against a seeded SD card, captured with
 `scripts_local/sim-shot.sh` and downsampled from the simulator's 2x output to
-native panel pixels (480x800, or 800x480 for the two landscape apps). Regenerate
-them rather than editing them, and never retouch one: the claim the page makes
-is that this is what the device shows.
+native panel pixels: 480x800, or 800x480 for the landscape ones. Regenerate them
+rather than editing them, and never retouch one: the claim the page makes is
+that this is what the device shows.
+
+**The downsample is the step that gets skipped**, because skipping it looks like
+nothing. `index.html` declares the 1x width and height, so a 2x file has the
+right aspect and the card renders perfectly at four times the bytes -- on a page
+that lazy-loads two dozen of them. The `shoot-*.sh` scripts copy the simulator's
+output straight across, and on 2026-09-01 all four shots they produce (trivia,
+wavelength, toybattle, forehead) were 2x. `host-tests/site/page_structure.py`
+now compares every shot against the size the page declares, so the next one
+fails the site suite instead of shipping.
 
 `assets/fonts/` is Jersey 25 and Instrument Serif, the two faces the device
 itself draws, converted to woff2. Both are SIL OFL and their licences ship

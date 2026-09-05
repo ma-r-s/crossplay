@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="CrossPlay">
+  <title>CrossPlay</title>
+  <!--
+    The same mark as site/assets/logo.svg in the CrossPlay repository, with the
+    colour resolved rather than inherited: this file renders on its own in the
+    Playground catalog, where currentColor has nothing to inherit from and the
+    mark would come out black against a dark card.
+
+    The screen, inside the frame this fork draws around everything. Corner
+    brackets are the one mark CrossPlay invented rather than inherited: they sit
+    around the chess board, the mini board on its menu, and every Toybox panel.
+  -->
+  <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="1.6" fill="#111110" />
+  <g fill="none" stroke="#111110" stroke-width="2.6" stroke-linecap="square">
+    <path d="M2.6 10.4V2.6h7.8" />
+    <path d="M29.4 10.4V2.6h-7.8" />
+    <path d="M2.6 21.6v7.8h7.8" />
+    <path d="M29.4 21.6v7.8h-7.8" />
+  </g>
+</svg>

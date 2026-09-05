@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tell CrossPlay what happened</title>
+<meta name="description" content="Report a bug or send an idea for CrossPlay in under a minute. No account needed.">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/assets/report.css">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<meta name="theme-color" content="#111110">
+</head>
+<body>
+<!-- The same form the front page opens in a dialog, as a page of its own for
+     the links and QR codes that point here. The form itself is drawn by
+     assets/report.js into the mount below; this file is only the surroundings.
+     The device's web UI can prefill it: /report/?device=x4pro&v=1.12.9&app=trivia&kind=bug -->
+<main class="report-page" id="main">
+  <h1 class="report-title">Tell CrossPlay what happened</h1>
+  <p class="report-lead">One box. Say it however it comes out. No account, under a minute.</p>
+
+  <div data-report-mount></div>
+
+  <a class="report-back" href="/">Back to CrossPlay</a>
+</main>
+
+<script src="/assets/report.js"></script>
+</body>
+</html>

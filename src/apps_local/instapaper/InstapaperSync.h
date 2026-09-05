@@ -30,7 +30,25 @@
 
 namespace instapaper {
 
-constexpr char kBridgeHost[] = "read.crossplay.ma-r-s.com";
+// ONE label below the apex, and that is a constraint rather than a style: the
+// ma-r-s.com zone is on Cloudflare's free plan, whose Universal SSL cert
+// covers exactly `ma-r-s.com` and `*.ma-r-s.com`. A deeper name gets no
+// certificate at all -- the edge answers a TLS handshake for
+// read.crossplay.ma-r-s.com with alert 40 and no peer certificate, so wolfSSL
+// here would fail before it sent a byte, and a browser would refuse the
+// sign-in page the setup instructions send people to. Covering
+// *.crossplay.ma-r-s.com needs Advanced Certificate Manager, which is paid.
+// So this matches its two working siblings, sync.ma-r-s.com (Study) and
+// books.ma-r-s.com (Get Books), and app/crossplayhosts -- which moves BOTH of
+// those under crossplay.ma-r-s.com -- would break them the same way if it were
+// ever deployed.
+//
+// The host is COMPILED IN and the device build has no override, so changing it
+// is only safe while nothing in the field has paired. Nothing has: the name
+// this constant held until 2026-09-03 never resolved, so no reader ever
+// completed a sync. That window is now closed -- read.ma-r-s.com must keep
+// answering indefinitely, exactly like sync.ma-r-s.com.
+constexpr char kBridgeHost[] = "read.ma-r-s.com";
 
 // What one finished sync did. Every field here ends up in a sentence on the
 // verdict screen; nothing is carried that nobody says out loud.

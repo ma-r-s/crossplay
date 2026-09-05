@@ -1,0 +1,127 @@
+#!/bin/bash
+# The release watcher, on a real postgres running the board's real migrations.
+#
+# On 2026-09-04 two releases failed, four workflow runs over five hours, and
+# every visible signal said healthy: the autorelease reported success, tags
+# appeared, the board was clean. The only detector in the system was Mario's
+# e-reader saying there was no update. This suite exists so the detector that
+# replaces the e-reader is watched firing, on the real payloads of that
+# morning, rather than argued about.
+#
+# It applies server/board/supabase/migrations verbatim -- only the two
+# `create extension` lines for pg_net and pg_cron are commented out, because
+# neither exists outside Supabase and prelude.sql stands in for both -- so the
+# functions and the events trigger under test are the ones that run on the
+# board, not a description of them.
+#
+#   host-tests/relwatch/run.sh
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
+MIG="$ROOT/server/board/supabase/migrations"
+IMAGE="${RELWATCH_PG_IMAGE:-postgres:16-alpine}"
+
+# A skip is information on a laptop with Docker closed. In CI every input is
+# meant to be there, so a check that did not run is a failure: otherwise the
+# suite that proves the watcher works reports green by never running.
+if ! docker info >/dev/null 2>&1; then
+  if [ -n "${CI:-}" ]; then
+    echo "FAIL relwatch  docker is not available and this is CI: the suite must run here"
+    exit 1
+  fi
+  echo "SKIP relwatch  docker is not running; start it to run this suite (in CI it is a failure)"
+  exit 0
+fi
+
+# Several trees run in this workspace at once; fixed /tmp names would have two
+# of them reading each other's output.
+WORK="$(mktemp -d)"
+
+CID="$(docker run --rm -d -e POSTGRES_PASSWORD=relwatch -e POSTGRES_DB=board "$IMAGE" \
+        -c fsync=off -c full_page_writes=off 2>/dev/null)"
+if [ -z "$CID" ]; then
+  echo "FAIL relwatch  could not start $IMAGE"
+  exit 1
+fi
+trap 'docker rm -f "$CID" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
+
+psql() { docker exec -i "$CID" psql -U postgres -d board -v ON_ERROR_STOP=1 -qtA "$@"; }
+
+# 420, and the number is evidence rather than a guess.
+#
+# It was 60, then 180. At 180 the diagnostic below finally printed postgres's
+# own log, and it showed the container still running its INITIALISATION at the
+# moment we gave up: temp server started, CREATE DATABASE done, "database
+# system is shut down" -- the shutdown that precedes the real start. So the
+# container had not finished setting itself up, let alone become ready. This
+# suite shares a runner with the firmware build, and under that load a
+# postgres image needs minutes, not seconds.
+#
+# The cost of waiting is CI time on a slow day. The cost of not waiting is a
+# red build on a pull request whose diff cannot touch a database, which is
+# what this has already done twice.
+for _ in $(seq 1 420); do
+# -h 127.0.0.1, and that one flag is the whole fix.
+#
+# postgres's docker-entrypoint runs initdb against a TEMPORARY server before
+# restarting the real one, and it starts that server with `listen_addresses=''`
+# (docker-entrypoint.sh:297) -- Unix socket only, no TCP, by construction. A
+# bare `pg_isready` talks to that socket, so it answers YES to the init server,
+# the loop below breaks after a second or two, and the identical check behind
+# it then runs inside the restart window and fails. The container log in every
+# such failure is the same three lines: `database "board" does not exist`, then
+# `CREATE DATABASE`, then `waiting for server to shut down`.
+#
+# Probing TCP cannot see the init server at all, so the loop breaks only when
+# the real server is up. Confirmed in the image: the init server logs one
+# `listening on` line (Unix socket); the real one logs three (IPv4, IPv6,
+# socket).
+#
+# This is not the timeout being too short. The failure that prompted the fix
+# printed "never came up in 120s" 4.9 seconds after the previous suite's last
+# line -- a 120-iteration loop with `sleep 1` had not run.
+  docker exec "$CID" pg_isready -h 127.0.0.1 -U postgres -d board >/dev/null 2>&1 && break
+  sleep 1
+done
+if ! docker exec "$CID" pg_isready -h 127.0.0.1 -U postgres -d board >/dev/null 2>&1; then
+  # Say WHY. "never came up" names no cause, and the next person to read it is
+  # looking at a red build on an unrelated diff with nothing to go on.
+  echo "FAIL relwatch  postgres never came up within 420s; its own log follows"
+  docker logs "$CID" 2>&1 | tail -20 | sed 's/^/    /'
+  exit 1
+fi
+
+docker exec "$CID" mkdir -p /tmp/fx >/dev/null 2>&1
+for f in "$HERE"/fixtures/*.json; do docker cp "$f" "$CID:/tmp/fx/" >/dev/null; done
+
+if ! psql < "$HERE/prelude.sql" > "$WORK/prelude.out" 2>&1; then
+  echo "FAIL relwatch  the prelude did not apply"; cat "$WORK/prelude.out"; exit 1
+fi
+
+for m in "$MIG"/*.sql; do
+  if ! sed -e '/^create extension if not exists pg_net/s/^/-- test: /' \
+           -e '/^create extension if not exists pg_cron/s/^/-- test: /' "$m" \
+       | psql > "$WORK/migration.out" 2>&1; then
+    echo "FAIL relwatch  migration $(basename "$m") did not apply"
+    tail -20 "$WORK/migration.out"
+    exit 1
+  fi
+done
+
+if ! psql < "$HERE/checks.sql" > "$WORK/checks.out" 2>&1; then
+  echo "FAIL relwatch  the checks did not run to the end"
+  tail -30 "$WORK/checks.out"
+  exit 1
+fi
+
+# The keys under test contain '|', which is psql's own column separator, so the
+# report is formatted in SQL and read back as whole lines.
+psql -c "select case when ok then '  ok   ' || label
+                     else '  FAIL ' || label || E'\\n         got  [' || got || E']\\n         want [' || want || ']' end
+         from results order by n"
+PASS="$(psql -c 'select count(*) from results where ok')"
+FAIL="$(psql -c 'select count(*) from results where not ok')"
+
+echo "relwatch: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ] || exit 1

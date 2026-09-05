@@ -1,4 +1,4 @@
 [submodule "freeink-sdk"]
 	path = freeink-sdk
 	url = https://github.com/ma-r-s/freeink-sdk.git
-	branch = x4pro-measured-insets
+	branch = fix/sd-free-space

@@ -58,3 +58,12 @@ qa-artifacts/
 
 # upstream (1.6.0rc): nix flake outputs
 flake.*
+
+# scratch for tools_local/trivia/rate_local.py: corpus, venv, per-model runs
+.rate/
+
+# scratch for tools_local/trivia/assemble_pack.py: corpus snapshot, built packs
+.pack/
+
+# scratch snapshots copied out of a live rating run; derived, large, not history
+.panel/

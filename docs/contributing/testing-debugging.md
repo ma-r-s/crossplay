@@ -47,6 +47,60 @@ python3 scripts/debugging_monitor.py
 - [User Guide troubleshooting section](../../USER_GUIDE.md#7-troubleshooting-issues--escaping-bootloop)
 - [Webserver troubleshooting](../troubleshooting.md)
 
+## The gate skips device builds it cannot learn anything from
+
+`check.sh` ran four cross-compiled builds -- `x4pro`, `sticky`,
+`gh_release_x4pro`, `gh_release_sticky` -- for every change, behind a
+workspace-wide lock, taking about ten minutes. It ran them for a change to
+`site/index.html` exactly as for a change to `src/`. Since `app/gatescope` it
+asks `scripts_local/device-build-needed.sh --build-loop` first, and drops the
+device envs when nothing in the diff can reach a device image.
+
+Since `app/gatetrim` there are two of them, not four. A plain `check.sh` builds
+the dev pair `x4pro` and `sticky`; `--committed` builds the release pair
+`gh_release_x4pro` and `gh_release_sticky` INSTEAD of it, rather than as well as
+it. The difference between a dev env and its release twin is
+`CROSSPOINT_DEV_SERIAL_BRIDGE`, whose breakage costs the next person who wants
+to drive a device over the cable and never costs a user, so a routine run is
+soon enough to catch it. The release pair keeps its place because nothing else
+compiles it before the release workflow does, after the tag exists.
+
+Four things about it are worth knowing before you trust or debug it:
+
+**The saving is only available in one direction.** `site/emulator/` is a wasm
+build of the firmware, so a firmware change genuinely can change the site --
+which is what the staleness gate at the foot of `check.sh` is for. The reverse
+is never true, so the scoping is only ever allowed to drop DEVICE envs. The
+simulator build always runs.
+
+**The rule is an allowlist of paths that cannot reach an image, and anything
+unrecognised builds.** A new top-level directory means "build", not "skip".
+`scripts_local/` is deliberately NOT on that list: two of its files are `pre:`
+extra_scripts in `platformio.ini` and run inside every device build, and the
+rest is the gate's own machinery -- a change to `check.sh` that broke the build
+loop must not be verified by a run that skipped the build loop.
+
+**A scoped run does not print `all green`.** It prints
+`HOST GREEN, DEVICE BUILDS SKIPPED (...)` and names every env it dropped, so a
+grep written before this existed finds nothing and fails closed rather than
+open. Override it with `CHECK_FORCE_DEVICE_BUILDS=1`.
+
+**Every firmware env is built in ONE `pio run`.** Not for speed. PlatformIO's
+`clean_build_dir()` runs once per invocation against the whole `.pio/build`
+root and deletes all of it when the project checksum has moved; the checksum is
+over the file list under `src/`, `include/` and `lib/`, and this project's
+`pre:` scripts write generated sources into those directories as the build
+runs. So on a fresh checkout the checksum moves during the first invocation and
+the second one opens by deleting the first one's output. That is what broke
+v1.12.14 and v1.12.15 in the release workflow. `pio run -e a -e b` builds both
+in one process, exits non-zero if either failed, and cannot delete its own
+output.
+
+Its rule is tested by `host-tests/gatepath/`; the wiring that acts on the rule
+is tested by `host-tests/checksh/`, including every way the rule could fail
+(missing, crashing, non-executable) without the wiring noticing, which envs
+each mode actually builds, and that they shared one invocation.
+
 ## The environment a check runs in is part of the check
 
 Three failures in one night, all the same shape: something was true where the
@@ -108,6 +162,29 @@ drops is exactly what the next person needed -- which is why claims that travel
 through a summary change shape, and why the fix is always the same one. Re-read
 at the source before you act on it, especially when the summary came from
 someone careful. A careful summary is a better filter, not an absent one.
+
+**Reproduce the failure where it fails, BEFORE you believe the fix.** This is
+the positive form of the rule and the only one on this page you can act on
+rather than merely avoid. `host-tests/cacheguard` was red in CI and green here,
+three checks, for as long as the cache cap had existed. The cause was one line:
+`stat -f '%m %z %N'` is BSD, and on GNU `-f` means `--file-system`, so the flag
+is consumed, the format is not a filesystem format, `2>/dev/null` eats the
+complaint, the pipeline yields nothing, the deletion loop runs zero iterations,
+and the prune deletes NOTHING -- having already printed `trimming oldest
+first`. On Linux the guard announced it was guarding and let the disk fill.
+
+You do not need the other operating system to reproduce that. A stub named
+`stat` early on `PATH`, answering `--version` the way GNU does and implementing
+`-c` on top of the real BSD `stat` so the values stay genuine, reproduces CI's
+three failures verbatim on this machine.
+
+**And the stub is itself a thing that can fail silently.** The first version of
+that one passed the mutation: it fell through to the real BSD `stat` for `-f`,
+so it never emulated the half that breaks. The old, broken line sailed through
+a harness built to catch it. A surviving mutant is either a missing test or a
+broken harness, and assuming the first is how a green run gets recorded for a
+fix nobody exercised. When a mutation survives, suspect your harness before you
+conclude the test has a gap.
 
 ## A check that fails silently is worse than one that fails loudly
 

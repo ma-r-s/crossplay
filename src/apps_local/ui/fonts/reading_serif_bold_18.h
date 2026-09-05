@@ -1146,7 +1146,14 @@ static const EpdFontData reading_serif_bold_18 = {
     nullptr,
     reading_serif_bold_18KernLeftClasses,
     reading_serif_bold_18KernRightClasses,
+    nullptr,  // kernLeftCodepoints: this cut uses the packed class maps above
+    nullptr,  // kernLeftClassIds
+    nullptr,  // kernRightCodepoints
+    nullptr,  // kernRightClassIds
     reading_serif_bold_18KernMatrix,
+    nullptr,  // kernRowOffsets: this cut uses the dense kernMatrix above
+    nullptr,  // kernSparseCols
+    nullptr,  // kernSparseValues
     93,
     87,
     36,

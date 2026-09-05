@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrossPlay Inbox</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<meta name="theme-color" content="#111110">
+<style>
+  [hidden] { display: none !important; } /* styles.css styles buttons; the attribute must still win */
+  /* One message at a time. What needs Mario, in three lines, with buttons.
+     A passphrase, typed once and remembered by this browser; every call to
+     the board goes through /api/inbox, which checks it. */
+  .inbox { max-width: 34rem; margin: 0 auto; padding: 2rem var(--gutter) 5rem; }
+  .top { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; border-bottom: 2px solid var(--ink); padding-bottom: 0.6rem; margin-bottom: 1.2rem; }
+  .top h1 { font-family: var(--display); font-weight: 400; font-size: 2.6rem; margin: 0; line-height: 1; }
+  .count { font-family: var(--mono); font-size: 0.85rem; color: var(--muted); }
+  .count b { color: var(--ink); font-weight: 600; }
+  .msg { background: var(--paper-2); border: 1px solid var(--edge); border-top: 6px solid var(--ink); border-radius: 6px; padding: 1.1rem 1.2rem 1.3rem; }
+  .from { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 0.8rem; }
+  .msg h2 { font-size: 1.4rem; line-height: 1.25; margin: 0.4rem 0 0.9rem; font-weight: 600; }
+  .row { margin: 0 0 0.7rem; }
+  .row dt { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .row dd { margin: 0.1rem 0 0; }
+  .row.need dt { display: inline-block; background: var(--ink); color: var(--paper); padding: 0.05rem 0.4rem; border-radius: 3px; }
+  .answer { display: flex; gap: 0.5rem; margin-top: 1rem; }
+  .answer input { flex: 1; font: inherit; font-size: 1rem; padding: 0.65rem 0.8rem; border: 1.5px solid var(--edge); border-radius: 6px; background: var(--paper); color: var(--ink); min-width: 0; }
+  .btn { font: inherit; font-size: 0.98rem; padding: 0.65rem 1rem; border-radius: 6px; border: 1.5px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; white-space: nowrap; }
+  .btn.primary { background: var(--ink); color: var(--paper); }
+  .btn.quiet { border-color: transparent; color: var(--muted); text-decoration: underline; padding-left: 0.3rem; padding-right: 0.3rem; }
+  .btn:focus-visible, .answer input:focus { outline: 3px solid var(--ink); outline-offset: 1px; }
+  .btn[disabled] { opacity: 0.5; cursor: default; }
+  ol.how { margin: 0.6rem 0 0; padding-left: 1.4rem; }
+  ol.how li { margin: 0.25rem 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.7rem; align-items: center; }
+  .zero { text-align: center; padding: 2.5rem 1rem; border: 1px dashed var(--edge); border-radius: 6px; color: var(--muted); }
+  .zero h2 { font-family: var(--display); font-weight: 400; font-size: 2.2rem; margin: 0 0 0.3rem; color: var(--ink); }
+  .login { border: 1px solid var(--edge); border-radius: 6px; padding: 1.2rem; }
+  .login label { display: block; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; }
+  .login .answer { margin-top: 0; }
+  .status { min-height: 1.4em; margin: 0.8rem 0 0; color: var(--muted); font-size: 0.95rem; }
+  .status.err { color: var(--ink); font-weight: 600; }
+  details { margin-top: 1.8rem; border-top: 1px solid var(--edge); padding-top: 0.8rem; }
+  summary { cursor: pointer; font-weight: 600; }
+  summary small { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); margin-left: 0.5rem; font-weight: 400; }
+  /* Everything: one <li> per parent card holding its own row and a nested
+     list of children, so a group can never be split across the desktop's two
+     columns. */
+  .all, .kids { list-style: none; padding: 0; margin: 0; }
+  .all { margin-top: 0.6rem; }
+  .all > li { break-inside: avoid; }
+  .line { display: flex; gap: 0.8rem; align-items: baseline; padding: 0.45rem 0; border-bottom: 1px solid var(--edge); font-size: 0.95rem; }
+  .line.child { padding-left: 1.4rem; font-size: 0.9rem; }
+  .line .t { flex: 1; min-width: 0; }
+  .all .st { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); min-width: 5.5rem; }
+  .all .st.released, .all .st.done { color: var(--ink); }
+  .all .app { color: var(--muted); font-size: 0.82rem; margin-left: auto; white-space: nowrap; }
+  .num-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.6rem; margin: 0.8rem 0; }
+  .tile { border: 1px solid var(--edge); border-radius: 6px; padding: 0.6rem 0.8rem; }
+  .tile b { display: block; font-family: var(--display); font-weight: 400; font-size: 2rem; line-height: 1; }
+  .tile span { font-size: 0.8rem; color: var(--muted); }
+  /* A table scrolls inside its own box and never widens the page. styles.css
+     gives every table a 560px floor for the comparison table on the front
+     page; here that floor was the phone's horizontal scrollbar. */
+  .scroll { overflow-x: auto; margin: 0.6rem 0 1rem; }
+  table.nums { width: 100%; min-width: 0; border-collapse: collapse; font-size: 0.9rem; margin: 0; font-variant-numeric: tabular-nums; }
+  /* styles.css also stacks EVERY table's cells into blocks under 720px, for
+     the front page's comparison table, and hid its header. Here that turned
+     each numbers table into one value per line with no column names. These
+     stay tables at every width; the box above scrolls when one is too wide. */
+  table.nums { display: table; }
+  table.nums tbody { display: table-row-group; }
+  table.nums tr { display: table-row; border: 0; }
+  table.nums th, table.nums td { display: table-cell; }
+  table.nums td::before { content: none; }
+  table.nums th, table.nums td { text-align: left; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--edge); vertical-align: baseline; }
+  table.nums th { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 400; white-space: nowrap; border-bottom: 2px solid var(--ink); }
+  table.nums td.n, table.nums th.n { text-align: right; }
+  table.nums td:first-child { white-space: nowrap; } /* a week or a version never breaks at its hyphen; the box scrolls instead */
+  .nums-h { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0.9rem 0 0.2rem; }
+  .foot { margin-top: 2rem; font-size: 0.85rem; color: var(--muted); display: flex; justify-content: space-between; gap: 1rem; }
+
+  /* Desktop, from 900px. The ask stays one centred column, because a message
+     is read at reading width; the header, Everything and Numbers take the
+     page. Nothing below this line applies under 900px, so the phone keeps the
+     layout above unchanged. Colours are the same tokens, so dark needs no
+     second copy of any of it. */
+  @media (min-width: 900px) {
+    .inbox { max-width: var(--wrap); padding-top: 3rem; }
+    .top { padding-bottom: 0.8rem; margin-bottom: 2rem; }
+    .top h1 { font-size: 3.4rem; }
+    .count { font-size: 0.95rem; }
+    .login { max-width: 30rem; margin: 3rem auto 0; }
+    .col { max-width: 48rem; margin-left: auto; margin-right: auto; }
+    .msg { padding: 1.8rem 2.2rem 2rem; font-size: 1.12rem; line-height: 1.55; }
+    .from { font-size: 0.8rem; }
+    .msg h2 { font-size: 2rem; margin: 0.5rem 0 1.1rem; }
+    .row { margin-bottom: 0.9rem; }
+    .row dt { font-size: 0.75rem; }
+    ol.how { margin-top: 0.8rem; }
+    .answer { margin-top: 1.4rem; }
+    .answer input, .btn { font-size: 1.05rem; padding: 0.75rem 1.15rem; }
+    .actions { flex-wrap: nowrap; margin-top: 0.8rem; }
+    .actions .quiet { margin-left: auto; }
+    .zero { padding: 3.5rem 2rem; }
+    .zero h2 { font-size: 2.8rem; }
+    details { margin-top: 2.8rem; padding-top: 1rem; }
+    summary { font-size: 1.15rem; }
+    .all { columns: 2; column-gap: 3rem; margin-top: 0.8rem; }
+    .num-grid { grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1rem 0 0.4rem; }
+    .tile { padding: 1rem 1.2rem; }
+    .tile b { font-size: 2.8rem; }
+    .tile span { font-size: 0.9rem; }
+    .num-cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 3rem; align-items: start; }
+    .num-block.wide { grid-column: 1 / -1; }
+    table.nums { font-size: 0.95rem; }
+    table.nums th, table.nums td { padding: 0.4rem 0.6rem; }
+    .foot { margin-top: 3rem; }
+  }
+</style>
+</head>
+<body>
+<main class="inbox" id="main">
+  <div class="top">
+    <h1>Inbox</h1>
+    <span class="count" id="inbox-count"></span>
+  </div>
+
+  <section class="login" id="inbox-login" hidden>
+    <label for="inbox-pass">Passphrase</label>
+    <div class="answer">
+      <input type="password" id="inbox-pass" autocomplete="current-password" placeholder="the one from the workflow session">
+      <button class="btn primary" id="inbox-enter">Open</button>
+    </div>
+    <p class="status" id="inbox-login-status"></p>
+  </section>
+
+  <div id="inbox-view" class="col"></div>
+  <p class="status col" id="inbox-status" role="status" aria-live="polite"></p>
+
+  <details id="inbox-everything" hidden>
+    <summary>Everything <small id="inbox-all-count"></small></summary>
+    <ul class="all" id="inbox-all"></ul>
+  </details>
+
+  <details id="inbox-numbers" hidden>
+    <summary>Numbers <small id="inbox-numbers-note">last 7 days</small></summary>
+    <div id="inbox-numbers-body"></div>
+  </details>
+
+  <p class="foot"><span>One message at a time. A tap is the whole answer.</span><button class="btn quiet" id="inbox-signout" hidden>Forget passphrase</button></p>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = "crossplay-inbox-pass";
+  var pass = null, later = {}, items = [], all = [];
+
+  function say(text, err) { var s = $("inbox-status"); s.textContent = text || ""; s.className = "status" + (err ? " err" : ""); }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function loadPass() { try { pass = localStorage.getItem(KEY) || null; } catch (e) { pass = null; } }
+  function savePass(p) { pass = p; try { if (p) localStorage.setItem(KEY, p); else localStorage.removeItem(KEY); } catch (e) {} }
+
+  function api(op, extra) {
+    var body = Object.assign({ pass: pass, op: op }, extra || {});
+    return fetch("/api/inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) { var e = new Error(j && j.error || ("HTTP " + r.status)); e.status = r.status; throw e; } return j; }); });
+  }
+
+  function enter() {
+    var p = $("inbox-pass").value;
+    if (!p) { $("inbox-pass").focus(); return; }
+    $("inbox-enter").disabled = true;
+    savePass(p);
+    load().finally(function () { $("inbox-enter").disabled = false; });
+  }
+
+  function load() {
+    say("Loading...");
+    return api("list").then(function (res) {
+      items = res.inbox || []; all = res.cards || [];
+      $("inbox-login").hidden = true;
+      say("");
+      render();
+      loadNumbers();
+    }).catch(function (err) {
+      if (err.status === 401) { savePass(null); showLogin("That is not the passphrase."); return; }
+      if (err.status === 503) { showLogin("The inbox is not set up on this deployment."); return; }
+      say("Could not read the board: " + err.message, true);
+    });
+  }
+
+  function pending() {
+    var first = items.filter(function (m) { return !later[m.blocker_id]; });
+    return first.length ? first.concat(items.filter(function (m) { return later[m.blocker_id]; })) : items;
+  }
+
+  function sinceLine(body) {
+    var lines = String(body || "").split("\n").filter(function (l) { return l.trim(); });
+    var last = lines.length ? lines[lines.length - 1] : "";
+    return last.replace(/^\s*since( then)?:\s*/i, "");
+  }
+
+  function answer(m, choice, note) {
+    say("Saving...");
+    api("answer", { card_id: m.card_id, n: m.n, choice: choice, note: note || "" })
+      .then(function () { items = items.filter(function (x) { return x.blocker_id !== m.blocker_id; }); say(choice === "needs-steps" ? "Sent back for steps. It returns here with them." : "Answered."); render(); })
+      .catch(function (err) { say("Could not save that: " + err.message, true); });
+  }
+
+  function render() {
+    var list = pending();
+    var view = $("inbox-view");
+    $("inbox-count").innerHTML = list.length ? "<b>" + list.length + "</b> to answer" : "nothing to answer";
+    if (!list.length) {
+      view.innerHTML = '<div class="zero"><h2>Nothing needs you</h2><p>New messages appear here when a session is truly stuck on you.</p></div>';
+    } else {
+      var m = list[0];
+      view.innerHTML =
+        '<article class="msg">' +
+        '<div class="from"><span>From ' + esc(m.app) + ' &middot; #' + m.card_id + '</span><span>' + (items.length - list.length + 1) + ' of ' + items.length + '</span></div>' +
+        '<h2>' + esc(m.title) + '</h2>' +
+        '<dl>' +
+        (sinceLine(m.body) ? '<div class="row"><dt>Since then</dt><dd>' + esc(sinceLine(m.body)) + '</dd></div>' : '') +
+        '<div class="row need"><dt>Need from you</dt><dd>' + esc(m.ask) + '</dd></div>' +
+        '<div class="row"><dt>If you do nothing</dt><dd>' + esc(m["default"]) + '</dd></div>' +
+        '</dl>' +
+        (m.steps ? '<ol class="how">' + String(m.steps).split("\n").filter(function (l) { return l.trim(); }).map(function (l) { return '<li>' + esc(l.replace(/^\s*\d+[.)]\s*/, "")) + '</li>'; }).join("") + '</ol>' : '') +
+        '<div class="answer"><input type="text" id="inbox-answer" placeholder="Your answer, in a line"><button class="btn primary" id="inbox-send">Send</button></div>' +
+        '<div class="actions"><button class="btn" id="inbox-default">Take the default</button><button class="btn" id="inbox-how">Tell me how</button><button class="btn quiet" id="inbox-later">Later</button></div>' +
+        '</article>';
+      $("inbox-send").addEventListener("click", function () { var v = $("inbox-answer").value.trim(); if (!v) { $("inbox-answer").focus(); return; } answer(m, v, ""); });
+      $("inbox-answer").addEventListener("keydown", function (e) { if (e.key === "Enter") $("inbox-send").click(); });
+      $("inbox-default").addEventListener("click", function () { answer(m, m["default"] || "default", "took the default"); });
+      $("inbox-how").addEventListener("click", function () { answer(m, "needs-steps", $("inbox-answer").value.trim()); });
+      $("inbox-later").addEventListener("click", function () { later[m.blocker_id] = true; render(); });
+    }
+    // Everything: parents first, their children indented, in state order.
+    var ul = $("inbox-all");
+    var order = ["reported", "triaged", "working", "review", "merged", "released", "done", "parked"];
+    var byId = {}; all.forEach(function (c) { byId[c.id] = c; });
+    var kids = {}; all.forEach(function (c) { if (c.parent && byId[c.parent]) (kids[c.parent] = kids[c.parent] || []).push(c); });
+    var tops = all.filter(function (c) { return !(c.parent && byId[c.parent]); });
+    tops.sort(function (a, b) { return order.indexOf(a.state) - order.indexOf(b.state) || b.id - a.id; });
+    var line = function (c, child) {
+      return '<div class="line' + (child ? ' child' : '') + '"><span class="st ' + esc(c.state) + '">' + esc(c.state) + '</span><span class="t">#' + c.id + ' ' + esc(c.title) + '</span><span class="app">' + esc(c.app) + '</span></div>';
+    };
+    ul.innerHTML = tops.map(function (c) {
+      var ch = kids[c.id] || [];
+      return '<li>' + line(c, false) + (ch.length ? '<ul class="kids">' + ch.map(function (k) { return '<li>' + line(k, true) + '</li>'; }).join("") + '</ul>' : '') + '</li>';
+    }).join("");
+    $("inbox-all-count").textContent = all.length + " cards";
+    $("inbox-everything").hidden = false;
+    $("inbox-signout").hidden = false;
+  }
+
+  // Numbers: the views over events and over the board itself, and GitHub's own download counts.
+  // Every figure names its window, because a count without one reads as
+  // "always".
+  function loadNumbers() {
+    var body = $("inbox-numbers-body");
+    $("inbox-numbers").hidden = false;
+    body.innerHTML = '<p class="status">Counting...</p>';
+    function tbl(head, rows) {
+      if (!rows || !rows.length) return '<p class="status">nothing yet</p>';
+      // A column is right-aligned only when every value in it is a number.
+      // Aligning every column past the first by position put an error
+      // message and a host name flush right, which reads as a misprint once
+      // the table has room.
+      var num = head.map(function (_, i) {
+        return i > 0 && rows.every(function (r) { return r[i] == null || r[i] === "" || typeof r[i] === "number" || /^-?\d+(\.\d+)?$/.test(String(r[i])); });
+      });
+      var cell = function (tag, v, i) { return '<' + tag + (num[i] ? ' class="n"' : '') + '>' + esc(v) + '</' + tag + '>'; };
+      return '<div class="scroll"><table class="nums"><tr>' + head.map(function (h, i) { return cell("th", h, i); }).join('') + '</tr>' +
+        rows.map(function (r) { return '<tr>' + r.map(function (v, i) { return cell("td", v, i); }).join('') + '</tr>'; }).join('') + '</table></div>';
+    }
+    // One block per table. On the desktop they sit two to a row; a block
+    // marked wide (many columns, or a long text column) takes the whole row.
+    function block(title, head, rows, wide) {
+      return '<div class="num-block' + (wide ? ' wide' : '') + '"><p class="nums-h">' + esc(title) + '</p>' + tbl(head, rows) + '</div>';
+    }
+    Promise.all([
+      api("numbers").catch(function () { return { byVersion: [], daily: [], services: [], errors: [] }; }),
+      fetch("https://api.github.com/repos/ma-r-s/crossplay/releases?per_page=10").then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; })
+    ]).then(function (res) {
+      var n = res[0], releases = res[1];
+      var devices7 = (n.byVersion || []).reduce(function (a, r) { return a + (r.devices || 0); }, 0);
+      var today = (n.daily || []).length ? n.daily[0].devices : 0;
+      var h = '<div class="num-grid">' +
+        '<div class="tile"><b>' + devices7 + '</b><span>devices that used a service, 7 days</span></div>' +
+        '<div class="tile"><b>' + today + '</b><span>devices today</span></div>' +
+        '<div class="tile"><b>' + (n.errors || []).filter(function (e) { return e.card_id; }).length + '</b><span>distinct errors with a card</span></div>' +
+        '</div>';
+      var L = n.latency || null;
+      h += '<div class="num-cols">';
+      h += block("Devices by version, 7 days", ["board", "version", "devices"], (n.byVersion || []).map(function (r) { return [r.board, r.version, r.devices]; }));
+      h += block("Battery by version, 7 days", ["board", "version", "avg %", "devices"], (n.battery || []).map(function (r) { return [r.board, r.version, r.battery_pct, r.devices]; }));
+      h += block("Who uses each service, 7 days", ["service", "devices", "events"], (n.services || []).map(function (r) { return [r.service, r.devices_7d, r.events_7d]; }));
+      h += block("Downloads per release, from GitHub, all time", ["release", "published", "downloads"], releases.map(function (r) {
+        var d = (r.assets || []).filter(function (a) { return /firmware(-sticky)?\.bin$|-full\.bin$/.test(a.name); }).reduce(function (a, x) { return a + (x.download_count || 0); }, 0);
+        return [r.tag_name, (r.published_at || "").slice(0, 10), d];
+      }));
+      h += block("Your inbox", ["waiting now", "oldest, hours", "median answer, hours, 30 days", "answered, 7 days"], L ? [[L.open_now, L.oldest_open_h == null ? "" : L.oldest_open_h, L.median_answer_h == null ? "" : L.median_answer_h, L.answered_7d]] : []);
+      h += block("Errors seen, latest first", ["service", "message", "times", "card"], (n.errors || []).map(function (e) { return [e.service, (e.message || "").slice(0, 60), e.count, e.card_id ? "#" + e.card_id : ""]; }), true);
+      h += block("Services answering, 7 days", ["host", "now", "up %", "median ms", "failures"], (n.pulse || []).map(function (r) { return [r.host, r.up_now ? "up" : "DOWN", r.uptime_7d, r.ms_median == null ? "" : Math.round(r.ms_median), r.failures_7d]; }), true);
+      h += block("The workflow, by week", ["week", "opened", "closed", "asks to you", "answers", "error cards", "refusals", "releases"], (n.weekly || []).map(function (r) { return [r.week, r.cards_opened, r.cards_closed, r.asks_to_mario, r.answers_from_mario, r.error_cards, r.refusals, r.releases]; }), true);
+      h += block("Hours a card sits in each state, 30 days", ["state", "cards", "median", "longest"], (n.dwell || []).map(function (r) { return [r.state, r.n, r.median_h, r.max_h]; }));
+      h += block("Open cards by app", ["app", "open", "untriaged", "oldest, days"], (n.byApp || []).map(function (r) { return [r.app, r.open, r.untriaged, r.oldest_d]; }));
+      h += '</div>';
+      if (!(n.byVersion || []).length && !(n.services || []).length) h += '<p class="status">No events yet. Devices are counted from the requests they make to the services; see docs/workflow/events.md.</p>';
+      body.innerHTML = h;
+    });
+  }
+
+  function showLogin(text) {
+    $("inbox-login").hidden = false;
+    $("inbox-view").innerHTML = "";
+    $("inbox-everything").hidden = true;
+    $("inbox-numbers").hidden = true;
+    $("inbox-signout").hidden = true;
+    $("inbox-count").textContent = "";
+    $("inbox-login-status").textContent = text || "";
+    $("inbox-pass").focus();
+  }
+
+  $("inbox-enter").addEventListener("click", enter);
+  $("inbox-pass").addEventListener("keydown", function (e) { if (e.key === "Enter") enter(); });
+  $("inbox-signout").addEventListener("click", function () { savePass(null); showLogin(""); });
+
+  loadPass();
+  if (pass) load(); else showLogin("");
+})();
+</script>
+</body>
+</html>

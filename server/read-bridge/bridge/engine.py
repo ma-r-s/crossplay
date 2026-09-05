@@ -168,7 +168,11 @@ def sync_cycle(st, token: str, secret: str, have: list[dict], archive_ids: list[
         raise Refused(str(e)) from e
 
     bookmarks = [b for b in data.get("bookmarks", []) if isinstance(b, dict)]
-    delete_ids = [int(i) for i in data.get("delete_ids", []) if str(i).lstrip("-").isdigit()]
+    # Whole integers already: instapaper.parse_delete_ids owns that parsing and
+    # has to, because the wire format is a comma-separated string every
+    # character of which passes an isdigit() test. Never re-derive these from a
+    # raw field here; the isinstance filter is what makes that impossible.
+    delete_ids = [i for i in (data.get("delete_ids") or []) if isinstance(i, int)]
 
     # The limit guard, and it needs more care than it looks like it does.
     #

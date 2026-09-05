@@ -186,6 +186,37 @@ void CheckersActivity::onLinkEnded() {
   goTo(ck::Screen::Menu);
 }
 
+// `seat` is in here because it is not a mode bit, it is the pixel-to-square
+// map itself: checkui::squareAt takes it and flips the board, so the same
+// pixel is a different square when the coin toss lands the other way. A
+// rematch changes it (onMatchStart), and nothing about that is caused by the
+// finger already on the glass.
+//
+// The live/dead bit is the one this app most needs. driveLink() runs ahead of
+// gameLoop() on every pass and can hand the turn over, land an opponent's
+// move, or end the match, all with no tap from this player -- and a board that
+// was inert one pass ago starts accepting moves while the panel still shows
+// the position before the opponent's move.
+//
+// `picked` is deliberately absent. Lifting a piece and tapping a destination
+// is every move in the game, the lift repaints, and hashing the selection
+// would eat the second tap of every one of them. It also does not move which
+// square a pixel is, which is the test.
+uint32_t CheckersActivity::surfaceMeaning() const {
+  const uint32_t withScreen = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(screen));
+  const uint32_t withSeat = paintclock::mixMeaning(withScreen, seat);
+  const bool live = (inMatch() ? linkYourTurn() : game.turn == seat) && !ck::over(game);
+  return paintclock::mixMeaning(withSeat, live ? 1u : 0u);
+}
+
+void CheckersActivity::onMatchEnded() {
+  recordResult();
+  // The same screen the solo game ends on. In a match it used to be
+  // unreachable, so the finished board went straight to ANOTHER GAME? and the
+  // loser saw nothing at all of the move that beat them.
+  goTo(ck::Screen::Result);
+}
+
 void CheckersActivity::gameLoop() {
   namespace fui = freeink::ui;
 
@@ -250,6 +281,9 @@ void CheckersActivity::gameLoop() {
     int file = 0;
     int rank = 0;
     if (checkui::squareAt(device, tapX, tapY, seat, file, rank)) {
+      // Sixty-four squares do not fit the interaction table, so this tap never
+      // reaches route(). See Activity::surfaceMeaning().
+      if (!surfaceRevealed()) return;
       const int square = ck::indexOf(file, rank);
       const bool mine = inMatch() ? linkYourTurn() : game.turn == seat;
       if (!mine || ck::over(game)) return;
@@ -323,6 +357,14 @@ void CheckersActivity::gameLoop() {
       return;
 
     case checkui::ActionDone:
+      // DONE on a finished MATCH means done with the match, not just with the
+      // screen: the radio is still up and the link screen would slam over the
+      // menu the moment the hold ended. leaveLink() is what puts the app back
+      // on its own menu, and it tells the other device on the way out.
+      if (inMatch()) {
+        leaveLink();
+        return;
+      }
       goTo(ck::Screen::Menu);
       return;
 

@@ -153,6 +153,91 @@ void testFieldsCannotSwallowEachOther() {
   CHECK_EQ(hn::sanitizeField("a\t\tb"), "a b");
   CHECK_EQ(hn::sanitizeField(""), "");
   CHECK_EQ(hn::sanitizeField("\t\n "), "");
+
+  // sanitizeField itself must NOT fold. It runs on the URL column as well as
+  // the title, savedIdFor() hashes the URL, and an article whose stored URL no
+  // longer hashes to its id can never be unsaved again.
+  CHECK_EQ(hn::sanitizeField("They\xe2\x80\x99"
+                             "re"),
+           "They\xe2\x80\x99"
+           "re");
+}
+
+void testTypographyIsFoldedButUrlsAreNot() {
+  // A title with a curly apostrophe, a curly pair, an em dash and an ellipsis.
+  // The reading cut has no glyph for any of them and draws them as nothing, so
+  // the title is folded at BOTH ends of the index: written folded, and folded
+  // again on the read, which is what makes an index saved before this existed
+  // stop having holes without a migration.
+  hn::SavedArticle article;
+  article.id = hn::savedIdFor("https://example.com/one");
+  article.savedAt = 1000;
+  article.title =
+      "It\xe2\x80\x99"
+      "s a \xe2\x80\x9c"
+      "big\xe2\x80\x9d"
+      " one \xe2\x80\x94"
+      " really\xe2\x80\xa6";
+  article.url = "https://example.com/one";
+
+  std::vector<hn::SavedArticle> read;
+  CHECK(hn::parseSavedIndex(hn::serializeSavedIndex({article}), read));
+  CHECK(read.size() == 1);
+  if (read.size() == 1) {
+    CHECK_EQ(read[0].title, "It's a \"big\" one -- really...");
+    // The URL survives byte for byte and still hashes to the id it was saved
+    // under. This is the assertion that stops the fold being applied one field
+    // to the left.
+    CHECK_EQ(read[0].url, "https://example.com/one");
+    CHECK_EQ(hn::savedIdFor(read[0].url), read[0].id);
+  }
+
+  // A URL with a real non-ASCII character in it: unencoded paths happen, and a
+  // fold would rewrite one into a different address.
+  hn::SavedArticle exotic;
+  exotic.url =
+      "https://example.com/caf\xc3\xa9\xe2\x80\x94"
+      "notes";
+  exotic.id = hn::savedIdFor(exotic.url);
+  exotic.savedAt = 2000;
+  exotic.title = "Notes";
+  CHECK(hn::parseSavedIndex(hn::serializeSavedIndex({exotic}), read));
+  CHECK(read.size() == 1);
+  if (read.size() == 1) {
+    CHECK_EQ(read[0].url, exotic.url);
+    CHECK_EQ(hn::savedIdFor(read[0].url), exotic.id);
+  }
+
+  // The read-side fold, on its own. An index WRITTEN BY AN OLDER BUILD holds
+  // the raw codepoints, and serializeSavedIndex can no longer produce one, so
+  // this is the raw bytes an old card really carries. Without the fold on the
+  // read these rows keep their holes for as long as they stay saved, and the
+  // round trip above cannot tell -- it folds on the write.
+  const std::string oldIndex =
+      "hnsaved 2\nabc123\t1000\tIt\xe2\x80\x99"
+      "s a \xe2\x80\x9c"
+      "big\xe2\x80\x9d"
+      " one\thttps://example.com/old\n";
+  CHECK(hn::parseSavedIndex(oldIndex, read));
+  CHECK(read.size() == 1);
+  if (read.size() == 1) {
+    CHECK_EQ(read[0].title, "It's a \"big\" one");
+    CHECK_EQ(read[0].url, "https://example.com/old");
+  }
+
+  // And the letters the reading cut can draw are left in the title.
+  hn::SavedArticle accented;
+  accented.url = "https://example.com/two";
+  accented.id = hn::savedIdFor(accented.url);
+  accented.savedAt = 3000;
+  accented.title =
+      "Bj\xc3\xb6"
+      "rn in a caf\xc3\xa9";
+  CHECK(hn::parseSavedIndex(hn::serializeSavedIndex({accented}), read));
+  if (read.size() == 1)
+    CHECK_EQ(read[0].title,
+             "Bj\xc3\xb6"
+             "rn in a caf\xc3\xa9");
 }
 
 void testVersionOneStillOpens() {
@@ -223,6 +308,51 @@ void testUnknownVersionIsLeftAlone() {
   CHECK(!hn::parseSavedIndex("hnsaved x\n", parsed));
 }
 
+// Keeping the conversation, which is the only thing there is to keep when the
+// linked page will not render here. The property that matters is that a thread
+// is a SECOND entry rather than the article's: sharing a key would mean saving
+// the discussion silently replaced the article, and the reader's mark would
+// then say the article was kept when the thread was.
+void testAThreadIsItsOwnEntry() {
+  CHECK_EQ(hn::savedThreadUrl(45123001), "https://news.ycombinator.com/item?id=45123001");
+  // Stable, because it is the library key and a re-save has to land on the same
+  // row rather than growing a duplicate.
+  CHECK_EQ(hn::savedThreadUrl(7), hn::savedThreadUrl(7));
+  CHECK(hn::savedThreadUrl(7) != hn::savedThreadUrl(8));
+
+  // The whole point: an article and its discussion are two names on the card.
+  const std::string article = "https://playaphone.com/";
+  CHECK(hn::savedIdFor(hn::savedThreadUrl(45123001)) != hn::savedIdFor(article));
+
+  // And the shelf can tell them apart, in FRONT, where a headline cut to the
+  // row width still shows it.
+  CHECK_EQ(hn::savedThreadTitle("Playa Phone"), "Comments: Playa Phone");
+  CHECK(hn::savedThreadTitle("Playa Phone").rfind("Comments: ", 0) == 0);
+
+  // Both together in one index, surviving the round trip as two rows.
+  std::vector<hn::SavedArticle> shelf{
+      make("Playa Phone", article.c_str()),
+      make(hn::savedThreadTitle("Playa Phone").c_str(), hn::savedThreadUrl(45123001).c_str()),
+  };
+  std::vector<hn::SavedArticle> parsed;
+  CHECK(hn::parseSavedIndex(hn::serializeSavedIndex(shelf), parsed));
+  CHECK_EQ(std::to_string(parsed.size()), "2");
+  if (parsed.size() == 2) {
+    CHECK(parsed[0].id != parsed[1].id);
+    CHECK_EQ(parsed[1].title, "Comments: Playa Phone");
+    CHECK_EQ(parsed[1].url, "https://news.ycombinator.com/item?id=45123001");
+  }
+}
+
+// A post with no link of its own -- an Ask HN, a Show HN with a body -- is its
+// own text, so Story::url is empty and Library::save refuses an empty URL.
+// Before the item page became the thread's key, those could not be kept by any
+// route at all.
+void testAPostWithNoLinkStillHasAKey() {
+  CHECK(!hn::savedThreadUrl(45123001).empty());
+  CHECK(!hn::savedIdFor(hn::savedThreadUrl(45123001)).empty());
+}
+
 void testWeWriteTheCurrentVersion() {
   // What we write must be what we read, or the next boot migrates its own
   // output. The round trip below would pass even if both were wrong, so the
@@ -240,9 +370,12 @@ int main() {
   testNotOurFile();
   testDamageCostsOneEntry();
   testFieldsCannotSwallowEachOther();
+  testTypographyIsFoldedButUrlsAreNot();
   testVersionOneStillOpens();
   testUnknownVersionIsLeftAlone();
   testWeWriteTheCurrentVersion();
+  testAThreadIsItsOwnEntry();
+  testAPostWithNoLinkStillHasAKey();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

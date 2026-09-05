@@ -30,6 +30,7 @@
 
 #include "../../activities/Activity.h"
 #include "../ui/ToyboxScreen.h"
+#include "../ui/ToyboxWrappedText.h"
 #include "HackerNewsCore.h"
 #include "HackerNewsLibrary.h"
 #include "HackerNewsRows.h"
@@ -50,12 +51,14 @@ class HackerNewsActivity final : public Activity {
 
  private:
   // What is on the screen right now.
+  // There is no Connecting phase. Raising the Wi-Fi picker leaves phase_ alone
+  // -- see ensureConnected for why one could never be drawn, and why not
+  // touching it is what makes coming back from a cancelled picker free.
   enum class Phase : uint8_t {
-    Connecting,  // the Wi-Fi picker is up as a child activity
-    Busy,        // a fetch is about to happen or is happening
-    List,        // the front page
-    Reading,     // an article or a thread
-    Notice,      // an error, or a link this device cannot read
+    Busy,     // a fetch is about to happen or is happening
+    List,     // the front page
+    Reading,  // an article or a thread
+    Notice,   // an error, or a link this device cannot read
   };
 
   // What the next loop pass should fetch. Set alongside a repaint request so
@@ -63,9 +66,14 @@ class HackerNewsActivity final : public Activity {
   enum class Pending : uint8_t { None, FrontPage, Article, Comments };
 
   void onWifiChosen(bool connected);
-  // Leaving the app when nothing is saved, showing the saved shelf when
-  // something is. One decision with two callers, because it has two.
-  void leaveOrShowSaved();
+  // Runs `what` if the radio is already up, and otherwise raises the picker and
+  // runs it once it is. EVERY network action goes through here, so there is one
+  // place that decides when a connection is asked for -- and the app itself
+  // never asks. That is the whole feature: onEnter touches no radio, so a
+  // device that has never joined a network still opens on a list it can read,
+  // and the first tap that genuinely needs the network is what raises the
+  // picker.
+  void ensureConnected(Pending what, const char* busyMessage);
   void request(Pending what, const char* busyMessage);
 
   bool fetchFrontPage();
@@ -82,6 +90,19 @@ class HackerNewsActivity final : public Activity {
   void openSavedArticle(int index);
   void repage();
   void turnPage(int delta);
+  // Where every way off a reader or a notice lands, by both of its routes: the
+  // Back release and the notice's own button. One function because a saved
+  // article has to return to the SAVED shelf and the front page's to the front
+  // page, and two copies of that rule is how one of them starts disagreeing.
+  void returnToList();
+  // One page of story rows, in either direction, wrapping at both ends.
+  //
+  // The one place the side keys and a swipe agree on what a page is, through
+  // the same arithmetic the shelf pages by. It counts the rows that were DRAWN
+  // rather than the stories that were fetched: the saved shelf is a different
+  // length from the front page, and paging it by the front page's count either
+  // did nothing or jumped to wherever the paint clamped it back to.
+  void pageList(int delta);
   void showNotice(const char* headline, const char* message, bool unreadable);
 
   const hn::Story* currentStory() const;
@@ -95,6 +116,10 @@ class HackerNewsActivity final : public Activity {
 
   // The flattened document the reader draws, and where in it we are.
   std::string document_;
+  // The document wrapped to the reader's width, kept between paints. No copy
+  // of the text, and it re-wraps itself when the panel, the cut or the text
+  // stops matching what it wrapped; see ToyboxWrappedText.h.
+  toybox::WrappedText wrap_;
   std::string readerTitle_;
   // The article's own URL, which is the library's key. Held because the reader
   // has to be able to say whether what it is showing is saved, and a title is
@@ -130,9 +155,21 @@ class HackerNewsActivity final : public Activity {
   // activity was on top. See loop(): the Wi-Fi picker cancels on the press.
   bool backPressSeen_ = false;
 
-  Phase phase_ = Phase::Connecting;
+  // Whether the front page was asked for and did not arrive. Distinct from
+  // "empty": never-fetched is an invitation and a failed fetch is an error, and
+  // one screen saying both is how a working app reads as a broken one.
+  bool frontPageFailed_ = false;
+
+  // Opens on the list, with the radio down. The picker is a consequence of a
+  // tap now, never of entering.
+  Phase phase_ = Phase::List;
   Pending pending_ = Pending::None;
   const char* busyMessage_ = "";
+  // What to fetch once the picker answers. Where to go if it does not needs no
+  // field: declining to connect is not wanting out of the app, and phase_ still
+  // holds whatever was on screen because raising the picker never changed it.
+  Pending afterConnect_ = Pending::None;
+  const char* afterConnectMessage_ = "";
 
   toybox::Interactions interactions_;
   bool interactionsReady_ = false;

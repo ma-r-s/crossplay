@@ -723,6 +723,28 @@ void BattleshipActivity::commitFleet() {
   requestUpdate();
 }
 
+// `view` is not a screen label here, it is the grid arithmetic: placeGrid()
+// and targetGrid() share an origin but not a cell size, because the target
+// grid reserves the fleet band. Every pixel is a different cell on a different
+// board across that switch -- and the switch is fired by the NETWORK, in
+// takeOpponentState(), not by anything this player touched.
+//
+// The rest is the live/dead bit: whether a shot can be taken at all, which the
+// opponent's arriving shot and the computer's turn both flip with no tap here.
+//
+// Absent on purpose: aimCell and selectedShip. Aim-then-fire is two taps on
+// the same cell and the aim repaints between them, so hashing aimCell would
+// drop the confirming tap -- the primary firing gesture. Arranging a fleet is
+// fifteen consecutive taps with a repaint after each. Neither moves which cell
+// a pixel is; both are the local, deliberate kind of change, not the uniform
+// kind that reinterprets the whole surface under a resting finger.
+uint32_t BattleshipActivity::surfaceMeaning() const {
+  uint32_t meaning = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(view));
+  meaning = paintclock::mixMeaning(meaning, fleetCommitted ? 1u : 0u);
+  meaning = paintclock::mixMeaning(meaning, computerThinking ? 1u : 0u);
+  return paintclock::mixMeaning(meaning, (canAct() && !gameOver()) ? 1u : 0u);
+}
+
 void BattleshipActivity::routePlacement() {
   namespace fui = freeink::ui;
 
@@ -755,6 +777,8 @@ void BattleshipActivity::routePlacement() {
     }
   }
 
+  // The grid is hit-tested against geometry and never reaches route().
+  if (!surfaceRevealed()) return;
   const int cell = cellAt(placeGrid(), tapX, tapY);
   if (cell >= 0) {
     handlePlaceTap(cell);
@@ -912,6 +936,8 @@ void BattleshipActivity::routeBoard() {
     }
   }
 
+  // The grid is hit-tested against geometry and never reaches route().
+  if (!surfaceRevealed()) return;
   const int cell = cellAt(targetGrid(), tapX, tapY);
   if (cell >= 0) handleTargetTap(cell);
 }

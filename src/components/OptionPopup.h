@@ -9,6 +9,7 @@
 
 #include "GfxRenderer.h"
 #include "MappedInputManager.h"
+#include "RevealedInteractions.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 
@@ -74,6 +75,14 @@ class OptionPopup {
       // Interactions are registered on the render task; only route once the
       // first render after show() has populated the table (uiReady handshake).
       if (uiReady) {
+        // Ask the gate BEFORE routing, not after. A suppressed tap comes back
+        // from routePublished() as a default-constructed event, which is
+        // indistinguishable from "landed on nothing" -- and landing on nothing
+        // is what the outside-tap branch below reads as DISMISS. Falling
+        // through would turn a tap the panel could not have shown into a
+        // dismissal, which is the gate causing a wrong action rather than
+        // preventing one.
+        if (!interactions.publishedRoutable()) return true;
         const freeink::ui::ActionEvent event = interactions.routePublished(snap);
         if (event && event.action == ACTION_OPTION) {
           // Tap released on an option: select it, fire, dismiss.
@@ -149,6 +158,7 @@ class OptionPopup {
     // tracks the live orientation and uiScale fonts; a target held across
     // show() would stale-bind both after a rotation or scale change.
     fui::GfxRendererTarget target = makeUiTarget(renderer);
+    const fui::ThemeTokens& theme = refreshSharedUiThemeTokens(target);
     // Frame stores a const DeviceContext&; keep it in a local that outlives
     // the frame (a deviceContext() temporary would dangle).
     const fui::DeviceContext device = target.deviceContext();
@@ -160,6 +170,10 @@ class OptionPopup {
     // publishedData() aren't currently reading, so the loop task never sees
     // this table mid-rebuild — see publish() below and
     // InteractionBuffer::beginPublishCycle().
+    // Before beginPublishCycle() and before the Frame's constructor clears:
+    // the table still published at this moment is the one the panel has been
+    // showing, and that is what the next tap is measured against.
+    interactions.beginBuild();
     interactions.beginPublishCycle();
     fui::Frame<INTERACTION_CAPACITY> frame(target, device, noInput, interactions);
 
@@ -190,10 +204,13 @@ class OptionPopup {
     const int16_t innerPadding = static_cast<int16_t>(metrics.optionPopupInnerPadding);
     props.padding = fui::Insets{innerPadding, innerPadding, innerPadding, innerPadding};
     props.gap = static_cast<int16_t>(metrics.optionPopupItemSpacing);
-    // defaultPopupStyles() (the fallback fui::optionDialog uses when styles is
-    // left unset) has no border, so the dialog frame drawn by the old
-    // BaseTheme::drawOptionPopup outline is opted back in explicitly here,
-    // reusing the same per-theme frame metrics that code used.
+    // Rounded invert-fill themes use a black pill, not the default gray focus cursor.
+    if (theme.listSelectionStyle == fui::SelectionStyle::InvertFill && theme.listRowRadius > 0) {
+      props.buttonStyles = fui::defaultButtonStyles();
+      props.buttonStyles.focused = props.buttonStyles.selected;
+      fui::setStyleRadius(props.buttonStyles, theme.listRowRadius);
+    }
+    // defaultPopupStyles() has no border, so opt in using the per-theme frame metrics.
     props.styles = fui::defaultPopupStyles();
     props.styles.normal.border = fui::Paint::solid(fui::Color::Black);
     props.styles.normal.borderWidth = static_cast<uint8_t>(metrics.popupFrameThickness);
@@ -225,6 +242,13 @@ class OptionPopup {
 
   bool isActive() const { return active; }
 
+  // Close without firing the callback (the surface under the popup is going
+  // away, e.g. its host screen closes from outside the popup's own input).
+  void dismiss() {
+    active = false;
+    onSelectCallback = nullptr;
+  }
+
  private:
   // The dialog has no scrolling, so options past MAX_OPTIONS would render off
   // screen anyway; a fixed cap keeps the DialogOption array on the stack and
@@ -241,6 +265,6 @@ class OptionPopup {
   std::function<void(int)> onSelectCallback;
   // Written by the render task (frame registration), routed by the loop task;
   // uiReady closes the rebuild window exactly like UiListActivity::uiReady.
-  mutable freeink::ui::InteractionBuffer<INTERACTION_CAPACITY> interactions;
+  mutable paintclock::RevealedInteractions<INTERACTION_CAPACITY> interactions;
   mutable std::atomic<bool> uiReady{false};
 };

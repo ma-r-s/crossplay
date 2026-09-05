@@ -130,6 +130,26 @@ void testSanitising() {
   // and nothing silently changes length.
   CHECK_EQ(read[0].domain, "ex ample");
 
+  // Typographic punctuation is folded on the way OUT of the index, not only on
+  // the way in. Written this way on purpose: an index saved before the fold
+  // existed carries real curly quotes, and the reading cut has no glyph for
+  // them, so those rows would draw with holes in them until the queue was
+  // re-synced. Parsing is where the reader's copy is read, so parsing is where
+  // it is fixed -- no migration, no version bump.
+  instapaper::Article typographic = make(103, "x");
+  typographic.title =
+      "It\xe2\x80\x99"
+      "s a \xe2\x80\x9c"
+      "big\xe2\x80\x9d"
+      " one \xe2\x80\x94"
+      " really\xe2\x80\xa6";
+  typographic.domain = "caf\xc3\xa9.example.com";
+  CHECK(instapaper::parseIndex(instapaper::serializeIndex({typographic}), read));
+  CHECK_EQ(read[0].title, "It's a \"big\" one -- really...");
+  // The domain keeps its accent: the reading cut draws Latin-1, and folding it
+  // would rewrite a name the panel can show correctly.
+  CHECK_EQ(read[0].domain, "caf\xc3\xa9.example.com");
+
   // The hash and the sha reach a URL path and a filename respectively, so
   // anything that is not alphanumeric is dropped rather than escaped.
   instapaper::Article nasty = make(102, "x");
@@ -193,6 +213,48 @@ void testMergeMissingFileIsDownloaded() {
   std::vector<instapaper::Article> local = {make(101, "Known")};
   const instapaper::MergePlan plan = instapaper::mergeSummary(local, {}, {}, {}, {});
   CHECK(holds(plan.download, 101));
+}
+
+// ------------------------------------------------- what a sync may claim
+void testComposeHaveOmitsARowWithNoText() {
+  // The deadlock this function exists to break, and it cost a live account a
+  // day of "1 did not arrive; sync again". `have` is a delta: claiming 102
+  // makes Instapaper suppress it, the summary then carries no size for it,
+  // and a download with no size is refused because the length is the only
+  // proof the file arrived whole. Claim it once and it can never be fetched
+  // again, however many times the sync is repeated.
+  std::vector<instapaper::Article> local = {make(101, "On the card"), make(102, "Row without a file")};
+  const std::vector<instapaper::Article> have = instapaper::composeHave(local, {101});
+  CHECK(have.size() == 1);
+  CHECK(have[0].id == 101);
+}
+
+void testComposeHaveCarriesTheRowItClaims() {
+  // Claiming is also how a reading position travels, so the entry has to
+  // arrive whole and not as a bare id.
+  std::vector<instapaper::Article> local = {make(101, "On the card")};
+  local[0].progress = 0.5f;
+  local[0].progressAt = 4242;
+  local[0].progressDirty = true;
+  const std::vector<instapaper::Article> have = instapaper::composeHave(local, {101});
+  CHECK(have.size() == 1);
+  CHECK(have[0].progressAt == 4242);
+  CHECK(have[0].progress > 0.4f);
+}
+
+void testMergeKeepsProgressUnsentForARowItCouldNotClaim() {
+  // The twin of the rule above, and the reason both take the same hasText.
+  // A row left out of `have` had its position sent nowhere, so clearing its
+  // dirty flag on a completed sync would drop a reading the reader did.
+  std::vector<instapaper::Article> local = {make(101, "On the card"), make(102, "Row without a file")};
+  for (instapaper::Article& a : local) {
+    a.progress = 0.5f;
+    a.progressAt = 4242;
+    a.progressDirty = true;
+  }
+  instapaper::mergeSummary(local, {}, {}, {}, {101});
+  CHECK(!find(local, 101)->progressDirty);
+  CHECK(find(local, 102)->progressDirty);
 }
 
 void testMergeProgressConflict() {
@@ -268,6 +330,86 @@ void testVisibleHidesPendingArchives() {
   CHECK(rows[0]->id == 101);
 }
 
+// --- The pager -------------------------------------------------------------
+//
+// Numbers chosen so the last page OVERLAPS: 36 lines in a 17-line viewport is
+// three pages whose tops are 0, 17 and 19, and 19 is not a multiple of 17.
+// That overlap is the whole bug -- dividing by the span put the last page at
+// 19/17+1 = 2, so a three-page article ended on "2 / 3" and 3/3 could not be
+// reached from anywhere.
+
+void testTheLastPageIsTheLastPage() {
+  CHECK(instapaper::pagesFor(0, 17, 36).count == 3);
+  CHECK(instapaper::pagesFor(0, 17, 36).page == 1);
+  CHECK(instapaper::pagesFor(17, 17, 36).page == 2);
+  // The clamped final position, which is where a second page turn lands.
+  CHECK(instapaper::maxTopLine(17, 36) == 19);
+  CHECK(instapaper::pagesFor(19, 17, 36).page == 3);
+  CHECK(instapaper::pagesFor(19, 17, 36).count == 3);
+}
+
+void testAShortArticleIsOnePage() {
+  CHECK(instapaper::pagesFor(0, 17, 10).page == 1);
+  CHECK(instapaper::pagesFor(0, 17, 10).count == 1);
+  // An exact fit is one page too, not two: the viewport already holds it all.
+  CHECK(instapaper::pagesFor(0, 17, 17).count == 1);
+  CHECK(instapaper::pagesFor(0, 17, 17).page == 1);
+}
+
+// Nothing measured yet, and nothing to measure. Neither may print "1 / 0" or
+// divide by zero on the way there.
+void testThePagerSurvivesNothingToShow() {
+  CHECK(instapaper::pagesFor(0, 0, 0).page == 1);
+  CHECK(instapaper::pagesFor(0, 0, 0).count == 1);
+  CHECK(instapaper::pagesFor(5, 17, 0).count == 1);
+  CHECK(instapaper::pagesFor(0, 0, 40).count == 1);
+}
+
+// Every page turn must be reachable and the last one must stop, or paging past
+// the end reads as a frozen panel.
+void testPagingWalksToTheEndAndStops() {
+  const uint32_t span = 17;
+  const uint32_t lines = 36;
+  uint32_t top = 0;
+  top = instapaper::turnedTopLine(top, span, lines, 1);
+  CHECK(top == 17);
+  top = instapaper::turnedTopLine(top, span, lines, 1);
+  CHECK(top == 19);
+  top = instapaper::turnedTopLine(top, span, lines, 1);
+  CHECK(top == 19);
+  top = instapaper::turnedTopLine(top, span, lines, -1);
+  CHECK(top == 2);
+  top = instapaper::turnedTopLine(top, span, lines, -1);
+  CHECK(top == 0);
+  top = instapaper::turnedTopLine(top, span, lines, -1);
+  CHECK(top == 0);
+}
+
+// Reaching the end is 1.0, not "the top of the last page over the length" --
+// which for somebody who just read the last word would report about 53%.
+void testProgressCountsTheEndAsFinished() {
+  CHECK(instapaper::progressFor(19, 17, 36) == 1.0f);
+  CHECK(instapaper::progressFor(0, 17, 10) == 1.0f);
+  const float middle = instapaper::progressFor(17, 17, 36);
+  CHECK(middle > 0.46f && middle < 0.48f);
+  CHECK(instapaper::progressFor(0, 17, 36) == 0.0f);
+}
+
+// A finished article reopens on its LAST page, like a half-read one reopens on
+// the page it was left on. It used to reopen at the top, and nothing on the
+// screen said why that one behaved differently.
+void testAFinishedArticleReopensAtItsEnd() {
+  CHECK(instapaper::topLineFor(1.0f, 17, 36) == 19);
+  CHECK(instapaper::topLineFor(0.0f, 17, 36) == 0);
+  // Leaving a page and reopening lands on the same line, which is the only
+  // reason a position may be stored as a fraction at all.
+  CHECK(instapaper::topLineFor(instapaper::progressFor(17, 17, 36), 17, 36) == 17);
+  // Anything past the end is clamped rather than trusted: the value comes off
+  // the card and off the wire.
+  CHECK(instapaper::topLineFor(2.0f, 17, 36) == 19);
+  CHECK(instapaper::topLineFor(1.0f, 17, 10) == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -278,11 +420,20 @@ int main() {
   testMergeNewAndChanged();
   testMergeMetadataOnlyChangeDoesNotDownload();
   testMergeMissingFileIsDownloaded();
+  testComposeHaveOmitsARowWithNoText();
+  testComposeHaveCarriesTheRowItClaims();
+  testMergeKeepsProgressUnsentForARowItCouldNotClaim();
   testMergeProgressConflict();
   testMergeArchiveAndDelete();
   testMergeUnconfirmedArchiveStaysPending();
   testMergeCap();
   testVisibleHidesPendingArchives();
+  testTheLastPageIsTheLastPage();
+  testAShortArticleIsOnePage();
+  testThePagerSurvivesNothingToShow();
+  testPagingWalksToTheEndAndStops();
+  testProgressCountsTheEndAsFinished();
+  testAFinishedArticleReopensAtItsEnd();
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
 }

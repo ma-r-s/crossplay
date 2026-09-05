@@ -11,6 +11,7 @@
 #include <SecureHttpClient.h>
 
 #include "StudySyncRoots.h"
+#include "network/DeviceReport.h"
 #else
 #include <unistd.h>
 
@@ -80,6 +81,17 @@ bool insufficientHeap(std::string& message) {
   return false;
 }
 
+// The firmware version, which every request to one of our hosts carries the
+// way HttpDownloader's do; and the device report headers, when the toggle is
+// on. Version alone names no device. (BridgeHttp.cpp has this twin; see
+// docs/open-items.md for why Study still carries its own transport.)
+void identify(freeink::SecureHttpClient& http, const std::string& url) {
+  http.setUserAgent("CrossPlay-ESP32-" CROSSPOINT_VERSION);
+  devreport::Header report[devreport::kHeaderCount];
+  const int n = devreport::headersFor(url.c_str(), report);
+  for (int i = 0; i < n; ++i) http.addHeader(report[i].name, report[i].value);
+}
+
 // One request, buffered response. Returns HTTP status, 0 on transport error.
 int request(const char* method, const std::string& path, const std::string& token, const uint8_t* body, size_t bodyLen,
             std::string& response, std::string& message) {
@@ -88,13 +100,16 @@ int request(const char* method, const std::string& path, const std::string& toke
   http.setCACert(caRoots());
   http.setTimeout(30000);
   http.setFollowRedirects(2);
-  if (!http.begin(bridgeBase() + path)) {
+  const std::string url = bridgeBase() + path;
+  if (!http.begin(url)) {
     message = "The sync service address did not make sense. Update the firmware.";
     return 0;
   }
   if (!token.empty()) http.addHeader("Authorization", std::string("Bearer ") + token);
+  identify(http, url);
   LOG_INF("STUDYSYNC", "%s %s (verified TLS)", method, path.c_str());
   const int status = body ? http.sendRequest(method, body, bodyLen) : http.sendRequest(method, std::string());
+  devreport::delivered(url.c_str(), status);
   if (status <= 0) {
     LOG_ERR("STUDYSYNC", "%s %s failed: %d", method, path.c_str(), status);
     message = "Could not reach the sync service. Check Wi-Fi and try again.";
@@ -137,11 +152,13 @@ bool streamToFile(const std::string& path, const std::string& token, const std::
   http.setCACert(caRoots());
   http.setTimeout(30000);
   http.setFollowRedirects(2);
-  if (!http.begin(bridgeBase() + path)) {
+  const std::string url = bridgeBase() + path;
+  if (!http.begin(url)) {
     message = "The sync service address did not make sense.";
     return false;
   }
   http.addHeader("Authorization", std::string("Bearer ") + token);
+  identify(http, url);
   size_t written = 0;
   const int status = http.GET(
       [&](const uint8_t* data, size_t len) {
@@ -152,6 +169,7 @@ bool streamToFile(const std::string& path, const std::string& token, const std::
       [&]() { return cancel && *cancel; });
   http.end();
   out.close();
+  devreport::delivered(url.c_str(), status);
   if (cancel && *cancel) {
     message = "Stopped.";
     return false;

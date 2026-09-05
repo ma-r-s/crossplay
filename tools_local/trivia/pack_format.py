@@ -5,7 +5,7 @@ Shape follows docs/apps/study-deck-format.md -- immutable content with an
 offset index and a trailing sentinel, mutable state in a separate fixed-width
 file. The C++ reader mirrors this; this module is the spec that proves it.
 """
-import struct
+import struct, sys
 
 MAGIC = b'XTRIVIA\0'
 VERSION = 1
@@ -96,3 +96,40 @@ def get_flag(path, i):
         f.seek(i)
         b = f.read(1)
     return b[0] if b else 0
+
+
+# --- reading a pack back out --------------------------------------------------
+# A pack.dat is the only copy of a corpus once the season TSVs are gone, and
+# they are gone: build_pack.py --src wants a 544k-row Jeopardy TSV that is not
+# in this repo and not on this machine. Without this the published
+# 50,000-question release asset is a dead end -- readable by the device and by
+# nothing else.
+#
+#     python3 tools_local/trivia/pack_format.py pack.dat > corpus.jsonl
+#
+# WHAT COMES BACK IS NOT A JOIN KEY. The .dat format carries no id field, so the
+# id here is RE-DERIVED from the clue text, and re-deriving is the one thing
+# assemble_pack.py's rule 1 forbids: 349 rows of corpus_repaired.jsonl carry
+# pre-repair ids beside post-repair clue text, and a re-derived id misses their
+# ratings silently -- no error, a slightly smaller pack. So use .rate's
+# corpus_repaired.jsonl as --corpus whenever it exists, and treat this output as
+# the fallback for when it does not.
+#
+# Also absent, because the .dat never carried them: the generality score `g` and
+# the event tag `ev`.
+def dump(path, out):
+    import hashlib, json, re
+    pack = open_pack(path)
+    for i in range(pack['count']):
+        item = read_one(pack, i)
+        key = re.sub(r'[^a-z0-9]', '', item['q'].lower())
+        item['id'] = hashlib.sha1(key.encode()).hexdigest()[:12]
+        out.write(json.dumps(item, ensure_ascii=False, separators=(',', ':')) + '\n')
+    return pack['count']
+
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        sys.exit("usage: pack_format.py <pack.dat>   (writes jsonl to stdout)")
+    n = dump(sys.argv[1], sys.stdout)
+    print(f"{n:,} questions; ids are RE-DERIVED, see the note above", file=sys.stderr)

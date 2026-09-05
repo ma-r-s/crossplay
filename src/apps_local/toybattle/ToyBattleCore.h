@@ -218,7 +218,18 @@ extern const Terrain kLaCroisette;
 
 // Index into the table `terrainAt` walks. Stored in `Game::terrain`, so the
 // order is part of the save and wire format: append, never reorder.
-enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield, CaribbeanSea, TropicalPool, StationMetalX, LaCroisette };
+enum class TerrainId : uint8_t {
+  CastleField = 0,
+  ProvingGround,
+  CityOfClouds,
+  VolcanicJungle,
+  CursedCemetery,
+  Battlefield,
+  CaribbeanSea,
+  TropicalPool,
+  StationMetalX,
+  LaCroisette
+};
 constexpr int kTerrainCount = 10;
 
 // PROVING GROUND is ours, not a board Repos printed, and it exists so the rules
@@ -239,9 +250,7 @@ constexpr TerrainId kHiddenTerrain = TerrainId::ProvingGround;
 constexpr int kPlayableTerrainCount = kTerrainCount - 1;
 
 // The nth board a player can choose, in picker order, skipping the hidden one.
-constexpr int playableTerrainAt(const int nth) {
-  return nth < static_cast<int>(kHiddenTerrain) ? nth : nth + 1;
-}
+constexpr int playableTerrainAt(const int nth) { return nth < static_cast<int>(kHiddenTerrain) ? nth : nth + 1; }
 
 const Terrain& terrainAt(int index);
 

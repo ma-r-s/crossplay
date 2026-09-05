@@ -4,6 +4,7 @@
 #include <FreeInkUICore.h>
 #include <GfxRenderer.h>
 #include <HalFrontlight.h>
+#include <Logging.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -13,12 +14,23 @@
 
 namespace fui = freeink::ui;
 
+void MappedInputManager::update() const {
+  gpio.update();
+  for (uint8_t value = 0; value <= static_cast<uint8_t>(Button::ScreenDown); ++value) {
+    if (!isPressed(static_cast<Button>(value))) longPressFiredButtons &= ~(1u << value);
+  }
+  // The second path to a release read (blocking download/sync flows advance the
+  // latch themselves). Idempotent for a given frame's edges, so this and
+  // ActivityManager::loop() cannot disagree. Dropping it leaves an arm standing
+  // for the whole of a blocking download and swallows the Back that cancels it.
+  settleReleaseGate();
+}
+
 bool MappedInputManager::isNavDirectionSwapped() const {
-  // Key the swap on the orientation the screen is *actually* rendered at, not the persisted reader
-  // setting. The reader (and its modal menus) render rotated, so navigation/labels flip there; the
-  // home and settings UI render in portrait, so they never flip even when a rotated reader is configured.
+  // Touch boards always follow the rendered orientation; button-only boards keep the user toggle.
+  // Home and settings render in portrait, so neither path swaps them.
   const auto orientation = renderer.getOrientation();
-  return SETTINGS.frontButtonFollowOrientation &&
+  return (gpio.hasTouch() || SETTINGS.frontButtonFollowOrientation) &&
          (orientation == GfxRenderer::PortraitInverted || orientation == GfxRenderer::LandscapeCounterClockwise);
 }
 
@@ -54,38 +66,48 @@ MappedInputManager::Button MappedInputManager::mapScreenDirection(const Button b
   return directions[orientation][direction];
 }
 
+bool MappedInputManager::readButton(const uint8_t buttonIndex, bool (HalGPIO::*fn)(uint8_t) const) const {
+  // The release half of a press some earlier activity already acted on is not
+  // this activity's input. Comparing the member pointer keeps the gate on the
+  // ONE edge it is about: presses and levels are read raw, so a held button
+  // still reads as held and a fresh press still arrives.
+  if (fn == &HalGPIO::wasReleased && releaseGate.swallowsRelease(buttonIndex)) return false;
+  return (gpio.*fn)(buttonIndex);
+}
+
 bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint8_t) const) const {
   const auto sideLayout = SETTINGS.sideButtonLayout;
 
   switch (button) {
     case Button::Back:
       // Logical Back maps to user-configured front button.
-      return (gpio.*fn)(SETTINGS.frontButtonBack);
+      return readButton(SETTINGS.frontButtonBack, fn);
     case Button::Confirm:
       // Logical Confirm maps to user-configured front button.
-      return (gpio.*fn)(SETTINGS.frontButtonConfirm);
+      return readButton(SETTINGS.frontButtonConfirm, fn);
     case Button::Left:
       // Logical Left maps to user-configured front button.
-      return (gpio.*fn)(SETTINGS.frontButtonLeft);
+      return readButton(SETTINGS.frontButtonLeft, fn);
     case Button::Right:
       // Logical Right maps to user-configured front button.
-      return (gpio.*fn)(SETTINGS.frontButtonRight);
+      return readButton(SETTINGS.frontButtonRight, fn);
     case Button::Up:
       // Side buttons remain fixed for Up/Down.
-      return (gpio.*fn)(HalGPIO::BTN_UP);
+      return readButton(HalGPIO::BTN_UP, fn);
     case Button::Down:
       // Side buttons remain fixed for Up/Down.
-      return (gpio.*fn)(HalGPIO::BTN_DOWN);
+      return readButton(HalGPIO::BTN_DOWN, fn);
     case Button::Power:
-      // Power button bypasses remapping.
-      return (gpio.*fn)(HalGPIO::BTN_POWER);
+      // Power button bypasses remapping. Never gated: the gate never arms
+      // BTN_POWER, so this reads raw either way.
+      return readButton(HalGPIO::BTN_POWER, fn);
     case Button::PageBack:
       // Reader page navigation uses side buttons and can be swapped via settings.
       switch (sideLayout) {
         case CrossPointSettings::PREV_NEXT:
-          return (gpio.*fn)(HalGPIO::BTN_UP);
+          return readButton(isNavDirectionSwapped() ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP, fn);
         case CrossPointSettings::NEXT_PREV:
-          return (gpio.*fn)(HalGPIO::BTN_DOWN);
+          return readButton(isNavDirectionSwapped() ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, fn);
         case CrossPointSettings::SIDE_BUTTONS_DISABLED:
         default:
           return false;
@@ -94,16 +116,16 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
       // Reader page navigation uses side buttons and can be swapped via settings.
       switch (sideLayout) {
         case CrossPointSettings::PREV_NEXT:
-          return (gpio.*fn)(HalGPIO::BTN_DOWN);
+          return readButton(isNavDirectionSwapped() ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, fn);
         case CrossPointSettings::NEXT_PREV:
-          return (gpio.*fn)(HalGPIO::BTN_UP);
+          return readButton(isNavDirectionSwapped() ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP, fn);
         case CrossPointSettings::SIDE_BUTTONS_DISABLED:
         default:
           return false;
       }
     case Button::NavNext:
       // Logical "next item" navigation: side Down + front Right, with the control axis flipped in
-      // INVERTED / LANDSCAPE_CCW (frontButtonFollowOrientation) so it matches the rotated hint labels.
+      // INVERTED / LANDSCAPE_CCW under the live orientation policy, matching the rotated hint labels.
       return isNavDirectionSwapped() ? (mapButton(Button::Up, fn) || mapButton(Button::Left, fn))
                                      : (mapButton(Button::Down, fn) || mapButton(Button::Right, fn));
     case Button::NavPrevious:
@@ -278,6 +300,8 @@ bool MappedInputManager::wasBottomEdgeUpSwipe() const { return wasEdgeSwipe(fui:
 
 bool MappedInputManager::wasMenuGesture() const { return wasTopEdgeDownSwipe(); }
 
+bool MappedInputManager::wasReaderMenuSwipeUp() const { return gpio.hasHomeKey() && wasBottomEdgeUpSwipe(); }
+
 bool MappedInputManager::wasHomeGesture() const {
   return gpio.hasHomeKey() ? gpio.wasHomeKeyTapped() : wasBottomEdgeUpSwipe();
 }
@@ -315,7 +339,62 @@ bool MappedInputManager::wasReleased(const Button button) const {
   return mapButton(button, &HalGPIO::wasReleased);
 }
 
+bool MappedInputManager::wasLongPressed(const Button button, const unsigned long thresholdMs) const {
+  if (!isPressed(button)) return false;
+  const uint16_t bit = 1u << static_cast<uint8_t>(button);
+  if ((longPressFiredButtons & bit) != 0 || getHeldTime() < thresholdMs) return false;
+  longPressFiredButtons |= bit;
+  suppressNextRelease(button);
+  return true;
+}
+
+void MappedInputManager::suppressNextRelease(const Button button) const {
+  suppressedReleaseButtons |= 1u << static_cast<uint8_t>(button);
+}
+
+bool MappedInputManager::consumeSuppressedRelease() const {
+  uint16_t released = 0;
+  for (uint8_t value = 0; value <= static_cast<uint8_t>(Button::ScreenDown); ++value) {
+    const uint16_t bit = 1u << value;
+    if ((suppressedReleaseButtons & bit) != 0 && mapButton(static_cast<Button>(value), &HalGPIO::wasReleased)) {
+      released |= bit;
+    }
+  }
+  suppressedReleaseButtons &= ~released;
+  return released != 0;
+}
+
 bool MappedInputManager::isPressed(const Button button) const { return mapButton(button, &HalGPIO::isPressed); }
+
+void MappedInputManager::settleReleaseGate() const {
+  uint8_t pressEdges = 0;
+  uint8_t releaseEdges = 0;
+  uint8_t heldMask = 0;
+  for (const uint8_t index : GATED_BUTTONS) {
+    const uint8_t bit = static_cast<uint8_t>(1u << index);
+    if (gpio.wasPressed(index)) pressEdges = static_cast<uint8_t>(pressEdges | bit);
+    // Raw, never through readButton(): asking the gate what the gate should do
+    // next is how a gate silently latches itself shut.
+    if (gpio.wasReleased(index)) releaseEdges = static_cast<uint8_t>(releaseEdges | bit);
+    if (gpio.isPressed(index)) heldMask = static_cast<uint8_t>(heldMask | bit);
+  }
+  releaseGate.settle(pressEdges, releaseEdges, heldMask);
+}
+
+void MappedInputManager::swallowNextReleaseOfHeldButtons() const {
+  uint8_t heldMask = 0;
+  for (const uint8_t index : GATED_BUTTONS) {
+    // isPressed OR wasPressed: applyStateChange() sets currentState from the
+    // same diff it derives pressedEvents from, so a press edge always implies
+    // the level -- but reading both means a HAL that ever stops guaranteeing
+    // that cannot silently reopen the seam.
+    if (gpio.isPressed(index) || gpio.wasPressed(index)) heldMask = static_cast<uint8_t>(heldMask | (1u << index));
+  }
+  if (heldMask == 0) return;
+  releaseGate.arm(heldMask);
+  LOG_DBG("INPUT", "Activity changed with buttons 0x%02x down; their next release is not the new screen's",
+          static_cast<unsigned>(heldMask));
+}
 
 bool MappedInputManager::wasAnyPressed() const { return gpio.wasAnyPressed(); }
 

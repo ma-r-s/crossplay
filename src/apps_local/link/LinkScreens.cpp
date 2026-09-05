@@ -84,27 +84,49 @@ const char* seatValue(const SeatState state, const bool linked) {
 fui::Rect buildLink(toybox::Screen& screen, const LinkModel& model) {
   toyboxChrome(screen, model.gameTitle);
 
-  // Footer first, so the seats can never grow into it. BACK sits at the bottom
-  // margin and reserves a gutter above itself, or the two pills fuse into one
-  // black slab and read as a single control.
+  // Footer first, so the seats can never grow into it. Each pill reserves a
+  // gutter above itself, or the two fuse into one black slab and read as a
+  // single control.
+  //
+  // WHICH pill gets the bottom band is not a style choice. y=732 (the panel
+  // height less the margin and one pill) is where this fork puts a screen's
+  // primary action, and it is where every link game's board puts the status
+  // capsule that becomes PLAY AGAIN at game over -- chess (16,732,448,52),
+  // battleship (76,732,388,52), sea salt, jaipur, toy battle. The link screen
+  // REPLACES that board, unannounced, in the same pass that ends the game, so
+  // whatever lands at 732 is what the thumb already on its way there will hit.
+  // LEAVE used to be that control, which turned a rematch into killing the
+  // radio. PLAY AGAIN takes the band and BACK sits above it.
+  //
+  // Above it is measured, not assumed: the 668 band is empty on every board
+  // this screen replaces (chess, battleship, connect four, checkers, sea salt,
+  // toy battle -- host-tests/ui asserts the ones it can build). The solo
+  // Result screens that DO use 668 for PLAY AGAIN are never on the panel in a
+  // match: driveLink() takes the pass before gameLoop() runs.
   fui::ButtonProps leave;
   leave.label = "BACK";
   leave.action = ActionLeaveLink;
-  const fui::Rect leaveRect = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
+  const fui::Rect bottomRow = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
 
   if (model.offerPlayAgain) {
     fui::ButtonProps again;
     again.label = "PLAY AGAIN";
     again.action = ActionPlayAgain;
-    screen.button(again, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
+    screen.button(again, bottomRow);
     // Two solid pills stacked read as one black slab with a scratch across it,
     // which is the thing this file's own gap was meant to prevent and did not.
     // The gap separates them; the weight is what says which one is the answer
     // to the question above. BACK stays solid when it is the only control on
     // the screen, because then there is no hierarchy to express.
     leave.styles = toybox::rowStyles();
+    screen.button(leave, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
+  } else {
+    // Alone, BACK keeps the bottom band: a single pill floating one row up
+    // over an empty margin reads as a layout that lost something. Nothing is
+    // at risk there, because the only screen that reaches this branch is the
+    // search (replacing a menu) or an opponent who has already gone.
+    screen.button(leave, bottomRow);
   }
-  screen.button(leave, leaveRect);
 
   // The headline sits under the rule rather than floating: a block with equal
   // slack above and below reads as unresolved.

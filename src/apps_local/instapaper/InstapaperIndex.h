@@ -66,6 +66,10 @@ struct Article {
   std::string sha;
   std::string title;
   std::string domain;  // the row's subtitle; "saved by email" for private ones
+                       // NOTE: domain and title are folded for display on parse
+                       // (utf8FoldTypography), so what serializeIndex writes back
+                       // is the folded form. id, hash and sha never are: they are
+                       // hashed, pathed and sent back to the service.
   uint32_t savedAt = 0;
   uint32_t words = 0;
   uint16_t minutes = 0;
@@ -122,6 +126,20 @@ MergePlan mergeSummary(std::vector<Article>& local, const std::vector<Article>& 
                        const std::vector<int64_t>& deleted, const std::vector<int64_t>& archived,
                        const std::vector<int64_t>& hasText);
 
+// What this reader may claim to hold, out of everything its index lists.
+//
+// `have` is a delta: an id in it means "I hold this", and Instapaper answers
+// by suppressing the article. The summary then carries no size for it, and a
+// download with no size is refused, because the length is the only proof a
+// file arrived whole. So a row whose text is missing must not be claimed --
+// otherwise it is suppressed, its size never comes back, and its download is
+// refused on every sync from then on.
+//
+// The rule is the same `hasText` mergeSummary uses, and deliberately so: the
+// set this sync claims and the set it clears progress flags for have to be
+// one set, or a reading position is dropped without ever being sent.
+std::vector<Article> composeHave(const std::vector<Article>& local, const std::vector<int64_t>& hasText);
+
 // The queue's reading order: newest saved first, which is Instapaper's own
 // unread order and the one a reader expects to find their last save at the
 // top of.
@@ -131,5 +149,46 @@ void sortForQueue(std::vector<Article>& articles);
 // Hiding a pending archive immediately is the difference between "it worked"
 // and "did I press it?", and it costs nothing -- the intent is durable.
 std::vector<const Article*> visible(const std::vector<Article>& articles);
+
+// --- The pager -----------------------------------------------------------
+//
+// A reading position and a page number are the same fact seen twice:
+// `progress` IS the top of the viewport over the article's length. These four
+// functions are the only place that conversion is spelled, so the position
+// sent to Instapaper, the line a reopened article starts on and the label in
+// the header band cannot drift apart -- and so all of it is testable here
+// rather than only inside a render pass.
+
+// The furthest the viewport top can go. The last page overlaps the one before
+// it rather than running off the end, which is why it is not a multiple of
+// `visibleLines` and why every function below has to know that.
+uint32_t maxTopLine(uint32_t visibleLines, uint32_t lineCount);
+
+// Where a page turn lands. `delta` is pages, positive forward.
+uint32_t turnedTopLine(uint32_t topLine, uint32_t visibleLines, uint32_t lineCount, int delta);
+
+// Where a stored reading position puts the viewport top. A finished article
+// (progress 1.0) resumes on its last page like any other: the position means
+// the same thing at either end of the range, and dropping it for the one
+// value that says "you got to the end" is the difference nothing on screen
+// explains.
+uint32_t topLineFor(float progress, uint32_t visibleLines, uint32_t lineCount);
+
+// Instapaper's definition, back out again. Reaching the end is 1.0 rather
+// than topLine/lineCount, which for somebody who just read the last word
+// would report about 90%.
+float progressFor(uint32_t topLine, uint32_t visibleLines, uint32_t lineCount);
+
+struct Pages {
+  uint32_t page = 1;   // 1-based
+  uint32_t count = 1;  // never 0, so "n / 0" cannot be drawn
+};
+
+// The header band's label. `page` is derived from where the viewport IS, not
+// from how many turns it took: the final position is clamped to maxTopLine()
+// and so is not a multiple of the span, and plain division lands one page
+// early there -- which is how the last page of a three-page article printed
+// "2 / 3" and 3/3 was never seen at all.
+Pages pagesFor(uint32_t topLine, uint32_t visibleLines, uint32_t lineCount);
 
 }  // namespace instapaper

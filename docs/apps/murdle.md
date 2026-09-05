@@ -1,7 +1,7 @@
 # Murdle: a murder-mystery deduction game
 
-The design, settled before any code. Read [building-apps.md](building-apps.md)
-for the method and [design-language.md](design-language.md) for the look.
+The design, settled before any code. Read [building-apps.md](../building-apps.md)
+for the method and [design-language.md](../design-language.md) for the look.
 
 The mechanic is **Murdle**'s, by G.T. Karber, and the name is kept because it is
 the name of the thing. Everything else is ours: the cast, the fixtures and the
@@ -293,6 +293,12 @@ that row and column **within the same block only**, because that is the
 bookkeeping the pencil does and not the deduction. Cross-block propagation is
 the game, and doing it for you would be playing it for you.
 
+A tap writes the cell it landed on and no other. The crossing-out is derived on
+the way to the screen, so it costs no writes; the ticks it derives from are the
+player's and are never taken away by anything but their own tap. A tap that
+could only be honoured by removing one does nothing and names the ticks in the
+way instead.
+
 ---
 
 ## 4. Two pages and a door
@@ -342,10 +348,36 @@ the rest of its row and column **within that block**, which is the bookkeeping
 a pencil does: one suspect cannot hold two weapons. Reaching across blocks is
 the deduction, and doing that for the player would be playing the game for them.
 
-Locking in also overrules any earlier answer in that row or column. That sounds
-obvious and was not: the grid refuses to overwrite a decided cell, which is
-right for the solver and wrong for the player's own hand, so changing your mind
-used to leave two locked-in squares in one row with the crossing half applied.
+Locking one in is **refused** while another lock stands in that row or column,
+and the refusal names the squares: `ALREADY TICKED: SPADE/FARM AND PAN/GARDEN.
+CLEAR THEM TO TICK HERE.` Changing your mind costs two more taps than it did --
+clear the old lock, then rule the new square out and lock it in -- and every one
+of them is the player's own.
+
+**The refusal has a band of its own, reserved whether it says anything or not.**
+It used to appear above the grid only when there was something to say, which
+pushed the board down the moment a tap was refused and pulled it back up on the
+next tap. On a panel that takes a second to answer, that is the one surface
+being read by position moving under the reader's finger. The band is two lines
+of the tile cut, which is the worst case `blockedLine` can produce measured
+against the real face over the whole cross product of the cast tables
+(`host-tests/murdle`); the grid is width-bound at every tier, so it pays for the
+band out of the slack the key was spreading into and loses no cell size.
+
+It used to overrule instead, and that is the worst bug this game has had. From a
+finished, correct board a cold tester tapped one false square and watched three
+squares they had never touched change: the two locks that had crossed that
+square out became crosses themselves, and a third square went blank because
+those two locks were the only thing crossing it. Nothing was flagged, and
+cycling the tapped square back did not bring any of them back. The overrule was
+not a stray write -- it was the documented behaviour, and it looked reasonable
+right up until a board was full enough for one tap to cost two answers.
+
+The crosses tell you whose they are. **The player's own is a heavy bar; one the
+grid worked out from a lock is a light one** -- same shape, two weights, the way
+a pen sits next to a pencil. They were pixel-identical before, which is why the
+same tester could not see that the squares the tap consumed were the ones
+holding their answers up. HOW TO SOLVE names all four states.
 
 ### The key under the grid
 

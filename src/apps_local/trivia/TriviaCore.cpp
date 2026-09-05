@@ -100,15 +100,47 @@ bool Pack::read(const uint32_t index, Question& out) const {
   return true;
 }
 
+// One chunked pass when the state file is opened, answering both counts. A byte
+// at a time would be one read per question through the storage mutex; a
+// 256-byte window is a 256th of that, and the buffer is small enough for the
+// stack. No question count written down here: the pack is as big as the rating
+// run that built it.
+void PackState::scanCounts() {
+  seenCount_ = 0;
+  flaggedCount_ = 0;
+  if (source_ == nullptr) return;
+  uint8_t window[256];
+  for (uint32_t at = 0; at < count_;) {
+    const uint32_t want = (count_ - at) < sizeof(window) ? (count_ - at) : sizeof(window);
+    if (!source_->read(at, window, want)) break;
+    for (uint32_t i = 0; i < want; ++i) {
+      if ((window[i] & kSeen) != 0) ++seenCount_;
+      if ((window[i] & kFlagged) != 0) ++flaggedCount_;
+    }
+    at += want;
+  }
+}
+
 bool PackState::open(WritableByteSource& source, const uint32_t count) {
   source_ = nullptr;
   count_ = 0;
   if (count == 0) return false;
-  // A state file shorter than the pack means a pack was replaced under it. The
-  // caller rewrites rather than reading garbage for the tail.
-  if (source.size() < count) return false;
+  // The state file is one byte per pack index, so its length and the pack's
+  // count are the same fact written twice. ANY disagreement means a pack was
+  // replaced under it; the caller rewrites rather than reading bytes that
+  // describe questions no longer at those indices.
+  //
+  // `!=`, not `<`. A LONGER file used to be accepted, on the reasoning that
+  // every index still had a byte -- but a stale FLAGGED byte landing on an
+  // arbitrary question hides it from every draw, with nothing on screen and no
+  // way for a player to clear it. That is what a pack SHRINKING does, which is
+  // what a rated pack does to the 50,000 it replaces.
+  if (source.size() != count) return false;
   source_ = &source;
   count_ = count;
+  // Counted here, not lazily: without this the totals start at zero every boot
+  // and report only the current session, which renders perfectly plausibly.
+  scanCounts();
   return true;
 }
 
@@ -125,7 +157,12 @@ bool PackState::setFlag(const uint32_t index, const uint8_t bit) {
   const uint8_t updated = static_cast<uint8_t>(byte | bit);
   if (updated == byte) return true;  // already set, no write
   if (!source_->write(index, &updated, 1)) return false;
-  return source_->flush();
+  if (!source_->flush()) return false;
+  // Kept in step here rather than rescanned, and only when the bit is NEW --
+  // the early return above means this cannot double-count a reflag.
+  if ((bit & kSeen) != 0 && (byte & kSeen) == 0) ++seenCount_;
+  if ((bit & kFlagged) != 0 && (byte & kFlagged) == 0) ++flaggedCount_;
+  return true;
 }
 
 uint32_t Rng::next() {

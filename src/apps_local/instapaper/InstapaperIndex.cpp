@@ -1,5 +1,7 @@
 #include "InstapaperIndex.h"
 
+#include <Utf8.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -113,7 +115,8 @@ bool parseIndex(const std::string_view text, std::vector<Article>& out) {
 
   while (pos < text.size()) {
     const size_t lineEnd = text.find('\n', pos);
-    const std::string_view row = text.substr(pos, lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - pos);
+    const std::string_view row =
+        text.substr(pos, lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - pos);
     pos = lineEnd == std::string_view::npos ? text.size() : lineEnd + 1;
     if (row.empty()) continue;
 
@@ -131,8 +134,12 @@ bool parseIndex(const std::string_view text, std::vector<Article>& out) {
     a.renderable = (flags & kFlagRenderable) != 0;
     a.progressDirty = (flags & kFlagProgressDirty) != 0;
     a.archivePending = (flags & kFlagArchivePending) != 0;
-    a.domain = field(row, cursor);
-    a.title = field(row, cursor);
+    // The two columns a reader looks at, folded on the way OUT of the index as
+    // well as in. An index written before the fold existed holds real curly
+    // quotes and em dashes, and the reading cut has no glyph for either, so a
+    // queue saved last week would keep its holes until it was re-synced.
+    a.domain = utf8FoldTypography(field(row, cursor));
+    a.title = utf8FoldTypography(field(row, cursor));
 
     // A row with no id is damage rather than data. A row with no title is
     // not: an untitled bookmark is a thing Instapaper really returns, and
@@ -160,6 +167,51 @@ std::vector<const Article*> visible(const std::vector<Article>& articles) {
   return out;
 }
 
+uint32_t maxTopLine(const uint32_t visibleLines, const uint32_t lineCount) {
+  return lineCount > visibleLines ? lineCount - visibleLines : 0;
+}
+
+uint32_t turnedTopLine(const uint32_t topLine, const uint32_t visibleLines, const uint32_t lineCount, const int delta) {
+  if (visibleLines == 0) return topLine;
+  const uint32_t ceiling = maxTopLine(visibleLines, lineCount);
+  if (delta > 0) return topLine + visibleLines > ceiling ? ceiling : topLine + visibleLines;
+  return topLine > visibleLines ? topLine - visibleLines : 0;
+}
+
+uint32_t topLineFor(const float progress, const uint32_t visibleLines, const uint32_t lineCount) {
+  if (!(progress > 0.0f) || lineCount == 0 || visibleLines == 0) return 0;
+  const uint32_t ceiling = maxTopLine(visibleLines, lineCount);
+  const float clamped = progress > 1.0f ? 1.0f : progress;
+  const uint32_t wanted = static_cast<uint32_t>(clamped * static_cast<float>(lineCount));
+  return wanted > ceiling ? ceiling : wanted;
+}
+
+float progressFor(const uint32_t topLine, const uint32_t visibleLines, const uint32_t lineCount) {
+  if (lineCount == 0) return 0.0f;
+  if (topLine + visibleLines >= lineCount) return 1.0f;
+  return static_cast<float>(topLine) / static_cast<float>(lineCount);
+}
+
+Pages pagesFor(const uint32_t topLine, const uint32_t visibleLines, const uint32_t lineCount) {
+  Pages out;
+  if (visibleLines == 0 || lineCount == 0) return out;
+  out.count = (lineCount + visibleLines - 1) / visibleLines;
+  if (out.count == 0) out.count = 1;
+  out.page = topLine + visibleLines >= lineCount ? out.count : topLine / visibleLines + 1;
+  if (out.page > out.count) out.page = out.count;
+  if (out.page == 0) out.page = 1;
+  return out;
+}
+
+std::vector<Article> composeHave(const std::vector<Article>& local, const std::vector<int64_t>& hasText) {
+  std::vector<Article> out;
+  out.reserve(hasText.size());
+  for (const Article& a : local) {
+    if (std::find(hasText.begin(), hasText.end(), a.id) != hasText.end()) out.push_back(a);
+  }
+  return out;
+}
+
 MergePlan mergeSummary(std::vector<Article>& local, const std::vector<Article>& incoming,
                        const std::vector<int64_t>& deleted, const std::vector<int64_t>& archived,
                        const std::vector<int64_t>& hasText) {
@@ -168,11 +220,15 @@ MergePlan mergeSummary(std::vector<Article>& local, const std::vector<Article>& 
     return std::find(ids.begin(), ids.end(), id) != ids.end();
   };
 
-  // Every article in the index was in the `have` string this sync sent, so a
-  // sync that reached `done` has delivered every dirty progress value. It is
-  // cleared here rather than per article, because the confirmation is the
-  // sync completing and not any particular row coming back.
-  for (Article& a : local) a.progressDirty = false;
+  // Only what this sync actually claimed. `have` carries the dirty progress
+  // up, and composeHave leaves out any row whose text is missing, so those
+  // rows were never sent and their flags must survive to be sent later. This
+  // used to clear every row on the stated assumption that `have` held them
+  // all; when that stopped being true the flag would have been dropped
+  // without the position ever reaching Instapaper.
+  for (Article& a : local) {
+    if (names(hasText, a.id)) a.progressDirty = false;
+  }
 
   for (const Article& in : incoming) {
     auto it = std::find_if(local.begin(), local.end(), [&](const Article& a) { return a.id == in.id; });

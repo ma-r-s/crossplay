@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <Utf8.h>
 #include <WiFi.h>
 
 #include <cstdio>
@@ -13,6 +14,7 @@
 #include "../../components/UITheme.h"
 #include "../../network/HttpDownloader.h"
 #include "../Shelf.h"
+#include "../ShelfScreen.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxIcons.h"
@@ -66,15 +68,19 @@ void HackerNewsActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
 
-  // Read the shelf before anything network happens: SAVED is the half of this
-  // app that works with no connection at all, and it should be right the
-  // moment the app opens rather than after a fetch nobody asked for.
+  // NOTHING TOUCHES THE RADIO HERE, and that is the feature.
+  //
+  // The picker used to come up before anything else, and backing out of it shut
+  // the app -- so the SAVED shelf, the half that exists precisely for having no
+  // network, could not be reached without one. That is the state every new
+  // device is in, and everyone on a train.
+  //
+  // So the list opens at once, offline or not, and the first thing that
+  // genuinely needs the network is what asks for it. See ensureConnected.
   library_.load();
-
-  phase_ = Phase::Connecting;
-  WiFi.mode(WIFI_STA);
-  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
-                         [this](const ActivityResult& result) { onWifiChosen(!result.isCancelled); });
+  view_ = hn::ListView::FrontPage;
+  phase_ = Phase::List;
+  requestUpdate();
 }
 
 void HackerNewsActivity::onExit() {
@@ -94,38 +100,85 @@ void HackerNewsActivity::onExit() {
   Storage.remove(kFrontPageTmp);
 }
 
-void HackerNewsActivity::leaveOrShowSaved() {
-  // Backing out of the Wi-Fi picker is not the same as wanting out of the app:
-  // the saved shelf is the half that works with no connection at all, and
-  // onEnter loads it before anything network happens for exactly that reason.
+void HackerNewsActivity::ensureConnected(const Pending what, const char* busyMessage) {
+  // Asked of the radio every time rather than latched once.
   //
-  // THIS EXISTS AS A FUNCTION BECAUSE THE DECISION HAS TWO CALLERS. Leaving the
-  // picker arrives here by two routes -- the child activity reporting a cancel,
-  // and loop() seeing that same Back release while phase_ is still Connecting --
-  // and a first attempt at this fixed only onWifiChosen, so the app still
-  // walked out to the shelf and every saved article stayed unreachable.
-  if (!library_.articles().empty()) {
-    view_ = hn::ListView::Saved;
-    phase_ = Phase::List;
-    requestUpdate();
+  // A latch ("we connected earlier") is wrong in the direction that matters: an
+  // AP that drops while the reader is mid-article leaves the latch saying yes,
+  // the fetch fails, and the picker -- the one control that could fix it -- is
+  // never offered again. WL_CONNECTED is the honest question here because the
+  // question IS "will an HTTP GET work", not "who owns this radio"; ownership
+  // is a different question with a different answer (see devmode::holdsRadio in
+  // onExit, and the linkradio notes on why WiFi.status() cannot answer it).
+  if (WiFi.status() == WL_CONNECTED) {
+    request(what, busyMessage);
     return;
   }
-  // Nothing saved: without a network there is genuinely nothing to show, so
-  // leaving is still the honest answer.
-  shelf::leave(renderer, mappedInput);
+
+  // The picker's result decides whether the work ever happens, so the work is
+  // remembered and not requested: requesting first would run it against a radio
+  // that is not up.
+  afterConnect_ = what;
+  afterConnectMessage_ = busyMessage;
+
+  // PHASE IS DELIBERATELY NOT TOUCHED HERE, and neither is busyMessage_.
+  //
+  // There was a Phase::Connecting with a "CONNECTING" screen and a comment
+  // saying it was what the panel showed if the picker did not paint promptly.
+  // It could never be drawn. pushActivity only sets pendingActivity; the swap
+  // happens at the bottom of the SAME ActivityManager::loop() pass this call
+  // returns into, so by the time the render task looks at currentActivity the
+  // picker is already it. And the picker's own onEnter asks for the only
+  // repaint in that frame. A slow picker leaves the PREVIOUS frame up, which is
+  // the list or the article that was on screen -- not a blank panel.
+  //
+  // Leaving phase_ alone is also what makes coming back free: whatever was on
+  // screen when the connection was asked for is still what phase_ says, so a
+  // cancelled picker needs a repaint and nothing else. The Phase this restored
+  // from went with it. And with no cross-task write here there is no phase_ or
+  // busyMessage_ for render() to catch mid-change, so no RenderLock is owed:
+  // afterConnect_ and afterConnectMessage_ are read by loop() only.
+  //
+  // The Back PRESS that may have been recorded this frame belongs to the screen
+  // that is about to stop being on top. Left set, it survives the picker and
+  // pairs with a RELEASE that arrives here afterwards: hold Back, tap something
+  // that needs the network, let go inside the picker (which reads only the
+  // press), cancel with a second Back, and that second release lands in loop()
+  // with phase_ back at List -- which is shelf::leave(), the app shutting on
+  // the way to the one screen that works with no network. Docs and this branch
+  // both say that can never happen; this line is why.
+  backPressSeen_ = false;
+
+  WiFi.mode(WIFI_STA);
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) { onWifiChosen(!result.isCancelled); });
 }
 
 void HackerNewsActivity::onWifiChosen(const bool connected) {
   if (!connected) {
-    leaveOrShowSaved();
+    // Declining to connect is not wanting out of the app. Back to whatever was
+    // on screen when the connection was asked for -- which is a list whose
+    // SAVED half is still readable, or a reader still holding its article.
+    // phase_ still says which, because raising the picker never changed it.
+    afterConnect_ = Pending::None;
+    requestUpdate();
     return;
   }
-  request(Pending::FrontPage, "FETCHING THE FRONT PAGE");
+  const Pending what = afterConnect_;
+  afterConnect_ = Pending::None;
+  request(what, afterConnectMessage_);
 }
 
 // --- Scheduling the slow parts -------------------------------------------
 
 void HackerNewsActivity::request(const Pending what, const char* busyMessage) {
+  // Nothing to do is not a reason to show a busy screen. loop() clears pending_
+  // before it dispatches, so a Pending::None request would leave phase_ at Busy
+  // with no work queued to move it off again: a "FETCHING" panel that is not
+  // fetching and never stops, which is what a hang looks like. Unreachable
+  // today -- afterConnect_ is only ever set to real work -- and cheaper to make
+  // unrepresentable than to keep arguing.
+  if (what == Pending::None) return;
   {
     RenderLock lock(*this);
     phase_ = Phase::Busy;
@@ -176,7 +229,33 @@ void HackerNewsActivity::loop() {
         break;
     }
     if (!ok && phase_ == Phase::Busy) {
-      showNotice("NO LUCK", "Could not reach Hacker News. Check the network and try again.", false);
+      if (what == Pending::FrontPage) {
+        // Back to the list, where both segments are, rather than to a
+        // full-screen notice: the failure is drawn as the list's own empty
+        // state, so the SAVED shelf stays one tap away instead of being behind
+        // an error screen.
+        //
+        // The list can always show this because the empty state is the only
+        // thing that draws it, and the LOAD/TRY AGAIN rect is only ever drawn
+        // on an empty one. The tap handler enforces that rather than assuming
+        // it; see ActionLoadFrontPage.
+        frontPageFailed_ = true;
+        phase_ = Phase::List;
+        view_ = hn::ListView::FrontPage;
+      } else {
+        // An ARTICLE or a THREAD that did not arrive, which is the more common
+        // failure by far: on a train, every tap on a cached front page comes
+        // here. It used to show this notice with no control at all -- no
+        // button, no segments, no route to SAVED -- so the fix three lines
+        // above went into one arm of this `if` and not into its twin, and the
+        // twin is the arm people actually reach.
+        //
+        // The notice keeps its shape (the reader is gone either way, and going
+        // straight back to the list would say nothing about why) but it now
+        // carries the control every notice carries, and the same sentence the
+        // list's own failure uses. Two screens, one fact, one promise.
+        showNotice(hn::kUnreachableHeadline, hn::kUnreachableMessage, false);
+      }
     }
     requestUpdate();
     return;
@@ -186,33 +265,43 @@ void HackerNewsActivity::loop() {
     backPressSeen_ = false;
     // Back walks out one layer at a time and never names where it lands; the
     // shelf owns the last step. See docs/shelf.md.
-    if (phase_ == Phase::Connecting) {
-      leaveOrShowSaved();
-    } else if (phase_ == Phase::List) {
+    //
+    // There is no arm here for "the picker is up". There cannot be: only the
+    // TOP activity's loop() runs, so nothing sets backPressSeen_ while the
+    // picker is on top, and the result handler runs before this activity's next
+    // loop() pass either way. The arm that existed tested a Phase::Connecting
+    // that was never reachable from here, and the release it was written to
+    // catch is caught in ensureConnected instead, by not carrying the press
+    // across the picker at all.
+    if (phase_ == Phase::List) {
       shelf::leave(renderer, mappedInput);
     } else {
-      // An article opened out of the library goes back to the library. Landing
-      // on the front page instead loses the shelf you were working through,
-      // and there is no way back to it but two more taps.
-      if (readingSaved_) {
-        view_ = hn::ListView::Saved;
-      }
-      readingSaved_ = false;
-      phase_ = Phase::List;
-      requestUpdate();
+      returnToList();
     }
     return;
   }
+
+  // A vertical swipe pages whatever is on screen, and it is the first thing a
+  // hand reaches for on a touch panel showing a scrollbar: a cold tester swiped
+  // the story list, got a byte-identical screen, and read the list as stuck.
+  //
+  // Up carries the page upwards to the next one, the way the content moves
+  // under a finger, and the same way round in the list and in the reader --
+  // learn it once. Back is a LEFT-EDGE swipe and has already returned above, so
+  // nothing here can swallow it.
+  const MappedInputManager::SwipeDir swipe = mappedInput.wasSwipe();
+  const bool swipeNext = swipe == MappedInputManager::SwipeDir::Up;
+  const bool swipePrev = swipe == MappedInputManager::SwipeDir::Down;
 
   // Physical page keys do the same thing the footer arrows do, through the same
   // function. Two paths would drift, and the drift is invisible until somebody
   // uses the input you did not test.
   if (phase_ == Phase::Reading) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::PageForward)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::PageForward) || swipeNext) {
       turnPage(1);
       return;
     }
-    if (mappedInput.wasReleased(MappedInputManager::Button::PageBack)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::PageBack) || swipePrev) {
       turnPage(-1);
       return;
     }
@@ -229,18 +318,10 @@ void HackerNewsActivity::loop() {
   // Paging moves the VIEW, not a selection: `selected_` is now only ever set by
   // tapping a story, which is the thing that opens it. Rows stay tappable, so a
   // button is never the only route.
-  const bool next = mappedInput.wasReleased(MappedInputManager::Button::Down);
-  const bool prev = mappedInput.wasReleased(MappedInputManager::Button::Up);
-  if (phase_ == Phase::List && !stories_.empty() && (next || prev)) {
-    const int count = static_cast<int>(stories_.size());
-    const int perPage = visibleRows_;
-    if (perPage > 0) {
-      const int pages = (count + perPage - 1) / perPage;
-      const int page = topIndex_ / perPage;
-      // Wraps: a page key that stops working at the last page reads as broken.
-      topIndex_ = ((page + (next ? 1 : pages - 1)) % pages) * perPage;
-      requestUpdate();
-    }
+  const bool next = mappedInput.wasReleased(MappedInputManager::Button::Down) || swipeNext;
+  const bool prev = mappedInput.wasReleased(MappedInputManager::Button::Up) || swipePrev;
+  if (phase_ == Phase::List && (next || prev)) {
+    pageList(next ? 1 : -1);
     return;
   }
 
@@ -261,7 +342,7 @@ void HackerNewsActivity::loop() {
         openSavedArticle(event.value);
       } else {
         selected_ = event.value;
-        request(Pending::Article, "OPENING");
+        ensureConnected(Pending::Article, "OPENING");
       }
       break;
     case hnui::ActionPagePrev:
@@ -274,14 +355,21 @@ void HackerNewsActivity::loop() {
       // One action, and the model decides which way it points. Two would let
       // the label and the effect disagree.
       if (readingComments_) {
-        if (articleAvailable_) request(Pending::Article, "OPENING");
+        if (articleAvailable_) ensureConnected(Pending::Article, "OPENING");
       } else {
-        request(Pending::Comments, "FETCHING THE THREAD");
+        ensureConnected(Pending::Comments, "FETCHING THE THREAD");
       }
       break;
     case hnui::ActionNotice:
-      // The notice's only button is always the way onward to the comments.
-      request(Pending::Comments, "FETCHING THE THREAD");
+      // The unreadable notice's button, and the way onward to the comments.
+      ensureConnected(Pending::Comments, "FETCHING THE THREAD");
+      break;
+    case hnui::ActionNoticeBack:
+      // Every other notice's button. The SAME function Back lands through, not
+      // a second copy of its three lines: a saved article's notice has to
+      // return to the SAVED shelf, and two routes to one landing is how one of
+      // them starts going somewhere else.
+      returnToList();
       break;
     case hnui::ActionSave:
       saveCurrentArticle();
@@ -301,6 +389,25 @@ void HackerNewsActivity::loop() {
       view_ = hn::ListView::FrontPage;
       topIndex_ = 0;
       requestUpdate();
+      break;
+    case hnui::ActionLoadFrontPage:
+      // The only control in the app that asks for the network by itself, and
+      // the only route to a front-page fetch.
+      //
+      // Guarded rather than argued. This rect is only ever DRAWN on an empty
+      // front page, and the failure landing in loop() relies on that: it puts
+      // the message in the list's empty state, which a list with rows in it
+      // does not draw. But interactionsReady_ is still true from the empty
+      // paint after a fetch has filled stories_ and asked for a repaint, so a
+      // tap landing in that window routes here against a list that is no longer
+      // empty -- and its failure would then be swallowed with nothing on
+      // screen to say so. Cheaper to make the invariant true than to keep
+      // asserting it in a comment.
+      if (view_ != hn::ListView::FrontPage || !stories_.empty()) break;
+      // Cleared first so a second failure repaints the same error rather than a
+      // stale one.
+      frontPageFailed_ = false;
+      ensureConnected(Pending::FrontPage, "FETCHING THE FRONT PAGE");
       break;
     default:
       break;
@@ -344,10 +451,15 @@ bool HackerNewsActivity::fetchFrontPage() {
   for (JsonObjectConst hit : hits) {
     if (static_cast<int>(stories_.size()) >= kMaxStories) break;
     hn::Story story;
-    story.title = hit["title"] | "";
+    // Folded here rather than at the row, because this is where somebody
+    // else's text becomes ours: Algolia sends real curly quotes and em dashes
+    // in a headline, and the reading cut has no glyph for either, so they
+    // draw as nothing at all. The URL is not folded -- it is a request, not a
+    // sentence, and changing a character in it changes where it points.
+    story.title = utf8FoldTypography(hit["title"] | "");
     if (story.title.empty()) continue;
     story.url = hit["url"] | "";
-    story.author = hit["author"] | "";
+    story.author = utf8FoldTypography(hit["author"] | "");
     story.points = hit["points"] | 0;
     story.commentCount = hit["num_comments"] | 0;
     story.id = static_cast<uint32_t>(std::strtoul(hit["objectID"] | "0", nullptr, 10));
@@ -367,6 +479,9 @@ bool HackerNewsActivity::fetchFrontPage() {
   selected_ = 0;
   topIndex_ = 0;
   phase_ = Phase::List;
+  // Cleared only where a front page actually arrived. Returning false here
+  // leaves loop() to set it again, so an empty answer still reads as a failure.
+  frontPageFailed_ = stories_.empty();
   return !stories_.empty();
 }
 
@@ -393,7 +508,7 @@ bool HackerNewsActivity::fetchArticle() {
   if (!hn::urlCanBeArticle(story->url)) {
     showNotice("NOT READABLE HERE",
                "That link is a PDF, a video, or a page that only a browser can open. There is no article text to bring "
-               "back. The conversation is still here.",
+               "back. The conversation is still here, and you can keep that for later.",
                true);
     return true;
   }
@@ -425,7 +540,7 @@ bool HackerNewsActivity::fetchArticle() {
     LOG_INF("HN", "gate rejected %s (%d prose chars)", story->url.c_str(), hn::proseChars(extracted.body));
     showNotice("NOT READABLE HERE",
                "That page came back with no article in it. Whatever is there needs a browser to see. The conversation "
-               "is still here.",
+               "is still here, and you can keep that for later.",
                true);
     return true;
   }
@@ -444,6 +559,15 @@ bool HackerNewsActivity::fetchArticle() {
 bool HackerNewsActivity::fetchComments() {
   const hn::Story* story = currentStory();
   if (story == nullptr) return false;
+
+  // The thread's own key in the library, taken here for the reason the
+  // article's is taken in fetchArticle: by the time the reader asks whether
+  // what it is showing has been kept, the selected story may have moved on.
+  // Hacker News's item page rather than the story's link, so an article and its
+  // discussion are two entries and neither can overwrite the other -- and so a
+  // post with no link of its own still has a key.
+  readerUrl_ = hn::savedThreadUrl(story->id);
+  readingSaved_ = false;
 
   std::vector<hn::Comment> comments;
   hn::CommentScanner scanner(comments, {});
@@ -519,10 +643,16 @@ void HackerNewsActivity::showDocument(const char* title, const bool comments) {
 }
 
 void HackerNewsActivity::saveCurrentArticle() {
-  // Only an article is worth saving: a thread is a conversation that keeps
-  // moving, and the words on screen are the article's.
-  if (readingComments_ || readerUrl_.empty() || document_.empty()) return;
-  if (!library_.save(readerUrl_, readerTitle_, document_)) {
+  // Whatever is on the page, keyed by whatever it is. A thread used to be
+  // refused here on the grounds that a conversation keeps moving -- but the
+  // stories worth taking on a train are exactly the ones whose page will not
+  // render, and for those the conversation is all there is. Refusing it meant
+  // the only stories that could not be kept were the ones with most reason to
+  // be. What is written to the card is the words that are on screen, which is a
+  // snapshot either way.
+  if (readerUrl_.empty() || document_.empty()) return;
+  const std::string title = readingComments_ ? hn::savedThreadTitle(readerTitle_) : readerTitle_;
+  if (!library_.save(readerUrl_, title, document_)) {
     showNotice("NOT SAVED", "The card would not take it. There may be no room left.", false);
   }
   // The shelf gained a row while the view did not change, which is the one
@@ -555,6 +685,13 @@ void HackerNewsActivity::openSavedArticle(const int index) {
     requestUpdate();
     return;
   }
+  // Articles saved from today on are folded before they are written, because
+  // the fold happens where the text enters. One saved before this existed is
+  // not, and the reading cut has no glyph for what it carries, so it would keep
+  // its holes for as long as it stayed on the card. Folding on the read costs
+  // one pass over a document that is about to be word-wrapped anyway, and needs
+  // no migration.
+  document_ = utf8FoldTypography(document_);
   readerUrl_ = article.url;
   // Set AFTER showDocument, which does not know about the library: showDocument
   // is shared with the front-page path and clearing this there would make every
@@ -562,6 +699,33 @@ void HackerNewsActivity::openSavedArticle(const int index) {
   showDocument(article.title.c_str(), false);
   readingSaved_ = true;
   articleAvailable_ = true;
+  requestUpdate();
+}
+
+void HackerNewsActivity::returnToList() {
+  // An article opened out of the library goes back to the library. Landing on
+  // the front page instead loses the shelf you were working through, and there
+  // is no way back to it but two more taps.
+  if (readingSaved_) {
+    view_ = hn::ListView::Saved;
+  }
+  readingSaved_ = false;
+  phase_ = Phase::List;
+  requestUpdate();
+}
+
+void HackerNewsActivity::pageList(const int delta) {
+  // The rows the last paint DREW, not the stories the last fetch returned. The
+  // saved shelf draws a different number of rows from the front page, so
+  // paging it by stories_.size() moved topIndex_ somewhere the paint then
+  // clamped back -- a key that did nothing on the shelf, or jumped.
+  const int count = static_cast<int>(listItems_.size());
+  if (count <= 0 || visibleRows_ <= 0) return;
+  const int pages = shelfui::pageCountFor(count, visibleRows_);
+  // A list that fits on one page has nowhere to step to. Moving it anyway would
+  // be a page turn that changed nothing, which reads as a dead input.
+  if (pages <= 1) return;
+  topIndex_ = shelfui::pageStep(shelfui::pageFor(topIndex_, visibleRows_), pages, delta) * visibleRows_;
   requestUpdate();
 }
 
@@ -607,10 +771,11 @@ void HackerNewsActivity::render(RenderLock&&) {
   const char* what = "Hacker News";
 
   switch (phase_) {
-    case Phase::Connecting:
     case Phase::Busy: {
       hnui::NoticeModel model;
       model.headline = busyMessage_;
+      // No control, deliberately: there is nothing to decide while a fetch is
+      // in flight, and the next loop pass replaces this screen either way.
       hnui::buildNotice(screen, model);
       what = "HN busy";
       break;
@@ -669,11 +834,24 @@ void HackerNewsActivity::render(RenderLock&&) {
       // cursor visible -- and that cursor is gone. Paging owns the view now, so
       // deriving it here would fight the page keys. It only needs clamping.
       if (visibleRows_ > 0) {
-        // Against the rows actually drawn, not against stories_: on the saved
-        // shelf those are different lengths, and clamping to the wrong one
-        // scrolls past the end or refuses to scroll at all.
-        const int maxTop = static_cast<int>(listItems_.size()) - visibleRows_;
-        if (topIndex_ > maxTop) topIndex_ = maxTop < 0 ? 0 : maxTop;
+        // Onto a PAGE BOUNDARY, not onto the last screenful of rows. Against
+        // the rows actually drawn, too, not against stories_: on the saved
+        // shelf those are different lengths.
+        //
+        // Clamping to `count - visibleRows_` looks like the same thing and is
+        // not, whenever the last page is a short one: it rewrites topIndex_ to
+        // a value the pager could never have produced, and the next step back
+        // is computed from that. A 14-row shelf pages 0, 6, 12; the old clamp
+        // stored 8 instead of 12, so forward, forward, back left the shelf on
+        // page ONE.
+        //
+        // The list component still fills its last page from `count - visible`
+        // for DRAWING, which is its own behaviour and every list in the fork
+        // shares it. The difference is that the page we are on is now ours to
+        // remember rather than something read back out of the paint.
+        const int pages = shelfui::pageCountFor(static_cast<int>(listItems_.size()), visibleRows_);
+        const int maxTop = pages > 0 ? (pages - 1) * visibleRows_ : 0;
+        if (topIndex_ > maxTop) topIndex_ = maxTop;
         if (topIndex_ < 0) topIndex_ = 0;
       }
       const bool saved = view_ == hn::ListView::Saved;
@@ -683,20 +861,23 @@ void HackerNewsActivity::render(RenderLock&&) {
       model.selected = saved ? -1 : selected_;
       model.topIndex = topIndex_;
       model.showingSaved = saved;
-      if (saved) {
-        model.title = "SAVED";
-        if (listItems_.empty()) {
-          model.emptyHeadline = "NOTHING SAVED YET";
-          // MEASURE IN THE FACE THE CALL SITE RESOLVES TO, not the one its name
-          // suggests. centeredText does not wrap, and this draws with
-          // theme().smallText -> kUiFont -> FONT_SLOT_BODY, which under
-          // readingFaces() is kReadingFontId: notoserif_14, not a UI face.
-          // Measured there: the original wording is 915px, and the replacement
-          // that measured a comfortable 345px in ubuntu_10 -- a face this
-          // screen never uses -- is 511.8px and shipped cut as "Tap the mark on
-          // an article to ke". This is 399.3px, 80.7px of margin.
-          model.emptyMessage = "Keep an article: tap its mark.";
-        }
+      if (saved) model.title = "SAVED";
+      if (listItems_.empty()) {
+        // Both shelves, from one place. An empty front page is now the ordinary
+        // opening screen -- the radio is down until something asks for it -- so
+        // it needs a sentence and a way onward exactly as the shelf does.
+        //
+        // MEASURE ANY WORDING HERE IN THE FACE THE CALL SITE RESOLVES TO, not
+        // the one its name suggests: theme().smallText -> kUiFont ->
+        // FONT_SLOT_BODY, which under readingFaces() is kReadingFontId,
+        // notoserif_14 and not a UI face. A message that measured a comfortable
+        // 345px in ubuntu_10 -- a face this screen never uses -- is 511.8px
+        // here and shipped cut as "Tap the mark on an article to ke".
+        const hn::EmptyState empty = hn::emptyState(view_, frontPageFailed_);
+        model.emptyHeadline = empty.headline;
+        model.emptyMessage = empty.message;
+        model.emptyActionLabel = empty.actionLabel;
+        if (empty.actionLabel != nullptr) model.emptyAction = hnui::ActionLoadFrontPage;
       }
       hnui::buildList(screen, model);
       what = saved ? "HN saved" : "HN front page";
@@ -707,10 +888,21 @@ void HackerNewsActivity::render(RenderLock&&) {
       // Measured here because measuring needs a draw target, and measured from
       // the same rect the text is drawn into: readerBody() is the one function
       // that owns that rectangle, so a page turn cannot skip a line.
+      //
+      // Through wrap_ rather than textAreaMeasure(), which wrapped the whole
+      // document on every single paint with not even a branch to hang a cache
+      // on. An article is long and a flattened comment thread is longer; both
+      // were re-wrapped twice per page turn. Instapaper was reported first and
+      // this is the same bug in the same shape. See ToyboxWrappedText.h.
       const fui::Rect body = hnui::readerBody(device);
       const int16_t lineHeight = target.lineHeight(tokens.bodyText.font);
       visibleLines_ = fui::textAreaVisibleLines(body, lineHeight);
-      lineCount_ = fui::textAreaMeasure(target, body.width, document_.c_str(), tokens.bodyText, 0).lineCount;
+      hnui::ReaderBody bodyText;
+      bodyText.text = document_.c_str();
+      bodyText.style = tokens.bodyText;
+      bodyText.wrap = &wrap_;
+      lineCount_ = hnui::readerLineCount(target, device, bodyText);
+      const uint32_t measured = lineCount_;
 
       const uint32_t pages = visibleLines_ > 0 ? (lineCount_ + visibleLines_ - 1) / visibleLines_ : 1;
       const uint32_t page = visibleLines_ > 0 ? topLine_ / visibleLines_ + 1 : 1;
@@ -722,7 +914,6 @@ void HackerNewsActivity::render(RenderLock&&) {
       // is the useful fact, and the footer's swap button already names the
       // mode. The builder fits it to the band.
       model.title = readerTitle_.c_str();
-      model.text = document_.c_str();
       model.topLine = topLine_;
       model.pageLabel = pageLabel_;
       model.showingComments = readingComments_;
@@ -737,11 +928,18 @@ void HackerNewsActivity::render(RenderLock&&) {
       model.swapAvailable = readingSaved_ ? false : (readingComments_ ? articleAvailable_ : true);
       model.canPagePrev = topLine_ > 0;
       model.canPageNext = lineCount_ > topLine_ + visibleLines_;
-      // A thread has nothing to save but the article it hangs off, so the mark
-      // is absent there rather than offering to save the wrong thing.
-      model.canSave = !readingComments_ && !readerUrl_.empty();
+      // Over whatever is on the page. readerUrl_ is the key for the piece being
+      // read -- the story's link for an article, Hacker News's item page for a
+      // thread -- so the mark can never claim one was kept because the other
+      // was. Empty only until the first fetch has answered.
+      model.canSave = !readerUrl_.empty();
       model.saved = model.canSave && library_.contains(readerUrl_);
-      hnui::buildReader(screen, model);
+      // The count the panel was drawn from; see the twin in
+      // InstapaperActivity.cpp. No reading position goes anywhere from here,
+      // but the page label and the forward control were both computed from
+      // the count taken before the drawing.
+      lineCount_ = hnui::buildReader(screen, model, bodyText);
+      if (lineCount_ != measured) requestUpdate();
       what = "HN reader";
       break;
     }
@@ -751,7 +949,18 @@ void HackerNewsActivity::render(RenderLock&&) {
       model.headline = noticeHeadline_.c_str();
       model.message = noticeMessage_.c_str();
       model.mark = noticeUnreadable_ ? &icon_unreadable_32 : nullptr;
-      model.actionLabel = noticeUnreadable_ ? "READ THE COMMENTS" : nullptr;
+      // EVERY notice carries a control, and the rule for which lives in the
+      // screens layer where a host test can ask it directly. It used to be
+      // `unreadable ? "READ THE COMMENTS" : nullptr` written out here, so the
+      // four notices that are not about an unreadable link -- a failed article,
+      // a failed thread, a card that would not take a save, a saved file whose
+      // text has gone missing -- drew no button at all. This screen has no
+      // segments and nothing under it, so each was a dead end whose only exit
+      // is a left-edge swipe the screen never mentions, with the SAVED shelf on
+      // the far side of it.
+      const hnui::NoticeControl control = hnui::noticeControl(noticeUnreadable_);
+      model.actionLabel = control.label;
+      model.action = control.action;
       hnui::buildNotice(screen, model);
       what = "HN notice";
       break;

@@ -194,6 +194,39 @@ inline void tapCell(Game& game, const int cell) {
   if (isSolved(game)) game.solvedFlag = 1;
 }
 
+// What the front door is offering, DERIVED from the save rather than latched
+// beside it.
+//
+// `Puzzle` carries the level it was carved at, so "is the menu showing the
+// level you were playing" is a fact with an answer at any moment. A flag set on
+// every DIFFICULTY tap cannot represent COMING BACK: the row cycles
+// `(level + 1) % 4`, so four taps returned the menu to where it started with
+// the flag still set, and the door under a grid that was still on the screen
+// silently became the one that overwrites it.
+//
+// One enum rather than two predicates because the button and the caption above
+// it are two renderings of a single fact. Asking twice is how they disagree,
+// and a door that does something other than what it says is the bug this whole
+// file exists to have stopped having.
+enum class MenuOffer : uint8_t {
+  Fresh,       // nothing saved
+  Resume,      // an unsolved game at the level the menu is showing
+  Solved,      // the saved game is finished; the door replaces it
+  OtherLevel,  // a saved game, but the menu is pointed somewhere else
+};
+
+inline MenuOffer menuOffer(const Game& game, const bool hasGame, const Level menuLevel) {
+  if (!hasGame) return MenuOffer::Fresh;
+  if (menuLevel != game.puzzle.level) return MenuOffer::OtherLevel;
+  return game.solvedFlag != 0 ? MenuOffer::Solved : MenuOffer::Resume;
+}
+
+// Resume is the ONLY offer that opens the saved grid; every other one carves a
+// new puzzle over it. Keeping that asymmetry in one line is the point.
+inline bool canResume(const Game& game, const bool hasGame, const Level menuLevel) {
+  return menuOffer(game, hasGame, menuLevel) == MenuOffer::Resume;
+}
+
 // A hold on a cell pencils the armed digit in, or rubs it out. Same split as
 // Minesweeper's tap-to-dig and hold-to-flag, deliberately: it is the one
 // two-gesture idiom this device already has, so it is the one a player has

@@ -1226,8 +1226,6 @@ worker.onmessage = function (event) {
       if (mine === step) button.setAttribute("aria-current", "step");
       else button.removeAttribute("aria-current");
     });
-    $("modeInstall").setAttribute("aria-selected", "true");
-    $("stepper").classList.remove("is-hidden");
   }
 
   stepButtons.forEach(function (button) {
@@ -1235,10 +1233,6 @@ worker.onmessage = function (event) {
       goTo(Number(button.dataset.step));
     });
   });
-  $("modeInstall").addEventListener("click", function () {
-    goTo(currentStep);
-  });
-
   // Exposed for the write step (phase 4) and tests; harmless otherwise.
   window.StudyInstaller = {
     withDeckFiles: withDeckFiles,

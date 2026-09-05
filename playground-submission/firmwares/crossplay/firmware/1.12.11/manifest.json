@@ -1,0 +1,23 @@
+{
+  "name": "CrossPlay",
+  "version": "1.12.11",
+  "flashSize": "16MB",
+  "flashMode": "dio",
+  "flashFreq": "80m",
+  "baudRate": 460800,
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "crossplay-v1.12.11-sticky-full.bin",
+          "offset": 0,
+          "size": 6643296,
+          "sha256": "c07efd799ee3d520ff5ff7e407b3401f5e2dfd271fc226d3e248c93f848b21cc",
+          "md5": "d7a2f89dcff2fb41fe52836a96ca3d60"
+        }
+      ]
+    }
+  ]
+}

@@ -36,22 +36,126 @@ passing the device back to the clue-giver for the reveal.
 | 3   | PICK ONE        | Two spectra, chosen before the target is drawn.                |
 | 4   | YOUR TARGET     | Hold to reveal. The band shows only while a thumb is down.     |
 | 5   | SAY IT OUT LOUD | Both ends large, target confirmed hidden.                      |
-| 6   | DIAL            | Flat on the table. Tap or hold to move. Hold the bar to lock.  |
+| 6   | DIAL            | Flat on the table. Tap a slot to move. One press locks.        |
 | 7   | WHICH WAY       | The end-call, worth one point.                                 |
 | 8   | REVEAL          | Full refresh. Band, guess, points, verdict.                    |
 | 9   | SESSION         | Totals against a reference, and the ornament again.            |
 
-Back unwinds to the menu, except from the peek onward, where it **abandons the
-round and passes left**, and on the reveal, where it also returns to the menu.
+Back unwinds to the menu, except inside a round, where it opens the **pause**,
+and on the reveal, where it returns to the menu.
 Back must never be a synonym for the forward button beside it: on the reveal it
 once dealt the next round, which reads as working right up until somebody wanted
 to look at the last screen again. That is deliberate: if backing out re-dealt for the
 same person, a clue-giver could quietly hunt for an easy axis, and the deck's
 strangest cards would never be played.
 
+## The pause, and why abandoning is counted
+
+Back used to abandon the round silently, which was three faults wearing one
+gesture. There was no on-screen way out of a round at all; the scoring table
+lived only on the practice reveal, so "how many points is one off again?" cost
+the round to answer; and **the clue-giver could re-deal until they liked their
+target**. That last one is worse than a cheat: the screen before it has just
+told everyone else to look away, so the game itself clears the room, and a
+re-deal that preserves the round number and the score is indistinguishable from
+playing properly.
+
+So Back opens a pause carrying the scoring table, `RESUME THE ROUND`, and an
+explicit `ABANDON THIS ROUND` that says what it costs. Back out of the pause
+resumes: the safe direction is the default. **Abandons are counted and shown** on
+the next PASS LEFT and on the end screen, because the board is public in this
+game and so is walking away from a target you did not like.
+
+## Whose game is on the card
+
+A round in progress is written to `/.crosspoint/wavelength.sav` on every screen
+change and every move of the marker, not on the way out. Home destroys the
+activity and deep sleep is a chip reset, so anything only written by `onExit()`
+is a round the table loses.
+
+That save had **no notion of going stale**, and this is a party game, so a
+different group is the normal case rather than the edge one. Days later a new
+table opened the app and was dropped into the middle of the previous group's
+round 2: a clue they never heard, a score they did not earn, and nothing on the
+panel saying so. **The session goes stale, not just the round in flight.** A
+save sitting on the front door with round 7 and 23 points behind it has no round
+in flight at all, and the menu's own button offers to play its round 7 into its
+score -- the same bug with one tap in front of it.
+
+**The axis is the boot, because this device cannot measure elapsed time it can
+rely on.** Wake is a chip reset, so `millis()` restarts. The wall clock is a
+fitted part on some boards and absent on others (plain X4 has no RTC), it is
+only ever set by an NTP sync over Wi-Fi, and a flat coin cell returns it to
+1970. A rule resting on it would behave differently on two devices sitting on
+the same table. So the save records which run of the chip wrote it -- a
+zero-initialised static, seeded once from `esp_random()`, which is exactly "this
+boot" because `.bss` is cleared on every reset. Within one boot the device has
+not been away: Home and back, or the shelf and back, resumes silently and costs
+nothing. Across a reset the answer is genuinely unknown.
+
+**So a stale session is neither discarded nor resumed. It is offered.** Guessing
+wrong one way drops a group into a stranger's game; guessing wrong the other
+destroys a round somebody meant to come back to. Asking is wrong in neither, and
+`IS THIS THE SAME GROUP?` costs one screen that only appears when there is
+something to ask about. `CARRY ON ROUND N` occupies **exactly the front door's
+`PLAY ROUND N` rect**, so a returning table's blind tap is the safe answer, and
+`START A NEW GAME` sits below every control the menu has, so no remembered tap
+can reach the one control that throws an evening away. Back decides neither and
+leaves the card untouched, so the question comes back.
+
+**The clock informs the question and never decides it.** When the device can
+say, the screen adds `LEFT 6 DAYS AGO`, which answers "is this ours?" outright
+where a round number does not. When it cannot -- no stamp, no clock, or a clock
+that moved backwards -- the row is simply absent and everything else is
+unchanged.
+
+Save version 3. A v2 card (any build up to this one) carries no boot id, which
+reads as "cannot know", so an upgrade mid-session asks once. A v1 card carries
+the record and no evening, and asks nothing. **Every version's length is named**
+rather than just the current one: the check deciding whether a session block is
+present used to compare against the whole file, and appending to the tail would
+have made every v2 card look truncated and silently dropped the session it was
+carrying.
+
+**Where the boot axis is inert, and it is a setting.** `Sleep Timeout` has a
+`Never` position, and Developer Mode inhibits sleep for as long as it is on. On
+a device left in either, the chip never resets on its own, so the boot never
+changes and a new group is dropped into the previous group's round exactly as
+before -- bounded by battery life rather than by days. That is not a regression,
+but it is the one configuration in which this fix does nothing.
+
+**And a chip reset is commoner than "the device slept".** Hacker News and Study
+call `silentRestart()` on touch boards, so WAVELENGTH, another app, WAVELENGTH
+is a new boot thirty seconds later and the same table is asked. So is a panic
+reboot. Every one of those errs on the safe side -- the question, never a silent
+adoption -- but the friction is real and is the half that surprises.
+
+**A firmware downgrade drops the record.** A build older than this one refuses a
+v3 card outright and starts from nothing, and its next write replaces the file.
+Older builds already did this to each other's formats; the bump makes it
+reachable again.
+
 ## Moving the marker
 
-**A tap places the marker on the slot tapped.** A cold player tapped near the
+**A tap places the marker on the slot tapped**, the keys nudge it by one, and
+`LOCK IT IN` -- or `ENTER`, where the board has that key -- locks. Nothing else
+moves it: hold-to-sweep was deleted rather than
+repaired, because dragging 17 to 3 landed on 12 and dragging back landed on 10
+(the position is sampled on touch-down), and tap-to-place already saves the
+nineteen taps it was added for. A broken gesture earning nothing is a deletion.
+
+**The hit test stops where the strip's column stops**, and a tap one slot past
+either end clamps to that end. Full-width zones meant that pointing at the
+screen mid-argument changed the answer, and a tap just under slot 1 that did
+nothing read as a dead device.
+
+**Bounding one of two input paths fixes nothing.** The screen also registered
+two full-width step regions from the original design, so after the hit test was
+bounded the mark still moved. Two paths to one control, one fixed, looks exactly
+like a fix that worked. They are gone; so is `dialDirectionAt`, which the sweep
+had left used by nothing but its own test.
+
+ A cold player tapped near the
 top of the strip expecting to jump there, moved one slot, and faced ten refreshes
 to cross the board. A held finger sweeps the marker along under it and stops
 where the finger stops. It is a sweep, not a runaway repeat,
@@ -80,10 +184,11 @@ by accident:
 - **A control that cannot act must not look like one that can.** Until the
   target has been seen the footer dims to LOOK FIRST, using the same
   `disabledStepperStyles()` the front door uses for END SESSION, and a bare tap
-  on either hold control relabels it PRESS AND HOLD IT. Drawn solid black and
-  silent, it read as a dead device: a cold player tapped both controls twice
-  each and stopped playing. A difference of KIND, not degree -- a subtler cue
-  gets rationalised away inside twenty minutes.
+  on the peek pad relabels it PRESS AND HOLD IT. Drawn solid black and silent,
+  it read as a dead device: a cold player tapped both controls twice each and
+  stopped playing. A difference of KIND, not degree -- a subtler cue gets
+  rationalised away inside twenty minutes. The LOCK carried the same nudge until
+  it stopped being a hold; an ordinary button does not need one.
 - **The peek is one-way.** No route back to the target once the clue is passed.
 - **The clue screen says `YOU DO NOT TOUCH IT AGAIN.`** Nothing else on the
   device stops the one person who knows the answer from dialling it in, and the
@@ -114,9 +219,27 @@ both encode decisions that would be easy to reverse by accident:
 
 ## The deck
 
-252 pairs, the retail CMYK deck (designers Alex Hague, Justin Vickers, Wolfgang
+245 pairs, the retail CMYK deck (designers Alex Hague, Justin Vickers, Wolfgang
 Warsch), generated into `WavelengthPairs.h` by
 `tools_local/wavelength/gen_pairs.py` from `pairs_en.txt`.
+
+**SEVEN CARDS ARE DELIBERATELY REMOVED**, on Mario's instruction after cold
+players stalled on them, in three kinds:
+
+- **Synonyms**, where there is no thing that is maximally one and minimally the
+  other: `STRANGE/WEIRD`, `MANNERS/ETIQUETTE`, `PROHIBITED/ILLEGAL`.
+- **Same direction**, where both ends mean the same thing and one is just more
+  so, leaving the strip no opposition to run between: `TINY/SMALL`,
+  `IDENTICAL/SIMILAR`.
+- **Not a continuum**, where nothing sits between the ends:
+  `SLYTHERIN/GRYFFINDOR` (which also silently excludes two of the four houses)
+  and `TOCK/TICK` (no shared intuition to rate anything against).
+
+`HOMOGENOUS` was also corrected to `HOMOGENEOUS`: the card paired the biology
+spelling with the ordinary `HETEROGENEOUS`.
+
+So the count differs from retail BY DESIGN. If a future spot-check against the
+physical box finds 252, that is expected and not a transcription fault.
 
 > **PERMISSION, on Mario's testimony.** On 2026-08-31 Mario stated that CMYK
 > granted permission to use these pairs, given in a Reddit exchange. The
@@ -126,7 +249,7 @@ Warsch), generated into `WavelengthPairs.h` by
 > a reference instead of a testimony.
 >
 > **The transcription is a different claim and is still unchecked.** Permission
-> to use CMYK's cards is not evidence that these 252 lines ARE CMYK's cards.
+> to use CMYK's cards is not evidence that these lines ARE CMYK's cards.
 > Twenty pairs spot-checked against the physical box would settle it; nobody has
 > done that yet.
 
@@ -178,6 +301,19 @@ inline in `render()` rather than calling a helper. An audit that assumed the
 slot names measured the title slot as `toybox_44` when it is `toybox_64`, 45%
 narrow, and reported clean.
 
+**`WavelengthSave.cpp` was compiled by nothing until 2026-09-03**, though its
+own header said the tests existed. The layer carrying a game in progress across
+a chip reset had no test of any kind, which is how it came to ship with no
+notion of a saved session going stale. It is in the run script now, and
+`pack`/`unpack` round-trip, the v1 and v2 fixtures, and every branch of
+`resumeFor` are covered.
+
+**The activity's wiring around that decision is not.** No activity in this fork
+is host-testable, so which screen a load lands on, `saveState()` refusing to
+write while the question is up, and Back deciding neither answer were verified
+by driving the simulator, not by a test. The simulator does not compile
+`lib/hal`, so that is evidence about the app's logic and not about storage.
+
 ## Traps, all of them paid for
 
 **Every string on a button is a width, not a label.** The end words on the
@@ -193,8 +329,49 @@ how big the ink is; `CutMetrics` only decides where it is centred. Passing a
 mismatched pair is silent. It produced "NOT SCORED" rendered at 82px, a headline
 truncated to "WAVELE", and a line drawn straight through the one under it.
 `caps()` now derives the metrics from the slot so the two cannot disagree, and
-`endWord()` walks the cut ladder down because 54 of the deck's 252 pairs do not
+`endWord()` walks the cut ladder down because 54 of the deck's pairs do not
 fit at the display cut.
+
+**The LOCK is an ordinary button and the guard is GEOMETRY.** It was
+`HOLD TO LOCK`, a 600ms hold on a bar spanning x=80..399 -- and the strip the
+table has been tapping all round answers out to x=226, so the commit control sat
+directly under it. Two faults followed. Nothing on the panel stated the
+duration, which makes a hold a guessing game rather than a safeguard; and firing
+mid-contact drew the reveal under a finger that was still down, so the lift-off
+pressed whatever the new screen put there and four cold testers advanced past
+their own score.
+
+The bar is now `LOCK IT IN`, carries `ActionLock`, and is routed on the touch
+RELEASE by the frame like every other control. The stray tap is stopped by where
+it sits instead: `lockBarRect()` gives it only the NUMBER COLUMN's third of the
+footer. Measured off the rendered screens rather than derived by hand, every
+bound inclusive:
+
+| what | x | y |
+| --- | --- | --- |
+| strip, where `dialSlotAt` answers | 40..226 | 70..663 |
+| `LOCK IT IN`, where `ActionLock` routes | 240..399 | 722..783 |
+| the reveal's `NEXT ROUND` | 16..463 | 640..701 |
+
+So the two columns are disjoint, there are 59px of dead paper below the strip's
+lowest live row, and the bottom-left corner clearance goes from 64px to 224px
+while the right stays at 64. Nothing below the strip is live at all -- not a
+smaller target, no target.
+
+**Separate the coordinates; do not rely on the action being harmless.** The
+touch table goes live before the panel has painted the new screen, so a rect
+whose MEANING changes across a transition is the fault, not the action behind
+it. No pixel answers both tables above, and that is checked by ROUTING taps
+through them rather than by reading the source.
+
+The one place two meanings still share pixels is inbound: `SAY IT OUT LOUD`'s
+forward button is `footer(62, kMargin)` = x=16..463 y=722..783, which CONTAINS
+the lock's rect. `kSettleMs` covers exactly the window in which the change is
+invisible, because the panel has not painted yet; after it the button is visible
+and labelled. The lock is routed BELOW that window deliberately. Separating it
+would mean either reflowing the number column -- which moves the game's main
+action out of the footer every other screen trains the table to look at -- or
+shortening a label the wording pass settled, at the cost of a silent truncation.
 
 **Do not pass a sentinel slot to mean "no marker".** It drew a phantom marker at
 the foot of the strip. `drawScale` and `drawMarker` are separate for that
@@ -227,3 +404,9 @@ simulator models ghosting. This needs two minutes on a real X4 Pro: peek,
 release, look at the strip.
 
 **Whether the deck is fun**, which no test answers and which needs a table.
+
+**Whether the boot is the right axis in a real evening.** It is right in the
+cases that were reasoned about, but the friction it buys -- a table that leaves
+the device idle long enough to sleep on the front door is asked once on waking
+-- has only been seen in a simulator, where the sleep timeout and a real party's
+rhythm are both absent.

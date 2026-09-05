@@ -1,0 +1,162 @@
+# A release starts the moment a merge passes CI. No clock, no train.
+#
+# Runs after every completed "CrossPlay" CI run on xteink. If the run was
+# green, the tip of xteink is still the commit CI verified, and something a
+# person could receive has merged since the newest tag, this bumps [crossplay]
+# version, writes docs/release-body.md (the page the release publishes) and
+# prepends the release to docs/release-notes.md (the history), from the merged
+# pull requests' own lines (scripts_local/release_notes.py), commits, tags, and
+# dispatches the release workflow on that tag. Only the pull requests that
+# reach a user become lines -- the same column of the same table the gate below
+# reads -- and the rest are named in this job's log rather than in the notes.
+#
+# One at a time: the concurrency group queues a second green run behind a
+# release in progress instead of cancelling either, so merges that land while
+# one release builds collapse into the next. A tip that moved since CI ran is
+# left alone; the CI run for the new tip will bring its own release.
+#
+# The brake is the repository variable RELEASE_HOLD=1. While it is set this
+# job says so and does nothing.
+#
+# The tag is pushed with RELEASE_TOKEN when that secret exists, and a tag
+# pushed that way starts the release workflow like any tag push. Without the
+# secret the push is made with the workflow's own token, which starts nothing,
+# and the job dispatches the release workflow itself (the last step, which
+# says why it is conditional). Never both: on 2026-09-04 v1.12.16 was built
+# and published twice, once per path. The bump commit touches platformio.ini,
+# docs/release-notes.md and docs/release-body.md only: GitHub refuses
+# workflow-file changes from the default token, which is why the notes do not
+# live in the release workflow.
+name: CrossPlay autorelease
+
+on:
+  workflow_run:
+    workflows: ["CrossPlay"]
+    types: [completed]
+    branches: [xteink]
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+
+concurrency:
+  group: crossplay-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'xteink'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: xteink
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Decide whether to release
+        id: gate
+        env:
+          VERIFIED: ${{ github.event.workflow_run.head_sha }}
+          HOLD: ${{ vars.RELEASE_HOLD }}
+        run: |
+          if [ "$HOLD" = "1" ]; then
+            echo "RELEASE_HOLD is set: not releasing. Clear the repository variable to resume."
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          tip="$(git rev-parse HEAD)"
+          if [ "$tip" != "$VERIFIED" ]; then
+            # CI's own emulator rebuild commits to xteink right after a merge and
+            # is pushed with the workflow token, so no CI run ever comes for it.
+            # A tip that moved only by such commits is the verified commit plus
+            # site/ bytes no device sees: release from it. Anything else moved
+            # the tip for real and its own run brings its own release.
+            if git log --format=%s "$VERIFIED..$tip" | grep -vq '^chore: emulator rebuilt'; then
+              echo "xteink moved past the commit CI verified ($VERIFIED -> $tip); the run for the new tip releases it."
+              echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            echo "xteink moved past $VERIFIED only by emulator rebuilds; releasing from $tip."
+          fi
+          # A merge nobody can receive anything different from (docs, site,
+          # tooling, the workspace's own machinery) is not a release: no bump,
+          # no tag, no update prompt on every device for nothing.
+          # scripts_local/release-needed.sh reads the `ships` column of the one
+          # classification table; the `builds` column is a different question
+          # and reading it here is what cut v1.12.21.
+          #
+          # THREE ANSWERS, TWO OF WHICH ARE NOT "no". Exit 2 means a changed
+          # path is in no row of the table, and the job FAILS on it rather than
+          # guessing: releasing for nothing and silently withholding a real fix
+          # are both bad, and a red job that names the path gets the row added.
+          # A green run that quietly picked a side would not.
+          set +e
+          bash scripts_local/release-needed.sh
+          gate_rc=$?
+          set -e
+          case "$gate_rc" in
+            0) echo "go=true" >> "$GITHUB_OUTPUT" ;;
+            1) echo "go=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            *) echo "::error::release-needed.sh refused to decide (exit $gate_rc). A changed path is in no row of the classification table in scripts_local/device-build-needed.sh; the log above names it. Add a row saying whether it builds and whether it ships, then re-run."
+               exit 1 ;;
+          esac
+
+      - name: Write the version and the notes
+        id: notes
+        if: steps.gate.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts_local/release_notes.py --write | tee notes.out
+          next="$(grep '^NEXT_VERSION=' notes.out | cut -d= -f2)"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          [ -n "$next" ] || echo "Nothing merged since the newest tag; nothing to release."
+
+      - name: Commit, tag, push
+        if: steps.gate.outputs.go == 'true' && steps.notes.outputs.next != ''
+        env:
+          NEXT: ${{ steps.notes.outputs.next }}
+        run: |
+          git config user.name "crossplay-release[bot]"
+          git config user.email "crossplay-release@users.noreply.github.com"
+          git add platformio.ini docs/release-notes.md docs/release-body.md
+          git commit -m "chore: crossplay $NEXT" -m "Released by crossplay-autorelease after a green CI run on xteink."
+          git tag "v$NEXT"
+          if ! git push origin xteink "v$NEXT"; then
+            echo "::error::The push was refused. The bump touches platformio.ini, docs/release-notes.md and docs/release-body.md only; if the message names workflow permissions, something put a workflow file in the commit."
+            exit 1
+          fi
+          echo "Tagged v$NEXT at $(git rev-parse --short HEAD)"
+
+      # Dispatch ONLY when the tag push cannot have started the build itself.
+      #
+      # crossplay-release.yml triggers on `push: tags:` as well as on
+      # workflow_dispatch. A tag pushed with GITHUB_TOKEN starts nothing --
+      # that is GitHub's loop guard, and it is why this step exists. But the
+      # checkout above now takes `secrets.RELEASE_TOKEN || github.token`, so
+      # once that secret exists the push IS a real push, it starts the release
+      # on its own, and dispatching as well builds the same tag twice.
+      #
+      # v1.12.16 did exactly that: run 33884760714 (event=push) and 33884760111
+      # (event=workflow_dispatch), same tag, one second apart, both ~14 minutes
+      # of runner, both racing to publish the same assets. Both exited 0 and
+      # neither said anything, so nothing downstream could have noticed.
+      #
+      # Conditional rather than deleted, so the no-token path still works:
+      # without the secret the push is silent and the dispatch is the only
+      # thing that starts a build.
+      - name: Build and publish the release
+        if: steps.gate.outputs.go == 'true' && steps.notes.outputs.next != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.notes.outputs.next }}
+          PUSH_STARTS_IT: ${{ secrets.RELEASE_TOKEN != '' }}
+        run: |
+          if [ "$PUSH_STARTS_IT" = "true" ]; then
+            echo "v$NEXT was pushed with RELEASE_TOKEN, so its push already started"
+            echo "crossplay-release.yml; not dispatching a second build of the same tag."
+          else
+            gh workflow run crossplay-release.yml --ref "v$NEXT"
+            echo "Dispatched crossplay-release.yml on v$NEXT; it builds and publishes."
+          fi

@@ -1,11 +1,18 @@
 # Turn a v* tag into a release the devices' own updaters can install.
 #
-# Upstream's release.yml is still in this tree and still fires on every tag, but
-# it builds gh_release, which is -DFREEINK_DEVICE_X4/X3 and therefore ESP32-C3.
-# This fork's devices (X4 Pro, Sticky) are S3. Two workflows on one tag would
-# publish two binaries and let the updater pick the wrong chip, so upstream's is
-# filtered to tags this fork never creates (see the `if` below) and this one
-# owns v*.
+# Upstream's release.yml is still in this tree, and it does NOT fire on a tag.
+# It builds gh_release, which is -DFREEINK_DEVICE_X4/X3 and therefore ESP32-C3,
+# while this fork's devices (X4 Pro, Sticky) are S3; two workflows on one tag
+# would publish two binaries and let an updater pick the wrong chip. Its
+# trigger was cut to `on: workflow_dispatch` and nothing else, so this one owns
+# v* by being the only thing a tag starts.
+#
+# That paragraph used to say upstream's was "filtered to tags this fork never
+# creates (see the `if` below)". There is no such `if`, and there has not been
+# a tag trigger to filter since the fork change in release.yml's own header --
+# release_candidate.yml is workflow_dispatch too. A stale reason in a comment
+# is worse than no reason, because the next person checks the claim instead of
+# the file.
 #
 # One release carries one app image per device. Their names are contracts:
 # the x4pro fleet's updater asks for the literal "firmware.bin" (every unit in
@@ -21,6 +28,11 @@ on:
   push:
     tags:
       - "v*"
+  # Also dispatchable by hand, and by crossplay-autorelease.yml -- but only
+  # when it pushed the tag with GITHUB_TOKEN, which starts nothing on its own.
+  # With RELEASE_TOKEN set the push above IS the trigger, and autorelease skips
+  # its dispatch; doing both built v1.12.16 twice, concurrently, for nothing.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -73,34 +85,38 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
-      - name: Build x4pro
-        run: pio run -e gh_release_x4pro
+      # ONE invocation for both devices, and that is load-bearing.
+      #
+      # pio run calls clean_build_dir() once per invocation, against the whole
+      # .pio/build ROOT, and rmtree's all of it when compute_project_checksum()
+      # differs from .pio/build/project.checksum. That checksum includes the
+      # .h files under src/ and include/ -- and this project GENERATES some of
+      # those during the build (src/network/html/*.generated.h, lib/I18n/
+      # I18nKeys.h), all of them gitignored and so absent from a fresh
+      # checkout. So on CI the checksum after a build never matches the one
+      # stored at its start, and a SECOND pio run wipes the first one's output
+      # before compiling a byte.
+      #
+      # That is what broke v1.12.14 and v1.12.15: bootloader.bin was built --
+      # the logs say "Building .pio/build/gh_release_x4pro/bootloader.bin" and
+      # the build reports SUCCESS -- and was gone when merge-bin looked, along
+      # with firmware.bin and partitions.bin. merge-bin only named the
+      # bootloader first.
+      #
+      # v1.12.13 survived by accident: before e31dcbb0, pioarduino re-entered
+      # pio run to recompile the IDF, and that second pass stored the
+      # post-generation checksum, so the sticky invocation matched it and wiped
+      # nothing. Its log shows "Processing gh_release_x4pro" twice in one step.
+      # Removing the recompile removed the accident that was holding this shut.
+      #
+      # Interleaving build-then-name per device also works, but only because
+      # each device's files reach dist/ before the next invocation starts --
+      # an ordering rule nothing states, which the next person to move a step
+      # silently breaks. One invocation means there is no second clean to lose
+      # a race with.
+      - name: Build both devices
+        run: pio run -e gh_release_x4pro -e gh_release_sticky
 
-      - name: Build sticky
-        run: pio run -e gh_release_sticky
-
-      # Two .bin files per device, because the two ways of installing need
-      # different images and shipping only one of them is what went wrong
-      # before.
-      #
-      #   -full.bin  bootloader + partition table + app, flashed at 0x0 over
-      #              USB. This is the one a first install needs. v1.0.0 and
-      #              v1.0.1 shipped the app on its own and told people to write
-      #              it to 0x0 -- which on an S3 is where the bootloader lives,
-      #              so it landed on top of it.
-      #   firmware.bin / firmware-sticky.bin  the app alone, one per device.
-      #              The over-the-air updater matches its own device's name
-      #              exactly (CROSSPOINT_RELEASE_ASSET); renaming one is what
-      #              silently switched both updaters off in v1.0.x.
-      #
-      # The per-board steps are spelled out rather than looped so
-      # host-tests/release can assert offsets and filenames against literal
-      # text.
-      #
-      # -fm/-fs/-ff keep: the flash mode, size and frequency already in the
-      # bootloader header are the ones this build was configured with. Passing
-      # them again by hand is a second copy of a fact that can drift; verified
-      # byte-identical to spelling them out.
       - name: Name the x4pro artefacts
         run: |
           mkdir -p dist
@@ -160,136 +176,28 @@ jobs:
           # have listed 1,319 commits, most of them CrossPoint's, as "what is
           # new in CrossPlay". A release note is a thing you write.
           generate_release_notes: false
-          body: |
-            Games and small tools for the **Xteink X4 Pro** and the **Seeed
-            reTerminal Sticky**, on top of
-            [CrossPoint](https://crosspointreader.com/). Nineteen games --
-            Chess, Checkers, Connect Four, Yahtzee, Knucklebones, Minesweeper,
-            Sudoku, Toy Battle, Forehead, Battleship, Connections, Solitaire,
-            D&Diagrams, Insider, Jaipur, Murdle, Sea Salt & Paper, Trivia and
-            Wavelength -- plus spaced-repetition flashcards, Hacker News, the
-            xkcd archive, a read-later queue and a catalog browser for
-            downloading books. Nine of them play over
-            **PLAY NEARBY**: Chess, Checkers, Connect Four, Yahtzee,
-            Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Two
-            devices next to each other find one another with nothing to type --
-            and they do not have to be the same device.
-
-            ### What is new in 1.12.2
-
-            **Trivia asks whether there is room before it downloads.** The
-            question pack is about 6 MB, and until now the app wrote it without
-            checking. On a nearly full card that fails somewhere in the middle,
-            and the app that suffers is not Trivia: it is Study, whose review
-            log then cannot be written, and which loses answers rather than
-            refusing. Trivia now checks first and stops with a message instead,
-            and it tells you the two cases apart. If the card is genuinely too
-            small it says how much it needs and how much you have. If the card
-            would not answer at all it says that instead, rather than pretending
-            to know.
-
-            **A frontlight that fails to start now says so.** It could not
-            before, which is most of why 1.11.1 and 1.12.0 shipped with a light
-            that would not turn on: the firmware reported success either way.
-
-            ### From 1.12.1
-
-            **The front light works again on the X4 Pro.** If you installed
-            1.11.1 or 1.12.0, the light stopped turning on: the panel opened,
-            the sun filled in, the setting remembered you had asked, and nothing
-            lit up.
-
-            **After updating, open the light panel and both switch it on and
-            raise the brightness.** Those two settings live on the SD card, not
-            in the firmware, so if you spent a while trying to get the light to
-            respond, the card may have kept the switch off and the slider near
-            the bottom from those attempts.
-
-            ### If you have not plugged your X4 Pro into a computer since August
-
-            **This update will refuse to install over the air, and one USB flash
-            fixes it permanently.**
-
-            Devices flashed before v1.5.3 have a 6.25MB app slot. This release
-            is about 45KB over it. The device checks the size before downloading
-            and refuses cleanly -- nothing is damaged, and it now tells you the
-            remedy rather than only the problem.
-
-            <!-- Approximate on purpose. The exact byte count is a property of
-            the CI build, not of any local one: v1.11.1 came out 506 bytes above
-            the local measurement and v1.12.0 502 bytes above, same tree,
-            different toolchain instance. A precise figure written here from a
-            local gate is wrong by the time anyone reads it. Quote the ceiling,
-            which is fixed, not the image, which is not. -->
-
-            The fix is a one-time flash of the `-full.bin` below, which carries
-            the partition table that the over-the-air updater never writes.
-            After it, updates work from the device forever. Sticky owners are
-            unaffected.
-
-            ### The short way: press Install
-
-            **[crossplay.ma-r-s.com/#get](https://crossplay.ma-r-s.com/#get)**
-            installs this release for you. Open it in Chrome or Edge on a
-            computer, plug the device in, wake it, and press Install: the page
-            downloads the right image and writes it over USB itself, with
-            nothing to install first and no command to type. Safari, Firefox and
-            every phone have no Web Serial, and the page says so rather than
-            failing when pressed.
-
-            The files below are for doing it by hand, and for the on-device
-            updater.
-
-            ### Which file to download
-
-            Each device has its own pair of images; the board name is in the
-            filename, and the firmware refuses an image built for the other
-            board.
-
-            **`crossplay-<version>-x4pro-full.bin`** /
-            **`crossplay-<version>-sticky-full.bin`** are the ones to flash
-            over USB. Each is the whole firmware -- bootloader, partition table
-            and application in one image -- so it installs on a device that has
-            never run CrossPoint.
-
-            **`firmware.bin`** (X4 Pro) and **`firmware-sticky.bin`** (Sticky)
-            are the application alone, for a device that is already running
-            this. Settings -> Check for updates fetches the right one over
-            Wi-Fi, or you can copy it to the SD card and pick it there. Keep
-            the filenames: each updater matches its own name exactly.
-
-            v1.0.0 and v1.0.1 published only the application image and told you
-            to write it to `0x0`, which on an ESP32-S3 is where the bootloader
-            lives. Do not follow the install steps from those two releases.
-
-            Try the whole thing in a browser first, without owning either:
-            **[crossplay.ma-r-s.com](https://crossplay.ma-r-s.com)** runs this
-            same firmware compiled to WebAssembly.
-
-            ### Before you flash this
-
-            Releases are flashed and booted on the author's own X4 Pro and
-            Sticky before they ship. PLAY NEARBY between two Stickys is
-            untested -- one Sticky exists here, and two-device play needs two.
-
-            **The X4 and X3 are ESP32-C3**; these images are S3. Flashing them
-            there is a cross-chip flash. Install
-            [CrossPoint](https://crosspointreader.com/) on those instead.
-
-            **Flashing replaces the firmware, not the SD card.** Your library,
-            your reading positions and your fonts are files on that card and are
-            left alone. Installing stock CrossPoint over the top puts the device
-            back where it was, which is what makes this cheap to try. If a flash
-            goes wrong,
-            [docs/fix-bricked-xteink.md](https://github.com/ma-r-s/crossplay/blob/xteink/docs/fix-bricked-xteink.md)
-            is the way back.
-
-            Full install steps are in the
-            [README](https://github.com/ma-r-s/crossplay#install-it). The short
-            version, once `pip install esptool` has run -- pick your device's
-            file:
-
-            ```
-            esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-x4pro-full.bin
-            esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-sticky-full.bin
-            ```
+          # The body lives in docs/release-body.md, not here. The autorelease bumps
+          # the version and rewrites the 'What is new' block there; a commit that
+          # touched this workflow file would need a token with workflows write, and
+          # the default token has none: v1.12.14 was refused exactly that way.
+          #
+          # THIS RELEASE ONLY. docs/release-notes.md is the history and is not
+          # published: while the two were one file, every release page carried
+          # every earlier release -- v1.12.21's was 20,402 characters and opened
+          # with a standing catalogue, then said what was new in 1.12.21, then
+          # what WAS new in 1.12.12, 1.12.11, 1.12.10, 1.12.9, 1.12.8 and
+          # 1.12.7. The body links to the history instead.
+          body_path: docs/release-body.md
+      # One event per published release, so the Numbers page can line up
+      # downloads and device versions against release times. The address and the
+      # public key are repository variables; missing ones skip the step.
+      - name: Tell the board a release went out
+        if: vars.SUPABASE_URL != '' && vars.SUPABASE_ANON_KEY != ''
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: |
+          curl -sS -o /dev/null -w "events: %{http_code}\n" -X POST "$SUPABASE_URL/rest/v1/events" \
+            -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" -H "Prefer: return=minimal" \
+            -d "{\"service\":\"release\",\"event\":\"release\",\"version\":\"${GITHUB_REF_NAME#v}\",\"props\":{\"tag\":\"$GITHUB_REF_NAME\"}}" || true

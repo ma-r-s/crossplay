@@ -4,10 +4,14 @@
 #
 #   host-tests/hackernews/run.sh
 #
-# Nothing but the standard library is on the include path, which is the point.
-# If the decoders, the readability gate or the saved index ever reach for
-# HttpDownloader, ArduinoJson or the SD card, this build fails loudly instead of
-# the logic quietly becoming device-only and therefore untested.
+# Nothing but the standard library and lib/Utf8 is on the include path, which is
+# the point. If the decoders, the readability gate or the saved index ever reach
+# for HttpDownloader, ArduinoJson or the SD card, this build fails loudly
+# instead of the logic quietly becoming device-only and therefore untested.
+# lib/Utf8 is on it because the decoders fold typographic punctuation to the
+# ASCII the app cuts actually carry, and that helper is freestanding for exactly
+# this reason -- host-tests/screentext and host-tests/typefold build it the same
+# way.
 set -e
 cd "$(dirname "$0")"
 # Keyed to this checkout, not just the suite name. Two worktrees sharing
@@ -17,6 +21,8 @@ BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-hackernews-tests-$(cd ../..
 mkdir -p "$BUILD_DIR"
 
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
+  -I../../lib/Utf8 \
+  ../../lib/Utf8/Utf8.cpp \
   ../../src/apps_local/hackernews/HackerNewsCore.cpp \
   test_hackernews.cpp -o "$BUILD_DIR/test_hackernews"
 "$BUILD_DIR/test_hackernews"
@@ -25,6 +31,8 @@ mkdir -p "$BUILD_DIR"
 # working when everything around it does not: no network, no service, and a
 # reader should still open the device and find their articles.
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
+  -I../../lib/Utf8 \
+  ../../lib/Utf8/Utf8.cpp \
   ../../src/apps_local/hackernews/HackerNewsSaved.cpp \
   test_saved.cpp -o "$BUILD_DIR/test_saved"
 "$BUILD_DIR/test_saved"

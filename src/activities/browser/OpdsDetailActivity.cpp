@@ -14,10 +14,12 @@
 #include <vector>
 
 #include "MappedInputManager.h"
+#include "components/BlockingFetchInput.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 #include "components/icons/listIcons.h"
 #include "network/HttpDownloader.h"
+#include "util/OpdsCoverCache.h"
 #include "util/UrlUtils.h"
 
 namespace fui = freeink::ui;
@@ -92,13 +94,22 @@ void OpdsDetailActivity::fetchCover() {
     const size_t query = extension.find('?');
     if (query != std::string::npos) extension.resize(query);
   }
-  const std::string dest = "/.crosspoint/opds-cover" + extension;
-  Storage.remove(dest.c_str());  // a stale file would silently show the last book's art
-  if (HttpDownloader::downloadToFile(url, dest, nullptr, nullptr, server.username, server.password) ==
-      HttpDownloader::OK) {
+  const std::string dest = opdscover::pathFor(extension.c_str());
+  // The cache was cleared on entry, not here: a book with NO cover link never
+  // reaches this function, and that is precisely the case where the previous
+  // book's file is still on the card for the wait screen to find.
+  // The progress callback is the only code that runs while this blocks, so it
+  // is the only place Back can be seen. Without it the screen cannot be left
+  // until the cover lands, which reads as a frozen device.
+  // downloadToFile removes the partial file on ABORTED, so a cancel leaves
+  // nothing half-written on the card.
+  const auto result = HttpDownloader::downloadToFile(
+      url, dest, [this](const size_t, const size_t) { pumpBlockingFetch(mappedInput, coverCancelled, coverGoHome); },
+      &coverCancelled, server.username, server.password);
+  if (result == HttpDownloader::OK) {
     coverPath = dest;
   } else {
-    LOG_DBG("OPDS", "cover fetch failed: %s", url.c_str());
+    LOG_DBG("OPDS", "cover fetch %s: %s", result == HttpDownloader::ABORTED ? "cancelled" : "failed", url.c_str());
   }
 }
 
@@ -107,8 +118,17 @@ void OpdsDetailActivity::onEnter() {
   resetUi();
   app.on(ACTION_DOWNLOAD, &OpdsDetailActivity::downloadTrampoline, this);
   app.setScreen(&OpdsDetailActivity::screenTrampoline, this);
-  fetchCover();
-  coverAvailable = !coverPath.empty() && Storage.exists(coverPath.c_str());
+  // NOT fetchCover() here. It blocks on the network for seconds, and onEnter
+  // runs before anything is published, so tapping a book left the results list
+  // on the panel with no response at all -- indistinguishable from a crash,
+  // and readers reported it as one. The screen goes up first; the cover
+  // arrives in a later frame, which is what the placeholder is for.
+  // Unconditional, and before anything decides whether to fetch. The cached
+  // cover is per-DEVICE, not per-book: entering any book's detail screen
+  // invalidates whatever the last one left, and a book with no cover link is
+  // the case that has no other chance to clear it.
+  opdscover::clearAll(Storage);
+  coverPending = !entry.coverHref.empty();
   // The author field is where the catalog packs its metadata, so it is the
   // meta line as-is rather than something reassembled here.
   metaLine = entry.author;
@@ -146,7 +166,13 @@ void OpdsDetailActivity::drawCover(UiScreen& screen, const fui::Rect& box) {
 }
 
 void OpdsDetailActivity::paintCover() {
-  if (!coverAvailable || coverRect.width <= 0 || coverRect.height <= 0) return;
+  if (!coverAvailable) return;
+  paintCoverFile(renderer, coverPath, coverRect);
+}
+
+bool OpdsDetailActivity::paintCoverFile(GfxRenderer& renderer, const std::string& coverPath,
+                                        const freeink::ui::Rect& coverRect) {
+  if (coverPath.empty() || coverRect.width <= 0 || coverRect.height <= 0) return false;
 
   // BMP first, because it needs no decoder at all: the Get Books service
   // serves 8-bit greyscale BMP for exactly that reason, and it is the only
@@ -163,7 +189,7 @@ void OpdsDetailActivity::paintCover() {
         const int drawnH = static_cast<int>(probe.getHeight() * scale);
         renderer.drawBitmap(probe, coverRect.x + (coverRect.width - drawnW) / 2,
                             coverRect.y + (coverRect.height - drawnH) / 2, coverRect.width, coverRect.height);
-        return;
+        return true;
       }
     }
   }
@@ -183,10 +209,11 @@ void OpdsDetailActivity::paintCover() {
       // grey levels have nowhere to go in this draw path.
       config.useGrayscale = false;
       config.useDithering = true;
-      if (decoder->decodeToFramebuffer(coverPath, renderer, config)) return;
+      if (decoder->decodeToFramebuffer(coverPath, renderer, config)) return true;
       LOG_DBG("OPDS", "cover decode failed: %s", decoder->getFormatName());
     }
   }
+  return false;
 }
 
 void OpdsDetailActivity::screenTrampoline(UiScreen& screen, void* user) {
@@ -200,7 +227,7 @@ void OpdsDetailActivity::buildScreen(UiScreen& screen) {
   // Without a content margin the body rect is empty, every takeTop() returns a
   // zero-height slice, and the screen draws nothing at all.
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  screen.setContentMarginAbsolute(
+  screen.setContentMarginFromScreen(
       fui::Insets{static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
                   static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width) + SIDE_PADDING),
                   static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height) + metrics.buttonHintsHeight),
@@ -294,7 +321,44 @@ void OpdsDetailActivity::loop() {
   // the app never publishes a frame.
   const auto touch = routeTouch(mappedInput);
   if (touch.routed && app.invalidated()) requestUpdate();
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) finish();
+
+  // Checked before the fetch below, so a Back that arrives while the cover is
+  // still pending leaves immediately instead of waiting out the network.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    // Back is NOT a download. finish() on its own leaves the default result,
+    // and ActivityResult::isCancelled defaults to false -- byte for byte what
+    // downloadTrampoline() sends -- so the browser's `if (!result.isCancelled)`
+    // started a multi-megabyte transfer for a reader who only wanted their
+    // search results back.
+    ActivityResult cancelled;
+    cancelled.isCancelled = true;
+    setResult(std::move(cancelled));
+    finish();
+    return;
+  }
+
+  if (coverPending && framePresented) {
+    // Cleared first: a fetch that throws or hangs must not be retried on every
+    // pass, which would wedge the screen for as long as the reader stayed.
+    coverPending = false;
+    fetchCover();
+    if (coverCancelled) {
+      // The Back that arrived mid-fetch. It was read inside the progress
+      // callback, so the check at the top of loop() will never see it: acting
+      // on it here is what makes that press mean anything.
+      if (coverGoHome) {
+        onGoHome();
+        return;
+      }
+      ActivityResult cancelled;
+      cancelled.isCancelled = true;
+      setResult(std::move(cancelled));
+      finish();
+      return;
+    }
+    coverAvailable = !coverPath.empty() && Storage.exists(coverPath.c_str());
+    requestUpdate();
+  }
 }
 
 void OpdsDetailActivity::render(RenderLock&&) {
@@ -306,4 +370,6 @@ void OpdsDetailActivity::render(RenderLock&&) {
   // Each activity publishes its own frame; without this the screen is drawn
   // into the buffer and never shown.
   renderer.displayBuffer();
+  // Only now is it safe to block: this is the frame the reader is looking at.
+  framePresented = true;
 }

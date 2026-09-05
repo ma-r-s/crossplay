@@ -12,10 +12,40 @@ import logging
 import secrets
 import time
 
-from . import store
+from . import events, store
 from .engine import Frozen
 
 log = logging.getLogger("bridge.jobs")
+
+# The job clock, as a name the tests replace to pin the seconds an event
+# reports. time.monotonic itself stays alone: asyncio's loop reads it too.
+_clock = time.monotonic
+
+
+def _report(service, client, failure, summary, props, elapsed):
+    """One event per finished job: what it moved, or what it died of, under
+    the device that asked (its header id, board, version and health numbers;
+    events.Client). Never raises -- the job is already done or failed on its
+    own terms, and the board is not allowed to change that."""
+    try:
+        if failure is None:
+            p = dict(props(summary) if props else {})
+            p["seconds"] = round(elapsed, 1)
+            level = "info"
+        else:
+            p = {"message": f"{type(failure).__name__}: {failure}"[:200]}
+            level = "error"
+        events.post(
+            service,
+            "sync",
+            device=client.device,
+            version=client.version,
+            board=client.board,
+            level=level,
+            props=client.props(p),
+        )
+    except Exception:
+        log.exception("event for a %s job not posted", service)
 
 
 class Job:
@@ -43,12 +73,22 @@ class Jobs:
             return job
         return None
 
-    def start(self, uid: str, work) -> Job:
+    def start(
+        self, uid: str, work, *, service: str = "", client=None, props=None
+    ) -> Job:
         """work: a blocking callable run in a thread under the user lock.
-        Returns the existing job instead when one is already in flight."""
+        Returns the existing job instead when one is already in flight.
+
+        service names the board's row for this job (events.py): when set,
+        the job's end posts one event -- `sync` with props(summary) plus the
+        seconds it took, or `sync` at level error with what it died of.
+        client is the events.Client the request came from: the id the event
+        is counted under, the board, the version, the health numbers."""
         existing = self.active_for(uid)
         if existing:
             return existing
+        if client is None:
+            client = events.Client()
         job = Job(uid)
         self._jobs[job.id] = job
         self._active[uid] = job.id
@@ -56,6 +96,8 @@ class Jobs:
         async def run():
             async with store.LOCKS.for_user(uid):
                 job.status = "running"
+                started = _clock()
+                failure = None
                 try:
                     job.summary = await asyncio.to_thread(work)
                     job.status = "done"
@@ -63,13 +105,19 @@ class Jobs:
                     job.status = "frozen"
                     job.message = str(e)
                     log.warning("job %s frozen: %s", job.id, e)
-                except Exception:
+                    failure = e
+                except Exception as e:
                     job.status = "error"
                     job.message = (
                         "Syncing hit a problem on the bridge. Your reviews are"
                         " safe; try again in a while."
                     )
                     log.exception("job %s failed", job.id)
+                    failure = e
+                if service:
+                    _report(
+                        service, client, failure, job.summary, props, _clock() - started
+                    )
 
         asyncio.get_running_loop().create_task(run())
         return job

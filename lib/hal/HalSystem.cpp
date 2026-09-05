@@ -159,6 +159,8 @@ std::string getPanicInfo(bool full) {
   }
 }
 
+bool panicReasonRecorded() { return panicCaptureMarker == PANIC_CAPTURE_MAGIC; }
+
 bool isRebootFromPanic() {
   const auto resetReason = esp_reset_reason();
   if (resetReason == ESP_RST_PANIC || resetReason == ESP_RST_CPU_LOCKUP) {

@@ -167,5 +167,236 @@ else
   while IFS= read -r line; do echo "      $line"; done <<< "$shelf_missing"
 fi
 
+# -- the page's own structure --------------------------------------------------
+#
+# Everything above compares two files. These two faults live inside index.html
+# alone, and both reached the live page: a card missing its </article>, which
+# swallowed the next card into its own grid cell, and shots stored at twice the
+# size the page declares. Neither breaks a build, a render or a link, and the
+# coverage check above passes straight through both. Status checked as well as
+# output, for the reason spelled out in the block before this one.
+if page_bad="$(python3 "$HERE/page_structure.py" "$ROOT" 2>&1)"; then
+  if [ -z "$page_bad" ]; then
+    ok
+  else
+    while IFS= read -r line; do bad "$line"; done <<< "$page_bad"
+  fi
+else
+  bad "page_structure.py could not run, so index.html went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$page_bad"
+fi
+
+# -- the report box and the inbox ---------------------------------------------
+#
+# api/report.js is the one place a stranger's input meets the board's write
+# key. It runs here under node with the board stubbed, and every refusal is
+# asserted, including the one thing it must never do (store a honeypot hit).
+# Status checked as well as output, same reason as the two blocks above.
+if report_out="$(node "$HERE/report_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$report_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "report_fn: $line"; done < <(printf '%s\n' "$report_out" | grep '^  FAIL'); }
+else
+  bad "report_fn.js could not run, so api/report.js went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$report_out"
+fi
+
+# The inbox page looks its controls up by id inside its own file. Same failure
+# as install.js: a renamed id renders fine and does nothing.
+P="$ROOT/site/inbox/index.html"
+if [ -f "$P" ]; then
+  page_ids="$(sed -nE 's/.*\$\(["'"'"']([A-Za-z-]+)["'"'"']\).*/\1/p' "$P" | sort -u)"
+  [ -n "$page_ids" ] || bad "site/inbox/index.html looks up no element ids"
+  for id in $page_ids; do
+    case "$id" in inbox-answer|inbox-send|inbox-default|inbox-how|inbox-later) continue;; esac  # rendered by script
+    grep -q "id=\"$id\"" "$P" && ok || bad "site/inbox/index.html asks for #$id and has no such element"
+  done
+else
+  bad "site/inbox/index.html is missing"
+fi
+
+# -- the report form, one script drawn into two pages --------------------------
+#
+# assets/report.js draws the form into whichever page carries a mount point and
+# then finds every control by id. Those ids live in two places: the markup the
+# script renders itself, and index.html for the dialog and the button that
+# opens it. An id in neither is a control that renders fine and does nothing --
+# and on the front page, a button in the corner that opens nothing.
+REPORTJS="$ROOT/site/assets/report.js"
+REPORTCSS="$ROOT/site/assets/report.css"
+REPORTPAGE="$ROOT/site/report/index.html"
+for f in "$REPORTJS" "$REPORTCSS" "$REPORTPAGE"; do
+  [ -f "$f" ] || { echo "FAIL site  missing $f"; exit 1; }
+done
+report_ids="$(sed -nE 's/.*\$\(["'"'"']([A-Za-z-]+)["'"'"']\).*/\1/p' "$REPORTJS" | sort -u)"
+if [ -z "$report_ids" ]; then
+  bad "report.js looks up no element ids at all"
+else
+  ok
+  for id in $report_ids; do
+    if grep -q "id=\"$id\"" "$REPORTJS" || grep -q "id=\"$id\"" "$HTML"; then
+      ok
+    else
+      bad "report.js asks for #$id and neither its own markup nor index.html has such an element"
+    fi
+  done
+fi
+# The dialog and its close button are index.html's to provide, and the script
+# must be asking for them under those names, or the front page has a dead
+# button. The opener is found by attribute, not id, so that the prose link and
+# the corner button can both open it; the attribute is what has to agree.
+for id in report-dialog report-close; do
+  grep -q "id=\"$id\"" "$HTML" && ok || bad "index.html has no #$id"
+  printf '%s\n' "$report_ids" | grep -qx "$id" && ok || bad "report.js never looks up #$id, so index.html's is decoration"
+done
+grep -q '<dialog[^>]*id="report-dialog"' "$HTML" && ok || bad "#report-dialog in index.html is not a <dialog>"
+grep -q 'id="report-open"' "$HTML" && ok || bad "index.html has no #report-open button"
+grep -q 'id="report-open"[^>]*data-report-open' "$HTML" && ok || bad "#report-open does not carry data-report-open, so report.js will not wire it"
+grep -q '\[data-report-open\]' "$REPORTJS" && ok || bad "report.js never looks for [data-report-open], so nothing opens the dialog"
+# Both pages mount the form and load the script and its stylesheet.
+for p in "$HTML" "$REPORTPAGE"; do
+  rel="${p#"$ROOT"/}"
+  grep -q 'data-report-mount' "$p" && ok || bad "$rel has nowhere to mount the report form"
+  grep -qE 'src="/?assets/report\.js"' "$p" && ok || bad "$rel does not load assets/report.js"
+  grep -qE 'href="/?assets/report\.css"' "$p" && ok || bad "$rel does not load assets/report.css"
+done
+# The standalone page has no script of its own: one implementation, not two.
+grep -q '\$(' "$REPORTPAGE" && bad "report/index.html looks up ids itself; the form lives in assets/report.js" || ok
+grep -q '<form' "$REPORTPAGE" && bad "report/index.html carries its own <form>; the form lives in assets/report.js" || ok
+# The devices the form offers are exactly the ones the function accepts, and
+# neither side offers "not sure": a report names a board or is refused.
+form_devices="$(grep -oE 'name="device" value="[a-z0-9]+"' "$REPORTJS" | sed -E 's/.*value="//; s/"//' | sort -u | tr '\n' ' ')"
+api_devices="$(grep -oE 'DEVICES = \[[^]]*\]' "$ROOT/site/api/report.js" | grep -oE '"[a-z0-9]+"' | tr -d '"' | sort -u | tr '\n' ' ')"
+[ -n "$form_devices" ] && ok || bad "report.js offers no device to pick"
+[ "$form_devices" = "$api_devices" ] && ok || bad "report.js offers devices [$form_devices] and api/report.js accepts [$api_devices]"
+printf '%s' "$api_devices" | grep -qw unknown && bad "api/report.js accepts 'unknown' as a device again; a report names a board or is refused" || ok
+grep -qE 'type="radio" name="device"' "$REPORTJS" && bad "device is a radio again; it is two checkboxes, both allowed" || ok
+
+# -- the study installer's ids, spelled in two files that never see each other -
+#
+# Same failure as install.js above, on the page that was actually caught by it:
+# study.js finds every control with a $("id") helper. On 2026-09-03 the dead
+# mode tablist was removed from study/index.html, and the two $("modeInstall")
+# calls in study.js would have thrown inside goTo() on the first step change --
+# taking the whole wizard down, from an edit whose point was to remove
+# something inert. install.js, report and inbox each had this check; study, the
+# biggest page here, did not.
+SP="$ROOT/site/study/index.html"
+SJ="$ROOT/site/study/study.js"
+for f in "$SP" "$SJ"; do
+  [ -f "$f" ] || { bad "site/study is missing $(basename "$f")"; }
+done
+study_ids="$(sed -nE 's/.*\$\(["'"'"']([A-Za-z][A-Za-z0-9_-]*)["'"'"']\).*/\1/p' "$SJ" | sort -u)"
+if [ -z "$study_ids" ]; then
+  bad "study.js looks up no element ids at all"
+else
+  ok
+  for id in $study_ids; do
+    grep -q "id=\"$id\"" "$SP" && ok || bad "study.js asks for #$id and study/index.html has no such element"
+  done
+fi
+
+# -- composite ARIA roles with nothing to choose between -----------------------
+#
+# A tablist holding one tab, a radiogroup holding one radio: well-formed markup
+# that renders perfectly and lies to a screen reader about there being a choice.
+# Study shipped one for a week, styled as the page's primary button and wired to
+# a handler that re-rendered the step you were already on. Status checked as
+# well as output, for the reason spelled out two blocks above.
+if aria_bad="$(python3 "$HERE/aria_roles.py" "$ROOT" 2>&1)"; then
+  if [ -z "$aria_bad" ]; then
+    ok
+  else
+    while IFS= read -r line; do bad "$line"; done <<< "$aria_bad"
+  fi
+else
+  bad "aria_roles.py could not run, so the pages' roles went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$aria_bad"
+fi
+
+# The inbox page and serve.py must agree on the config endpoint's shape, or
+# local work passes against a key production never sends.
+grep -q 'anonKey' "$ROOT/site/api/board-config.js" && grep -q '"anonKey"' "$SERVE" && ok || bad "board-config: api and serve.py do not agree on anonKey"
+
+# The inbox gate: a passphrase, checked by api/inbox.js against a hash. Run
+# install.js reads the board's address from api/board-config.js by two field
+# names; a rename on either side leaves an installer that reports nothing and
+# says nothing about it.
+for field in url anonKey; do
+  grep -q "cfg\.$field" "$ROOT/site/assets/install.js" && grep -q "$field" "$ROOT/site/api/board-config.js" \
+    && ok || bad "install.js and board-config.js disagree on the field '$field'"
+done
+
+# A failed install is a card only when the failure is the page's, not the
+# person's (cards 153 and 157 were a closed port picker and a silent cable).
+# The decision function is lifted from install.js and run under node.
+if install_out="$(node "$HERE/install_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$install_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "install_fn: $line"; done < <(printf '%s\n' "$install_out" | grep '^  FAIL'); }
+else
+  bad "install_fn.js could not run, so install.js's error levels went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$install_out"
+fi
+
+# under node with the board stubbed; the wrong passphrase must read nothing.
+if inbox_out="$(node "$HERE/inbox_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$inbox_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "inbox_fn: $line"; done < <(printf '%s\n' "$inbox_out" | grep '^  FAIL'); }
+else
+  bad "inbox_fn.js could not run, so api/inbox.js went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$inbox_out"
+fi
+# and the page talks only to that gate, never to the board directly
+grep -q '"/api/inbox"' "$ROOT/site/inbox/index.html" && ok || bad "the inbox page does not call /api/inbox"
+grep -q 'supabase.co\|/rest/v1/\|/auth/v1/' "$ROOT/site/inbox/index.html" && bad "the inbox page still talks to the board directly" || ok
+
+# -- the inbox fixture, spelled in three files that never see each other -------
+#
+# serve.py answers /api/inbox from inbox/fixture.json so the page can be laid
+# out without a passphrase. Three things can drift and none of them fails
+# loudly: an operation api/inbox.js handles that serve.py does not (the page
+# gets a 400 locally and works in production, or the reverse), a numbers key
+# the page starts reading that the fixture lacks (the section renders
+# "nothing yet" and looks like an empty board), and a fixture that stopped
+# being JSON (every local load shows a 500 dressed as a board error).
+INBOX_HTML="$ROOT/site/inbox/index.html"
+FIXTURE="$ROOT/site/inbox/fixture.json"
+ops="$(grep -oE 'body\.op === "[a-z]+"' "$ROOT/site/api/inbox.js" | grep -oE '"[a-z]+"' | tr -d '"' | sort -u)"
+if [ -z "$ops" ]; then
+  bad "api/inbox.js handles no operations at all"
+else
+  ok
+  for op in $ops; do
+    grep -qE "op == \"$op\"" "$SERVE" && ok || bad "api/inbox.js handles op '$op' and serve.py's fixture does not"
+  done
+fi
+if [ -f "$FIXTURE" ]; then
+  ok
+  num_keys="$(grep -oE '\bn\.[A-Za-z]+' "$INBOX_HTML" | sed 's/^n\.//' | sort -u)"
+  if fixture_bad="$(python3 - "$FIXTURE" $num_keys <<'PY' 2>&1
+import json, sys
+fx = json.load(open(sys.argv[1]))
+for part in ("list", "numbers"):
+    if part not in fx:
+        print(f"fixture.json has no '{part}' object")
+for k in ("inbox", "cards"):
+    if not fx.get("list", {}).get(k):
+        print(f"fixture.json list.{k} is empty")
+for key in sys.argv[2:]:
+    if key not in fx.get("numbers", {}):
+        print(f"inbox/index.html reads n.{key} and fixture.json numbers has no '{key}'")
+PY
+  )"; then
+    if [ -z "$fixture_bad" ]; then ok; else while IFS= read -r line; do bad "$line"; done <<< "$fixture_bad"; fi
+  else
+    bad "fixture.json could not be checked:"
+    while IFS= read -r line; do echo "      $line"; done <<< "$fixture_bad"
+  fi
+else
+  bad "site/inbox/fixture.json is missing, so the inbox cannot be looked at without a passphrase"
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

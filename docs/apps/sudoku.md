@@ -212,6 +212,30 @@ an old grid reads. The level and the hardest technique are re-graded on load for
 the same reason -- there is nothing in the file that can disagree with the
 puzzle.
 
+Except one field, which is why the load ends by overruling it. `menuLevel` is
+what the NEXT puzzle will be, and it is stored rather than derived, so a card
+written while the player was browsing the difficulty row holds a level the saved
+grid does not have. The load snaps it back to `puzzle.level` whenever there is
+an unsolved game, so the headline, the caption and the door all describe the
+same puzzle. A level picked and never played is not worth carrying across a
+restart; a half-solved puzzle is.
+
+## RESUME or NEW PUZZLE is derived, never latched
+
+The front door is one button whose label is a fact about the save:
+`sudoku::canResume()` asks whether there is an unsolved game whose
+`puzzle.level` is the level the menu is showing. `SudokuActivity` and
+`buildMenu` call the same predicate, so the label a player reads and the door
+they get cannot come apart.
+
+It used to be a flag set on every DIFFICULTY tap and cleared only by entering
+the app or starting a game. The row steps `(level + 1) % 4`, so **four taps
+returned the menu to the puzzle's own level with the flag still set**: the grid
+was still drawn, cell for cell, above a button that now overwrote it, with no
+confirmation. A latch cannot represent coming back to where you were, which is
+the whole of the bug. `host-tests/sudoku` walks a full lap of the row from every
+starting level.
+
 ## Why there is no PLAY NEARBY
 
 Asked and answered rather than skipped. Sudoku is a solitaire, and the only

@@ -11,6 +11,49 @@ to age.
 
 Ordered by what would embarrass the project soonest, not by effort.
 
+## Trivia's wrong answers: two faults closed, one only apparently
+
+Added 2026-09-01, revised the same evening after a cold review of the
+measurement. `tools_local/trivia/distractors.py` rewrote the option picker
+after a cold player answered 30 of 42 four-option sets without knowing the
+fact.
+
+**Closed, and counted on every stored option rather than sampled:** two options
+that are one thing 5.3% -> 0.0%, options not capitalised alike 9.9% -> 0.0%.
+**Improved, sampled:** a region named with only one option in it 15.5% -> 5.5%.
+Playable questions went 14,388 -> 18,485 **on the shipped 50,000**, whose
+options come from questions of the same type. A pack assembled from the local
+rating run uses that run's own candidate options and lands at 76.6% playable,
+flat across the five levels (72.7% to 82.5%).
+
+**What is still open, in the order it will be noticed:**
+
+- **The anachronism fix only covers names somebody wrote down.** The check had
+  two halves; one WAS the picker's own `existed()` table, so it reported 0 by
+  construction, and adding it in made a tautology look like a 38.5% -> 5.6%
+  result. The corpus-derived half moved 2.2% -> 1.8%, which is noise. Julius
+  Caesar against Dorian Gray for a 46 B.C. clue is still shipped.
+- **The type number is mostly circular and must not be quoted as "the options
+  are the same kind".** The sampler agrees with the picker's own head noun
+  99.8% of the time, and two deliberately wrong merges each changing 10,000+
+  sets moved it by zero. It proves one thing: the first-word-after-"this"
+  mis-typing is gone.
+- **Homonym heads are not solved.** `state` was fixed by reading the `of` tail
+  (`state of matter`); `star` had no such tail and was struck out entirely,
+  which loses the celestial questions. `school`, `plant` and `organ` are the
+  same shape of problem.
+- **The region leak is 5%, not 0**, and its own gazetteer undercounts the new
+  pack about 28% against the old pack's 5% -- so the before/after is biased
+  toward the fix. It sees a country named outright, never "the Swiss city" or
+  "the Kremlin".
+- **Nothing measures whether a wrong option is FAIR.** Four real rivers is what
+  the picker is FOR. The 42-set human read is the only instrument that found
+  the problem and the one to repeat after any change here.
+- **The new pack is built but NOT published.** Mario authorises the
+  `trivia-pack` prerelease himself. And **a device that already has
+  `/trivia/pack.dat` never re-downloads**, so publishing does not reach an
+  existing install; the file has to be deleted.
+
 ## Someone has now run this on a physical device, once
 
 Updated 2026-08-14. A tester flashed v1.2.1 to an X4 Pro and played most of the
@@ -340,155 +383,36 @@ rediscoveries of one idiom is the signal: a `Storage.ensureDir(path)` would mean
 the sixth caller inherits the contract instead of inventing it. Not urgent, but
 the next one will get it wrong the same way.
 
-## One physical press produces both edges, and the child eats only the first
+## `app/crossplayhosts` would break Study sync and Get Books
 
-`WifiSelectionActivity` finishes on `wasPressed(Back)`. Most parents act on
-`wasReleased(Back)`. A single press of the button therefore fires **twice**
-across the boundary:
+Added 2026-09-03, found while publishing the Instapaper bridge.
 
-- **press** -- the picker returns, the parent's result handler runs, the parent
-  decides what to show;
-- **release** -- the parent's own `loop()` reads the very same press, sees the
-  state the result handler just set, and acts on it again.
+That branch moves `sync.ma-r-s.com` to `sync.crossplay.ma-r-s.com` and
+`books.ma-r-s.com` to `books.crossplay.ma-r-s.com`. Both new names are TWO
+labels below the apex, and **this zone cannot serve a two-label name over
+HTTPS.** ma-r-s.com is on Cloudflare's free plan, whose Universal SSL
+certificate has exactly two SANs, `ma-r-s.com` and `*.ma-r-s.com`. Anything
+deeper gets no certificate at all: the edge answers the handshake with alert
+40 and no peer certificate. You can see it in one command, without deploying
+anything:
 
-Hacker News is where this was found. Cancelling the Wi-Fi picker is supposed to
-fall back to saved articles; the fallback runs correctly on the press and is
-undone by the release, which reaches `shelf::leave()` milliseconds later. The
-app exits. The code that shows the saved list is right, is reached, and never
-survives.
+    echo | openssl s_client -connect 104.21.2.163:443 \
+      -servername sync.crossplay.ma-r-s.com     # alert 40, no peer certificate
 
-**That is why it resisted two fixes.** The first attempt fixed one of the two
-routes to the decision (`onWifiChosen`, not `loop()`) -- the fork's own
-fix-the-twin lesson, arriving in the middle of fixing something else, and
-invisible precisely because the route that was fixed worked. The second routed
-both through one function and still failed, because neither route was ever the
-cause.
+So merging that branch would not produce a slow rollout or a redirect to fix
+later. It would produce two shipped, compiled-in hostnames that fail TLS on
+devices already in the field, whose owners have no way to learn why -- the
+exact failure `StudySync.h`'s own comment exists to prevent, arriving through
+the certificate rather than through DNS.
 
-### Who is exposed
+The Instapaper bridge hit this first because its constant named
+`read.crossplay.ma-r-s.com`, and it was free to fix: nothing had ever paired,
+because that name had never resolved. It is now `read.ma-r-s.com` and live.
+Study and Get Books do not have that freedom.
 
-Grep over-counts badly. `wasReleased(Back)` appears in 54 files; the condition
-is narrower:
-
-> reads Back with `wasReleased` **in a path reachable immediately after a
-> `wasPressed` child returns** -- in practice, in `loop()`.
-
-Ten activities start a `wasPressed` child and read Back with `wasReleased`
-somewhere. Eight of those read it in `loop()` and are exposed:
-
-`HackerNewsActivity`, `StudyActivity`, `InstapaperActivity`,
-`ConnectionsActivity`, `XkcdActivity`, `KOReaderSyncActivity`,
-`CrossPointWebServerActivity`, `OpdsBookBrowserActivity`.
-
-`TriviaActivity` is **not**, and the reason is instructive: its `loop()` opens
-with `if (!input.touchReleased || !interactionsReady_) return;`, so a stray Back
-release has no reader at all. Its one `wasReleased(Back)` sits inside a download
-callback that a cancelled picker never starts. That immunity is an accident of
-being touch-only, not a design -- Trivia inherits this bug the day it grows
-button handling in `loop()`, which it nearly did on 2026-08-31.
-
-`SettingsActivity` has no `loop()` and was not classified.
-
-### Why no fix is attached
-
-The eleven `wasPressed` finishers above are not wrong, and neither are the
-fifty-four `wasReleased` readers. What is missing is that **the boundary does
-not consume the edge it was ended on**. Whatever swallows that release belongs
-in the Activity boundary, once, not as eight local guards -- a per-app
-workaround for a framework input convention is how a convention acquires eight
-different patches and no fix.
-
-**Repro:** seed `fs_agent/.crosspoint/hn/saved.tsv` with one article, then
-`CROSSPLAY_AUTOSTART="HACKER NEWS" ./scripts_local/sim-shot.sh '4000:BACK;12000:QUIT'`.
-`Entering activity: ShelfFolder` in the trace is the failure; the saved list is
-the pass.
-
-### The swipe is a second mechanism wearing the same symptom
-
-Everything above was traced with a **physical button**: `sim-shot.sh`'s `BACK`
-token resolves to `HalGPIO::BTN_BACK` (`namedButton()`, in the simulator lib
-dep's `HalGPIO.cpp`). The script vocabulary has a separate `SWIPE` token that
-goes through TouchDown/TouchUp, and it was never used here.
-
-**On the X4 Pro, Back is normally the left-edge swipe** -- four of the six
-logical buttons are unassigned pins -- so the untested path is the common one.
-And it does not fail for the reason the button fails:
-
-```
-MappedInputManager.cpp:303  wasPressed:   if (button == Back && wasBackGesture()) return true;
-MappedInputManager.cpp:311  wasReleased:  if (button == Back && wasBackGesture()) return true;
-```
-
-For a swipe, `wasPressed(Back)` and `wasReleased(Back)` are **the same
-function**. No press edge, no release edge: one `wasEdgeSwipe(Left)` condition
-that both spellings return in the same frame. The child's `wasPressed` and the
-parent's `wasReleased` are not two halves of one press -- they are two reads of
-one latch.
-
-    button:  one press, two edges; child eats the first, parent reads the second
-    swipe:   one latch, two readers, both true at once
-
-A fix that drains `pressedEvents` addresses the button and **cannot touch the
-swipe**. Any boundary fix has to consume the gesture as well, or it repairs the
-path few people use and leaves the path most people use.
-
-### Where the swipe latch lives, and why it is the same shape as the button
-
-Followed to the bottom. `wasBackGesture()` -> `wasEdgeSwipe(Left)` ->
-`decodeSwipe()` -> `gpio.wasSwipe()` -> `InputManager::wasSwipe()`
-(`freeink-sdk/libs/hardware/InputManager/src/InputManager.cpp:604`), which is:
-
-```cpp
-bool InputManager::wasSwipe(...) const {
-  if (!touchReleasedEvent || touchSuppressed || touchMultiContactSequence) return false;
-  ...
-  return true;   // consumes nothing
-}
-```
-
-The latch is **`touchReleasedEvent`**, and it is written in exactly one place
-outside the touch handlers: `InputManager::update()` (line 466), in the same
-block that zeroes `pressedEvents` and `releasedEvents`, commented there as
-"one-shot touch coord events, cleared each update()".
-
-So both mechanisms have the **same root shape** -- a `const`, non-consuming read
-of a one-shot flag that only `update()` clears. That is the unifying fact, and
-it is what makes a single boundary fix possible at all:
-
-|        | flag                  | readers per frame | edges |
-|--------|-----------------------|-------------------|-------|
-| button | `pressedEvents` bit   | any number        | two   |
-| swipe  | `touchReleasedEvent`  | any number        | one   |
-
-The button gets away with it for one frame per edge; the swipe has no second
-edge to hide behind, so every reader in that frame sees the same true.
-
-**What this rules out.** A drain that clears only `pressedEvents` cannot fix
-the swipe -- the boundary must clear the touch one-shots too, which today means
-going through `update()`. And `update()` is precisely what a dev build's
-injector outranks. So a correct fix and an untestable fix are currently the
-same fix.
-
-That is the shape of the remaining problem. It is not "find where the latch
-clears" any more; it is "give the boundary a way to consume a one-shot that
-does not route through the one call the injector overrides".
-
-### And the simulator cannot settle it
-
-An attempted framework drain at `ActivityManager`'s pop did not fix the repro,
-for a reason worth more than the fix: `InputManager::wasPressed()` is
-`return pressedEvents & (1 << i)`, a **pure read that does not consume**, so a
-drain built from reads is a no-op. `StudyActivity::drainInput()` works because
-of the `update()` in it, not despite it. Absorbing the edge with two spaced
-`update()` calls also changed nothing, because in a **dev build every input read
-consults the injector first** (`DEV_INPUT` in `HalGPIO.cpp`, compiled out of
-release envs) -- and `gpio.update()` cannot clear an edge the injector owns.
-
-So the simulator exercises a mechanism that presents identically to the real one
-and is not it. A framework change touching eight apps came one green run from
-shipping on a test that could not tell a fix from a no-op.
-
-**Before concluding that hardware is the only route, try a `SWIPE` token aimed
-at the left edge.** It at least drives the mechanism that ships. Nobody has.
-
-**8134c60a is merged and does not work.** It reads as a fix in the log. It is
-not one.
+**Two ways out, and one of them costs money.** Buy Advanced Certificate
+Manager (about $10/month) and order a certificate covering
+`*.crossplay.ma-r-s.com` BEFORE changing any constant; or drop the
+`crossplay.` level and keep one-label names, which is what all three working
+services use today. That is Mario's call, not a code decision, and until it is
+made the branch should not be merged.

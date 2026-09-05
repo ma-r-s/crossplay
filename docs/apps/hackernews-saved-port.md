@@ -116,6 +116,71 @@ hid it. It was found by copying `.crosspoint/hn/saved.tsv` off his card onto
 the test SD card instead of writing a fixture. Do that before trusting any
 format code here.
 
+## `ensureConnected` landed (2026-09-03, `app/hnoffline`)
+
+The app no longer touches the radio in `onEnter`. It opens on the front-page
+list with the radio down, and `ensureConnected` raises the Wi-Fi picker only
+when a tap needs the network -- opening a story, a thread, the swap control, the
+notice's way onward, and the empty front page's own LOAD button. Backing out of
+the picker returns to whatever was on screen, never out of the app.
+
+Three things about it that are NOT what `85d776dd` did, each deliberate:
+
+- **The radio is asked, not remembered.** The branch latched a `Link::Connected`
+  enum once. `WiFi.status() == WL_CONNECTED` on every call is what makes an AP
+  that drops mid-article recoverable: a latch says yes, the fetch fails, and the
+  picker is never offered again. (Ownership is a different question with a
+  different answer -- see `devmode::holdsRadio` in `onExit`.)
+- **The empty state carries a labelled button**, not a hit rect over its
+  headline. An empty shelf and an unloaded front page are the same expanse of
+  paper otherwise, and a live control drawn like a dead one is one nobody tries.
+- **A failed front page lands on the LIST**, with TRY AGAIN and both segments,
+  instead of the full-screen notice that had one way off it and the offline
+  shelf on the other side of it.
+
+And the correction that came out of reviewing it, which is worth more than the
+three above because it is the shape of the mistake rather than a decision:
+
+- **The fix went into one arm of an `if` and not into its twin, and the twin was
+  the common path.** A failed FRONT PAGE landed correctly; a failed ARTICLE or
+  THREAD still showed a notice with no button, no segments and no route to
+  SAVED. On a train, tapping any story on a cached front page goes to the twin,
+  not to the arm that was fixed. The notice's control was
+  `unreadable ? "READ THE COMMENTS" : nullptr`, and that `nullptr` covered four
+  different failures.
+- So `hnui::noticeControl()` answers it now, and it CANNOT answer "none". The
+  rule is a function in the screens layer rather than a ternary at the call
+  site, so a new failure cannot be added without a way off its screen, and
+  `host-tests/ui` asks the question directly.
+- **One dropped connection, one sentence.** `hn::kUnreachableHeadline` and
+  `hn::kUnreachableMessage` are shared by the list's empty state and the
+  reader's notice. They used to say different things -- one promised the saved
+  shelf still worked, the other said to check the network -- for the same
+  dropped AP in the same minute.
+- **There is no `Phase::Connecting`.** It had a screen, a loop branch and a
+  comment claiming it was what the panel showed if the picker did not paint
+  promptly. None of it could run: `pushActivity` only sets `pendingActivity`,
+  and the swap happens at the bottom of the same `ActivityManager::loop()` pass,
+  so the picker is `currentActivity` before the render task ever looks. A slow
+  picker leaves the PREVIOUS frame up. Raising the picker now leaves `phase_`
+  alone, which is also what makes coming back from a cancelled one free.
+- **`ensureConnected` clears `backPressSeen_`.** The press belongs to the screen
+  that is about to stop being on top. Left set it survived the picker and paired
+  with a later release, which on `phase_ == List` is `shelf::leave()` -- the app
+  shutting on the way to the one screen that works with no network.
+
+`hn::emptyState` (in `HackerNewsRows`) owns the three empty screens so
+`host-tests/hackernews` can drive them; the drawing and its hit target are
+asserted in `host-tests/ui`.
+
+**Wording on that screen is measured, and the estimate that looks right is
+wrong.** Reserving lines by dividing a single-line width by the column is one
+line short whenever the greedy wrap cannot fill a line: "The front page needs a
+connection. Saved articles do not." is 2.6 columns wide, needs THREE lines, and
+shipped to a render as "Saved articles do ...". The cut HAS the ellipsis, so the
+glyph gate stayed quiet and the screenshot looked finished. Use
+`fui::measureWrappedText`, whose own header says so.
+
 ## Verifying
 
 `check.sh` is necessary and not sufficient. The failure mode the old
@@ -127,6 +192,22 @@ runtime, with no compile error -- so drive it:
 
 (`ui:paperOnTheBand` was a known baseline failure for a while; it is fixed
 and the suite runs clean now.)
+
+**The simulator has real outbound network**, so a scripted run reaches the live
+front page and proves nothing about being offline. Deny it and verify the denial
+BEFORE trusting the run:
+
+    printf '(version 1)\n(allow default)\n(deny network*)\n' > /tmp/nonet.sb
+    sandbox-exec -f /tmp/nonet.sb curl -s -m 8 -o /dev/null -w '%{http_code}\n' \
+      'https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=1'   # must be 000
+    CROSSPOINT_SIM_SD="$PWD/fs_agent" CROSSPLAY_AUTOSTART="HACKER NEWS" \
+    CROSSPOINT_SIM_INPUT_SCRIPT='...' CROSSPOINT_SIM_SCREENSHOTS='...' \
+      sandbox-exec -f /tmp/nonet.sb .pio/build/simulator_x4_pro/program
+
+`[ERR] [HTTP] open failed: ESP_FAIL` in the log is the app actually offline.
+The activity trace is the other half of the evidence: `Entering activity:
+HackerNews` with no `WifiSelection` after it is the entry fix, and no `Exiting
+activity: HackerNews` after the picker's exit is the cancel fix.
 
 Last, the site: `site/emulator/` is a committed artifact, so the browser demo
 keeps running the old firmware until someone rebuilds it. Saving works there --

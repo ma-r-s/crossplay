@@ -41,6 +41,11 @@ services:
       READ_ALLOWLIST: ${READ_ALLOWLIST}
       READ_CONSUMER_KEY: ${READ_CONSUMER_KEY}
       READ_CONSUMER_SECRET: ${READ_CONSUMER_SECRET}
+      # Where sync and error events go (docs/workflow/events.md). Both
+      # optional: with either unset the service posts nothing and logs so
+      # once at startup. The anon key can only insert.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
     volumes:
       - ./data:/data
     user: "10003:10003"

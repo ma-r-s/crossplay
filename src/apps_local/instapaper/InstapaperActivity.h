@@ -31,6 +31,7 @@
 
 #include "../../activities/Activity.h"
 #include "../ui/ToyboxScreen.h"
+#include "../ui/ToyboxWrappedText.h"
 #include "InstapaperIndex.h"
 #include "InstapaperLibrary.h"
 #include "InstapaperScreens.h"
@@ -85,6 +86,7 @@ class InstapaperActivity final : public Activity {
   void openArticle(int64_t id);
   void closeArticle();
   void archiveCurrent();
+  void undoArchive();
   void turnPage(int delta);
   void showNotice(const char* headline, std::string message, bool unreadable = false);
   void showQueue();
@@ -112,17 +114,36 @@ class InstapaperActivity final : public Activity {
   size_t downloadIndex_ = 0;
   int downloaded_ = 0;
   int downloadFailures_ = 0;
+  // When contact with the bridge was first lost, or 0 while polls are getting
+  // through. See doSyncPoll: the job outlives a lost packet, so the sync does.
+  uint32_t pollMissedSinceMs_ = 0;
+  // Reading positions this sync PUT UP, counted where they are put up -- the
+  // verdict screen has no other way to know. Archives are not counted here:
+  // the summary comes back saying which ones the service really took, and that
+  // is the honest number to say out loud.
+  int sentPositions_ = 0;
   bool cancelDownload_ = false;
   char busyDetail_[48] = "";
 
   // Reading.
   int64_t openId_ = 0;
   std::string document_;
+  // The article wrapped to the reader's width, kept between paints. It holds
+  // no copy of the document and re-wraps itself whenever the panel, the cut or
+  // the text stops matching what it wrapped; see ToyboxWrappedText.h for why
+  // that is probed rather than announced.
+  toybox::WrappedText wrap_;
   std::string readerTitle_;
   uint32_t topLine_ = 0;
   uint32_t lineCount_ = 0;
   uint16_t visibleLines_ = 0;
   char pageLabel_[16] = "";
+
+  // The article ARCHIVE was last pressed on, while it can still be taken back:
+  // until the next sync carries the intent up, until another article is
+  // opened, or until the app is left. In memory only -- an offer to undo
+  // something the reader no longer remembers doing is not a kindness.
+  int64_t undoArchiveId_ = 0;
 
   std::string noticeHeadline_;
   std::string noticeMessage_;
@@ -136,7 +157,6 @@ class InstapaperActivity final : public Activity {
   std::vector<std::string> rowValues_;
   std::vector<freeink::ui::ListItem> rows_;
   bool rowsFitted_ = false;
-  int selected_ = 0;
   int topIndex_ = 0;
   int visibleRows_ = 0;
   char lastSyncLabel_[24] = "";
@@ -147,4 +167,24 @@ class InstapaperActivity final : public Activity {
 
   toybox::Interactions interactions_;
   bool interactionsReady_ = false;
+
+  // SYNC on the queue and BACK TO THE LIST on a notice compute the same rect:
+  // (16,732,448,52) on this panel, from two separate expressions that can only
+  // agree by accident. They are the control that SUMMONS a verdict and the one
+  // that DISMISSES it, on the same pixels.
+  //
+  // So a second tap across a phase change acts on a screen the user has not
+  // read yet: sync, tap again because e-ink looks like nothing happened, and
+  // the verdict -- "3 did not arrive; sync again" or the bridge's reason for
+  // refusing -- is gone before it was seen. The reverse costs a spurious sync.
+  //
+  // Not fixed by moving the button: y=732 is the fork-wide primary-action band
+  // that twenty screen files use, and the band is not the problem. Fixed by
+  // ignoring taps for a moment after a screen becomes VISIBLE, stamped after
+  // displayBuffer() rather than when the state changed, because what matters
+  // is when a person could first have seen it.
+  static constexpr uint32_t kSettleMs = 600;
+  Phase lastShownPhase_ = Phase::Queue;
+  uint32_t phaseShownAtMs_ = 0;
+  bool everShown_ = false;
 };

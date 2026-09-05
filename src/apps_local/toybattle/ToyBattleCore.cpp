@@ -133,10 +133,8 @@ constexpr Terrain buildCastleField() {
   }
 
   const Edge edges[] = {
-      {0, 3}, {0, 16}, {1, 2}, {1, 16}, {2, 5}, {2, 6},
-      {2, 14}, {3, 4}, {3, 5}, {3, 11}, {4, 8}, {4, 11},
-      {4, 12}, {5, 7}, {5, 8}, {6, 7}, {6, 13}, {6, 14},
-      {7, 10}, {7, 13}, {8, 9}, {8, 12}, {9, 15}, {10, 15},
+      {0, 3},  {0, 16}, {1, 2}, {1, 16}, {2, 5},  {2, 6},  {2, 14}, {3, 4},  {3, 5}, {3, 11}, {4, 8},  {4, 11},
+      {4, 12}, {5, 7},  {5, 8}, {6, 7},  {6, 13}, {6, 14}, {7, 10}, {7, 13}, {8, 9}, {8, 12}, {9, 15}, {10, 15},
   };
   t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
   for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
@@ -196,11 +194,9 @@ constexpr Terrain buildCityOfClouds() {
   }
 
   const Edge edges[] = {
-      {0, 3}, {0, 10}, {0, 15}, {1, 2}, {1, 10}, {1, 15},
-      {2, 5}, {2, 10}, {2, 11}, {3, 4}, {3, 10}, {3, 11},
-      {4, 7}, {4, 11}, {4, 12}, {5, 6}, {5, 11}, {5, 12},
-      {6, 9}, {6, 12}, {6, 13}, {7, 8}, {7, 12}, {7, 13},
-      {8, 13}, {8, 14}, {9, 13}, {9, 14},
+      {0, 3},  {0, 10}, {0, 15}, {1, 2},  {1, 10}, {1, 15}, {2, 5},  {2, 10}, {2, 11}, {3, 4},
+      {3, 10}, {3, 11}, {4, 7},  {4, 11}, {4, 12}, {5, 6},  {5, 11}, {5, 12}, {6, 9},  {6, 12},
+      {6, 13}, {7, 8},  {7, 12}, {7, 13}, {8, 13}, {8, 14}, {9, 13}, {9, 14},
   };
   t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
   for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
@@ -263,10 +259,8 @@ constexpr Terrain buildVolcanicJungle() {
   }
 
   const Edge edges[] = {
-      {0, 1}, {0, 12}, {0, 13}, {1, 2}, {1, 7}, {2, 3},
-      {2, 6}, {3, 5}, {4, 7}, {4, 10}, {4, 12}, {5, 6},
-      {5, 8}, {5, 14}, {6, 7}, {7, 9}, {8, 9}, {8, 14},
-      {9, 10}, {10, 11}, {11, 12}, {12, 13},
+      {0, 1}, {0, 12}, {0, 13}, {1, 2}, {1, 7}, {2, 3}, {2, 6},  {3, 5},  {4, 7},   {4, 10},  {4, 12},
+      {5, 6}, {5, 8},  {5, 14}, {6, 7}, {7, 9}, {8, 9}, {8, 14}, {9, 10}, {10, 11}, {11, 12}, {12, 13},
   };
   t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
   for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
@@ -320,11 +314,9 @@ constexpr Terrain buildCursedCemetery() {
   }
 
   const Edge edges[] = {
-      {0, 1}, {0, 3}, {0, 4}, {0, 15}, {1, 2}, {1, 5},
-      {1, 15}, {2, 5}, {3, 4}, {4, 5}, {4, 6}, {4, 8},
-      {5, 6}, {5, 7}, {6, 9}, {6, 10}, {7, 10}, {8, 9},
-      {9, 10}, {9, 12}, {9, 13}, {10, 11}, {10, 14}, {11, 14},
-      {12, 13}, {12, 14}, {12, 16}, {14, 16},
+      {0, 1},  {0, 3},   {0, 4},   {0, 15},  {1, 2},   {1, 5},   {1, 15},  {2, 5},   {3, 4},  {4, 5},
+      {4, 6},  {4, 8},   {5, 6},   {5, 7},   {6, 9},   {6, 10},  {7, 10},  {8, 9},   {9, 10}, {9, 12},
+      {9, 13}, {10, 11}, {10, 14}, {11, 14}, {12, 13}, {12, 14}, {12, 16}, {14, 16},
   };
   t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
   for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
@@ -384,10 +376,8 @@ constexpr Terrain buildBattlefield() {
   }
 
   const Edge edges[] = {
-      {0, 4}, {0, 14}, {1, 2}, {1, 14}, {2, 3}, {2, 7},
-      {2, 8}, {3, 4}, {3, 6}, {3, 7}, {4, 5}, {4, 6},
-      {5, 11}, {6, 10}, {6, 11}, {7, 9}, {7, 10}, {8, 9},
-      {9, 10}, {9, 13}, {10, 11}, {11, 12}, {12, 15}, {13, 15},
+      {0, 4},  {0, 14}, {1, 2},  {1, 14}, {2, 3},  {2, 7}, {2, 8},  {3, 4},  {3, 6},   {3, 7},   {4, 5},   {4, 6},
+      {5, 11}, {6, 10}, {6, 11}, {7, 9},  {7, 10}, {8, 9}, {9, 10}, {9, 13}, {10, 11}, {11, 12}, {12, 15}, {13, 15},
   };
   t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
   for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
@@ -447,10 +437,8 @@ constexpr Terrain buildCaribbeanSea() {
   }
 
   const Edge edges[] = {
-      {0, 4}, {0, 13}, {1, 2}, {1, 4}, {1, 6}, {1, 13},
-      {2, 3}, {2, 8}, {3, 7}, {4, 5}, {5, 6}, {5, 9},
-      {6, 8}, {7, 8}, {7, 14}, {8, 11}, {9, 10}, {9, 11},
-      {10, 12}, {11, 12},
+      {0, 4}, {0, 13}, {1, 2}, {1, 4}, {1, 6},  {1, 13}, {2, 3},  {2, 8},  {3, 7},   {4, 5},
+      {5, 6}, {5, 9},  {6, 8}, {7, 8}, {7, 14}, {8, 11}, {9, 10}, {9, 11}, {10, 12}, {11, 12},
   };
   t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
   for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
@@ -503,10 +491,8 @@ constexpr Terrain buildTropicalPool() {
   }
 
   const Edge edges[] = {
-      {0, 1}, {0, 2}, {0, 16}, {1, 2}, {1, 4}, {1, 6},
-      {1, 15}, {2, 3}, {3, 4}, {3, 8}, {4, 6}, {4, 7},
-      {4, 9}, {4, 10}, {5, 6}, {5, 7}, {7, 11}, {8, 9},
-      {9, 10}, {10, 11}, {10, 12}, {10, 14}, {11, 12}, {12, 13},
+      {0, 1}, {0, 2},  {0, 16}, {1, 2}, {1, 4},  {1, 6}, {1, 15}, {2, 3},   {3, 4},   {3, 8},   {4, 6},   {4, 7},
+      {4, 9}, {4, 10}, {5, 6},  {5, 7}, {7, 11}, {8, 9}, {9, 10}, {10, 11}, {10, 12}, {10, 14}, {11, 12}, {12, 13},
   };
   t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
   for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
@@ -527,8 +513,10 @@ constexpr Terrain buildTropicalPool() {
       {(1u << 4) | (1u << 5) | (1u << 6) | (1u << 7), 2, 151, 438},
       {(1u << 3) | (1u << 4) | (1u << 8) | (1u << 9), 2, 849, 562},
   };
-  t.gate[14] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));  // H.Q. 1
-  t.gate[15] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));  // H.Q. 2
+  t.gate[14] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Star)) |
+                                    (1u << static_cast<int>(Troop::Roxy)));  // H.Q. 1
+  t.gate[15] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Star)) |
+                                    (1u << static_cast<int>(Troop::Roxy)));  // H.Q. 2
   t.regionCount = static_cast<uint8_t>(sizeof(regions) / sizeof(regions[0]));
   for (int i = 0; i < t.regionCount; ++i) {
     t.regions[i].bases = regions[i].bases;
@@ -538,15 +526,20 @@ constexpr Terrain buildTropicalPool() {
   }
 
   t.special[2] = static_cast<uint8_t>(Special::Gate);
-  t.gate[2] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Skully)) | (1u << static_cast<int>(Troop::Capn)));
+  t.gate[2] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Skully)) |
+                                   (1u << static_cast<int>(Troop::Capn)));
   t.special[4] = static_cast<uint8_t>(Special::Gate);
-  t.gate[4] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));
+  t.gate[4] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Star)) |
+                                   (1u << static_cast<int>(Troop::Roxy)));
   t.special[5] = static_cast<uint8_t>(Special::Gate);
-  t.gate[5] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Jumbo)) | (1u << static_cast<int>(Troop::Hook)) | (1u << static_cast<int>(Troop::XB42)));
+  t.gate[5] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Jumbo)) |
+                                   (1u << static_cast<int>(Troop::Hook)) | (1u << static_cast<int>(Troop::XB42)));
   t.special[8] = static_cast<uint8_t>(Special::Gate);
-  t.gate[8] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Jumbo)) | (1u << static_cast<int>(Troop::Hook)) | (1u << static_cast<int>(Troop::XB42)));
+  t.gate[8] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Jumbo)) |
+                                   (1u << static_cast<int>(Troop::Hook)) | (1u << static_cast<int>(Troop::XB42)));
   t.special[11] = static_cast<uint8_t>(Special::Gate);
-  t.gate[11] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Skully)) | (1u << static_cast<int>(Troop::Capn)));
+  t.gate[11] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Skully)) |
+                                    (1u << static_cast<int>(Troop::Capn)));
   return t;
 }
 
@@ -572,11 +565,9 @@ constexpr Terrain buildStationMetalX() {
   }
 
   const Edge edges[] = {
-      {0, 3}, {0, 4}, {0, 14}, {1, 2}, {1, 3}, {1, 14},
-      {2, 3}, {2, 7}, {3, 4}, {3, 5}, {3, 6}, {3, 7},
-      {4, 5}, {5, 6}, {5, 8}, {5, 10}, {6, 7}, {6, 8},
-      {7, 8}, {7, 9}, {8, 9}, {8, 10}, {8, 11}, {8, 12},
-      {9, 12}, {10, 11}, {11, 13}, {12, 13},
+      {0, 3}, {0, 4},  {0, 14}, {1, 2},  {1, 3},  {1, 14},  {2, 3},   {2, 7},   {3, 4}, {3, 5},
+      {3, 6}, {3, 7},  {4, 5},  {5, 6},  {5, 8},  {5, 10},  {6, 7},   {6, 8},   {7, 8}, {7, 9},
+      {8, 9}, {8, 10}, {8, 11}, {8, 12}, {9, 12}, {10, 11}, {11, 13}, {12, 13},
   };
   t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
   for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
@@ -588,20 +579,13 @@ constexpr Terrain buildStationMetalX() {
     uint16_t y;
   };
   const R regions[] = {
-      {(1u << 1) | (1u << 2) | (1u << 3), 1, 630, 221},
-      {(1u << 0) | (1u << 1) | (1u << 3), 1, 434, 130},
-      {(1u << 0) | (1u << 3) | (1u << 4), 1, 109, 181},
-      {(1u << 3) | (1u << 4) | (1u << 5), 1, 248, 384},
-      {(1u << 3) | (1u << 5) | (1u << 6), 1, 437, 440},
-      {(1u << 3) | (1u << 6) | (1u << 7), 1, 563, 440},
-      {(1u << 2) | (1u << 3) | (1u << 7), 1, 752, 384},
-      {(1u << 6) | (1u << 7) | (1u << 8), 1, 563, 560},
-      {(1u << 5) | (1u << 6) | (1u << 8), 1, 437, 560},
-      {(1u << 5) | (1u << 8) | (1u << 10), 1, 248, 616},
-      {(1u << 8) | (1u << 10) | (1u << 11), 1, 370, 779},
-      {(1u << 8) | (1u << 9) | (1u << 12), 1, 891, 819},
-      {(1u << 7) | (1u << 8) | (1u << 9), 1, 752, 616},
-      {(1u << 8) | (1u << 11) | (1u << 12), 1, 566, 870},
+      {(1u << 1) | (1u << 2) | (1u << 3), 1, 630, 221},   {(1u << 0) | (1u << 1) | (1u << 3), 1, 434, 130},
+      {(1u << 0) | (1u << 3) | (1u << 4), 1, 109, 181},   {(1u << 3) | (1u << 4) | (1u << 5), 1, 248, 384},
+      {(1u << 3) | (1u << 5) | (1u << 6), 1, 437, 440},   {(1u << 3) | (1u << 6) | (1u << 7), 1, 563, 440},
+      {(1u << 2) | (1u << 3) | (1u << 7), 1, 752, 384},   {(1u << 6) | (1u << 7) | (1u << 8), 1, 563, 560},
+      {(1u << 5) | (1u << 6) | (1u << 8), 1, 437, 560},   {(1u << 5) | (1u << 8) | (1u << 10), 1, 248, 616},
+      {(1u << 8) | (1u << 10) | (1u << 11), 1, 370, 779}, {(1u << 8) | (1u << 9) | (1u << 12), 1, 891, 819},
+      {(1u << 7) | (1u << 8) | (1u << 9), 1, 752, 616},   {(1u << 8) | (1u << 11) | (1u << 12), 1, 566, 870},
   };
   t.regionCount = static_cast<uint8_t>(sizeof(regions) / sizeof(regions[0]));
   for (int i = 0; i < t.regionCount; ++i) {
@@ -639,10 +623,8 @@ constexpr Terrain buildLaCroisette() {
   }
 
   const Edge edges[] = {
-      {0, 1}, {0, 13}, {1, 2}, {2, 3}, {2, 4}, {2, 13},
-      {3, 4}, {3, 6}, {3, 11}, {4, 5}, {5, 6}, {5, 7},
-      {6, 7}, {6, 11}, {7, 8}, {7, 14}, {8, 9}, {9, 14},
-      {10, 11}, {10, 14}, {11, 12}, {12, 13},
+      {0, 1}, {0, 13}, {1, 2},  {2, 3}, {2, 4},  {2, 13}, {3, 4},  {3, 6},   {3, 11},  {4, 5},   {5, 6},
+      {5, 7}, {6, 7},  {6, 11}, {7, 8}, {7, 14}, {8, 9},  {9, 14}, {10, 11}, {10, 14}, {11, 12}, {12, 13},
   };
   t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
   for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
@@ -676,10 +658,14 @@ constexpr Terrain buildLaCroisette() {
   t.special[5] = static_cast<uint8_t>(Special::Suppress);
   t.special[8] = static_cast<uint8_t>(Special::Draw);
   t.special[10] = static_cast<uint8_t>(Special::Gate);
-  t.gate[10] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Hook)) | (1u << static_cast<int>(Troop::XB42)) | (1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));
+  t.gate[10] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Hook)) |
+                                    (1u << static_cast<int>(Troop::XB42)) | (1u << static_cast<int>(Troop::Star)) |
+                                    (1u << static_cast<int>(Troop::Roxy)));
   t.special[11] = static_cast<uint8_t>(Special::Nullify);
   t.special[12] = static_cast<uint8_t>(Special::Gate);
-  t.gate[12] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Hook)) | (1u << static_cast<int>(Troop::XB42)) | (1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));
+  t.gate[12] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Hook)) |
+                                    (1u << static_cast<int>(Troop::XB42)) | (1u << static_cast<int>(Troop::Star)) |
+                                    (1u << static_cast<int>(Troop::Roxy)));
   return t;
 }
 

@@ -115,6 +115,27 @@ cache of converted article text, and nothing else that could drift. Compare
 the Anki bridge, which must hold a full collection because AnkiWeb's protocol
 gives it no other way to answer "what changed".
 
+### What that call actually answers, observed 2026-09-03
+
+The first real sync with a real account was REFUSED by the bridge, and the
+bridge was right to refuse: it required an envelope Instapaper does not send.
+This is what the live API answered, recorded here so nobody has to read the
+documentation for it again:
+
+    [ {"type": "meta"},                       # "delete_ids" only when there are some
+      {"type": "user", "user_id", "username", "subscription_is_active"},
+      {"type": "bookmark", "bookmark_id", "hash", "url", "title",
+       "description", "time", "progress", "progress_timestamp", "starred",
+       "private_source", "tags"}, ... ]
+
+A JSON **array** of objects discriminated by `type`. There is no top-level
+`bookmarks` key, no `highlights` key, and `delete_ids` is not a top-level list:
+it rides **inside the meta element as a comma-separated string**. Both halves
+of that bit, because only the first is obvious and the second is the dangerous
+one -- every character of `"424242424,424242425"` passes an `isdigit()` test,
+so a client that merely stopped demanding an object would read that string as
+the bookmark ids 4, 2, 4, 2 and delete cached articles nobody named.
+
 Two traps in that gift, both handled:
 
 - **`delete_ids` is limit-sensitive.** The docs are explicit: ids sent in
@@ -274,31 +295,47 @@ the signing, the delta, the conversion, the device protocol and the archive
 round trip are all proven without an account and without a network.
 
 What a fake cannot prove is that the real Instapaper behaves the way this fake
-believes it does. Specifically, and these are the assumptions worth naming
-because each one came from the documentation rather than from an observation:
+believes it does -- and the first real sync proved it did not. The fake and the
+client had been written from the same paragraph of the same documentation, so
+they agreed with each other about a response shape that has never existed, and
+every suite in the repo passed on that agreement. The envelope above is now
+recorded from the wire, and `tests/test_listing.py` holds it as a fixture.
 
-- that `delete_ids` is limit-scoped exactly as documented, so the window guard
-  in `engine.py` is guarding the real behaviour and not an imagined one;
+Settled by that first contact, against the live API:
+
+- the response envelope, above -- an array of typed objects, `delete_ids` a
+  comma-separated string inside `meta`;
+- that `have` suppression works on `id:hash` exactly as designed: sending every
+  id with its correct hash came back with meta and user and no bookmarks at
+  all, and sending the same ids with a wrong hash came back with all of them;
+- that ids named in `have` which the account does not hold come back as
+  `delete_ids`.
+
+Still assumed rather than observed, and each one came from the documentation:
+
+- that `delete_ids` is limit-SCOPED as documented (the observation above only
+  shows it is have-scoped: the account holds far fewer than the 500 the bridge
+  asks for, so no listing has yet filled its window and the guard in
+  `engine.py` has never fired against the real API);
 - that a bookmark's `hash` really is computed from url + title + description +
   progress and NOT from the content, which is what lets the bridge reuse
   cached text when the hash moves;
 - that progress in the `have` string is accepted only when its timestamp is
-  newer, which is the whole conflict-resolution story;
-- that `get_text` returns the shape of HTML the converter was written against,
-  on real articles rather than fixtures.
+  newer, which is the whole conflict-resolution story. Deliberately not probed:
+  the only way to test it is to write progress onto a real account.
 
-**What is needed:** one sign-in with a real Instapaper account, through the
-bridge's own page, plus an OAuth consumer token (a form on instapaper.com,
-reviewed by a human) for the service to sign with.
-
-**What it unblocks:** the four assumptions above become observations, and the
-service can be deployed for real use.
+**What is needed:** a sync from the device that reads an article, for the two
+remaining assumptions.
 
 **What stays unproven until then:** nothing about the code as written -- it is
 green -- but every one of those four is a belief about somebody else's server.
 If one of them is wrong, the failure is quiet: a stale row, a re-downloaded
 article, or a reading position that does not move.
 
-The other operational step, whenever it happens: a hostname for the service
-(the firmware constant says `read.crossplay.ma-r-s.com`) added to the tunnel, the way
-`sync.ma-r-s.com` was.
+The other operational step, done on 2026-09-03: a hostname for the service
+(the firmware constant says `read.ma-r-s.com`) added to the tunnel, the way
+`sync.ma-r-s.com` was. It is one label below the apex because the zone's
+free-plan certificate covers no deeper name; the constant said
+`read.crossplay.ma-r-s.com` until then, and that name fails the TLS handshake
+at Cloudflare's edge rather than resolving. See
+`server/read-bridge/scripts/DEPLOY-RUNBOOK.md` step 4.

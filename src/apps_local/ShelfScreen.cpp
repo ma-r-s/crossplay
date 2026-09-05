@@ -2,15 +2,17 @@
 
 #include <FreeInkUIIcon.h>
 
+#include <cstdio>
+
 #include "player/PlayerAvatar.h"
 #include "ui/ToyboxIcons.h"
 
 namespace shelfui {
 
 // The footer holds the device's name and is the way into changing it, so the
-// list has to stop above it. Shared with the builder, or the scroll maths would
-// think it has a row's more room than it does and style a selection on a row
-// that is never drawn.
+// list has to stop above it. Shared with the builder, or the paging maths would
+// think it has a row's more room than it does and put a row on a page that
+// cannot draw it.
 //
 // A row's height rather than a pill's: it carries a 48px face now, and a pill
 // would leave two pixels of air above and below it.
@@ -53,6 +55,33 @@ int pageCountFor(const int itemCount, const int rowsPerPage) {
   return (itemCount + rowsPerPage - 1) / rowsPerPage;
 }
 
+int rowForPage(const int page, const int rowsPerPage) {
+  if (rowsPerPage <= 0 || page <= 0) return 0;
+  return page * rowsPerPage;
+}
+
+int resumeRowFor(const int rememberedRow, const int itemCount) {
+  if (itemCount <= 0 || rememberedRow <= 0) return 0;
+  return rememberedRow >= itemCount ? itemCount - 1 : rememberedRow;
+}
+
+int pageStep(const int page, const int pageCount, const int delta) {
+  if (pageCount <= 1) return 0;
+  // Modulo of a negative left operand is negative in C++, so the step is
+  // normalised into 0..pageCount-1 before it is added.
+  const int step = ((delta % pageCount) + pageCount) % pageCount;
+  const int from = page < 0 ? 0 : page % pageCount;
+  return (from + step) % pageCount;
+}
+
+int pageStepClamped(const int page, const int pageCount, const int delta) {
+  if (pageCount <= 1) return 0;
+  const int from = page < 0 ? 0 : (page >= pageCount ? pageCount - 1 : page);
+  const int to = from + delta;
+  if (to < 0) return 0;
+  return to >= pageCount ? pageCount - 1 : to;
+}
+
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::HeaderProps header;
   header.title = model.title;
@@ -71,6 +100,32 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     screen.target().bitmap(markRect, fui::bitmapFromIcon(*model.mark), fui::BitmapMode::Contain,
                            fui::Paint::solid(fui::Color::White));
   }
+
+  // Which page, in the header, where the eye already is.
+  //
+  // The page bar answers this too, and it sits at the bottom of the panel, out
+  // of the fovea while the eyes are on the rows. A cold tester did not misread
+  // the bar; they never looked at it, opened a game from a row position they
+  // had learned on another page, and got a different game. So the count is said
+  // twice: once beside the folder's name, which is the first thing read, and
+  // once on the control that changes it.
+  //
+  // Right-aligned into the gap the mark leaves, at UI size rather than the
+  // title's, because it is an answer to a question about the title and not part
+  // of the name.
+  if (model.pageCount > 1) {
+    char counter[12];
+    snprintf(counter, sizeof(counter), "%d/%d", model.page + 1, model.pageCount);
+    fui::TextStyle style;
+    style.font = toybox::kUiFont;
+    style.align = fui::TextAlign::Right;
+    style.color = fui::Color::White;
+    const int16_t right = static_cast<int16_t>(panel.width - toybox::kIconSize - toybox::kMargin - toybox::kGutter);
+    const fui::Rect box = fui::makeRect(0, toybox::bandCenterY(screen, toybox::kUiCut.inkHeight),
+                                        static_cast<int16_t>(right), toybox::kUiCut.inkHeight);
+    screen.target().text(toybox::inkCentred(box, toybox::kUiCut), counter, style);
+  }
+
   toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
@@ -132,28 +187,26 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   }
 
   // Taken after the player bar, so it sits above it, and only when there is more
-  // than one page: a lone pip saying "you are on the only page" is furniture.
+  // than one page: a lone mark saying "you are on the only page" is furniture.
   //
   // **This is a position indicator that happens to be tappable, not a row of
   // buttons**, and the difference is the whole design. The first version tiled
-  // the full width with page-sized targets, and it read as a control -- which
-  // was wrong twice over. The device already has the control: the side buttons
-  // step the cursor and the page follows, so drawing a second one is
-  // reinventing hardware we already have. And what was actually missing was
-  // never a control at all, it was the *signal* that more games exist.
+  // the full width with page-sized targets, and what was actually missing was
+  // never a control at all -- it was the *signal* that more games exist. So the
+  // marks are a small centred cluster with air around them rather than a bar of
+  // slabs, and the targets are a thumb wide and contiguous *within the cluster
+  // only*: tapping the far edge of the screen does nothing, because out there
+  // the user is not aiming at anything.
   //
-  // It stays tappable rather than becoming pure decoration because of a fact
-  // about this hardware: `BaseTheme::drawButtonHints` returns immediately when
-  // `gpio.hasTouch()`, and the X4 Pro has a GT911. So upstream deliberately
-  // teaches nothing about the physical buttons on a touch device, which means a
-  // touch user has no way to discover that Up and Down would page. Touch has to
-  // stay complete. The iOS home screen resolves the same tension the same way:
-  // dots that read as position and happen to accept a tap.
-  //
-  // So the marks are a small centred cluster with air around them rather than a
-  // bar of slabs, and the targets are a thumb wide and contiguous *within the
-  // cluster only* -- tapping the far edge of the screen does nothing, because
-  // out there the user is not aiming at anything.
+  // Each mark carries its page NUMBER. They were 10px squares, filled for here
+  // and outlined for there, and a cold tester called them "the size of a full
+  // stop": at that size the only thing saying where you are is smaller than the
+  // ink of one letter, on a screen whose rows sit in the same eight places on
+  // every page. A numeral in the same cell is the same control, the same
+  // cluster and the same targets, saying the same thing legibly. It also makes
+  // the cluster a counter rather than a carousel, which matters now that the
+  // pages step vertically: dots borrowed the iOS home screen's promise that the
+  // content slides sideways, and nothing here slides at all.
   if (model.pageCount > 1) {
     const fui::Rect bar = screen.takeBottom(kPageBarHeight, toybox::kGutter);
 
@@ -162,7 +215,6 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     // thumb-wide pitch would not fit; small honest targets beat overlapping
     // ones, which is why the component is not allowed to grow them either.
     constexpr int16_t kPitch = 44;
-    constexpr int16_t kPip = 10;
     const int16_t pitch =
         kPitch * model.pageCount <= bar.width ? kPitch : static_cast<int16_t>(bar.width / model.pageCount);
     const int16_t clusterX = static_cast<int16_t>(bar.x + (bar.width - pitch * model.pageCount) / 2);
@@ -174,6 +226,17 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     fui::StyleSet invisible;
     invisible.explicitlySet = true;
 
+    // Each cell draws its own box, the way a list row does: outlined for a page
+    // you are not on, filled for the one you are. That is this fork's existing
+    // language for "this one of these", and it is what makes the cluster read as
+    // a control -- which it has to, because `BaseTheme::drawButtonHints` returns
+    // immediately when `gpio.hasTouch()` and the X4 Pro has a GT911, so upstream
+    // teaches a touch user nothing about the two side keys. Touch has to stay
+    // complete. A single hairline capsule around the whole cluster did that job
+    // before, and cannot now: a filled cell inside a capsule of this radius
+    // pokes out through the curve at the two ends.
+    const int16_t inset = 2;
+    const int16_t cellH = static_cast<int16_t>(bar.height - 2 * inset);
     for (int p = 0; p < model.pageCount; ++p) {
       const fui::Rect target =
           fui::makeRect(static_cast<int16_t>(clusterX + p * pitch), bar.y, pitch, static_cast<int16_t>(bar.height));
@@ -184,16 +247,28 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
       jump.minTouchSize = 0;
       screen.button(jump, target);
 
-      // Filled for where you are, outlined for where you are not. Ink rather
-      // than a grey, because there is no grey on this panel: text() draws any
-      // non-white colour solid black and a dither this small is mud.
-      const fui::Rect pip = fui::makeRect(static_cast<int16_t>(target.x + (pitch - kPip) / 2),
-                                          static_cast<int16_t>(target.y + (target.height - kPip) / 2), kPip, kPip);
-      if (p == model.page) {
-        screen.target().fill(pip, fui::Paint::solid(fui::Color::Black));
+      // Drawn inside the target rather than over it, so the ink never promises a
+      // hit outside the region that answers -- and so two neighbours do not
+      // share a doubled edge.
+      const fui::Rect cell =
+          fui::makeRect(static_cast<int16_t>(target.x + inset), static_cast<int16_t>(target.y + inset),
+                        static_cast<int16_t>(pitch - 2 * inset), cellH);
+      const bool here = p == model.page;
+      // Ink rather than a grey, because there is no grey on this panel: any
+      // non-white colour is drawn solid black and a dither this small is mud.
+      if (here) {
+        screen.target().fill(cell, fui::Paint::solid(fui::Color::Black), 10);
       } else {
-        screen.target().stroke(pip, fui::Paint::solid(fui::Color::Black), 2);
+        screen.target().stroke(cell, fui::Paint::solid(fui::Color::Black), 1, 10);
       }
+
+      char number[8];
+      snprintf(number, sizeof(number), "%d", p + 1);
+      fui::TextStyle style;
+      style.font = toybox::kUiFont;
+      style.align = fui::TextAlign::Center;
+      style.color = here ? fui::Color::White : fui::Color::Black;
+      screen.target().text(toybox::inkCentred(cell, toybox::kUiCut), number, style);
     }
   }
 
@@ -203,7 +278,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // Always zero: this list is exactly one page, so it never overflows its band
   // and has nothing to scroll. See MenuModel::items.
   list.topIndex = 0;
-  list.selectedIndex = static_cast<int16_t>(model.selected);
+  // Never a marked row; see MenuModel for why. Set rather than left to the
+  // component's default so a change to that default cannot put a cursor back on
+  // a screen that has nothing to move it.
+  list.selectedIndex = -1;
   list.action = ActionOpen;
 
   const fui::Rect rows = listBand(screen.device(), model.playerName != nullptr, model.pageCount > 1);
@@ -214,7 +292,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   if (model.icons != nullptr) {
     for (int i = 0; i < model.count; ++i) {
       if (model.icons[i] == nullptr) continue;
-      toybox::iconAtRowRight(screen, rows, i, 0, *model.icons[i], i == model.selected);
+      // Never inverted: no row is ever the selected one, so every icon is ink.
+      toybox::iconAtRowRight(screen, rows, i, 0, *model.icons[i], false);
     }
   }
 }

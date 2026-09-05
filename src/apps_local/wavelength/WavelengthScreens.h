@@ -48,6 +48,10 @@ enum : fui::ActionId {
   ActionKeepPlaying = 15,
   ActionNewSession = 16,
   ActionBackToMenu = 17,
+  ActionResume = 18,
+  ActionAbandon = 19,
+  ActionCarryOn = 20,
+  ActionStartFresh = 21,
 };
 
 struct Spectrum {
@@ -58,13 +62,16 @@ struct Spectrum {
 struct DialModel {
   Spectrum spectrum;
   int guess = 10;
-  bool nudgeHold = false;
+  int roundNumber = 1;
+  bool practice = false;
 };
 
 struct PickModel {
   Spectrum first;
   Spectrum second;
   bool onlyOne = false;  // the deck has a single unseen pair left
+  int roundNumber = 1;
+  bool practice = false;
 };
 
 struct PeekModel {
@@ -80,6 +87,8 @@ struct PeekModel {
 
 struct ClueModel {
   Spectrum spectrum;
+  int roundNumber = 1;
+  bool practice = false;
 };
 
 struct CallModel {
@@ -89,6 +98,8 @@ struct CallModel {
 };
 
 struct RevealModel {
+  // Co-op has no end-call, so the reveal must not report one.
+  bool showCall = false;
   Spectrum spectrum;
   int guess = 10;
   int target = 10;
@@ -105,6 +116,39 @@ struct MenuModel {
   bool sessionInProgress = false;
   int sessionRound = 1;
   int sessionTotal = 0;
+  // SCORED rounds, which is what the end screen counts. The front door used to
+  // count the round about to start instead, so the two screens described one
+  // session with two different numbers a single tap apart.
+  int sessionScored = 0;
+};
+
+// The screen that asks whether the evening on the card is this table's.
+//
+// It exists because the save had no notion of going stale. A round, a hidden
+// number and a score are written on every screen change so that Home, or the
+// device sleeping mid-argument, does not cost the table its game -- and days
+// later a completely different group opened the app and was dropped into the
+// middle of the previous group's round 2, with nothing on the panel saying that
+// was what had happened. This is a party game: a different group is the normal
+// case.
+//
+// It is shown ONLY when the answer is genuinely unknown, which is when the
+// evening on the card was written by a different run of the chip
+// (wavelength::resumeFor). Within one boot the round resumes silently, so Home
+// and back still costs nothing.
+struct ResumeModel {
+  // The round CARRY ON would play, named on the button in the front door's own
+  // words so the two screens cannot describe one evening two ways.
+  int roundNumber = 1;
+  int total = 0;
+  int scored = 0;
+  // A round was mid-play rather than merely a session being open. Worth saying:
+  // carrying on means somebody has already seen a number and heard a clue.
+  bool roundInFlight = false;
+  // How long ago, or -1 when the device cannot say -- no RTC on the board, or a
+  // clock that has never been synced. The line is then simply absent, because
+  // the question stands without it.
+  int minutesAgo = -1;
 };
 
 struct SummaryModel {
@@ -112,6 +156,25 @@ struct SummaryModel {
   int rounds = 0;
   int total = 0;
   int averageTenths = 0;
+  // Shown because an abandon is free and invisible otherwise. The board is
+  // public in this game; so is walking away from a target you did not like.
+  int abandoned = 0;
+  // What the continue button plays. This screen is a look at the score with
+  // the evening still running, and saying which round comes next is what makes
+  // that unambiguous -- in the same words the front door's own button uses.
+  int nextRound = 1;
+};
+
+// The pause, reached by Back from any screen inside a round. It exists because
+// Back USED to abandon silently, which was three faults at once: no on-screen
+// way out of a round, no way to check the scoring without destroying the round
+// to reach it, and a clue-giver who could re-deal until they liked their target
+// while the game had just told everyone else to look away.
+struct PauseModel {
+  int roundNumber = 1;
+  int total = 0;
+  bool practice = false;
+  int abandoned = 0;
 };
 
 struct PassModel {
@@ -122,6 +185,7 @@ struct PassModel {
   // it looks exactly like a normal pass, so a clue-giver who did not like their
   // target could abandon and redraw with nobody at the table any the wiser.
   bool abandoned = false;
+  int abandonedCount = 0;
 };
 
 // The hold-to-reveal pad, so the activity tests a held finger against the very
@@ -129,16 +193,34 @@ struct PassModel {
 // separate bugs in this fork came from breaking that.
 fui::Rect peekPadRect(int16_t screenW, int16_t screenH);
 
-// The LOCK bar, exposed for the same reason: the activity tests a held finger
-// against the very rect that drew it. This button says HOLD and must mean it.
-// It shipped in v1.12.0 as a plain tap, so a brush of a sleeve ended the round
-// while a deliberate four-second press did nothing -- the exact inverse of its
-// own label, on a bar under everyone's thumb with the device flat on a table.
+// The LOCK button. An ORDINARY button: it carries ActionLock and fires on the
+// release like every other control in the fork, because a hold whose duration is
+// invisible is not a safeguard, it is a guessing game -- nothing on the panel
+// could tell you it wanted 600ms rather than 200 or 4000.
+//
+// What the hold was really guarding is that this control sits in the same
+// footer band as the strip the table has just been tapping, so a finger sliding
+// off the bottom of the board could commit the round. That is answered by
+// GEOMETRY instead: the bar no longer spans the panel, it occupies only the
+// number column's third of the footer, and everything below the strip is dead
+// paper. See lockBarRect() in the .cpp for the numbers.
+//
+// Still exposed rather than recomputed by the caller because the tests measure
+// separation against the very rect that drew it. Three bugs in this fork came
+// from a second copy of a control's geometry.
 fui::Rect lockBarRect(int16_t screenW, int16_t screenH);
 
-// How long the bar must be held. Long enough that a stray touch cannot commit,
-// short enough that nobody wonders whether it is broken.
-inline constexpr int kLockHoldMs = 600;
+// The front door's primary button -- PLAY ROUND N, and the CARRY ON on the
+// screen that asks whose game is on the card. ONE rect for both, because the
+// safety of that screen IS the coincidence: it stands in the front door's
+// place, so the blind tap a returning table makes has to land on the answer
+// that continues rather than the one that throws the evening away.
+//
+// Written twice as a literal, that guarantee held only until somebody nudged
+// one of them, and no render would look wrong. Exported for the same reason
+// lockBarRect is: the test measures the two screens against the very rect that
+// drew them.
+fui::Rect frontDoorPlayRect(int16_t screenW);
 
 // Which way a finger held at (x,y) on the dial is asking the marker to move:
 // +1 toward the top pole, -1 toward the bottom, 0 for neither. Lives here so
@@ -150,17 +232,15 @@ inline constexpr int kLockHoldMs = 600;
 // between each.
 int dialSlotAt(int16_t screenW, int16_t screenH, int16_t x, int16_t y);
 
-int dialDirectionAt(int16_t screenW, int16_t screenH, int guess, int16_t x, int16_t y);
-
 // A held finger keeps stepping. Design said so from the start and the code
 // never did it: three cold testers all reported that crossing the strip is
 // nine to nineteen separate taps on a screen that repaints slowly.
-inline constexpr int kStepRepeatFirstMs = 450;
-inline constexpr int kStepRepeatEveryMs = 180;
 
 void renderHowTo(toybox::Screen& screen);
 void renderMenu(toybox::Screen& screen, const MenuModel& model);
+void renderResume(toybox::Screen& screen, const ResumeModel& model);
 void renderSummary(toybox::Screen& screen, const SummaryModel& model);
+void renderPause(toybox::Screen& screen, const PauseModel& model);
 void renderPassLeft(toybox::Screen& screen, const PassModel& model);
 void renderPick(toybox::Screen& screen, const PickModel& model);
 void renderPeek(toybox::Screen& screen, const PeekModel& model);
