@@ -1,5 +1,6 @@
 #include "ConnectionsScreens.h"
 
+#include <climits>
 #include <cstdio>
 #include <cstring>
 
@@ -86,6 +87,13 @@ constexpr int kMaxLines = 6;
 // once so the scratch buffers that carry a line agree with it.
 constexpr int kMaxLineChars = connections::kMaxWordLen * 4 + 8;
 
+// A group name shares these buffers with the joined word list, and the offsets
+// above are single bytes. Both are true today with a byte to spare; neither is
+// obvious from the constants, and getting either wrong drops a string silently
+// rather than failing to build.
+static_assert(connections::kMaxGroupLen < kMaxLineChars, "a group name must fit the line buffers");
+static_assert(kMaxLineChars <= 255, "LineBreaks offsets are uint8_t");
+
 // One string, cut into lines that each MEASURE inside their box.
 //
 // This struct is the whole no-truncation guarantee. GfxRendererTarget::text()
@@ -103,9 +111,13 @@ struct LineBreaks {
   uint8_t end[kMaxLines] = {};
 };
 
+// A span this cannot measure answers "wider than anything", never "fits": a
+// guard whose job is to refuse must not answer yes for a string it never looked
+// at.
 int spanWidth(toybox::Screen& screen, const fui::FontId cut, const char* text, const int begin, const int end) {
   const int span = end - begin;
-  if (span <= 0 || span >= kMaxLineChars) return 0;
+  if (span <= 0) return 0;
+  if (span >= kMaxLineChars) return INT16_MAX;
   char buffer[kMaxLineChars] = {};
   std::memcpy(buffer, text + begin, static_cast<size_t>(span));
   buffer[span] = '\0';
@@ -114,16 +126,24 @@ int spanWidth(toybox::Screen& screen, const fui::FontId cut, const char* text, c
   return screen.target().measureText(cut, buffer, probe).width;
 }
 
-// Breaks `text` so that every line measures inside `width`, preferring the last
-// space in the fitting prefix and cutting mid-word when there is no space to
-// use. A break eats the space it broke at.
+// Breaks `text` so that every line measures inside `width`, at the last space
+// in the fitting prefix. A break eats the space it broke at.
 //
-// Returns false when the text needs more than `maxLines`, or when not even one
-// character fits -- the caller steps down a cut rather than accept a line it
-// would have to cut short. `out` still holds what was laid out, so a caller
-// with nowhere left to step can draw a long block rather than a short lie.
+// `allowMidWord` is the whole shape of the rule. Wrapping a phrase at its own
+// space is not breaking a word and never was; cutting through the middle of one
+// is, and it is the first thing Mario rejected on sight
+// (docs/design-language.md). So the ladder above asks every cut to set every
+// word WHOLE first, with this false, and only turns it on once no cut can --
+// at which point a break is the only alternative left to an ellipsis, and an
+// ellipsis is never one.
+//
+// Returns false when the text needs more than `maxLines`, when a word would
+// have to be cut and may not be, or when not even one character fits. The
+// caller steps down a cut rather than accept a line it would have to shorten.
+// `out` still holds what was laid out, so a caller with nowhere left to step
+// can draw a long block rather than a short lie.
 bool breakToFit(toybox::Screen& screen, const fui::FontId cut, const char* text, const int width, const int maxLines,
-                LineBreaks& out) {
+                const bool allowMidWord, const bool preferSpaces, LineBreaks& out) {
   out.count = 0;
   if (text == nullptr || width <= 0) return false;
   const int length = static_cast<int>(std::strlen(text));
@@ -151,17 +171,22 @@ bool breakToFit(toybox::Screen& screen, const fui::FontId cut, const char* text,
       }
       take = lo;
       if (spanWidth(screen, cut, text, at, at + take) > width) return false;
-      // A phrase breaks at its own space when one is in reach; a single long
-      // word has none and is cut where it stopped fitting. Re-measured after
-      // the move, so the guarantee does not rest on width growing with length:
-      // a face whose kerning made the shorter line wider would otherwise slip
-      // an overflowing line past the one check that exists to stop it.
-      for (int i = take; i > 0; --i) {
+      // A phrase breaks at its own space when one is in reach. Re-measured
+      // after the move, so the guarantee does not rest on width growing with
+      // length: a face whose kerning made the shorter line wider would
+      // otherwise slip an overflowing line past the one check that exists to
+      // stop it.
+      bool atSpace = false;
+      for (int i = preferSpaces ? take : 0; i > 0; --i) {
         if (text[at + i - 1] == ' ') {
-          if (i - 1 > 0 && spanWidth(screen, cut, text, at, at + i - 1) <= width) take = i - 1;
+          if (i - 1 > 0 && spanWidth(screen, cut, text, at, at + i - 1) <= width) {
+            take = i - 1;
+            atSpace = true;
+          }
           break;
         }
       }
+      if (!atSpace && !allowMidWord) return false;
       if (take <= 0) return false;
     }
     out.begin[out.count] = static_cast<uint8_t>(at);
@@ -180,45 +205,66 @@ bool breakToFit(toybox::Screen& screen, const fui::FontId cut, const char* text,
 // did not fit. Re-cut into equal shares of the same number of lines, nudged to
 // a nearby space so a phrase still breaks between its words.
 //
+// Only reached where a word had to be cut at all, which is the one case the
+// ladder could not avoid, and it is what docs/design-language.md has always
+// prescribed for it: "on a space, balanced across two lines". A layout that
+// broke only at spaces is left alone -- re-slicing by share could move a break
+// off a space and into a word, which is the whole thing being avoided.
+//
 // Only ever applied when it is measured to fit -- an even split is a
 // preference, and the whole line must stay inside the box whatever happens to
 // it. Where the shares do not fit, the greedy break stands.
-void balanceBreaks(toybox::Screen& screen, const fui::FontId cut, const char* text, const int width, LineBreaks& io) {
+void balanceBreaks(toybox::Screen& screen, const fui::FontId cut, const char* text, const int width, const int maxLines,
+                   LineBreaks& io) {
   if (io.count < 2) return;
   const int length = static_cast<int>(std::strlen(text));
-  const int parts = io.count;
-  int bound[kMaxLines + 1] = {};
-  bound[parts] = length;
-  for (int i = 1; i < parts; ++i) bound[i] = length * i / parts;
-  // The old two-way split's window, kept: the nearest space four characters
-  // out is further than a reader forgives, and past that a clean mid-word cut
-  // beats a lopsided one.
-  for (int i = 1; i < parts; ++i) {
-    for (int slack = 0; slack <= 3; ++slack) {
-      if (bound[i] - slack > bound[i - 1] && text[bound[i] - slack] == ' ') {
-        bound[i] -= slack;
-        break;
-      }
-      if (bound[i] + slack < bound[i + 1] && text[bound[i] + slack] == ' ') {
-        bound[i] += slack;
-        break;
+  const int cap = maxLines < kMaxLines ? maxLines : kMaxLines;
+  // The greedy break used the fewest lines it could, which is what puts its cut
+  // late in the word: "FRANKENSTEIN'S MONSTER" comes out "FRANKENSTEI / N'S
+  // MONSTER". Even shares of that same count do not always fit, so the search
+  // is allowed one more line at a time -- three even lines beat two lopsided
+  // ones, and "FRANKEN / STEIN'S / MONSTER" is the same word in readable
+  // pieces.
+  for (int parts = io.count; parts <= cap; ++parts) {
+    int bound[kMaxLines + 1] = {};
+    bound[parts] = length;
+    for (int i = 1; i < parts; ++i) bound[i] = length * i / parts;
+    // The old two-way split's window, kept: the nearest space four characters
+    // out is further than a reader forgives, and past that a clean mid-word cut
+    // beats a lopsided one.
+    for (int i = 1; i < parts; ++i) {
+      for (int slack = 0; slack <= 3; ++slack) {
+        if (bound[i] - slack > bound[i - 1] && text[bound[i] - slack] == ' ') {
+          bound[i] -= slack;
+          break;
+        }
+        if (bound[i] + slack < bound[i + 1] && text[bound[i] + slack] == ' ') {
+          bound[i] += slack;
+          break;
+        }
       }
     }
-  }
 
-  LineBreaks even;
-  even.count = parts;
-  for (int i = 0; i < parts; ++i) {
-    int begin = bound[i];
-    int end = bound[i + 1];
-    while (begin < end && text[begin] == ' ') ++begin;
-    while (end > begin && text[end - 1] == ' ') --end;
-    if (end <= begin) return;
-    if (spanWidth(screen, cut, text, begin, end) > width) return;
-    even.begin[i] = static_cast<uint8_t>(begin);
-    even.end[i] = static_cast<uint8_t>(end);
+    LineBreaks even;
+    even.count = parts;
+    bool fits = true;
+    for (int i = 0; i < parts && fits; ++i) {
+      int begin = bound[i];
+      int end = bound[i + 1];
+      while (begin < end && text[begin] == ' ') ++begin;
+      while (end > begin && text[end - 1] == ' ') --end;
+      if (end <= begin || spanWidth(screen, cut, text, begin, end) > width) {
+        fits = false;
+        break;
+      }
+      even.begin[i] = static_cast<uint8_t>(begin);
+      even.end[i] = static_cast<uint8_t>(end);
+    }
+    if (fits) {
+      io = even;
+      return;
+    }
   }
-  io = even;
 }
 
 // Draws an already-broken string as a block of single-line runs from `top`.
@@ -239,20 +285,28 @@ void drawBrokenText(toybox::Screen& screen, const fui::Rect& box, const int top,
 }
 
 // One size for all sixteen tiles: the largest cut at which EVERY word still on
-// the board lays out whole inside a tile.
+// the board is set WHOLE, wrapping a phrase at its own spaces where it needs to.
 //
 // Sizing each tile against its own word made a long word set a quarter smaller
 // than the fifteen beside it, and on a board whose whole premise is sixteen
 // interchangeable candidates a size difference reads as significance that is
 // not there.
 //
+// Shrink before you break, per docs/design-language.md: a word cut in half is
+// unreadable in a way that a smaller word never is, and it was the first thing
+// Mario rejected on sight. A version that preferred the large cut and broke
+// words to keep it was built, rendered and rejected -- it produced GATH/ERING,
+// LIGH/TNING and AGRIC/ULTURE on one board. So every cut is asked to set every
+// word whole first, and only when none can does a break become the alternative
+// to an ellipsis. host-tests/tilefit asserts both halves: that nothing is ever
+// shortened, and that no word is cut while a smaller cut would have held it.
+//
 // The fit test is the layout itself rather than a proxy for it: this and
 // drawTileText call the same breakToFit, so a cut is only chosen once the break
 // that will actually be drawn is known to fit. An earlier version asked a width
 // question here and split by character count there, and the two disagreed on 48
 // boards of the published archive -- every one of them a tile that showed the
-// player a shortened phrase. host-tests/tilefit walks all 1143 and fails on a
-// single elided line.
+// player a shortened phrase.
 //
 // Measured at draw time against the real face, for the reason murdleui's
 // drawLegend gives (MurdleScreens.cpp): the host tests' draw target answers a
@@ -260,6 +314,9 @@ void drawBrokenText(toybox::Screen& screen, const fui::Rect& box, const int top,
 struct TileCut {
   fui::FontId font = kTileCuts[0];
   int maxLines = 1;
+  // True only on the boards where no cut sets every word whole, so the choice
+  // is between cutting a word and cutting the meaning.
+  bool mayBreakWords = false;
 };
 
 TileCut chooseTileCut(toybox::Screen& screen, const char* const* words, const int count, const int innerWidth,
@@ -274,20 +331,22 @@ TileCut chooseTileCut(toybox::Screen& screen, const char* const* words, const in
     if (lines < 1) continue;
     bool all = true;
     LineBreaks probe;
-    for (int i = 0; i < count && all; ++i) all = breakToFit(screen, cut, words[i], innerWidth, lines, probe);
-    if (all) return TileCut{cut, lines};
+    for (int i = 0; i < count && all; ++i) {
+      all = breakToFit(screen, cut, words[i], innerWidth, lines, false, true, probe);
+    }
+    if (all) return TileCut{cut, lines, false};
   }
-  // The last resort, and it has to be one: a word that no cut takes in three
-  // lines still has to appear in full, so the smaller cut gets every line the
-  // tile is tall enough to hold. No board in the published archive reaches
-  // here; the suite is what says so, and would say so again if the source ever
-  // published something longer.
+  // No cut sets every word whole, so a word has to be cut -- and it is cut at
+  // the SMALLEST one, which is as far as shrinking can go and therefore the
+  // fewest pieces the word can come apart into. 137 boards of the published
+  // archive reach here; `FRANKENSTEIN'S` is 125px against a 105px tile even at
+  // the small cut, and it is where the app used to draw `FRANKENST...`.
   const fui::FontId cut = cuts[1];
   const int lineHeight = screen.target().lineHeight(cut);
   int lines = lineHeight > 0 ? innerHeight / lineHeight : 1;
   if (lines > kMaxLines) lines = kMaxLines;
   if (lines < 1) lines = 1;
-  return TileCut{cut, lines};
+  return TileCut{cut, lines, true};
 }
 
 // Lays a tile's word out over as many centred lines as the board's chosen cut
@@ -311,14 +370,23 @@ void drawTileText(toybox::Screen& screen, const fui::Rect& box, const char* word
   style.font = cut.font;
 
   LineBreaks lines;
-  if (!breakToFit(screen, cut.font, word, inner.width, cut.maxLines, lines)) {
+  if (!breakToFit(screen, cut.font, word, inner.width, cut.maxLines, cut.mayBreakWords, true, lines)) {
     // chooseTileCut promised this fits, so arriving here means the board holds
-    // a word no cut can. Take every line the block has rather than the cut's
-    // budget: type running past a tile is a defect anyone can see, where a
-    // dropped tail is one nobody can.
-    breakToFit(screen, cut.font, word, inner.width, kMaxLines, lines);
+    // a word no cut can. Take every line the block has, and cut the word:
+    // type running past a tile is a defect anyone can see, where a dropped
+    // tail is one nobody can.
+    // Packed as tightly as the box allows, spaces ignored. Breaking at a space
+    // costs the rest of that line, and enough short lines run a long word out
+    // of lines entirely -- at which point the tail is simply not drawn, with
+    // every line that IS drawn still measuring inside its box, so no width
+    // check anywhere can see it. Ignoring spaces uses the fewest lines the
+    // text can possibly occupy, which is the last thing standing between a
+    // word and silence. host-tests/tilefit asserts every character arrives.
+    breakToFit(screen, cut.font, word, inner.width, kMaxLines, true, false, lines);
   }
-  balanceBreaks(screen, cut.font, word, inner.width, lines);
+  // Only where a word actually had to come apart. A layout that broke at
+  // spaces is already where the phrase wanted to break.
+  if (cut.mayBreakWords) balanceBreaks(screen, cut.font, word, inner.width, cut.maxLines, lines);
   const int16_t lineHeight = screen.target().lineHeight(style.font);
   const int top = inner.y + (inner.height - lines.count * lineHeight) / 2;
   drawBrokenText(screen, inner, top, word, lines, style);
@@ -357,22 +425,30 @@ void drawSolvedRow(toybox::Screen& screen, const fui::Rect& row, const connectio
   int nameHeight = 0;
   int listHeight = 0;
   bool placed = false;
-  for (int n = 0; n < 2 && !placed; ++n) {
-    for (int l = 0; l < 2 && !placed; ++l) {
-      LineBreaks name;
-      LineBreaks list;
-      if (!breakToFit(screen, cuts[n], group.name, width, kMaxLines, name)) continue;
-      if (!breakToFit(screen, cuts[l], words, width, kMaxLines, list)) continue;
-      const int nameBlock = name.count * screen.target().lineHeight(cuts[n]);
-      const int listBlock = list.count * screen.target().lineHeight(cuts[l]);
-      if (nameBlock + listBlock > row.height) continue;
-      nameCut = cuts[n];
-      listCut = cuts[l];
-      nameLines = name;
-      listLines = list;
-      nameHeight = nameBlock;
-      listHeight = listBlock;
-      placed = true;
+  bool broke = false;
+  // Two passes over the same four pairs. The first asks every pair to set both
+  // strings with their words whole; only when none of them can does the second
+  // let a word come apart, for the same reason the tiles do.
+  for (int pass = 0; pass < 2 && !placed; ++pass) {
+    const bool mayBreakWords = pass == 1;
+    for (int n = 0; n < 2 && !placed; ++n) {
+      for (int l = 0; l < 2 && !placed; ++l) {
+        LineBreaks name;
+        LineBreaks list;
+        if (!breakToFit(screen, cuts[n], group.name, width, kMaxLines, mayBreakWords, true, name)) continue;
+        if (!breakToFit(screen, cuts[l], words, width, kMaxLines, mayBreakWords, true, list)) continue;
+        const int nameBlock = name.count * screen.target().lineHeight(cuts[n]);
+        const int listBlock = list.count * screen.target().lineHeight(cuts[l]);
+        if (nameBlock + listBlock > row.height) continue;
+        nameCut = cuts[n];
+        listCut = cuts[l];
+        nameLines = name;
+        listLines = list;
+        nameHeight = nameBlock;
+        listHeight = listBlock;
+        broke = mayBreakWords;
+        placed = true;
+      }
     }
   }
   if (!placed) {
@@ -382,10 +458,11 @@ void drawSolvedRow(toybox::Screen& screen, const fui::Rect& row, const connectio
     // that runs a few pixels long is a defect that can be seen, where a
     // shortened category name is one that cannot. The suite fails rather than
     // let it arrive unnoticed.
-    breakToFit(screen, listCut, group.name, width, kMaxLines, nameLines);
-    breakToFit(screen, listCut, words, width, kMaxLines, listLines);
+    breakToFit(screen, nameCut, group.name, width, kMaxLines, true, false, nameLines);
+    breakToFit(screen, listCut, words, width, kMaxLines, true, false, listLines);
     nameHeight = nameLines.count * screen.target().lineHeight(nameCut);
     listHeight = listLines.count * screen.target().lineHeight(listCut);
+    broke = true;
   }
 
   // Whatever the row has left over becomes the gap, up to the gutter the rest
@@ -398,8 +475,10 @@ void drawSolvedRow(toybox::Screen& screen, const fui::Rect& row, const connectio
       fui::makeRect(static_cast<int16_t>(row.x + kTilePad), row.y, static_cast<int16_t>(width), row.height);
   const int top = row.y + (row.height - nameHeight - gap - listHeight) / 2;
 
-  balanceBreaks(screen, nameCut, group.name, width, nameLines);
-  balanceBreaks(screen, listCut, words, width, listLines);
+  if (broke) {
+    balanceBreaks(screen, nameCut, group.name, width, kMaxLines, nameLines);
+    balanceBreaks(screen, listCut, words, width, kMaxLines, listLines);
+  }
 
   fui::TextStyle name;
   name.font = nameCut;

@@ -225,7 +225,74 @@ struct Tally {
   bool rowHere = false;
   int tightestRowSlack = 1 << 30;
   std::string tightestRow;
+  // A word cut in half while a smaller cut would have set it whole. Mario's
+  // rule, and the one docs/design-language.md has recorded from the start:
+  // shrink first, break only when even the smallest cut cannot take the word.
+  int splitFaults = 0;
+  int splitBoards = 0;
+  bool splitHere = false;
+  // Boards that legitimately break, because no cut fits every word.
+  int forcedBreakBoards = 0;
+  // Solved rows whose category or word list still comes apart inside a word.
+  // Reported rather than asserted: a row's two strings share one height and
+  // pick their cuts as a pair, so "a smaller cut would have fit it" is not the
+  // same question there, and a number nobody has looked at is worth more than
+  // an assertion nobody can read.
+  int rowWordSplits = 0;
 };
+
+std::vector<std::string> splitFailures;
+
+// Whether every space-delimited token of `text` fits `width` in `cut`.
+//
+// The unit is the TOKEN, not the string: wrapping a phrase at its own space is
+// not breaking a word, and never was. What the rule forbids is a cut through
+// the middle of one.
+bool tokensFitWhole(const FontTarget& target, const fui::FontId cut, const std::string& text, const int width) {
+  size_t at = 0;
+  while (at < text.size()) {
+    while (at < text.size() && text[at] == ' ') ++at;
+    if (at >= text.size()) break;
+    size_t end = text.find(' ', at);
+    if (end == std::string::npos) end = text.size();
+    if (target.widthOf(cut, text.substr(at, end - at)) > width) return false;
+    at = end;
+  }
+  return true;
+}
+
+// Walks the lines a box was given against the string they came from, and says
+// where the breaks landed.
+//
+// Doubles as a check that the drawn lines ARE the original string, sliced in
+// order: a line that does not match at the position it should is text the code
+// invented or dropped, which no width check would notice.
+struct BreakShape {
+  bool midWord = false;
+  bool mismatched = false;
+  // Every character of the source accounted for. "Nothing was ellipsised" and
+  // "the player saw the whole word" are NOT the same claim: a layout that runs
+  // out of lines drops its tail with no ellipsis at all, and every line that
+  // did get drawn still measures inside its box. Only this catches that.
+  bool lostText = false;
+};
+
+BreakShape shapeOf(const std::vector<const FontTarget::Run*>& lines, const std::string& text) {
+  BreakShape out;
+  size_t at = 0;
+  for (const FontTarget::Run* run : lines) {
+    while (at < text.size() && text[at] == ' ') ++at;
+    if (at + run->text.size() > text.size() || text.compare(at, run->text.size(), run->text) != 0) {
+      out.mismatched = true;
+      return out;
+    }
+    at += run->text.size();
+    if (at < text.size() && text[at] != ' ') out.midWord = true;
+  }
+  while (at < text.size() && text[at] == ' ') ++at;
+  out.lostText = at < text.size();
+  return out;
+}
 
 // Every run this screen draws, judged as the renderer would place it.
 //
@@ -280,6 +347,137 @@ void inspect(const FontTarget& target, const uint32_t date, const int solved, co
 
 }  // namespace
 
+// The contract's edges, which the published archive does not reach.
+//
+// kMaxWordLen is 32 and the faces have a widest glyph, so the worst tile the
+// type system allows is 32 wide characters -- far past anything the NYT has
+// printed. A cold review found that such a word lost three of its characters
+// with no ellipsis anywhere: breaking at spaces left one-character lines, the
+// line budget ran out, and the tail was simply never drawn. Every line that DID
+// draw still measured inside its box, so no width check could see it.
+//
+// These boards are made of exactly that. They are here because "no published
+// board does this" is a fact about today's archive, and the archive is fetched
+// over the network from someone else.
+const char* const kPathological[connections::kTiles] = {
+    // The exact shape that lost text: a short token first, so breaking at its
+    // space leaves a near-empty line and the budget runs out before the tail.
+    "MMM MMMMMM MMMMMM",
+    "W WW WWW WWWW",
+    "MMMMMMMMMMMMMM",
+    "A B C D E F G H",
+    "WWWWWWWWWWWW",
+    "MW MW MW MW MW",
+    "SUPERCALIFRAGIL",
+    "THE QUICK BROWN",
+    "M",
+    "WW",
+    "MMMMMMMMMMMM",
+    "ONE TWO",
+    "AN EXTREMELY LONG",
+    "XXXXXXXXXXXXXX",
+    "IIIIIIIIIIIIIIIIIIII",
+    "MM MM MM MM MM MM",
+};
+
+// The fewest lines this text could occupy at `cut` if every line were packed
+// to the last pixel, against how many lines the tile is tall enough to hold.
+// A tile whose text cannot fit at ANY cut is not a bug in the layout, it is a
+// box too small for its contents, and the two want different reports.
+bool couldEverFit(const FontTarget& target, const std::string& text, const int width, const int height) {
+  for (const fui::FontId cut : {fui::FONT_SLOT_BODY, fui::FONT_SLOT_SMALL}) {
+    const int total = target.widthOf(cut, text);
+    const int lineHeight = target.lineHeight(cut);
+    if (lineHeight <= 0) continue;
+    const int needed = (total + width - 1) / width;
+    if (needed <= height / lineHeight) return true;
+  }
+  return false;
+}
+
+int checkPathologicalBoard(Tally& tally) {
+  connections::Puzzle puzzle;
+  puzzle.date = 20990101;
+  puzzle.id = 9999;
+  for (int g = 0; g < connections::kGroups; ++g) {
+    std::snprintf(puzzle.groups[g].name, sizeof(puzzle.groups[g].name), "%s",
+                  "A CATEGORY NAME AS LONG AS THE FORMAT ALLOWS IT TO BE WITH MANY WORDS IN");
+    for (int m = 0; m < connections::kMembers; ++m) {
+      std::snprintf(puzzle.groups[g].members[m], sizeof(puzzle.groups[g].members[m]), "%s",
+                    kPathological[g * connections::kMembers + m]);
+    }
+  }
+  connections::Game game;
+  game.start(puzzle, 1234);
+
+  int lost = 0;
+  int impossible = 0;
+  for (int solved = 0; solved <= connections::kGroups; ++solved) {
+    if (solved > 0) {
+      int want = -1;
+      for (int i = 0; i < game.tileCount() && want < 0; ++i) want = game.tileGroup(i);
+      game.deselectAll();
+      for (int i = 0; i < game.tileCount(); ++i) {
+        if (game.tileGroup(i) == want) game.toggleTile(i);
+      }
+      if (game.submit() != connections::Guess::Solved) return -1;
+    }
+    connectionsui::BoardModel model;
+    model.game = &game;
+    model.date = puzzle.date;
+    FontTarget target;
+    toybox::Interactions interactions;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(target, ctx, noInput, interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    const connectionsui::BoardLayout layout = connectionsui::buildBoardChrome(screen, model);
+    target.texts.clear();
+    target.bodyFamily = &serifSmallFamily;
+    connectionsui::buildBoardTiles(screen, model, layout);
+
+    bool bad = false;
+    inspect(target, puzzle.date, solved, layout, tally, bad);
+    for (int i = 0; i < game.tileCount(); ++i) {
+      const int col = i % 4;
+      const int row = solved + i / 4;
+      const int boxX = layout.grid.x + col * (connectionsui::kTileWidth + kRowGap);
+      const int boxY = layout.grid.y + row * (layout.rowHeight + kRowGap);
+      std::vector<const FontTarget::Run*> lines;
+      for (const FontTarget::Run& run : target.texts) {
+        if (run.rect.x != boxX + connectionsui::kTilePad) continue;
+        if (run.rect.y < boxY || run.rect.y >= boxY + layout.rowHeight) continue;
+        lines.push_back(&run);
+      }
+      if (lines.empty()) continue;
+      const int innerWidth = connectionsui::kTileWidth - 2 * connectionsui::kTilePad;
+      const int innerHeight = layout.rowHeight - 4;
+      const bool possible = couldEverFit(target, game.tileWord(i), innerWidth, innerHeight);
+      const BreakShape shape = shapeOf(lines, game.tileWord(i));
+      if (!possible) {
+        // No arrangement of this string fits this box at any cut the board has.
+        // Reported, not failed: the layout cannot conjure room that is not
+        // there, and calling it a defect would train the reader to ignore it.
+        if (shape.lostText) ++impossible;
+        continue;
+      }
+      ++checksRun;
+      if (!shape.lostText && !shape.mismatched) continue;
+      ++lost;
+      ++checksFailed;
+      std::string drawn;
+      for (const FontTarget::Run* run : lines) {
+        if (!drawn.empty()) drawn += " / ";
+        drawn += run->text;
+      }
+      std::printf("  PATHOLOGICAL (%d solved): '%s' reached the panel as only '%s'\n", solved, game.tileWord(i),
+                  drawn.c_str());
+    }
+  }
+  std::printf("pathological board: %d tiles hold more than the box can fit at any cut\n", impossible);
+  return lost;
+}
+
 int main(int argc, char** argv) {
   const char* dir = argc > 1 ? argv[1] : ".";
   char idxPath[512];
@@ -316,6 +514,7 @@ int main(int argc, char** argv) {
 
     tally.tileHere = false;
     tally.rowHere = false;
+    tally.splitHere = false;
     connections::Game game;
     game.start(puzzle, 0x9E3779B9u ^ (static_cast<uint32_t>(puzzle.id) * 2654435761u));
 
@@ -358,6 +557,83 @@ int main(int argc, char** argv) {
 
       inspect(target, puzzle.date, solved, layout, tally, boardBad);
 
+      // --- the shrink-before-you-break rule -------------------------------
+      //
+      // Attribute every run to the tile it was drawn in, by the geometry
+      // buildBoardTiles used, then ask two independent questions of each tile:
+      // did a break land inside a word, and would a cut have set every word on
+      // this board whole? A yes to both is the defect.
+      //
+      // The second question is answered from the fonts here, not from anything
+      // the screen decided, so this cannot agree with the code by construction.
+      {
+        const int innerWidth = connectionsui::kTileWidth - 2 * connectionsui::kTilePad;
+        bool anyCutFitsWhole = false;
+        for (const fui::FontId cut : {fui::FONT_SLOT_SMALL, fui::FONT_SLOT_BODY}) {
+          bool all = true;
+          for (int i = 0; i < game.tileCount() && all; ++i) {
+            all = tokensFitWhole(target, cut, game.tileWord(i), innerWidth);
+          }
+          if (all) anyCutFitsWhole = true;
+        }
+        if (!anyCutFitsWhole && solved == 0) ++tally.forcedBreakBoards;
+
+        for (int i = 0; i < game.tileCount(); ++i) {
+          const int col = i % 4;
+          const int row = solved + i / 4;
+          const int boxX = layout.grid.x + col * (connectionsui::kTileWidth + kRowGap);
+          const int boxY = layout.grid.y + row * (layout.rowHeight + kRowGap);
+          std::vector<const FontTarget::Run*> lines;
+          for (const FontTarget::Run& run : target.texts) {
+            if (run.rect.x != boxX + connectionsui::kTilePad) continue;
+            if (run.rect.y < boxY || run.rect.y >= boxY + layout.rowHeight) continue;
+            lines.push_back(&run);
+          }
+          if (lines.empty()) continue;
+          const std::string word = game.tileWord(i);
+          const BreakShape shape = shapeOf(lines, word);
+          ++checksRun;
+          if (shape.lostText) {
+            boardBad = true;
+            ++tally.splitFaults;
+            tally.splitHere = true;
+            std::string drawn;
+            for (const FontTarget::Run* run : lines) {
+              if (!drawn.empty()) drawn += " / ";
+              drawn += run->text;
+            }
+            char line[400];
+            std::snprintf(line, sizeof(line), "%u (%d solved): '%s' reached the panel as only '%s'", puzzle.date,
+                          solved, word.c_str(), drawn.c_str());
+            fail(splitFailures, line);
+            continue;
+          }
+          if (shape.mismatched) {
+            boardBad = true;
+            ++tally.splitFaults;
+            tally.splitHere = true;
+            char line[320];
+            std::snprintf(line, sizeof(line), "%u (%d solved): the lines drawn for '%s' are not that string in order",
+                          puzzle.date, solved, word.c_str());
+            fail(splitFailures, line);
+            continue;
+          }
+          if (!shape.midWord || !anyCutFitsWhole) continue;
+          boardBad = true;
+          ++tally.splitFaults;
+          tally.splitHere = true;
+          std::string drawn;
+          for (const FontTarget::Run* run : lines) {
+            if (!drawn.empty()) drawn += " / ";
+            drawn += run->text;
+          }
+          char line[400];
+          std::snprintf(line, sizeof(line), "%u (%d solved): '%s' drawn as '%s' -- a cut fits every word whole",
+                        puzzle.date, solved, word.c_str(), drawn.c_str());
+          fail(splitFailures, line);
+        }
+      }
+
       // A solved row's two blocks share the row: they must both land inside it
       // and never touch. Runs are grouped by the black fill they sit on.
       for (int r = 0; r < solved; ++r) {
@@ -374,6 +650,31 @@ int main(int argc, char** argv) {
         }
         if (lines == 0) continue;
         ++rowsRendered;
+        {
+          // The category is the block above, the word list the block below.
+          std::vector<const FontTarget::Run*> above;
+          std::vector<const FontTarget::Run*> below;
+          int split = top;
+          for (const FontTarget::Run& run : target.texts) {
+            if (run.rect.y < row.y || run.rect.y >= row.y + row.height) continue;
+            if (run.rect.y > split) split = run.rect.y;
+          }
+          const connections::Group& grp = game.solvedGroup(r);
+          char joined[160];
+          std::snprintf(joined, sizeof(joined), "%s, %s, %s, %s", grp.members[0], grp.members[1], grp.members[2],
+                        grp.members[3]);
+          for (const FontTarget::Run& run : target.texts) {
+            if (run.rect.y < row.y || run.rect.y >= row.y + row.height) continue;
+            const std::string name(grp.name);
+            if (name.find(run.text) != std::string::npos) {
+              above.push_back(&run);
+            } else {
+              below.push_back(&run);
+            }
+          }
+          if (shapeOf(above, grp.name).midWord) ++tally.rowWordSplits;
+          if (shapeOf(below, joined).midWord) ++tally.rowWordSplits;
+        }
         ++checksRun;
         const int slack = row.height - (bottom - top);
         if (slack < 0) {
@@ -412,11 +713,21 @@ int main(int argc, char** argv) {
     if (boardBad) ++tally.badBoards;
     if (tally.tileHere) ++tally.tileBoards;
     if (tally.rowHere) ++tally.rowBoards;
+    if (tally.splitHere) ++tally.splitBoards;
   }
 
   std::printf("boards %d, renders %d\n", boards, boards * (connections::kGroups + 1));
   std::printf("fresh boards at the large cut %d, at the small cut %d\n", rendersLarge, rendersSmall);
   std::printf("solved rows rendered %d, tightest %s\n", rowsRendered, tally.tightestRow.c_str());
+  std::printf("boards where no cut fits every word whole, so a break is forced: %d\n", tally.forcedBreakBoards);
+  std::printf("solved-row blocks that still come apart inside a word: %d of %d\n", tally.rowWordSplits,
+              rowsRendered * 2);
+  if (tally.splitFaults > 0) {
+    std::printf("A WORD SPLIT WHERE A SMALLER CUT WOULD HAVE FIT IT: %d on %d of %d boards\n", tally.splitFaults,
+                tally.splitBoards, boards);
+    for (const std::string& line : splitFailures) std::printf("  %s\n", line.c_str());
+    if (static_cast<int>(splitFailures.size()) < tally.splitFaults) std::printf("  ...\n");
+  }
   if (tally.tileFaults > 0 || tally.rowFaults > 0) {
     std::printf("TEXT THE PLAYER NEVER SEES: %d on tiles (%d of %d boards), %d on solved rows (%d of %d boards)\n",
                 tally.tileFaults, tally.tileBoards, boards, tally.rowFaults, tally.rowBoards, boards);
@@ -425,6 +736,12 @@ int main(int argc, char** argv) {
     for (const std::string& line : rowFailures) std::printf("  %s\n", line.c_str());
     if (static_cast<int>(rowFailures.size()) < tally.rowFaults) std::printf("  ...\n");
   }
+  const int lost = checkPathologicalBoard(tally);
+  if (lost < 0) {
+    std::printf("FAIL could not build the pathological board\n");
+    return 1;
+  }
+  std::printf("pathological board (32-character words of the widest glyphs): %d tiles lost text\n", lost);
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
 }

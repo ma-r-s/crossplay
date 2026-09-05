@@ -39,9 +39,10 @@ enum : fui::ActionId {
 // line at the tile cut and 97% at the small cut. The cut is chosen once for the
 // whole board rather than per tile (see chooseTileCut) -- sixteen tiles at one
 // size is the point of the layout, and sixteen at two sizes says one of them
-// matters more. A word too wide for one line breaks across lines instead of
-// dropping the whole board a size, so 1139 of the 1143 boards keep the large
-// cut. host-tests/tilefit walks every one of them.
+// matters more. A board holds the large cut when every word on it is set whole
+// there, wrapping a phrase at its own spaces: 478 of the 1143 do, and the rest
+// step down rather than cut a word in half. host-tests/tilefit walks every one
+// of them, in every solve state.
 constexpr int kGridMargin = 12;
 constexpr int kTileGap = 4;
 constexpr int kTilePad = 3;

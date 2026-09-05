@@ -153,23 +153,12 @@ its chrome in one face and its tiles in another: two passes, one rebind between
 them. Treat the number 3 as "how many faces on screen at the same instant",
 which has never once been a real constraint.
 
-**Nothing is ever elided. No exceptions.** Mario's rule, and it outranks every
-preference below it: whatever a box holds, the whole of it reaches the screen.
-An ellipsis shows the player a different word and gives them no way to know it,
-so it is not a fallback, it is a defect. Breaking a word across lines is the
-acceptable price -- "NUDIB / RANCH" is ugly and honest; "NUDIBRA..." is neither.
-
-This reverses half of an older rule here, which said to shrink rather than ever
-break a word. Shrinking is still preferred where it is free, but it is no longer
-allowed to be the reason a word gets cut short.
-
-**Shrink to fit, then break; and measure both.** `EpdFont` is a bitmap format,
-one pre-rasterised set per size, so there is no scaling to be had at draw time.
-"Fit this text" therefore means "pick the largest cut it lays out in", walking
-the available cuts down, where laying out may take more than one line. A break
-goes at a space when one is in reach and through the word when it is not, cut
-into even shares rather than filled greedily -- "MISCREAN / T" orphans a letter
-and reads as a bug where "MISC / REANT" reads as a word that did not fit.
+**Nothing is ever elided. No exceptions.** Mario's rule, and it sits above the
+one below rather than replacing it: whatever a box holds, the whole of it
+reaches the screen. An ellipsis shows the player a different word and gives them
+no way to know it, so it is not a fallback, it is a defect. Shrink first, exactly
+as the next rule says; break a word only when even the smallest cut cannot hold
+it, and never shorten one.
 
 The measuring is the part that is easy to skip and fatal to skip. A fit test
 that asks a different question from the layout is not a fit test: Connections
@@ -177,7 +166,16 @@ asked "is this narrow enough" while its splitter cut by CHARACTER COUNT, and the
 two disagreed on 48 boards of the published archive, every one of them a tile
 showing a phrase the player could not know was shortened. Break the text with
 the same function that decides the cut, and check the emitted line, not the
-input string.
+input string. `host-tests/tilefit` walks all 1143 published puzzles and fails on
+one shortened line.
+
+**Shrink to fit; never break a word.** `EpdFont` is a bitmap format, one
+pre-rasterised set per size, so there is no scaling to be had at draw time. "Fit
+this text" therefore means "pick the largest cut it fits in", walking the
+available cuts down. Only when the smallest cut still overflows do you break,
+and then on a space, balanced across two lines. Hyphenating a single word inside
+a tile was the first thing Mario rejected on sight, and he was right: a word
+split in half is unreadable in a way that a smaller word never is.
 
 **A grid of equals shrinks together.** The rule above sizes one text against one
 box, and applied per box it breaks a grid: sixteen Connections tiles that mean
@@ -185,19 +183,20 @@ box, and applied per box it breaks a grid: sixteen Connections tiles that mean
 long one came out a quarter smaller than the fifteen beside it and read as the
 odd one out. On a set of interchangeable candidates, size is not available as a
 property of a member. Measure the whole set, pick the largest cut the WIDEST of
-them lays out in, and set them all in it (`connectionsui::chooseTileCut`). It
-costs a long word two lines rather than costing fifteen neighbours a size step:
-1139 of the archive's 1143 boards hold the large cut, against 439 when the test
-was "fits on one line". This does not apply where the boxes are not peers -- a
-header and its subtitle are meant to differ.
+them fits, and set them all in it (`connectionsui::chooseTileCut`). It costs the
+board a size step on 58% of the published archive, and it is still cheaper than
+one tile claiming to matter more. This does not apply where the boxes are not
+peers -- a header and its subtitle are meant to differ.
 
 **Two strings sharing a box are sized together.** A solved Connections row
 carries a category and the four words that were in it, and each was set at a
 fixed cut with no fallback -- so a long word list drew its second line past the
-black fill it sits on, in white, on white paper. Sixteen percent of the archive's
-boards had at least one. Where two blocks share a height, choose their cuts as a
-pair, largest first, and accept the first pair whose stacked height the box
-actually holds (`connectionsui::drawSolvedRow`).
+black fill it sits on, in white, on white paper. Sixteen percent of the
+archive's boards had at least one. Where two blocks share a height, choose their
+cuts as a pair, largest first, and accept the first pair whose stacked height
+the box actually holds (`connectionsui::drawSolvedRow`).
+
+
 
 **A name inside a sentence is a short name.** When the device name grew from two
 words to three, chess's status capsule went from "CALM FINCH'S MOVE" to "SHAGGY
