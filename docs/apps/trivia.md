@@ -52,17 +52,99 @@ serif; the front door is a menu and takes `proseMenuFaces()` so it reads like
 every other menu in the fork. A menu subtitle at the 20px UI cut runs off a
 480px panel, so the two on the front door are measured, not guessed.
 
-## FLAG, and why it only appears with the answer
+## HIDE, and why it only appears with the answer
 
-The answer state offers NEXT and FLAG. FLAG sets the question's `FLAGGED` bit in
-`pack.state`; the chooser never serves it again, and the indices are read back
-off the card into `tools_local/trivia/verdicts.tsv`, which the next pack build
-applies.
+The answer state offers NEXT, HIDE and END, **in both modes since board #257**.
+Solo had no report control at all before that, which was the wrong way round:
+solo is the mode where "the options give it away" and "wrong answer" are the two
+faults a player can actually see. The cost is honest and worth naming: solo's
+footer goes from a pair to a trio, so NEXT is narrower and its centre moves the
+first time a player meets it after updating. END does not move -- `drawAsideAction`
+derives its x the same way for pair and trio.
+
+HIDE sets the question's `FLAGGED` bit in `pack.state`, so the chooser never
+serves it again, and queues a report in `/trivia/reports.dat`. **It is offered
+only once the answer is showing**, because a question cannot be called bad until
+you have seen what it claims.
+
+### One tap reports; the reason is optional
+
+The HIDDEN notice that follows offers WHY? and UNDO on **their own row above**
+`NEXT QUESTION`, never beside it. Beside it would mean `drawActionPair`, which
+shrinks the primary and moves its centre -- and the primary here is the control
+that continues the round, so a player who had learned where it is would open a
+list instead. See the `same-pixel-different-action` memory.
+
+WHY? opens a list on its own screen. Skipping it leaves a report with no reason,
+which is still a report: demanding a category is how you get no reports. Two
+rows are conditional -- THE OPTIONS GIVE IT AWAY only in solo, and THIS IS A US
+QUESTION only when US questions are off, because with the toggle off the chooser
+already skips marked records, so a US question a player MEETS is one the pack
+failed to mark. That reason repairs a bit, not a row.
+
+UNDO is the undo HIDE never had: it clears the bit and withdraws the queued
+report. Before it, a mis-tap hid a question permanently with nothing on screen
+about it. TRIVIA > SETTINGS > HIDDEN QUESTIONS shows the total and offers to
+show them all again.
+
+### Reading them back
+
+`python3 tools_local/trivia/collect_flags.py <card>/trivia/pack.dat --apply`
+turns the flags and their reasons into `verdicts.tsv` lines, which the next pack
+build applies.
+
+**Not every reason is a deletion.** `bad` removes the question, and three
+reasons do not ask for that: TOO EASY and TOO HARD move a level, and THIS IS A
+US QUESTION sets bit 7 of a difficulty byte. Those are written with the verdict
+`repair`, which no builder applies and which a person acts on -- emitting them
+as `bad` would delete a good question for a one-byte defect. A report with no
+reason at all is still a removal, which is the point of allowing one. That tool is new with #257: `docs/trivia-curation.md` used to
+describe a `flags.txt` that nothing ever wrote, nothing read a card, and
+`verdicts.tsv` had accumulated exactly one verdict in its lifetime.
 
 That is the whole curation loop, and it is the only layer that scales: 50,000
 questions cannot be reviewed, but the few hundred anyone actually sees can be
-judged as they are seen. **It is offered only once the answer is showing**,
-because a question cannot be called bad until you have seen what it claims.
+judged as they are seen.
+
+## SYNC
+
+TRIVIA > SETTINGS > SYNC. **Reports go up before anything is fetched**, and the
+order is the design rather than a preference: a pack update landing while
+reports about the previous build were still on the card would leave those
+indices naming different questions, and the pack format's own residual (a
+same-count replacement keeps `pack.state`) means nothing on the device could see
+it. Uploading first closes that window.
+
+The reports are sent under the pack id their **own queue header** carries, not
+the card's current one, so a queue filed against an older build is still
+resolvable. The endpoint is `/api/trivia` on the site; `site/api/trivia.js`
+describes what it does and does not learn about the reader.
+
+Then it fetches `pack.json` from the same release as `pack.dat` and says what it
+found -- `UP TO DATE`, a `NEWER PACK` notice naming the size **before** spending
+it, or `DIFFERENT PACK` when this card's own build is unknown. Those last two
+are deliberately not the same sentence: "a newer pack is ready" is a claim the
+device cannot make about a build it cannot name, and while they shared a branch
+SYNC offered a download that changed nothing and left the build unknown
+afterwards, forever.
+
+**Sync is also what turns reporting on.** If the card holds a pack whose build
+it does not know, and the published manifest describes exactly that pack -- same
+question count, same byte size -- the id is adopted and `pack.meta` written.
+That is the only path by which a device that already had a pack starts queueing
+reports; it is also why nothing is adopted when the sizes disagree, since an id
+the card does not actually hold would resolve every later report through the
+wrong build's index map. Before this, `ActionGetPack` was reachable only from the empty-card
+and failure notices, so a device that already held a pack could never receive a
+newer one at all.
+
+`/trivia/pack.meta` records which build the card holds. It carries the count and
+the byte size as well as the id, because a record of what you hold is only worth
+having if it can be caught lying: a hand-copied pack that replaces `pack.dat`
+and leaves `pack.meta` describes a build the card no longer has. Either check
+failing DISCARDS the meta, and an unknown build stops reports being **queued**
+while play continues -- a report that cannot name its pack can never be
+resolved, and one naming the wrong pack is worse than none.
 
 ## Getting the pack
 
