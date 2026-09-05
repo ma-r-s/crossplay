@@ -122,6 +122,29 @@ Three consequences worth stating plainly:
   the id and the device stores it beside the pack, so **no format bump is needed
   for this either.**
 
+### The strongest argument against C, which is not weak
+
+Option B carries an immutable id inside each record. It costs a format bump and
+4 bytes x 50,000 = 200 KB on a 3.4 MB pack, about 6% — on the very download this
+card is trying to shorten. That is why it was ranked second.
+
+But B buys one thing C does not, and the corpus finding below makes it matter
+more than it first appears: **a pack carrying its own ids is self-describing.**
+`pack_format.py` already reads a pack back out precisely because "a published
+pack.dat is the only surviving copy of its corpus" — and today what comes back
+is a re-derived hash that its own module says is not a join key. With B, dumping
+a pack recovers the real ids, and a lost corpus is recoverable from any published
+pack. With C, a lost manifest is a lost join and nothing can rebuild it.
+
+So the honest ranking is: **C if the manifests are kept somewhere durable, B if
+they will not be.** C is recommended because the manifest is small, is published
+in the same release as the pack it describes, and never has to be fetched by a
+device — which is a lower bar than "remember to keep a scratch directory". But
+that recommendation is conditional on the fix below actually being made, and if
+it is not made, B is the safer design and worth its 6%.
+
+Both are strictly better than A, which is what `verdicts.tsv` uses today.
+
 ### The precondition, and it is not safe today
 
 D1 resolves reports server-side against the corpus. **So the corpus has to
