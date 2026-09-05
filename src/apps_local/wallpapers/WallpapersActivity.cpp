@@ -396,11 +396,11 @@ void WallpapersActivity::render(RenderLock&&) {
     const wallpapersui::GridGeom geom = wallpapersui::gridGeom(device);
     const int pages = pageCount();
     if (pages > 1) {
-      char label[24];
+      char label[40];
       snprintf(label, sizeof(label), "PAGE %d / %d", page_ + 1, pages);
       rightLabel_ = label;
     } else {
-      char label[24];
+      char label[40];
       snprintf(label, sizeof(label), "%d SAVED", static_cast<int>(names_.size()));
       rightLabel_ = label;
     }
