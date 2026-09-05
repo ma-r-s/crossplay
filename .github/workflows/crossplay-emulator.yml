@@ -17,10 +17,18 @@
 # deployment keeps serving rather than a broken one replacing it.
 # tools_local/site/publish_emulator.py owns both halves and explains the shape.
 #
-# The commit is still called "chore: emulator rebuilt for <sha>". Do not
-# reword that: crossplay-autorelease.yml matches the subject to tell an
-# emulator rebuild from a real merge that moved the tip past what CI verified,
-# and a rename there silently stops every release.
+# The commit is still called "chore: emulator rebuilt for <sha>", and what
+# depends on that string has MOVED. It used to be the release gate:
+# crossplay-autorelease.yml told an emulator rebuild from a real merge by
+# grepping this subject, so a rename there stopped every release silently.
+# Card #242 replaced that with the classification table
+# (scripts_local/device-build-needed.sh), which reads paths, so the gate no
+# longer cares what this commit calls itself.
+#
+# One thing still does: scripts_local/release_notes.py drops a subject starting
+# "chore: emulator rebuilt" from the release page. Rename this and every
+# release page grows a line no player can act on. That is a cosmetic failure
+# rather than a silent stall, which is the whole difference card #242 bought.
 #
 # The commit is pushed with the workflow's own token, so it starts no CI run
 # of its own: it changes nothing a device build sees, and the next real merge's
