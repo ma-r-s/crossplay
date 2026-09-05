@@ -605,10 +605,26 @@ for suite in host-tests/*/; do
   "$suite/run.sh" > "$SUITE_LOG" 2>&1
   code=$?
   passed=$(grep -c "checks, 0 failed" "$SUITE_LOG" || true)
+  # --- unrun test files begin ---
+  # A test file the suite's run.sh never invokes reports the same green as one
+  # that passes: a third sub-suite once landed and this line said "ok (2
+  # sub-suite(s))". Every test_*.cpp and test_*.py in the directory must be
+  # named in run.sh, unless run.sh globs test_* and so runs whatever is there.
+  unrun=""
+  if ! grep -q 'test_\*' "$suite/run.sh"; then
+    for tf in "$suite"/test_*.cpp "$suite"/test_*.py; do
+      [ -e "$tf" ] || continue
+      grep -qF -- "$(basename "$tf")" "$suite/run.sh" || unrun="$unrun $(basename "$tf")"
+    done
+  fi
+  # --- unrun test files end ---
   if [ "$code" -ne 0 ]; then
     printf "  %-12s FAILED (exit %d, %s)\n" "$name" "$code" "$(since $T0)"
     grep -E "FAIL|error:" "$SUITE_LOG" | head -5 | sed 's/^/      /'
     infra_fault_note "$name" "$T0" "$SUITE_LOG"
+    FAILED=1
+  elif [ -n "$unrun" ]; then
+    printf "  %-12s FAILED: in the directory but never run by run.sh:%s (%s)\n" "$name" "$unrun" "$(since $T0)"
     FAILED=1
   else
     printf "  %-12s ok (%s sub-suite(s), %s)\n" "$name" "$passed" "$(since $T0)"
