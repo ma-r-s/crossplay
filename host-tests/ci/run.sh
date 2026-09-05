@@ -148,6 +148,161 @@ case "$cip" in
     ;;
 esac
 
+# -- and the OTHER half of the concurrency rule, the one nothing governs -----
+#
+# `cancel-in-progress: false` reads like "no run of this group is ever
+# cancelled". It is not what it does. A group holds at most ONE run in progress
+# and ONE run pending; cancel-in-progress decides the fate of the first. The
+# second is cancelled whenever a third run arrives, either way. So the check
+# above -- cancellation must be conditional on the ref -- was satisfied by a
+# workflow that still lost a run per merge.
+#
+# MEASURED before this was written: in the 36 hours after 52d0907f made
+# cancellation conditional, 41 runs of this workflow on xteink were cancelled
+# and `actions/runs/<id>/jobs` returned total_count 0 for every one of them.
+# None had started a job. Each was a merge whose CI reached no conclusion, and
+# crossplay-autorelease.yml only fires on a run that reached success.
+#
+# The property that makes that impossible is not a setting, it is the GROUP:
+# two commits on xteink must land in groups that cannot contend. So this
+# EVALUATES the expression -- the operators GitHub's own expression syntax uses,
+# over a context this supplies -- rather than reading it. A group asserted by
+# grep would pass on `crossplay-ci-${{ github.ref }}`, which is the bug.
+#
+# And it asserts the pull-request half in the same breath, because the cheap way
+# to make merges unique is to make EVERY run unique, and that silently ends
+# superseding on branches -- five runs of one branch sharing the runners, which
+# is what the group was added for in the first place.
+conc_eval() {  # <workflow.yml> <group|cancel-in-progress> <github.ref> <github.sha>
+  python3 - "$1" "$2" "$3" "$4" <<'PY'
+import re, sys
+
+yml, key, ref, sha = sys.argv[1:5]
+raw, inblock = None, False
+for line in open(yml).read().splitlines():
+    if line.rstrip() == 'concurrency:':
+        inblock = True
+        continue
+    if inblock:
+        if line.strip() and line[:1] not in (' ', '\t'):
+            break
+        m = re.match(r'\s+' + re.escape(key) + r':\s*(.*)$', line)
+        if m:
+            raw = m.group(1).strip()
+            break
+if raw is None:
+    print('NO-' + key.upper())
+    raise SystemExit(0)
+if len(raw) > 1 and raw[0] == raw[-1] and raw[0] in '"\'':
+    raw = raw[1:-1]
+
+ctx = {'github.ref': ref, 'github.sha': sha}
+
+
+def operand(tok):
+    tok = tok.strip()
+    if len(tok) > 1 and tok[0] == tok[-1] and tok[0] in '"\'':
+        return tok[1:-1]
+    if tok in ('true', 'false'):
+        return tok == 'true'
+    if tok in ctx:
+        return ctx[tok]
+    print('UNEVALUABLE ' + tok)
+    raise SystemExit(0)
+
+
+def truthy(v):
+    return v not in ('', False, 0, None)
+
+
+def compare(part):
+    for op in ('==', '!='):
+        if op in part:
+            a, b = part.split(op, 1)
+            same = operand(a) == operand(b)
+            return same if op == '==' else not same
+    return operand(part)
+
+
+def evaluate(expr):
+    # GitHub's precedence: && binds tighter than ||, and both return the
+    # OPERAND rather than a boolean, which is the whole trick behind
+    # `cond && a || b`.
+    last = None
+    for alt in expr.split('||'):
+        val = None
+        for conj in alt.split('&&'):
+            v = compare(conj)
+            val = v if val is None else (v if truthy(val) else val)
+        if truthy(val):
+            return val
+        last = val
+    return last
+
+
+def render(v):
+    return 'true' if v is True else ('false' if v is False else str(v))
+
+
+print(re.sub(r'\$\{\{(.*?)\}\}', lambda m: render(evaluate(m.group(1))), raw))
+PY
+}
+
+XTEINK=refs/heads/xteink
+PR=refs/pull/7/merge
+
+# Two merges. Different commits, and they must not be able to queue behind one
+# another, because a queue of two is a queue GitHub trims from the middle.
+merge_a="$(conc_eval "$YML" group "$XTEINK" 1111111111111111111111111111111111111111)"
+merge_b="$(conc_eval "$YML" group "$XTEINK" 2222222222222222222222222222222222222222)"
+checks=$((checks + 1))
+if [ "$merge_a" = "$merge_b" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  two different commits on xteink evaluate to ONE concurrency group ('$merge_a'), so the second pends behind the first and the third cancels it -- 41 runs died that way in the 36 hours before this test existed, none of which ever started a job"
+fi
+# One branch, two pushes. Superseding is still right here and must survive.
+pr_a="$(conc_eval "$YML" group "$PR" 1111111111111111111111111111111111111111)"
+pr_b="$(conc_eval "$YML" group "$PR" 2222222222222222222222222222222222222222)"
+
+# The guard has to cover EVERY value this compares, not just the first one.
+# Written over $merge_a alone it left the pull-request assertion below
+# satisfied by empty == empty: an expression the reader cannot evaluate (a
+# `format()` call, a context it does not know) produces nothing on both sides,
+# they match, and "a push still supersedes" passes having measured nothing.
+readable() {  # <label> <value>
+  checks=$((checks + 1))
+  case "$2" in
+    NO-GROUP|NO-CANCEL-IN-PROGRESS|UNEVALUABLE*|'')
+      failed=$((failed + 1))
+      echo "FAIL ci  crossplay-ci.yml's concurrency $1 could not be evaluated ('$2'), so every check that compares it asserted nothing"
+      ;;
+  esac
+}
+readable "group on xteink"        "$merge_a"
+readable "group on a pull request" "$pr_a"
+checks=$((checks + 1))
+if [ "$pr_a" != "$pr_b" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  two pushes to one pull request evaluate to different concurrency groups ('$pr_a' vs '$pr_b'), so a push no longer supersedes the run it replaced and every commit of a branch holds a runner"
+fi
+
+# The same two refs, through the cancellation setting, so the pair is asserted
+# as a pair: unique group + no cancellation on xteink, shared group +
+# cancellation on a branch. Either half alone is satisfied by a broken
+# arrangement.
+cancel_xteink="$(conc_eval "$YML" cancel-in-progress "$XTEINK" 1111111111111111111111111111111111111111)"
+cancel_pr="$(conc_eval "$YML" cancel-in-progress "$PR" 1111111111111111111111111111111111111111)"
+checks=$((checks + 1))
+if [ "$cancel_xteink" != "false" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  crossplay-ci.yml evaluates cancel-in-progress to '$cancel_xteink' on xteink; a merge would kill the previous merge's build outright"
+fi
+checks=$((checks + 1))
+if [ "$cancel_pr" != "true" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  crossplay-ci.yml evaluates cancel-in-progress to '$cancel_pr' on a pull request ref; superseding is off and five runs of one branch share the runners"
+fi
+
 # The release is built once per tag. host-tests/release asserts the SHAPE
 # (the dispatch is conditional on RELEASE_TOKEN, and crossplay-release.yml
 # keeps its tag trigger); this runs the step's own text, lifted from the
@@ -242,10 +397,29 @@ gate_commit() {  # <repo> <path> <subject>
   mkdir -p "$(dirname "$1/$2")"; echo "$(date +%s%N)" >>"$1/$2"
   ( cd "$1" && git add -A && git commit -qm "$3" ) >/dev/null 2>&1
 }
-gate_expect() {  # <label> <repo> <VERIFIED> <true|false wanted go> <substring wanted in the log>
-  local label="$1" repo="$2" verified="$3" want="$4" msg="$5" got
-  : >"$WORK/gh_output"
+# The gate asks GitHub one question -- does the TIP have a successful run of
+# the CI workflow -- so every case here answers it with a fake `gh` on PATH,
+# which also records the call. The DEFAULT answer is 0, meaning nothing green
+# has seen the tip, so the eight cases below keep measuring the tip check alone.
+# FAKE_GREEN=error makes the query fail, which is the fail-closed path.
+mkdir -p "$WORK/gatebin"
+cat >"$WORK/gatebin/gh" <<'FAKEGH'
+#!/bin/sh
+echo "gh $*" >>"$FAKE_GH_CALLS"
+if [ "$FAKE_GREEN" = "error" ]; then
+  echo "HTTP 403: Resource not accessible by integration"
+  exit 1
+fi
+echo "${FAKE_GREEN:-0}"
+FAKEGH
+chmod +x "$WORK/gatebin/gh"
+
+gate_expect() {  # <label> <repo> <VERIFIED> <true|false wanted go> <substring wanted in the log> [green]
+  local label="$1" repo="$2" verified="$3" want="$4" msg="$5" green="${6:-0}" got
+  : >"$WORK/gh_output"; : >"$WORK/gate.gh.calls"
   ( cd "$repo" && GITHUB_OUTPUT="$WORK/gh_output" VERIFIED="$verified" HOLD="" \
+      PATH="$WORK/gatebin:$PATH" FAKE_GREEN="$green" FAKE_GH_CALLS="$WORK/gate.gh.calls" \
+      GITHUB_REPOSITORY="ma-r-s/crossplay" CI_WORKFLOW_ID="${GATE_WORKFLOW_ID-4242}" CI_BRANCH=xteink \
       bash -eo pipefail "$WORK/gate.sh" ) >"$WORK/out" 2>&1
   got="$(grep -o 'go=[a-z]*' "$WORK/gh_output" | tail -1 | cut -d= -f2)"
   checks=$((checks + 1))
@@ -328,6 +502,151 @@ SIDE="$(git -C "$G" rev-parse HEAD)"
 gate_commit "$G" site/emulator/crossplay.wasm "chore: emulator rebuilt for $V"
 gate_expect "a verified commit outside the tip's history refuses" "$G" "$SIDE" false \
   "is not in the history of"
+
+# -- and the case the eight above cannot reach: the run for the new tip -------
+#
+# Cases 3, 4, 6 and 7 all refuse for the same stated reason: "the run for the
+# new tip releases it". That was a claim about GitHub's concurrency, and it was
+# false. A concurrency group holds one run in progress and one run pending, and
+# a third arrival cancels the pending one -- `cancel-in-progress: false` governs
+# the first half only. crossplay-ci.yml lost 41 runs to exactly that in 36
+# hours, and this workflow's own `crossplay-release` group can lose an
+# autorelease the same way. That group is KEPT, deliberately: two publishers at
+# once built v1.12.16 twice. What changes is that the survivor no longer needs
+# to be the one for the tip.
+#
+# So the gate stopped asking "am I the run for the tip" and started asking "has
+# anything green verified the tip". Four cases, and the last two matter most:
+# the failure mode of a check like this is silence, and silence must refuse.
+#
+# (9) The tip moved by firmware, and the tip has its own successful CI run.
+#     This is the release that used to be lost, every time the autorelease that
+#     would have cut it was the one GitHub trimmed out of the queue.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
+gate_expect "a moved tip that has its OWN green run releases" "$G" "$V" true \
+  "successful run(s) of its own" 1
+
+# And it must not ALSO claim the gap was inert. The reason lives one line below
+# the branch it belongs to, and written as a trailing echo it ran on both paths:
+# the log said the tip had a green run of its own and then, in the next
+# sentence, that nothing in the gap could reach a device. Both cannot be true,
+# the second is the one that reads like the explanation, and `gate_expect` alone
+# never sees it because it only asks whether the sentence it wants is present.
+checks=$((checks + 1))
+if grep -q "only by commits no device build" "$WORK/out"; then
+  failed=$((failed + 1))
+  echo "FAIL ci-autorelease  the gate released a tip on its own green run and then told the log the gap was inert; the two sentences contradict each other and the wrong one is the one that looks like the reason"
+  sed 's/^/       /' "$WORK/out"
+fi
+
+# The query has to be about the tip. A copy of this line asking about $VERIFIED
+# would answer yes on every run that triggered it, which is the same as deleting
+# the gate -- and every case above would still pass.
+TIP="$(git -C "$G" rev-parse HEAD)"
+checks=$((checks + 1))
+if ! grep -q "head_sha=$TIP" "$WORK/gate.gh.calls"; then
+  failed=$((failed + 1))
+  echo "FAIL ci-autorelease  the gate asked GitHub about something other than the tip ($TIP); it must ask whether the TIP is verified, not whether the commit that triggered it is"
+  sed 's/^/       /' "$WORK/gate.gh.calls"
+fi
+
+# And about the right RUNS. The fake gh answers whatever it is told to answer
+# and ignores the URL, so every case above passes on a query missing any filter
+# -- which is not a hypothetical: against the real repository, sha f5115b01
+# (a run cancelled while pending) answers total_count 0 with `status=success`
+# and total_count 1 without it. Dropping that one parameter releases from a
+# commit whose CI never ran, which is the failure this whole change exists to
+# stop. `branch` is asserted for the same reason one step weaker: a run on
+# another ref is not a verdict on this one.
+for want in "status=success" "branch=xteink"; do
+  checks=$((checks + 1))
+  if ! grep -q "$want" "$WORK/gate.gh.calls"; then
+    failed=$((failed + 1))
+    echo "FAIL ci-autorelease  the gate's query does not carry '$want', so it counts runs that are not a green verdict on this branch"
+    sed 's/^/       /' "$WORK/gate.gh.calls"
+  fi
+done
+
+# (10) The same tip, with no green run of its own. The protection, unchanged.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
+gate_expect "a moved tip nothing has verified still refuses" "$G" "$V" false \
+  "nothing green has verified" 0
+
+# (11) The query itself fails -- no actions:read, a rate limit, GitHub down.
+#      An answer that is not a number is not a yes.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
+gate_expect "a query that fails refuses rather than assuming" "$G" "$V" false \
+  "could not be asked" error
+
+# (12) No workflow id in the event at all. The gate must not ask GitHub about
+#      `workflows//runs`, and must not read whatever that returns as a yes.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
+GATE_WORKFLOW_ID="" gate_expect "an empty workflow id refuses" "$G" "$V" false \
+  "could not be asked" 1
+checks=$((checks + 1))
+if [ -s "$WORK/gate.gh.calls" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci-autorelease  the gate called gh with no workflow id in the event; the URL names no workflow, GitHub answers 404, and the only thing standing between that and a released tip is that a 404 is not a number"
+  sed 's/^/       /' "$WORK/gate.gh.calls"
+fi
+
+# (13) The case above that this DOES change, said out loud. Case 7 refuses an
+#      unclassified path in the gap, and reads as an unconditional refusal.
+#      It is not one any more, and the reason is that the two questions are
+#      different: the table answers "can CI's verdict on an OLDER commit be
+#      trusted for this tip", and a tip with a green run of its own has a
+#      verdict of its own, so nothing is being inherited. The unclassified path
+#      is still caught -- by release-needed.sh, which sees the whole range since
+#      the newest tag and fails the job loudly on exit 2 -- and is stubbed out
+#      here, which is why this case measures the tip check and not that one.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" brandnew/thing.c "feat: a directory nobody has classified"
+gate_expect "an unclassified gap under a tip with its own green run releases" "$G" "$V" true \
+  "successful run(s) of its own" 1
+
+# (14) THE SHAPE THIS BRANCH IS ACTUALLY FOR, and the one the first draft could
+#      not answer. crossplay-ci.yml carries `paths-ignore: site/emulator/**`
+#      and `site/emulator-manifest.json`, so the rebuild crossplay-emulator.yml
+#      pushes after every merge has no CI run and never will -- and after most
+#      merges that rebuild IS the tip. A gate that asks GitHub about the tip
+#      gets 0 for it forever, so the rescue would have fired for every shape
+#      except the commonest one on this branch.
+#
+#      Here: a firmware merge the run did not cover, then an emulator rebuild on
+#      top. The gap is not inert (it contains the firmware), the tip has no run
+#      and cannot have one, and the merge underneath it does. The gate must walk
+#      the invisible commit off the tip and ask about the merge.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
+MERGE="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" site/emulator-manifest.json "chore: emulator rebuilt for $MERGE"
+gate_expect "a tip that is an emulator rebuild asks about the merge under it" "$G" "$V" true \
+  "successful run(s) of its own" 1
+checks=$((checks + 1))
+if ! grep -q "head_sha=$MERGE" "$WORK/gate.gh.calls"; then
+  failed=$((failed + 1))
+  echo "FAIL ci-autorelease  the tip was an emulator rebuild, which CI is configured never to run for, and the gate asked GitHub about it anyway; it must ask about $MERGE, the commit under the invisible ones"
+  sed 's/^/       /' "$WORK/gate.gh.calls"
+fi
+
+# The walk must stop at something visible. A firmware commit ABOVE the merge is
+# not invisible, so the tip is the thing to ask about and the answer is no.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
+gate_commit "$G" src/apps_local/Chess.cpp "fix(chess): the clock survives a sleep"
+TIP2="$(git -C "$G" rev-parse HEAD)"
+gate_expect "the walk does not step over a visible commit" "$G" "$V" false \
+  "nothing green has verified" 0
+checks=$((checks + 1))
+if ! grep -q "head_sha=$TIP2" "$WORK/gate.gh.calls"; then
+  failed=$((failed + 1))
+  echo "FAIL ci-autorelease  the walk stepped past a commit a device build can see; with firmware on top of firmware the only commit worth asking about is the tip ($TIP2)"
+  sed 's/^/       /' "$WORK/gate.gh.calls"
+fi
 
 # The two stack-checked device envs build in ONE pio run invocation.
 #
