@@ -9451,6 +9451,241 @@ void testWallpapersHelpCardPointsAtTheUploader() {
   CHECK(drewText(out, "File Transfer"));
 }
 
+// The layout is DERIVED now (positions hang off screen.body().y and off each
+// other) rather than written as ~100 absolute panel literals. This pins the
+// result of that derivation to the exact coordinates the literals used to
+// produce, so a cursor-arithmetic slip is a red suite rather than a screen that
+// looks nearly right; and it checks the one property the derivation buys that
+// the old literals could not -- the front door rect tracks the content top.
+void testWavelengthLayoutIsDerivedNotAbsolute() {
+  const auto hasFill = [](const Rendered& r, int16_t x, int16_t y, int16_t w, int16_t h) {
+    for (const fui::Rect& f : r.target.fills)
+      if (f.x == x && f.y == y && f.width == w && f.height == h) return true;
+    return false;
+  };
+  const int16_t R = toybox::kRule;
+
+  // The front door button derives from the content top: at top 0 it is where the
+  // literal put it, and shifting the content top shifts it by the same amount.
+  // This is what lets a later contentTop sweep move the whole screen without
+  // touching this rect by hand.
+  const fui::Rect fd0 = wavelengthui::frontDoorPlayRect(480, 0);
+  CHECK(fd0.x == 16 && fd0.y == 530 && fd0.width == 448 && fd0.height == 66);
+  const fui::Rect fd30 = wavelengthui::frontDoorPlayRect(480, 30);
+  CHECK(fd30.y == 560 && fd30.height == 66);
+
+  {  // Menu, session running: rule, ornament frame, and the three stacked buttons.
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::MenuModel m;
+    m.sessionInProgress = true;
+    m.sessionRound = 7;
+    m.sessionTotal = 8;
+    m.sessionScored = 5;
+    wavelengthui::renderMenu(screen, m);
+    CHECK(hasFill(out, 16, 190, 448, R));                               // the rule under the session line
+    CHECK(hasFill(out, 16, 296, 14, 4));                                // the ornament's top-left bracket arm
+    CHECK(out.tap(240, 563).action == wavelengthui::ActionStartRound);  // PLAY, y 530..596
+    CHECK(out.tap(240, 639).action == wavelengthui::ActionHowTo);       // HOW TO PLAY, y 612..666
+    CHECK(out.tap(240, 701).action == wavelengthui::ActionEndSession);  // score sheet, y 674..728
+  }
+  {  // Resume: two rules, the shared CARRY ON rect, and START A NEW GAME below all.
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::ResumeModel m;
+    m.roundNumber = 3;
+    m.total = 8;
+    m.scored = 5;
+    m.roundInFlight = true;
+    m.minutesAgo = 12;
+    wavelengthui::renderResume(screen, m);
+    CHECK(hasFill(out, 16, 126, 448, R));
+    CHECK(hasFill(out, 16, 246, 448, R));
+    CHECK(out.tap(240, 563).action == wavelengthui::ActionCarryOn);     // shares the front door rect
+    CHECK(out.tap(240, 763).action == wavelengthui::ActionStartFresh);  // y 736..790
+  }
+  {  // Summary: the divider rule, the play button and the ending button.
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::SummaryModel m;
+    m.rounds = 7;
+    m.total = 19;
+    m.averageTenths = 27;
+    m.abandoned = 2;
+    m.nextRound = 8;
+    wavelengthui::renderSummary(screen, m);
+    CHECK(hasFill(out, 16, 252, 448, R));
+    CHECK(hasFill(out, 16, 434, 14, 4));                                 // ornament frame at its floor height
+    CHECK(out.tap(240, 641).action == wavelengthui::ActionKeepPlaying);  // y 612..670
+    CHECK(out.tap(240, 763).action == wavelengthui::ActionNewSession);   // y 736..790
+  }
+  {  // Pause: the two rules and RESUME between them, the grid unchanged.
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::PauseModel m;
+    m.roundNumber = 4;
+    m.total = 11;
+    m.abandoned = 2;
+    wavelengthui::renderPause(screen, m);
+    CHECK(hasFill(out, 16, 126, 448, R));
+    CHECK(hasFill(out, 16, 440, 448, R));
+    CHECK(out.tap(240, 376).action == wavelengthui::ActionResume);  // y 340..412
+  }
+}
+
+// The front door's dimmed score button used to promise "SEE THE SCORE SO FAR"
+// even with no session, so the dimming read as a broken button rather than an
+// unavailable one -- it named a score that did not exist. The label is honest in
+// both states now, at the same rect so the layout still does not jump.
+void testWavelengthNoSessionScoreButtonIsHonest() {
+  const auto build = [](Rendered& out, bool sessionInProgress) {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::MenuModel m;
+    m.sessionInProgress = sessionInProgress;
+    m.sessionRound = 7;
+    m.sessionTotal = 8;
+    m.sessionScored = 5;
+    wavelengthui::renderMenu(screen, m);
+  };
+
+  Rendered none;
+  build(none, false);
+  // No score exists, so the button must not claim to show one, and pressing it
+  // does nothing.
+  CHECK(!none.target.drew("SEE THE SCORE SO FAR"));
+  CHECK(none.target.drew("NO SCORE YET"));
+  CHECK(none.tap(240, 701).action == fui::NO_ACTION);
+
+  Rendered live;
+  build(live, true);
+  // With a session the label is true again and the button acts.
+  CHECK(live.target.drew("SEE THE SCORE SO FAR"));
+  CHECK(!live.target.drew("NO SCORE YET"));
+  CHECK(live.tap(240, 701).action == wavelengthui::ActionEndSession);
+
+  // Same rect in both states: the dimmed control holds its place, no jump.
+  const FakeTarget::TextRun* off = none.target.find("NO SCORE YET");
+  const FakeTarget::TextRun* on = live.target.find("SEE THE SCORE SO FAR");
+  CHECK(off != nullptr && on != nullptr);
+  if (off && on) CHECK(off->rect.y == on->rect.y && off->rect.height == on->rect.height);
+}
+
+// Icons earn their place only if they cost no text. Every mark this game draws
+// sits in an empty margin; this renders the icon-bearing screens (at whatever
+// WL_ICONS level is compiled) and asserts no icon bitmap lands on a text run's
+// ink. It fails loudly on the exact mistake a first megaphone made -- an icon in
+// the margin left of a centred title, merged into its first letters.
+void testWavelengthIconsClearOfText() {
+  const auto inkOf = [](const FakeTarget::TextRun& run) {
+    const int16_t measured = static_cast<int16_t>(run.text.size() * 10);
+    const int16_t w = measured < run.rect.width ? measured : run.rect.width;
+    int16_t x = run.rect.x;
+    if (run.style.align == fui::TextAlign::Right)
+      x = static_cast<int16_t>(run.rect.x + run.rect.width - w);
+    else if (run.style.align == fui::TextAlign::Center)
+      x = static_cast<int16_t>(run.rect.x + (run.rect.width - w) / 2);
+    return fui::Rect{x, run.rect.y, w, run.rect.height};
+  };
+  const auto overlaps = [](const fui::Rect& a, const fui::Rect& b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  };
+  struct Case {
+    const char* name;
+    void (*build)(Rendered&);
+  };
+  static const Case kCases[] = {
+      {"menu, session",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::MenuModel m;
+         m.sessionInProgress = true;
+         m.sessionRound = 7;
+         m.sessionTotal = 8;
+         m.sessionScored = 5;
+         wavelengthui::renderMenu(screen, m);
+       }},
+      {"pass",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PassModel m;
+         m.roundNumber = 3;
+         m.total = 8;
+         wavelengthui::renderPassLeft(screen, m);
+       }},
+      {"peek, not revealed",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PeekModel m;
+         m.spectrum = wavelengthui::Spectrum{"FLEXIBLE", "INFLEXIBLE"};
+         m.target = 12;
+         wavelengthui::renderPeek(screen, m);
+       }},
+      {"reveal, wide verdict",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 1;
+         m.target = 18;  // miss 17 -> "SEVENTEEN OFF", the deck's widest verdict
+         m.roundNumber = 5;
+         m.total = 12;
+         wavelengthui::renderReveal(screen, m);
+       }},
+      {"summary",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::SummaryModel m;
+         m.rounds = 7;
+         m.total = 19;
+         m.averageTenths = 27;
+         m.nextRound = 8;
+         wavelengthui::renderSummary(screen, m);
+       }},
+  };
+  for (const Case& c : kCases) {
+    Rendered out;
+    c.build(out);
+    for (const FakeTarget::Blit& b : out.target.blits) {
+      for (const FakeTarget::TextRun& t : out.target.texts) {
+        if (!overlaps(b.rect, inkOf(t))) continue;
+        std::printf("  %s: an icon at (%d,%d %dx%d) lands on \"%s\"\n", c.name, b.rect.x, b.rect.y, b.rect.width,
+                    b.rect.height, t.text.c_str());
+        CHECK(false);
+      }
+    }
+  }
+}
+
 int main() {
   testWallpapersGridHasTwoColumns();
   testWallpapersCellsStayOnScreen();
@@ -9654,6 +9889,9 @@ int main() {
   testWavelengthTheLockIsAnOrdinaryButton();
   testWavelengthAStaleGameIsOfferedNotTaken();
   testWavelengthEverySlotIsTappable();
+  testWavelengthLayoutIsDerivedNotAbsolute();
+  testWavelengthNoSessionScoreButtonIsHonest();
+  testWavelengthIconsClearOfText();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 
   testInkCentredPutsTheInkInTheMiddleOfAnyBox();

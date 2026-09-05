@@ -220,7 +220,7 @@ fui::Rect lockBarRect(int16_t screenW, int16_t screenH);
 // one of them, and no render would look wrong. Exported for the same reason
 // lockBarRect is: the test measures the two screens against the very rect that
 // drew them.
-fui::Rect frontDoorPlayRect(int16_t screenW);
+fui::Rect frontDoorPlayRect(int16_t screenW, int16_t contentTop = 0);
 
 // Which way a finger held at (x,y) on the dial is asking the marker to move:
 // +1 toward the top pole, -1 toward the bottom, 0 for neither. Lives here so
