@@ -338,8 +338,12 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   // The two standing actions live in the header band, knocked out of the black.
   // They are always available and never move, so they cost no layout anywhere
   // the cards need.
+  // Inset 8px top and bottom INSIDE the band, so the band is asked for rather
+  // than named: an app that spells the chrome's height itself is the shape
+  // host-tests/chromeguard exists to stop, and a height is not exempt from it
+  // just because it happens to be correct today.
   const int buttonY = 8;
-  const int buttonH = kHeader - 16;
+  const int buttonH = toybox::headerBandRect(screen).height - buttonY * 2;
   fui::ButtonProps undo;
   undo.label = "UNDO";
   undo.action = ActionButton;
@@ -528,7 +532,7 @@ void buildWin(toybox::Screen& screen, const WinModel& model) {
     }
   }
 
-  const int top = kHeader + 34;
+  const int top = toybox::chromeBelow(kHeader) + 27;
   fui::TextStyle hero;
   hero.font = toybox::kDisplayFont;
   hero.align = fui::TextAlign::Center;
@@ -589,7 +593,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // out loud about the state of play; right is the record.
   const int left = kSideMargin;
   const int columnWidth = 420;
-  const int top = kHeader + 40;
+  const int top = toybox::chromeBelow(kHeader) + 33;
 
   fui::TextStyle hero;
   hero.font = toybox::kDisplayFont;

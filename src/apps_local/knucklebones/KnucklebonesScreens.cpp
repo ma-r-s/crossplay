@@ -38,12 +38,23 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
 // centred one won. Totals now live in the strip flanking the die, named, so
 // neither position nor order has to be remembered.
 //
-// The budget: header (76), air, their grid (231), their column scores (28),
+// The budget: the chrome (83), air, their grid (231), their column scores (28),
 // the strip with the die and both totals (73), your grid (231), your column
-// scores (28), then the capsule and its 16px margin. Their grid sits at 90
-// rather than 100 so their score row clears the die below it -- at 100 the
-// centre column's score looked like it was touching the die, which Mario
-// called out on the render.
+// scores (28), then the capsule and its 16px margin.
+//
+// The gap ABOVE the die is the one Mario has already ruled on. Their grid used
+// to sit at a literal 90 rather than 100, because at 100 their score row left
+// eight pixels over the die and the centre column's score looked like it was
+// touching it -- he called that out on the render. Card #248 then had to move
+// the grid DOWN, because its dithered ground is outset four pixels and at 90
+// that marker painted three pixels under the header rule. Moving it down by
+// nine would have reproduced the spacing he rejected, one pixel off.
+//
+// So the ladder is derived rather than typed, and the nine pixels come out of
+// the slack at the BOTTOM instead: the gap over the die keeps the eighteen it
+// had, the die keeps the eight below it, and the capsule's clearance absorbs
+// the difference. Every number below follows from the one above it, so the
+// next thing that moves cannot silently spend this gap again.
 constexpr int16_t kCell = 73;
 constexpr int16_t kCellGap = 6;
 constexpr int16_t kGridSide = kCell * kb::kColumns + kCellGap * (kb::kColumns - 1);
@@ -55,10 +66,20 @@ constexpr int16_t kScoreBand = 28;
 // somebody measured a screenshot.
 constexpr int16_t kGroundOutset = 4;
 constexpr int16_t kTheirsTop = toybox::kChromeHeight + toybox::kGutter + kGroundOutset;
-constexpr int16_t kTheirsScoreTop = kTheirsTop + kGridSide + 4;  // 325
-constexpr int16_t kDieTop = 371;
-constexpr int16_t kYoursTop = 452;
-constexpr int16_t kYoursScoreTop = kYoursTop + kGridSide + 4;  // 687
+constexpr int16_t kScoreGap = 4;
+constexpr int16_t kTheirsScoreTop = kTheirsTop + kGridSide + kScoreGap;
+// The two gaps around the die, both carried over from the layout Mario passed:
+// eighteen above, eight below. The one above is the one he ruled on.
+constexpr int16_t kDieGapAbove = 18;
+constexpr int16_t kDieGapBelow = 8;
+constexpr int16_t kDieTop = kTheirsScoreTop + kScoreBand + kDieGapAbove;
+constexpr int16_t kYoursTop = kDieTop + kCell + kDieGapBelow;
+constexpr int16_t kYoursScoreTop = kYoursTop + kGridSide + kScoreGap;
+// What is left over above the capsule, which is where the chrome's nine pixels
+// were taken from. A static_assert rather than a comment: this is the slack the
+// whole ladder spends, and the next change to any number above will land here.
+constexpr int16_t kCapsuleTop = 800 - toybox::kMargin - toybox::kPillHeight;
+static_assert(kYoursScoreTop + kScoreBand + 8 <= kCapsuleTop, "the knucklebones ladder has overrun the status capsule");
 
 // The die drawn inside every cell.
 constexpr int16_t kPipSize = 9;

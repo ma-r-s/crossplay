@@ -72,7 +72,7 @@ def strip_comments(text):
 # GUI.drawHeader with no toybox band and no rule under it, and the reader,
 # keyboard and settings screens are not this fork's to re-layout. Only
 # `theme().headerHeight`, which is the toybox Screen's own token, counts.
-BAND = r'(?:kHeaderHeight|kHeaderBand|theme\(\)\.headerHeight)'
+BAND = r'(?:kHeaderHeight|kHeaderBand|(?:theme\(\)|tokens)\.headerHeight)'
 # The band's name with a + or - touching it on either side. `x = kHeaderHeight;`
 # and `makeRect(0, 0, w, kHeaderHeight)` are heights and stay legal; anything
 # measured FROM the band is not.
@@ -83,11 +83,40 @@ RULE_CALL = re.compile(r'(?<![A-Za-z0-9_])headerRule\s*\(')
 HAND_RULE = re.compile(r'fill\(\s*fui::makeRect\(\s*0\s*,[^;]*?' + BAND + r'[^;]*?kRule', re.S)
 
 
+# A file-local rename of the band, e.g. Solitaire's `constexpr int kHeader =
+# kHeaderBand;`. Without this the gate is one alias away from blind, and that is
+# not hypothetical: Solitaire had TWO live additive uses through `kHeader` while
+# this gate reported all three rules zero-hit. An alias is followed one hop,
+# which is the depth real code uses.
+ALIAS = re.compile(r'\b(?:constexpr|const)\s+(?:int|int16_t|auto)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*'
+                   + BAND + r'\s*;')
+
+
 def additive_hits(text):
+    code = strip_comments(text)
+    names = BAND
+    for m in ALIAS.finditer(code):
+        names += '|' + re.escape(m.group(1))
+    adds = re.compile(r'(?:' + names + r')\s*[+-]|[+-]\s*(?:' + names + r')')
+
+    # Statements, not lines. The tree is clang-formatted at 120 columns, so
+    # `kHeaderHeight\n    + kGutter * 3` is one expression on two lines and a
+    # per-line scan sees an additive use on neither of them.
     found = []
-    for n, line in enumerate(strip_comments(text).splitlines(), 1):
-        if ADDS.search(line):
-            found.append((n, line.strip()))
+    line_of, buf, start = 1, [], 1
+    for n, line in enumerate(code.splitlines(), 1):
+        if not buf:
+            start = n
+        buf.append(line)
+        if ';' not in line and '{' not in line and '}' not in line:
+            continue
+        stmt = ' '.join(buf)
+        if adds.search(stmt):
+            found.append((start, ' '.join(x.strip() for x in buf).strip()))
+        buf = []
+        line_of = n
+    if buf and adds.search(' '.join(buf)):
+        found.append((start, ' '.join(x.strip() for x in buf).strip()))
     return found
 
 
@@ -141,6 +170,12 @@ with tempfile.TemporaryDirectory() as fx:
         '  toybox::headerRule(s);\n'
         '  target.fill(fui::makeRect(0, kHeaderBand + 4, band.width, toybox::kRule), ink);\n'
         '}\n')
+    open(os.path.join(app, 'aliased.cpp'), 'w').write(
+        'constexpr int kHeader = kHeaderBand;\n'
+        'const int top = kHeader + 34;\n')
+    open(os.path.join(app, 'wrapped.cpp'), 'w').write(
+        'constexpr int kBodyTop =\n'
+        '    toybox::kHeaderHeight + toybox::kGutter * 3;\n')
     open(os.path.join(app, 'fine.cpp'), 'w').write(
         '// kHeaderHeight + kGutter is what this used to say.\n'
         'constexpr int kBodyTop = toybox::kChromeHeight + toybox::kGutter * 3;\n'
@@ -156,12 +191,16 @@ with tempfile.TemporaryDirectory() as fx:
     open(os.path.join(ui, 'ToyboxMetrics.h'), 'w').write(
         'constexpr int kChromeHeight = kHeaderHeight + kBandRuleGap + kRule;\n')
 
-    got = [(f, ln) for f, ln, _ in scan(fx, additive_hits)]
-    # Line 6 too: a hand-drawn rule is also an additive use of the band, and it
-    # is caught by both rules rather than by neither.
-    check('the scanner sees a body top measured from the band',
-          got == [('apps_local/someapp/bad.cpp', 1), ('apps_local/someapp/bad.cpp', 2),
-                  ('apps_local/someapp/bad.cpp', 6)], repr(got))
+    got = sorted((f, ln) for f, ln, _ in scan(fx, additive_hits))
+    # bad.cpp line 6 too: a hand-drawn rule is also an additive use of the band,
+    # and it is caught by both rules rather than by neither. aliased.cpp is the
+    # rename Solitaire actually used, and wrapped.cpp is the same expression
+    # split by the formatter -- both passed the first version of this gate.
+    want = sorted([('apps_local/someapp/bad.cpp', 1), ('apps_local/someapp/bad.cpp', 2),
+                   ('apps_local/someapp/bad.cpp', 6), ('apps_local/someapp/aliased.cpp', 2),
+                   ('apps_local/someapp/wrapped.cpp', 1)])
+    check('the scanner sees a body top measured from the band, aliased or wrapped',
+          got == want, repr(got))
     got = [(f, ln) for f, ln, _ in scan(fx, rule_call_hits)]
     check('the scanner sees a headerRule() call', got == [('apps_local/someapp/bad.cpp', 5)], repr(got))
     got = [(f, ln) for f, ln, _ in scan(fx, hand_rule_hits)]
@@ -201,7 +240,7 @@ for base, _, names in os.walk(src):
     for n in names:
         if not n.endswith(('.cpp', '.h')):
             continue
-        text = open(os.path.join(base, n), encoding='utf-8', errors='replace').read()
+        text = strip_comments(open(os.path.join(base, n), encoding='utf-8', errors='replace').read())
         chrome_uses += text.count('kChromeHeight') + text.count('chromeBelow(')
         band_uses += len(re.findall(BAND, text))
 check('the tree measures from the chrome (the scanner walked real code)', chrome_uses >= 8,
