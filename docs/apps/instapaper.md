@@ -65,6 +65,18 @@ nothing to send says only what came down.
 The first one on a large queue prepares 25 articles and says how many more are
 coming; press SYNC again for the rest.
 
+## Disconnecting
+
+The account icon sits on the queue's footer, beside SYNC. It opens a screen that
+names who is signed in and asks **DISCONNECT?**. Disconnecting signs the reader
+out of Instapaper AND deletes every article saved on the card -- it leaves the
+app exactly as it was before you paired, so the next SYNC starts pairing again.
+It is never a single tap: the safe answer, **KEEP IT**, is the wide button a
+thumb lands on, and **DISCONNECT** is a smaller one set apart above it, so a
+stray tap costs a glance rather than your reading list. Your articles stay in
+your Instapaper account; only the copies on this reader are removed. The screen
+says the exact number it will delete before you tap.
+
 ## When something is not right
 
 **"NOT SHOWABLE HERE"** -- the article is written in a script this reader has
@@ -93,7 +105,9 @@ the account was reconnected. Press SYNC and pair again.
 
 - On the card: `/.crosspoint/instapaper/` -- a tab-separated `index.tsv` you
   can read in any text editor, one `a<id>.txt` per article, and `.bridge`
-  holding the pairing token. Deleting that folder resets the app; deleting
-  `.bridge` alone unpairs it.
+  holding the pairing token and the account name. Deleting that folder resets
+  the app; deleting `.bridge` alone unpairs it. The account icon on the queue
+  does the whole reset from the reader itself -- it removes the folder and, when
+  online, tells the service to forget this reader too.
 - The service: `server/read-bridge/` in this repo, and its design in
   [instapaper-plan.md](instapaper-plan.md).

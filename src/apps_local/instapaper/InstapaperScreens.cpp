@@ -2,6 +2,9 @@
 
 #include <FreeInkUIIcon.h>
 
+#include <cstdio>
+#include <string>
+
 #include "../ui/ToyboxText.h"
 
 namespace instapaperui {
@@ -111,6 +114,16 @@ void buildQueue(toybox::Screen& screen, const QueueModel& model) {
   const int16_t width = static_cast<int16_t>(device.width - 2 * toybox::kMargin);
   const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
 
+  // The account control, when this reader is paired, is a square at the FAR
+  // RIGHT of the footer, and SYNC gives up exactly its width and gutter. SYNC
+  // keeps its left edge -- the fork-wide primary-action home a thumb learns --
+  // so what moves is the far end of a wide button, never the pixels a remembered
+  // tap lands on. The icon opens a confirm, not a wipe, so even a tap that finds
+  // it costs a glance, not the reading list. See same-pixel-different-action.
+  const int16_t accountSide = model.accountIcon != nullptr ? kFooterHeight : 0;
+  const int16_t accountGap = model.accountIcon != nullptr ? toybox::kGutter : 0;
+  const int16_t barWidth = static_cast<int16_t>(width - accountSide - accountGap);
+
   // Taken first so the list can never grow into it. The door is always here,
   // including on an empty queue -- an empty queue is precisely when a reader
   // wants to pull, and a screen whose only control appears once there is
@@ -136,7 +149,7 @@ void buildQueue(toybox::Screen& screen, const QueueModel& model) {
     // fits. So the short label is there for the cut where the first does not,
     // and whatever is drawn, the box holds it.
     const fui::TextStyle& buttonLabel = screen.theme().bodyText;
-    const int16_t undoRoom = static_cast<int16_t>((width - toybox::kGutter) / 2);
+    const int16_t undoRoom = static_cast<int16_t>((barWidth - toybox::kGutter) / 2);
     const char* undoLabel = "PUT BACK";
     int16_t undoWidth = static_cast<int16_t>(
         screen.target().measureText(buttonLabel.font, undoLabel, buttonLabel).width + toybox::kMargin * 2);
@@ -156,12 +169,25 @@ void buildQueue(toybox::Screen& screen, const QueueModel& model) {
     sync.label = "SYNC";
     sync.action = ActionSync;
     screen.button(sync, fui::makeRect(static_cast<int16_t>(toybox::kMargin + undoWidth + toybox::kGutter), footerY,
-                                      static_cast<int16_t>(width - undoWidth - toybox::kGutter), kFooterHeight));
+                                      static_cast<int16_t>(barWidth - undoWidth - toybox::kGutter), kFooterHeight));
   } else {
     fui::ButtonProps sync;
     sync.label = "SYNC";
     sync.action = ActionSync;
-    screen.button(sync, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight));
+    screen.button(sync, fui::makeRect(toybox::kMargin, footerY, barWidth, kFooterHeight));
+  }
+
+  // The account door, drawn last so it sits on top of nothing and answers taps
+  // in its own square. Outlined (rowStyles), so it reads as secondary to the
+  // filled SYNC rather than as a second primary control.
+  if (model.accountIcon != nullptr) {
+    fui::ButtonProps account;
+    account.icon = fui::bitmapFromIcon(*model.accountIcon);
+    account.iconSize = toybox::kIconSize;
+    account.action = ActionAccount;
+    account.styles = toybox::rowStyles();
+    const int16_t accountX = static_cast<int16_t>(toybox::kMargin + barWidth + accountGap);
+    screen.button(account, fui::makeRect(accountX, footerY, accountSide, kFooterHeight));
   }
 
   if (model.count <= 0) {
@@ -367,6 +393,99 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
     message.style = screen.theme().bodyText;
     fui::textArea(screen.frame(), fui::makeRect(toybox::kMargin, y, width, static_cast<int16_t>(bottom - y)), message);
   }
+}
+
+// --- Disconnect confirm --------------------------------------------------
+
+void buildDisconnectConfirm(toybox::Screen& screen, const DisconnectModel& model) {
+  chrome(screen, "INSTAPAPER", nullptr);
+
+  const fui::DeviceContext& device = screen.device();
+  const int16_t width = static_cast<int16_t>(device.width - 2 * toybox::kMargin);
+
+  // The two answers, bottom-anchored and taken first so the words can never
+  // grow into them. KEEP IT is the SAFE choice and it takes the primary-action
+  // band -- the full-width bottom pill twenty screens put "the button" on -- so
+  // a thumb, and any tap carried across the phase change from the queue, lands
+  // on keeping the reading list. DISCONNECT is a narrower outlined control a
+  // clear gap above, sitting where no queue control ever did: destroying the
+  // data takes a deliberate press on the one control that is not where habit
+  // reaches. This is the whole safety of the wipe.
+  const int16_t keepY = static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight);
+  fui::ButtonProps keep;
+  keep.label = "KEEP IT";
+  keep.action = ActionDisconnectCancel;
+  screen.button(keep, fui::makeRect(toybox::kMargin, keepY, width, toybox::kPillHeight));
+
+  const int16_t disconnectY = static_cast<int16_t>(keepY - toybox::kPillHeight - toybox::kGutter * 3);
+  const fui::TextStyle& buttonLabel = screen.theme().bodyText;
+  const int16_t disconnectWidth = static_cast<int16_t>(
+      screen.target().measureText(buttonLabel.font, "DISCONNECT", buttonLabel).width + toybox::kMargin * 4);
+  fui::ButtonProps disconnect;
+  disconnect.label = "DISCONNECT";
+  disconnect.action = ActionDisconnect;
+  disconnect.styles = toybox::rowStyles();
+  screen.button(disconnect, fui::makeRect(static_cast<int16_t>(toybox::kMargin + (width - disconnectWidth) / 2),
+                                          disconnectY, disconnectWidth, toybox::kPillHeight));
+
+  // The words, from the top of the body down toward the DISCONNECT control.
+  int16_t y = kBodyTop;
+
+  fui::TextStyle headline = screen.theme().titleText;
+  headline.color = fui::Color::Black;  // off the band, so it has to be ink
+  headline.align = fui::TextAlign::Left;
+  headline.maxLines = 1;
+  const int16_t headlineHeight = screen.target().lineHeight(headline.font);
+  screen.target().text(fui::makeRect(toybox::kMargin, y, width, headlineHeight), "DISCONNECT?", headline);
+  y = static_cast<int16_t>(y + headlineHeight + toybox::kGutter);
+
+  screen.target().fill(fui::makeRect(toybox::kMargin, y, width, toybox::kRule), fui::Paint::solid(fui::Color::Black));
+  y = static_cast<int16_t>(y + toybox::kRule + toybox::kGutter * 2);
+
+  // Whose list this is, on its own line. An Instapaper username is an email --
+  // one unbreakable token -- so it is bounded by fitLines (which cuts mid-token
+  // and can, because the reading cut carries an ellipsis) rather than dropped
+  // into the wrapped sentence below where an over-long one would run past the
+  // edge and, at these cuts, simply vanish. Omitted entirely on a reader paired
+  // before the username was persisted; the sentence still says plainly what
+  // happens.
+  if (model.account != nullptr && model.account[0] != '\0') {
+    const int16_t captionHeight = screen.target().lineHeight(toybox::kTileFont);
+    screen.target().text(fui::makeRect(toybox::kMargin, y, width, captionHeight), "SIGNED IN AS",
+                         plain(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));
+    y = static_cast<int16_t>(y + captionHeight + toybox::kGutter);
+
+    fui::TextStyle who = screen.theme().bodyText;
+    who.color = fui::Color::Black;
+    who.maxLines = 1;
+    const int16_t whoHeight = screen.target().lineHeight(who.font);
+    const std::string account = toybox::fitLines(screen.target(), model.account, width, 1, who);
+    screen.target().text(fui::makeRect(toybox::kMargin, y, width, whoHeight), account.c_str(), who);
+    y = static_cast<int16_t>(y + whoHeight + toybox::kGutter * 2);
+  }
+
+  // The sentence that has to be true before the tap: how many articles are
+  // erased, and that the sign-out is reversible by pairing again. Built here so
+  // the count and its noun agree ("1 article" / "3 articles"), and so a reader
+  // with nothing downloaded is not told it is deleting zero of them. No username
+  // in it -- that is the bounded line above -- so nothing here can overflow.
+  char body[220];
+  if (model.articleCount > 0) {
+    std::snprintf(body, sizeof(body),
+                  "This deletes the %d article%s saved on this reader and signs it out of Instapaper. You can pair "
+                  "again afterwards.",
+                  model.articleCount, model.articleCount == 1 ? "" : "s");
+  } else {
+    std::snprintf(body, sizeof(body),
+                  "This signs this reader out of Instapaper. Nothing is downloaded to it yet. You can pair again "
+                  "afterwards.");
+  }
+  const int16_t bottom = static_cast<int16_t>(disconnectY - toybox::kGutter * 2);
+  fui::TextAreaProps message;
+  message.text = body;
+  message.showCaret = false;
+  message.style = screen.theme().bodyText;
+  fui::textArea(screen.frame(), fui::makeRect(toybox::kMargin, y, width, static_cast<int16_t>(bottom - y)), message);
 }
 
 // --- Pairing -------------------------------------------------------------

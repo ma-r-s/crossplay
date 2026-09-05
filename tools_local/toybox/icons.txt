@@ -310,3 +310,12 @@ instapaper  = bookmark
 
 # Hacker News: the reader's band mark for a saved article.
 saved       = bookmark
+
+# Instapaper's account/disconnect control, on the queue footer beside SYNC.
+# `circle-user-round` is the classic account avatar -- a head inside a ring --
+# and it shares no outline with the bookmark ribbon it sits next to. It is a
+# secondary control, not a shelf mark, so it never has to separate from the
+# games; it only has to read as "your account" at 32px, which a bust in a
+# circle does. Spliced by hand into ToyboxIcons.h, never regenerated (see the
+# warning at the top of this file).
+account     = circle-user-round
