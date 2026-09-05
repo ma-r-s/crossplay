@@ -18,17 +18,21 @@ reflash and inspect a device over Wi-Fi with no cable
 (`developer-mode.md`), and what is knowingly unfinished (`open-items.md`).
 
 **Two files, and only one of them is published.** `release-body.md` is what a
-tag publishes: this release's `### What is new in <version>` block, how to
-install, and a link back here. `release-notes.md` is the history, newest first,
-and nothing publishes it. They were one file until 2026-09-04, which is why
+tag publishes, and it is deliberately tiny: one line of links, then this
+release's `### What is new in <version>` block. Nothing else. It describes
+neither the project nor how to install it, because `README.md`, `install.md`
+and the site all already do and a release page that repeats them is a release
+page nobody finishes. `release-notes.md` is the history, newest first, and
+nothing publishes it. They were one file until 2026-09-04, which is why
 v1.12.21's release page ran to 20,402 characters and carried six earlier
 releases under "What WAS new in ...".
 
 Neither is written by hand. `scripts_local/release_notes.py` rewrites the block
 in the body and prepends the same block to the history; the autorelease
-workflow commits both. Edit the tooling, not the files -- except the standing
-sections of `release-body.md` (how to install, which file to download), which
-are prose and are left alone by the generator.
+workflow commits both. Edit the tooling, not the files -- except the body's
+one standing line of links, which is prose and is left alone by the generator.
+`host-tests/release` holds the body to a size ceiling and refuses install steps
+on it; growing it back is a test failure, not a judgement call.
 
 Only landings a person could receive something different from become notes, and
 the question is put to `scripts_local/device-build-needed.sh --ships` -- the
