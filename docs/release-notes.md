@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.25
+
+- nothing changes on the device. The release build now checks its own output is on disk before packaging it, so the fault that published v1.12.14 and v1.12.15 without a working image cannot reach you silently again.
+
 ### 1.12.24
 
 - Settings: CrossPlay's System rows move below CrossPoint's, and the consent line shrinks
