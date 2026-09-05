@@ -190,6 +190,10 @@ else
   echo x > "$G/ui.log"; echo x > "$G/cmake-build.$DEADPID/a.o"
   echo x > "$G/cmake-build.$LIVEPID/a.o"
   echo x > "$G/cmake.$DEADPID.log"; echo x > "$G/cmake.$LIVEPID.log"
+  # The host-suite loop's own log is per run for the same reason since card
+  # #320, and the sparing rule has to cover it -- the case that was actually
+  # reproduced was a sibling's ui.log unlinked mid-loop.
+  echo x > "$G/ui.$DEADPID.log"; echo x > "$G/ui.$LIVEPID.log"
   echo t > "$G/run.mine"; echo t > "$G/run.sibling"
   echo old > "$G/run.ancient"; touch -t 202501010000 "$G/run.ancient"
   run_tail 0 "$G" run.mine
@@ -208,6 +212,10 @@ else
                                   || bad "the green cleanup deleted a concurrently running gate's build directory"
   [ -f "$G/cmake.$LIVEPID.log" ] && ok "and the log it is still writing" \
                                 || bad "the green cleanup deleted a live sibling's cmake log"
+  [ -f "$G/ui.$LIVEPID.log" ] && ok "and a live sibling's suite log, which the loop is appending to" \
+                             || bad "the green cleanup deleted a running sibling's suite log; that sibling reports 'ok ( sub-suite(s))' or a bare FAILED with no lines"
+  [ ! -f "$G/ui.$DEADPID.log" ] && ok "while a finished run's suite log still goes" \
+                               || bad "suite logs now accumulate one set per run, forever"
   [ -f "$G/run.sibling" ] && ok "and another run's transcript, which may still be open" \
                          || bad "the green cleanup deleted a sibling run's transcript"
   [ -f "$G/run.mine" ] && ok "but KEEPS this run's transcript, the one path it published" \

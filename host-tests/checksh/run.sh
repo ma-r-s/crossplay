@@ -1057,6 +1057,12 @@ print('\n'.join(lines[start:end + 1]))
 PY
 }
 
+# check.sh's refusals go through die(), which prints the verdict token and
+# exits. Lifted rather than stubbed: a harness that defined its own `die` would
+# be supplying the behaviour under test, and the blocks below would pass even if
+# the real one had stopped exiting. It is also what lets the token assertion
+# below be about check.sh rather than about this file.
+lift_fn die >"$WORK/die.sh" 2>/dev/null
 lift '-x "$MERGE_STATE"' >"$WORK/mergewire.sh" 2>/dev/null
 lift '-x "$SUB_STATE"' >"$WORK/subwire.sh" 2>/dev/null
 lift '-x "$FRESH"'     >"$WORK/freshwire.sh" 2>/dev/null
@@ -1081,6 +1087,30 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
   # meaningful, and the suites will not notice, because they do not read every
   # file: markers in platformio.ini gated all green on 2026-08-31 since --tests
   # never parses it. Both refusal codes must stop it.
+  # A REFUSAL IS A VERDICT. The docs card #317 produced say an absent token means
+  # "the run never reached its verdict: killed, crashed, or still going" -- and a
+  # deliberate refusal is none of those, so it must not look like one.
+  checks=$((checks + 1))
+  if [ ! -s "$WORK/die.sh" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  check.sh has no die(); its early refusals exit with no verdict token,"
+    echo "              and a reader grepping for one finds nothing and reads it as 'still running'"
+  else
+    refusal="$( set +e; . "$WORK/die.sh"; die "refusing to gate something" )"
+    checks=$((checks + 1))
+    case "$refusal" in
+      *"CHECKSH-VERDICT: failed"*) : ;;
+      *) failed=$((failed + 1))
+         echo "FAIL checksh  a refusal printed no verdict token: $refusal" ;;
+    esac
+    checks=$((checks + 1))
+    case "$refusal" in
+      *"refusing to gate something"*) : ;;
+      *) failed=$((failed + 1))
+         echo "FAIL checksh  a refusal swallowed its own reason: $refusal" ;;
+    esac
+  fi
+
   if [ -s "$WORK/mergewire.sh" ]; then
     merge_stub() {  # exit_code
       rm -rf "$WORK/mrepo"
@@ -1094,14 +1124,14 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
     for code in 2 3; do
       checks=$((checks + 1))
       merge_stub "$code"
-      if ( set +e; REPO="$WORK/mrepo"; . "$WORK/mergewire.sh"; exit 0 ) >/dev/null 2>&1; then
+      if ( set +e; REPO="$WORK/mrepo"; . "$WORK/die.sh"; . "$WORK/mergewire.sh"; exit 0 ) >/dev/null 2>&1; then
         failed=$((failed + 1))
         echo "FAIL checksh  merge_state exit $code did not stop the gate; a conflicted tree would be reported on"
       fi
     done
     checks=$((checks + 1))
     merge_stub 0
-    clean_merge="$( set +e; REPO="$WORK/mrepo"; . "$WORK/mergewire.sh"; echo "CONTINUED" )"
+    clean_merge="$( set +e; REPO="$WORK/mrepo"; . "$WORK/die.sh"; . "$WORK/mergewire.sh"; echo "CONTINUED" )"
     case "$clean_merge" in
       "CONTINUED") : ;;
       *) failed=$((failed + 1)); echo "FAIL checksh  a clean tree was stopped or spoke: $clean_merge" ;;
@@ -1116,7 +1146,7 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
   # compiler error naming no file of ours, is the alternative.
   checks=$((checks + 1))
   stub_repo 2 "submodule sdk is NOT INITIALISED."
-  if ( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/subwire.sh"; exit 0 ) >/dev/null 2>&1; then
+  if ( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/die.sh"; . "$WORK/subwire.sh"; exit 0 ) >/dev/null 2>&1; then
     failed=$((failed + 1))
     echo "FAIL checksh  an uninitialised submodule did not stop the gate"
   fi
@@ -1125,7 +1155,7 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
   # but must set the flag that qualifies the verdict.
   checks=$((checks + 1))
   stub_repo 3 "submodule sdk is CHECKED OUT AT A DIFFERENT COMMIT"
-  drift_out="$( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/subwire.sh"; echo "FLAG=[$SUBMODULE_DRIFT]" 2>/dev/null )"
+  drift_out="$( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/die.sh"; . "$WORK/subwire.sh"; echo "FLAG=[$SUBMODULE_DRIFT]" 2>/dev/null )"
   case "$drift_out" in
     *"FLAG=[]"*) failed=$((failed + 1)); echo "FAIL checksh  drift ran but set no flag; the verdict would read as unqualified green" ;;
     *"FLAG=["*)  : ;;
@@ -1135,7 +1165,7 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
   # A healthy tree stays silent and unflagged.
   checks=$((checks + 1))
   stub_repo 0 ""
-  clean_out="$( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/subwire.sh"; echo "FLAG=[$SUBMODULE_DRIFT]" )"
+  clean_out="$( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/die.sh"; . "$WORK/subwire.sh"; echo "FLAG=[$SUBMODULE_DRIFT]" )"
   case "$clean_out" in
     "FLAG=[]") : ;;
     *) failed=$((failed + 1)); echo "FAIL checksh  a healthy tree was not silent+unflagged: $clean_out" ;;
@@ -1319,14 +1349,19 @@ fi
 # can print, by reading the string literals out of every suite, and asserts
 # check.sh's own grep -- lifted from the file, not copied -- matches each one.
 # A future SKIP printed with any indentation adds itself to this list.
-SKIPGREP="$(grep -E '^[[:space:]]*grep -E .*SKIP.*LOGS' "$CHECK" | head -1)"
+# ...LOG, not ...LOGS: card #320 moved the suite loop's log from "$LOGS/$name.log"
+# to a per-run "$SUITE_LOG", and an anchor that only knew the old spelling would
+# turn that into "could not lift the SKIP surfacing" -- a broken extraction
+# wearing the costume of a broken gate, which is the failure this file's own
+# comments keep warning about.
+SKIPGREP="$(grep -E '^[[:space:]]*grep -E .*SKIP.*LOG' "$CHECK" | head -1)"
 checks=$((checks + 1))
 if [ -z "$SKIPGREP" ]; then
   failed=$((failed + 1))
   echo "FAIL checksh  could not lift the SKIP surfacing out of check.sh"
 else
   # Just the pattern, as a literal: the line is
-  #   grep -E "<pattern>" "$LOGS/$name.log" | head -5 | sed ...
+  #   grep -E "<pattern>" "$SUITE_LOG" | head -5 | sed ...
   SKIPPAT="$(printf '%s\n' "$SKIPGREP" | sed -E 's/^[[:space:]]*grep -E "([^"]*)".*$/\1/')"
   python3 - "$HERE/../.." "$SKIPPAT" <<'PY_SKIP'
 import pathlib, re, subprocess, sys
@@ -1801,9 +1836,21 @@ else
   mkdir -p "$WORK/faketree/scripts_local" "$WORK/othertree/scripts_local"
   ( cd "$WORK/faketree" && exec sleep 25 ) &
   WGPID=$!
-  # Give the child time to be exec'd into the fixture directory.
+  # Wait for the EXEC, not for the fork. `$!` is the subshell, which exists the
+  # instant it is forked, so `ps -p $!` succeeds immediately and a loop written
+  # around it runs zero times -- while `pgrep -f 'sleep 25'` cannot match until
+  # the exec has actually happened. On a loaded runner that is a flake, and a
+  # readiness check that is never false is not a readiness check.
   n=0
-  while [ $n -lt 40 ] && ! ps -p "$WGPID" >/dev/null 2>&1; do n=$((n + 1)); done
+  while [ $n -lt 100 ] && [ -z "$(pgrep -f '[s]leep 25' 2>/dev/null)" ]; do
+    sleep 0.05; n=$((n + 1))
+  done
+  checks=$((checks + 1))
+  if [ -z "$(pgrep -f '[s]leep 25' 2>/dev/null)" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the whose-gate fixture process never appeared, so the two assertions"
+    echo "              below tested nothing"
+  fi
   out="$(cd "$WORK/faketree" && GATE_PATTERN='[s]leep 25' "$WG" 2>/dev/null)"
   checks=$((checks + 1))
   case "$out" in
@@ -1819,6 +1866,16 @@ else
        echo "FAIL checksh  --mine listed another tree's build. An agent acts on this list with" \
             "kill; naming a sibling's pid is the near-miss it exists to prevent." ;;
     *) : ;;
+  esac
+  # And the other direction, or a --mine that lists NOTHING, ever, passes the
+  # assertion above and is useless.
+  checks=$((checks + 1))
+  ownmine="$(cd "$WORK/faketree" && GATE_PATTERN='[s]leep 25' "$WG" --mine 2>/dev/null)"
+  case "$ownmine" in
+    *"$WORK/faketree"*) : ;;
+    *) failed=$((failed + 1))
+       echo "FAIL checksh  --mine did not list this tree's OWN build, so it answers 'nothing" \
+            "running' to every question and the negative assertion above proves nothing: $ownmine" ;;
   esac
   kill "$WGPID" 2>/dev/null
   wait "$WGPID" 2>/dev/null
@@ -1868,6 +1925,16 @@ else
        echo "FAIL checksh  a run that is NOT --tests was marked as having skipped the builds:" \
             "$(arm --committed)" ;;
   esac
+
+  # The OTHER producer of the reason -- the scope gate's default, set where the
+  # build block computes DEVICE_BUILDS_SKIPPED. Only the --tests arm was covered,
+  # so "a reader can tell the two skips apart" was half-asserted.
+  checks=$((checks + 1))
+  if ! grep -q 'DEVICE_SKIP_WHY="nothing in this diff reaches a device image"' "$CHECK"; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the scope-skip reason is gone, so a device-build skip and a --tests run"
+    echo "              print the same sentence and the reader cannot tell which happened"
+  fi
 
   # And the verdict line must actually USE the reason, or the two skips read
   # identically and a reader cannot tell "your diff cannot reach a device" from

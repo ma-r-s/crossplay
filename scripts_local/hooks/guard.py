@@ -72,9 +72,14 @@ def scratch_root_of(path, workspace=None):
     if p.parent.name != "scratchpad":
         return None
     if workspace is not None:
+        # BOTH sides resolved. Comparing a resolved workspace against an
+        # unresolved path silently fails under any symlinked component (/var ->
+        # /private/var on macOS is the common one), and the exemption then does
+        # not apply to the thing it exists for.
         try:
             ws = pathlib.Path(workspace).resolve()
-            if ws == p.parent or ws in pathlib.Path(str(p)).parents:
+            rp = pathlib.Path(str(p)).resolve()
+            if ws == rp.parent or ws in rp.parents:
                 return None
         except OSError:
             pass
@@ -118,20 +123,46 @@ def scratch_targets(cmd, cwd):
     it. That is one of the two spellings the PR-body incident actually used.
     """
     body = HEREDOC.sub(lambda m: m.group(0).split("\n", 1)[0], cmd)
+
+    # A `>` INSIDE a quoted string is text, not a redirect. `writes_into_tree`
+    # learned this the expensive way (its comment names four read-only commands
+    # refused on 2026-09-04) and answers it by deleting quoted strings outright
+    # -- which here would also delete `> "<scratchpad>/gate.log"`, the very
+    # thing being looked for. So each quoted string becomes a placeholder and is
+    # put back only if it turns out to BE a target: `git log --grep="a > /x"`
+    # then carries no redirect at all, while `> "/x"` still carries one.
+    quoted = []
+
+    def _stash(m):
+        quoted.append(m.group(0)[1:-1])
+        return " __Q%d__ " % (len(quoted) - 1)
+
+    body = QUOTED.sub(_stash, body)
+
+    def _unstash(text):
+        m = re.fullmatch(r"__Q(\d+)__", text)
+        return quoted[int(m.group(1))] if m else text
+
     here = cwd or ""
     out = []
     for seg in re.split(r"&&|\|\||;|\|", body):
         seg = seg.strip()
         if not seg:
             continue
-        m = re.match(r"cd\s+(\S+)", seg)
+        # A leading `(`, `{` or `pushd` is the same `cd`. Not exhaustive -- a
+        # path held in a shell variable defeats this whole scan -- but these
+        # three are what an agent actually types.
+        m = re.match(r"[({]?\s*(?:cd|pushd)\s+(\S+)", seg)
         if m:
-            here = m.group(1).strip("\"'")
+            here = _unstash(m.group(1)).strip("\"'")
             continue
         cands = [r.group(1) for r in REDIRECT.finditer(seg)]
         cands += [t.group(1) for t in TEE_TARGET.finditer(seg)]
         for target in cands:
-            target = target.strip("\"'")
+            # A trailing `)`/`}`/`;` is the shell closing a group, not part of
+            # the name. It only affects the path this refusal PRINTS, but the
+            # refusal's whole value is that the remedy can be pasted.
+            target = _unstash(target).strip("\"'").rstrip(")};")
             if not target or target.startswith("/dev/"):
                 continue
             if not target.startswith("/") and here:
@@ -143,7 +174,7 @@ def scratch_targets(cmd, cwd):
 
 def scratch_refusal(board, sid, cwd, path, sroot):
     ns = scratch_ns(board, sid, cwd)
-    name = pathlib.PurePath(str(path)).name or "yourfile"
+    name = pathlib.PurePath(str(path)).name
     return (
         "Refused: %s is at the top of the SHARED agent scratchpad.\n"
         "It is described as session-specific and it is not: several agents run under one "

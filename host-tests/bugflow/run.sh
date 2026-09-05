@@ -485,12 +485,34 @@ grep -q "<scratchpad>/x/" "$WORK/out" \
   && ok "session start names this tree's subdirectory" \
   || bad "session start does not name the subdirectory: $(grep -i scratchpad "$WORK/out" | head -2)"
 
-# A session with no worktree still gets a name of its own rather than sharing
-# a fallback with every other one.
+# A session with no worktree still gets a name of its own rather than sharing a
+# fallback with every other one. Asserted on the NAME, never on "<scratchpad>/":
+# that prefix is constant text in the message and matches with the namespace
+# empty, which is the one outcome this has to catch.
 guard session-start "{\"session_id\":\"$ORCH\",\"cwd\":\"$ROOT\"}" >/dev/null
-grep -q "<scratchpad>/" "$WORK/out" \
-  && ok "a session outside any worktree still gets a namespace" \
-  || bad "a session outside a worktree got no namespace at all"
+grep -qE "<scratchpad>/[A-Za-z0-9_.-]+/" "$WORK/out" \
+  && ok "a session outside any worktree still gets a namespace of its own" \
+  || bad "a session outside a worktree got an EMPTY namespace: $(grep -o '<scratchpad>[^ ]*' "$WORK/out")"
+
+# The two directions that matter for the guard's false-positive risk: a `>`
+# inside a quoted string is TEXT. writes_into_tree refused four read-only
+# commands in 2026-09 for exactly this, and a wrong refusal here blocks every
+# session in the workspace, which is worse than a missed write.
+expect "a > inside a quoted grep pattern is not a redirect" 0 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git log --grep='check.sh > $SP/gate.log'\"}}"
+expect "a > inside an echo argument is not a redirect either" 0 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo 'never write to $SP/gate.log' >> $WT/notes.md\"}}"
+# ...but a QUOTED target is still a target. Deleting quoted strings outright --
+# which is how the firmware-next guard solves the same problem -- would lose
+# this, and quoting a path is the ordinary way to write one.
+expect "a quoted scratchpad target is still refused" 2 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"./scripts_local/check.sh > '$SP/gate.log' 2>&1\"}}"
+# A subshell or a brace group is the same cd.
+expect "a cd inside a subshell carries" 2 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"(cd $SP && cat > pr.md)\"}}"
+grep -q "$SP/pr.md is at the top" "$WORK/err" \
+  && ok "and the refusal prints the path without the shell's closing paren" \
+  || bad "the refusal named a path the reader cannot paste: $(grep -o "$SP[^ ]*" "$WORK/err" | head -1)"
 
 echo
 echo "$((PASS+FAIL)) checks, $FAIL failed"

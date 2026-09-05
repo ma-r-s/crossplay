@@ -120,6 +120,24 @@ fi
 
 FAILED=0
 SUBMODULE_DRIFT=""
+
+# EVERY exit emits a verdict token, not only the foot of the file.
+#
+# The foot's token is what card #317 is about, and the docs it produced say an
+# ABSENT token means "the run never reached its verdict: killed, crashed, or
+# still going". That was not true of the handful of `exit 1`s above and below,
+# which are deliberate refusals and hard errors -- a reader would have found no
+# token and concluded the gate was still running. They are gate failures, so
+# they say `failed` and keep the vocabulary at four words.
+#
+# The --committed re-invocation is deliberately NOT routed through this: the
+# inner run printed its own token into the same stream, and a second one would
+# give a reader grepping for "one line" two.
+die() {  # message...
+  [ "$#" -gt 0 ] && echo "$*"
+  echo "CHECKSH-VERDICT: failed exit=1 transcript=${CHECK_RUNLOG:-none}"
+  exit 1
+}
 TREE_STALE=""
 
 # --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
@@ -195,7 +213,7 @@ if [ "$_committed" = "1" ]; then
     git worktree prune 2>/dev/null
   fi
   echo "  your working tree is untouched, and its uncommitted work is not in this build"
-  git worktree add --quiet --detach "$TRIAL" HEAD || exit 1
+  git worktree add --quiet --detach "$TRIAL" HEAD || die
   # Clean up even when this run is interrupted. A killed --committed used to
   # leave ~600MB registered in TMPDIR until the same tree ran it again, and
   # long builds get killed on purpose here, so that is the normal case rather
@@ -229,7 +247,7 @@ if [ "$_committed" = "1" ]; then
         submodule update --init --quiet 2>&1); then
     echo "  submodules FAILED after $(( $(date +%s) - TRIAL_T0 ))s"
     echo "$SUBMODULE_LOG" | tail -5
-    exit 1
+    die
   fi
   echo "  worktree and submodules ready ($(( $(date +%s) - TRIAL_T0 ))s)"
   # The trial worktree is detached, so `git branch --show-current` is empty
@@ -242,8 +260,9 @@ if [ "$_committed" = "1" ]; then
   # directory instead of minting one keyed on its own per-pid path. See the long
   # note at the LOGS assignment: without this line every --committed run left a
   # ~38MB directory that no later run could ever reuse. This run already created
-  # the directory (above), and the trial run removes it on a green verdict, so
-  # the outer's `exit $?` below leaves nothing behind either.
+  # the directory (above); the trial run EMPTIES it on a green verdict, keeping
+  # only the transcript whose path was printed (card #314), so what the outer's
+  # `exit $?` leaves behind is one small text file rather than ~38MB.
   export CHECK_OUTER_LOGS="$LOGS"
   # The trial worktree sits in TMPDIR, outside the workspace, so the installer
   # suite's venv lookup cannot climb to it. Resolve the venv HERE and carry it
@@ -340,8 +359,7 @@ if [ -x "$MERGE_STATE" ]; then
     echo
   fi
   if [ "$MERGE_RC" -ne 0 ]; then
-    echo "refusing to gate a tree that is mid-conflict."
-    exit 1
+    die "refusing to gate a tree that is mid-conflict."
   fi
 fi
 
@@ -361,8 +379,7 @@ if [ -x "$SUB_STATE" ]; then
   fi
   case "$SUB_RC" in
     2|4)
-      echo "refusing to gate a tree whose submodules are not the ones it describes."
-      exit 1
+      die "refusing to gate a tree whose submodules are not the ones it describes."
       ;;
     3) SUBMODULE_DRIFT=1 ;;
   esac
@@ -451,11 +468,16 @@ infra_fault_note() {  # label, T0, logfile
   # on any WIDER pattern (`-i error`, say) would stay silent on precisely the
   # case it exists for. host-tests/checksh drives it with that exact text.
   [ -s "$3" ] && grep -qE "FAIL|error:|Failed" "$3" 2>/dev/null && return 0
-  echo "      NOTHING RAN. $1 failed in ${_ifn_secs}s with an empty log, which is an"
-  echo "      INFRASTRUCTURE FAULT, not your diff -- a step that fails instantly never"
-  echo "      started. Usual cause: another run of THIS tree pulled a shared directory"
-  echo "      out from under it, or a killed gate left one behind. Re-run alone before"
-  echo "      reading a line of your own code. Log: $3"
+  # Says only what was measured -- nothing was displayed, and it took no time --
+  # and names the likely cause without asserting it. The earlier wording claimed
+  # "with an empty log", which is false whenever the log is full of text this
+  # gate does not print (the reported failure was exactly that), and a note that
+  # misdescribes its own evidence sends the reader to the wrong place.
+  echo "      NOTHING WAS PRINTED, and $1 failed in ${_ifn_secs}s: this gate displayed no"
+  echo "      line at all from its log, and a step that fails that fast never started."
+  echo "      That is usually an INFRASTRUCTURE FAULT rather than your diff -- another run"
+  echo "      of THIS tree pulling a shared directory out from under it, or a killed gate"
+  echo "      leaving one behind. READ THE LOG before reading your own code: $3"
 }
 
 # --- formatting, over the WHOLE tree ---------------------------------------
@@ -548,18 +570,19 @@ for suite in host-tests/*/; do
   [ -x "$suite/run.sh" ] || continue
   say_stage "$name"
   T0=$(date +%s)
-  "$suite/run.sh" > "$LOGS/$name.log" 2>&1
+  # One log per RUN, like the cmake pair above and for the same reason (card
+  # #320): $LOGS is one directory per tree, so two runs of one tree shared this
+  # path and a green sibling's cleanup unlinked it mid-loop. The suite then
+  # reported "ok ( sub-suite(s))" or "FAILED (exit 1, 0s)" with no lines under
+  # it -- this card's symptom, produced by the gate rather than by the code.
+  SUITE_LOG="$LOGS/$name.$$.log"
+  "$suite/run.sh" > "$SUITE_LOG" 2>&1
   code=$?
-  passed=$(grep -c "checks, 0 failed" "$LOGS/$name.log" || true)
+  passed=$(grep -c "checks, 0 failed" "$SUITE_LOG" || true)
   if [ "$code" -ne 0 ]; then
     printf "  %-12s FAILED (exit %d, %s)\n" "$name" "$code" "$(since $T0)"
-    grep -E "FAIL|error:" "$LOGS/$name.log" | head -5 | sed 's/^/      /'
-    # These per-suite logs are still ONE PATH PER TREE, so two runs of one tree
-    # overwrite each other's here exactly as they used to in cmake-build. No
-    # such failure has been observed yet -- unlike ctest, which was reported
-    # twice -- so the fix is the tell rather than a second isolation scheme:
-    # an empty log under an instant failure now says out loud that nothing ran.
-    infra_fault_note "$name" "$T0" "$LOGS/$name.log"
+    grep -E "FAIL|error:" "$SUITE_LOG" | head -5 | sed 's/^/      /'
+    infra_fault_note "$name" "$T0" "$SUITE_LOG"
     FAILED=1
   else
     printf "  %-12s ok (%s sub-suite(s), %s)\n" "$name" "$passed" "$(since $T0)"
@@ -572,7 +595,7 @@ for suite in host-tests/*/; do
     # comment is the sentence above. host-tests/checksh discovers every SKIP
     # literal in the tree and asserts this pattern catches it, so the next
     # indented one cannot repeat the trick.
-    grep -E "^[[:space:]]*SKIP" "$LOGS/$name.log" | head -5 | sed 's/^[[:space:]]*/      /'
+    grep -E "^[[:space:]]*SKIP" "$SUITE_LOG" | head -5 | sed 's/^[[:space:]]*/      /'
   fi
 done
 
@@ -1151,7 +1174,7 @@ if [ "${1:-}" != "--tests" ]; then
         # shellcheck source=scripts_local/cache-guard.sh
         . "$_guard"
         if ! cache_guard_check "$PLATFORMIO_BUILD_CACHE_DIR"; then
-          exit 1
+          die
         fi
       fi
     fi
@@ -1278,7 +1301,7 @@ fi
 # says host-green-device-skipped like any other run that covered less ground.
 # Set here rather than in the build block above, which --tests never enters.
 if [ "${1:-}" = "--tests" ]; then
-  DEVICE_BUILDS_SKIPPED="none: --tests was asked for"
+  DEVICE_BUILDS_SKIPPED="--tests, so none were requested"
   DEVICE_SKIP_WHY="--tests runs the host suites only, so no build of any kind ran"
 fi
 
@@ -1358,7 +1381,7 @@ if [ "$FAILED" -eq 0 ]; then
     [ "$_base" = "$_keep" ] && continue
     case "$_base" in
       run.*) continue ;;
-      cmake-build.*|cmake.*.log)
+      cmake-build.*|*.[0-9]*.log)
         _owner="${_base%.log}"
         _owner="${_owner##*.}"
         kill -0 "$_owner" 2>/dev/null && continue
