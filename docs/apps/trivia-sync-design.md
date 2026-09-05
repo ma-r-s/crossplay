@@ -903,28 +903,22 @@ Two things deliberately not done, because neither is ours to do unilaterally:
 the migration is **not applied** to Mario's Supabase, and the function is **not
 deployed** -- it goes live on a site deploy. D3b's overlay is still phase two.
 
-## Order of work
+## Order of work, and where it actually got to
 
+| | Step | State |
+| --- | --- | --- |
+| 0 | Put the rated corpus somewhere durable (**#326**) | **Still open.** A verified byte-for-byte copy now sits outside `wt/` so `wt.sh prune` cannot eat it, but that is a stopgap: it is still a gitignored directory nobody knows is load-bearing. |
+| 0.5 | The extraction tool, and the stale `flags.txt` doc | **Done.** `collect_flags.py`, `reports.py`, `test_collect_flags.py`; `docs/trivia-curation.md` no longer describes a file nothing writes. |
+| 1 | A manifest per pack, a card-side record of the build, an honest sync screen | **Done.** `manifest.py`, `pack.meta`, SETTINGS > SYNC. This is also what makes a device that already holds a pack able to receive a newer one at all (`docs/open-items.md`). |
+| 2 | Builder emits the pack id and the `index -> corpus_id` map | **Done**, in both builders, written in the same step as the pack so they cannot drift. |
+| 3 | The report endpoint | **Done**, and smaller than planned: it takes reports and does **not** serve the manifest. The device fetches `pack.json` straight from the release, because it is not a browser and the CORS problem that created `api/firmware.js` does not apply to it. **Not deployed, and its migration is not applied.** |
+| 4 | Device: queue, `WHY?`, `UNDO`, `HIDE` in solo, SETTINGS rows, SYNC | **Done.** |
+| 5 | `verdicts.tsv` generated from the queue rather than typed | Partly: `collect_flags.py --apply` does it from a card. Doing it from the SERVICE's rows needs the resolver in step 6. |
+| 6 | The resolver: join `(pack, index)` to a corpus row through that build's map | **Not built.** Reports land with `outcome` `open` and nothing moves them. Until this exists the queue is a list a person reads, which is still better than the scavenger hunt it replaces. |
+| 7 | D3b's overlay, so an update is kilobytes | **Not built**, and deliberately last. |
 
-0. **Card #326 first**, because it is the only step whose cost rises with delay:
-   put the rated corpus somewhere durable. Nothing else here is safe to build on
-   top of a join table that one `wt.sh prune` deletes, and step 2 needs it.
-0.5. **DONE on this branch.** The extraction tool, and the stale doc:
-   `tools_local/trivia/collect_flags.py` + `reports.py`, gated by
-   `test_collect_flags.py`, and `docs/trivia-curation.md` no longer describes a
-   `flags.txt` nothing writes. Original entry: A small tool that reads
-   `pack.state` beside `pack.dat` and emits `id<TAB>bad` lines into
-   `verdicts.tsv`, and delete the `flags.txt` paragraph at
-   `docs/trivia-curation.md:165` describing a file nothing writes. This is the
-   whole curation loop for the people who exist today, it is the smallest thing
-   on this list, and every step below it is optional once it is done.
-1. **#253 next, for the shared half**: a manifest per pack, a `PackMeta`
-   sibling file, and one honest sync screen. Trivia consumes it. This is also
-   the step that makes a device with a pack able to receive a new one at all,
-   which is a fix on its own even if nothing below it ever ships.
-2. Builder emits the `index -> corpus_id` map per build, and a pack id.
-3. `site/api/trivia.js`: manifest `GET`, report `POST`, events rows.
-4. Device: the report queue, `WHY?` on the `HIDDEN` notice, the reason screen,
-   `HIDE` in solo, and the un-hide row in SETTINGS.
-5. `verdicts.tsv` generated from the queue rather than typed.
-6. Only then, D3b's overlay.
+**The two things that need Mario and not code:** applying the migration to his
+Supabase, and deploying the site so the function exists. Until both, the device
+will queue reports and fail to send them, which is the designed behaviour -- the
+queue is not drained on failure and nothing is lost -- but it is not the finished
+feature.
