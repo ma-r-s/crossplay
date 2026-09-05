@@ -42,6 +42,16 @@ fix to `crossplay-release.yml` was invisible to both (card #190). A path in no
 row of the table is not guessed at: the build runs and says so, and the release
 question REFUSES, naming the path.
 
+`ships` has three values, not two, because "cut a release" and "put a line on
+the page" are two more questions that were sharing one answer. `yes` is a change
+in the thing a person uses. `quiet` is a change only in how the release was
+packaged -- `.github/workflows/crossplay-release.yml`, the one workflow that
+uploads what anybody downloads. A `quiet` landing cuts a release exactly like a
+`yes` one, and it earns a bullet only if its pull request wrote a `What is new:`
+line, because a build workflow's title is developer prose and the page is read
+by players. `crossplay-ci.yml` asks for that line at pull-request time, so a
+packaging fix is never silently missing from the page it belongs on.
+
 The excluded landings are named in the autorelease job's log and nowhere else.
 They used to be a trailing bullet -- "Plus 4 changes nothing on the device can
 see." -- which is itself a line a player cannot act on, on a page written for

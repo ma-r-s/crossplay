@@ -1,11 +1,18 @@
 # Turn a v* tag into a release the devices' own updaters can install.
 #
-# Upstream's release.yml is still in this tree and still fires on every tag, but
-# it builds gh_release, which is -DFREEINK_DEVICE_X4/X3 and therefore ESP32-C3.
-# This fork's devices (X4 Pro, Sticky) are S3. Two workflows on one tag would
-# publish two binaries and let the updater pick the wrong chip, so upstream's is
-# filtered to tags this fork never creates (see the `if` below) and this one
-# owns v*.
+# Upstream's release.yml is still in this tree, and it does NOT fire on a tag.
+# It builds gh_release, which is -DFREEINK_DEVICE_X4/X3 and therefore ESP32-C3,
+# while this fork's devices (X4 Pro, Sticky) are S3; two workflows on one tag
+# would publish two binaries and let an updater pick the wrong chip. Its
+# trigger was cut to `on: workflow_dispatch` and nothing else, so this one owns
+# v* by being the only thing a tag starts.
+#
+# That paragraph used to say upstream's was "filtered to tags this fork never
+# creates (see the `if` below)". There is no such `if`, and there has not been
+# a tag trigger to filter since the fork change in release.yml's own header --
+# release_candidate.yml is workflow_dispatch too. A stale reason in a comment
+# is worse than no reason, because the next person checks the claim instead of
+# the file.
 #
 # One release carries one app image per device. Their names are contracts:
 # the x4pro fleet's updater asks for the literal "firmware.bin" (every unit in

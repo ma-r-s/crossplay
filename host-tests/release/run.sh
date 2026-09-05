@@ -785,6 +785,38 @@ else
   else
     bad "docs/release-notes.md is not a history with an insertion marker and at least two releases in it; the body links to it and the link would go nowhere useful"
   fi
+
+  # AND IT HAS TO BE A HISTORY OF THIS REPOSITORY, not of whichever releases
+  # somebody remembered. docs/release-body.md tells a reader the file holds
+  # "every tagged release back to 1.12.1", and the first version of that
+  # sentence was false the day it was written: the file jumped 1.12.21 ->
+  # 1.12.12, with six tagged releases missing in between. prepend_history()
+  # only ever adds the release being made, so nothing self-corrects -- a gap
+  # opened by hand stays open, and the claim quietly goes on being wrong.
+  #
+  # Every v1.12+ tag reachable here must have a block. Older tags are excluded
+  # deliberately: 1.12.1 is where this file starts and the sentence says so.
+  # 1.12.14 and 1.12.15 have no tags in this repository or on the remote --
+  # they are the two releases that published a -full.bin with its bootloader
+  # missing -- so a tag-driven check cannot ask for them and the preamble
+  # explains their absence in prose instead.
+  # grep -xF, not -E: the version is a fixed string and escaping its dots into
+  # a regex inside a nested command substitution is how the first attempt at
+  # this check died on `set -u`.
+  MISSING_TAGS=""
+  while IFS= read -r tagname; do
+    [ -n "${tagname:-}" ] || continue
+    ver="${tagname#v}"
+    [ "$ver" = "1.12.0" ] && continue
+    grep -qxF "### $ver" "$ROOT/docs/release-notes.md" || MISSING_TAGS="$MISSING_TAGS $ver"
+  done <<EOF
+$(git -C "$ROOT" tag --list 'v1.12.*' 2>/dev/null)
+EOF
+  if [ -z "${MISSING_TAGS// /}" ]; then
+    ok
+  else
+    bad "docs/release-notes.md has no entry for tagged release(s): $MISSING_TAGS -- the body tells readers it holds every tagged release back to 1.12.1"
+  fi
   # Escaped dots AND a boundary. Two attempts got this wrong: an unanchored grep
   # treats . as a wildcard, and a "not followed by a dot" guard still passed
   # "1.6.31" because what follows 1.6.3 there is a digit. The version must be the
@@ -792,7 +824,7 @@ else
   # or a dot.
   ESCAPED="$(printf '%s' "$NOTES_VERSION" | sed 's/\./\\./g')"
   if ! printf '%s' "$NOTES_BODY" | grep -qE "What is new in $ESCAPED([^0-9.]|$)"; then
-    bad "the release notes in docs/release-notes.md do not say \"What is new in $NOTES_VERSION\" -- they are the previous release's, and the tag will publish them"
+    bad "$(basename "$NOTES_FILE") does not say \"What is new in $NOTES_VERSION\" -- it is the previous release's notes, and the tag will publish them"
   else
     ok
   fi

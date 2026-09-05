@@ -1,10 +1,22 @@
 # CrossPlay release history
 
-What was new in every release, newest first. This file is NOT the release page:
-`docs/release-body.md` is what a tag publishes, and it carries this release
-only plus a link back here. They were one file until 2026-09-04, which is why
-v1.12.21's release page was 20,402 characters and opened with six previous
-releases.
+What was new in every tagged release from 1.12.1 onward, newest first.
+Anything older is on the GitHub releases page and was never in this file.
+
+**1.12.14 and 1.12.15 are absent because their tags are.** They are the two
+releases that published a `-full.bin` with `bootloader.bin`, `firmware.bin` and
+`partitions.bin` missing; no `v1.12.14` or `v1.12.15` ref exists in this
+repository or on the remote, so there is nothing here to quote them from.
+
+This file is NOT the release page: `docs/release-body.md` is what a tag
+publishes, and it carries this release only plus a link back here. They were
+one file until 2026-09-04, which is why v1.12.21's release page was 20,402
+characters and opened with six previous releases.
+
+Entries from 1.12.13 down to 1.12.16 were backfilled out of the tags
+themselves, verbatim, including the "Plus N changes nothing on the device can
+see." lines those releases actually published. A history that edits the past to
+match today's rules stops being one.
 
 `scripts_local/release_notes.py --write` prepends a block below the marker.
 Everything above the marker is written by hand.
@@ -14,6 +26,97 @@ Everything above the marker is written by hand.
 ### 1.12.21
 
 - Trivia: a blind panel drawn from the local rater, and what it found
+- Plus 1 change nothing on the device can see.
+
+### 1.12.20
+
+- Check: --committed works in any argument position
+- Trivia: the parts of the difficulty work that outlived the ratings
+- Plus 2 changes nothing on the device can see.
+
+### 1.12.19
+
+- The notes list only what a device can see
+- Plus 3 changes nothing on the device can see.
+
+### 1.12.18
+
+- Ci: group the pio run invocations, so the stack checks stop depending on order
+- Ci: let postgres take longer than 60s, and say why when it does not
+- Trivia: a pack the rating run can actually produce
+- Forehead: PLACES is geography again
+- Instapaper: a fileless row deadlocked its own download
+- Marginguard: a folded margin handed to plain setContentMargin() fails a suite
+- Review means merge on green; a hold is a card state, not a message
+- Board: a sync run that opened a pull request is a card in review
+- Autorelease: the token and trigger relationship at the top, and the publish step run under test
+- Two firmware builds in the committed gate, in one pio invocation
+
+### 1.12.17
+
+- Ci: clang-format, unit tests and cppcheck run in the fork's own workflow
+- The release watcher: the thing that would have noticed
+- Readbridge: the running service can be asked which commit it is
+- Ci: one release build per tag, and assert both halves of why
+- Guard: quotes are stripped before the command is split
+- Sync CrossPoint develop (6 commits) and FreeInk SDK
+- Build both devices in one pio run, and stop misdescribing why
+
+### 1.12.16
+
+- Capture each device's artefacts before the next build removes them
+- Trivia: rate the pack locally, on a scale that means something
+- Make the repo presentable: front page, dead links, stale facts
+- The release takes the bootloader from the framework package
+- Release: the notes live in docs/release-notes.md, so the bump touches no workflow file
+- Reading: wrap an article once, not on every page turn
+- Autorelease: an emulator rebuild does not count as the tip moving
+- Finish the upstream sync: adopt upstream's margin API, merge the SDK fork with Free-Ink main
+- The black header band reaches the panel's top row
+- Instapaper: parse the article list the API actually sends
+- Ci: xteink queues its runs instead of cancelling them, so releases fire
+- The device never makes a request of its own to report
+- Guard: a write verb counts only as a command word, outside quotes
+- The Anki and Instapaper sign-in pages look like CrossPlay, and say what to do
+- The upstream sync carries the FreeInk SDK and tells the board when it stops
+- Inbox: a desktop layout from 900px, and a fixture to look at it without a passphrase
+- Autorelease: a merge that cannot reach a device is not a release
+- Board: a re-registration keeps the claim's app id
+- Site: the report box is a dialog behind a corner button, not a page
+- Devices report on the requests they already make; services post the events
+- Heartbeat: the device makes no request of its own for reporting
+- The pulse runs on the board, not on GitHub's cron
+- Board: a nightly check opens a card if no device heartbeat ever arrives
+- Daily heartbeat and crash report to the board (cards 18, 103)
+- Assemble the Sticky Playground submission
+- A plural and an -ism are the same option twice
+- Wt.sh prune drops every merged, clean, idle tree at once
+
+### 1.12.13
+
+**The box around the books icon is gone.** 1.12.12 gave real buttons
+an outline so they would look like buttons, and that outline reached
+one icon that is not a button.
+
+**BACK works while a book cover is loading**, once the connection is
+made. The cover was fetched in a way that read no input at all, so
+the screen could not be left. A cover left over from a previously
+opened book could also be shown for the wrong one; that is fixed.
+
+**INSTAPAPER works now, from the device, with nothing to set up
+first.** Open it, press SYNC, and the screen tells you where to sign
+in and shows a code to scan. It could not work before: the address on
+that screen pointed at a host that did not exist, and could never
+have existed -- it was one level too deep for the certificate the
+domain carries, so it would have failed even once created. The
+service is live at the corrected address.
+
+**GET BOOKS says when a download finished.** It shows SAVED, the
+filename actually written to the card, and which folder it went to.
+Before, a finished download looked exactly like one that gave up:
+the screen simply vanished. The message waits for five seconds you
+could actually have seen it -- the clock does not start until the
+page has drawn, and stops while a finger is on the glass.
 
 ### 1.12.12
 

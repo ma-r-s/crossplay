@@ -57,9 +57,13 @@
 #   scripts_local/device-build-needed.sh --range <A..B> [--ships]
 #   scripts_local/device-build-needed.sh --ships
 #
-# Exit 0: yes (for --ships, something in the change reaches a user).
+# Exit 0: yes (for --ships, something in the change reaches a user, in the
+#         thing they use).
 # Exit 1: no.
 # Exit 2: --ships only -- cannot answer; the message names the path.
+# Exit 3: --ships only -- QUIET. A person receives something different, but
+#         only in how it was packaged. It cuts a release; it does not
+#         automatically earn a line on the page. See the `quiet` value below.
 #
 # For the build question, exit 0 is also the answer whenever anything is
 # uncertain: an unresolvable base, a git that will not answer, a release gate.
@@ -118,9 +122,26 @@ loud() { echo "$@" >&2; }
 # went green unchanged. Loosening that column is a separate change needing its
 # own evidence; this one only stops the release questions reading it.
 #
-# The `ships` column is new. It means: could a person receive something
-# different because of this? The firmware their device runs, or the files the
-# release publishes. NOT the website -- crossplay.ma-r-s.com deploys
+# The `ships` column is new, and it has THREE values, because "should this cut
+# a release" and "should this be a line on the page a player reads" are also
+# two questions, and collapsing them was the same fault one level down.
+#
+#   no     nobody receives anything different.
+#   yes    a person receives something different IN THE THING THEY USE -- the
+#          firmware their device runs. Whatever describes the change describes
+#          it in their terms, so it cuts a release and earns a line.
+#   quiet  a person receives something different only in HOW IT WAS PACKAGED.
+#          It cuts a release, because the release really does deliver something
+#          else. It does NOT automatically earn a line, because nothing about a
+#          build workflow describes itself in a player's words: the notes would
+#          print the pull request's title, and "build both devices in one pio
+#          run, and stop misdescribing why" is the developer prose this whole
+#          change exists to keep off that page. release_notes.py gives such a
+#          landing a bullet only when its pull request WROTE one ("What is new:
+#          ..."), and crossplay-ci.yml asks for that line at pull-request time
+#          so the page never silently loses a packaging fix.
+#
+# NOT the website in any of the three -- crossplay.ma-r-s.com deploys
 # continuously from site/ and is not part of a release, so a site change must
 # never cut one.
 #
@@ -147,14 +168,15 @@ classify() {
     # website deploys continuously and is not part of a release). Upstream's
     # release.yml and release_candidate.yml do upload, but to
     # actions/upload-artifact: files attached to a workflow RUN, which nobody's
-    # updater ever asks for, and both are filtered to tags this fork never
-    # creates besides.
+    # updater ever asks for. Both are `on: workflow_dispatch` and nothing else
+    # -- READ, because the note that used to sit here said they were "filtered
+    # to tags this fork never creates", and they carry no tag trigger at all.
     #
     # This is the whole of card #190's fix, and the separation is a file rather
     # than a judgement about a file's contents -- which is why it is clean. A
     # cosmetic edit to this one workflow will cut a release it did not need to;
     # that is the conservative direction, and it is edited a few times a year.
-    .github/workflows/crossplay-release.yml)          echo "no yes"  ;;
+    .github/workflows/crossplay-release.yml)          echo "no quiet" ;;
 
     # Compiled, generated into the image, or naming what gets compiled.
     # scripts/ holds the pre:/post: extra_scripts that GENERATE source
@@ -196,9 +218,19 @@ classify() {
     assets_local/*|sim-stubs/*|test/*)                echo "yes no"  ;;
     playground-submission/*)                          echo "yes no"  ;;
 
-    # Neither. docs/ includes docs/release-notes.md, which is this pipeline's
-    # own output: the autorelease writes it, so a row making it ship would mean
-    # every release caused the next one.
+    # Neither. Prose, tests, tooling and the website.
+    #
+    # docs/ includes both halves of the release text -- release-body.md, which
+    # IS the published page, and release-notes.md, the history -- and they stay
+    # here on a plainer argument than the one first written down. (That one
+    # said a shipping row would make every release cause the next; it would
+    # not. The generator's writes ride in the `chore: crossplay X` commit that
+    # the tag points AT, so they are outside `$last..HEAD` by construction and
+    # this row was never doing that job.) The real reason: editing prose is not
+    # a reason to put an update prompt on every device in the field. A
+    # corrected sentence goes out with the next release that has its own
+    # reason, and until then the page a person reads is one release old in its
+    # wording and exactly right about its firmware.
     docs/*|site/*|host-tests/*|server/*|tools_local/*) echo "no no"   ;;
     .github/*|.githooks/*|.skills/*|bin/*)            echo "no no"   ;;
   esac
@@ -210,10 +242,10 @@ builds() {  # 0 = this path can change a device build. Unclassified builds.
   [ -z "$row" ] && return 0
   [ "${row%% *}" = "yes" ]
 }
-ships() {   # 0 = a person could receive something different. Unclassified is
-            # NOT answered here; ask unclassified() first.
+ships_value() {  # "no" | "yes" | "quiet" | "" for unclassified
   local row; row="$(classify "$1")"
-  [ "${row##* }" = "yes" ]
+  [ -z "$row" ] && return 0
+  printf '%s' "${row##* }"
 }
 unclassified() { [ -z "$(classify "$1")" ]; }
 
@@ -230,7 +262,7 @@ first_unclassified() {
 # The verdict for the ships column over a set of paths. Exit 0 ships, 1 does
 # not, 2 cannot say.
 ships_verdict() {  # <paths> <what the set is, for the message>
-  local paths="$1" what="$2" path unknown
+  local paths="$1" what="$2" path unknown v quiet_path=""
   if unknown="$(first_unclassified "$paths")"; then
     loud "cannot answer whether $what reaches a user: $unknown is in no row of"
     loud "the classification table in scripts_local/device-build-needed.sh."
@@ -238,13 +270,23 @@ ships_verdict() {  # <paths> <what the set is, for the message>
     loud "to a question nobody has answered."
     return 2
   fi
+  # THE WHOLE SET, and `yes` outranks `quiet`. A landing that touches src/ AND
+  # the publishing workflow has something that describes itself in a player's
+  # words, so it is an ordinary note; returning on the first shipping path
+  # would make the answer depend on `sort -u` order, which puts .github before
+  # src.
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    if ships "$path"; then
-      say "reaches a user: yes ($path)"
-      return 0
-    fi
+    v="$(ships_value "$path")"
+    case "$v" in
+      yes)   say "reaches a user: yes ($path)"; return 0 ;;
+      quiet) [ -n "$quiet_path" ] || quiet_path="$path" ;;
+    esac
   done <<< "$paths"
+  if [ -n "$quiet_path" ]; then
+    say "reaches a user: quiet ($quiet_path changes how the release is packaged, not what the firmware does)"
+    return 3
+  fi
   say "reaches a user: no (nothing in $what changes the firmware or what a release publishes)"
   return 1
 }

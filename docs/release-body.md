@@ -12,7 +12,7 @@ another with nothing to type, and they do not have to be the same device.
 ### Every release before this one
 
 **[docs/release-notes.md](https://github.com/ma-r-s/crossplay/blob/xteink/docs/release-notes.md)**
-is the history: what was new in every version back to 1.12.1.
+is the history: what was new in every tagged release back to 1.12.1.
 
 ### If you have not plugged your X4 Pro into a computer since August
 

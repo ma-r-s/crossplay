@@ -181,6 +181,51 @@ jobs:
 
   # check.sh runs the same formatter check (clang-format 21, pinned there too)
   # and the same cmake suite locally; CI is the copy nobody can skip.
+  # A packaging change cuts a release and cannot describe itself.
+  #
+  # scripts_local/device-build-needed.sh classifies
+  # .github/workflows/crossplay-release.yml as `quiet`: changing it changes
+  # what a person downloads, so it releases, but nothing in a build workflow
+  # says anything in a player's words. release_notes.py therefore gives such a
+  # landing a bullet only when its pull request wrote one, and otherwise leaves
+  # the page silent about it and shouts in the autorelease log.
+  #
+  # Silent is the wrong outcome for the case this exists for: PR #42 repaired
+  # the defect that shipped v1.12.14 and v1.12.15 with bootloader.bin,
+  # firmware.bin and partitions.bin missing from the published image. Somebody
+  # whose install was broken needs telling it is fixed. So the line is asked
+  # for HERE, where the person who knows what changed is still reading, rather
+  # than discovered weeks later by a reader of a job log.
+  release-notes-line:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: A change to what the release publishes must say what is new
+        env:
+          # Through the environment, never interpolated into the script: a pull
+          # request body is attacker-controlled text and `${{ }}` inside run:
+          # pastes it in as shell source.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          git fetch -q origin "$BASE"
+          if ! git diff --name-only --no-renames "origin/$BASE...HEAD" |
+               grep -qx '.github/workflows/crossplay-release.yml'; then
+            echo "This pull request does not change what the release publishes."
+            exit 0
+          fi
+          if printf '%s' "$PR_BODY" |
+             grep -qiE '^[[:space:]]*(-[[:space:]]*)?(\*\*)?what is new(\*\*)?[[:space:]]*[:-]'; then
+            echo "It changes what the release publishes, and it says what is new. Good."
+            exit 0
+          fi
+          echo "::error::This pull request changes .github/workflows/crossplay-release.yml, so merging it will cut a release. Nothing in a build workflow describes itself in a player's words, so the release page would either print this pull request's title or say nothing about the change at all. Add a line to the description, written for someone who installs the firmware: 'What is new: <one sentence>'."
+          exit 1
+
   clang-format:
     runs-on: ubuntu-latest
     steps:

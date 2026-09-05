@@ -47,6 +47,15 @@ echo x > site/index.html; echo x > scripts/build_html.py; echo x > platformio.in
 echo x > scripts_local/require_build_lock.py; echo x > scripts_local/check.sh
 echo x > scripts_local/README.md; echo x > nix/flake.nix; echo x > requirements.txt
 echo x > .gitignore; echo x > .github/workflows/ci.yml
+# The rows the ships column is asserted on below. Without files at these paths
+# the fixture cannot exercise them, and four rows sat with no assertion at all
+# -- a partition-table change or an SDK pointer bump could have stopped cutting
+# a release and every suite would have stayed green.
+mkdir -p assets_local test playground-submission
+echo x > partitions.csv; echo x > .gitmodules
+echo x > assets_local/base.svg; echo x > test/CMakeLists.txt
+echo x > playground-submission/logo.svg  # NOT .md: *.md matches first and the row would never be reached
+echo x > sim-stubs-marker; rm -f sim-stubs-marker; mkdir -p sim-stubs; echo x > sim-stubs/nvs.h
 q git add -A; q git commit -m base
 q git push -u origin xteink
 
@@ -393,6 +402,8 @@ ships() {  # label, expect yes|no|refuse
   case "$expect" in
     yes)    [ "$rc" -eq 0 ] && ok "$label -> reaches a user" || bad "$label -> said no, must not ($out)" ;;
     no)     [ "$rc" -eq 1 ] && ok "$label -> reaches nobody" || bad "$label -> would release, expected no (rc=$rc: $out)" ;;
+    quiet)  [ "$rc" -eq 3 ] && ok "$label -> quiet: cuts a release, earns no line by itself" \
+                            || bad "$label -> answered $rc, expected quiet ($out)" ;;
     refuse) if [ "$rc" -eq 2 ]; then
               case "$out" in *"$3"*) ok "$label -> refuses, naming $3" ;;
                              *) bad "$label -> refused without naming $3 ($out)" ;; esac
@@ -418,7 +429,21 @@ ships  "nix/" no
 # and it decides what a person downloads.
 reset_tree; echo edit >> .github/workflows/crossplay-release.yml; q git add -A; q git commit -m rel
 needed "crossplay-release.yml (CI's build, not the local four)" no
-ships  "crossplay-release.yml (it publishes the assets)" yes
+# QUIET, not yes, and the difference is the second half of card #190's fix. It
+# cuts a release -- the assets really are packaged differently -- but nothing
+# in a build workflow describes itself in a player's words, so it earns a line
+# only when its pull request wrote one. Answering `yes` here is what put
+# "build both devices in one pio run, and stop misdescribing why" on a page
+# written for players.
+ships  "crossplay-release.yml (it publishes the assets)" quiet
+
+# ...and `yes` OUTRANKS quiet when both are in one change. `sort -u` puts
+# .github before src, so a scan that returned on its first shipping path would
+# call a firmware landing quiet purely because of filename order.
+reset_tree
+echo edit >> .github/workflows/crossplay-release.yml; echo edit >> src/main.cpp
+q git add -A; q git commit -m relsrc
+ships  "the publishing workflow AND a src/ change" yes
 # Its neighbours in the same directory must not come with it, or the fix is
 # "add .github wholesale" and every CI tweak cuts a release.
 reset_tree; echo edit >> .github/workflows/ci.yml; q git add -A; q git commit -m gh2
@@ -432,6 +457,32 @@ ships  "site/" no
 # The obvious yes, so the column is not simply "no" to everything.
 reset_tree; echo edit >> src/main.cpp; q git add -A; q git commit -m sc
 ships  "src/" yes
+
+# THE ROWS THAT HAD NO SHIPS ASSERTION AT ALL. Each of these mutants -- flip
+# the row's ships value -- survived every suite in the workspace, and the first
+# two are the dangerous ones: a partition table or an SDK pointer that silently
+# stopped cutting a release is invisible until somebody's device never offers
+# the update. Asserted here rather than trusted to the `builds` cases above,
+# which pass whatever the second column says.
+reset_tree; echo edit >> partitions.csv; q git add -A; q git commit -m pc
+ships  "partitions.csv (it is flashed at 0x8000)" yes
+reset_tree; echo edit >> platformio.ini; q git add -A; q git commit -m pi
+ships  "platformio.ini (envs, flags and the version)" yes
+reset_tree; echo edit >> freeink-sdk; q git add -A; q git commit -m sdkp
+ships  "the freeink-sdk pointer" yes
+reset_tree; echo edit >> .gitmodules; q git add -A; q git commit -m gm
+ships  ".gitmodules (it names which SDK a checkout gets)" yes
+
+# And the four that must NOT ship, for the same reason in reverse: a row
+# flipped to yes here cuts a release for an avatar SVG or a host unit test.
+reset_tree; echo edit >> assets_local/base.svg; q git add -A; q git commit -m al
+ships  "assets_local/ (no build reads it)" no
+reset_tree; echo edit >> sim-stubs/nvs.h; q git add -A; q git commit -m ss
+ships  "sim-stubs/ (the simulator env's include path only)" no
+reset_tree; echo edit >> test/CMakeLists.txt; q git add -A; q git commit -m tst
+ships  "test/ (reached by pio run -t unit-tests)" no
+reset_tree; echo edit >> playground-submission/logo.svg; q git add -A; q git commit -m ps
+ships  "playground-submission/ (a non-.md file, or *.md answers first)" no
 
 # THE REFUSAL. Not a default in either direction: the build runs (never skip
 # verification) and the release question declines and names the path.

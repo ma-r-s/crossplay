@@ -191,7 +191,7 @@ def what_is_new(pr):
 
 
 def reaches_a_user(repo, sha):
-    """Could a person receive anything different because of this landing?
+    """How does this landing reach a person: "yes", "quiet", or "no"?
 
     v1.12.17 announced seven changes. Four of them -- a board watcher, a
     server-side bridge and two release-pipeline fixes -- change nothing anybody
@@ -209,12 +209,28 @@ def reaches_a_user(repo, sha):
     top-level directory, silently, since the only symptom would be notes that
     quietly stopped mentioning something.
 
+    THREE ANSWERS, because the same fault repeats one level down. "Should this
+    cut a release" and "should this be a line on the page" are not one
+    question either:
+
+        yes    the change is in the thing a person uses, so whatever describes
+               it describes it in their terms. A bullet.
+        quiet  a person receives something different only in how the release
+               was packaged. It cut the release (release-needed.sh treats it
+               exactly like yes) and it earns a bullet only if the pull request
+               wrote one -- see main(). Nothing in a build workflow describes
+               itself in a player's words, and the fallback is the pull
+               request's title: "build both devices in one pio run, and stop
+               misdescribing why" is the prose this whole file exists to keep
+               off that page.
+        no     not a bullet, and not a release.
+
     `sha^1..sha` is the mainline parent against the merge, which is exactly
     what the landing added to xteink. --range diffs from the merge base, and
     the merge base of a merge and its own first parent is that parent, so this
     is the same range either way.
 
-    Fail-safe is INCLUDE, in every direction the script can fail: exit 1 is its
+    Fail-safe is "yes", in every direction the script can fail: exit 1 is its
     only "no". Exit 2 is its refusal -- a changed path is in no row of the
     table -- and everything else is an unreadable range, a missing script or a
     crash. All of them print the bullet, and the refusal prints why. A bullet
@@ -222,7 +238,7 @@ def reaches_a_user(repo, sha):
     exists to fix.
     """
     if not RULE.exists():
-        return True
+        return "yes"
     parent = subprocess.run(
         ["git", "rev-parse", "-q", "--verify", f"{sha}^1"],
         cwd=repo,
@@ -230,20 +246,27 @@ def reaches_a_user(repo, sha):
         text=True,
     )
     if parent.returncode != 0:
-        return True
+        return "yes"
     r = subprocess.run(
         ["bash", str(RULE), "--range", f"{sha}^1..{sha}", "--ships", "--quiet"],
         cwd=repo,
         capture_output=True,
         text=True,
     )
-    if r.returncode not in (0, 1):
+    if r.returncode == 1:
+        return "no"
+    if r.returncode == 3:
+        return "quiet"
+    if r.returncode != 0:
         # The refusal, and it must not be swallowed. The bullet goes in either
         # way; what would be lost without this is the only signal that a path
-        # nobody has classified just went past.
-        print(f"  (unclassified path in {sha[:9]}; listing it) {r.stderr.strip()[:300]}")
-        return True
-    return r.returncode != 1
+        # nobody has classified just went past. NOT truncated: the message is
+        # four lines naming the path and saying what to do about it, and
+        # cutting it at 300 characters removed the half that says what to do.
+        print(f"  (unclassified path in {sha[:9]}; listing it)")
+        for line in r.stderr.strip().splitlines():
+            print(f"      {line}")
+    return "yes"
 
 
 def upstream_lines(pr):
@@ -408,7 +431,7 @@ def main():
         print("NEXT_VERSION=")
         return
     prs = prs_for({sha for sha, _ in merges}, a.repo, a.pr_json)
-    kept, dropped = [], []
+    kept, dropped, unsaid = [], [], []
     minor = False
     for sha, subject in merges:
         pr = prs.get(sha)
@@ -422,19 +445,46 @@ def main():
                 # one, whether or not it earns a line.
                 minor = True
             title = pr.get("title") or subject
-            lines = what_is_new(pr) or upstream_lines(pr) or [humanize(title)]
+            written = what_is_new(pr)
+            lines = written or upstream_lines(pr) or [humanize(title)]
         else:
             title = branch_subject(repo, sha) or subject
+            written = None
             lines = [humanize(title)]
-        (kept if reaches_a_user(repo, sha) else dropped).append(
-            (humanize(title), lines)
-        )
+        verdict = reaches_a_user(repo, sha)
+        if verdict == "no":
+            dropped.append((humanize(title), lines))
+        elif verdict == "quiet" and not written:
+            # It cut the release and it has nothing to say in a player's words.
+            # The fallback here is the pull request's TITLE, and a title about
+            # a build workflow is exactly the developer prose this file exists
+            # to keep off the page -- Mario read one and called the notes
+            # nonsense. So no bullet, and a loud line below rather than a
+            # silent drop: the fix is one sentence in the pull request, which
+            # crossplay-ci.yml asks for at pull-request time so this branch
+            # should never be reached in practice.
+            unsaid.append((humanize(title), lines))
+        else:
+            kept.append((humanize(title), lines))
 
     def dedupe(seq):
         seen = set()
         return [b for b in seq if not (b in seen or seen.add(b))]
 
     bullets = dedupe([b for _, lines in kept for b in lines])
+    if not bullets and unsaid:
+        # Everything that reached anybody was packaging, and none of it wrote a
+        # line. An empty "What is new" block is worse than a noisy one, and
+        # saying nothing about a release that really did change what people
+        # install is worse still -- so the titles go in, badly worded, and the
+        # log shouts. A release cannot both happen and be undescribed.
+        print(
+            "every landing that reaches a user is packaging and none wrote a "
+            "'What is new' line: listing their titles, which are not written "
+            "for a reader of this page"
+        )
+        kept, unsaid = unsaid, []
+        bullets = dedupe([b for _, lines in kept for b in lines])
     if not bullets:
         # Nothing merged since the tag reaches a user. The automatic path
         # cannot get here -- release-needed.sh gates the release on exactly
@@ -443,8 +493,8 @@ def main():
         # as a broken generator and tells nobody anything. So the filter stands
         # down and every line goes in.
         print("nothing since the tag reaches a user: listing every merge")
-        bullets = dedupe([b for _, lines in kept + dropped for b in lines])
-        dropped = []
+        bullets = dedupe([b for _, lines in kept + unsaid + dropped for b in lines])
+        dropped, unsaid = [], []
 
     cur = current_version(ini.read_text())
     nxt = bump(cur, minor)
@@ -458,8 +508,13 @@ def main():
     # differ is a developer, and this is the autorelease job log they read.
     for title, _ in dropped:
         print(f"  (not a note, reaches no user) {title}")
-    if dropped:
-        n = len(dropped)
+    for title, _ in unsaid:
+        print(
+            f"  (CUT THIS RELEASE and said nothing a player can read; add a "
+            f"'What is new:' line to its pull request) {title}"
+        )
+    if dropped or unsaid:
+        n = len(dropped) + len(unsaid)
         print(f"{n} landing{'' if n == 1 else 's'} excluded from the notes, named above.")
     print(f"NEXT_VERSION={nxt}")
     if a.write:

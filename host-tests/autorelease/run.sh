@@ -235,30 +235,61 @@ out="$(python3 "$TOOL" --repo-dir "$R2" --pr-json "$WORK/v11217.json" --write 2>
 N=docs/release-body.md
 grep -q "### What is new in 1.12.17" "$N" && ok "the release is still 1.12.17" || bad "version: $out"
 
-# CARD #190, CLOSED HERE. "Build both devices in one pio run" (#42) is the fix
-# for the defect that shipped v1.12.14 and v1.12.15 with bootloader.bin,
-# firmware.bin and partitions.bin missing from the published -full.bin, and it
-# lives in .github/workflows/crossplay-release.yml. While one predicate
-# answered both questions, .github/ was inert and so the repair of the most
-# user-visible release defect in this fork's history was filed as a change no
-# device could see: it cut no release and appeared in none.
+# CARD #190, AND THE HALF OF IT THAT IS NOT A BULLET. "Build both devices in
+# one pio run" (#42) is the fix for the defect that shipped v1.12.14 and
+# v1.12.15 with bootloader.bin, firmware.bin and partitions.bin missing from
+# the published -full.bin, and it lives in
+# .github/workflows/crossplay-release.yml. While one predicate answered both
+# questions, .github/ was inert and the repair of the most user-visible release
+# defect in this fork's history cut no release and appeared in none.
 #
-# The table's `ships` column has one row for that one file -- the only workflow
-# in the tree that builds and uploads what a person downloads. Every other
-# workflow verifies, schedules or rebuilds the website, and stays invisible to
-# the release. #46 rides on the same row, and #50 does not: it changed
-# crossplay-ci.yml, which publishes nothing, and earns its line from
-# src/apps_local/link/LinkPlay.cpp instead.
-for kept in \
+# It cuts a release now -- asserted in the release-needed.sh block below -- and
+# it is still NOT a bullet here, because its title is "fix: build both devices
+# in one pio run, and stop misdescribing why". Putting that on a page written
+# for players is the complaint this whole change answers, so the two questions
+# separate, and the table's `quiet` value is where. What a packaging landing
+# needs is one written sentence, and the block after this asserts that a
+# written one DOES become a bullet.
+#
+# #46 rides the same row. #50 does not: it changed crossplay-ci.yml, which
+# publishes nothing, and earns its line from src/apps_local/link/LinkPlay.cpp.
+for quiet in \
   "Build both devices in one pio run" \
   "One release build per tag"
 do
-  if grep -qi "$kept" "$N"; then
-    ok "a change to what gets PUBLISHED is a note: $kept"
+  if grep -qi "$quiet" "$N"; then
+    bad "a build-workflow title reached the release page: $quiet"
+  elif ! echo "$out" | grep -qi "CUT THIS RELEASE and said nothing.*$quiet"; then
+    bad "packaging landing neither a note nor reported as unsaid, so nothing found it: $quiet ($out)"
   else
-    bad "the release workflow's own fix is still invisible to its notes: $kept ($out)"
+    ok "packaging with no written line: cuts the release, says so in the log, not on the page: $quiet"
   fi
 done
+
+# AND THE OTHER HALF: a packaging landing that DID write a line is an ordinary
+# bullet, in the words its author chose. Without this the rule reads as "the
+# publishing workflow can never be a note", which is card #190 reopened with
+# extra steps.
+python3 - "$WORK/v11217.json" "$WORK/said.json" <<'SAID'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for pr in d:
+    if pr["number"] == 42:
+        pr["body"] = ("One invocation, both envs.\n\n"
+                      "What is new: Installs that failed part-way now work; "
+                      "the download was missing part of the firmware.")
+json.dump(d, open(sys.argv[2], "w"))
+SAID
+said="$(python3 "$TOOL" --repo-dir "$R2" --pr-json "$WORK/said.json" --last-tag v1.12.16 --dry-run 2>&1)"
+echo "$said" | grep -q "Installs that failed part-way now work" \
+  && ok "a packaging landing that wrote its own line IS a bullet" \
+  || bad "a written What is new line was dropped along with the title: $said"
+echo "$said" | grep -qi "CUT THIS RELEASE and said nothing.*Build both devices" \
+  && bad "it wrote a line and was still reported as unsaid" \
+  || ok "and it is no longer reported as unsaid"
+echo "$said" | grep -qi "stop misdescribing why" \
+  && bad "the title came along with the written line" \
+  || ok "the title stayed off the page"
 
 # The three that reach nobody. Each is asserted TWICE, and the pair is the
 # point: absent from the body, AND present in the run's own output as an
@@ -307,7 +338,10 @@ grep -q "clang-format, unit tests and cppcheck" "$N" && ok "a src/ change is a n
 # players. The excluded landings are named on stdout, where the autorelease job
 # log keeps them, and the count goes with them.
 grep -qi "^- Plus " "$N" && bad "the excluded count is still a bullet on the release page" || ok "the excluded count is not a bullet"
-echo "$out" | grep -q "3 landings excluded from the notes, named above." \
+# Three that reach nobody, plus two that reach people only through packaging
+# and wrote nothing. The count covers both kinds: both are landings a reader
+# comparing the page against the merge log will not find on the page.
+echo "$out" | grep -q "5 landings excluded from the notes, named above." \
   && ok "the count is on stdout, where the job log keeps it" \
   || bad "the excluded landings were not counted anywhere: $out"
 
@@ -439,11 +473,25 @@ q git add -A; q git commit -qm base; q git tag v4.0.0
 q git checkout -qb app/newroot; mkdir -p brandnew; echo x > brandnew/x.c; q git add -A
 q git commit -qm "feat: a directory the table has never heard of"
 q git checkout -q xteink; q git merge -q --no-ff app/newroot -m "Merge pull request #1 from ma-r-s/app/newroot"
+# A SECOND LANDING THAT PLAINLY SHIPS, and it is what makes the three checks
+# below mean anything. With the unclassified merge alone, flipping the refusal
+# to "no" empties the bullets, which trips the stand-down, which lists every
+# merge again -- the same output by the opposite route, and the mutant survived
+# the whole suite. This one keeps `bullets` non-empty whatever the refusal
+# answers, so the stand-down cannot fire and cover for it.
+q git checkout -qb app/realfix; mkdir -p src; echo 'int y;' > src/y.cpp; q git add -A
+q git commit -qm "fix: something a device really does run"
+q git checkout -q xteink; q git merge -q --no-ff app/realfix -m "Merge pull request #2 from ma-r-s/app/realfix"
 echo "[]" > "$WORK/none.json"
 out="$(python3 "$TOOL" --repo-dir "$RU" --pr-json "$WORK/none.json" --dry-run 2>&1)"
 echo "$out" | grep -q -- "- A directory the table has never heard of" \
   && ok "an unclassified path still gets its bullet" \
   || bad "a refusal was read as 'no': $out"
+# AND BY THE FAIL-SAFE, not by the stand-down. Same guard the nofilter case
+# above carries, for the same reason, and it was missing here.
+echo "$out" | grep -q "nothing since the tag reaches a user" \
+  && bad "the unclassified merge was dropped and the stand-down covered for it: $out" \
+  || ok "the bullet arrived by the refusal, not by the stand-down"
 echo "$out" | grep -qi "unclassified path" \
   && ok "and the run says it could not classify it" \
   || bad "the refusal was swallowed and reads as an ordinary note: $out"
@@ -555,7 +603,14 @@ bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 1 ] && ok "script
 # gets published must cut a release, even though no local device build can see it.
 mkdir -p .github/workflows; echo "# fix" >> .github/workflows/crossplay-release.yml
 q git add -A; q git commit -qm "ci: publish the merged image, not the app image"
-bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 0 ] && ok "a fix to what the release publishes releases" || bad "a packaging fix is still invisible to the release decision"
+pkg="$(bash scripts_local/release-needed.sh 2>&1)"; pkg_rc=$?
+[ "$pkg_rc" -eq 0 ] && ok "a fix to what the release publishes releases" || bad "a packaging fix is still invisible to the release decision (exit $pkg_rc)"
+# `quiet` and `yes` are one answer HERE and two answers in the notes. This is
+# the half that must not drift: whatever release_notes.py does with it, the
+# release itself is cut.
+echo "$pkg" | grep -qi "packaged" \
+  && ok "and it says the reason was packaging, not the firmware" \
+  || bad "the packaging release did not distinguish itself from a firmware one: $pkg"
 q git reset -q --hard HEAD~1
 # ...and a CI tweak, in the same directory, does not.
 mkdir -p .github/workflows; echo "# ci" >> .github/workflows/crossplay-ci.yml
@@ -564,6 +619,14 @@ git diff --quiet HEAD~1 HEAD -- .github/workflows/crossplay-ci.yml && bad "the C
 bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 1 ] && ok "a CI tweak in the same directory does not release" || bad ".github was added wholesale; every CI tweak now cuts a release"
 mkdir -p src; echo 'int x;' > src/x.cpp; q git add -A; q git commit -qm "fix: something a device can see"
 bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 0 ] && ok "a src change since the tag releases" || bad "a src change did not release"
+# AND IT NAMES THE PATH. The autorelease job log is the only place anybody can
+# later ask "why did this one release?", and --quiet was silencing the one line
+# that answers it -- while check.sh, asking the other column, deliberately
+# prints the path that caused a build. The harder question was the silent one.
+named="$(bash scripts_local/release-needed.sh 2>&1)"
+echo "$named" | grep -q "src/x.cpp" \
+  && ok "and the log names the path that caused it" \
+  || bad "the release was cut without saying which path did it: $named"
 # THE REFUSAL, which is the property that stops the next unrecognised path
 # doing what .gitignore did. Neither answer is safe, so it declines and names
 # the path; the autorelease job turns exit 2 into a red run.
