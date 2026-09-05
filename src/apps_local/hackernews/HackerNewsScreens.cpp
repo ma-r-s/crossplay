@@ -301,41 +301,26 @@ uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext
 }
 
 uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body) {
-  // The band carries the story's own headline. Within this app chrome is
-  // Jersey and content is the reading face, and a title is content --
-  // somebody's sentence, in its own case -- so the band borrows the reading
-  // cut in paper, the way a book's running header borrows the text's. Fitted
-  // to the room the page label leaves; fitLines marks the cut when a headline
-  // will not go.
-  fui::TextStyle bandTitle = screen.theme().bodyText;
-  bandTitle.color = fui::Color::White;
+  // The band carries the story's own headline. Within this app chrome is the
+  // display cut and content is the reading face, and a title is content --
+  // somebody's sentence, in its own case -- so the band takes the bold reading
+  // cut (the title slot under readerFaces): big enough to read as a headline,
+  // and the top of a ladder that steps DOWN through real reading cuts
+  // (bold 16 -> 14 -> 11) as the sentence grows.
+  //
+  // The headline is handed over WHOLE, not pre-fitted here. headerBand() runs it
+  // through toybox::fittedTitle, which walks that ladder against the room the
+  // component really leaves -- headerTitleWidth() already subtracts the SAVE
+  // control and the page label -- and marks the cut with an ellipsis only when
+  // the smallest reading cut still overflows one line. Fitting it a second time
+  // here, to a room hand-summed from those same terms, is exactly the drift that
+  // once shortened a headline to a room ninety pixels too wide and let the
+  // component cut it AGAIN: two ellipses on the one screen whose title is always
+  // somebody else's sentence. One fitter, in one place (card #268).
+  fui::TextStyle bandTitle = screen.theme().titleText;  // bold reading cut, already White
+  bandTitle.align = screen.theme().headerTitleAlign;
   bandTitle.maxLines = 1;
-  const fui::TextStyle& labelStyle = screen.theme().smallText;
-  const int16_t labelWidth =
-      model.pageLabel != nullptr && model.pageLabel[0] != '\0'
-          ? static_cast<int16_t>(screen.target().measureText(labelStyle.font, model.pageLabel, labelStyle).width +
-                                 toybox::kGutter)
-          : 0;
-  // The SAVE control is in the band too, and it was in NEITHER term of this
-  // sum. The component reserves `label + 20 + icon + 4`, then another 8 of
-  // gutter (components/controls/header.h), so a headline was fitted to a room
-  // about ninety pixels wider than the one it is drawn into -- and then cut a
-  // second time by the component, with a second ellipsis, on the one screen in
-  // this fork whose title is always somebody else's sentence. Instapaper's twin
-  // has no trailing control and so had no second term to forget.
-  int16_t saveWidth = 0;
-  if (model.canSave) {
-    // Every term the component charges for a trailing button, in its order:
-    // the label at the style Screen::header substitutes (bodyText), its 20px of
-    // padding, the icon and its 4, and the 8 of gutter beside the button.
-    const fui::TextStyle& trailing = screen.theme().bodyText;
-    saveWidth =
-        static_cast<int16_t>(screen.target().measureText(trailing.font, saveChipLabel(model.saved), trailing).width +
-                             20 + icon_saved_32.w + 4 + 8);
-  }
-  const int16_t room = static_cast<int16_t>(screen.device().width - 2 * toybox::kMargin - labelWidth - saveWidth);
-  const std::string headline = fitLines(screen.target(), model.title, room, 1, bandTitle);
-  chrome(screen, headline.c_str(), model.pageLabel, &bandTitle, model.canSave, model.saved);
+  chrome(screen, model.title, model.pageLabel, &bandTitle, model.canSave, model.saved);
 
   const fui::DeviceContext& device = screen.device();
 
@@ -379,6 +364,30 @@ uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBod
   // whole thread -- twice per paint, counting the measure above.
   if (body.wrap == nullptr) return 0;
   body.wrap->draw(screen.target(), readerBody(device), body.text, body.style, model.topLine);
+  // A save the card refused says so HERE, over the page, instead of throwing
+  // the reader out to a full-screen notice that lost the reader's place (card
+  // #40). A black card, centred on the text, drawn last so it sits on top of
+  // the article -- and cleared the moment the reader is touched again, so it is
+  // a transient acknowledgement, not a wall. A white hairline keeps it from
+  // reading as a second header band.
+  if (model.saveNotice != nullptr && model.saveNotice[0] != '\0') {
+    fui::StyleSet noticeStyles = toybox::invertedStyles();
+    noticeStyles.normal.border = fui::Paint::solid(fui::Color::White);
+    noticeStyles.normal.borderWidth = toybox::kHairline;
+    noticeStyles.selected = noticeStyles.focused = noticeStyles.active = noticeStyles.disabled = noticeStyles.normal;
+    fui::ToastProps toast;
+    toast.message = model.saveNotice;
+    toast.styles = noticeStyles;
+    // The reading cut, not the bold headline one: the bold cut is wide enough
+    // that "Not saved: the card is full." clipped to "Not saved: t..." inside
+    // the panel, which is the very failure a toast exists to avoid. maxLines 2
+    // wraps a longer reason rather than truncating it.
+    toast.text = screen.theme().bodyText;
+    toast.text.color = fui::Color::White;  // on a black panel
+    toast.text.maxLines = 2;
+    toast.anchor = fui::ToastAnchor::Center;
+    fui::toast(screen.frame(), readerBody(device), toast);
+  }
   // Asked AFTER the drawing, and cheap because the wrap has just answered it.
   return body.wrap->lineCount(screen.target(), readerBody(device).width, body.text, body.style);
 }
