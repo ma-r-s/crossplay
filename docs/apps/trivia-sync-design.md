@@ -434,9 +434,22 @@ how often a player will reach for them, not alphabetically:
 | `us`            | TOO AMERICAN              | **only when US questions are OFF**, as Mario specified                |
 | `hard` / `easy` | TOO HARD / TOO EASY       | Mario's "wrong difficulty", split — the signal is one-sided otherwise |
 
-Ten codes, at most nine ever shown at once, and two of those are conditional.
-That is a two-page list on this panel, which is a real cost — but it is a cost
-paid on a screen nobody has to visit.
+Ten codes, at most nine ever shown at once, because two are conditional: `us`
+only when US questions are off, `giveaway` only in solo.
+
+**Whether nine rows fit one screen has to be rendered, not calculated.** The
+numbers say it is close and probably fits: `kRowHeight` is 62 with a theme row
+gap, `kChromeHeight` is 76 plus the rule, and a `kPillHeight` of 52 goes to the
+way out, on the X4 Pro's 800px portrait height. Nine rows at that pitch lands
+within a few tens of pixels of the available band — which is the range where
+this fork's `screens-overflow-silently` failure lives, and a row that does not
+fit is drawn nowhere and answers nothing rather than erroring. Subtitles would
+spend the margin outright, so the reason rows carry labels only.
+
+So: build it as one screen, `sim-shot.sh` it, and page it only if the render
+says so. Do not ship the arithmetic. The fork's own rule (three arrangements
+rendered side by side before any new screen) applies here more than usual,
+because this is a list whose length is a design output rather than a given.
 
 **One departure from the card worth flagging:** Mario listed "wrong difficulty"
 as one reason. Split into TOO HARD and TOO EASY it is actionable (it moves the
