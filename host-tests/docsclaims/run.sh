@@ -257,12 +257,20 @@ for rel in ["README.md", "AGENTS.md"] + [
 # The branch is DISCOVERED, from the remote HEAD git already records, so this
 # check does not become the literal it is guarding.
 # ---------------------------------------------------------------------------
+# origin/HEAD first, but a --single-branch clone and actions/checkout both
+# leave that ref unset, so it cannot be the only source: keying on it alone
+# turned a fresh checkout red. crossplay-ci.yml's own `branches:` filter is the
+# fallback, in the repository, needing no network and no remote.
 _r = subprocess.run(["git", "-C", root, "symbolic-ref", "--short",
                      "refs/remotes/origin/HEAD"], capture_output=True, text=True)
 default_branch = _r.stdout.strip().split("/")[-1] if _r.returncode == 0 else ""
+if not default_branch:
+    _w = re.search(r"^\s*branches:\s*\[([A-Za-z0-9._/-]+)\]",
+                   read(".github/workflows/crossplay-ci.yml"), re.M)
+    default_branch = _w.group(1) if _w else ""
 check(bool(default_branch),
-      "cannot read origin/HEAD, so the branch a contributor is sent at is unchecked",
-      "git remote set-head origin -a")
+      "neither origin/HEAD nor crossplay-ci.yml names a default branch, "
+      "so the branch a contributor is sent at is unchecked")
 if default_branch:
     BRANCH_INSTRUCTION = re.compile(
         r"^[-*\d.)\s]*(?:Branch from|Target)\s+`([A-Za-z0-9._/-]+)`", re.M | re.I)
