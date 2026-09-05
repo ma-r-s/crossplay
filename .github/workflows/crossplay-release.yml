@@ -117,6 +117,41 @@ jobs:
       - name: Build both devices
         run: pio run -e gh_release_x4pro -e gh_release_sticky
 
+      # The condition itself, not a proxy for it.
+      #
+      # host-tests/release already asserts that this workflow says
+      # `pio run -e gh_release_x4pro -e gh_release_sticky` once, and that is
+      # the assertion that stops the known cause coming back. But it reads the
+      # workflow TEXT, and its scope was chosen by an assumption: that a second
+      # pio run is the only way these files go missing. Anything else that
+      # empties .pio/build -- a cache step restoring over it, an env losing an
+      # output, clean_build_dir() changing semantics under us -- leaves that
+      # assertion green and the release broken in exactly the same way.
+      #
+      # So check that the files are on disk. It is the only probe here that can
+      # fail on the real condition rather than on a description of it.
+      #
+      # It has to be its own step because the damage is silent where it
+      # happens: both builds report SUCCESS, and under v1.12.14 and v1.12.15
+      # the first sign was an esptool traceback five minutes and several steps
+      # later, naming bootloader.bin because merge-bin happened to list it
+      # first. firmware.bin and partitions.bin were gone too. Name all of them,
+      # at the point where they were supposed to have been produced.
+      - name: Both builds are still on disk
+        run: |
+          missing=0
+          for env_name in gh_release_x4pro gh_release_sticky; do
+            for f in firmware.bin firmware.elf partitions.bin bootloader.bin; do
+              if [ -f ".pio/build/$env_name/$f" ]; then
+                echo "  ok  .pio/build/$env_name/$f"
+              else
+                echo "::error::.pio/build/$env_name/$f is missing after a build that reported SUCCESS. Something emptied .pio/build between the build and here; see the comment above the build step."
+                missing=1
+              fi
+            done
+          done
+          exit $missing
+
       - name: Name the x4pro artefacts
         run: |
           mkdir -p dist
