@@ -313,7 +313,13 @@ namespace {
 // screen once printed "read.crossplay.ma-r-s.com/pai" and nobody could see why
 // the address did not work.
 void drawAddress(toybox::Screen& screen, const fui::Rect& box, const char* url) {
-  fui::TextStyle style = onPaper(screen.theme().titleText, fui::TextAlign::Center);
+  // FONT_SLOT_SMALL, which readingAddressFaces binds to the bold reading cut.
+  // Naming titleText here looked like asking for the display cut and was not:
+  // no address fits it (a worst-case IPv4 URL measures 632 against 448), so the
+  // ladder silently stepped this to the same serif 14 as the prose below it.
+  // At bold 16 the longest possible address measures 399 and fits with room.
+  fui::TextStyle style = onPaper(screen.theme().bodyText, fui::TextAlign::Center, 1);
+  style.font = fui::FONT_SLOT_SMALL;
   const std::string fitted = toybox::fittedTitle(screen.target(), url, box.width, style);
   screen.target().text(box, fitted.c_str(), style);
 }
@@ -326,17 +332,26 @@ void drawAddress(toybox::Screen& screen, const fui::Rect& box, const char* url) 
 constexpr const char* kProse = "Pick a photo and it lands here. Your phone has to be on this same WiFi.";
 constexpr const char* kFoot = "BACK STOPS";
 
+// Inherited from the Instapaper twin as `bottom() - 30, height 24`, which is
+// correct THERE because it draws in toybox_10 (line box 21). Here the same box
+// holds a 40px line box: DrawTarget::text clamps a negative centring offset to
+// zero, so the line ran 758..798 -- five pixels BELOW body.bottom() and eleven
+// from the panel edge, eating the whole page margin. The box came across from
+// the twin and the font did not. Sized from the bound face now, so it cannot
+// happen again when the face changes.
 void drawFoot(toybox::Screen& screen, const fui::Rect& body) {
-  fui::TextStyle style = onPaper(screen.theme().smallText, fui::TextAlign::Center, 1);
-  const fui::Rect box = fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - 26), body.width, 24);
+  fui::TextStyle style = onPaper(screen.theme().bodyText, fui::TextAlign::Center, 1);
+  const int16_t lineH = screen.target().lineHeight(style.font);
+  const fui::Rect box = fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - lineH), body.width, lineH);
   screen.target().text(box, toybox::fittedTitle(screen.target(), kFoot, box.width, style).c_str(), style);
 }
 
-// Every headline on this screen goes through the ladder. "SCAN WITH YOUR PHONE"
-// at the title cut is four pixels too wide for the body and rendered as
-// "SCAN WITH YOUR..." -- and it only showed the ellipsis at all because the
-// reading faces happen to carry U+2026. At the menu cuts it would simply have
-// stopped after "YOUR".
+// The headline is the only thing on this screen that gets the display cut, and
+// it only keeps it by being short enough: "SCAN WITH YOUR PHONE" measures 579
+// against a 448px body at toybox_30, so the ladder stepped it down to the same
+// serif 14 as everything else and the screen lost its hierarchy without ever
+// looking broken. "SCAN THIS CODE" fits, so the three levels are real -- Jersey
+// 30 headline, bold serif 16 address, serif 14 prose.
 void drawHeadline(toybox::Screen& screen, const fui::Rect& box, const char* text) {
   fui::TextStyle style = onPaper(screen.theme().titleText, fui::TextAlign::Center, 1);
   screen.target().text(box, toybox::fittedTitle(screen.target(), text, box.width, style).c_str(), style);
@@ -375,7 +390,12 @@ void drawStep(toybox::Screen& screen, const fui::Rect& row, const int n, const c
 }  // namespace
 
 fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
-  chrome(screen, "ADD A WALLPAPER", model.added > 0 ? "1 ADDED" : nullptr);
+  // No right label. Any label at all costs the band its display cut: the widest
+  // that fits is 62px, and "ADD A WALLPAPER" needs 433 of the 448 either way, so
+  // the title steps from a 38px Jersey cap to a 21px serif one the moment a
+  // count appears. A count belongs in the body, where it can also say a number
+  // other than one.
+  chrome(screen, "ADD A WALLPAPER", nullptr);
   const fui::Rect body = screen.body();
 
 #if WALLADD_VARIANT == 1
@@ -383,27 +403,33 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
   // address occupying the line its 8-character code does.
   constexpr int16_t kQrSide = 232;
   constexpr int16_t kHead = 48;
-  constexpr int16_t kAddr = 46;
-  constexpr int16_t kProseH = 108;
-  // The stack centred in the body rather than hung from its top: at 232 the
-  // four pieces leave 180px over, and all of it used to pool above the footer.
+  // Every text block's height is asked of the face that will draw it, never
+  // typed. The two literals here were 46 and 108 against line boxes of 45 and
+  // 120, so the prose overran its own rect by twelve pixels -- and the numbers
+  // were then wrong for anything laid out against them.
+  const int16_t addrH = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
+  const int16_t proseLine = screen.target().lineHeight(fui::FONT_SLOT_BODY);
+  const int16_t proseH = static_cast<int16_t>(proseLine * 3);
+
+  // Centred in the body rather than hung from its top, so the leftover is
+  // shared above and below instead of pooling into a dead band over the footer.
   const int16_t stack =
-      static_cast<int16_t>(kHead + toybox::kMargin * 2 + kQrSide + toybox::kMargin + kAddr + toybox::kGutter + kProseH);
-  int16_t y = static_cast<int16_t>(body.y + (body.height - 26 - stack) / 2);
+      static_cast<int16_t>(kHead + toybox::kMargin * 2 + kQrSide + toybox::kMargin + addrH + toybox::kGutter + proseH);
+  int16_t y = static_cast<int16_t>(body.y + (body.height - proseLine - stack) / 2);
   if (y < body.y) y = body.y;
 
-  drawHeadline(screen, fui::makeRect(body.x, y, body.width, kHead), "SCAN WITH YOUR PHONE");
+  drawHeadline(screen, fui::makeRect(body.x, y, body.width, kHead), "SCAN THIS CODE");
   const fui::Rect qr = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
                                      static_cast<int16_t>(y + kHead + toybox::kMargin * 2), kQrSide, kQrSide);
 
-  drawAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kMargin), body.width, kAddr),
+  drawAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kMargin), body.width, addrH),
               model.url);
 
   // FULL body width, not inset: the address is the longest unbreakable token on
   // this screen, and an inset that costs it two characters costs it silently.
   screen.target().text(
-      fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kMargin + kAddr + toybox::kGutter), body.width,
-                    kProseH),
+      fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kMargin + addrH + toybox::kGutter), body.width,
+                    proseH),
       model.status != nullptr ? model.status : kProse, onPaper(screen.theme().bodyText, fui::TextAlign::Center, 3));
   drawFoot(screen, body);
   return qr;
@@ -416,7 +442,9 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
   const fui::Rect qr =
       fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2), body.y, kQrSide, kQrSide);
 
-  drawAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kGutter), body.width, 40),
+  drawAddress(screen,
+              fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kGutter), body.width,
+                            screen.target().lineHeight(fui::FONT_SLOT_SMALL)),
               model.url);
 
   int16_t y = static_cast<int16_t>(qr.bottom() + toybox::kGutter + 40 + toybox::kGutter);
@@ -429,9 +457,10 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
   y = static_cast<int16_t>(y + kRow);
   drawStep(screen, fui::makeRect(rowBox.x, y, rowBox.width, kRow), 3, "It appears here");
   y = static_cast<int16_t>(y + kRow + toybox::kGutter * 2);
-  screen.target().text(fui::makeRect(body.x, y, body.width, 76),
-                       model.status != nullptr ? model.status : "Your phone has to be on this same WiFi.",
-                       onPaper(screen.theme().bodyText, fui::TextAlign::Center, 2));
+  screen.target().text(
+      fui::makeRect(body.x, y, body.width, static_cast<int16_t>(screen.target().lineHeight(fui::FONT_SLOT_BODY) * 2)),
+      model.status != nullptr ? model.status : "Your phone has to be on this same WiFi.",
+      onPaper(screen.theme().bodyText, fui::TextAlign::Center, 2));
   drawFoot(screen, body);
   return qr;
 
@@ -442,12 +471,16 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
   const fui::Rect qr = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
                                      static_cast<int16_t>(body.y + toybox::kGutter), kQrSide, kQrSide);
 
-  drawAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kGutter * 2), body.width, 44),
+  drawAddress(screen,
+              fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kGutter * 2), body.width,
+                            screen.target().lineHeight(fui::FONT_SLOT_SMALL)),
               model.url);
 
   screen.target().text(
-      fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kGutter * 2 + 44 + toybox::kGutter), body.width,
-                    72),
+      fui::makeRect(body.x,
+                    static_cast<int16_t>(qr.bottom() + toybox::kGutter * 2 +
+                                         screen.target().lineHeight(fui::FONT_SLOT_SMALL) + toybox::kGutter),
+                    body.width, static_cast<int16_t>(screen.target().lineHeight(fui::FONT_SLOT_BODY) * 3)),
       model.status != nullptr ? model.status : kProse, onPaper(screen.theme().bodyText, fui::TextAlign::Center, 3));
   drawFoot(screen, body);
   return qr;

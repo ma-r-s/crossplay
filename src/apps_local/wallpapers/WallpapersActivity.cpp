@@ -918,8 +918,13 @@ void WallpapersActivity::render(RenderLock&&) {
   // with an ellipsis. Trivia carries the same split for the same reason.
   const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Help ||
                      view_ == View::Add;
-  fui::GfxRendererTarget target =
-      toybox::makeTarget(renderer, prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces());
+  // View::Add rebinds the SMALL slot to the bold reading cut so the address has
+  // a cut of its own: see readingAddressFaces. Without it the headline, the
+  // address, the prose and the footer all land on serif 14 and the one line the
+  // reader has to type is indistinguishable from the paragraph under it.
+  fui::GfxRendererTarget target = toybox::makeTarget(
+      renderer, view_ == View::Add ? toybox::readingAddressFaces()
+                                   : (prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces()));
   const fui::DeviceContext device = target.deviceContext();
   const fui::InputSnapshot noInput{};
   interactionsReady_ = false;
