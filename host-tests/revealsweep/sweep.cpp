@@ -239,6 +239,13 @@ struct Probe {
   // The collisions this transition is known to have, "fromAction/fromValue->
   // toAction/toValue", terminated by nullptr. Anything else the sweep finds
   // fails; anything here it no longer finds fails too.
+  //
+  // WHAT THIS UNIT DOES NOT CATCH, stated rather than left to be discovered:
+  // the key is the pair of actions, not the area, so a known collision that
+  // GROWS -- 12% of the source control becoming 100% -- keeps the same key and
+  // does not fail here. The percentage is printed every run, and the producer
+  // check below is exact, which is the case where a finger is provably on the
+  // rect. Adding area to the key would fail on every harmless layout nudge.
   const char* const* known = nullptr;
   // One line saying why the list above is what it is. Printed with the
   // findings so a reader of the log is told, not left to infer.
