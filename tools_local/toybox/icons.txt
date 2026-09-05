@@ -325,3 +325,10 @@ saved       = bookmark
 # circle does. Spliced by hand into ToyboxIcons.h, never regenerated (see the
 # warning at the top of this file).
 account     = circle-user-round
+
+# WAVELENGTH's two in-app marks. Spliced into ToyboxIcons.h at the cut each is
+# drawn at (never regenerate the manifest in place -- it drops icon_yahtzee_32
+# and icon_connectfour_32, whose SVG sources were never committed). The pass
+# arrow points the way the device travels; the eye is the peek's hero.
+wl_pass = arrow-big-left   # icon_wl_pass_96
+wl_look = eye              # icon_wl_look_120
