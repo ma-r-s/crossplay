@@ -450,9 +450,28 @@ copy it across" path still exists for it -- it just stops being the headline.
    held by a match, refuse and say so. Otherwise `WifiSelectionActivity`.
 3. Take the `devmode` latch, start the server in `wallpapersOnly` mode, and
    **verify it bound** before drawing anything.
-4. Draw the QR for `http://<ip>/w` -- 24 bytes at the longest IPv4 form, well
-   inside the budget below -- with the address printed underneath for anyone who
-   would rather type it. Station mode only: the hotspot has no NAT and a
+4. Draw the QR for **`http://crossplay.local/w`**, with the numeric address
+   printed under it as the fallback (both 24 bytes, well inside the budget
+   below). Mario is on an iPhone, and mDNSResponder *is* the system resolver on
+   Apple platforms -- Safari needs no local-network permission for it, which is
+   the one place iOS is strictly better than Android here. The name also
+   survives DHCP moving this device, so it is the half worth bookmarking.
+   The address is drawn too because the name is what dies on a router that
+   filters mDNS, on a VPN, or on Android below 12, and that failure puts
+   nothing on screen.
+
+   **PR 1 must call `MDNS.begin` itself.** `restartMdns` lives in an anonymous
+   namespace in `CrossPointWebServerActivity.cpp:45`, so nothing outside that
+   file can call it, and that activity runs `MDNS.end()` in its own `onExit`
+   (`:112`) -- so mDNS is definitively *not* running when this screen opens. The
+   hostname is the literal `"crossplay"` in both that file (`:27`) and
+   `CalibreConnectActivity.cpp:18`.
+
+   **And it is not unique.** Nothing derives the hostname from the MAC, so two
+   X4 Pros on one network both answer for `crossplay.local` -- which Mario has.
+   A stale IP fails loudly; a name collision succeeds against the *wrong*
+   device and puts the photo on the other reader with nothing said. Filed as
+   #355, mitigated here only by drawing the numeric address as well. Station mode only: the hotspot has no NAT and a
    captive-portal DNS answering every name with the device, so a phone joined to
    it has no internet and both iOS and Android offer to drop back to cellular,
    mid-upload. (HTTPS-First does not threaten this: Chromium's own adoption guide

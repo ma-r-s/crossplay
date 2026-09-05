@@ -688,6 +688,18 @@ void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const f
 // it is a bare concatenation, image i lives at i * kWallpaperFileBytes, and the
 // count is the file size divided by it. Built by tools_local/wallpapers/build_pack.py
 // in the same order as the built-in table, which host-tests/wallpack asserts.
+// The mDNS name the fork already advertises, in CrossPointWebServerActivity and
+// CalibreConnectActivity alike. NOT shared with either: both spell it as a file
+// -static literal ("crossplay") and restartMdns lives in an anonymous namespace,
+// so nothing outside that translation unit can call it. PR 1 therefore calls
+// MDNS.begin itself -- the web-server activity ends mDNS in its own onExit, so
+// it is definitely not running when this screen opens.
+constexpr const char* kMdnsHostname = "crossplay";
+
+// Version 4, ECC_LOW, BYTE mode. Not the 114 QrUtils believes (that is the
+// alphanumeric figure, and every URL with a lowercase letter is byte mode).
+constexpr size_t kQrByteSafeLen = 78;
+
 constexpr const char* kPackUrl = "https://github.com/ma-r-s/crossplay/releases/download/wallpapers/wallpapers.dat";
 constexpr const char* kPackPart = "/wallpapers.dat.part";
 
@@ -757,7 +769,28 @@ void WallpapersActivity::openAdd() {
   // SCAFFOLDING for the three-variant render, removed with WALLADD_VARIANT:
   // the real screen is reached only after WifiSelectionActivity has an address.
   const bool haveIp = !dotted.empty() && dotted != "0.0.0.0";
-  addUrl_ = haveIp ? "http://" + dotted + "/w" : std::string("http://192.168.1.42/w");
+  const std::string ipUrl = haveIp ? "http://" + dotted + "/w" : std::string("http://192.168.1.42/w");
+
+  // The name goes in the QR and the address goes under it, both drawn, because
+  // they fail in opposite conditions and neither failure says anything on
+  // screen. mDNS is what an iPhone resolves natively -- mDNSResponder IS the
+  // system resolver on Apple platforms and Safari needs no local-network
+  // permission for it -- and it is the half that survives DHCP handing this
+  // device a different address tomorrow. It is also the half that a router
+  // with mDNS filtering, or a phone on a VPN, drops on the floor. So the
+  // address is printed too, and a reader who cannot reach the name has
+  // something to type that does not depend on discovery at all.
+  addUrl_ = std::string("http://") + kMdnsHostname + ".local/w";
+  addAltUrl_ = ipUrl;
+
+  // Card #352: QrUtils picks its version from the ALPHANUMERIC capacity table,
+  // so anything past 78 bytes in byte mode draws a code that cannot scan (and
+  // past 99, smashes a stack buffer) with nothing logged at any layer. Both
+  // strings here are 24 bytes, so this never fires -- it exists because the
+  // failure is silent and a QR that does not scan is the worst outcome this
+  // screen has. Falling back to the address keeps a scannable code on screen.
+  if (addUrl_.size() > kQrByteSafeLen) addUrl_ = ipUrl;
+
   view_ = View::Add;
   interactionsReady_ = false;
   requestUpdate();
@@ -1141,6 +1174,7 @@ void WallpapersActivity::render(RenderLock&&) {
   if (view_ == View::Add) {
     wallpapersui::AddModel model;
     model.url = addUrl_.c_str();
+    model.altUrl = addAltUrl_.c_str();
     const fui::Rect qr = wallpapersui::buildAdd(surface, model);
     QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addUrl_);
   } else if (view_ == View::Help) {

@@ -94,7 +94,8 @@ class WallpapersActivity final : public Activity {
   std::string noticeBody_;
   const char* noticeAction_ = nullptr;
   freeink::ui::ActionId noticeActionId_ = 0;
-  std::string addUrl_;  // http://<ip>/w -- encoded in the QR and printed under it
+  std::string addUrl_;     // http://crossplay.local/w -- what the QR encodes and the screen prints
+  std::string addAltUrl_;  // http://<ip>/w -- the fallback, printed under it, never encoded
   std::string rightLabel_;
   std::string warning_;
 

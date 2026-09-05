@@ -158,7 +158,8 @@ void buildHelp(toybox::Screen& screen);
 // unreadable to a person and the one failure this screen has -- a phone on a
 // different network -- is one the reader has to be able to check by hand.
 struct AddModel {
-  const char* url = "";          // "http://192.168.1.42/w"
+  const char* url = "";          // "http://crossplay.local/w" -- also what the QR encodes
+  const char* altUrl = nullptr;  // "http://192.168.1.42/w" -- printed, never encoded
   int added = 0;                 // how many have arrived while this screen has been up
   const char* status = nullptr;  // a line replacing the prose while connecting
 };

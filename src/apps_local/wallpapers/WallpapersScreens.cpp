@@ -331,6 +331,19 @@ void drawAddress(toybox::Screen& screen, const fui::Rect& box, const char* url) 
   screen.target().text(box, fitted.c_str(), style);
 }
 
+// The numeric address, under the name. Quieter than the name on purpose: it is
+// the fallback, and a reader who can use the QR should never need to read it.
+// It is drawn rather than hidden because the two fail in opposite conditions --
+// the name dies on a router that filters mDNS or a phone on a VPN, the address
+// dies when DHCP moves this device -- and neither failure puts anything on
+// screen to explain itself.
+void drawAltAddress(toybox::Screen& screen, const fui::Rect& box, const char* url) {
+  if (url == nullptr || url[0] == '\0') return;
+  fui::TextStyle style = onPaper(screen.theme().bodyText, fui::TextAlign::Center, 1);
+  style.color = fui::Color::DarkGray;
+  screen.target().text(box, toybox::fittedTitle(screen.target(), url, box.width, style).c_str(), style);
+}
+
 // The same-WiFi requirement is this screen's ENTIRE error handling, so it lives
 // in the prose rather than the footer: nothing on the device can detect that the
 // phone went out over cellular instead, and the browser's own message ("cannot
@@ -429,14 +442,15 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
   const fui::Rect qr = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
                                      static_cast<int16_t>(y + kHead + toybox::kMargin * 2), kQrSide, kQrSide);
 
-  drawAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kMargin), body.width, addrH),
-              model.url);
+  const int16_t addrY = static_cast<int16_t>(qr.bottom() + toybox::kMargin);
+  drawAddress(screen, fui::makeRect(body.x, addrY, body.width, addrH), model.url);
+  drawAltAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(addrY + addrH), body.width, proseLine),
+                 model.altUrl);
 
   // FULL body width, not inset: the address is the longest unbreakable token on
   // this screen, and an inset that costs it two characters costs it silently.
   screen.target().text(
-      fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kMargin + addrH + toybox::kGutter), body.width,
-                    proseH),
+      fui::makeRect(body.x, static_cast<int16_t>(addrY + addrH + proseLine + toybox::kGutter), body.width, proseH),
       model.status != nullptr ? model.status : kProse, onPaper(screen.theme().bodyText, fui::TextAlign::Center, 3));
   drawFoot(screen, body);
   return qr;
