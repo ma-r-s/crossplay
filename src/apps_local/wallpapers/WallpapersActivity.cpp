@@ -56,13 +56,33 @@ std::unique_ptr<Activity> WallpapersActivity::create(GfxRenderer& renderer, Mapp
 }
 
 void WallpapersActivity::onEnter() {
+  // Timed per phase because "the app takes ten seconds to open" is not a
+  // diagnosis, and this fork's recurring failure is fixing the thing in front
+  // of you rather than the thing that is slow. One line names the cost.
+  const uint32_t tEnter = millis();
   Activity::onEnter();
   toybox::ensureFonts(renderer);
+  const uint32_t tFonts = millis();
   Storage.mkdir(wallpapers::kLibraryDir);
   sweepPartFiles();
+  const uint32_t tSweep = millis();
   scanLibrary();
+  const uint32_t tScan = millis();
   loadActive();
-  computeWarning();
+  const uint32_t tActive = millis();
+  // The free-space probe is NOT here any more. HalStorage::freeBytes() walks the
+  // FAT cluster chain (SDCardManager::refreshFreeClusters: "seconds on a large
+  // card"), it is cached for 20s afterwards, and it was the only thing on this
+  // path that could take seconds -- which is exactly the shape Mario saw: ten
+  // seconds once, fast on every open inside the TTL, on an EMPTY card where no
+  // thumbnail work exists at all. Ten seconds of blank screen before the offer
+  // appears is the "reads as crashed" failure one layer earlier than the paint-
+  // before-block work, so the screen is painted first and the walk happens
+  // after, in loop(), with content already on the glass.
+  warning_.clear();
+  warningPending_ = true;
+  LOG_INF("WALL", "onEnter %ums: fonts=%u sweep=%u scan=%u active=%u (free-space deferred)", tActive - tEnter,
+          tFonts - tEnter, tSweep - tFonts, tScan - tSweep, tActive - tScan);
   // Open on the page holding the set wallpaper, so the border is on screen.
   cachedPage_ = -1;
   page_ = 0;
@@ -618,6 +638,7 @@ void WallpapersActivity::runSetDownload() {
 
   fetchCancel_ = false;
   fetchDone_ = 0;
+  fetchUnpacking_ = false;
   fetchTotal_ = static_cast<int>(wallpapers::kBuiltInCount);
   view_ = View::Fetching;
   interactionsReady_ = false;
@@ -693,6 +714,9 @@ void WallpapersActivity::runSetDownload() {
 // card at exactly the right size is skipped, so a torn unpack costs seconds of
 // SD work on retry rather than another download.
 bool WallpapersActivity::unpackSet() {
+  // Second phase, same bar, second half of it.
+  fetchUnpacking_ = true;
+  fetchDone_ = 0;
   HalFile pack;
   if (!Storage.openFileForRead("WALL", kPackPart, pack)) {
     showNotice("CARD TROUBLE", "The download arrived but could not be read back.", "TRY AGAIN",
@@ -777,6 +801,20 @@ bool WallpapersActivity::unpackSet() {
 }
 
 void WallpapersActivity::loop() {
+  // The deferred free-space walk, once the panel already shows something.
+  // Guarded on painted_ rather than run straight from onEnter: rendering is
+  // notification-driven, so a blocking call in the same breath as
+  // requestUpdate() would run BEFORE the render task ever painted and the
+  // deferral would buy nothing (the #306 shape).
+  if (warningPending_ && painted_) {
+    warningPending_ = false;
+    const uint32_t t0 = millis();
+    computeWarning();
+    LOG_INF("WALL", "free-space probe took %ums", millis() - t0);
+    if (!warning_.empty()) requestUpdate();
+    return;
+  }
+
   // Started here rather than in the action handler: the fetch blocks for a
   // while and pumps input itself, which must not happen while a tap is still
   // being routed (the Trivia precedent, and the whole of the #306 family).
@@ -889,6 +927,7 @@ void WallpapersActivity::loop() {
 }
 
 void WallpapersActivity::render(RenderLock&&) {
+  const uint32_t tPaint = millis();
   clampPage();
   renderer.clearScreen();
   // Faces per view, not per app. The grid is a menu and wants the Jersey cut it
@@ -911,6 +950,7 @@ void WallpapersActivity::render(RenderLock&&) {
     model.done = fetchDone_;
     model.total = fetchTotal_;
     model.cancelling = fetchCancel_;
+    model.unpacking = fetchUnpacking_;
     wallpapersui::buildFetching(surface, model);
   } else if (view_ == View::Notice) {
     wallpapersui::NoticeModel model;
@@ -957,7 +997,11 @@ void WallpapersActivity::render(RenderLock&&) {
 
   const auto labels = mappedInput.mapLabels("Back", "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  // The offer screen draws its truchet band live, so the paint cost is worth a
+  // number rather than an assumption about a 240MHz part.
+  LOG_INF("WALL", "render view=%d took %ums", static_cast<int>(view_), millis() - tPaint);
   renderer.displayBuffer();
+  painted_ = true;
 }
 
 uint32_t WallpapersActivity::surfaceMeaning() const {

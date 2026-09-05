@@ -96,8 +96,24 @@ struct FetchingModel {
   int done = 0;
   int total = 0;
   bool cancelling = false;
+  // Fetching and unpacking are two real phases over the same set. They drove one
+  // bar from 0 to 100 EACH, so on hardware it filled, reset and filled again --
+  // which reads as the download restarting. The bar now spans both phases and
+  // the caption names which one is running: a progress bar may never go
+  // backwards without saying why.
+  bool unpacking = false;
 };
 void buildFetching(toybox::Screen& screen, const FetchingModel& model);
+
+// Where the bar sits across BOTH phases, as at/units. Freestanding because
+// "the bar never goes backwards" is a property of the arithmetic, and it must
+// be assertable without a panel -- the defect it guards was only ever visible
+// on hardware. host-tests/wallcaption walks the whole fetch and asserts it.
+struct BarSpan {
+  int at = 0;
+  int units = 1;
+};
+BarSpan fetchBarSpan(const FetchingModel& model);
 
 // The FAILED state, and every other "something happened, here is what" screen.
 // Always carries an action: a screen that reports a failure and gives you

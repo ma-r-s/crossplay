@@ -77,10 +77,13 @@ class WallpapersActivity final : public Activity {
   std::vector<std::string> names_;  // library file names, sorted
   int activeIndex_ = -1;            // which name is pinned, or -1
   int builtInsMissing_ = 0;         // how many of the built-in set are not on the card
+  bool warningPending_ = false;     // the free-space walk, deferred until after the first paint
+  bool painted_ = false;            // the panel has shown something at least once
   int page_ = 0;
   int fetchDone_ = 0;
   int fetchTotal_ = 0;
   bool fetchCancel_ = false;
+  bool fetchUnpacking_ = false;  // second phase: the bar's second half
   bool fetchQueued_ = false;
   std::string noticeHead_;
   std::string noticeBody_;
