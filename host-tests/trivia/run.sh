@@ -96,5 +96,18 @@ if cpp_named != reports.REASONS:
 if len(reports.REASONS) != int(re.search(r"Count = (\d+)", block).group(1)):
     print("FAIL trivia  Reason::Count does not match the number of Python codes")
     sys.exit(1)
-print(f"parity ok: {len(reports.REASONS)} reason codes agree")
+# reasonName() is what actually goes on the wire, so compare THAT too rather
+# than only the enumerator spellings -- they are two different facts and only
+# one of them reaches the endpoint.
+impl = open(f"{src}/TriviaReport.cpp", encoding="utf-8").read()
+body = re.search(r"const char\* reasonName\(const Reason reason\) \{(.*?)\n\}", impl, re.S).group(1)
+wire = dict(re.findall(r"case Reason::(\w+):\s*\n\s*return \"(\w*)\";", body))
+wire_by_value = {v: wire[n] for v, n in cpp.items() if n in wire}
+if wire_by_value != reports.REASONS:
+    print("FAIL trivia  reasonName() disagrees with reports.py")
+    print(f"      wire  : {wire_by_value}")
+    print(f"      Python: {reports.REASONS}")
+    sys.exit(1)
+
+print(f"parity ok: {len(reports.REASONS)} reason codes and wire names agree")
 PARITY

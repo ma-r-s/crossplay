@@ -166,6 +166,22 @@ bool PackState::setFlag(const uint32_t index, const uint8_t bit) {
   return true;
 }
 
+// The inverse, and it exists because HIDE had no undo: a mis-tap hid a question
+// permanently with nothing on screen about it. Symmetric with setFlag, counter
+// included -- a count that only ever goes up is how "3 hidden" survives showing
+// them all again.
+bool PackState::clearFlag(const uint32_t index, const uint8_t bit) {
+  if (source_ == nullptr || index >= count_) return false;
+  const uint8_t byte = flags(index);
+  const uint8_t updated = static_cast<uint8_t>(byte & ~bit);
+  if (updated == byte) return true;  // already clear, no write
+  if (!source_->write(index, &updated, 1)) return false;
+  if (!source_->flush()) return false;
+  if ((bit & kSeen) != 0 && (byte & kSeen) != 0 && seenCount_ > 0) --seenCount_;
+  if ((bit & kFlagged) != 0 && (byte & kFlagged) != 0 && flaggedCount_ > 0) --flaggedCount_;
+  return true;
+}
+
 uint32_t Rng::next() {
   // xorshift32. Small, no multiply, and identical on host and device, which is
   // what lets a test assert a sequence.

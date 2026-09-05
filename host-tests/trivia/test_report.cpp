@@ -192,6 +192,45 @@ void testMarkSentKeepsLateReports() {
   CHECK(q.sent() == 2);
 }
 
+// UNDO on the HIDDEN notice. The queue is fixed-width and cannot shrink, so a
+// withdrawn entry is tombstoned rather than removed -- and the slot is NOT
+// reused, because `sent` is a position and an out-of-order queue would make
+// markSent claim to have delivered something it had not.
+void testWithdraw() {
+  MemSource card;
+  ReportQueue q;
+  CHECK(q.open(card, kPack, 50) == QueueOpen::Started);
+  CHECK(q.add(1, Reason::Wrong));
+  CHECK(q.add(2, Reason::Broken));
+
+  CHECK(q.withdraw(1));
+  uint32_t index = 0;
+  Reason reason = Reason::Count;
+  CHECK(q.entry(0, index, reason) && index == kWithdrawnIndex);
+  // The other report is untouched.
+  CHECK(q.entry(1, index, reason) && index == 2 && reason == Reason::Broken);
+  // Withdrawing something that is not queued is not a silent success.
+  CHECK(!q.withdraw(1));
+  CHECK(!q.withdraw(44));
+
+  // A new report APPENDS rather than reusing the tombstone.
+  CHECK(q.add(3, Reason::Easy));
+  CHECK(q.count() == 3);
+  CHECK(q.entry(2, index, reason) && index == 3);
+
+  // A delivered report cannot be taken back: it is a fact on the far end, and
+  // pretending otherwise leaves the two disagreeing with nothing to notice it.
+  CHECK(q.markSent(q.count()));
+  CHECK(!q.withdraw(2));
+  CHECK(q.entry(1, index, reason) && index == 2);
+
+  // The tombstone survives a reopen and is still skipped by the reader.
+  ReportQueue again;
+  CHECK(again.open(card, kPack, 50) == QueueOpen::Ready);
+  CHECK(again.count() == 3);
+  CHECK(again.entry(0, index, reason) && index == kWithdrawnIndex);
+}
+
 void testQueueCapDropsTheNewest() {
   MemSource card;
   ReportQueue q;
@@ -381,6 +420,22 @@ void testReasonCodesArePinned() {
   // different report, or as none at all.
   CHECK(!q.add(1, static_cast<Reason>(200)));
   CHECK(q.count() == 0);
+
+  // Every reason has a wire name, they are all distinct, and none is empty --
+  // an empty name would be sent as a field the endpoint refuses, turning one
+  // reason into a rejected batch.
+  const char* names[static_cast<int>(Reason::Count)] = {};
+  for (int i = 0; i < static_cast<int>(Reason::Count); ++i) {
+    names[i] = reasonName(static_cast<Reason>(i));
+    CHECK(names[i] != nullptr && names[i][0] != '\0');
+  }
+  for (int i = 0; i < static_cast<int>(Reason::Count); ++i) {
+    for (int j = i + 1; j < static_cast<int>(Reason::Count); ++j) {
+      CHECK(std::strcmp(names[i], names[j]) != 0);
+    }
+  }
+  // The sentinel must NOT produce a name the endpoint would accept.
+  CHECK(std::strcmp(reasonName(Reason::Count), "") == 0);
 }
 
 }  // namespace
@@ -392,6 +447,7 @@ int main() {
   testSameCountDifferentPack();
   testUnknownBuildQueuesNothing();
   testMarkSentKeepsLateReports();
+  testWithdraw();
   testQueueCapDropsTheNewest();
   testTornAndForeignFiles();
   testMeta();

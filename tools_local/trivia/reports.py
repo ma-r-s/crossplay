@@ -44,6 +44,12 @@ HEADER = struct.Struct("<8sHHII32s")
 ENTRY = struct.Struct("<IBBH")  # index, reason, reserved, reserved
 PACK_ID_BYTES = 32
 
+# A withdrawn report, written by the device's UNDO. The queue is fixed-width and
+# append-only and the firmware's WritableByteSource cannot truncate, so an undo
+# overwrites the entry with this instead of removing it. Skipped on read. No
+# real index can collide: a real one is always below the pack's count.
+WITHDRAWN = 0xFFFFFFFF
+
 # 0 is NOT "unset": it is a deliberate, complete report with no reason attached.
 # Mario's rule on card #257 -- "a report with no reason is still a report, and
 # demanding a category is how you get no reports" -- is this constant.
@@ -125,6 +131,8 @@ def read(path):
         index, reason, _a, _b = ENTRY.unpack_from(blob, off)
         if reason not in REASONS:
             raise Refused(f"{path}: unknown reason code {reason} at index {index}")
+        if index == WITHDRAWN:
+            continue
         if index >= count:
             raise Refused(f"{path}: index {index} is past the pack's {count} questions")
         out.append((index, REASONS[reason]))

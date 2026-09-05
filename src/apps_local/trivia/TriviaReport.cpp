@@ -32,9 +32,7 @@ uint32_t entryOffset(const uint32_t i) { return kReportHeaderBytes + i * kReport
 // Anything else that is not a digit is a REFUSAL, not a stopping point -- "1x0"
 // must not read as 1, because a count that is quietly wrong compares equal to
 // nothing and disables the very check it feeds.
-bool isNumberEnd(const char c) {
-  return c == '\r' || c == '\n' || c == ' ' || c == '\t' || c == ',' || c == '}';
-}
+bool isNumberEnd(const char c) { return c == '\r' || c == '\n' || c == ' ' || c == '\t' || c == ',' || c == '}'; }
 
 bool parseU32(const char* s, const char* end, uint32_t& out) {
   uint32_t v = 0;
@@ -60,8 +58,8 @@ bool copyId(char* dst, const char* src, const size_t length) {
     // The id is hex today, but the check is "is this a safe, printable token"
     // rather than "is this hex": the endpoint's own guard is the same shape,
     // and a stricter reader here would strand a device on a future id format.
-    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' ||
-                    c == '_' || c == '-';
+    const bool ok =
+        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
     if (!ok) return false;
     dst[i] = c;
   }
@@ -70,6 +68,39 @@ bool copyId(char* dst, const char* src, const size_t length) {
 }
 
 }  // namespace
+
+const char* reasonName(const Reason reason) {
+  switch (reason) {
+    case Reason::None:
+      return "none";
+    case Reason::Wrong:
+      return "wrong";
+    case Reason::Nonsense:
+      return "nonsense";
+    case Reason::Giveaway:
+      return "giveaway";
+    case Reason::Ambiguous:
+      return "ambiguous";
+    case Reason::Outdated:
+      return "outdated";
+    case Reason::Broken:
+      return "broken";
+    case Reason::Regional:
+      return "regional";
+    case Reason::Us:
+      return "us";
+    case Reason::Hard:
+      return "hard";
+    case Reason::Easy:
+      return "easy";
+    case Reason::Count:
+      break;
+  }
+  // Unreachable for a stored reason -- add() refuses anything outside the enum
+  // -- and deliberately NOT a name the endpoint accepts, so a future value that
+  // slipped through would be refused there rather than filed as something else.
+  return "";
+}
 
 // --- the queue ---------------------------------------------------------------
 
@@ -186,6 +217,10 @@ bool ReportQueue::add(const uint32_t index, const Reason reason) {
     return source_->write(entryOffset(slot), rec, kReportEntryBytes) && source_->flush();
   }
 
+  // A withdrawn slot is NOT reused. Reusing it would put a new report before an
+  // older one in send order, and `sent` is a position: an out-of-order queue
+  // would make markSent deliver something the device thinks it has not sent.
+  //
   // Full: drop the NEWEST, which is this one. The first report of a question is
   // the one the player meant, and a queue this full means sync has not run in a
   // very long time. Reported as success because the FLAGGED bit still landed --
@@ -220,6 +255,17 @@ bool ReportQueue::entry(const uint32_t i, uint32_t& indexOut, Reason& reasonOut)
   if (rec[4] >= static_cast<uint8_t>(Reason::Count)) return false;
   reasonOut = static_cast<Reason>(rec[4]);
   return true;
+}
+
+bool ReportQueue::withdraw(const uint32_t index) {
+  if (source_ == nullptr || index == kWithdrawnIndex) return false;
+  uint32_t slot = 0;
+  if (!find(index, slot)) return false;
+  if (slot < sent_) return false;
+  uint8_t rec[kReportEntryBytes] = {};
+  writeU32(rec, kWithdrawnIndex);
+  rec[4] = static_cast<uint8_t>(Reason::None);
+  return source_->write(entryOffset(slot), rec, kReportEntryBytes) && source_->flush();
 }
 
 bool ReportQueue::markSent(const uint32_t n) {

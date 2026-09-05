@@ -16,6 +16,7 @@
 #include "../../activities/Activity.h"
 #include "../ui/ToyboxScreen.h"
 #include "TriviaCore.h"
+#include "TriviaReport.h"
 #include "TriviaScreens.h"
 
 class TriviaActivity final : public Activity {
@@ -40,6 +41,14 @@ class TriviaActivity final : public Activity {
   View flagReturn_ = View::Menu;
 
   bool openPack();
+  // Reads pack.meta and opens the queue. Both can fail benignly: an unreadable
+  // meta means "I do not know which build I hold", which suppresses reporting
+  // until a sync settles it rather than guessing an id.
+  void openReports(uint32_t count, uint32_t packBytes);
+  void runSync();
+  void fileReport(uint32_t index, trivia::Reason reason);
+  void describePack(char* out, size_t capacity) const;
+  int reasonRows(triviaui::ReasonModel& model) const;
   void onWifiChosen(bool connected);
   void runPackDownload();
   void showNotice(const char* headline, const char* body, const char* actionLabel = nullptr,
@@ -70,8 +79,24 @@ class TriviaActivity final : public Activity {
   char noticeBody_[160] = {};
   const char* noticeAction_ = nullptr;
   freeink::ui::ActionId noticeActionId_ = 0;
+  // The optional second row. Reset by showNotice on every notice, so these can
+  // never leak onto one that did not ask for them.
+  const char* noticeSecond_ = nullptr;
+  freeink::ui::ActionId noticeSecondId_ = 0;
+  const char* noticeThird_ = nullptr;
+  freeink::ui::ActionId noticeThirdId_ = 0;
   bool downloadCancel_ = false;
   bool downloadQueued_ = false;
+  bool syncQueued_ = false;
+
+  trivia::ReportQueue reports_;
+  trivia::PackMeta meta_;
+  // Which question the WHY? list is about. Held rather than re-derived from
+  // current_, because NEXT may have moved on by the time a reason is picked.
+  uint32_t reasonIndex_ = 0;
+  bool reasonIndexValid_ = false;
+  // Where the HIDDEN notice returns to, so the reason screen can go back to it.
+  char packLine_[72] = {};
 
   bool flashOnNextPaint_ = false;
   bool interactionsReady_ = false;

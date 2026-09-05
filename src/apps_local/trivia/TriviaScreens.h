@@ -39,6 +39,19 @@ enum : fui::ActionId {
   // every other settings list in this fork (chess, forehead, toybattle).
   ActionSettingsRow = 9,
   ActionCloseSettings = 10,
+  // The HIDDEN notice's second row. WHY? opens the reason list; UNDO takes the
+  // report back. Both live ABOVE the primary bar rather than beside it: adding
+  // a second control to drawAction's row would shrink NEXT QUESTION and move
+  // its centre, and a player who has learned where that bar is would open a
+  // list instead of continuing. See the same-pixel-different-action memory.
+  ActionWhy = 11,
+  ActionUnhide = 12,
+  // The reason list. Carries the reason's own wire value, so the row order on
+  // screen can change without changing what a report means.
+  ActionReasonRow = 13,
+  ActionCloseReason = 14,
+  ActionSync = 15,
+  ActionUnhideAll = 16,
 };
 
 enum class MenuRow : int { Quizmaster = 0, Solo, Difficulty, Settings, Count };
@@ -53,12 +66,25 @@ enum class MenuRow : int { Quizmaster = 0, Solo, Difficulty, Settings, Count };
 // questions exist for you at all: set once, near enough to never changed again.
 // One surface each is not two option surfaces; a chess LEVEL is set-and-forget
 // and that is why chess keeps its on this screen instead.
-enum class SettingRow : int { UsCentric = 0, Count };
+// SYNC and HIDDEN join US QUESTIONS by the same test the comment above applies:
+// both are set-and-forget rather than per-session. SYNC is the one door to the
+// network once a pack exists -- before this, ActionGetPack was reachable ONLY
+// from the empty-card and failure notices, so a device that already had a pack
+// could never receive a newer one (docs/open-items.md).
+enum class SettingRow : int { UsCentric = 0, Sync, Hidden, Count };
 
 // What the SETTINGS screen shows. The activity owns the value; this is a
 // picture of it, and the screen writes nothing.
 struct SettingsModel {
   bool usCentric = false;
+  // How many questions this card is hiding, and how many of those have not yet
+  // been sent. Shown because HIDE had no visible total anywhere and no way back:
+  // a mis-tap was permanent and silent.
+  uint32_t hidden = 0;
+  uint32_t pending = 0;
+  // What the card knows about its own build, already rendered into a sentence
+  // by the activity -- the screen writes nothing.
+  const char* packLine = "";
 };
 
 // A headline, a sentence, and at most one thing to do about it. Used for the
@@ -68,6 +94,22 @@ struct NoticeModel {
   const char* body = "";
   const char* actionLabel = nullptr;
   fui::ActionId action = 0;
+  // Up to two extra controls, drawn as their own row ABOVE the primary. The
+  // primary's rect never changes whether these are present or not, which is the
+  // whole point of putting them on a second row.
+  const char* secondLabel = nullptr;
+  fui::ActionId secondAction = 0;
+  const char* thirdLabel = nullptr;
+  fui::ActionId thirdAction = 0;
+};
+
+// The WHY? list. Labels and their wire values are supplied by the activity, so
+// this screen has no opinion about what a reason means.
+struct ReasonModel {
+  static constexpr int kMax = 10;
+  int count = 0;
+  const char* label[kMax] = {};
+  int value[kMax] = {};
 };
 
 struct MenuModel {
@@ -107,6 +149,7 @@ struct ChoiceModel {
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
 void buildSettings(toybox::Screen& screen, const SettingsModel& model);
+void buildReasons(toybox::Screen& screen, const ReasonModel& model);
 void buildNotice(toybox::Screen& screen, const NoticeModel& model);
 void buildQuestion(toybox::Screen& screen, const QuestionModel& model);
 void buildChoice(toybox::Screen& screen, const ChoiceModel& model);

@@ -42,6 +42,13 @@ inline constexpr uint32_t kReportEntryBytes = 8;    // index 4, reason 1, resv 3
 // player meant, and a queue this full means sync has not run in months.
 inline constexpr uint32_t kMaxQueuedReports = 64;
 
+// A withdrawn report. The queue is fixed-width and append-only, and
+// WritableByteSource cannot truncate, so an undo overwrites the entry with this
+// rather than removing it. Readers skip it. Chosen as the all-ones index
+// because no pack can ever have a question there: a real index is always below
+// the pack's count, which is checked on the way in.
+inline constexpr uint32_t kWithdrawnIndex = 0xFFFFFFFFu;
+
 // Mirrors REASONS in tools_local/trivia/reports.py. The VALUES are the wire
 // format, so a reordering here is a silent corpus edit -- a report meaning
 // "wrong answer" would arrive meaning something else. Pinned by a host test.
@@ -51,18 +58,24 @@ inline constexpr uint32_t kMaxQueuedReports = 64;
 // report, and demanding a category is how you get no reports.
 enum class Reason : uint8_t {
   None = 0,
-  Wrong = 1,       // the answer is factually wrong
-  Nonsense = 2,    // the clue does not parse as a question
-  Giveaway = 3,    // solo only: the options tell you the answer
-  Ambiguous = 4,   // more than one option is defensibly right
-  Outdated = 5,    // true when written, false now
-  Broken = 6,      // mangled text or encoding
-  Regional = 7,    // only someone local could know it
-  Us = 8,          // a US question the pack failed to mark
-  Hard = 9,        // levelled too easy for what it is
-  Easy = 10,       // levelled too hard for what it is
+  Wrong = 1,      // the answer is factually wrong
+  Nonsense = 2,   // the clue does not parse as a question
+  Giveaway = 3,   // solo only: the options tell you the answer
+  Ambiguous = 4,  // more than one option is defensibly right
+  Outdated = 5,   // true when written, false now
+  Broken = 6,     // mangled text or encoding
+  Regional = 7,   // only someone local could know it
+  Us = 8,         // a US question the pack failed to mark
+  Hard = 9,       // levelled too easy for what it is
+  Easy = 10,      // levelled too hard for what it is
   Count = 11,
 };
+
+// The wire NAME for a reason, which is what the endpoint reads. Kept beside the
+// enum so the two cannot drift, and pinned against tools_local/trivia/reports.py
+// by host-tests/trivia -- a name that means one thing here and another there is
+// a silent corpus edit that no build error would catch.
+const char* reasonName(Reason reason);
 
 // What opening a queue produced. Ready and Started both mean "you may add";
 // Foreign means there are undelivered reports about a DIFFERENT pack, which
@@ -98,6 +111,12 @@ class ReportQueue {
   bool setReason(uint32_t index, Reason reason);
 
   bool entry(uint32_t i, uint32_t& indexOut, Reason& reasonOut) const;
+
+  // Takes a report back, for the UNDO on the HIDDEN notice. Only an
+  // undelivered entry can be withdrawn: one already sent is a fact on the far
+  // end, and pretending otherwise here would leave the two disagreeing with
+  // nothing to notice it.
+  bool withdraw(uint32_t index);
 
   // After a sync delivered the first `n` entries. Advances a cursor rather than
   // truncating: a report filed while the request was in flight sits after `n`
@@ -167,10 +186,10 @@ PackManifest parseManifest(const char* json, size_t length);
 // What the sync should tell the player, decided from the two ids rather than
 // from whichever screen is on. Separated out so it is testable without a panel.
 enum class Freshness : uint8_t {
-  Current,      // same build
-  Newer,        // a different build is published
-  Unknown,      // we hold a pack but not which build; a fetch would settle it
-  NoManifest,   // could not read what is published
+  Current,     // same build
+  Newer,       // a different build is published
+  Unknown,     // we hold a pack but not which build; a fetch would settle it
+  NoManifest,  // could not read what is published
 };
 Freshness compare(const PackMeta& held, const PackManifest& published);
 
