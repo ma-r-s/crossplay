@@ -123,6 +123,9 @@ class PackState {
   bool open(WritableByteSource& source, uint32_t count);
   uint8_t flags(uint32_t index) const;
   bool setFlag(uint32_t index, uint8_t bit);
+  // Undoes setFlag, counters included. HIDE needs it: without an undo a
+  // mis-tapped question is hidden forever and nothing says so.
+  bool clearFlag(uint32_t index, uint8_t bit);
   bool seen(const uint32_t i) const { return (flags(i) & kSeen) != 0; }
   bool flagged(const uint32_t i) const { return (flags(i) & kFlagged) != 0; }
 
@@ -233,7 +236,7 @@ constexpr Room roomFor(const bool queryOk, const uint64_t freeBytes, const uint6
 // cannot be built on the host, so a decision left inside it cannot be tested.
 // The activity keeps `using View = trivia::View`, so its call sites are
 // unchanged.
-enum class View : uint8_t { Menu, Quizmaster, Solo, Notice, Settings };
+enum class View : uint8_t { Menu, Quizmaster, Solo, Notice, Settings, Reason };
 
 // What the Back gesture does on each screen.
 //
@@ -255,6 +258,11 @@ enum class View : uint8_t { Menu, Quizmaster, Solo, Notice, Settings };
 //               half of it back.
 //   Notice      a notice is a message with one button; Back dismisses it to
 //               the menu, the same place its own BACK TO MENU / PLAY goes.
+//   Reason      the WHY? list, which is a modal over the HIDDEN notice and is
+//               reached from nowhere else. Back returns to that notice, which
+//               is also where picking a reason and where its own BACK go: the
+//               report is already filed by the time this screen is on, so every
+//               way off it must land somewhere that keeps the round.
 //   Settings    the app's own options, reached only from the menu, so Back
 //               goes back to it -- the same place its BACK TO MENU button
 //               goes. Unlike Notice this needs no packOpen test: the settings
@@ -268,7 +276,7 @@ enum class View : uint8_t { Menu, Quizmaster, Solo, Notice, Settings };
 // because a menu built from a pack that is not there offers QUIZMASTER and SOLO
 // that cannot deal a question and has no route back to the download. So on that
 // notice Back leaves the app rather than dismissing to a dead end.
-enum class Back : uint8_t { LeaveApp, EndRound, ToMenu };
+enum class Back : uint8_t { LeaveApp, EndRound, ToMenu, ToNotice };
 
 constexpr Back backFrom(const View view, const bool packOpen) {
   switch (view) {
@@ -281,6 +289,8 @@ constexpr Back backFrom(const View view, const bool packOpen) {
       return packOpen ? Back::ToMenu : Back::LeaveApp;
     case View::Settings:
       return Back::ToMenu;
+    case View::Reason:
+      return Back::ToNotice;
   }
   return Back::ToMenu;
 }

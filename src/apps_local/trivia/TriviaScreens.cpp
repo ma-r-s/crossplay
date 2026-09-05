@@ -136,6 +136,40 @@ void drawAsideAction(toybox::Screen& screen, const char* label, const fui::Actio
   screen.frame().hit(aside, action);
 }
 
+// Up to two outlined controls on their OWN ROW, immediately above the footer.
+//
+// This exists so a screen can gain a control without moving the one that is
+// already there. The alternative -- widening drawAction into drawActionPair --
+// shrinks the primary from full width to `full - kAsideWidth - kAsideGap` and
+// moves its centre, so a player who has learned where the big bar is would hit
+// the new control instead. This fork has a memory about exactly that
+// (same-pixel-different-action), and the HIDDEN notice is the worst place to
+// spend it: its primary is what continues the round.
+//
+// Sized and placed off footerTop, so it tracks the footer rather than being
+// pinned to a number that a font change would strand.
+void drawSecondRow(toybox::Screen& screen, const char* left, const fui::ActionId leftAction, const char* right,
+                   const fui::ActionId rightAction) {
+  if (left == nullptr && right == nullptr) return;
+  const fui::Rect body = screen.body();
+  const int16_t full = static_cast<int16_t>(body.width - kMargin * 2);
+  const int16_t top = static_cast<int16_t>(footerTop(screen) - 60);
+  const int16_t width = right != nullptr ? static_cast<int16_t>((full - kAsideGap) / 2) : full;
+
+  if (left != nullptr) {
+    const fui::Rect box{static_cast<int16_t>(body.x + kMargin), top, width, 52};
+    screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 2);
+    drawLabel(screen, box, left, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+    screen.frame().hit(box, leftAction);
+  }
+  if (right != nullptr) {
+    const fui::Rect box{static_cast<int16_t>(body.x + kMargin + full - width), top, width, 52};
+    screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 2);
+    drawLabel(screen, box, right, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+    screen.frame().hit(box, rightAction);
+  }
+}
+
 // Primary, plus TWO narrower outlined ones. Quizmaster needs three: advance,
 // reject the question, and leave. Widths derive from the same constants as the
 // pair so the right-hand control lines up across every screen in the app.
@@ -227,6 +261,7 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
             fui::Rect{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(top + 88),
                       static_cast<int16_t>(body.width - kMargin * 2), 260},
             model.body, fui::TextAlign::Center);
+  drawSecondRow(screen, model.secondLabel, model.secondAction, model.thirdLabel, model.thirdAction);
   if (model.actionLabel != nullptr) drawAction(screen, model.actionLabel, model.action);
 }
 
@@ -376,6 +411,9 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   back.borderEdges = fui::EdgesNone;
   screen.button(back, screen.takeBottom(toybox::kPillHeight));
 
+  char hiddenValue[24] = {};
+  char hiddenSub[64] = {};
+
   fui::ListItem rows[static_cast<int>(SettingRow::Count)] = {};
   rows[static_cast<int>(SettingRow::UsCentric)].label = "US QUESTIONS";
   rows[static_cast<int>(SettingRow::UsCentric)].value = model.usCentric ? "ON" : "OFF";
@@ -383,6 +421,28 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   // international by default and a player who never turns this on never learns
   // the marked questions were held back at all.
   rows[static_cast<int>(SettingRow::UsCentric)].subtitle = "OFF HIDES CLUES ONLY A US PLAYER WOULD KNOW";
+
+  rows[static_cast<int>(SettingRow::Sync)].label = "SYNC";
+  rows[static_cast<int>(SettingRow::Sync)].value = "";
+  // Says what the card holds rather than only offering the button, so the row
+  // can be read without pressing it. A sync that only spins is the thing card
+  // #253 calls "honest and useless".
+  rows[static_cast<int>(SettingRow::Sync)].subtitle = model.packLine;
+
+  rows[static_cast<int>(SettingRow::Hidden)].label = "HIDDEN QUESTIONS";
+  std::snprintf(hiddenValue, sizeof(hiddenValue), "%u", static_cast<unsigned>(model.hidden));
+  rows[static_cast<int>(SettingRow::Hidden)].value = hiddenValue;
+  // A total and a way back. HIDE was permanent and silent before this: a
+  // mis-tap could not be undone and nothing anywhere said how many had gone.
+  if (model.hidden == 0) {
+    std::snprintf(hiddenSub, sizeof(hiddenSub), "NOTHING IS HIDDEN ON THIS CARD");
+  } else if (model.pending > 0) {
+    std::snprintf(hiddenSub, sizeof(hiddenSub), "TAP TO SHOW THEM ALL AGAIN. %u NOT YET SENT",
+                  static_cast<unsigned>(model.pending));
+  } else {
+    std::snprintf(hiddenSub, sizeof(hiddenSub), "TAP TO SHOW THEM ALL AGAIN");
+  }
+  rows[static_cast<int>(SettingRow::Hidden)].subtitle = hiddenSub;
 
   for (int i = 0; i < static_cast<int>(SettingRow::Count); ++i) {
     rows[i].actionValue = static_cast<int16_t>(i);
@@ -402,6 +462,64 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   // and gives a long sentence a real second line to wrap into.
   list.subtitleText.font = toybox::kSmallFont;
   list.subtitleText.maxLines = 2;
+  screen.list(list);
+}
+
+// The WHY? list. Its own screen, so the play screens gain nothing and the rows
+// get room to be legible -- and so this list can grow without any question
+// screen changing shape.
+//
+// Reached only from the HIDDEN notice, and only after the report is already
+// filed. That ordering is the design: one tap reports, and the reason is an
+// optional second. A player who walks away here has still reported the question.
+void buildReasons(toybox::Screen& screen, const ReasonModel& model) {
+  chrome(screen, "WHY?", nullptr);
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+
+  fui::ButtonProps back;
+  back.label = "NO REASON";
+  back.action = ActionCloseReason;
+  back.borderEdges = fui::EdgesNone;
+  screen.button(back, screen.takeBottom(toybox::kPillHeight));
+
+  fui::ListItem rows[ReasonModel::kMax] = {};
+  const int count = model.count < ReasonModel::kMax ? model.count : ReasonModel::kMax;
+  for (int i = 0; i < count; ++i) {
+    rows[i].label = model.label[i];
+    // The row carries the reason's WIRE value, not its position. Ordering the
+    // list differently, or hiding a row that does not apply, then cannot change
+    // what a report means -- which it would if the handler read the index.
+    rows[i].actionValue = static_cast<int16_t>(model.value[i]);
+  }
+
+  fui::ListProps list;
+  list.items = rows;
+  list.count = static_cast<uint16_t>(count);
+  list.selectedIndex = -1;
+  list.action = ActionReasonRow;
+  // SET EXPLICITLY, and this is the row count's whole margin.
+  //
+  // The list is virtualised: list.h says only rows that fully fit are "laid
+  // out, drawn, and registered for interaction" -- so a row past the bottom is
+  // not clipped, it does not exist. No hit region, nothing on screen, and a
+  // reason a player can never choose.
+  //
+  // At the theme's 62px row and a 4px gap this band takes NINE rows, and the
+  // list is TEN in solo with US questions off (both conditional rows show at
+  // once). Exactly one reason -- TOO EASY, the last -- would have vanished, in
+  // one combination, silently. That is the screens-overflow-silently failure
+  // with a one-row margin, which is the hardest size to notice.
+  //
+  // 52 is right on its own terms rather than as a squeeze: these rows carry a
+  // label and nothing else -- no subtitle, no value, no icon -- and the theme's
+  // 62 is sized for rows that do.
+  //
+  // MEASURED CAPACITY AT THIS HEIGHT IS kMaxReasonRows, and that constant is
+  // the thing to re-derive if this number changes. The band's own height is
+  // deliberately not written here: an earlier draft quoted it and was wrong by
+  // 17px, which is the derived-facts-written-as-literals shape in a comment
+  // rather than in code.
+  list.rowHeight = 52;
   screen.list(list);
 }
 
@@ -479,7 +597,17 @@ void buildChoice(toybox::Screen& screen, const ChoiceModel& model) {
   // A cold tester could escape only with the HOME key, which also meant there
   // was no way to finish deliberately and see a score. One omission, not two.
   if (model.chosen >= 0) {
-    drawActionPair(screen, "NEXT", ActionNext, "END", ActionQuit);
+    // The SAME trio quizmaster draws, in the same places. Solo had no way to
+    // report a question at all, which is the mode where "the options give it
+    // away" and "wrong answer" are the two faults a player can actually see.
+    //
+    // This does move NEXT's centre in solo, which is the cost: the footer goes
+    // from a pair to a trio the first time a player meets it after updating.
+    // Taken deliberately, because the alternative is two different footers for
+    // the same three choices, and because HIDE announces itself and is now
+    // undoable from the notice it raises. END, the destructive one, does not
+    // move: drawAsideAction derives its x the same way for pair and trio.
+    drawActionTrio(screen, "NEXT", ActionNext, "HIDE", ActionFlag, "END", ActionQuit);
   } else {
     drawAsideAction(screen, "END", ActionQuit);
   }

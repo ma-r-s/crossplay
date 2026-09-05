@@ -1410,6 +1410,100 @@ PY_SKIP
   fi
 fi
 
+# The SUB-SUITE COUNT, against every summary line this tree can actually print.
+#
+# check.sh's host-tests loop prints "ok (N sub-suite(s))" where N comes from
+#   passed=$(grep -c "checks, 0 failed" "$SUITE_LOG" || true)
+# -- a free-text grep for a phrase each test binary happens to print. Nothing
+# enforced that phrase, so a suite whose summary says anything else is INVISIBLE
+# to the count: it runs, it passes, and the tally silently omits it.
+#
+# That is not hypothetical. host-tests/trivia/test_report.cpp printed
+# "274 checks, 0 failures" while its two siblings printed "0 failed", so a suite
+# of three reported "ok (2 sub-suite(s))" for a run in which all three passed.
+# The green was real and the number was wrong, which is the worse half: the
+# count is exactly what a person reads to answer "did everything I added run?".
+#
+# Same shape as the SKIP guard above, and for the same reason: this does not
+# assert a pattern, it DISCOVERS the summary lines the tree can print and
+# asserts check.sh's own counting grep -- lifted from the file, not copied --
+# matches each one. A new suite worded differently adds itself to this list.
+COUNTGREP="$(grep -E '^[[:space:]]*passed=\$\(grep -c ' "$CHECK" | head -1)"
+checks=$((checks + 1))
+if [ -z "$COUNTGREP" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  could not lift the sub-suite count out of check.sh"
+else
+  COUNTPAT="$(printf '%s\n' "$COUNTGREP" | sed -E 's/^[^"]*"([^"]*)".*$/\1/')"
+  python3 - "$HERE/../.." "$COUNTPAT" <<'PY_COUNT'
+import pathlib, re, subprocess, sys
+
+root = pathlib.Path(sys.argv[1]).resolve()
+pattern = sys.argv[2]
+
+# Every string literal a host suite would PRINT that carries a "N checks, M
+# <failword>" summary. Comments are excluded: a line whose first non-space
+# characters are a comment marker prints nothing.
+emit = re.compile(r"(printf|print|echo|puts|cout)", re.I)
+# Escapes are allowed INSIDE the literal, not treated as its end. A first cut
+# used [^"\\]* and so could not see a single C++ summary, because every one of
+# them ends in \n -- the guard would have reported a clean tree while checking
+# only the shell suites, which is this file's own recurring nightmare.
+summary = re.compile(r'"((?:[^"\\]|\\.)*\bchecks,(?:[^"\\]|\\.)*fail(?:[^"\\]|\\.)*)"')
+# The count is only ever read on a CLEAN run, so every placeholder becomes 0 --
+# that is the line check.sh's grep will actually meet.
+placeholder = re.compile(r"%[-0-9.]*[a-zA-Z]|\$\{?[A-Za-z_][A-Za-z_0-9]*\}?|\{[^}]*\}")
+escape = re.compile(r"\\.")
+
+found = []
+for path in sorted((root / "host-tests").rglob("*")):
+    if not path.is_file() or path.suffix not in (".sh", ".py", ".cpp", ".c", ".h", ".js"):
+        continue
+    for raw in path.read_text(errors="replace").splitlines():
+        head = raw.lstrip()
+        if head.startswith(("//", "#", "*")):
+            continue
+        if not emit.search(raw):
+            continue
+        for m in summary.finditer(raw):
+            text = m.group(1)
+            # A summary with no placeholder is a fixed sentence, not a per-run
+            # tally -- "1 checks, 1 failed" is what a suite prints when it has
+            # ALREADY failed, and check.sh is right not to count it.
+            if not placeholder.search(text):
+                continue
+            found.append((path.relative_to(root), text))
+
+if not found:
+    print("FAIL checksh  found no sub-suite summary lines at all -- the discovery is")
+    print("              broken, which would make this assertion pass by finding nothing")
+    raise SystemExit(1)
+
+bad = []
+for where, text in found:
+    rendered = escape.sub("", placeholder.sub("0", text))
+    hit = subprocess.run(["grep", "-E", pattern], input=rendered + "\n",
+                         text=True, capture_output=True).returncode == 0
+    if not hit:
+        bad.append((where, text, rendered))
+
+for where, text, rendered in bad:
+    print(f"FAIL checksh  {where} prints a summary check.sh cannot count:")
+    print(f'                  literal  {text!r}')
+    print(f'                  on a clean run  "{rendered}"')
+    print(f'                  counted by  grep -c "{pattern}"')
+if bad:
+    print("              That suite RUNS and PASSES and is simply left out of the")
+    print("              'ok (N sub-suite(s))' tally, so a suite nobody notices is")
+    print("              missing looks exactly like one that was never added.")
+print("      (checked %d summary literals across the tree)" % len(found))
+raise SystemExit(1 if bad else 0)
+PY_COUNT
+  if [ $? -ne 0 ]; then
+    failed=$((failed + 1))
+  fi
+fi
+
 # -- and a skip must be a FAILURE in CI --------------------------------------
 #
 # The block above proves a skip is SEEN. This one asks the other half: on the
@@ -1991,6 +2085,30 @@ rm -f "$WORK/undo.fired"; ( cd "$WORK/undo" && export CHECK_ALLOW_UNDO=1 && die(
 [ ! -e "$WORK/undo.fired" ] && checks=$((checks + 1)) || { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL checksh  undo guard: CHECK_ALLOW_UNDO=1 did not let a meant revert through"; }
 undo_repo; ( cd "$WORK/undo" && git checkout -q -b app/own && seq 1 80 | sed 's/^/my branch added this line and took it back /' > tmp.txt && git add -A && git commit -qm add && git rm -q tmp.txt && git commit -qm remove )
 undo_expect "a branch deleting its own additions is silent" silent
+
+# --- a test file its suite never runs -----------------------------------------
+#
+# The block that lists test files run.sh never names is lifted between its
+# markers and run against fixture suite directories: one that names every file,
+# one that forgot a file, one that globs test_* and therefore runs whatever is
+# there.
+python3 - "$CHECK" >"$WORK/unrun.sh" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+a = next(i for i, l in enumerate(lines) if 'unrun test files begin' in l)
+b = next(i for i, l in enumerate(lines) if 'unrun test files end' in l)
+print('\n'.join(lines[a + 1:b]))
+PY
+[ -s "$WORK/unrun.sh" ] || { echo "FAIL checksh  could not lift the unrun-test-file block out of check.sh"; failed=$((failed + 1)); }
+unrun_case() {  # label, run.sh body, wanted unrun value (space-led names, or empty)
+  local d="$WORK/suite"; rm -rf "$d"; mkdir -p "$d"; printf '%s\n' "$2" >"$d/run.sh"; : >"$d/test_a.py"; : >"$d/test_b.cpp"
+  local got; got="$(suite="$d" bash -c '. "'"$WORK"'/unrun.sh"; printf "%s" "$unrun"')"
+  checks=$((checks + 1))
+  if [ "$got" != "$3" ]; then failed=$((failed + 1)); echo "FAIL checksh  unrun test files: $1: got '$got', wanted '$3'"; fi
+}
+unrun_case "every test file named is clean"            'python3 test_a.py && g++ test_b.cpp -o t && ./t' ""
+unrun_case "a file run.sh never names is reported"     'python3 test_a.py' " test_b.cpp"
+unrun_case "a run.sh that globs test_* runs everything" 'for f in test_*.py; do python3 "$f"; done; for c in test_*.cpp; do g++ "$c"; done' ""
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
