@@ -934,6 +934,52 @@ toybox::Screen solitaireScreen(toybox::Frame& frame, fui::ThemeTokens& tokens) {
   return toybox::Screen(frame, tokens);
 }
 
+// The two Trivia screens the report feature added, rendered here for one
+// reason: the chrome probe measures what this suite DRAWS, so a screen no test
+// constructs is a screen the probe has never looked at. That is not a
+// hypothetical -- Solitaire below was in exactly that state, and these two
+// landed in the same window as card #248 with their own suite covering the
+// queue and the pack rather than the pixels.
+void triviaReportScreensClearTheChrome() {
+  {
+    Rendered reasons;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(reasons.target, ctx, noInput, reasons.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    triviaui::ReasonModel model;
+    model.count = 4;
+    const char* labels[4] = {"THE ANSWER IS WRONG", "THE QUESTION MAKES NO SENSE", "IT IS A DUPLICATE",
+                             "SOMETHING ELSE"};
+    for (int i = 0; i < model.count; ++i) {
+      model.label[i] = labels[i];
+      model.value[i] = i;
+    }
+    triviaui::buildReasons(screen, model);
+    CHECK(reasons.target.drew("THE ANSWER IS WRONG"));
+    // The probe SAW this screen. Without this the test would pass just as well
+    // on a render that drew no chrome at all, and "measured" and "skipped"
+    // would look identical from the outside -- which is the whole failure mode
+    // these renders exist to close.
+    CHECK(bandRectOf(reasons.target).height > 0);
+  }
+  {
+    Rendered notice;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(notice.target, ctx, noInput, notice.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    triviaui::NoticeModel model;
+    model.headline = "REPORT SENT";
+    model.body = "It goes up with the next pack sync.";
+    model.actionLabel = "BACK";
+    model.action = 1;
+    triviaui::buildNotice(screen, model);
+    CHECK(notice.target.drew("REPORT SENT"));
+    CHECK(bandRectOf(notice.target).height > 0);
+  }
+}
+
 void solitaireDrawsOneRuleAndClearsIt() {
   const fui::DeviceContext ctx = solitaireDevice();
   const fui::InputSnapshot noInput{};
@@ -966,6 +1012,9 @@ void solitaireDrawsOneRuleAndClearsIt() {
   // chrome's geometry in an app file is a bug that is waiting rather than a bug
   // that is showing.
   CHECK(rules == 1);
+  // And the probe recognised this band, which is a 56px one. A render it does
+  // not recognise is a render it silently skips.
+  CHECK(bandRectOf(board.target).height == solitaireui::kHeaderBand);
 
   Rendered menu;
   {
@@ -981,6 +1030,7 @@ void solitaireDrawsOneRuleAndClearsIt() {
     solitaireui::buildMenu(screen, model);
   }
   CHECK(menu.target.drew("SOLITAIRE"));
+  CHECK(bandRectOf(menu.target).height == solitaireui::kHeaderBand);
 
   Rendered win;
   {
@@ -994,6 +1044,7 @@ void solitaireDrawsOneRuleAndClearsIt() {
     solitaireui::buildWin(screen, model);
   }
   CHECK(win.target.texts.size() > 0);
+  CHECK(bandRectOf(win.target).height == solitaireui::kHeaderBand);
 
   // And the band this app raises is the number the Activity hands the theme.
   // It was 56 typed twice in two files; the builders and the token could
@@ -10382,6 +10433,7 @@ int main() {
   testAShortBoxIsWhatMakesTheCorrectionNecessary();
   testAMinesweeperDigitIsCentredInItsCell();
   testAKnucklebonesColumnTotalClearsItsBand();
+  triviaReportScreensClearTheChrome();
   solitaireDrawsOneRuleAndClearsIt();
   everyBandCarriesItsRule();
   yahtzeeDiceClearTheHeader();
