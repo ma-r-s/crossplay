@@ -489,6 +489,8 @@ SizeGroups sizeGroups() {
   return g;
 }
 
+constexpr int16_t kTabBandHeight = 60;
+
 int clampInt(const int v, const int lo, const int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 // A right-pointing "play" triangle: the resume affordance, drawn as narrowing
@@ -610,6 +612,13 @@ void layOutGrid(toybox::Screen& screen, const MenuModel& model, const fui::Rect&
 
 // The size tabs. Each is a rounded pill carrying its size and its own solved
 // count; the active one is filled. Tapping a tab switches groups.
+//
+// The pill's vertical budget, from its top edge: 8px padding, the 25px label
+// ink, a 7px gap, the 13px count ink, 7px padding -- 60 in all. It was 48, which
+// left THREE pixels above and below the text, and kPillRadius rounds the corners
+// into exactly those pixels, so the two lines read as jammed against the bubble.
+// Grow the pill rather than shrink the type: the count is already at the tile
+// cut and the size label is the thing being read.
 void drawSizeTabs(toybox::Screen& screen, const MenuModel& model, const SizeGroups& g, const fui::Rect& band,
                   const int active) {
   const int16_t tabGap = 8;
@@ -633,7 +642,7 @@ void drawSizeTabs(toybox::Screen& screen, const MenuModel& model, const SizeGrou
     ts.font = toybox::kUiFont;
     ts.align = fui::TextAlign::Center;
     ts.color = fg;
-    const fui::Rect labelBox = fui::makeRect(tb.x, tb.y, tb.width, static_cast<int16_t>(tb.height - 16));
+    const fui::Rect labelBox = fui::makeRect(tb.x, tb.y, tb.width, static_cast<int16_t>(tb.height - 18));
     screen.target().text(toybox::inkCentred(labelBox, toybox::kUiCut), label, ts);
 
     char count[toybox::kSlashCounterChars];
@@ -642,7 +651,7 @@ void drawSizeTabs(toybox::Screen& screen, const MenuModel& model, const SizeGrou
     cs.font = toybox::kSmallFont;
     cs.align = fui::TextAlign::Center;
     cs.color = fg;
-    const fui::Rect countBox = fui::makeRect(tb.x, static_cast<int16_t>(tb.bottom() - 16), tb.width, 14);
+    const fui::Rect countBox = fui::makeRect(tb.x, static_cast<int16_t>(tb.bottom() - 22), tb.width, 18);
     screen.target().text(toybox::inkCentred(countBox, toybox::kTileCut), count, cs);
 
     screen.frame().hit(tb, ActionTab, static_cast<int16_t>(t));
@@ -673,7 +682,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
 
   const SizeGroups g = sizeGroups();
   const int tab = clampInt(model.sizeTab, 0, g.count - 1);
-  const fui::Rect tabBand = screen.takeTop(48, toybox::kGutter);
+  const fui::Rect tabBand = screen.takeTop(kTabBandHeight, toybox::kGutter);
   drawSizeTabs(screen, model, g, tabBand, tab);
 
   const fui::Rect dotBand = screen.takeBottom(26, toybox::kGutter);

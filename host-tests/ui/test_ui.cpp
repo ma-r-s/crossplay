@@ -9645,7 +9645,13 @@ void testPicrossPickerGroupsAndPagesBySize() {
     picrossui::PickerLayout layout;
     buildPicrossMenu(out, model, layout);
     CHECK(layout.firstIndex == start10);
-    CHECK(layout.count > 0);
+    // A full page is 16 tiles in four rows. Pinned because the size-tab row sits
+    // directly above the grid: making the tabs taller (they were vertically
+    // cramped) eats the grid's height, and silently dropping to three rows would
+    // change the paging without anyone noticing.
+    CHECK(layout.count == 16);
+    CHECK(layout.rows == 4);
+    CHECK(layout.cols == 4);
     const int pitch = layout.cell + layout.gap;
     for (int k = 0; k < layout.count; ++k) {
       const int r = k / layout.cols;
