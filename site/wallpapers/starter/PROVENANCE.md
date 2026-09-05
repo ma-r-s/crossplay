@@ -18,8 +18,11 @@ Each was fetched from the Met Open Access API with `isPublicDomain == true` and
 is released by the museum under CC0. All are woodcut, engraving or etching, i.e.
 native line art. Tonal and photographic reproductions (mezzotint, aquatint,
 stipple) were rejected on purpose: 1 bit has no midtones, so they dither into a
-grainy field. Each was cropped to the artwork -- no page margin, plate mark or
-letterpress caption -- and filled to 480x800 rather than letterboxed.
+grainy field. Each was cropped to the artwork -- no page margin, plate mark or letterpress
+caption -- and filled to 480x800 rather than letterboxed. The rule the crops
+follow: fill the panel by scaling to the HEIGHT and cropping the WIDTH, never by
+zooming in past what filling requires, because that is how a figure loses its
+head. Verified by measuring the white band at each edge.
 
 ### owl.bmp
 - **Title:** Monedula, Chouëtte (The Owl), from "Livre d'Oyseaux" (Book of Birds)
@@ -63,7 +66,7 @@ letterpress caption -- and filled to 480x800 rather than letterboxed.
 - **Source:** https://www.metmuseum.org/art/collection/search/403169
 - **Image:** https://images.metmuseum.org/CRDImages/dp/original/DP870391.jpg
 - **Licence:** CC0 (Public Domain), The Metropolitan Museum of Art, Open Access
-- **Conversion:** Sheet edge, mount and corner page number removed.
+- **Conversion:** Cropped to the Aegean at 3:5, inset off the faint sea edge so no white band survives at top or bottom.
 
 ### ornament.bmp
 - **Title:** Grotesque Panel
@@ -85,7 +88,7 @@ letterpress caption -- and filled to 480x800 rather than letterboxed.
 - **Source:** https://www.metmuseum.org/art/collection/search/336222
 - **Image:** https://images.metmuseum.org/CRDImages/dp/original/DP816026.jpg
 - **Licence:** CC0 (Public Domain), The Metropolitan Museum of Art, Open Access
-- **Conversion:** Cropped to the two figures and the tree at exactly 3:5, so it fills the panel with no band.
+- **Conversion:** Full plate height kept and the width cropped to 3:5, centred on the figures, so both heads and both feet stay in frame. Autocontrast before Atkinson: without it the hatching of a face collapses into the hatching of the foliage behind it.
 
 ### durer-horsemen.bmp
 - **Title:** The Four Horsemen, from "The Apocalypse"
@@ -96,7 +99,7 @@ letterpress caption -- and filled to 480x800 rather than letterboxed.
 - **Source:** https://www.metmuseum.org/art/collection/search/336215
 - **Image:** https://images.metmuseum.org/CRDImages/dp/original/DP816773.jpg
 - **Licence:** CC0 (Public Domain), The Metropolitan Museum of Art, Open Access
-- **Conversion:** Cropped tight to the lead riders and horses, so the linework survives the picker thumbnail.
+- **Conversion:** Full plate height kept and the width cropped to 3:5, so all four riders stay in frame. Autocontrast before thresholding opens the clouds and separates the figures.
 
 ### blake-door.bmp
 - **Title:** Death's Door, from "The Grave," a Poem by Robert Blair
@@ -107,4 +110,4 @@ letterpress caption -- and filled to 480x800 rather than letterboxed.
 - **Source:** https://www.metmuseum.org/art/collection/search/383680
 - **Image:** https://images.metmuseum.org/CRDImages/dp/original/DP816716.jpg
 - **Licence:** CC0 (Public Domain), The Metropolitan Museum of Art, Open Access
-- **Conversion:** Cropped inside the plate mark: page margin, plate number, printed caption and verse all removed.
+- **Conversion:** Cropped inside the plate mark (page margin, plate number, printed caption and verse removed), then autocontrast before thresholding.

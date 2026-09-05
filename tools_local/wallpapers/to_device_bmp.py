@@ -13,7 +13,7 @@ Usage: to_device_bmp.py <in> <out.bmp> [atkinson|bayer|threshold] [--invert]
 """
 import sys
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 W, H = 480, 800
 
@@ -62,8 +62,14 @@ def threshold(gray):
     return (gray.astype(np.float32) >= 128).astype(np.uint8)
 
 
-def to_bmp(inp, out, mode="atkinson", invert=False):
+def to_bmp(inp, out, mode="atkinson", invert=False, auto=False):
     img = fit_cover(Image.open(inp))
+    if auto:
+        # Stretch the scan's tonal range before dithering. A museum scan of an
+        # engraving sits in a narrow band of greys; dithered as-is the fine
+        # hatching of a FACE collapses into the hatching of the FOLIAGE behind
+        # it, which is how Adam lost his head at 480x800.
+        img = ImageOps.autocontrast(img, cutoff=1)
     gray = np.asarray(img, np.uint8)
     if invert:
         gray = 255 - gray
@@ -82,9 +88,10 @@ def to_bmp(inp, out, mode="atkinson", invert=False):
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a != "--invert"]
+    args = [a for a in sys.argv[1:] if a not in ("--invert", "--autocontrast")]
     inv = "--invert" in sys.argv
+    auto = "--autocontrast" in sys.argv
     inp, out = args[0], args[1]
     mode = args[2] if len(args) > 2 else "atkinson"
-    n = to_bmp(inp, out, mode, inv)
-    print(f"wrote {out} ({n} bytes, {mode}{', inverted' if inv else ''})")
+    n = to_bmp(inp, out, mode, inv, auto)
+    print(f"wrote {out} ({n} bytes, {mode}{', autocontrast' if auto else ''}{', inverted' if inv else ''})")
