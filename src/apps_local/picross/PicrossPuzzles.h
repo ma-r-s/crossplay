@@ -48,7 +48,7 @@ constexpr int kProvenanceCount = static_cast<int>(sizeof(kProvenances) / sizeof(
 struct Puzzle {
   const char* name;
   uint8_t size;             // 5, 10 or 15
-  uint8_t provenance;       // index into kProvenances
+  uint16_t provenance;      // index into kProvenances
   uint16_t rows[kMaxSize];  // bit c set when (row, col) is solid
 };
 

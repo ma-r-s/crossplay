@@ -413,12 +413,16 @@ def emit(puzzles):
         )
         print("  %-16s %2dx%-2d  unique, line-solvable" % (name, n, n))
 
-    # `provenance` is a uint8_t index, so the table has to fit one. A bank with
+    # `provenance` is a uint16_t index, so the table has to fit one. A bank with
     # more distinct origins than that wants a wider field, not a truncated
-    # table, and saying so here is cheaper than debugging the wrap.
-    if len(prov_rows) > 256:
+    # table, and saying so here is cheaper than debugging the wrap. The field
+    # was a uint8_t until a 531-puzzle import produced 532 distinct rows: every
+    # imported puzzle carries its OWN source URL, which is the field that
+    # actually identifies it, so the dedup that makes this fork's own bank one
+    # row does nothing for a collection.
+    if len(prov_rows) > 65535:
         sys.exit(
-            "%d distinct provenances; Puzzle::provenance is a uint8_t and holds 256. "
+            "%d distinct provenances; Puzzle::provenance is a uint16_t and holds 65535. "
             "Widen the field (and kProvenanceCount with it) before importing more."
             % len(prov_rows)
         )
@@ -533,7 +537,7 @@ constexpr int kProvenanceCount = static_cast<int>(sizeof(kProvenances) / sizeof(
 struct Puzzle {
   const char* name;
   uint8_t size;             // 5, 10 or 15
-  uint8_t provenance;       // index into kProvenances
+  uint16_t provenance;      // index into kProvenances
   uint16_t rows[kMaxSize];  // bit c set when (row, col) is solid
 };
 
