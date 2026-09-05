@@ -5,11 +5,10 @@ read-later queue and a catalog browser for downloading books. Many of the
 games play over **PLAY NEARBY** -- two devices next to each other find one
 another with nothing to type, and they do not have to be the same device.
 
-### What is new in 1.12.22
+### What is new in 1.12.23
 
-- Wt: prune must not delete a tree somebody is working in
-- Count a link match, and show the board that ended it (#35, #36)
-- Plus 2 changes nothing on the device can see.
+- Reserve the murdle refusal band so the grid never moves
+- The release page now says what changed in this release, and nothing else.
 
 ### Every release before this one
 

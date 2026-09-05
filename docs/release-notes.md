@@ -21,6 +21,11 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.23
+
+- Reserve the murdle refusal band so the grid never moves
+- The release page now says what changed in this release, and nothing else.
+
 ### 1.12.22
 
 - Wt: prune must not delete a tree somebody is working in
