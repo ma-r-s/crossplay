@@ -312,7 +312,8 @@ void drawActionButton(toybox::Screen& screen, const fui::Rect& box, const char* 
 
 // The finished picture, drawn clean: black squares only, no lattice and no clue
 // gutters. Used by both the win reveal (large) and a solved picker tile (tiny).
-void drawPicture(toybox::Screen& screen, const picross::Puzzle& puzzle, const fui::Rect& area) {
+void drawPicture(toybox::Screen& screen, const picross::Puzzle& puzzle, const fui::Rect& area,
+                 const fui::Color color = fui::Color::Black) {
   const int n = puzzle.size;
   const int16_t cell = static_cast<int16_t>((area.width < area.height ? area.width : area.height) / n);
   if (cell <= 0) return;
@@ -324,7 +325,7 @@ void drawPicture(toybox::Screen& screen, const picross::Puzzle& puzzle, const fu
       if ((puzzle.rows[r] & (uint16_t{1} << c)) == 0) continue;
       screen.target().fill(
           fui::makeRect(static_cast<int16_t>(ox + c * cell), static_cast<int16_t>(oy + r * cell), cell, cell),
-          fui::Paint::solid(fui::Color::Black));
+          fui::Paint::solid(color));
     }
   }
 }
@@ -340,14 +341,23 @@ bool Layout::cellAt(const int x, const int y, int& row, int& col) const {
 }
 
 int PickerLayout::indexAt(const int x, const int y) const {
-  if (cell <= 0) return -1;
-  const int pitch = cell + gap;
-  if (x < grid.x || y < grid.y) return -1;
-  const int col = (x - grid.x) / pitch;
-  const int row = (y - grid.y) / pitch;
-  if (col < 0 || col >= cols || row < 0 || row >= rows) return -1;
-  const int index = row * cols + col;
-  return index < count ? index : -1;
+  if (count <= 0) return -1;
+  if (x < grid.x || y < grid.y || x >= grid.right() || y >= grid.bottom()) return -1;
+  int local;
+  if (rowHeight > 0) {  // a single-column list: one tile per row of `rowHeight`
+    const int row = (y - grid.y) / rowHeight;
+    if (row < 0) return -1;
+    local = row;
+  } else {  // a grid resolved by pitch, exactly as it was drawn
+    if (cell <= 0) return -1;
+    const int pitch = cell + gap;
+    const int col = (x - grid.x) / pitch;
+    const int row = (y - grid.y) / pitch;
+    if (col < 0 || col >= cols || row < 0 || row >= rows) return -1;
+    local = row * cols + col;
+  }
+  if (local < 0 || local >= count) return -1;
+  return firstIndex + local;
 }
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout) {
@@ -424,27 +434,105 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
       "PUZZLES", ButtonPuzzles);
 }
 
+// The picker: a size-tabbed grid of rounded tiles. Chosen from three rendered
+// variants (a SOLID grid, a LIST, and this tabbed grid) and a cold review of
+// them. The size tabs (5x5 / 10x10 / 15x15) are the only layout that answers
+// "68 puzzles across three sizes" with direct access rather than blind paging,
+// and each tab carries its own solved count so the tabs double as "which sizes
+// still have puzzles left". The selected / in-progress tile is fully INVERTED --
+// the fill-is-selected language the mode capsule and shelf rows already speak,
+// and the least ambiguous mark 1-bit e-ink has. No corner brackets (they clashed
+// with the rounded tiles) and no gutter underline (it read as belonging to the
+// tile below).
+
 namespace {
 
-// One picker tile. A solved puzzle reveals its picture; everything else shows
-// only its number and size, so the reveal is never spoiled. An in-progress
-// puzzle wears a dot so RESUME is findable.
+// The bank is stored easy-first with each size contiguous, so the size groups
+// are runs. Recover their extents once, for the tabs and the paging.
+struct SizeGroups {
+  int count = 0;
+  int size[4] = {};
+  int start[4] = {};
+  int len[4] = {};
+};
+
+SizeGroups sizeGroups() {
+  SizeGroups g;
+  for (int i = 0; i < picross::kPuzzleCount; ++i) {
+    const int s = picross::kPuzzles[i].size;
+    if (g.count == 0 || g.size[g.count - 1] != s) {
+      if (g.count >= 4) break;
+      g.size[g.count] = s;
+      g.start[g.count] = i;
+      g.len[g.count] = 0;
+      ++g.count;
+    }
+    ++g.len[g.count - 1];
+  }
+  return g;
+}
+
+int clampInt(const int v, const int lo, const int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+// A right-pointing "play" triangle: the resume affordance, drawn as narrowing
+// horizontal bars so it needs no glyph and reads at any size.
+void drawPlayGlyph(toybox::Screen& screen, const fui::Rect& box, const fui::Color color) {
+  const int h = box.height;
+  if (h <= 0 || box.width <= 0) return;
+  const int centre = (h - 1) / 2;
+  const int half = centre > 0 ? centre : 1;
+  const fui::Paint ink = fui::Paint::solid(color);
+  for (int i = 0; i < h; ++i) {
+    const int dist = i <= centre ? centre - i : i - centre;
+    const int w = box.width - (box.width * dist) / half;
+    if (w <= 0) continue;
+    screen.target().fill(fui::makeRect(box.x, static_cast<int16_t>(box.y + i), static_cast<int16_t>(w), 1), ink);
+  }
+}
+
+// A row of page dots, the current one filled, each a tap target that jumps to
+// its page. Silent when there is only one page.
+void drawPageDots(toybox::Screen& screen, const fui::Rect& band, const int pageCount, const int current) {
+  if (pageCount <= 1) return;
+  const int16_t d = 12;
+  const int16_t gap = 14;
+  const int16_t total = static_cast<int16_t>(pageCount * d + (pageCount - 1) * gap);
+  int16_t x = static_cast<int16_t>(band.x + (band.width - total) / 2);
+  const int16_t y = static_cast<int16_t>(band.y + (band.height - d) / 2);
+  for (int p = 0; p < pageCount; ++p) {
+    const fui::Rect dot = fui::makeRect(x, y, d, d);
+    if (p == current)
+      screen.target().fill(dot, fui::Paint::solid(fui::Color::Black), static_cast<uint8_t>(d / 2));
+    else
+      screen.target().stroke(dot, fui::Paint::solid(fui::Color::Black), toybox::kHairline, static_cast<uint8_t>(d / 2));
+    screen.frame().hit(
+        fui::makeRect(static_cast<int16_t>(x - gap / 2), band.y, static_cast<int16_t>(d + gap), band.height), ActionPage,
+        static_cast<int16_t>(p));
+    x = static_cast<int16_t>(x + d + gap);
+  }
+}
+
+// A rounded picker tile. A solved puzzle reveals its finished picture -- which
+// is the whole reward and, being a picture rather than a number, is itself the
+// "solved" signal, so no extra badge is drawn. Everything else shows its number
+// and size. An in-progress puzzle wears a play glyph. `selected` inverts the
+// tile to solid black with white content: the picker's one selection language.
 void drawTile(toybox::Screen& screen, const fui::Rect& box, const int index, const picross::Puzzle& puzzle,
               const bool solved, const bool inProgress, const bool selected) {
-  screen.target().fill(box, fui::Paint::solid(fui::Color::White), static_cast<uint8_t>(6));
-  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kHairline, static_cast<uint8_t>(6));
+  const fui::Color bg = selected ? fui::Color::Black : fui::Color::White;
+  const fui::Color fg = selected ? fui::Color::White : fui::Color::Black;
+  screen.target().fill(box, fui::Paint::solid(bg), static_cast<uint8_t>(8));
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kHairline, static_cast<uint8_t>(8));
 
   if (solved) {
-    drawPicture(screen, puzzle, box.inset(fui::Insets{10, 10, 10, 10}));
-    // A filled check corner: a small solid wedge says "done" without a glyph.
-    screen.target().fill(fui::makeRect(static_cast<int16_t>(box.right() - 14), static_cast<int16_t>(box.y + 4), 10, 10),
-                         fui::Paint::solid(fui::Color::Black), static_cast<uint8_t>(5));
+    drawPicture(screen, puzzle, box.inset(fui::Insets{10, 12, 10, 12}), fg);
   } else {
     char number[toybox::kIntTextChars];
     std::snprintf(number, sizeof(number), "%d", index + 1);
     fui::TextStyle numStyle;
     numStyle.font = toybox::kDisplayFont;
     numStyle.align = fui::TextAlign::Center;
+    numStyle.color = fg;
     const fui::Rect numBox = fui::makeRect(box.x, box.y, box.width, static_cast<int16_t>(box.height - 20));
     screen.target().text(toybox::inkCentred(numBox, toybox::kDisplayCut), number, numStyle);
 
@@ -453,29 +541,95 @@ void drawTile(toybox::Screen& screen, const fui::Rect& box, const int index, con
     fui::TextStyle sizeStyle;
     sizeStyle.font = toybox::kSmallFont;
     sizeStyle.align = fui::TextAlign::Center;
+    sizeStyle.color = fg;
     const fui::Rect sizeBox = fui::makeRect(box.x, static_cast<int16_t>(box.bottom() - 20), box.width, 18);
     screen.target().text(toybox::inkCentred(sizeBox, toybox::kTileCut), size, sizeStyle);
-
-    if (inProgress)
-      screen.target().fill(fui::makeRect(static_cast<int16_t>(box.x + 6), static_cast<int16_t>(box.y + 6), 8, 8),
-                           fui::Paint::solid(fui::Color::Black), static_cast<uint8_t>(4));
   }
 
-  if (selected) {
-    // Corner brackets, the same "look here" mark the win screen uses.
-    const fui::Rect r = box.inset(fui::Insets{-3, -3, -3, -3});
-    const int16_t len = 12;
-    const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
-    screen.target().fill(fui::makeRect(r.x, r.y, len, 3), ink);
-    screen.target().fill(fui::makeRect(r.x, r.y, 3, len), ink);
-    screen.target().fill(fui::makeRect(static_cast<int16_t>(r.right() - len), r.y, len, 3), ink);
-    screen.target().fill(fui::makeRect(static_cast<int16_t>(r.right() - 3), r.y, 3, len), ink);
-    screen.target().fill(fui::makeRect(r.x, static_cast<int16_t>(r.bottom() - 3), len, 3), ink);
-    screen.target().fill(fui::makeRect(r.x, static_cast<int16_t>(r.bottom() - len), 3, len), ink);
-    screen.target().fill(
-        fui::makeRect(static_cast<int16_t>(r.right() - len), static_cast<int16_t>(r.bottom() - 3), len, 3), ink);
-    screen.target().fill(
-        fui::makeRect(static_cast<int16_t>(r.right() - 3), static_cast<int16_t>(r.bottom() - len), 3, len), ink);
+  if (inProgress)
+    drawPlayGlyph(screen, fui::makeRect(static_cast<int16_t>(box.x + 7), static_cast<int16_t>(box.y + 7), 9, 11), fg);
+}
+
+// Lay a 4-column grid of tiles for the puzzles [first, first+n) into `body`,
+// filling `layout` so a tap resolves back through the same geometry.
+void layOutGrid(toybox::Screen& screen, const MenuModel& model, const fui::Rect& body, const int first, const int n,
+                const int page, const int pageCount, PickerLayout& layout) {
+  const int16_t cols = 4;
+  const int16_t gap = 12;
+  const int16_t rows = static_cast<int16_t>((n + cols - 1) / cols);
+  const int16_t visibleRows = rows < 4 ? rows : 4;
+  int cell = (body.width - (cols - 1) * gap) / cols;
+  const int cellH = visibleRows > 0 ? (body.height - (visibleRows - 1) * gap) / visibleRows : cell;
+  if (cellH < cell) cell = cellH;
+  if (cell > 118) cell = 118;
+  if (cell < 1) cell = 1;
+  const int16_t pitch = static_cast<int16_t>(cell + gap);
+  const int16_t gridW = static_cast<int16_t>(cols * cell + (cols - 1) * gap);
+  const int16_t gridH = static_cast<int16_t>(rows * cell + (rows - 1) * gap);
+  const int16_t left = static_cast<int16_t>(body.x + (body.width - gridW) / 2);
+  const int16_t top = body.y;
+
+  layout.grid = fui::makeRect(left, top, gridW, gridH);
+  layout.cell = static_cast<int16_t>(cell);
+  layout.gap = gap;
+  layout.cols = cols;
+  layout.rows = rows;
+  layout.count = static_cast<int16_t>(n);
+  layout.firstIndex = static_cast<int16_t>(first);
+  layout.pageCount = static_cast<int16_t>(pageCount);
+  layout.pageOnScreen = static_cast<int16_t>(page);
+  screen.frame().hit(layout.grid, ActionPick, -1);
+
+  for (int k = 0; k < n; ++k) {
+    const int i = first + k;
+    const int r = k / cols;
+    const int c = k % cols;
+    const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + c * pitch), static_cast<int16_t>(top + r * pitch),
+                                        static_cast<int16_t>(cell), static_cast<int16_t>(cell));
+    const bool solved = model.progress != nullptr && model.progress->isSolved(i);
+    drawTile(screen, box, i, picross::kPuzzles[i], solved, i == model.inProgressIndex, i == model.selectedIndex);
+  }
+}
+
+// The size tabs. Each is a rounded pill carrying its size and its own solved
+// count; the active one is filled. Tapping a tab switches groups.
+void drawSizeTabs(toybox::Screen& screen, const MenuModel& model, const SizeGroups& g, const fui::Rect& band,
+                  const int active) {
+  const int16_t tabGap = 8;
+  const int16_t tabW = static_cast<int16_t>((band.width - (g.count - 1) * tabGap) / g.count);
+  for (int t = 0; t < g.count; ++t) {
+    const fui::Rect tb =
+        fui::makeRect(static_cast<int16_t>(band.x + t * (tabW + tabGap)), band.y, tabW, band.height);
+    const bool on = t == active;
+    screen.target().fill(tb, fui::Paint::solid(on ? fui::Color::Black : fui::Color::White),
+                         static_cast<uint8_t>(toybox::kPillRadius));
+    screen.target().stroke(tb, fui::Paint::solid(fui::Color::Black), toybox::kHairline,
+                           static_cast<uint8_t>(toybox::kPillRadius));
+    int solvedHere = 0;
+    if (model.progress != nullptr)
+      for (int i = g.start[t]; i < g.start[t] + g.len[t]; ++i)
+        if (model.progress->isSolved(i)) ++solvedHere;
+
+    const fui::Color fg = on ? fui::Color::White : fui::Color::Black;
+    char label[kSizeChars];
+    std::snprintf(label, sizeof(label), "%d x %d", g.size[t], g.size[t]);
+    fui::TextStyle ts;
+    ts.font = toybox::kUiFont;
+    ts.align = fui::TextAlign::Center;
+    ts.color = fg;
+    const fui::Rect labelBox = fui::makeRect(tb.x, tb.y, tb.width, static_cast<int16_t>(tb.height - 16));
+    screen.target().text(toybox::inkCentred(labelBox, toybox::kUiCut), label, ts);
+
+    char count[toybox::kSlashCounterChars];
+    std::snprintf(count, sizeof(count), "%d/%d", solvedHere, g.len[t]);
+    fui::TextStyle cs;
+    cs.font = toybox::kSmallFont;
+    cs.align = fui::TextAlign::Center;
+    cs.color = fg;
+    const fui::Rect countBox = fui::makeRect(tb.x, static_cast<int16_t>(tb.bottom() - 16), tb.width, 14);
+    screen.target().text(toybox::inkCentred(countBox, toybox::kTileCut), count, cs);
+
+    screen.frame().hit(tb, ActionTab, static_cast<int16_t>(t));
   }
 }
 
@@ -501,44 +655,22 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
     screen.button(play, actions);
   }
 
-  fui::TextStyle hint;
-  hint.font = toybox::kSmallFont;
-  hint.align = fui::TextAlign::Center;
-  screen.target().text(screen.takeTop(22, toybox::kGutter), "TAP A PUZZLE TO PLAY IT", hint);
+  const SizeGroups g = sizeGroups();
+  const int tab = clampInt(model.sizeTab, 0, g.count - 1);
+  const fui::Rect tabBand = screen.takeTop(48, toybox::kGutter);
+  drawSizeTabs(screen, model, g, tabBand, tab);
 
-  const fui::Rect body = screen.body();
-  const int count = picross::kPuzzleCount;
-  const int16_t cols = 4;
-  const int16_t rows = static_cast<int16_t>((count + cols - 1) / cols);
-  const int16_t gap = 12;
-  int cell = (body.width - (cols - 1) * gap) / cols;
-  const int cellH = (body.height - (rows - 1) * gap) / rows;
-  if (cellH < cell) cell = cellH;
-  if (cell < 1) cell = 1;
-  const int16_t gridW = static_cast<int16_t>(cols * cell + (cols - 1) * gap);
-  const int16_t gridH = static_cast<int16_t>(rows * cell + (rows - 1) * gap);
-  const int16_t left = static_cast<int16_t>(body.x + (body.width - gridW) / 2);
-  const int16_t top = static_cast<int16_t>(body.y + (body.height - gridH) / 2);
+  const fui::Rect dotBand = screen.takeBottom(26, toybox::kGutter);
 
-  layout.grid = fui::makeRect(left, top, gridW, gridH);
-  layout.cell = static_cast<int16_t>(cell);
-  layout.gap = gap;
-  layout.cols = cols;
-  layout.rows = rows;
-  layout.count = static_cast<int16_t>(count);
-
-  // One target for the whole grid; the layout resolves which tile.
-  screen.frame().hit(layout.grid, ActionPick, -1);
-
-  const int16_t pitch = static_cast<int16_t>(cell + gap);
-  for (int i = 0; i < count; ++i) {
-    const int r = i / cols;
-    const int c = i % cols;
-    const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + c * pitch), static_cast<int16_t>(top + r * pitch),
-                                        static_cast<int16_t>(cell), static_cast<int16_t>(cell));
-    const bool solved = model.progress != nullptr && model.progress->isSolved(i);
-    drawTile(screen, box, i, picross::kPuzzles[i], solved, i == model.inProgressIndex, i == model.selectedIndex);
-  }
+  const int perPage = 16;
+  const int len = g.len[tab];
+  const int pageCount = len > 0 ? (len + perPage - 1) / perPage : 1;
+  const int page = clampInt(model.page, 0, pageCount - 1);
+  const int firstInGroup = page * perPage;
+  const int first = g.start[tab] + firstInGroup;
+  const int n = len - firstInGroup < perPage ? len - firstInGroup : perPage;
+  layOutGrid(screen, model, screen.body(), first, n, page, pageCount, layout);
+  drawPageDots(screen, dotBand, pageCount, page);
 }
 
 void buildWin(toybox::Screen& screen, const WinModel& model) {

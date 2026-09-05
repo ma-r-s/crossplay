@@ -3,8 +3,8 @@
 Where the puzzles in Picross came from, why they can be trusted, and the one
 rule decision that shapes every screen.
 
-The short version: 17 original nonograms (eight 5x5 warmups, nine 10x10), every
-one proved to have exactly one solution and to be reachable by single-line
+The short version: 68 original nonograms (22 at 5x5, 28 at 10x10, 18 at 15x15),
+every one proved to have exactly one solution and to be reachable by single-line
 reasoning, by a generator that refuses to emit any that are not.
 
 ## What the game is
@@ -44,9 +44,12 @@ off the count-based check -- the dependency is written at `Board::rowSatisfied`.
 ## Provenance and licence
 
 The pictures are **original artwork authored for this fork** and are placed in
-the public domain by the author. They live as ASCII grids in
+the public domain (CC0) by the author. They live as ASCII grids in
 [`assets_local/picross/pictures.txt`](../../assets_local/picross/pictures.txt),
-one `#`/`.` grid per name.
+one `#`/`.` grid per name, and the origin is recorded in
+[`assets_local/picross/PROVENANCE.md`](../../assets_local/picross/PROVENANCE.md).
+Author a batch of candidates and triage them with `gen_picross.py --curate`
+(PASS/FAIL per picture, no emit); only the passers go into `pictures.txt`.
 
 There is deliberately no third-party set. An arbitrary two-tone image converted
 to clues is usually _not_ a valid nonogram (it has several solutions), and any
@@ -58,7 +61,7 @@ out any drawing that does not make a fair puzzle.
 ## Verification
 
 Two implementations of "unique" and "line-solvable", in different languages,
-agreeing on all 17 puzzles. This is the app's equivalent of the dungeon bank's
+agreeing on all 68 puzzles. This is the app's equivalent of the dungeon bank's
 cross-check.
 
 **In Python, at generation time.**
@@ -79,17 +82,18 @@ never stored, only the picture, so the clues cannot disagree with it.
 python3 tools_local/picross/gen_picross.py   # a second or two; one line per puzzle
 ```
 
-Expect designs to be rejected -- SAILBOAT and KEY were, for admitting two
-pictures each. That is the tool working.
+Expect designs to be rejected -- SAILBOAT and KEY were for admitting two pictures
+each, and about one authored picture in five is dropped for not being
+line-solvable. That is the tool working.
 
 **In C++, against the header that ships.**
 [`host-tests/picross/`](../../host-tests/picross/) carries a second, brute-force
 implementation of both properties (a line-solver and a solution counter over
-`2^n` patterns, obviously correct for `n <= 10`) and runs them over all 17
-stored pictures, plus the mistake/win/clue/restore rules of `PicrossCore`.
+`2^n` patterns, obviously correct for `n <= 15`) and runs them over every stored
+picture, plus the mistake/win/clue/restore rules of `PicrossCore`.
 
 ```bash
-./host-tests/picross/run.sh        # 435 checks
+./host-tests/picross/run.sh        # ~1800 checks
 ```
 
 A hand-edit to the generated file, or a bad merge, fails here rather than on the
@@ -111,9 +115,33 @@ number and size. The reveal is the whole reward, so the name and the picture sta
 hidden until the puzzle is done -- the name especially, because the name _is_ the
 answer, which is also why the board never shows it while you play.
 
+## The picker: size tabs, one selection language
+
+68 puzzles is too many for one grid, so the picker is **size-tabbed**: a row of
+`5x5 / 10x10 / 15x15` tabs across the top, each carrying its own solved count, over
+a 4-column paged grid of that size (page dots below). It opens on the tab and page
+that contain the puzzle RESUME/PLAY would open. Chosen from three rendered variants
+(a solid grid, a list, and this tabbed grid) and a cold review of them; the tabs
+are the only layout that gives direct access to a size instead of blind paging.
+
+The selected / in-progress tile is **fully inverted** (solid black, white content)
+-- the fill-is-selected language the mode capsule and the shelf rows already speak,
+and the least ambiguous mark 1-bit e-ink has. The earlier corner brackets were
+dropped (they clashed with the rounded tiles) and so was a gutter underline (it
+read as belonging to the tile below).
+
 ## Sizes and storage
 
-Both sizes fit the 480px-wide portrait panel: a 10x10 lands on ~36px cells after
-its four-deep clue gutters, a 5x5 on comfortably larger ones. The whole bank is
-`uint16_t rows[10]` plus a name and a size per puzzle -- well under a kilobyte --
-so it is flash-resident like the dungeon's, with no SD pack.
+All three sizes fit the 480px-wide portrait panel: a 15x15 lands on ~19px cells
+after its clue gutters, a 5x5 on comfortably larger ones. The bank is
+`uint16_t rows[kMaxSize]` plus a name and a size per puzzle -- well under a couple
+of kilobytes -- so it is flash-resident like the dungeon's, with no SD pack.
+`kMaxSize` is computed by the generator from the widest picture (15 today); the
+row type is `uint16_t`, so **a picture wider than 16 needs the row type widened**
+and is why 20x20 is not shipped.
+
+Solved-progress is a bitset sized from the bank (`kProgressWords` 32-bit words in
+`Progress`), not the single word the original 17 used, and the on-SD save
+(`SaveState`, version 2) carries the same array. Every reader and writer walks the
+words; a host test marks bits either side of each 32-bit boundary so the widening
+stays honest.

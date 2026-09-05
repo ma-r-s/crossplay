@@ -21,6 +21,8 @@ enum : fui::ActionId {
   ActionButton = 2,
   ActionPick = 3,  // value is a puzzle index, or -1 to resolve through the picker
   ActionMode = 4,  // value is Mode: which input mode a tap selects
+  ActionPage = 5,  // value is a page index the picker should jump to
+  ActionTab = 6,   // value is a size-group index the picker should switch to
 };
 
 enum Button : int {
@@ -62,13 +64,17 @@ struct MenuModel {
   const picross::Progress* progress = nullptr;
   // The puzzle PLAY would open: the one you last tapped, or the next unsolved.
   int selectedIndex = 0;
-  // The in-progress puzzle (touched, not solved), or -1. Drawn with a dot so
-  // RESUME is discoverable from the grid.
+  // The in-progress puzzle (touched, not solved), or -1. Drawn with a resume
+  // affordance so RESUME is discoverable from the grid.
   int inProgressIndex = -1;
   int solvedCount = 0;
   int total = 0;
   // RESUME rather than PLAY on the selected tile, when it is the in-progress one.
   bool hasProgress = false;
+  // Which page of the picker to draw, and (for the size-tabbed layout) which
+  // size group is active. The activity owns these and the picker clamps them.
+  int page = 0;
+  int sizeTab = 0;
 };
 
 // Where the picker drew its tile grid. Same discipline as the board's Layout:
@@ -79,7 +85,11 @@ struct PickerLayout {
   int16_t gap = 0;
   int16_t cols = 0;
   int16_t rows = 0;
-  int16_t count = 0;
+  int16_t count = 0;         // tiles actually drawn on this page
+  int16_t firstIndex = 0;    // global puzzle index of the first tile on the page
+  int16_t rowHeight = 0;     // list layouts: the per-row pitch (0 for grids)
+  int16_t pageCount = 1;     // total pages, for the activity to clamp paging
+  int16_t pageOnScreen = 0;  // the page this layout drew
 
   // The puzzle index under logical (x, y), or -1.
   int indexAt(int x, int y) const;

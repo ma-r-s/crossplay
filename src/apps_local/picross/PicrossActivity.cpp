@@ -56,6 +56,7 @@ void PicrossActivity::onEnter() {
   // resumable puzzle the moment the app appears.
   selected = (board.touched() && !board.solved()) ? board.index() : progress.nextUnsolved();
   view = View::Menu;
+  syncPicker();
   recorded = false;
   requestUpdate();
 }
@@ -152,6 +153,22 @@ void PicrossActivity::routeBoardTap(const int x, const int y) {
   requestUpdate();
 }
 
+// Land the picker on the size group and page that show `selected`, so the
+// highlighted tile is on screen the moment the grid appears. The bank is stored
+// with each size contiguous, so the group is the run `selected` falls in.
+void PicrossActivity::syncPicker() {
+  int tab = 0;
+  int groupStart = 0;
+  for (int i = 1; i <= selected && i < picross::kPuzzleCount; ++i) {
+    if (picross::kPuzzles[i].size != picross::kPuzzles[i - 1].size) {
+      ++tab;
+      groupStart = i;
+    }
+  }
+  menuTab = tab;
+  menuPage = (selected - groupStart) / 16;
+}
+
 void PicrossActivity::routeButton(const int button) {
   switch (button) {
     case ui::ButtonPlay:
@@ -171,6 +188,7 @@ void PicrossActivity::routeButton(const int button) {
     case ui::ButtonPuzzles:
       flushSave();
       view = View::Menu;
+      syncPicker();
       flashOnNextPaint = true;
       requestUpdate();
       break;
@@ -189,6 +207,7 @@ void PicrossActivity::loop() {
     } else {
       flushSave();
       view = View::Menu;
+      syncPicker();
       flashOnNextPaint = true;
       requestUpdate();
     }
@@ -241,6 +260,19 @@ void PicrossActivity::loop() {
       if (picross::isPlayable(picked)) openPuzzle(picked);
       break;
     }
+    case ui::ActionPage:
+      if (view != View::Menu || action.value == menuPage) break;
+      menuPage = action.value;
+      flashOnNextPaint = true;  // a wholesale page swap earns a clean full refresh
+      requestUpdate();
+      break;
+    case ui::ActionTab:
+      if (view != View::Menu || action.value == menuTab) break;
+      menuTab = action.value;
+      menuPage = 0;  // a different group starts at its first page
+      flashOnNextPaint = true;
+      requestUpdate();
+      break;
     default:
       break;
   }
@@ -283,7 +315,12 @@ void PicrossActivity::render(RenderLock&&) {
       model.solvedCount = progress.solvedCount();
       model.total = picross::kPuzzleCount;
       model.hasProgress = model.inProgressIndex == selected && model.inProgressIndex >= 0;
+      model.page = menuPage;
+      model.sizeTab = menuTab;
       ui::buildMenu(screen, model, pickerLayout);
+      // The picker clamped whatever it was handed; keep our copy in step so the
+      // dots and the next tap agree with what was drawn.
+      menuPage = pickerLayout.pageOnScreen;
       break;
     }
   }

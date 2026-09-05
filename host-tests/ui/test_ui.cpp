@@ -9528,6 +9528,88 @@ void testPicrossPickerHidesUnsolvedNames() {
   CHECK(layout.indexAt(layout.grid.x + 2, layout.grid.y + 2) == 0);
 }
 
+// The picker is size-tabbed and paged: each tab shows one size group, a group
+// larger than a page pages, and every tile hit-tests back to its own GLOBAL
+// puzzle index through the layout. A tap-resolution bug here opens the wrong
+// puzzle, which the sim cannot catch (it never runs InputManager).
+void testPicrossPickerGroupsAndPagesBySize() {
+  // The bank stores each size contiguously; recover the 10x10 and 15x15 starts.
+  int start10 = -1;
+  int start15 = -1;
+  for (int i = 1; i < picross::kPuzzleCount; ++i) {
+    if (picross::kPuzzles[i].size != picross::kPuzzles[i - 1].size) {
+      if (start10 < 0)
+        start10 = i;
+      else if (start15 < 0)
+        start15 = i;
+    }
+  }
+  CHECK(start10 > 0);
+  CHECK(start15 > start10);
+  picross::Progress progress;
+
+  // Tab 1 (10x10), page 0: first tile is the group start, and the centre of
+  // every drawn tile resolves to its own global index -- an exact inverse.
+  {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.sizeTab = 1;
+    model.page = 0;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    CHECK(layout.firstIndex == start10);
+    CHECK(layout.count > 0);
+    const int pitch = layout.cell + layout.gap;
+    for (int k = 0; k < layout.count; ++k) {
+      const int r = k / layout.cols;
+      const int c = k % layout.cols;
+      const int cx = layout.grid.x + c * pitch + layout.cell / 2;
+      const int cy = layout.grid.y + r * pitch + layout.cell / 2;
+      CHECK(layout.indexAt(cx, cy) == start10 + k);
+    }
+  }
+
+  // Tab 1, page 1: the 10x10 group has more than 16 puzzles, so it pages, and
+  // page 1 starts 16 past the group start (not 16 past index 0).
+  {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.sizeTab = 1;
+    model.page = 1;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    CHECK(layout.pageCount >= 2);
+    CHECK(layout.firstIndex == start10 + 16);
+    CHECK(layout.indexAt(layout.grid.x + 2, layout.grid.y + 2) == start10 + 16);
+  }
+
+  // The size tabs are all tappable and a multi-page group exposes a page
+  // control: sweeping the screen reaches ActionTab for every tab and ActionPage.
+  {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.sizeTab = 1;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    bool sawTab[3] = {false, false, false};
+    bool sawPage = false;
+    for (int y = 2; y < 800; y += 6)
+      for (int x = 2; x < 480; x += 6) {
+        const fui::ActionEvent e = out.tap(x, y);
+        if (e.action == picrossui::ActionTab && e.value >= 0 && e.value < 3) sawTab[e.value] = true;
+        if (e.action == picrossui::ActionPage) sawPage = true;
+      }
+    CHECK(sawTab[0] && sawTab[1] && sawTab[2]);
+    CHECK(sawPage);
+  }
+}
+
 // The reveal names the picture and grades the solve. Zero mistakes is PERFECT.
 void testPicrossWinRevealsNameAndGrade() {
   Rendered out;
@@ -9832,6 +9914,7 @@ int main() {
   testPicrossGridHitTestIsExactInverse();
   testPicrossDrawsEveryClue();
   testPicrossPickerHidesUnsolvedNames();
+  testPicrossPickerGroupsAndPagesBySize();
   testPicrossWinRevealsNameAndGrade();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
