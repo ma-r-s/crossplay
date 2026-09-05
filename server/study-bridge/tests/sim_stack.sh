@@ -16,8 +16,25 @@ BRIDGE_PORT=8087
 USERNAME=simtest
 PASSWORD=simtest-pw
 
+# Refuse to drive somebody else's server (card #286). The wait loops below use
+# `nc -z` to know a port is UP, which proves only that SOMETHING listens, never
+# that it is ours: an orphaned sync server from a deleted worktree held port
+# 9207 and a run signed credentials into it, every failure reading exactly like
+# the bridge working. Name the holder so it can be cleared instead of guessed at.
+require_free_port() {
+  if nc -z 127.0.0.1 "$1" 2>/dev/null; then
+    echo "port $1 is already in use, so $2 cannot start there and this harness"
+    echo "would drive whatever IS listening -- which proves nothing."
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | sed 's/^/  /' || true
+    echo "  clear the holder above, then retry."
+    exit 1
+  fi
+}
+
 start() {
   mkdir -p "$BASE"
+  require_free_port "$SYNC_PORT" "the sync server"
+  require_free_port "$BRIDGE_PORT" "the bridge"
   SYNC_USER1="$USERNAME:$PASSWORD" SYNC_BASE="$BASE/server" SYNC_HOST=127.0.0.1 SYNC_PORT=$SYNC_PORT \
     "$PY" -m anki.syncserver > "$BASE/syncserver.log" 2>&1 &
   echo $! > "$BASE/syncserver.pid"
@@ -81,7 +98,13 @@ PYEOF
 
 stop() {
   for pid in "$BASE"/*.pid; do
-    [ -f "$pid" ] && kill "$(cat "$pid")" 2>/dev/null || true
+    [ -f "$pid" ] || continue
+    p="$(cat "$pid")"
+    # anki.syncserver and uvicorn hold the listening socket in a CHILD, so
+    # killing only the launcher leaves the port held and the process orphaned
+    # (card #286). Take the children first, then the launcher.
+    pkill -P "$p" 2>/dev/null || true
+    kill "$p" 2>/dev/null || true
     rm -f "$pid"
   done
 }

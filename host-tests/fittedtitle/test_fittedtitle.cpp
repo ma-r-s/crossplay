@@ -507,7 +507,7 @@ void hackerNewsReader() {
   for (int i = 0; i < fitted::kHnHeadlineCount; ++i) {
     const std::string headline = utf8FoldTypography(fitted::kHnHeadlines[i]);
     for (int variant = 0; variant < 3; ++variant) {
-      Paint paint("readingFaces");
+      Paint paint("readerFaces");
       toybox::Frame frame(paint.target, panel(), fui::InputSnapshot{}, paint.interactions);
       toybox::Screen screen(frame);
       toybox::WrappedText wrap;
@@ -527,16 +527,22 @@ void hackerNewsReader() {
       expectWhole(tally, paint.target, headline);
     }
   }
-  // TEN, and they are a decision rather than a bug. The only cut smaller than
-  // this band's reading face is the SMALL slot, which readingFaces binds to
-  // toybox_10 -- a 21px Jersey line box in a 76px band. Stepping down would
-  // rescue these ten and leave the other seventy-eight elided anyway, so the
-  // band would set some headlines in a display cut a third the height of the
-  // rest for no gain a reader could name. The fork's rule says step down; this
-  // band has nothing worth stepping down TO, which is a face-binding question
-  // (readerFaces, or reading_serif_11 in a slot) and not this function's.
-  // Card #268. Pinned so the number cannot drift in either direction unnoticed.
-  report(tally, 10, "no cut between reading_serif_14 and toybox_10 is bound on this band -- card #268");
+  // ZERO avoidable, now that the reader binds readerFaces (card #268). The band
+  // steps its headline down through real reading cuts -- bold 16 -> 14 -> 11 --
+  // instead of falling straight to an ellipsis with nothing worth shrinking to.
+  // The ten that used to be a KEPT exception here fit only toybox_10, the Jersey
+  // tile cut readingFaces bound in the SMALL slot, which has no business setting
+  // prose; readerFaces puts reading_serif_11 there instead, so four of the ten
+  // now fit whole and the rest join the residual, showing more of themselves
+  // before the ellipsis than reading_serif_14 did.
+  //
+  // The residual stays high because the band is ONE line and a Hacker News
+  // headline is a whole sentence: no single-line cut this fork owns holds "New
+  // Mexico court orders Meta to pay $567m over harms to children's mental
+  // health". That is the same class as the xkcd bar's residual below -- a second
+  // line, not a smaller cut, is what would take it -- and like it, it is
+  // reported, not gated. Gating avoidable at 0 is the fix this card asked for.
+  report(tally);
 }
 
 void xkcdReaderBar() {

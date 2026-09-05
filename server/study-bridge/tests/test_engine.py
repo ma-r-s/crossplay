@@ -26,9 +26,11 @@ ROOT = HERE.parent
 REPO = ROOT.parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(REPO / "tools_local" / "study"))
+sys.path.insert(0, str(HERE))
 
 import deck_to_anki as d2a  # noqa: E402
 from bridge import engine, journal as journal_mod, store as store_mod, wire  # noqa: E402
+from portguard import assert_alive, popen_group, reap, require_free_port  # noqa: E402
 
 PORT = int(os.environ.get("BRIDGE_TEST_PORT", "8996")) + 1
 USER, PW = "mario", "engine-pw"
@@ -101,13 +103,15 @@ def main():
             SYNC_HOST="127.0.0.1",
             SYNC_PORT=str(PORT),
         )
-        server = subprocess.Popen(
+        require_free_port(PORT, "the sync server")
+        server = popen_group(
             [sys.executable, "-m", "anki.syncserver"],
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.STDOUT,
         )
         wait_port(PORT)
+        assert_alive(server, "the sync server")
 
         from anki.collection import Collection
 
@@ -229,9 +233,7 @@ def main():
         print(f"{checks} checks, {failures} failed")
         sys.exit(1 if failures else 0)
     finally:
-        if server:
-            server.terminate()
-            server.wait(timeout=10)
+        reap(server)
         shutil.rmtree(tmp, ignore_errors=True)
 
 

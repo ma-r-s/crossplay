@@ -635,6 +635,8 @@ void HackerNewsActivity::showDocument(const char* title, const bool comments) {
   readingComments_ = comments;
   topLine_ = 0;
   phase_ = Phase::Reading;
+  // A freshly opened piece carries no stale "not saved" toast (card #40).
+  saveFailedNotice_ = false;
   // Line counts need a draw target, which only exists inside render(). The
   // first paint fills them in; until then the label reads as one page, which is
   // what a document that has not been measured looks like.
@@ -653,16 +655,29 @@ void HackerNewsActivity::saveCurrentArticle() {
   if (readerUrl_.empty() || document_.empty()) return;
   const std::string title = readingComments_ ? hn::savedThreadTitle(readerTitle_) : readerTitle_;
   if (!library_.save(readerUrl_, title, document_)) {
-    showNotice("NOT SAVED", "The card would not take it. There may be no room left.", false);
+    // A full card, said OVER the page rather than in place of it. showNotice()
+    // switched phase_ to Notice, which replaced the reader with a full-screen
+    // message and lost the reading position (card #40) -- the one thing a
+    // reader must not do when it merely could not KEEP a copy of what you are
+    // already reading. So the reader stays put; a transient toast says the save
+    // did not take, and the reader's next input clears it. Nothing was written,
+    // so the shelf is unchanged and there is no row to invalidate.
+    saveFailedNotice_ = true;
+    requestUpdate();
+    return;
   }
   // The shelf gained a row while the view did not change, which is the one
-  // staleness rowsStale() cannot see on its own.
+  // staleness rowsStale() cannot see on its own. Any stale "not saved" toast
+  // goes with it: this one took.
+  saveFailedNotice_ = false;
   rows_.invalidate();
   requestUpdate();
 }
 
 void HackerNewsActivity::unsaveCurrentArticle() {
   if (readerUrl_.empty()) return;
+  // Any action on the reader clears the transient save toast (card #40).
+  saveFailedNotice_ = false;
   library_.remove(readerUrl_);
   rows_.invalidate();
   // Removing what you are reading leaves the reader on something the shelf no
@@ -711,6 +726,8 @@ void HackerNewsActivity::returnToList() {
   }
   readingSaved_ = false;
   phase_ = Phase::List;
+  // Leaving the reader drops its transient save toast (card #40).
+  saveFailedNotice_ = false;
   requestUpdate();
 }
 
@@ -731,6 +748,9 @@ void HackerNewsActivity::pageList(const int delta) {
 
 void HackerNewsActivity::turnPage(const int delta) {
   if (phase_ != Phase::Reading || visibleLines_ == 0) return;
+  // Turning the page is an input on the reader, so it clears the transient
+  // save toast (card #40): you have acknowledged it by reading on.
+  saveFailedNotice_ = false;
   const uint32_t span = visibleLines_;
   const uint32_t maxTop = lineCount_ > span ? lineCount_ - span : 0;
 
@@ -760,7 +780,15 @@ void HackerNewsActivity::render(RenderLock&&) {
   // board, and at the 20px UI cut a 480px panel holds about 28 characters a
   // line: an article became forty page taps and half the headlines on the front
   // page could not finish.
-  fui::GfxRendererTarget target = toybox::makeTarget(renderer, toybox::readingFaces());
+  //
+  // The reader takes a DIFFERENT set: its band carries a story's headline, which
+  // is somebody else's sentence, so readerFaces() gives the band a real reading
+  // ladder to shrink through (bold 16 -> 14 -> 11) instead of stepping down to
+  // the Jersey tile cut a prose headline has no business wearing (card #268).
+  // Every other phase keeps readingFaces(), where the band is the app's own name
+  // in the display cut -- the fork's shared chrome, not the story's voice.
+  const toybox::Faces faces = phase_ == Phase::Reading ? toybox::readerFaces() : toybox::readingFaces();
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer, faces);
   const fui::DeviceContext device = target.deviceContext();
   const fui::ThemeTokens& tokens = toybox::themeTokens();
   const fui::InputSnapshot noInput{};
@@ -934,6 +962,9 @@ void HackerNewsActivity::render(RenderLock&&) {
       // was. Empty only until the first fetch has answered.
       model.canSave = !readerUrl_.empty();
       model.saved = model.canSave && library_.contains(readerUrl_);
+      // A save the card just refused, drawn as a toast over the page instead of
+      // a full-screen notice that would have lost the reader's place (card #40).
+      model.saveNotice = saveFailedNotice_ ? "Not saved: the card is full." : nullptr;
       // The count the panel was drawn from; see the twin in
       // InstapaperActivity.cpp. No reading position goes anywhere from here,
       // but the page label and the forward control were both computed from

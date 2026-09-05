@@ -163,6 +163,11 @@ struct ReaderModel {
   // with the most reason to be.
   bool canSave = false;
   bool saved = false;
+  // A one-line reason the last save was refused (a full card). When set, the
+  // reader draws it as a transient toast over the page rather than the Activity
+  // throwing you out to a full-screen notice (card #40). Null on every ordinary
+  // paint; cleared by the Activity the moment the reader takes another input.
+  const char* saveNotice = nullptr;
 };
 
 // The body is a required argument for the same reason as Instapaper's: a
