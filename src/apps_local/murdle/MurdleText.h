@@ -23,6 +23,13 @@ namespace murdletext {
 // a trait-worded anchor.
 constexpr int kLineMax = 160;
 
+// The longest a `label()` can come back. The names live in runtime tables,
+// so nothing here can static_assert it; host-tests/murdle walks all four
+// tables against this, which is the same gate one step later. Anything that
+// quotes a label sizes its buffer from this rather than from today's cast --
+// the longest name is seven characters and that is not a fact to build on.
+constexpr int kLabelMax = 16;
+
 // The short uppercase label: what the accusation sheet lists and what a grid
 // axis falls back to when there is room for a word.
 const char* label(const murdle::Puzzle& puzzle, int cat, int item);

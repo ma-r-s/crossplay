@@ -2,6 +2,7 @@
 
 #include <cstdio>
 
+#include "../ui/ToyboxFormat.h"
 #include "InsiderArt.h"
 
 namespace insiderui {
@@ -159,7 +160,7 @@ void seat(toybox::Screen& screen, const fui::Rect& box, const int number, const 
     screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kFrame, 10);
   }
 
-  char label[4];
+  char label[toybox::kIntTextChars];
   std::snprintf(label, sizeof(label), "%d", number + 1);
   const auto style =
       styled(toybox::kDisplayFont, fui::TextAlign::Center, filled ? fui::Color::White : fui::Color::Black);
@@ -363,7 +364,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 // ---------------------------------------------------------------------------
 
 void buildPass(toybox::Screen& screen, const PassModel& model) {
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", model.seat + 1, model.players);
   // Not the game's name, which is also the name of one of the roles: on the
   // card an Insider is handed, the band would then say INSIDER above a card
@@ -830,7 +831,7 @@ int tutorialPages() { return 5; }
 
 void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
   const int pages = tutorialPages();
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", model.page + 1, pages);
   chrome(screen, "HOW TO PLAY", progress);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});

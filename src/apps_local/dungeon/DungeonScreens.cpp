@@ -2,6 +2,7 @@
 
 #include <cstdio>
 
+#include "../ui/ToyboxFormat.h"
 #include "DungeonArt.h"
 
 namespace dungeonui {
@@ -709,7 +710,7 @@ void buildGuide(toybox::Screen& screen, const GuideModel& model) {
   const int page = (model.page < 0 || model.page >= kGuidePages) ? 0 : model.page;
   const GuidePage& content = kGuide[page];
 
-  char counter[8];
+  char counter[toybox::kSlashCounterChars];
   std::snprintf(counter, sizeof(counter), "%d/%d", page + 1, kGuidePages);
   chrome(screen, content.title, counter);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});

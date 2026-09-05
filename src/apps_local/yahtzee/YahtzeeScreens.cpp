@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 #include "../link/LinkScreens.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxIcons.h"
 
 namespace yzui {
@@ -380,7 +381,7 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
 
   // The page counter lives in the black band, jaipur's way, so it costs no
   // body space; the diagram centres in the room that frees.
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, howToPages());
   toyboxChrome(screen, "HOW TO PLAY", progress);
 

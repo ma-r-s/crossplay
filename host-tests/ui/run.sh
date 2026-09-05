@@ -20,9 +20,12 @@ SDK=../../freeink-sdk/libs/ui/FreeInkUI
 # can carry real icons and still be tested with no renderer and no device.
 ICONS=../../freeink-sdk/libs/assets/Icons
 mkdir -p "$BUILD_DIR"
-# -Wno-comment and -Wno-format-truncation: see host-tests/dungeon/run.sh for
-# why both are GCC-only noise here rather than bugs worth chasing.
-"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
+# -Wno-comment: see host-tests/dungeon/run.sh. -Wno-format-truncation used to
+# sit beside it and does not any more: it was hiding seventeen buffers that
+# were provably too small for their own formats (card 256). The three files
+# from jaipur down are compiled here for that warning alone -- no strict
+# suite built them, so the class had nowhere to be caught in them at all.
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -Wno-comment \
   -I"$SDK/include" -I"$ICONS/include" \
   "$SDK/src/FreeInkUI.cpp" \
   ../../src/apps_local/battleship/BattleshipScreens.cpp \
@@ -63,5 +66,9 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/wavelength/WavelengthScreens.cpp \
   ../../src/apps_local/sudoku/SudokuScreens.cpp \
   ../../src/apps_local/xkcd/XkcdScreens.cpp \
+  ../../src/apps_local/jaipur/JaipurScreens.cpp \
+  ../../src/apps_local/solitaire/SolitaireCore.cpp \
+  ../../src/apps_local/solitaire/SolitaireScreens.cpp \
+  ../../src/apps_local/yahtzee/YahtzeeScreens.cpp \
   test_ui.cpp -o "$BUILD_DIR/test_ui"
 "$BUILD_DIR/test_ui"

@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "../link/LinkScreens.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxIcons.h"
 
 namespace c4ui {
@@ -259,7 +260,7 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   // The page counter lives in the black band, jaipur's way, so it costs no
   // body space; the fragment centres in the room that frees, with headroom
   // for page 0's lip disc above the frame.
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, howToPages());
   toyboxChrome(screen, "HOW TO PLAY", progress);
 
@@ -568,7 +569,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       const uint8_t side = strip == 0 ? c4::other(model.seat) : model.seat;
       const int held = kDiscsPerSide - played[side == c4::kLight ? 0 : 1];
       const int16_t cy = static_cast<int16_t>(bandTop + strip * rowPitch + kSmall);
-      char lead[8];
+      char lead[toybox::kIntTextChars];
       std::snprintf(lead, sizeof(lead), "%d", held);
       fui::TextStyle label;
       label.font = toybox::kTileFont;

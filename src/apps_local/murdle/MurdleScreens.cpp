@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxIcons.h"
 #include "MurdleCast.h"
 #include "MurdleText.h"
@@ -440,7 +441,18 @@ void drawCastBlocks(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rec
 
     for (int i = 0; i < puzzle.shape.items; ++i) {
       {
-        char line[160];
+        // "%c  %s  (%s%s)", sized from that format rather than from the
+        // sixty-odd characters the current cast happens to produce. `detail`
+        // is whatever murdletext wrote into a kLineMax buffer, so it gets a
+        // whole one; a line cut here would be a shortened fact on the case
+        // file, which is the one page a player reads to solve the thing.
+        constexpr int kCastLineChars = 1                                 // %c, the axis letter
+                                       + murdletext::kLabelMax           // %s, the label
+                                       + toybox::literalChars("with ")   // %s, the preposition or ""
+                                       + (murdletext::kLineMax - 1)      // %s, the detail
+                                       + toybox::literalChars("    ()")  // the format's own characters
+                                       + 1;                              // the terminator
+        char line[kCastLineChars];
         // A SUSPECT IS ONE LINE, THE SAME SHAPE AS EVERY OTHER FIXTURE, and
         // that is what makes the whole cast fit one page at every tier. It used
         // to be two -- a name in the UI face, then an indented dossier line --
@@ -505,7 +517,7 @@ void drawCluePage(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect&
       // doing both jobs, and it survives a wrapped clue -- a line struck
       // through three ragged lines of text does not.
       const fui::Rect tick = fui::makeRect(area.x, y, 24, static_cast<int16_t>(lh + 2));
-      char num[8];
+      char num[toybox::kIntTextChars];
       std::snprintf(num, sizeof(num), "%d", i + 1);
       if (done) {
         target.fill(tick, fui::Paint::solid(fui::Color::Black), 5);

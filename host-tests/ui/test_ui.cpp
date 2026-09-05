@@ -37,6 +37,7 @@
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
 #include "../../src/apps_local/trivia/TriviaScreens.h"
+#include "../../src/apps_local/ui/ToyboxFormat.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/ToyboxWrappedText.h"
@@ -2292,7 +2293,7 @@ void testThePageMarksReadAsAControl() {
     // marks changed: the folder resumes on the page it was left on, so the row
     // in position two is a different game on each visit, and "which page is
     // this" has to be answerable before any tap is safe.
-    char number[8];
+    char number[toybox::kIntTextChars];
     std::snprintf(number, sizeof(number), "%d", p + 1);
     CHECK(menu.target.drew(number));
   }
@@ -4692,7 +4693,7 @@ void testTheHowToEndsOnGotIt() {
     CHECK(out.target.drew("HOW TO PLAY"));
     // Where you are in the sequence. Without it the only cue is NEXT becoming
     // GOT IT, which arrives too late to be one.
-    char progress[8];
+    char progress[toybox::kSlashCounterChars];
     std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, knuckleui::howToPages());
     CHECK(out.target.drew(progress));
     // The last page says so, or a player pages forever looking for the end.

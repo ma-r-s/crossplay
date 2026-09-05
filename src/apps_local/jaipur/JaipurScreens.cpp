@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "../link/LinkScreens.h"
+#include "../ui/ToyboxFormat.h"
 #include "JaipurArt.h"
 #include "JaipurCore.h"
 #include "JaipurGoods.h"
@@ -337,7 +338,11 @@ fui::Rect buildBoardChrome(toybox::Screen& screen, const BoardModel& model) {
   // Three things the capsule can be, in the order they take precedence: the
   // round has ended and there are scores to see, the selection is a legal move,
   // or it is only reporting.
-  status.action = model.roundOver ? ActionScores : (model.canCommit ? ActionCommit : fui::NO_ACTION);
+  // Cast, the way BattleshipScreens does: GCC calls an enumerated and a
+  // non-enumerated type in one conditional a -Wextra error, and clang does
+  // not, so this only appears once a GCC suite compiles the file.
+  status.action = model.roundOver ? static_cast<fui::ActionId>(ActionScores)
+                                  : (model.canCommit ? static_cast<fui::ActionId>(ActionCommit) : fui::NO_ACTION);
   status.borderEdges = fui::EdgesNone;
   if (!model.roundOver && !model.canCommit) status.styles = toybox::disabledButtonStyles();
   screen.button(status, linkui::withOpponentFace(screen, screen.takeBottom(toybox::kPillHeight), model.theirName));
@@ -377,7 +382,7 @@ int tutorialPages() { return 8; }
 
 void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
   const int pages = tutorialPages();
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", model.page + 1, pages);
   toyboxChrome(screen, "HOW TO PLAY", progress);
   const fui::Rect body = screen.body();

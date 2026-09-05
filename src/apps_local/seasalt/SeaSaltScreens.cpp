@@ -4,6 +4,7 @@
 #include <initializer_list>
 
 #include "../link/LinkScreens.h"
+#include "../ui/ToyboxFormat.h"
 #include "SeaSaltArt.h"
 #include "SeaSaltCore.h"
 #include "SeaSaltMarks.h"
@@ -603,7 +604,7 @@ int tutorialPages() { return 6; }
 
 void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
   const int pages = tutorialPages();
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", model.page + 1, pages);
   toyboxChrome(screen, "HOW TO PLAY", progress);
   const fui::Rect body = screen.body();

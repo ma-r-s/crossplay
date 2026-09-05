@@ -4,10 +4,16 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "../ui/ToyboxFormat.h"
+
 namespace wavelengthui {
 namespace {
 
 using wavelength::kSlots;
+
+// "%d.%d" -- points per round, carried in tenths and printed with the point
+// put back. Two ints, so two ints wide, plus the point and the terminator.
+constexpr int kTenthsChars = 2 * toybox::kIntChars + toybox::literalChars(".") + 1;
 
 fui::TextStyle textStyle(const fui::FontId font, const fui::TextAlign align,
                          const fui::Color colour = fui::Color::Black) {
@@ -1088,8 +1094,8 @@ void renderMenu(toybox::Screen& screen, const MenuModel& model) {
   // abbreviation. ALL TIME  5 ROUNDS  1.6 PTS/ROUND was one string in a
   // 24-character buffer, so the D of ROUND was cut off by the buffer rather
   // than by the panel -- and even whole, nothing said which number was which.
-  char rounds[12];
-  char perRound[12];
+  char rounds[toybox::kIntTextChars];
+  char perRound[kTenthsChars];
   snprintf(rounds, sizeof(rounds), "%d", rec.rounds);
   snprintf(perRound, sizeof(perRound), "%d.%d", rec.averageTenths() / 10, rec.averageTenths() % 10);
   caps(screen, fui::makeRect(toybox::kMargin, 200, inner, toybox::kButtonCut.lineHeight), "ROUNDS ALL TIME",
@@ -1265,8 +1271,8 @@ void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
   // a loose number: A GOOD TABLE 2.5 gave no clue whether that was points,
   // slots or rounds, and nothing anywhere else on the device said either.
   if (model.rounds > 0) {
-    char avg[16];
-    char good[16];
+    char avg[kTenthsChars];
+    char good[kTenthsChars];
     snprintf(avg, sizeof(avg), "%d.%d", model.averageTenths / 10, model.averageTenths % 10);
     snprintf(good, sizeof(good), "%d.%d", wavelength::kGoodTableTenths / 10, wavelength::kGoodTableTenths % 10);
     caps(screen, fui::makeRect(toybox::kMargin, 262, inner, lineH), "POINTS PER ROUND", toybox::kSmallFont,

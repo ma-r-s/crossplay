@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../ui/ToyboxFormat.h"
 #include "ForeheadCategoryIcons.h"
 
 namespace foreheadui {
@@ -898,7 +899,7 @@ int howToPages() { return kPageCount; }
 
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const int page = model.page < 0 ? 0 : (model.page >= kPageCount ? kPageCount - 1 : model.page);
-  char right[12];
+  char right[toybox::kSlashCounterChars];
   std::snprintf(right, sizeof(right), "%d/%d", page + 1, kPageCount);
   toyboxChrome(screen, "HOW TO PLAY", right);
 
