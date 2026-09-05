@@ -213,6 +213,16 @@ every puzzle after that point unreachable from the tabs, with nothing drawn
 wrong and nothing logged. `gen_picross.sort_by_size` constructs the order and
 `host-tests/picross` re-proves it over the shipped header.
 
+The slot count used to be a literal `4`, and that was not a comfortable margin:
+a local evaluation bank spanning the sizes the source corpus actually offers
+(10, 15, 20, 25, 30) produced **`kSizeGroupCount` = 5**. Under the old array the
+fifth run had nowhere to go, the `break` under it would have fired, and every
+30x30 puzzle in the bank would have been unreachable from the picker -- drawn
+nowhere, reported nowhere, simply absent. Deriving the count from the bank is
+what makes that impossible rather than unlikely. It is the fork's
+`loop-bounds-not-derived-from-the-array` pattern with a measured number against
+it instead of a prediction.
+
 Solved-progress is a bitset sized from the bank (`kProgressWords` 32-bit words in
 `Progress`), not the single word the original 17 used, and the on-SD save
 (`SaveState`, version 2) carries the same array. Every reader and writer walks the
