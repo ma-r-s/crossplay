@@ -694,6 +694,24 @@ fi
 grep -q '"outputDirectory"' "$VERCEL" \
   && ok || bad "site/vercel.json declares no outputDirectory; a dashboard override can then skip the build step and the emulator is never fetched"
 
+# Only xteink deploys. Every pull request used to get a preview deployment,
+# and on the free plan a night of ten agents hit the deployment rate limit, so
+# the Vercel check went red on every PR; every agent explained it away, which
+# is how a real red gets ignored. Nobody used the previews. The ignore command
+# is run here as Vercel runs it (exit 0 skips the build, anything else builds),
+# in a repository with and without a change under site/.
+IGN="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ignoreCommand"])' "$VERCEL")"
+IGNREPO="$(mktemp -d)"; trap 'rm -rf "$IGNREPO"' EXIT; ( cd "$IGNREPO" && git init -q -b xteink && git config user.email t@t && git config user.name t \
+  && echo a > index.html && mkdir -p ../x && git add -A && git commit -qm one && echo b > index.html && git commit -qam two ) >/dev/null 2>&1
+ignore() {  # ref, "changed"|"same" -> prints build|skip
+  local rev=HEAD; [ "$2" = same ] && rev=HEAD^ && ( cd "$IGNREPO" && git commit -q --allow-empty -m empty ) >/dev/null 2>&1
+  ( cd "$IGNREPO" && VERCEL_GIT_COMMIT_REF="$1" sh -c "$IGN" ) >/dev/null 2>&1 && echo skip || echo build
+  [ "$2" = same ] && ( cd "$IGNREPO" && git reset -q --hard HEAD^ ) >/dev/null 2>&1
+}
+[ "$(ignore xteink changed)" = build ] && ok || bad "vercel.json ignoreCommand: xteink with a site change must build"
+[ "$(ignore xteink same)" = skip ] && ok || bad "vercel.json ignoreCommand: xteink with no site change must skip, as before"
+[ "$(ignore app/anything changed)" = skip ] && ok || bad "vercel.json ignoreCommand: a pull request branch must not deploy a preview"
+
 # .vercelignore exists to keep laptop-only tooling off a public URL, and both
 # halves of the fetch look exactly like that. Ignoring either leaves the build
 # unable to find the file it was told to run.

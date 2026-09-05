@@ -191,6 +191,32 @@ if [ "$_committed" = "1" ]; then
   if ! git fetch --quiet origin 2>/dev/null; then
     echo "  could not fetch origin; staleness below is measured against the ref as it stands"
   fi
+  # --- undo guard begin ---
+  # A branch that UNDOES trunk. Built with `git reset --soft` after trunk had
+  # moved, one branch committed its stale tree on top of the new trunk: 1190
+  # deletions, four merged pull requests gone, a live Supabase migration among
+  # them (2026-09-05) -- and its gate PASSED, because every suite that would
+  # have failed was deleted in the same commit. A green gate is not evidence
+  # when the diff can delete the tests. So: the lines this branch removes
+  # against its merge base, intersected with the lines trunk added in the
+  # sixty commits before that base. A handful is editing; dozens is a revert
+  # nobody asked for. CHECK_ALLOW_UNDO=1 says you mean it.
+  undo_base="$(git merge-base HEAD origin/xteink 2>/dev/null || true)"
+  if [ -n "$undo_base" ] && [ -z "${CHECK_ALLOW_UNDO:-}" ]; then
+    undo_from="$(git rev-parse --verify --quiet "$undo_base~60" || git rev-list --max-parents=0 "$undo_base" | tail -1)"
+    undone="$(comm -12 \
+      <(git diff "$undo_from" "$undo_base" -- . ':!site/emulator' | grep '^+[^+]' | cut -c2- | awk 'length($0) >= 12' | sort -u) \
+      <(git diff "$undo_base" HEAD -- . ':!site/emulator' | grep '^-[^-]' | cut -c2- | awk 'length($0) >= 12' | sort -u) | grep -c . || true)"
+    if [ "${undone:-0}" -ge 40 ]; then
+      echo "  this branch UNDOES trunk: $undone lines that landed on xteink shortly before it branched are removed by its own commits."
+      echo "  That is the shape of a stale tree committed on top of a moved trunk (git reset --soft, then commit), and a green"
+      echo "  gate here would prove nothing: the suites that would fail are among the deletions. Most undone, by file:"
+      git diff "$undo_base" HEAD --numstat -- . ':!site/emulator' | sort -k2 -rn | head -5 | awk '{printf "    %s (-%s)\n", $3, $2}'
+      echo "  Rebuild the branch on origin/xteink (git rebase, or cherry-pick your commits onto it). CHECK_ALLOW_UNDO=1 if you mean to revert."
+      die
+    fi
+  fi
+  # --- undo guard end ---
   # Unique paths mean a run killed hard (kill -9 skips the trap below) leaves
   # an orphan that no later run would inherit, so sweep siblings whose owning
   # process is gone: ~600MB each, and a half-populated worktree is a state

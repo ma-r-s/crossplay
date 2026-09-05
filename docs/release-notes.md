@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.35
+
+- Wallpapers: six fixes from the first hardware runs
+
 ### 1.12.34
 
 - Tell the reader the device is working before it blocks (#306)
