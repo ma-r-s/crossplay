@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wallpapers for your reader &middot; CrossPlay</title>
+<meta name="description" content="Turn any picture into a sleep-screen wallpaper for the reader. It is dithered to the panel's 1-bit screen right here in your browser, nothing is uploaded, and you drop the file straight onto the card.">
+<meta property="og:title" content="Wallpapers for your reader">
+<meta property="og:description" content="Drop a picture, get a device-ready wallpaper. Everything happens in this tab; nothing is uploaded anywhere.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://crossplay.ma-r-s.com/wallpapers/">
+<meta property="og:image" content="https://crossplay.ma-r-s.com/assets/shots/og.png">
+<meta property="og:site_name" content="CrossPlay">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/wallpapers/wallpapers.css">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#111110">
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="topbar">
+  <a class="wordmark" href="/">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="1.6" fill="currentColor" />
+      <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square">
+        <path d="M2.6 10.4V2.6h7.8" />
+        <path d="M29.4 10.4V2.6h-7.8" />
+        <path d="M2.6 21.6v7.8h7.8" />
+        <path d="M29.4 21.6v7.8h-7.8" />
+      </g>
+    </svg>
+    <span>CrossPlay</span>
+  </a>
+  <button class="topnav-toggle" type="button"
+          aria-expanded="false" aria-controls="topnav">Menu</button>
+  <nav class="topnav" id="topnav" aria-label="Sections">
+    <a href="/#get">Install the firmware</a>
+    <a class="topnav-out" href="https://github.com/ma-r-s/crossplay">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" width="15" height="15">
+        <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+      </svg>
+      <span>GitHub</span>
+    </a>
+  </nav>
+</div>
+
+<main id="main" class="wp-main">
+  <div class="wp-head">
+    <p class="eyebrow">Wallpapers <span class="eyebrow-sep">&middot;</span> sleep screen</p>
+    <h1 class="wp-title">Any picture, on your reader's sleep screen.</h1>
+    <p class="wp-lede">
+      Drop a photo or a poster and it is dithered to the reader's 1-bit screen
+      right here, in this tab. Nothing is uploaded. You get a small
+      <code>.bmp</code> to drop onto the card, and the Wallpapers app on the
+      device picks it up.
+    </p>
+  </div>
+
+  <div class="wp-work">
+    <div>
+      <div class="wp-drop" id="dropzone" role="button" tabindex="0"
+           aria-label="Choose or drop an image">
+        <p class="wp-drop-big">Drop an image here</p>
+        <p class="wp-drop-small">
+          or click to choose &middot; PNG, JPG, WebP or GIF &middot; it never
+          leaves your browser
+        </p>
+        <input type="file" id="filepick" accept="image/*" hidden>
+      </div>
+
+      <div class="wp-controls" id="controls" hidden>
+        <div>
+          <p class="wp-ctl-title">Orientation</p>
+          <div class="wp-seg" id="orientSeg" role="group" aria-label="Orientation">
+            <button type="button" data-orient="portrait" aria-pressed="true">Portrait</button>
+            <button type="button" data-orient="landscape" aria-pressed="false">Landscape</button>
+          </div>
+        </div>
+        <div>
+          <p class="wp-ctl-title">Fit</p>
+          <div class="wp-seg" id="fitSeg" role="group" aria-label="Fit">
+            <button type="button" data-fit="cover" aria-pressed="true">Fill</button>
+            <button type="button" data-fit="contain" aria-pressed="false">Fit</button>
+          </div>
+        </div>
+        <label class="wp-check">
+          <input type="checkbox" id="invert"> Invert (light becomes dark)
+        </label>
+        <div class="wp-actions">
+          <button class="wp-btn" id="download" type="button" disabled>Download wallpaper</button>
+          <button class="wp-btn is-secondary" id="another" type="button">Choose another</button>
+        </div>
+        <p class="wp-error" id="error" hidden></p>
+      </div>
+      <p class="wp-error" id="pickError" hidden></p>
+    </div>
+
+    <div class="wp-preview">
+      <div class="wp-frame">
+        <canvas class="wp-canvas" id="preview" width="480" height="800" hidden></canvas>
+        <div class="wp-empty-note" id="emptyNote">Your wallpaper will preview here, exactly as the reader will show it.</div>
+      </div>
+      <p class="wp-preview-cap" id="previewCap">480 &times; 800 &middot; 1-bit</p>
+    </div>
+  </div>
+
+  <section class="wp-steps">
+    <h2>Getting it onto the reader</h2>
+    <ol class="wp-rail">
+      <li><p>Download the wallpaper above. It is a small <code>.bmp</code> sized to the screen.</p></li>
+      <li><p>On the reader, open <strong>File Transfer</strong> from the home screen and follow it to the address it shows in your browser. (Or plug the reader in over USB.)</p></li>
+      <li><p>Copy the <code>.bmp</code> into the <code>wallpapers</code> folder on the card. The reader makes that folder the first time you open the Wallpapers app.</p></li>
+      <li><p>Open <strong>Apps &rsaquo; Wallpapers</strong> on the reader, tap your wallpaper, and it becomes the sleep screen.</p></li>
+    </ol>
+  </section>
+</main>
+
+<script type="module" src="/wallpapers/wallpapers.js"></script>
+</body>
+</html>
