@@ -26,6 +26,7 @@
 #include "knucklebones/KnucklebonesActivity.h"
 #include "minesweeper/MinesweeperActivity.h"
 #include "murdle/MurdleActivity.h"
+#include "picross/PicrossActivity.h"
 #include "player/PlayerActivity.h"
 #include "seasalt/SeaSaltActivity.h"
 #include "solitaire/SolitaireActivity.h"
@@ -59,6 +60,7 @@ constexpr shelf::Item kGames[] = {
     {"KNUCKLEBONES", &icon_knucklebones_32, &KnucklebonesActivity::create},
     {"MINESWEEPER", &icon_minesweeper_32, &MinesweeperActivity::create},
     {"SUDOKU", &icon_sudoku_32, &SudokuActivity::create},
+    {"PICROSS", &icon_picross_32, &PicrossActivity::create},
     {"TOY BATTLE", &icon_toybattle_32, &ToyBattleActivity::create},
     {"FOREHEAD", &icon_forehead_32, &ForeheadActivity::create},
     {"TRIVIA", &icon_trivia_32, &TriviaActivity::create},
