@@ -302,7 +302,7 @@ void CrossPointWebServerActivity::startWebServer() {
   }
 
   // Create the web server instance
-  webServer.reset(new CrossPointWebServer());
+  webServer.reset(new CrossPointWebServer(CrossPointWebServer::Surface::Full));
   webServer->begin();
 
   if (webServer->isRunning()) {

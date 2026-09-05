@@ -326,7 +326,7 @@ void update() {
       // calls abort() rather than returning null, so the isRunning() check
       // below could never have run. This path fires on every reconnect, which
       // is exactly when the heap may be short.
-      server = makeUniqueNoThrow<CrossPointWebServer>(/*devOnly=*/true);
+      server = makeUniqueNoThrow<CrossPointWebServer>(CrossPointWebServer::Surface::DeveloperOnly);
       if (!server) {
         LOG_ERR("DEVMODE", "out of memory allocating the control server (free heap %u)", ESP.getFreeHeap());
         nextAttemptAt = now + backoff();

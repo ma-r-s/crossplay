@@ -97,7 +97,7 @@ void CalibreConnectActivity::startWebServer() {
     LOG_DBG("CAL", "Free heap before server alloc: %d bytes", ESP.getFreeHeap());
   }
 
-  webServer.reset(new CrossPointWebServer());
+  webServer.reset(new CrossPointWebServer(CrossPointWebServer::Surface::Full));
   webServer->begin();
 
   if (webServer->isRunning()) {
