@@ -1075,6 +1075,11 @@ worker.onmessage = function (event) {
     });
   });
   dropzone.addEventListener("drop", function (event) {
+    // Stop the document-level drop handler below from also firing on this same
+    // drop: without it a deck dropped on the zone bubbles up and runs takeFile
+    // a second time. Drops elsewhere on the page never reach here, so the
+    // page-wide fallback still works.
+    event.stopPropagation();
     var file = event.dataTransfer && event.dataTransfer.files[0];
     takeFile(file);
   });
