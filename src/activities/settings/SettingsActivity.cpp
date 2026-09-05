@@ -53,6 +53,10 @@ void SettingsActivity::rebuildSettingsLists() {
   std::vector<DictionaryEntry> dictionaries;
   DictionaryRegistry::discover(dictionaries);
 
+  // Filled by the loop, drained after the action rows below.
+  std::vector<SettingInfo> forkSystemSettings;
+  forkSystemSettings.reserve(2);
+
   for (auto& setting : getSettingsList(&sdFontSystem.registry(), &dictionaries)) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
     if (setting.category == StrId::STR_CAT_DISPLAY) {
@@ -75,6 +79,13 @@ void SettingsActivity::rebuildSettingsLists() {
       }
       controlsSettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_SYSTEM) {
+      // CrossPlay's own settings sort below every CrossPoint one. Held back
+      // rather than pushed here, because the action rows below are appended
+      // after this loop and would otherwise sit underneath them.
+      if (setting.valuePtr == &CrossPointSettings::deviceReport || setting.valuePtr == &CrossPointSettings::devMode) {
+        forkSystemSettings.push_back(setting);
+        continue;
+      }
       systemSettings.push_back(setting);
     }
   }
@@ -94,6 +105,7 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts));
+  for (const auto& setting : forkSystemSettings) systemSettings.push_back(setting);
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_TEXT_SETTINGS, SettingAction::TextSettings));
   readerSettings.insert(readerSettings.begin() + 1,
