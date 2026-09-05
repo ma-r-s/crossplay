@@ -60,7 +60,7 @@ sudo apt-get install -y clang-format-21
 
 # macOS (Homebrew): llvm@21 ships clang-format 21, unversioned, keg-only
 brew install llvm@21
-ln -s "$(brew --prefix llvm@21)/bin/clang-format" /opt/homebrew/bin/clang-format-21
+ln -s "$(brew --prefix llvm@21)/bin/clang-format" "$(brew --prefix)/bin/clang-format-21"
 ```
 
 Then verify:
@@ -95,7 +95,7 @@ chmod +x .githooks/pre-commit
 ## Build
 
 ```sh
-./scripts_local/check.sh --tests        # host suites only, no toolchain needed
+./scripts_local/check.sh --tests        # host suites only, no device build (fast)
 ./scripts_local/check.sh                # host suites plus the device and simulator builds
 ```
 
