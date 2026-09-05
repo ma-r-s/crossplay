@@ -409,6 +409,89 @@ else
   done
 fi
 
+echo "the shared scratchpad"
+# Card #314. The agent scratchpad is described as session-specific and is not:
+# several agents run under one session id, and every one of them independently
+# reaches for gate.log, pr.md, out.txt, check.log. Three runs were corrupted in
+# one evening and one reached GitHub -- an agent wrote its pull request body to
+# scratchpad/pr.md, another session overwrote that exact path, and the first
+# pushed the second's text into PR #117.
+#
+# A convention cannot fix this, because the failure mode IS every agent
+# independently choosing the same obvious name. So the flat top level is
+# refused and the refusal names the subdirectory to use instead. Asserted in
+# both directions throughout: a guard that refuses the whole scratchpad would
+# pass a one-sided test exactly as well, and would make the remedy unusable.
+SP="$WORK/scratchpad"
+mkdir -p "$SP/x"
+WT="$ROOT/wt/x"
+
+expect "a write to the flat scratchpad root is refused" 2 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SP/pr.md\"}}"
+grep -q "$SP/x" "$WORK/err" \
+  && ok "the refusal names this tree's own subdirectory" \
+  || bad "refusal does not name the namespaced path: $(head -c 200 "$WORK/err")"
+grep -q "pr.md" "$WORK/err" \
+  && ok "the refusal keeps the filename the agent chose" \
+  || bad "refusal drops the filename, so the remedy has to be reconstructed"
+
+expect "a write INSIDE the namespaced subdirectory is allowed" 0 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SP/x/pr.md\"}}"
+expect "and so is anything deeper" 0 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SP/x/notes/pr.md\"}}"
+expect "an Edit of the flat root is refused too" 2 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$SP/gate.log\"}}"
+
+# The three incidents were all shell redirects, not Write calls: the gate was
+# backgrounded with `> scratchpad/gate.log`, and the PR body was a heredoc.
+expect "a redirect into the flat root is refused" 2 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"./scripts_local/check.sh --committed > $SP/gate.log 2>&1\"}}"
+expect "a tee into the flat root is refused" 2 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"./scripts_local/check.sh | tee $SP/out.txt\"}}"
+expect "a cd into the scratchpad then a heredoc is refused" 2 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $SP && cat > pr.md\"}}"
+expect "a redirect into the namespaced subdirectory is allowed" 0 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"./scripts_local/check.sh --committed > $SP/x/gate.log 2>&1\"}}"
+# A redirect that sits AFTER the `<<` on a heredoc's opening line. Dropping the
+# whole construct as data -- which is what the firmware-next guard does -- loses
+# exactly this, and it is one of the two spellings an agent writes a PR body in.
+expect "a redirect on a heredoc's opening line is refused" 2 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 - <<'PY' > $SP/out.json\\nprint(1)\\nPY\"}}"
+# ...and the body itself stays data. A path named inside a heredoc is text being
+# written, not a file being opened, and refusing it would make the guard fire on
+# documents that merely describe the rule.
+expect "a path named inside a heredoc body is not a write" 0 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cat <<'EOF'\\nnever write to $SP/gate.log\\nEOF\"}}"
+
+# The other direction, which is the half a blocking guard passes for free.
+expect "an ordinary redirect in the tree is untouched" 0 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls > $WT/out.txt\"}}"
+expect "> /dev/null is not a write into anything" 0 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"./scripts_local/check.sh > /dev/null 2>&1\"}}"
+expect "reading a scratchpad path is not a write" 0 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -c CHECKSH-VERDICT $SP/gate.log\"}}"
+expect "a repo path that merely contains the word is untouched" 0 pretool \
+  "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$WT/src/scratchpad_notes.md\"}}"
+
+# The namespace has to come from something that actually differs between the
+# colliding agents. It is the worktree, because one card, one branch, one
+# worktree is the workflow's own rule -- and because on 2026-09-05 the working
+# directory was the ONLY thing that told four concurrently running gates apart.
+guard session-start "{\"session_id\":\"$WORKER\",\"cwd\":\"$WT\"}" >/dev/null
+grep -q "scratchpad is SHARED" "$WORK/out" \
+  && ok "session start says the scratchpad is shared" \
+  || bad "session start does not warn that the scratchpad is shared"
+grep -q "<scratchpad>/x/" "$WORK/out" \
+  && ok "session start names this tree's subdirectory" \
+  || bad "session start does not name the subdirectory: $(grep -i scratchpad "$WORK/out" | head -2)"
+
+# A session with no worktree still gets a name of its own rather than sharing
+# a fallback with every other one.
+guard session-start "{\"session_id\":\"$ORCH\",\"cwd\":\"$ROOT\"}" >/dev/null
+grep -q "<scratchpad>/" "$WORK/out" \
+  && ok "a session outside any worktree still gets a namespace" \
+  || bad "a session outside a worktree got no namespace at all"
+
 echo
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
