@@ -599,8 +599,13 @@ would create it.
 
 ## Order of work
 
-1. **#253 first, for the shared half**: a manifest per pack, a `PackMeta`
-   sibling file, and one honest sync screen. Trivia consumes it.
+0. **Card #326 first**, because it is the only step whose cost rises with delay:
+   put the rated corpus somewhere durable. Nothing else here is safe to build on
+   top of a join table that one `wt.sh prune` deletes, and step 2 needs it.
+1. **#253 next, for the shared half**: a manifest per pack, a `PackMeta`
+   sibling file, and one honest sync screen. Trivia consumes it. This is also
+   the step that makes a device with a pack able to receive a new one at all,
+   which is a fix on its own even if nothing below it ever ships.
 2. Builder emits the `index -> corpus_id` map per build, and a pack id.
 3. `site/api/trivia.js`: manifest `GET`, report `POST`, events rows.
 4. Device: the report queue, `WHY?` on the `HIDDEN` notice, the reason screen,
