@@ -233,7 +233,7 @@ constexpr Room roomFor(const bool queryOk, const uint64_t freeBytes, const uint6
 // cannot be built on the host, so a decision left inside it cannot be tested.
 // The activity keeps `using View = trivia::View`, so its call sites are
 // unchanged.
-enum class View : uint8_t { Menu, Quizmaster, Solo, Notice };
+enum class View : uint8_t { Menu, Quizmaster, Solo, Notice, Settings };
 
 // What the Back gesture does on each screen.
 //
@@ -255,6 +255,11 @@ enum class View : uint8_t { Menu, Quizmaster, Solo, Notice };
 //               half of it back.
 //   Notice      a notice is a message with one button; Back dismisses it to
 //               the menu, the same place its own BACK TO MENU / PLAY goes.
+//   Settings    the app's own options, reached only from the menu, so Back
+//               goes back to it -- the same place its BACK TO MENU button
+//               goes. Unlike Notice this needs no packOpen test: the settings
+//               door is on the menu, so a device with no pack on the card can
+//               never be standing here to begin with.
 //
 // `packOpen` is the one thing that is not just "what does this screen offer",
 // and it exists because Back would otherwise open a screen nothing else can
@@ -274,6 +279,8 @@ constexpr Back backFrom(const View view, const bool packOpen) {
       return Back::EndRound;
     case View::Notice:
       return packOpen ? Back::ToMenu : Back::LeaveApp;
+    case View::Settings:
+      return Back::ToMenu;
   }
   return Back::ToMenu;
 }
