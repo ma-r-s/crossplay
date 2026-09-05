@@ -31,7 +31,9 @@ class TriviaActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class View : uint8_t { Menu, Quizmaster, Solo, Notice };
+  // Defined in TriviaCore.h, where backFrom() can be tested on the host; the
+  // alias keeps every View::Menu call site here unchanged.
+  using View = trivia::View;
   // Which mode the HIDDEN notice came from. deal() decides whether it needs a
   // multiple-choice question by reading view_, so the notice has to put the
   // mode back before dealing or Quizmaster would start demanding distractors.
