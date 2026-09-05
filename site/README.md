@@ -29,8 +29,9 @@ Two properties worth keeping if you edit it:
   project root is `site/`. Changing the project root without changing this
   path silently stops every deploy.
 
-The emulator rebuild CI commits after a firmware merge DOES touch `site/`, so
-it still deploys. That is correct: the page really did change.
+The emulator rebuild CI commits after a firmware merge DOES touch `site/` --
+it writes `site/emulator-manifest.json` -- so it still deploys. That is correct:
+the page really did change.
 
 ## Before it deploys
 
@@ -54,8 +55,11 @@ fork network rather than the branch GitHub reports. The API rejects
 and getting it wrong makes every push a preview while the live domain
 silently keeps serving the last manual deploy.
 
-Point Vercel at this directory as the project root. There is nothing to build,
-so the framework preset is **Other** and the build command is empty.
+Point Vercel at this directory as the project root; the framework preset is
+**Other**. There is one build step and it does not build the site: it downloads
+the browser emulator, which is no longer committed. `vercel.json` carries the
+command, the output directory and an empty install command, and **How the
+emulator reaches production** below says why each of the three is there.
 
 `vercel.json` sets `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp`. Those are there for the in-browser
@@ -85,7 +89,8 @@ which is how a page that "used to load in under a second" starts taking
 minutes for everyone who is not near the region you last tested from.
 
 So `site/emulator/`, `site/pyodide/` and `site/study/NotoSansCJK.otf` are
-committed as brotli, with `Content-Encoding: br` declared for those paths in
+stored as brotli -- the last two committed that way, the emulator published
+that way (see below) -- with `Content-Encoding: br` declared for those paths in
 `vercel.json`; Vercel sees an encoded body and passes it through (34.3s ->
 0.99s, decoding byte-identically). `tools_local/site/precompress.py` does the
 compressing, `tools_local/wasm/build.py` and `fetch_pyodide.py` call it so a
@@ -129,6 +134,97 @@ file was correct. The only reach into a cache that refuses to revalidate is a
 different URL, so both pages load `assets/emulator.js?v=2`. The HTML itself
 revalidates, which is what makes that work. Keep the query on both pages until
 2027, and bump it rather than removing it if this ever recurs.
+
+## How the emulator reaches production
+
+`site/emulator/` is 3.7MB of generated wasm that changes on every firmware
+merge. It used to be committed, and the arithmetic is the whole story: 111
+distinct revisions of `crossplay.wasm`, ~357MB of blobs, 56 revisions and 159MB
+in one week, in a repository whose checkout is ~104MB and whose clone was ~497MB
+and rising by ~20MB a day. Every clone and every CI checkout in the fork paid
+for it.
+
+It cannot simply be ignored either, and `.gitignore` said so for months: **Vercel
+has no Emscripten**, so a deploy that cannot see these files ships a site whose
+headline feature 404s. The browser demo is the first thing the README offers a
+stranger, before install instructions.
+
+So the bytes go where a clone does not follow, and the repository keeps a
+pointer. Four files, in the order they run:
+
+|                                             |                                                                                                                |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `tools_local/site/publish_emulator.py`      | uploads each file to the **`emulator`** GitHub release under a content-addressed name, and writes the manifest |
+| `site/emulator-manifest.json`               | ~1KB, committed. Names the assets, their sha256s, and the source revision                                      |
+| `site/fetch-emulator.mjs`                   | `vercel.json`'s `buildCommand`. Downloads them during the build and verifies every hash                        |
+| `.github/workflows/crossplay-site-live.yml` | asks the live origin whether it worked                                                                         |
+
+`.github/workflows/crossplay-emulator.yml` drives the first two after every push
+to `xteink` whose sources are newer than the artefact.
+
+**`vercel.json` cannot carry comments, so its three build keys are explained
+here.** All three were added together and none of them is decoration:
+
+- `"buildCommand": "node fetch-emulator.mjs"` — the fetch itself. `node` and not
+  `curl` or `python3`: only Node is on Vercel's documented build image.
+- `"outputDirectory": "."` — Preset "Other" already resolves the output to `.`
+  when there is no `public/`, so this changes nothing about what is served. It
+  is here because an **Output Directory override left on and empty in the Vercel
+  dashboard skips the build step entirely**, and that setting is invisible from
+  the repository. Declaring one takes the decision away from it.
+- `"installCommand": ""` — there is no `package.json`, so there is nothing to
+  install and no reason to let Vercel guess a package manager.
+
+**Three things that are load-bearing, each of which has an obvious-looking
+wrong version:**
+
+- **Asset names are the content's hash, and old assets are never replaced.** A
+  rolling filename updated in place would break every redeploy of an older
+  commit — Vercel's Redeploy button and its rollbacks both rebuild an old tree,
+  whose manifest would name bytes that no longer exist under that name.
+- **A failed fetch fails the build, deliberately.** A failed Vercel build
+  promotes nothing, so the previous deployment keeps serving. A broken publish
+  must cost a stale site, never a broken one — and it must never be survivable,
+  because a green deploy with no emulator is invisible to every check that looks
+  at the repository.
+- **The files are published brotli and hashed brotli.** Everything under
+  `emulator/` is served with `Content-Encoding: br` for the reason spelled out
+  above, so `publish_emulator.py` refuses to publish anything that is not, and
+  the manifest carries both the encoded and the decoded hash.
+
+**Rebuilding by hand** is unchanged, and it no longer produces something to
+commit:
+
+```bash
+pio run -e simulator_x4_pro -t compiledb
+source ../.emsdk/emsdk_env.sh && python3 tools_local/wasm/build.py
+```
+
+The files land in `site/emulator/` and `serve.py` picks them up. Do not commit
+them; land the source change and let CI publish.
+
+**If you only want to look at the page**, you do not need Emscripten at all --
+fetch the published build the same way Vercel does:
+
+```bash
+node site/fetch-emulator.mjs
+```
+
+If you do need to publish one by hand:
+
+```bash
+python3 tools_local/site/publish_emulator.py            # upload + rewrite the manifest
+python3 tools_local/site/verify_live_emulator.py        # and then ask the live site
+```
+
+**The files under `site/emulator/` are still tracked**, frozen at the last
+revision CI ever committed. They are the fallback for the one failure the build
+cannot catch — a `buildCommand` that never runs at all — and while they are
+there, a fetch finds the right hashes on disk only until the next rebuild
+changes the manifest. Removing them from the index is a separate change, and the
+live check above is what says it is safe to make: it compares the origin against
+the manifest, so a fallback being served instead of the published bytes shows up
+as a failure with the reason named.
 
 ## The Install button
 
@@ -281,7 +377,10 @@ demonstrates an old version:
 pio run -e simulator_x4_pro -t compiledb && source ../.emsdk/emsdk_env.sh && python3 tools_local/wasm/build.py
 ```
 
-It is checked in because Vercel does not have Emscripten.
+**It is not committed any more.** It used to be, and that cost 111 revisions of
+`crossplay.wasm`, ~357MB of history and about 20MB a day forever, on a
+repository whose working tree is ~104MB. See **How the emulator reaches
+production** below before changing anything about how it is built or shipped.
 
 ## Assets
 

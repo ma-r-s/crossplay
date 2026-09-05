@@ -86,10 +86,14 @@ MemorySource buildOne(const uint16_t width, const uint16_t height, const uint16_
 }
 
 void testRealFile(const std::string& dir) {
+  // Same as test_deck.cpp: a missing images.dat is a failure. The SKIP that
+  // was here was indented two spaces, invisible to check.sh's "^SKIP"
+  // surfacing, and taken on every run because nothing ever produced the file.
   FileSource file(dir + "/images.dat");
   if (!file.ok()) {
-    std::printf("  SKIP: no images.dat at %s\n", dir.c_str());
-    std::printf("        make one with tools_local/study/make_images.py\n");
+    check(false, "images.dat exists");
+    std::printf("        no images.dat under %s -- host-tests/study/run.sh builds one\n", dir.c_str());
+    std::printf("        with make_fixture.py, through make_images.py's own packer\n");
     return;
   }
   study::StudyImages images;
@@ -181,6 +185,6 @@ int main(const int argc, char** argv) {
   std::printf("StudyImages\n");
   testRealFile(argc > 1 ? argv[1] : "/tmp/studytest/fresh");
   testRefusesCorruption();
-  std::printf("%s (%d checks, %d failures)\n", failures == 0 ? "PASS" : "FAIL", checks, failures);
+  std::printf("%s %d checks, %d failed\n", failures == 0 ? "PASS" : "FAIL", checks, failures);
   return failures == 0 ? 0 : 1;
 }

@@ -16,7 +16,33 @@
 // therefore run twice, at two different metrics; a region whose verdict changes
 // between the two is reported as METRIC-DEPENDENT and must not be quoted as a
 // number.
+//
+// THIS IS A GATE, not a report. It was a report until 2026-09-05, and that is
+// the whole reason it is worth saying twice: main() printed what it found and
+// returned 0, there was no failure counter in the file, and it never emitted
+// the "N checks, M failed" line check.sh counts -- so check.sh printed
+// "revealsweep ok (0 sub-suite(s))" whatever the sweep discovered. A NEW
+// same-pixel collision, of exactly the kind Wavelength shipped, would have
+// scrolled past in a log nobody opens while the gate stayed green.
+//
+// What it fails on now, and why it is shaped this way. Every collision the
+// sweep can see today is already known: they are written down here, one line
+// each, next to what is known about them. The gate fails when reality stops
+// matching that list -- a collision that is not on it (a regression, or a new
+// screen pair), or a line on the list that no longer happens (a fix landed and
+// the waiver outlived it). Both directions matter: a stale waiver is a hole
+// held open for the next regression.
+//
+// It also fails when a probe stops measuring what it says it measures. Each
+// probe names the control on the FROM screen that PRODUCES the TO screen --
+// the one rect a finger is provably on at the moment the panel changes. Three
+// of the ten named an action their own fixture never registered (minesweeper
+// and sudoku built an unfinished board and asked for the verdict capsule;
+// study named ActionSync where the SYNC door carries ActionStudy/2), so the
+// producer check silently did not run on any of them and printed nothing at
+// all. A probe whose producer is absent is now a failure, not a blank line.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -38,6 +64,21 @@
 namespace fui = freeink::ui;
 
 namespace {
+
+int gChecks = 0;
+int gFailed = 0;
+
+// Every assertion this file makes goes through here, so the count in the
+// summary line is the count of things actually asked -- not a number typed
+// beside them.
+bool check(const bool ok, const char* what) {
+  ++gChecks;
+  if (!ok) {
+    ++gFailed;
+    std::printf("   FAIL: %s\n", what);
+  }
+  return ok;
+}
 
 int16_t gCharWidth = 10;
 int16_t gLineHeight = 20;
@@ -167,6 +208,15 @@ int areaOf(const std::vector<Cell>& cells, const int action, const int value) {
 
 constexpr int kStep = 4;
 
+// A producer whose action is unique on its screen does not need a value; a
+// producer that is one row of a list does, because the row is what the finger
+// is on and its siblings are elsewhere.
+constexpr int kAnyValue = 1 << 30;
+
+// The nine points inside the producer's own rect that the new screen is asked
+// about: four corners, four edge midpoints, the centre.
+constexpr int kProducerProbePoints = 9;
+
 struct Probe {
   const char* name;
   bool landscape;
@@ -174,8 +224,32 @@ struct Probe {
   void (*buildTo)(Built&);
   // The action on the FROM screen that produces the TO screen, or 0 if the
   // transition is not a touch at all. This is the one whose rect a finger is
-  // provably on at the moment the new screen is drawn.
+  // provably on at the moment the new screen is drawn. It must exist on the
+  // FROM screen the fixture builds: a producer that is not there means the
+  // fixture is not in the state the probe's name claims, and the sharpest
+  // check in the file quietly does not run.
   int producer = 0;
+  // Which instance of it, when the action is a list row.
+  int producerValue = kAnyValue;
+  // How many of the nine points inside the producer's rect the NEW screen
+  // answers at. Zero is the only good answer; anything else is a control the
+  // finger already resting there can fire. The number is here rather than
+  // assumed so that a collision getting WIDER is a failure and not a shrug.
+  int producerLive = 0;
+  // The collisions this transition is known to have, "fromAction/fromValue->
+  // toAction/toValue", terminated by nullptr. Anything else the sweep finds
+  // fails; anything here it no longer finds fails too.
+  //
+  // WHAT THIS UNIT DOES NOT CATCH, stated rather than left to be discovered:
+  // the key is the pair of actions, not the area, so a known collision that
+  // GROWS -- 12% of the source control becoming 100% -- keeps the same key and
+  // does not fail here. The percentage is printed every run, and the producer
+  // check below is exact, which is the case where a finger is provably on the
+  // rect. Adding area to the key would fail on every harmless layout nudge.
+  const char* const* known = nullptr;
+  // One line saying why the list above is what it is. Printed with the
+  // findings so a reader of the log is told, not left to infer.
+  const char* note = "";
 };
 
 void dump(const char* label, Built& built) {
@@ -193,6 +267,7 @@ void report(const Probe& probe) {
   const int h = probe.landscape ? 480 : 800;
 
   std::printf("\n== %s\n", probe.name);
+  if (probe.note[0] != '\0') std::printf("   known: %s\n", probe.note);
   {
     Built from;
     Built to;
@@ -201,20 +276,21 @@ void report(const Probe& probe) {
     dump("FROM", from);
     dump("TO  ", to);
     if (probe.producer != 0) {
+      int found = 0;
+      int live = 0;
+      int seen = 0;
       const fui::Interaction* data = from.interactions.data();
       for (size_t i = 0; i < from.interactions.count(); ++i) {
         if (static_cast<int>(data[i].action) != probe.producer) continue;
+        if (probe.producerValue != kAnyValue && static_cast<int>(data[i].value) != probe.producerValue) continue;
+        ++found;
         const fui::Rect r = data[i].rect;
         // What the NEW screen does at the four corners and the centre of the
         // rect the finger is provably on.
         const int xs[3] = {r.x + 2, r.x + r.width / 2, r.x + r.width - 3};
         const int ys[3] = {r.y + 2, r.y + r.height / 2, r.y + r.height - 3};
-        int live = 0;
-        int total = 0;
-        int seen = 0;
         for (int yi = 0; yi < 3; ++yi) {
           for (int xi = 0; xi < 3; ++xi) {
-            ++total;
             const fui::ActionEvent e = to.tap(xs[xi], ys[yi]);
             if (e.action != 0) {
               ++live;
@@ -222,10 +298,24 @@ void report(const Probe& probe) {
             }
           }
         }
-        std::printf("   PRODUCER action %d rect x=%d y=%d w=%d h=%d -> new screen answers at %d of %d probe points",
-                    probe.producer, r.x, r.y, r.width, r.height, live, total);
+        std::printf("   PRODUCER action %d/%d rect x=%d y=%d w=%d h=%d -> new screen answers at %d of %d probe points",
+                    probe.producer, static_cast<int>(data[i].value), r.x, r.y, r.width, r.height, live,
+                    kProducerProbePoints);
         if (live > 0) std::printf(" (e.g. action %d)", seen);
         std::printf("\n");
+      }
+      // The check that three probes needed and none of them got: a producer
+      // the fixture never registered printed NOTHING, which reads exactly
+      // like a producer that collides with nothing.
+      char what[192];
+      std::snprintf(what, sizeof(what),
+                    "%s: the producing control (action %d) is on the FROM screen the fixture builds", probe.name,
+                    probe.producer);
+      if (check(found > 0, what)) {
+        std::snprintf(what, sizeof(what),
+                      "%s: the new screen answers at %d of %d points inside the producer (found %d)", probe.name,
+                      probe.producerLive, kProducerProbePoints, live);
+        check(live == probe.producerLive, what);
       }
     }
   }
@@ -248,8 +338,8 @@ void report(const Probe& probe) {
 
   if (runs[0].empty()) {
     std::printf("   no pixel carries a different action across this transition\n");
-    return;
   }
+  std::vector<std::string> seenKeys;
   for (const auto& o : runs[0]) {
     // Stable across both metrics?
     bool stable = false;
@@ -262,11 +352,40 @@ void report(const Probe& probe) {
     }
     const int fromArea = areaOf(fromRuns[0], o.fromAction, o.fromValue);
     const int pct = fromArea > 0 ? (o.points * 100) / fromArea : 0;
+    seenKeys.push_back(key(o));
     std::printf("   action %d/%d  ->  action %d/%d   %d%% of the source control (%d of %d lattice pts)\n", o.fromAction,
                 o.fromValue, o.toAction, o.toValue, pct, o.points, fromArea);
     std::printf("      overlap box x[%d..%d] y[%d..%d]   %s\n", o.minX, o.maxX + kStep - 1, o.minY, o.maxY + kStep - 1,
                 stable ? "stable at both text metrics" : "METRIC-DEPENDENT -- do not quote");
   }
+
+  // The list in the table against what the lattice just found, both ways.
+  // One check, because a probe either matches its declaration or it does not;
+  // every individual difference is printed above it either way.
+  std::vector<std::string> knownKeys;
+  for (const char* const* k = probe.known; k != nullptr && *k != nullptr; ++k) knownKeys.push_back(*k);
+
+  int unexpected = 0;
+  for (const auto& k : seenKeys) {
+    if (std::find(knownKeys.begin(), knownKeys.end(), k) != knownKeys.end()) continue;
+    ++unexpected;
+    std::printf("   FAIL: %s: a collision that is not written down: %s. Two controls share pixels across this\n",
+                probe.name, k.c_str());
+    std::printf("         screen change and nobody decided that was acceptable. Fix it, or add it to `known`\n");
+    std::printf("         with a line saying why it is survivable.\n");
+  }
+  int vanished = 0;
+  for (const auto& k : knownKeys) {
+    if (std::find(seenKeys.begin(), seenKeys.end(), k) != seenKeys.end()) continue;
+    ++vanished;
+    std::printf("   FAIL: %s: %s is written down as known and no longer happens. Delete the line: a waiver\n",
+                probe.name, k.c_str());
+    std::printf("         that outlives its finding is a door held open for the next one.\n");
+  }
+  char what[192];
+  std::snprintf(what, sizeof(what), "%s: the collisions found are exactly the ones written down (%d new, %d stale)",
+                probe.name, unexpected, vanished);
+  check(unexpected == 0 && vanished == 0, what);
 }
 
 // --- probes -----------------------------------------------------------------
@@ -288,6 +407,11 @@ void minesweeperBoardSettled(Built& out) {
   mineui::BoardModel model;
   minesweeper::start(model.game, 12345u);
   model.showMines = true;
+  // SETTLED, which is the state this probe is named for. buildBoard draws the
+  // verdict capsule only under ms::over(game); with a Fresh game it drew the
+  // DIG/FLAG strip, so the probe measured the wrong screen and its producer
+  // (ActionSeeResult) was not on it.
+  model.game.status = minesweeper::Status::Won;
   build(out, false, [&](toybox::Screen& s) { mineui::buildBoard(s, model); });
 }
 
@@ -301,6 +425,11 @@ void minesweeperResult(Built& out) {
 
 void sudokuBoard(Built& out) {
   sudokuui::BoardModel model;
+  // Finished, for the same reason as minesweeper above: drawRail registers
+  // ActionSeeResult on the status capsule only once solvedFlag is set. An
+  // unsolved grid made this "BOARD -> RESULT" probe a transition that cannot
+  // happen, measured against the two controls that are not the door.
+  model.game.solvedFlag = 1;
   build(out, false, [&](toybox::Screen& s) { sudokuui::buildBoard(s, model); });
 }
 
@@ -438,24 +567,60 @@ void dumpOnly(const char* label, void (*builder)(Built&)) {
   dump("    ", built);
 }
 
+// The collisions each transition is known to have. One array per probe so
+// each carries its own reasoning; REVEAL-FINDINGS.md at the workspace root is
+// the longer version, and says which of these are owned and which are not.
+//
+// A key is "fromAction/fromValue->toAction/toValue". Adding one is a decision:
+// it says a person looked at this pair of controls and judged the collision
+// survivable, or tracked elsewhere. Removing one is what happens when the
+// collision is fixed.
+const char* const kNone[] = {nullptr};
+const char* const kMinesweeperKnown[] = {"9/0->7/0", nullptr};
+// Measured, not assumed. With the grid solved the SOLVED capsule itself is
+// clear of RESULT (0 of 9 points answer inside it), and the two controls
+// that do collide are UNDO and HINT, which are not the door the player
+// takes. Both were in every run this sweep ever printed.
+const char* const kSudokuKnown[] = {"4/0->8/0", "5/0->7/0", nullptr};
+const char* const kBattleshipKnown[] = {"5/0->201/0", nullptr};
+const char* const kInsiderQuestionsKnown[] = {"5/0->9/0", nullptr};
+const char* const kInsiderVoteKnown[] = {"6/-1->8/0", "7/0->9/0", nullptr};
+const char* const kForeheadKnown[] = {"13/0->7/0", "13/0->8/0", nullptr};
+const char* const kTriviaKnown[] = {"2/0->3/0", "2/0->4/0", nullptr};
+const char* const kStudyKnown[] = {"1/2->7/1", nullptr};
+const char* const kInstapaperKnown[] = {"321/0->325/0", nullptr};
+
 const Probe kProbes[] = {
     {"wavelength: DIAL (hold to lock) -> REVEAL (the score)", false, wavelengthDial, wavelengthReveal,
-     wavelengthui::ActionLock},
+     wavelengthui::ActionLock, kAnyValue, 0, kNone,
+     "clean since v1.12.9 -- LOCK is a plain button guarded by geometry, and the reveal puts nothing under it"},
     {"minesweeper: settled BOARD (verdict capsule) -> RESULT", false, minesweeperBoardSettled, minesweeperResult,
-     mineui::ActionSeeResult},
-    {"sudoku: BOARD -> RESULT", false, sudokuBoard, sudokuResult, sudokuui::ActionSeeResult},
+     mineui::ActionSeeResult, kAnyValue, kProducerProbePoints, kMinesweeperKnown,
+     "the verdict capsule and RESULT's own button are the same bottom pill; open, unowned"},
+    {"sudoku: BOARD -> RESULT", false, sudokuBoard, sudokuResult, sudokuui::ActionSeeResult, kAnyValue, 0, kSudokuKnown,
+     "the door itself is clear; UNDO and HINT land on RESULT's DONE and AGAIN. Open, unowned"},
     {"battleship: game-over BOARD (PLAY AGAIN capsule) -> shared LINK screen", false, battleshipGameOverBoard,
-     linkRematchScreen, bshipui::ActionPlayAgain},
+     linkRematchScreen, bshipui::ActionPlayAgain, kAnyValue, kProducerProbePoints, kBattleshipKnown,
+     "closed by S1 (PaintClock/RevealedInteractions, v1.12.10): the rects still coincide, the timing window is gone"},
     {"insider: QUESTIONS (WE SAID THE WORD) -> REVEAL, on the 300s clock expiring", false, insiderQuestions,
-     insiderReveal, insiderui::ActionFoundWord},
+     insiderReveal, insiderui::ActionFoundWord, kAnyValue, kProducerProbePoints, kInsiderQuestionsKnown,
+     "genuine same-rect overlap, still open per REVEAL-FINDINGS.md"},
     {"insider: VOTE (confirm the accusation) -> REVEAL", false, insiderVote, insiderReveal,
-     insiderui::ActionConfirmVote},
+     insiderui::ActionConfirmVote, kAnyValue, kProducerProbePoints, kInsiderVoteKnown,
+     "genuine same-rect overlap, still open per REVEAL-FINDINGS.md"},
     {"forehead: READY (tap to start) -> PLAY (GOT / MISSED bands), landscape", true, foreheadReady, foreheadPlay,
-     foreheadui::ActionStart},
-    {"trivia: CLUE (REVEAL) -> ANSWER (NEXT / HIDE)", false, triviaClue, triviaAnswer, triviaui::ActionReveal},
-    {"study: DECK (SYNC door) -> SYNC VERDICT", false, studyDeck, studySyncVerdict, studyui::ActionSync},
+     foreheadui::ActionStart, kAnyValue, 3, kForeheadKnown,
+     "READY is the whole panel and PLAY splits it into two bands, so a third of it is unavoidably live"},
+    {"trivia: CLUE (REVEAL) -> ANSWER (NEXT / HIDE)", false, triviaClue, triviaAnswer, triviaui::ActionReveal,
+     kAnyValue, kProducerProbePoints, kTriviaKnown, "genuine same-rect overlap, still open per REVEAL-FINDINGS.md"},
+    // The SYNC door is a list row: ActionStudy carrying value 2. The table
+    // named ActionSync, which no screen registers, so this probe's producer
+    // check printed nothing for its whole life.
+    {"study: DECK (SYNC door) -> SYNC VERDICT", false, studyDeck, studySyncVerdict, studyui::ActionStudy, 2,
+     kProducerProbePoints, kStudyKnown, "genuine same-rect overlap, still open per REVEAL-FINDINGS.md"},
     {"instapaper: QUEUE (SYNC) -> NOTICE (the sync verdict)", false, instapaperQueue, instapaperNotice,
-     instapaperui::ActionSync},
+     instapaperui::ActionSync, kAnyValue, kProducerProbePoints, kInstapaperKnown,
+     "genuine same-rect overlap, still open per REVEAL-FINDINGS.md"},
 };
 
 }  // namespace
@@ -465,6 +630,10 @@ int main() {
   std::printf("lattice step %dpx; action 0 = nothing tappable there\n", kStep);
   for (const auto& probe : kProbes) report(probe);
   dumpOnly("link screen, rematch state (every multiplayer game shares it)", linkRematch);
-  std::printf("\ndone\n");
-  return 0;
+
+  // The line check.sh counts. Without it the suite reported
+  // "revealsweep ok (0 sub-suite(s))" and the zero looked like a formatting
+  // quirk rather than the whole truth about it.
+  std::printf("\n%d checks, %d failed\n", gChecks, gFailed);
+  return gFailed == 0 ? 0 : 1;
 }

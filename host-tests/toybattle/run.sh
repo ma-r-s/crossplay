@@ -29,3 +29,25 @@ python3 ../../tools_local/terrain-editor/selftest.py
 for board in ../../tools_local/terrain-editor/boards/*.json; do
   python3 ../../tools_local/terrain-editor/to_cpp.py --check "$board"
 done
+
+# The six instruments beside this file: COMPILED, never run.
+#
+# branching, exploit, montecarlo, tournament and tune are measurements, and
+# each one's header says so and says why it is not a test -- they take minutes
+# and assert almost nothing, because their job is to decide which opponent is
+# strongest rather than to defend one that shipped. mksave writes a save
+# parked at a UI state no tap script can reach, for looking at the Cursed
+# Cemetery prompt. All six drive about 1,400 lines against ToyBattleCore and
+# ToyBattleBrain, and until 2026-09-05 no gate anywhere compiled any of them
+# while CI enforced their formatting: a rename in the core would have left
+# them broken and silent, and the next person to reach for one would find out
+# by not being able to build it.
+#
+# Compiling is the whole of what they need. -fsyntax-only, all six in under a
+# second, at the same -Werror the tests use.
+echo "instruments (compile only: measurements, not tests)"
+for tool in branching exploit montecarlo tournament tune; do
+  "${CXX:-c++}" $CXXFLAGS -fsyntax-only "$tool.cpp"
+done
+"${CXX:-c++}" $CXXFLAGS -fsyntax-only mksave.cpp
+echo "  branching exploit montecarlo tournament tune mksave: compile"

@@ -414,6 +414,17 @@ def main():
             sys.exit("pre-compression failed; do not commit site/emulator as-is")
         print("pre-compressed for the site")
 
+    # And say what to do with it. These files are NOT committed any more: they
+    # go to the `emulator` GitHub release and the repository keeps the ~1KB
+    # pointer beside them. Printing it here is the difference between that being
+    # a rule in site/README.md and a rule anyone hits.
+    print(
+        "\nsite/emulator/ is not committed. To publish it:\n"
+        "  python3 tools_local/site/publish_emulator.py   # uploads, rewrites the manifest\n"
+        "Landing a source change is normally enough -- crossplay-emulator.yml does\n"
+        "this on xteink by itself."
+    )
+
 
 if __name__ == "__main__":
     main()
