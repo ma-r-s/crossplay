@@ -1809,5 +1809,61 @@ else
   wait "$WGPID" 2>/dev/null
 fi
 
+# ---------------------------------------------------------------------------
+# A --tests RUN MUST NOT REPORT AN UNQUALIFIED GREEN.
+#
+# Card #317 made the verdict a token, and a token is read by somebody who never
+# saw the command line. `--tests` runs the host suites and builds nothing, so a
+# `green` token from it claims ground the run never covered -- which is the
+# exact overstatement the third verdict (`host-green-device-skipped`) was
+# invented to prevent when the scope gate skips the builds. The two cases are
+# the same case and must produce the same token.
+python3 - "$CHECK" >"$WORK/testsarm.sh" <<'PY_TESTS'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+start = next(i for i, l in enumerate(lines) if l.startswith('if [ "${1:-}" = "--tests" ]'))
+end = next(i for i in range(start, len(lines)) if lines[i] == 'fi')
+print('\n'.join(lines[start:end + 1]))
+PY_TESTS
+
+checks=$((checks + 1))
+if [ ! -s "$WORK/testsarm.sh" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  check.sh has no --tests arm setting the skip scope, so a run that built"
+  echo "              nothing reports the same token as a full one (card #317)"
+else
+  arm() {  # $1 as check.sh saw it -> prints SKIPPED=[...] WHY=[...]
+    ( set +e; set -- "$1"; DEVICE_BUILDS_SKIPPED=""; DEVICE_SKIP_WHY=""
+      . "$WORK/testsarm.sh"; echo "SKIPPED=[$DEVICE_BUILDS_SKIPPED] WHY=[$DEVICE_SKIP_WHY]" )
+  }
+  checks=$((checks + 1))
+  case "$(arm --tests)" in
+    *"SKIPPED=[]"*) failed=$((failed + 1))
+      echo "FAIL checksh  a --tests run leaves the skip scope empty, so its verdict is a bare" \
+           "'green' for a run that compiled nothing" ;;
+    *"WHY=[]"*) failed=$((failed + 1))
+      echo "FAIL checksh  a --tests run names no reason, so the verdict line falls back to a" \
+           "generic phrase instead of saying --tests" ;;
+    *) : ;;
+  esac
+  checks=$((checks + 1))
+  case "$(arm --committed)" in
+    "SKIPPED=[] WHY=[]") : ;;
+    *) failed=$((failed + 1))
+       echo "FAIL checksh  a run that is NOT --tests was marked as having skipped the builds:" \
+            "$(arm --committed)" ;;
+  esac
+
+  # And the verdict line must actually USE the reason, or the two skips read
+  # identically and a reader cannot tell "your diff cannot reach a device" from
+  # "you did not ask for a build".
+  checks=$((checks + 1))
+  if ! grep -q 'DEVICE_SKIP_WHY' "$WORK/verdict.sh" 2>/dev/null; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the HOST GREEN line does not carry the reason it was skipped, so a"
+    echo "              --tests run and a scope-skipped run print the same sentence"
+  fi
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

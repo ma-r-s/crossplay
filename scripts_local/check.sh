@@ -816,6 +816,7 @@ if [ "${1:-}" != "--tests" ]; then
   # The simulator env is never dropped. It is the fast native build everyone
   # waits on, it takes no lock, and it is what the wasm artifact comes from.
   DEVICE_BUILDS_SKIPPED=""
+  DEVICE_SKIP_WHY="nothing in this diff reaches a device image"
   _scope="${REPO:-}/scripts_local/device-build-needed.sh"
   _dev_envs="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
   if [ -n "${CHECK_FORCE_DEVICE_BUILDS:-}" ]; then
@@ -1261,6 +1262,17 @@ if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLO
   fi
 fi
 
+# --tests asked for the host suites and nothing else. Card #317 turned the
+# verdict into a TOKEN a reader acts on without ever having seen the command
+# line, and `green` from a run that compiled nothing is exactly the
+# overstatement the third verdict was invented to prevent -- so a --tests run
+# says host-green-device-skipped like any other run that covered less ground.
+# Set here rather than in the build block above, which --tests never enters.
+if [ "${1:-}" = "--tests" ]; then
+  DEVICE_BUILDS_SKIPPED="none: --tests was asked for"
+  DEVICE_SKIP_WHY="--tests runs the host suites only, so no build of any kind ran"
+fi
+
 echo
 if [ "$FAILED" -eq 0 ]; then
   # SCOPE_NOTE: a withheld verdict is the stronger statement and wins the line,
@@ -1301,7 +1313,7 @@ if [ "$FAILED" -eq 0 ]; then
     # above: every grep written before this line existed matches that phrase
     # and would fail OPEN on a run that skipped the device builds. Anything looking
     # for the unqualified form finds nothing here and has to read the line.
-    echo "HOST GREEN, DEVICE BUILDS SKIPPED ($DEVICE_BUILDS_SKIPPED) -- nothing in this diff reaches a device image, so none was built."
+    echo "HOST GREEN, DEVICE BUILDS SKIPPED ($DEVICE_BUILDS_SKIPPED) -- ${DEVICE_SKIP_WHY:-no device image was built by this run}."
   else
     VERDICT=green; STATUS=0
     echo "all green."

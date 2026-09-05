@@ -94,9 +94,12 @@ rest is the gate's own machinery -- a change to `check.sh` that broke the build
 loop must not be verified by a run that skipped the build loop.
 
 **A scoped run does not print `all green`.** It prints
-`HOST GREEN, DEVICE BUILDS SKIPPED (...)` and names every env it dropped, so a
-grep written before this existed finds nothing and fails closed rather than
-open. Override it with `CHECK_FORCE_DEVICE_BUILDS=1`.
+`HOST GREEN, DEVICE BUILDS SKIPPED (...)` -- token `host-green-device-skipped`
+-- and names every env it dropped, so a grep written before this existed finds
+nothing and fails closed rather than open. Override it with
+`CHECK_FORCE_DEVICE_BUILDS=1`. **`--tests` reports the same verdict**, for the
+same reason: it builds nothing, and a token is read by somebody who never saw
+the command line. The parenthetical says which of the two skips happened.
 
 **Every firmware env is built in ONE `pio run`.** Not for speed. PlatformIO's
 `clean_build_dir()` runs once per invocation against the whole `.pio/build`
