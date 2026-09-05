@@ -841,9 +841,11 @@ Tested in all 4 orientations with 5MB+ files.
 - Feature is complete and tested on device
 - Bug fix is verified working
 - Refactoring preserves all functionality
-- All tests pass (`./scripts_local/check.sh --committed` reaches a green verdict
-  on its last line -- it has four verdicts and one non-zero exit code, so `$?`
-  is not the answer)
+- All tests pass -- `./scripts_local/check.sh --committed`, read by
+  `grep -o 'CHECKSH-VERDICT: [a-z-]*'` over its captured output. `green` and
+  `host-green-device-skipped` pass; `withheld`, `failed` and no token at all do
+  not. Never `tail -1` (a background wrapper appends its own line after the
+  verdict) and never `$?` (your pipeline replaces it).
 
 **DO NOT commit when**:
 
