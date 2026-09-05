@@ -291,6 +291,33 @@ again). The queue is the outbound copy. Two files because they answer different
 questions and have different lifetimes — the flag is local and permanent, the
 queue is drained.
 
+**A queued report can outlive the pack it names, and that is the one way this
+design can lie.** An index only means something against a pack id, and the queue
+is drained on a schedule nobody controls: a player can report ten questions, go
+a month without Wi-Fi, and sync. If the pack were updated first, or if the queue
+carried one pack id for the whole batch, those ten indices would be sent
+labelled with a pack they were never filed against and would resolve, silently,
+to ten wrong questions. `trivia-pack-format.md`'s own residual makes this worse
+rather than better: a replacement pack with the **same count** keeps the state
+file, so nothing on the device can even see that the indices now mean something
+else.
+
+Three rules close it, and all three are cheap:
+
+1. **The pack id lives in the queue's header, not in the request.** The queue is
+   `pack.meta`'s id plus the entries filed under it.
+2. **Sync sends reports before it fetches anything.** The upload is small and the
+   download is minutes; doing it the other way round is what creates the window.
+3. **A pack update with a non-empty unsent queue does not re-label it.** The
+   queue is closed under its old pack id and a new one is started beside it. Two
+   small files beat one wrong one, and the server can resolve both because D1
+   keeps every manifest.
+
+The queue is truncated only on a 2xx. A queue that reaches its cap drops the
+**newest** entry rather than the oldest: the first report of a question is the
+one worth keeping, and a cap reached at all means sync has not run in a very
+long time.
+
 ### Where the button goes
 
 Today: `NEXT` / `HIDE` / `END` in QUIZMASTER once the answer is showing, and in
