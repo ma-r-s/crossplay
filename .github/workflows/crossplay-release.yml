@@ -37,9 +37,38 @@ on:
 permissions:
   contents: write
 
+# The publisher's own group, because a concurrency group does NOT span
+# workflows. crossplay-autorelease.yml carries `group: crossplay-release`, which
+# serialises the autorelease against itself and nothing else; this workflow --
+# the one that builds and uploads the assets -- was ungrouped, so two starts on
+# one tag ran side by side.
+#
+# That is not hypothetical. v1.12.16 was built and published TWICE, one second
+# apart: runs 33884760714 (event=push) and 33884760111 (event=workflow_dispatch),
+# 12 minutes each, both racing to upload the same files, both exiting 0. The fix
+# at the time was a condition on the dispatch side
+# (crossplay-autorelease.yml), which is correct and still there -- but it makes
+# the double build avoidable rather than impossible, and it lives in a different
+# file from the one it protects. A hand dispatch during a tag build still
+# overlaps. Grouped by ref, so two different tags still build in parallel.
+#
+# cancel-in-progress is false: a half-cancelled publish leaves a release with
+# some of its assets, which is worse than a second run finding the work done.
+concurrency:
+  group: crossplay-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    # MEASURED, not guessed: the last ten successful releases ran 9 to 19
+    # minutes (two cross-compiles, the merge-bins and an upload). Without a cap
+    # this inherits GitHub's SIX HOUR default, so a hung pio run or a network
+    # step that never returns holds a runner for a quarter of a day while the
+    # tag it was cutting stays unpublished and nothing says so.
+    #
+    # 60 is three times the worst of those. A stuck-job cap, not a budget.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,8 +111,16 @@ jobs:
             ~/.cache/pip
           key: pio-release-${{ hashFiles('platformio.ini') }}
 
+      # The SAME build every other workflow uses. This said `pip install
+      # --upgrade platformio`, which is both unpinned and a different
+      # distribution: upstream PlatformIO from PyPI, not pioarduino's fork. The
+      # five other build workflows all install
+      # pioarduino/platformio-core v6.1.19, so the binary that actually ships to
+      # devices was the one binary in the repository built by a toolchain
+      # nothing had verified, and a PyPI release could have changed it between
+      # two tags with no commit of ours.
       - name: Install PlatformIO
-        run: pip install --upgrade platformio
+        run: pip install -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       # ONE invocation for both devices, and that is load-bearing.
       #

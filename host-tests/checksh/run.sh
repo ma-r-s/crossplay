@@ -1375,5 +1375,62 @@ PY_SKIP
   fi
 fi
 
+# -- and a skip must be a FAILURE in CI --------------------------------------
+#
+# The block above proves a skip is SEEN. This one asks the other half: on the
+# runner, where every input a suite needs is supposed to be present, a check
+# that did not run is a failure, not a line in a log. host-tests/release,
+# relwatch and boardmigrate all turn a skip into a failure under $CI;
+# host-tests/autorelease and host-tests/qastack did not, and CI runs every
+# suite but relwatch, so all three of their skips were live and silent there.
+#
+# Detected loosely on purpose -- a line that names SKIP and an emitter, with
+# comments stripped -- because the strict literal match above is about the
+# text that gets printed, and this is about whether the branch printing it can
+# be reached in CI at all. Quoting style is irrelevant to that question.
+python3 - "$HERE/.." <<'CIGUARD' >"$WORK/ciguard"
+import os, re, sys
+
+suites = sys.argv[1]
+
+def can_skip(src):
+    for line in src.splitlines():
+        bare = line.split('#', 1)[0]
+        if re.search(r'\bSKIP\b', bare) and re.search(r'\b(?:echo|printf)\b', bare):
+            return True
+    return False
+
+found = 0
+for name in sorted(os.listdir(suites)):
+    run = os.path.join(suites, name, "run.sh")
+    if not os.path.isfile(run):
+        continue
+    src = open(run).read()
+    if not can_skip(src):
+        continue
+    found += 1
+    # Crude by design: one mention of ${CI:-} anywhere in the file, rather than
+    # an attempt to decide statically which branch it guards. A suite that can
+    # skip and never mentions CI cannot be turning a skip into a failure there.
+    if "${CI:-}" in src:
+        print("ok    %s: a skip is a failure in CI" % name)
+    else:
+        print("FAIL checksh  host-tests/%s can print a SKIP and never mentions ${CI:-}: "
+              "on the runner, where every input is meant to be present, that check does "
+              "not run and the suite still exits 0" % name)
+if not found:
+    print("FAIL checksh  no suite was found that can print a SKIP; this just checked nothing")
+CIGUARD
+
+checks=$((checks + 1))
+if [ ! -s "$WORK/ciguard" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the CI-guard scan produced no output at all, so it asserted nothing"
+fi
+while IFS= read -r line; do
+  checks=$((checks + 1))
+  case "$line" in FAIL*) failed=$((failed + 1)); echo "$line" ;; esac
+done < "$WORK/ciguard"
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
