@@ -338,7 +338,32 @@ def emit(puzzles):
     }
     with open(OUTPUT, "w", encoding="utf-8") as out:
         out.write(header)
+    clang_format(OUTPUT)
     print("wrote %s (%d puzzles)" % (os.path.relpath(OUTPUT, ROOT), len(emitted)))
+
+
+def clang_format(path):
+    """Format the generated header in place, so regenerating never churns.
+
+    A generated file that is not clang-clean fails the format gate, and "fix it
+    by hand" is a trap: the next run of this script puts the long lines straight
+    back. The rows are far past the 120-column limit once kMaxSize is 15, so the
+    generator owns the wrapping by handing the file to the same formatter the
+    gate uses. Deterministic, so running this script twice is a no-op.
+    """
+    import shutil
+    import subprocess
+
+    binary = None
+    for candidate in ("clang-format-21", "clang-format"):
+        if shutil.which(candidate):
+            binary = candidate
+            break
+    if binary is None:
+        print("  WARNING: no clang-format found; %s may fail the format gate" % os.path.basename(path))
+        return
+    subprocess.run([binary, "-i", path], check=True)
+    print("  formatted with %s" % binary)
 
 
 def main():

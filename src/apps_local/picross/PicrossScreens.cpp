@@ -143,8 +143,10 @@ void drawDoneChip(toybox::Screen& screen, const int16_t cx, const int16_t cy, co
   for (int16_t dy = 0; dy <= halfH; dy = static_cast<int16_t>(dy + 2)) {
     for (int16_t dx = 0; dx <= halfW; dx = static_cast<int16_t>(dx + 2)) {
       screen.target().fill(fui::makeRect(static_cast<int16_t>(cx + dx), static_cast<int16_t>(cy + dy), 1, 1), ink);
-      if (dx) screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - dx), static_cast<int16_t>(cy + dy), 1, 1), ink);
-      if (dy) screen.target().fill(fui::makeRect(static_cast<int16_t>(cx + dx), static_cast<int16_t>(cy - dy), 1, 1), ink);
+      if (dx)
+        screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - dx), static_cast<int16_t>(cy + dy), 1, 1), ink);
+      if (dy)
+        screen.target().fill(fui::makeRect(static_cast<int16_t>(cx + dx), static_cast<int16_t>(cy - dy), 1, 1), ink);
       if (dx && dy)
         screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - dx), static_cast<int16_t>(cy - dy), 1, 1), ink);
     }
@@ -521,8 +523,8 @@ void drawPageDots(toybox::Screen& screen, const fui::Rect& band, const int pageC
     else
       screen.target().stroke(dot, fui::Paint::solid(fui::Color::Black), toybox::kHairline, static_cast<uint8_t>(d / 2));
     screen.frame().hit(
-        fui::makeRect(static_cast<int16_t>(x - gap / 2), band.y, static_cast<int16_t>(d + gap), band.height), ActionPage,
-        static_cast<int16_t>(p));
+        fui::makeRect(static_cast<int16_t>(x - gap / 2), band.y, static_cast<int16_t>(d + gap), band.height),
+        ActionPage, static_cast<int16_t>(p));
     x = static_cast<int16_t>(x + d + gap);
   }
 }
@@ -613,8 +615,7 @@ void drawSizeTabs(toybox::Screen& screen, const MenuModel& model, const SizeGrou
   const int16_t tabGap = 8;
   const int16_t tabW = static_cast<int16_t>((band.width - (g.count - 1) * tabGap) / g.count);
   for (int t = 0; t < g.count; ++t) {
-    const fui::Rect tb =
-        fui::makeRect(static_cast<int16_t>(band.x + t * (tabW + tabGap)), band.y, tabW, band.height);
+    const fui::Rect tb = fui::makeRect(static_cast<int16_t>(band.x + t * (tabW + tabGap)), band.y, tabW, band.height);
     const bool on = t == active;
     screen.target().fill(tb, fui::Paint::solid(on ? fui::Color::Black : fui::Color::White),
                          static_cast<uint8_t>(toybox::kPillRadius));

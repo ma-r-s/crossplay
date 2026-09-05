@@ -422,7 +422,6 @@ void progressAndRestore() {
   CHECK(fixed.cell(er, ec) == picross::Cell::Blank);
 }
 
-
 // Every picture must USE the grid it claims: no empty first or last row, no
 // empty first or last column. An empty edge line means the drawing was never
 // cropped to its bounding box, so a puzzle labelled 15x15 can really be a 13x13
