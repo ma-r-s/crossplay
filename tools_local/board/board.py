@@ -425,7 +425,8 @@ class SupaStore:
                 "need": need,
                 "ask": ask,
                 "default": default,
-                "by_session": by, "steps": steps,
+                "by_session": by,
+                "steps": steps,
             },
             prefer="return=minimal",
         )
@@ -572,15 +573,29 @@ def _kept_app_id(st, name, given):
 def cmd_pulse(st, a):
     """The hosts the board probes every 30 minutes (pulse_targets)."""
     if not hasattr(st, "_req"):
-        print("board: the pulse runs on the board; listing or changing its hosts needs the Supabase store (.board/supabase.env)")
+        print(
+            "board: the pulse runs on the board; listing or changing its hosts needs the Supabase store (.board/supabase.env)"
+        )
         return
     if a.action == "add":
         if not (a.host and a.method and a.url and a.alive and a.app):
             sys.exit("usage: board pulse add <host> <GET|POST> <url> <alive> <app>")
-        st._req("POST", "pulse_targets", {"host": a.host, "method": a.method.upper(), "url": a.url,
-                                          "alive": a.alive, "app": a.app, "enabled": True},
-                prefer="resolution=merge-duplicates,return=minimal")
-        print(f"board: pulse probes {a.host} ({a.method.upper()} {a.url}, alive {a.alive}) for {a.app}")
+        st._req(
+            "POST",
+            "pulse_targets",
+            {
+                "host": a.host,
+                "method": a.method.upper(),
+                "url": a.url,
+                "alive": a.alive,
+                "app": a.app,
+                "enabled": True,
+            },
+            prefer="resolution=merge-duplicates,return=minimal",
+        )
+        print(
+            f"board: pulse probes {a.host} ({a.method.upper()} {a.url}, alive {a.alive}) for {a.app}"
+        )
         return
     if a.action == "remove":
         if not a.host:
@@ -592,7 +607,9 @@ def cmd_pulse(st, a):
     print(f"{'HOST':<10} {'METHOD':<6} {'ALIVE':<12} {'APP':<11} URL")
     for r in rows:
         flag = "" if r.get("enabled", True) else "  (disabled)"
-        print(f"{r['host']:<10} {r['method']:<6} {r['alive']:<12} {r['app']:<11} {r['url']}{flag}")
+        print(
+            f"{r['host']:<10} {r['method']:<6} {r['alive']:<12} {r['app']:<11} {r['url']}{flag}"
+        )
 
 
 def cmd_release(st, a):
@@ -601,39 +618,54 @@ def cmd_release(st, a):
     already had its say about. The watcher opens its own cards; this is for the
     question those cards cannot answer, which is whether it is still awake."""
     if not hasattr(st, "_req"):
-        print("board: the release watcher runs on the board; reading it needs the Supabase store (.board/supabase.env)")
+        print(
+            "board: the release watcher runs on the board; reading it needs the Supabase store (.board/supabase.env)"
+        )
         return
     rows = st._req("GET", "release_state?select=*") or []
     if not rows:
         print("board: the release watcher is not installed on this board")
         return
     st8 = rows[0]
-    armed = "armed" if st8.get("seeded") else "NOT ARMED (its next pass adjudicates the history)"
+    armed = (
+        "armed"
+        if st8.get("seeded")
+        else "NOT ARMED (its next pass adjudicates the history)"
+    )
     print(f"watcher   {armed}, last answer from GitHub {st8.get('last_ok_at')}")
     pend = st._req("GET", "release_pending?select=*&order=version") or []
     if pend:
-        print("owed      " + ", ".join(f"{r['version']} (tagged {r.get('at')})" for r in pend))
+        print(
+            "owed      "
+            + ", ".join(f"{r['version']} (tagged {r.get('at')})" for r in pend)
+        )
     else:
         print("owed      nothing: every version the pipeline tagged is published")
     seen = st._req("GET", "release_seen?select=*&order=first_seen.desc&limit=12") or []
     if seen:
         print(f"{'SAID ITS SAY ABOUT':<28} WHEN")
         for r in seen:
-            print(f"{r['key']:<28} {str(r.get('first_seen'))[:19]}  {(r.get('note') or '')[:60]}")
+            print(
+                f"{r['key']:<28} {str(r.get('first_seen'))[:19]}  {(r.get('note') or '')[:60]}"
+            )
 
 
 def cmd_orchestrator(st, a):
     with st.lock():
         app = _kept_app_id(st, "orchestrator", a.app_id)
         st.set_claim("orchestrator", norm_sid(a.session), a.name, app)
-    print(f"board: orchestrator is {a.name} ({norm_sid(a.session)}{', app ' + app if app else ''})")
+    print(
+        f"board: orchestrator is {a.name} ({norm_sid(a.session)}{', app ' + app if app else ''})"
+    )
 
 
 def cmd_dispatcher(st, a):
     with st.lock():
         app = _kept_app_id(st, "dispatcher", a.app_id)
         st.set_claim("dispatcher", norm_sid(a.session), a.name, app)
-    print(f"board: dispatcher is {a.name} ({norm_sid(a.session)}{', app ' + app if app else ''})")
+    print(
+        f"board: dispatcher is {a.name} ({norm_sid(a.session)}{', app ' + app if app else ''})"
+    )
 
 
 def cmd_integrator(st, a):
@@ -651,7 +683,12 @@ def cmd_integrator(st, a):
             sys.exit(
                 f"board: integration tree is held by {cur.get('session_id')} since {cur.get('since')}; wait or ask the orchestrator"
             )
-        st.set_claim("integrator", norm_sid(a.session), None, _kept_app_id(st, "integrator", a.app_id))
+        st.set_claim(
+            "integrator",
+            norm_sid(a.session),
+            None,
+            _kept_app_id(st, "integrator", a.app_id),
+        )
     print(f"board: integration tree claimed by {norm_sid(a.session)}")
 
 
@@ -708,7 +745,8 @@ def _block(st, cid, need, ask, default, by, steps=None):
                 "default": default,
                 "open": True,
                 "created": now(),
-                "by": by, "steps": steps,
+                "by": by,
+                "steps": steps,
                 "answer": None,
             }
         )
@@ -911,7 +949,12 @@ def fmt_card(c, full=False):
             f"  blocker {b['n']} [{b['need']}, {st_}] {b['ask']}  | if nothing: {b['default']}"
         )
         if b.get("steps"):
-            lines.append("    how: " + " / ".join(l.strip() for l in str(b["steps"]).splitlines() if l.strip()))
+            lines.append(
+                "    how: "
+                + " / ".join(
+                    l.strip() for l in str(b["steps"]).splitlines() if l.strip()
+                )
+            )
     for h in c.get("history", [])[-6:]:
         lines.append(f"  {h['at']}  {h['what']}")
     return "\n".join(lines)
@@ -1021,9 +1064,23 @@ def cmd_issues(st, a):
         issues = json.loads(pathlib.Path(a.from_json).read_text())
     else:
         r = subprocess.run(
-            ["gh", "issue", "list", "-R", a.repo, "--state", "open", "--limit", "200",
-             "--json", "number,title,body,labels,url,author,createdAt"],
-            capture_output=True, text=True, timeout=60)
+            [
+                "gh",
+                "issue",
+                "list",
+                "-R",
+                a.repo,
+                "--state",
+                "open",
+                "--limit",
+                "200",
+                "--json",
+                "number,title,body,labels,url,author,createdAt",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         if r.returncode != 0:
             sys.exit(f"board: gh issue list failed: {r.stderr.strip()[:200]}")
         issues = json.loads(r.stdout or "[]")
@@ -1033,29 +1090,59 @@ def cmd_issues(st, a):
     made = 0
     with st.lock():
         for i in issues:
-            labels = [l["name"] if isinstance(l, dict) else str(l) for l in (i.get("labels") or [])]
+            labels = [
+                l["name"] if isinstance(l, dict) else str(l)
+                for l in (i.get("labels") or [])
+            ]
             if i["number"] in known:
                 continue
-            kind = "feature" if any(l.lower() in ("enhancement", "feature", "idea") for l in labels) else "bug"
+            kind = (
+                "feature"
+                if any(l.lower() in ("enhancement", "feature", "idea") for l in labels)
+                else "bug"
+            )
             author = i.get("author")
             author = author.get("login") if isinstance(author, dict) else author
             body = (i.get("body") or "").strip()
-            c = st.create_card({
-                "title": i["title"].strip()[:120], "from": guess_app(i["title"], labels, owners), "kind": kind,
-                "body": f"GitHub issue #{i['number']} by {author or 'someone'}: {i.get('url', '')}\n\n{body}",
-                "state": "reported", "source": "github", "github_issue": i["number"],
-                "history": [{"at": now(), "what": f"from GitHub issue #{i['number']}"}],
-            })
+            c = st.create_card(
+                {
+                    "title": i["title"].strip()[:120],
+                    "from": guess_app(i["title"], labels, owners),
+                    "kind": kind,
+                    "body": f"GitHub issue #{i['number']} by {author or 'someone'}: {i.get('url', '')}\n\n{body}",
+                    "state": "reported",
+                    "source": "github",
+                    "github_issue": i["number"],
+                    "history": [
+                        {"at": now(), "what": f"from GitHub issue #{i['number']}"}
+                    ],
+                }
+            )
             made += 1
             print(f"#{c['id']} <- issue #{i['number']} {c['title']}")
     closed = 0
     if a.close_released:
         for c in cards:
             if c.get("github_issue") and c["state"] in ("released", "done"):
-                msg = (f"Shipped. This is card #{c['id']} on the board and went out in a release; "
-                       "open a new issue if it comes back.")
-                r = subprocess.run(["gh", "issue", "close", str(c["github_issue"]), "-R", a.repo, "--comment", msg],
-                                   capture_output=True, text=True, timeout=60)
+                msg = (
+                    f"Shipped. This is card #{c['id']} on the board and went out in a release; "
+                    "open a new issue if it comes back."
+                )
+                r = subprocess.run(
+                    [
+                        "gh",
+                        "issue",
+                        "close",
+                        str(c["github_issue"]),
+                        "-R",
+                        a.repo,
+                        "--comment",
+                        msg,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
                 if r.returncode == 0:
                     closed += 1
                     card_history(st, c, f"closed GitHub issue #{c['github_issue']}")
@@ -1125,7 +1212,9 @@ def main(argv=None):
     sub.add_parser("init").set_defaults(fn=cmd_init)
     app_help = "the desktop app's local_... id (get_session self), so messages addressed that way reach you"
     s = sub.add_parser("pulse")
-    s.add_argument("action", nargs="?", default="list", choices=["list", "add", "remove"])
+    s.add_argument(
+        "action", nargs="?", default="list", choices=["list", "add", "remove"]
+    )
     s.add_argument("host", nargs="?")
     s.add_argument("method", nargs="?")
     s.add_argument("url", nargs="?")
@@ -1167,13 +1256,17 @@ def main(argv=None):
     s.add_argument("--need", choices=NEEDS, required=True)
     s.add_argument("--ask", required=True)
     s.add_argument("--default", required=True)
-    s.add_argument("--steps", help="numbered lines, one per line, for a thing Mario must do")
+    s.add_argument(
+        "--steps", help="numbered lines, one per line, for a thing Mario must do"
+    )
     s.set_defaults(fn=cmd_block)
     s = sub.add_parser("ask")
     s.add_argument("id", type=int)
     s.add_argument("--ask", required=True)
     s.add_argument("--default", required=True)
-    s.add_argument("--steps", help="numbered lines, one per line, for a thing Mario must do")
+    s.add_argument(
+        "--steps", help="numbered lines, one per line, for a thing Mario must do"
+    )
     s.set_defaults(fn=cmd_ask)
     s = sub.add_parser("unblock")
     s.add_argument("id", type=int)

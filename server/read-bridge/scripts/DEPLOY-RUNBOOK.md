@@ -11,16 +11,20 @@ approved. The consumer key works immediately for the account that registered
 it and for nobody else. So the first deployment proves the whole path on one
 real account, and the service stays closed while it does.
 
-**Do not set `READ_ALLOWLIST=*` yet.** Until the review lands, an open
-allowlist lets strangers reach the sign-in endpoint with credentials Instapaper
-will refuse anyway: it adds no capability and exposes the one endpoint that is
-a credential-stuffing oracle by construction. Worse, the only real defence
-against distributed stuffing is Cloudflare-side rate limiting, which is still
-an open item -- the in-process limiters in `bridge/ratelimit.py` are defeated
-by an attacker with many addresses, by construction and by their own docstring.
+**Do not set `READ_ALLOWLIST=*` yet -- but the reason has changed.** Two
+conditions gated it. The review is one of them and it is DONE: Mario reports
+it was approved, recorded 2026-09-05 on board card #252. Non-owner sign-ins
+can now succeed, so an open allowlist would finally buy capability rather than
+only risk.
 
-Open it when BOTH are true: the review is approved, and the Cloudflare rules
-exist.
+The other condition still stands and is now the whole of it: the only real
+defence against distributed stuffing is Cloudflare-side rate limiting, and it
+does not exist. The in-process limiters in `bridge/ratelimit.py` are defeated
+by an attacker with many addresses, by construction and by their own
+docstring. Behind an allowlist that barely mattered; open to the world it is
+the entire exposure.
+
+Open it when the Cloudflare rules exist -- and in the same change, not after.
 
 ## Status: published 2026-09-03 at https://read.ma-r-s.com, allowlist still CLOSED
 
@@ -40,7 +44,8 @@ code and a pollToken, `GET /api/pair/poll` answers `{"pending":true}`, and
 What remains is step 5 (nobody has signed in and paired a real reader) and
 step 6 (opening the allowlist). **`READ_ALLOWLIST` is untouched and still the
 owner's address only.** Publishing the hostname does not change who may sign
-in, and it must not: see step 6.
+in, and it must not: see step 6 -- whose remaining blocker is the Cloudflare
+rate limiting, no longer the Instapaper review.
 
 The kill switch is one command, and it leaves everything else on the box
 alone:
@@ -155,10 +160,16 @@ problem and was a missing hash. Expect to spend time here rather than none.
 
 ## 6. Later: open it
 
-The app is **submitted for review** (pressed 2026-08-31). When approval lands,
-set `READ_ALLOWLIST=*` and add the Cloudflare rate-limiting rules IN THE SAME
-SITTING. Not before, and not one without the other -- an open allowlist without
-those rules is the credential-stuffing oracle this ordering exists to avoid.
+The app was submitted 2026-08-31 and **approval has landed** (Mario, recorded
+2026-09-05 on board card #252). So the half of this step that was waiting on
+somebody else is done, and what is left is ours: set `READ_ALLOWLIST=*` and add
+the Cloudflare rate-limiting rules IN THE SAME SITTING. Not one without the
+other -- an open allowlist without those rules is the credential-stuffing
+oracle this ordering exists to avoid.
+
+Verify the approval rather than trust this line: watch a NON-OWNER sign-in
+succeed. It costs one attempt and it is the only evidence that the keys now
+work for anyone but the registering account.
 
 ## Before any of it: can this machine even reach the pi?
 
