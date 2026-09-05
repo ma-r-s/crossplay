@@ -9471,7 +9471,7 @@ void testPicrossGridHitTestIsExactInverse() {
 // for want of gutter is a puzzle that cannot be solved. Count the digit-only
 // runs and match the clue total the board must show.
 void testPicrossDrawsEveryClue() {
-  for (const int idx : {0, 9}) {  // a 5x5 and a 10x10
+  for (const int idx : {0, 22, 50}) {  // a 5x5, a 10x10 and a 15x15, one per size bucket
     picross::Board board;
     board.load(idx);
     Rendered out;

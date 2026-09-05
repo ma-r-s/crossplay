@@ -211,10 +211,68 @@ def count_solutions(rows, cols, n, limit=2):
     return count
 
 
-def main():
-    puzzles = parse(SOURCE)
-    print("read %d pictures from %s" % (len(puzzles), os.path.relpath(SOURCE, ROOT)))
+SIZES = (5, 10, 15)
 
+
+def evaluate(name, cells):
+    """Prove a candidate is shippable. Returns (ok, reason).
+
+    A puzzle ships only if its DERIVED clues admit exactly one picture and that
+    picture is reachable by single-line reasoning. Both are proved here the same
+    way the strict path proves them; the only difference between curate and
+    strict is what happens to a failure -- reported, or fatal.
+    """
+    n = len(cells)
+    if n not in SIZES:
+        return False, "size %d not in %r" % (n, SIZES)
+    rows = row_clues(cells)
+    cols = col_clues(cells)
+    solved = line_solve(rows, cols, n)
+    if solved is None:
+        return False, "clues are contradictory (a solver bug or a bad grid)"
+    if any(-1 in solved[r] for r in range(n)):
+        return (
+            False,
+            "NOT line-solvable -- single-line reasoning leaves cells undetermined",
+        )
+    if solved != cells:
+        return (
+            False,
+            "AMBIGUOUS -- line-solving reaches a different grid than the source",
+        )
+    count = count_solutions(rows, cols, n)
+    if count != 1:
+        return False, "has %d solutions" % count
+    return True, "unique, line-solvable"
+
+
+def curate(puzzles):
+    """Report pass/fail per candidate without emitting or aborting."""
+    passed = []
+    by_size = {}
+    for name, cells in puzzles:
+        ok, reason = evaluate(name, cells)
+        n = len(cells)
+        if ok:
+            passed.append((name, cells))
+            by_size[n] = by_size.get(n, 0) + 1
+            print("  PASS  %-16s %2dx%-2d" % (name, n, n))
+        else:
+            print("  FAIL  %-16s %2dx%-2d  %s" % (name, n, n, reason))
+    print(
+        "\n%d of %d candidates pass; by size: %s"
+        % (
+            len(passed),
+            len(puzzles),
+            ", ".join("%dx%d:%d" % (s, s, by_size[s]) for s in sorted(by_size)),
+        )
+    )
+    return passed
+
+
+def emit(puzzles):
+    maxsize = max((len(cells) for _, cells in puzzles), default=5)
+    hexdigits = (maxsize + 3) // 4  # 5->2, 10->3, 15->4
     emitted = []
     longest = 0
     max_row_runs = 0
@@ -222,35 +280,16 @@ def main():
     max_run = 0
     for name, cells in puzzles:
         n = len(cells)
-        if n not in (5, 10):
-            sys.exit("%s: size %d is neither 5 nor 10" % (name, n))
+        ok, reason = evaluate(name, cells)
+        if not ok:
+            sys.exit(
+                "%s: %s. Redesign it or drop it (run --curate to triage)."
+                % (name, reason)
+            )
         rows = row_clues(cells)
         cols = col_clues(cells)
-
-        solved = line_solve(rows, cols, n)
-        if solved is None:
-            sys.exit("%s: clues are contradictory (a solver bug or a bad grid)" % name)
-        if any(-1 in solved[r] for r in range(n)):
-            sys.exit(
-                "%s: NOT line-solvable -- single-line reasoning leaves cells "
-                "undetermined, so it needs a guess. Redesign it." % name
-            )
-        if solved != cells:
-            # Line-solving reached a DIFFERENT full grid: the clues admit more
-            # than one picture and the solver walked to the other one.
-            sys.exit(
-                "%s: line-solving reaches a different grid than the source -- "
-                "the clues are ambiguous. Redesign it." % name
-            )
-        count = count_solutions(rows, cols, n)
-        if count != 1:
-            sys.exit(
-                "%s: has %d solutions; a nonogram with anything but one is "
-                "unplayable." % (name, count)
-            )
-
         bits = []
-        for r in range(10):
+        for r in range(maxsize):
             value = 0
             if r < n:
                 for c in range(n):
@@ -263,13 +302,18 @@ def main():
         max_run = max(max_run, max(max(rc) for rc in rows), max(max(cc) for cc in cols))
         emitted.append(
             '    {"%s", %d, {%s}},'
-            % (name.upper(), n, ", ".join("0x%03X" % b for b in bits))
+            % (
+                name.upper(),
+                n,
+                ", ".join(("0x%0" + str(hexdigits) + "X") % b for b in bits),
+            )
         )
         print("  %-16s %2dx%-2d  unique, line-solvable" % (name, n, n))
 
     header = HEADER % {
         "count": len(emitted),
         "rows": "\n".join(emitted),
+        "maxsize": maxsize,
         "longest": longest,
         "maxrowruns": max_row_runs,
         "maxcolruns": max_col_runs,
@@ -278,6 +322,19 @@ def main():
     with open(OUTPUT, "w", encoding="utf-8") as out:
         out.write(header)
     print("wrote %s (%d puzzles)" % (os.path.relpath(OUTPUT, ROOT), len(emitted)))
+
+
+def main():
+    args = sys.argv[1:]
+    do_curate = "--curate" in args
+    paths = [a for a in args if not a.startswith("--")]
+    source = paths[0] if paths else SOURCE
+    puzzles = parse(source)
+    print("read %d pictures from %s" % (len(puzzles), os.path.relpath(source, ROOT)))
+    if do_curate:
+        curate(puzzles)
+    else:
+        emit(puzzles)
 
 
 HEADER = """#pragma once
@@ -300,14 +357,15 @@ HEADER = """#pragma once
 
 namespace picross {
 
-// The widest board this fork ships. Boards, saves and clue buffers size
-// themselves from this rather than from a literal, so a bigger picture is a
-// data change and not a code change.
-constexpr int kMaxSize = 10;
+// The widest board this fork ships, computed from the bank by the generator.
+// Boards, saves and clue buffers size themselves from this rather than from a
+// literal, so a bigger picture is a data change and not a code change. rows[] is
+// uint16_t, so this must stay <= 16.
+constexpr int kMaxSize = %(maxsize)d;
 
 struct Puzzle {
   const char* name;
-  uint8_t size;             // 5 or 10
+  uint8_t size;             // 5, 10 or 15
   uint16_t rows[kMaxSize];  // bit c set when (row, col) is solid
 };
 

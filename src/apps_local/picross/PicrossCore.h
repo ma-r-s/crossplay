@@ -120,10 +120,15 @@ class Board {
 // True for a puzzle index the player may open.
 constexpr bool isPlayable(const int index) { return index >= 0 && index < kPuzzleCount; }
 
-// Which puzzles are solved, packed into one word. kPuzzleCount is 17, so a
-// uint32_t is plenty; kMaxSize has nothing to do with it.
+// Which puzzles are solved, one bit each, packed into a bitset wide enough for
+// the whole bank. One uint32_t held the original 17; the bank is far larger
+// now, so it is an array of words sized from kPuzzleCount -- grow the bank and
+// the bitset grows with it, no reader or writer changes. kMaxSize has nothing
+// to do with it.
+constexpr int kProgressWords = (kPuzzleCount + 31) / 32;
+
 struct Progress {
-  uint32_t solved = 0;
+  uint32_t solved[kProgressWords] = {};
 
   bool isSolved(int index) const;
   void markSolved(int index);

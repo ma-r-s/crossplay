@@ -3,7 +3,7 @@
 // laptop. See run.sh.
 //
 // The centrepiece is validateBank(): an independent, brute-force implementation
-// of "unique" and "line-solvable", run over all 17 stored pictures. That is
+// of "unique" and "line-solvable", run over every stored picture. That is
 // this app's perft. The Python generator asserts both properties at build time;
 // this asserts them again in C++, over the header that actually ships, so a
 // hand-edit to the generated file or a bad merge cannot slip an ambiguous or
@@ -192,7 +192,7 @@ void validateBank() {
   for (int p = 0; p < picross::kPuzzleCount; ++p) {
     const picross::Puzzle& puzzle = picross::kPuzzles[p];
     const int n = puzzle.size;
-    CHECK(n == 5 || n == 10);
+    CHECK(n == 5 || n == 10 || n == 15);
 
     std::vector<Clue> rows(n), cols(n);
     for (int r = 0; r < n; ++r) rows[r] = clueFromBits(puzzle.rows[r], n);
@@ -365,6 +365,36 @@ void progressAndRestore() {
   prog.markSolved(-1);                     // refused
   prog.markSolved(picross::kPuzzleCount);  // refused
   CHECK(prog.solvedCount() == 2);
+
+  // The widened bitset: a bank past 32 puzzles spills into more than one word,
+  // so mark bits either side of every 32-bit boundary and confirm each is read
+  // back from its own word and counted once. This is the storage the save
+  // persists, so a boundary bug here is lost or phantom progress on device.
+  {
+    picross::Progress wide;
+    int marked = 0;
+    for (int i = 0; i < picross::kPuzzleCount; ++i)
+      if (i == 0 || i == 31 || i == 32 || i == 63 || i == 64 || i == picross::kPuzzleCount - 1) {
+        wide.markSolved(i);
+        ++marked;
+      }
+    CHECK(wide.solvedCount() == marked);
+    CHECK(wide.isSolved(31) && wide.isSolved(32));
+    CHECK(picross::kPuzzleCount <= 64 || (wide.isSolved(63) && wide.isSolved(64)));
+    CHECK(wide.isSolved(picross::kPuzzleCount - 1));
+    CHECK(!wide.isSolved(30));
+    // Marking every bit but one leaves nextUnsolved on exactly that gap, even
+    // when the gap is in a high word.
+    picross::Progress full;
+    const int gap = picross::kPuzzleCount - 1;
+    for (int i = 0; i < picross::kPuzzleCount; ++i)
+      if (i != gap) full.markSolved(i);
+    CHECK(full.nextUnsolved() == gap);
+    CHECK(full.solvedCount() == picross::kPuzzleCount - 1);
+    full.markSolved(gap);
+    CHECK(full.nextUnsolved() == picross::kPuzzleCount - 1);  // all done -> the last
+    CHECK(full.solvedCount() == picross::kPuzzleCount);
+  }
 
   // restore round-trips the cell grid and repairs a corrupt byte.
   picross::Board board;

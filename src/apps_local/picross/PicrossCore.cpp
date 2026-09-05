@@ -186,15 +186,19 @@ void Board::reset() {
 
 bool Progress::isSolved(const int index) const {
   if (!isPlayable(index)) return false;
-  return (solved & (uint32_t{1} << index)) != 0;
+  return (solved[index / 32] & (uint32_t{1} << (index % 32))) != 0;
 }
 
 void Progress::markSolved(const int index) {
   if (!isPlayable(index)) return;
-  solved |= uint32_t{1} << index;
+  solved[index / 32] |= uint32_t{1} << (index % 32);
 }
 
-int Progress::solvedCount() const { return popcount(solved); }
+int Progress::solvedCount() const {
+  int total = 0;
+  for (int w = 0; w < kProgressWords; ++w) total += popcount(solved[w]);
+  return total;
+}
 
 int Progress::nextUnsolved() const {
   for (int i = 0; i < kPuzzleCount; ++i)

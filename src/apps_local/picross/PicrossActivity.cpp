@@ -20,8 +20,9 @@ namespace ui = picrossui;
 constexpr char kSavePath[] = "/.crosspoint/picross.sav";
 
 // Bumped whenever the layout below changes, per the cache-format rule. An old
-// save is then discarded rather than misread.
-constexpr uint8_t kSaveVersion = 1;
+// save is then discarded rather than misread. v2 widened `solved` from one word
+// to a bitset over the (now much larger) bank and grew the cell grid to kMaxSize.
+constexpr uint8_t kSaveVersion = 2;
 
 // How many MARKS may go unwritten. A committing FILL is flushed immediately --
 // it is irreversible and unrepeatable, so losing one to a sleep is the worst
@@ -36,7 +37,7 @@ struct SaveState {
   uint8_t index;
   uint8_t mistakes;
   uint8_t cells[picross::kMaxSize * picross::kMaxSize];
-  uint32_t solved;
+  uint32_t solved[picross::kProgressWords];
 } __attribute__((packed));
 
 }  // namespace
@@ -313,7 +314,7 @@ void PicrossActivity::saveState() {
   state.mistakes = static_cast<uint8_t>(board.mistakes() > 255 ? 255 : board.mistakes());
   const uint8_t* cells = board.cells();
   for (int i = 0; i < picross::kMaxSize * picross::kMaxSize; ++i) state.cells[i] = cells[i];
-  state.solved = progress.solved;
+  for (int w = 0; w < picross::kProgressWords; ++w) state.solved[w] = progress.solved[w];
 
   HalFile file;
   if (!Storage.openFileForWrite("PICR", kSavePath, file)) return;
@@ -335,7 +336,7 @@ bool PicrossActivity::loadState() {
     LOG_ERR("PICR", "Save names puzzle %d, which is not playable", state.index);
     return false;
   }
-  progress.solved = state.solved;
+  for (int w = 0; w < picross::kProgressWords; ++w) progress.solved[w] = state.solved[w];
   // restore() drops any byte that cannot be reconciled with the picture, so an
   // edited or corrupted save costs marks rather than an unfinishable board.
   board.restore(state.index, state.cells, state.mistakes);
