@@ -174,6 +174,47 @@ board issues --from-json "$WORK/issues.json" | grep -q "2 new card" && ok "open 
 board issues --from-json "$WORK/issues.json" | grep -q "0 new card" && ok "a second sweep makes no duplicates" || bad "issues sweep duplicated cards"
 board list | grep -q "reader .*Slow Reader" && ok "an issue about page turns lands on the reader" || bad "reader issue not routed to reader"
 board list | grep -q "sudoku .*Sudoku loses my puzzle" && ok "an issue names its app from the owners" || bad "sudoku issue not routed to sudoku"
+
+# Every assertion above hands the sweep a file, so the branch that actually
+# runs in production -- shelling out to `gh` -- had never been executed by a
+# test. A stub `gh` on PATH exercises it and records what it was asked.
+echo "the github sweep, through gh itself"
+mkdir -p "$WORK/bin"
+cat > "$WORK/bin/gh" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >> "$GH_LOG"
+[ "$2" = "list" ] && cat "$GH_ISSUES" || echo "closed"
+SH
+chmod +x "$WORK/bin/gh"
+export GH_LOG="$WORK/gh.log" GH_ISSUES="$WORK/live.json"
+# A subshell, not a `PATH=... board ...` prefix: bash 3.2 (which is /bin/bash
+# here) leaves an assignment made in front of a *function* call set afterwards,
+# and the stub gh would then serve the rest of the suite.
+ghboard() { ( PATH="$WORK/bin:$PATH"; python3 "$BOARD" "$@" ); }
+cat > "$WORK/live.json" <<'JSON'
+[{"number":31,"title":"Checkers drops the ninth capture in a chain","body":"uint8_t[3]","labels":[{"name":"bug"}],"url":"https://github.com/ma-r-s/crossplay/issues/31","author":{"login":"stranger"}}]
+JSON
+SWEEP=$(ghboard issues)
+grep -q "issue #31" <<< "$SWEEP" && ok "a sweep with no --from-json shells out to gh" || bad "the live gh path made no card: $SWEEP"
+GID=$(sed -n 's/^#\([0-9]*\) <- issue #31.*/\1/p' <<< "$SWEEP")
+grep -q -- "--state open" "$GH_LOG" && ok "it asks gh for open issues only" || bad "gh was not asked for open issues: $(cat "$GH_LOG")"
+ghboard issues | grep -q "0 new card" && ok "the live path dedupes on a second sweep" || bad "the live path duplicated a card"
+ghboard tick | grep -q "0 new card" && ok "tick sweeps and then lists" || bad "tick did not sweep"
+ghboard tick | grep -q "#$GID " && ok "tick prints the open board after the sweep" || bad "tick printed no board"
+
+# --close-released had no test at all: the half of the flow that reaches out
+# and changes something on GitHub was the untested half.
+echo "a released card closes its issue"
+board state "$GID" released >/dev/null
+: > "$GH_LOG"
+ghboard issues --close-released | grep -q "1 issue(s) closed" && ok "a released card closes its GitHub issue" || bad "close-released closed nothing"
+grep -q "issue close 31 " "$GH_LOG" && ok "it closes the issue its card came from" || bad "close-released named the wrong issue: $(cat "$GH_LOG")"
+grep -q -- "--comment" "$GH_LOG" && ok "the close carries a comment" || bad "the issue was closed silently"
+board show "$GID" | grep -q "closed GitHub issue #31" && ok "the close is recorded on the card" || bad "the close left no history"
+: > "$GH_LOG"
+ghboard tick | grep -q "close 31" && bad "tick closed an issue" || ok "tick never closes anything"
+board state "$GID" triaged >/dev/null
+
 PID=$(board new "Analytics everywhere" --from tooling | sed 's/^#\([0-9]*\).*/\1/')
 KID=$(board new "Firmware heartbeat" --from firmware --parent "$PID" | sed 's/^#\([0-9]*\).*/\1/')
 board parent "$CID" --of "$PID" >/dev/null
