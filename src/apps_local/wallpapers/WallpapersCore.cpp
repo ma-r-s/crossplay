@@ -129,15 +129,18 @@ Reach reachOfPinnedSleep(const uint8_t sleepScreenMode, const bool quickResumeAf
 }
 
 const char* reachHint(const Reach reach) {
+  // Every sentence names the setting the way SETTINGS names it ("Sleep Screen",
+  // "Quick Resume on Timeout", english.yaml), because a hint that describes a
+  // setting the user then cannot find is not a hint.
   switch (reach) {
     case Reach::Always:
       return nullptr;
     case Reach::OutsideReaderOnly:
-      return "Book covers win when sleeping in a book.";
+      return "Book covers win when you sleep in a book.";
     case Reach::BlockedByQuickResume:
-      return "Quick Resume hides this on idle sleep.";
+      return "Quick Resume on Timeout hides this.";
     case Reach::BlockedByMode:
-      return "Settings: sleep screen is not Custom.";
+      return "Sleep Screen is not set to Custom.";
   }
   return nullptr;
 }
@@ -189,21 +192,27 @@ SleepChoice choiceForSetWallpaper(const uint8_t sleepScreenMode, const bool quic
 }
 
 const char* takeoverNote(const SleepChoice& choice) {
-  if (choice.clearedQuickResume) return "Quick Resume off, so this can show.";
+  // Both settings can move at once, and a note that reported only one of them
+  // would quietly drop the other ("a warning that can vanish"). So all three
+  // branches exist and every one of them is a sentence.
+  if (choice.tookOverMode && choice.clearedQuickResume) {
+    return "Sleep Screen now Custom, Quick Resume off.";
+  }
+  if (choice.clearedQuickResume) return "Quick Resume on Timeout turned off.";
   if (!choice.tookOverMode) return nullptr;
   switch (choice.previousMode) {
     case kSleepDark:
-      return "Sleep screen was Dark. Now this.";
+      return "Sleep Screen was Dark, now Custom.";
     case kSleepLight:
-      return "Sleep screen was Light. Now this.";
+      return "Sleep Screen was Light, now Custom.";
     case kSleepCover:
-      return "Sleep screen was Cover. Now this.";
+      return "Sleep Screen was Cover, now Custom.";
     case kSleepBlank:
-      return "Sleep screen was Blank. Now this.";
+      return "Sleep Screen was Blank, now Custom.";
     case kSleepQuickResume:
-      return "Sleep screen was Quick Resume. Now this.";
+      return "Sleep Screen was Quick Resume, now Custom.";
     case kSleepTransparentCustom:
-      return "Sleep screen was Transparent. Now this.";
+      return "Sleep Screen was Transparent, now Custom.";
     default:
       return nullptr;
   }

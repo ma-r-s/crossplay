@@ -290,6 +290,19 @@ void testChoiceKeepsWhatItCan() {
   CHECK(fromQuickResume.tookOverMode);
   CHECK(fromQuickResume.clearedQuickResume);
   CHECK(takeoverNote(fromQuickResume) != nullptr);
+
+  // Two settings can move at once, and the three cases must be three different
+  // sentences. A note that read the same whether one or both had changed would
+  // be reporting the branch it happened to check first.
+  const SleepChoice both = choiceForSetWallpaper(kSleepDark, true);  // mode + flag
+  const SleepChoice modeOnly = choiceForSetWallpaper(kSleepDark, false);
+  const SleepChoice flagOnly = choiceForSetWallpaper(kSleepCustom, true);
+  CHECK(both.tookOverMode && both.clearedQuickResume);
+  CHECK(modeOnly.tookOverMode && !modeOnly.clearedQuickResume);
+  CHECK(!flagOnly.tookOverMode && flagOnly.clearedQuickResume);
+  CHECK(std::string(takeoverNote(both)) != std::string(takeoverNote(modeOnly)));
+  CHECK(std::string(takeoverNote(both)) != std::string(takeoverNote(flagOnly)));
+  CHECK(std::string(takeoverNote(modeOnly)) != std::string(takeoverNote(flagOnly)));
 }
 
 }  // namespace
