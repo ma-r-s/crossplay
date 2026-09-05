@@ -405,7 +405,11 @@ void drawGrid(toybox::Screen& screen, const int16_t top, const int16_t lip, cons
   // quietest state on the board.
   //
   // Dither is this fork's disabled treatment, so the slot keeps its size and
-  // its place and loses only its solidity.
+  // its place and loses only its solidity. That means a dithered DISC of the
+  // same radius. It was a dithered SQUARE, which is a change of shape rather
+  // than of state -- and on the opponent's turn no column has its waiting bit
+  // set, so all seven changed at once and the lip read as a different mode
+  // instead of the same row dimmed.
   if (lip > 0) {
     for (int column = 0; column < c4::kColumns; ++column) {
       const int16_t cx = static_cast<int16_t>(left + column * kCell + kCell / 2);
@@ -415,9 +419,7 @@ void drawGrid(toybox::Screen& screen, const int16_t top, const int16_t lip, cons
                      seat == c4::kDark ? fui::Color::Black : fui::Color::White);
         continue;
       }
-      screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - kLipRadius), static_cast<int16_t>(cy - kLipRadius),
-                                         static_cast<int16_t>(kLipRadius * 2), static_cast<int16_t>(kLipRadius * 2)),
-                           fui::Paint::dither(fui::Color::DarkGray));
+      toybox::disc(screen, cx, cy, kLipRadius, fui::Paint::dither(fui::Color::DarkGray));
     }
     // And a rule under it, so the lip is not mistaken for a seventh row of
     // places you could win in.

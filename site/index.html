@@ -66,7 +66,9 @@
     </svg>
     <span>CrossPlay</span>
   </a>
-  <nav class="topnav" aria-label="Sections">
+  <button class="topnav-toggle" type="button"
+          aria-expanded="false" aria-controls="topnav">Menu</button>
+  <nav class="topnav" id="topnav" aria-label="Sections">
     <a href="#shelf">The shelf</a>
     <a href="#nearby">Play nearby</a>
     <a href="/study/">Anki decks</a>
@@ -614,6 +616,8 @@
 <!-- The Install button, and the release stamp it also fills in. It pulls
      assets/esptool.bundle.js in only when someone presses Install, so the
      175KB library costs the people just reading the page nothing. -->
+<script src="assets/topnav.js"></script>
+<script src="assets/release.js"></script>
 <script src="assets/install.js"></script>
 <script src="assets/report.js"></script>
 <script src="assets/avatar-data.js"></script>

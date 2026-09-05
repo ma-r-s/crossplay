@@ -410,6 +410,246 @@ else
   bad "site/inbox/fixture.json is missing, so the inbox cannot be looked at without a passphrase"
 fi
 
+# -- the top bar's narrow-screen menu -----------------------------------------
+#
+# Below 720px five labels do not share a line. The stylesheet used to answer
+# that by hiding THE SHELF and PLAY NEARBY -- the two links that lead to what
+# the site is for -- and keeping ANKI DECKS, which then wrapped to two 49px
+# lines inside a 50px bar at 320, 390 and 414; /study/ did the same with
+# INSTALL THE FIRMWARE. The links live in a panel now, opened by a button that
+# assets/topnav.js wires and styles.css positions.
+#
+# Same failure shape as the orientation attribute at the top of this file: the
+# script writes classes the stylesheet has to know, and neither file imports
+# the other. A rename on either side is a bar with a button that opens nothing
+# on the width where the button is the only navigation there is.
+TOPNAV="$ROOT/site/assets/topnav.js"
+SP_HTML="$ROOT/site/study/index.html"
+[ -f "$TOPNAV" ] || { echo "FAIL site  missing $TOPNAV"; exit 1; }
+
+# Selectors only, comments and :not() contents stripped -- see css_selectors.py.
+# Grepping the whole stylesheet for a class name used to be answered YES by the
+# sentence " * .has-menu is added by assets/topnav.js" in a comment, and a
+# reviewer restored the original bug in full with this check still green.
+if ! css_sels="$(python3 "$HERE/css_selectors.py" "$CSS" 2>&1)"; then
+  bad "css_selectors.py could not run, so the menu's classes went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$css_sels"
+  css_sels=""
+fi
+[ -n "$css_sels" ] && ok || bad "styles.css yielded no selectors at all"
+
+nav_classes="$(grep -oE 'classList\.(add|toggle)\("[a-z-]+"' "$TOPNAV" | grep -oE '"[a-z-]+"' | tr -d '"' | sort -u)"
+if [ -z "$nav_classes" ]; then
+  bad "topnav.js writes no classes at all, so the bar can never open"
+else
+  ok
+  for c in $nav_classes; do
+    if printf '%s\n' "$css_sels" | grep -qE "\.$c([^A-Za-z0-9_-]|\$)"; then
+      ok
+    else
+      bad "topnav.js writes .$c and no styles.css SELECTOR uses it (a comment does not count)"
+    fi
+  done
+fi
+# ...and the control it looks for must be one the stylesheet can show and both
+# pages actually carry.
+for sel in topnav-toggle topnav; do
+  grep -q "\.$sel" "$TOPNAV" && ok || bad "topnav.js never looks for .$sel"
+  printf '%s\n' "$css_sels" | grep -qE "\.$sel([^A-Za-z0-9_-]|\$)" \
+    && ok || bad "styles.css has no .$sel selector"
+done
+for p in "$HTML" "$SP_HTML"; do
+  rel="${p#"$ROOT"/}"
+  grep -q 'class="topnav-toggle"' "$p" && ok || bad "$rel has no .topnav-toggle button, so its narrow bar has no navigation"
+  grep -qE 'src="/?assets/topnav\.js"' "$p" && ok || bad "$rel does not load assets/topnav.js, so its menu button opens nothing"
+  ctl="$(grep -oE 'aria-controls="[A-Za-z0-9_-]+"' "$p" | head -1 | sed -E 's/.*="//; s/"//')"
+  if [ -z "$ctl" ]; then
+    bad "$rel's menu button has no aria-controls"
+  else
+    ok
+    grep -q "id=\"$ctl\"" "$p" && ok || bad "$rel's menu button controls #$ctl and no such element exists"
+  fi
+done
+
+# nowrap has to be SCOPED to the bar the script has taken over. Unscoped it made
+# the no-script bar worse rather than leaving it alone: links still inline and no
+# longer allowed to wrap ran to x=339 past a 320px viewport, and .topbar is
+# position:fixed, so there was no scrollbar to reach the last one with. Wrapping
+# is ugly and reachable; overflowing a fixed bar is neither.
+nowrap_sels="$(python3 - "$CSS" <<'PYEOF'
+import pathlib, re, sys
+css = re.sub(r"/\*.*?\*/", "", pathlib.Path(sys.argv[1]).read_text(), flags=re.S)
+for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+    sel, decls = m.group(1).strip(), m.group(2)
+    # A DESCENDANT of .topnav -- the links. .topnav-toggle is a different class
+    # and its nowrap is unconditional on purpose: the button is one short word
+    # and it only exists at all where the menu does.
+    if re.search(r"white-space\s*:\s*nowrap", decls) and re.search(r"\.topnav(?![\w-])\s+\S", sel):
+        print(" ".join(sel.split()))
+PYEOF
+)"
+if [ -z "$nowrap_sels" ]; then
+  bad "nothing stops a .topnav label wrapping inside the bar"
+else
+  ok
+  while IFS= read -r sel; do
+    case "$sel" in
+      *has-menu*) ok ;;
+      *) bad "\`$sel\` sets nowrap without .has-menu, so the no-script bar overflows a fixed bar instead of wrapping" ;;
+    esac
+  done <<< "$nowrap_sels"
+fi
+# The old rule hid the two product links outright. It may only survive as the
+# no-script fallback, which is what :not(.has-menu) scopes it to.
+if grep -q 'a\[href="#shelf"\]' "$CSS"; then
+  grep -q 'topbar:not(\.has-menu) .topnav a\[href="#shelf"\]' "$CSS" \
+    && ok || bad "styles.css hides the #shelf link without scoping it to :not(.has-menu), so it is gone from the menu too"
+else
+  ok
+fi
+# Escape hides the panel with display:none, which drops focus on BODY and makes
+# the next Tab restart at the top of the document, so the toggle has to be given
+# it back. Only the call can be checked here; that it lands on the button, and
+# that clicking the WORDMARK (an anchor in the bar but outside the panel) closes
+# the panel too, were measured in a browser at 390x844 and cannot be asserted
+# from a file.
+grep -q 'btn\.focus()' "$TOPNAV" \
+  && ok || bad "topnav.js never returns focus to the toggle, so Escape drops the caret on BODY"
+
+# -- the study page's own account of where Pyodide comes from ------------------
+#
+# study/worker.js loads the runtime from the first base that answers, and the
+# page's footer tells the reader where that is. The footer said "served from
+# this site" while the worker had asked jsDelivr first since 2026-08-25 --
+# nothing renders wrong, the page is simply not true. Read the host out of the
+# worker so the claim cannot drift from the code again.
+WORKER="$ROOT/site/study/worker.js"
+[ -f "$WORKER" ] || { echo "FAIL site  missing $WORKER"; exit 1; }
+first_base="$(awk '/PYODIDE_BASES = \[/,/\]/' "$WORKER" | grep -oE '"[^"]+"' | head -1 | tr -d '"')"
+if [ -z "$first_base" ]; then
+  bad "study/worker.js lists no Pyodide base at all"
+else
+  ok
+  case "$first_base" in
+    http*)
+      host="$(printf '%s' "$first_base" | sed -E 's|https?://||; s|/.*||')"
+      label="$(printf '%s' "$host" | awk -F. '{print $(NF-1)}')"
+      grep -qi "$label" "$SP_HTML" \
+        && ok || bad "worker.js loads Pyodide from $host first and study/index.html never says so"
+      grep -qi "served from this site" "$SP_HTML" \
+        && bad "study/index.html still says Pyodide is served from this site, and worker.js asks $host first" || ok
+      ;;
+    *)
+      grep -qi "served from this site" "$SP_HTML" \
+        && ok || bad "worker.js loads Pyodide from this site first and study/index.html does not say so"
+      ;;
+  esac
+fi
+
+# -- one release request per page ---------------------------------------------
+#
+# The Install button names the version and the report form uses it as the
+# version field's placeholder. Both used to ask GitHub themselves, which put two
+# identical requests on every front-page load against an unauthenticated limit
+# of 60 an hour per IP -- the very limit install.js's own comment gives as the
+# reason it asks from the visitor's browser at all. assets/release.js is the one
+# asker now; a caller that goes back to fetching for itself is the regression.
+RELEASE="$ROOT/site/assets/release.js"
+[ -f "$RELEASE" ] || { echo "FAIL site  missing $RELEASE"; exit 1; }
+grep -q 'releases/latest' "$RELEASE" && ok || bad "release.js does not ask for the latest release"
+helper="$(grep -oE 'window\.[A-Za-z]+ = function' "$RELEASE" | head -1 | sed -E 's/window\.//; s/ = function//')"
+if [ -z "$helper" ]; then
+  bad "release.js publishes no function, so nothing can call it"
+else
+  ok
+  for f in "$REPORTJS" "$INSTALL"; do
+    rel="${f#"$ROOT"/}"
+    grep -q "$helper" "$f" && ok || bad "$rel does not call window.$helper, so it is not sharing the request"
+    grep -q 'releases/latest' "$f" \
+      && bad "$rel asks GitHub for the release itself again; one page load must not spend two of the sixty" || ok
+  done
+fi
+# Every page carrying either caller has to load the helper, and load it first.
+for p in "$HTML" "$REPORTPAGE"; do
+  rel="${p#"$ROOT"/}"
+  if grep -qE 'src="/?assets/(report|install)\.js"' "$p"; then
+    ok
+    grep -qE 'src="/?assets/release\.js"' "$p" \
+      && ok || bad "$rel loads a script that needs window.$helper and never loads assets/release.js"
+    rl="$(grep -nE 'src="/?assets/release\.js"' "$p" | head -1 | cut -d: -f1)"
+    cl="$(grep -nE 'src="/?assets/(report|install)\.js"' "$p" | head -1 | cut -d: -f1)"
+    if [ -n "$rl" ] && [ -n "$cl" ] && [ "$rl" -lt "$cl" ]; then
+      ok
+    else
+      bad "$rel loads assets/release.js after the script that uses it"
+    fi
+  else
+    ok
+  fi
+done
+
+# -- the report form's version placeholder ------------------------------------
+#
+# It read 1.12.9 while the site was shipping 1.12.23: a number typed into the
+# file, right the day it was written and eleven releases stale by the time
+# anyone looked. It is asked for now. Nothing here can check the answer -- that
+# needs the network -- but it can check that no literal has been typed back in.
+#
+# Every placeholder in the file is scanned, not the one attribute after an id.
+# The first version of this check grepped `id="report-version"[^>]*placeholder=`
+# and a reviewer put the attribute in FRONT of the id, restored 1.12.9, and got
+# zero failures; renaming the id emptied the capture and passed just as quietly.
+ph_bad="$(python3 - "$REPORTJS" <<'PYEOF'
+import pathlib, re, sys
+src = pathlib.Path(sys.argv[1]).read_text()
+tags = re.findall(r"<input\b[^>]*>", src)
+if not any(re.search(r'name="version"', t) for t in tags):
+    print("report.js draws no version field at all")
+for value in re.findall(r'placeholder="([^"]*)"', src):
+    if re.fullmatch(r"v?\d+(\.\d+)+", value.strip()):
+        print(f'report.js hardcodes the version "{value}" as a placeholder again; it is asked for, not typed')
+PYEOF
+)"
+if [ -z "$ph_bad" ]; then
+  ok
+else
+  while IFS= read -r line; do bad "$line"; done <<< "$ph_bad"
+fi
+
+# -- the study wizard's steps stay in normal flow ------------------------------
+#
+# Properties, not spellings, and the class names come out of the markup. The
+# first version of this check forbade three exact declarations and a reviewer
+# reintroduced the identical breakage through three others with nothing
+# reported; renaming .wiz-step emptied its awk range and passed all three at
+# once. study_layout.py says at length what it does and does not see -- the one
+# thing it cannot see is whether the button can be clicked, which is a browser
+# question that was answered in a browser. Status checked as well as output.
+if layout_bad="$(python3 "$HERE/study_layout.py" "$ROOT" 2>&1)"; then
+  if [ -z "$layout_bad" ]; then
+    ok
+  else
+    while IFS= read -r line; do bad "$line"; done <<< "$layout_bad"
+  fi
+else
+  bad "study_layout.py could not run, so the wizard's layout went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$layout_bad"
+fi
+# The emulator's cap is the only thing sizing the panel now that the box does
+# not crop it, so it has to be a token that can be found and reasoned about
+# rather than a number buried in a calc.
+SCSS="$ROOT/site/study/study.css"
+grep -q -- '--preview-chrome:' "$SCSS" \
+  && ok || bad "study.css has no --preview-chrome token; the preview's cap is a bare number again"
+awk '/^\.study-preview-frame \{/,/^}/' "$SCSS" | grep -q -- 'var(--preview-chrome)' \
+  && ok || bad ".study-preview-frame does not use --preview-chrome, so the token and the cap have drifted"
+# A step change has to arrive at the top of itself. The page is the scroll
+# container now; the step box was, and its scrollTop reset went dead with it.
+# That the reset lands on a step CHANGE and not a redraw was measured in a
+# browser; only its presence can be checked here.
+grep -q 'window.scrollTo' "$ROOT/site/study/study.js" \
+  && ok || bad "study.js never resets the page scroll, so a step arrives at the previous step's offset"
+
 # -- the emulator, which is no longer in the repository -----------------------
 #
 # site/emulator/ is 3.7MB of generated wasm that used to be committed on every

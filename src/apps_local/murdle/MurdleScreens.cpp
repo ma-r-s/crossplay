@@ -678,18 +678,19 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
     // you to -- and the grid is width-bound at every tier, so it loses no cell
     // size to this, only the slack the key was spreading into.
     //
-    // TWO LINES, measured rather than chosen. blockedLine's longest form is
-    // "ALREADY TICKED: <A>/<B> AND <A>/<B>. CLEAR THEM TO TICK HERE." with
-    // every name out of the MurdleCast tables; taken to the real tile cut at
-    // this face's 448px body the widest of those is 710px, which the greedy
-    // wrap in paragraph() breaks into two lines and never three.
-    // host-tests/murdle measures the whole cross product against the font
-    // itself, so a longer fixture name fails a suite rather than quietly
-    // pushing the grid down again.
-    constexpr int kNoticeLines = 2;
+    // ONE LINE, measured rather than chosen, and the reason the band is cheap
+    // enough to keep. blockedLine says murdletext::kBlockedNotice and nothing
+    // else, so its width does not depend on the cast: at the real tile cut
+    // against this face's 448px body it is one line with room to spare, which
+    // host-tests/murdle measures against the font itself rather than trusting
+    // the character count. The wording used to name both blocking pairs, which
+    // at real fixture names came to 710px and two wrapped lines -- and because
+    // the band is reserved on every frame, the board paid a paragraph of its
+    // room on every frame to say something on a handful of them.
+    constexpr int kNoticeLines = 1;
     const int16_t noticeH = static_cast<int16_t>(screen.target().lineHeight(toybox::kTileFont) * kNoticeLines + 8);
-    // Top of the band, not centred in it: a one-line refusal and a two-line one
-    // then start on the same row, which is the same rule one level down.
+    // Top of the band rather than centred in it, so the message starts on the
+    // row the band starts on however tall the band is sized.
     if (model.notice != nullptr && model.notice[0] != '\0') {
       paragraph(screen, styled(toybox::kTileFont, fui::TextAlign::Center), model.notice,
                 fui::makeRect(body.x, body.y, body.width, noticeH), true);

@@ -259,19 +259,15 @@ void testATapNeverTakesAwayAMarkThePlayerMade() {
   CHECK(marks.shown(wCat, 1, lCat, 0) == Mark::No);
   CHECK(marks.decided() == marks.cells() / (shape.cats * (shape.cats - 1) / 2));
 
-  // And the message names both of them rather than restating the rule.
-  Scratch scratch;
-  Puzzle puzzle;
-  CHECK(makeCase(Tier::Elementary, 12345u, scratch, puzzle));
+  // And the refusal reaches the screen, both when two ticks are in the way and
+  // when one is. The same three words either way: the squares it used to name
+  // are on screen with the player's own ticks in them, and naming them cost a
+  // two-line band on every frame of the face. testEveryRefusalFitsTheReservedBand
+  // is what holds the wording to the one line the band reserves.
   char line[96];
-  murdletext::blockedLine(puzzle, wCat, 0, lCat, 1, result, line, sizeof(line));
-  CHECK(std::strstr(line, murdletext::label(puzzle, wCat, 0)) != nullptr);
-  CHECK(std::strstr(line, murdletext::label(puzzle, lCat, 0)) != nullptr);
-  CHECK(std::strstr(line, murdletext::label(puzzle, wCat, 1)) != nullptr);
-  CHECK(std::strstr(line, murdletext::label(puzzle, lCat, 1)) != nullptr);
-  CHECK(std::strstr(line, " AND ") != nullptr);
+  murdletext::blockedLine(result, line, sizeof(line));
+  CHECK(std::strcmp(line, murdletext::kBlockedNotice) == 0);
 
-  // One blocker on its own is named on its own.
   Marks single;
   single.reset(shape);
   single.enter(wCat, 0, lCat, 0, Mark::Yes);
@@ -279,9 +275,15 @@ void testATapNeverTakesAwayAMarkThePlayerMade() {
   CHECK(!one.changed);
   CHECK(one.sameRow == 0);
   CHECK(one.sameCol == kNoBlocker);
-  murdletext::blockedLine(puzzle, wCat, 0, lCat, 1, one, line, sizeof(line));
-  CHECK(std::strstr(line, " AND ") == nullptr);
-  CHECK(std::strlen(line) > 0);
+  murdletext::blockedLine(one, line, sizeof(line));
+  CHECK(std::strcmp(line, murdletext::kBlockedNotice) == 0);
+
+  // A tap that was honoured says nothing at all, or the band would carry a
+  // refusal for a move that worked.
+  const TapResult fine = single.tap(wCat, 2, lCat, 2);
+  CHECK(fine.changed);
+  murdletext::blockedLine(fine, line, sizeof(line));
+  CHECK(line[0] == '\0');
 }
 
 // The other half of that guard, and the half a guard gets wrong: refusing taps
@@ -1035,14 +1037,16 @@ int noticeLines(const EpdFont& face, const char* text, const int boxWidth) {
 
 // The grid face reserves a band of exactly this many lines whether there is a
 // notice or not, so that a refused tap does not move the board. A notice that
-// needed a third line would push the grid back down, which is the bug the band
-// exists to close -- so the band is only honest while this holds.
+// needed a second line would push the grid back down, which is the bug the band
+// exists to close -- so the band is only honest while this holds. It is one
+// line, and that is what makes reserving it on every frame cheap enough to be
+// the right trade; the wording that named both blocking pairs needed two.
 //
-// The measurement is over the WHOLE cross product of the cast tables rather
-// than a sample or a hand-picked longest pair, because "widest name" is a
-// pixel question and greedy wrapping is not monotone in character count. It
-// runs against the real toybox_10 cut, so a regenerated cut moves this too.
-constexpr int kNoticeLines = 2;
+// Measured against the real toybox_10 cut rather than counted in characters,
+// because a line that fits is a pixel question -- and still swept over the
+// whole cross product of the cast tables, because nothing but this measurement
+// stops the wording going back to naming fixtures.
+constexpr int kNoticeLines = 1;
 // The face's body width, which is what paragraph() wraps against. Asserted
 // against the real layout by testMurdleRefusalDoesNotMoveTheGrid in
 // host-tests/ui, which reads it off a drawn run rather than restating it.
@@ -1050,76 +1054,40 @@ constexpr int kNoticeBoxWidth = 448;
 
 void testEveryRefusalFitsTheReservedBand() {
   static const EpdFont tile(&toybox_10);
-  static Scratch scratch;
-  Puzzle puzzle;
-  CHECK(makeCase(Tier::Impossible, 99u, scratch, puzzle));
 
-  // A cell is always two DIFFERENT categories, and blockedLine names one item
-  // of each on both sides of its two pairs. Driving it through `puzzle.cast`
-  // uses the real tables and the real format string, so a new fixture or a
-  // reworded message is measured without anybody editing this test.
-  murdle::TapResult refused;
-  refused.changed = false;
-  refused.sameRow = 0;
-  refused.sameCol = 1;
+  // Both shapes of refusal: two ticks in the way and one. They say the same
+  // three words, but each goes through blockedLine on its own branch.
+  murdle::TapResult twoSided;
+  twoSided.changed = false;
+  twoSided.sameRow = 0;
+  twoSided.sameCol = 1;
+  murdle::TapResult oneSided;
+  oneSided.changed = false;
+  oneSided.sameRow = 1;
+  oneSided.sameCol = kNoBlocker;
 
-  int worst = 0;
-  int worstOneSided = 0;
   char line[96];
-  char longest[96] = {};
-  for (int catA = 0; catA < kMaxCats; ++catA) {
-    for (int catB = 0; catB < kMaxCats; ++catB) {
-      if (catA == catB) continue;
-      for (int a0 = 0; a0 < castSize(catA); ++a0) {
-        for (int b0 = 0; b0 < castSize(catB); ++b0) {
-          for (int a1 = 0; a1 < castSize(catA); ++a1) {
-            for (int b1 = 0; b1 < castSize(catB); ++b1) {
-              // itemA/sameCol pick the two catA names, itemB/sameRow the two
-              // catB ones. Items 0 and 1 of each category carry them.
-              puzzle.cast[catA][0] = static_cast<uint8_t>(a0);
-              puzzle.cast[catA][1] = static_cast<uint8_t>(a1);
-              puzzle.cast[catB][0] = static_cast<uint8_t>(b0);
-              puzzle.cast[catB][1] = static_cast<uint8_t>(b1);
-              murdletext::blockedLine(puzzle, catA, 0, catB, 1, refused, line, sizeof(line));
-              const int lines = noticeLines(tile, line, kNoticeBoxWidth);
-              if (lines > worst) {
-                worst = lines;
-                std::snprintf(longest, sizeof(longest), "%s", line);
-              }
-            }
-          }
-          // And the one-blocker wording, which is shorter but wraps by its own
-          // arithmetic and so is not covered by the two-blocker worst case.
-          murdle::TapResult oneSided;
-          oneSided.changed = false;
-          oneSided.sameRow = 1;
-          puzzle.cast[catA][0] = static_cast<uint8_t>(a0);
-          puzzle.cast[catB][1] = static_cast<uint8_t>(b0);
-          murdletext::blockedLine(puzzle, catA, 0, catB, 0, oneSided, line, sizeof(line));
-          const int lines = noticeLines(tile, line, kNoticeBoxWidth);
-          if (lines > worstOneSided) worstOneSided = lines;
-        }
-      }
-    }
+  for (const murdle::TapResult& refused : {twoSided, oneSided}) {
+    murdletext::blockedLine(refused, line, sizeof(line));
+    CHECK(std::strlen(line) > 0);
+    const int lines = noticeLines(tile, line, kNoticeBoxWidth);
+    if (lines > kNoticeLines) std::printf("  a notice needing %d lines: %s\n", lines, line);
+    CHECK(lines == kNoticeLines);
   }
 
-  if (worst > kNoticeLines) std::printf("  a notice needing %d lines: %s\n", worst, longest);
-  CHECK(worst > 0);
-  CHECK(worst <= kNoticeLines);
-  CHECK(worstOneSided > 0);
-  CHECK(worstOneSided <= kNoticeLines);
+  // THE CAST SWEEP THIS TEST USED TO DO IS GONE ON PURPOSE, not lost. It drove
+  // blockedLine over the whole cross product of the tables because the wording
+  // quoted four fixture names and a longer name was one more wrapped line. The
+  // wording quotes none now and blockedLine cannot see a puzzle at all, so
+  // "no fixture can widen this" is a signature rather than a measurement, and
+  // a sweep over cast entries that cannot reach the output would be a check
+  // that passes for the wrong reason.
 
-  // And the check can fail: one line narrower than the real box and the same
-  // sweep must find something that needs a third. Without this the assertion
-  // above would also pass on a box nothing could overflow.
-  int over = 0;
-  for (int entry = 0; entry < castSize(static_cast<int>(Cat::Weapon)); ++entry) {
-    puzzle.cast[static_cast<int>(Cat::Weapon)][0] = static_cast<uint8_t>(entry);
-    murdletext::blockedLine(puzzle, static_cast<int>(Cat::Weapon), 0, static_cast<int>(Cat::Suspect), 1, refused, line,
-                            sizeof(line));
-    if (noticeLines(tile, line, kNoticeBoxWidth / 2) > kNoticeLines) ++over;
-  }
-  CHECK(over > 0);
+  // And the measurement can still fail: the same message at a quarter of the
+  // real box needs more than the band holds. Without this, kNoticeLines could
+  // be satisfied by a box nothing could ever overflow.
+  murdletext::blockedLine(twoSided, line, sizeof(line));
+  CHECK(noticeLines(tile, line, kNoticeBoxWidth / 4) > kNoticeLines);
 }
 
 // ---------------------------------------------------------------------------

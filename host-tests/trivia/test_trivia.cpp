@@ -637,6 +637,56 @@ void testRoomFor() {
   CHECK(trivia::roomFor(true, 64ull * 1024 * 1024 * 1024, floor) == Room::Ok);
 }
 
+// --- where Back goes from each screen (card #250) ---
+//
+// Trivia was the one activity in apps_local that never read Button::Back on its
+// frame path, so the left-edge swipe -- which IS Button::Back, folded in by
+// MappedInputManager::wasBackGesture() -- reached nothing and the front door
+// had no way out. The wiring lives in TriviaActivity::loop(), which includes
+// WiFi.h and cannot be built here; what CAN be checked is the map it consults,
+// which is the part with a decision in it.
+void testBackFrom() {
+  // The front door. This is the reported bug: no exit from here at all.
+  CHECK(trivia::backFrom(View::Menu, true) == Back::LeaveApp);
+
+  // The two play screens go out through the END button's own handler rather
+  // than jumping to the menu. On Solo that is what produces ROUND OVER, and
+  // the score with it -- "cannot leave the quiz" and "no final score" were one
+  // omission, so a Back that skipped the summary would restore half of it.
+  CHECK(trivia::backFrom(View::Quizmaster, true) == Back::EndRound);
+  CHECK(trivia::backFrom(View::Solo, true) == Back::EndRound);
+
+  // A notice is a message with one button, so Back dismisses it -- it does not
+  // leave the app underneath. That is the case worth pinning: a Back that
+  // exited from here would throw a player out of the app for dismissing the
+  // "question hidden" confirmation mid-round.
+  CHECK(trivia::backFrom(View::Notice, true) == Back::ToMenu);
+  CHECK(trivia::backFrom(View::Notice, true) != Back::LeaveApp);
+
+  // ... except with no pack, where the menu it would dismiss to is a screen
+  // nothing else in the app can reach: onEnter() puts up NO QUESTIONS whose
+  // only button is the download, and a menu with no pack behind it offers two
+  // modes that cannot deal and no way back to that button. Back leaves instead.
+  // This is the one case where a Back that "just dismisses the notice" would
+  // strand somebody in a dead end that did not exist before the gesture did.
+  CHECK(trivia::backFrom(View::Notice, false) == Back::LeaveApp);
+
+  // Exactly one screen leaves the app while the pack is open. Written as a
+  // sweep rather than as four assertions so a fifth View added later has to be
+  // classified here rather than falling into whatever the switch's default
+  // happens to be.
+  int leaves = 0;
+  for (const View view : {View::Menu, View::Quizmaster, View::Solo, View::Notice}) {
+    if (trivia::backFrom(view, true) == Back::LeaveApp) ++leaves;
+  }
+  CHECK(leaves == 1);
+
+  // And with no pack there is nothing but the notice, so both reachable
+  // screens leave. The play screens are unreachable in that state; asserting
+  // them here would pin behaviour that cannot happen.
+  CHECK(trivia::backFrom(View::Menu, false) == Back::LeaveApp);
+}
+
 }  // namespace
 
 int main() {
@@ -651,6 +701,7 @@ int main() {
   testAnswerMatching();
   testRngIsDeterministic();
   testRoomFor();
+  testBackFrom();
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;
 }

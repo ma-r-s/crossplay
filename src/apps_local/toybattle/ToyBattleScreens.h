@@ -99,14 +99,6 @@ struct ResultModel {
 };
 void buildResult(toybox::Screen& screen, const ResultModel& model);
 
-// The largest cut a header title fits in, walking the cuts down rather than
-// letting the component truncate. Map names are data and the deck's page titles
-// are prose; both have already overrun the display cut once.
-// `reserved` is whatever else shares the band -- a page counter, a medal
-// tally. Measuring against the full width is how TWO WAYS TO WIN came out
-// as TWO WAYS TO W beside its own 1/6.
-fui::TextStyle fittedHeaderTitle(toybox::Screen& screen, const char* title, int16_t reserved = 0);
-
 // The marks, for anything outside this file that has to draw them. The rules
 // screens teach the same symbols the board uses, which is the whole point of
 // having a design language rather than a set of pictures.

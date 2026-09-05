@@ -36,7 +36,9 @@
     </svg>
     <span>CrossPlay</span>
   </a>
-  <nav class="topnav" aria-label="Sections">
+  <button class="topnav-toggle" type="button"
+          aria-expanded="false" aria-controls="topnav">Menu</button>
+  <nav class="topnav" id="topnav" aria-label="Sections">
     <a href="/#get">Install the firmware</a>
     <a class="topnav-out" href="https://github.com/ma-r-s/crossplay">
       <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" width="15" height="15">
@@ -220,7 +222,7 @@
   <div class="wiz-foot">
     <p class="wiz-fine">
       Runs the repository's own tools via <a href="https://pyodide.org">Pyodide</a>,
-      served from this site &middot; also available as a
+      from jsDelivr with a copy here as fallback &middot; also available as a
       <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/apps/study.md">command-line tool</a>
       &middot; Anki is a trademark of Ankitects; no affiliation
     </p>
@@ -254,6 +256,7 @@
   });
 })();
 </script>
+<script src="/assets/topnav.js"></script>
 <script src="/study/study.js"></script>
 </body>
 </html>

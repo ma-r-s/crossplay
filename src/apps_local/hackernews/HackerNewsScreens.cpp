@@ -68,6 +68,11 @@ fui::StyleSet bandOutlineStyles() {
 // label stayed invisible through two renders and the suite carried a failing
 // pin (paperOnTheBand) against exactly this until the fix landed. The games'
 // toyboxChrome copies had the right slot all along; jaipur paid for it first.
+// What the band's save chip says, in ONE place. The reader has to know it too,
+// because the chip's width comes out of the room its headline is fitted to, and
+// a second copy of "SAVED" is a second copy that can be edited alone.
+const char* saveChipLabel(const bool saved) { return saved ? "SAVED" : "SAVE"; }
+
 void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
             const fui::TextStyle* titleText = nullptr, const bool showSave = false, const bool saved = false) {
   fui::HeaderProps header;
@@ -79,7 +84,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
     // A verb for what a tap will do, a past tense for what it did -- which is
     // also the confirmation the screen owed anyone who just tapped it.
     header.trailingIcon = fui::bitmapFromIcon(icon_saved_32);
-    header.trailingLabel = saved ? "SAVED" : "SAVE";
+    header.trailingLabel = saveChipLabel(saved);
     header.trailingAction = saved ? ActionUnsave : ActionSave;
     header.trailingStyles = saved ? bandFilledStyles() : bandOutlineStyles();
     header.trailingRadius = toybox::kPillRadius / 2;
@@ -311,7 +316,24 @@ uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBod
           ? static_cast<int16_t>(screen.target().measureText(labelStyle.font, model.pageLabel, labelStyle).width +
                                  toybox::kGutter)
           : 0;
-  const int16_t room = static_cast<int16_t>(screen.device().width - 2 * toybox::kMargin - labelWidth);
+  // The SAVE control is in the band too, and it was in NEITHER term of this
+  // sum. The component reserves `label + 20 + icon + 4`, then another 8 of
+  // gutter (components/controls/header.h), so a headline was fitted to a room
+  // about ninety pixels wider than the one it is drawn into -- and then cut a
+  // second time by the component, with a second ellipsis, on the one screen in
+  // this fork whose title is always somebody else's sentence. Instapaper's twin
+  // has no trailing control and so had no second term to forget.
+  int16_t saveWidth = 0;
+  if (model.canSave) {
+    // Every term the component charges for a trailing button, in its order:
+    // the label at the style Screen::header substitutes (bodyText), its 20px of
+    // padding, the icon and its 4, and the 8 of gutter beside the button.
+    const fui::TextStyle& trailing = screen.theme().bodyText;
+    saveWidth =
+        static_cast<int16_t>(screen.target().measureText(trailing.font, saveChipLabel(model.saved), trailing).width +
+                             20 + icon_saved_32.w + 4 + 8);
+  }
+  const int16_t room = static_cast<int16_t>(screen.device().width - 2 * toybox::kMargin - labelWidth - saveWidth);
   const std::string headline = fitLines(screen.target(), model.title, room, 1, bandTitle);
   chrome(screen, headline.c_str(), model.pageLabel, &bandTitle, model.canSave, model.saved);
 

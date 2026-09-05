@@ -40,11 +40,11 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = 
   header.subtitleText.font = toybox::kUiFont;
   header.subtitleText.color = fui::Color::White;
   header.subtitleText.align = fui::TextAlign::Right;
-  // The counter is in the band too, so the title's room is what is left of it.
-  header.titleText = fittedHeaderTitle(
-      screen, title,
-      static_cast<int16_t>(screen.target().measureText(toybox::kUiFont, rightLabel, header.subtitleText).width +
-                           toybox::kGutter));
+  // The counter is in the band too, and the title's room is what is left of
+  // it -- which headerBand now works out from the component's own arithmetic
+  // rather than from this sum. The sum was wrong in a way nothing showed: the
+  // component ALREADY subtracts the right label's width, so reserving it here
+  // as well charged the title for the counter twice.
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);

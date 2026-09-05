@@ -1,6 +1,9 @@
 #include "XkcdScreens.h"
 
 #include <cstdio>
+#include <string>
+
+#include "../ui/ToyboxText.h"
 
 namespace xkcdui {
 namespace {
@@ -128,33 +131,6 @@ void addButton(toybox::Screen& screen, fui::ButtonProps props, const fui::Rect& 
 // this defect, because the ellipsis is not in the font. Adding U+2026 to
 // tools_local/toybox/gen_toybox_fonts.sh would fix the class, at the cost of
 // regenerating shared font headers.
-void fitLabel(const fui::DrawTarget& target, const char* text, int16_t width, const fui::TextStyle& style, char* out,
-              int cap) {
-  if (out == nullptr || cap <= 0) return;
-  out[0] = '\0';
-  if (text == nullptr) return;
-
-  int n = 0;
-  while (text[n] != '\0' && n < cap - 1) out[n] = text[n], ++n;
-  out[n] = '\0';
-  if (target.measureText(style.font, out, style).width <= width) return;
-
-  // Give back a character at a time until the text plus its ellipsis fits.
-  // Measured rather than counted: the face is proportional, so a character
-  // budget over-trims a narrow title and under-trims a wide one.
-  while (n > 0) {
-    --n;
-    out[n] = '\0';
-    if (n + 3 < cap) {
-      out[n] = '.';
-      out[n + 1] = '.';
-      out[n + 2] = '.';
-      out[n + 3] = '\0';
-    }
-    if (target.measureText(style.font, out, style).width <= width) return;
-    out[n] = '\0';
-  }
-}
 
 // The theme's title style is built for the header band, which is solid black,
 // so its colour is White. Drawn on paper it is white on white: invisible, and
@@ -501,9 +477,16 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   // text on the font's *line box*, which is taller than the ink, so a short
   // rect pushes the baseline past the bottom of the panel. That drew the title
   // half off the screen and filled the log with out-of-range pixel writes.
-  char fitted[80];
-  fitLabel(screen.target(), left, labelWidth, label, fitted, sizeof(fitted));
-  screen.target().text(fui::makeRect(toybox::kGutter, bar.y, labelWidth, kBarHeight), fitted, label);
+  //
+  // Fitted by the ladder rather than by an ellipsis. This used to give back one
+  // character at a time until the title plus "..." fitted, at the one cut it was
+  // handed -- so 936 of the 3279 titles on a full pack reached the bar short,
+  // measured, and none of them had been offered a smaller cut first. The bar
+  // binds a second one it can step down to; both line boxes clear its 44px, so
+  // stepping down costs the bar no height. host-tests/fittedtitle walks every
+  // title in the pack and publishes what is left.
+  const std::string fitted = toybox::fittedTitle(screen.target(), left, labelWidth, label);
+  screen.target().text(fui::makeRect(toybox::kGutter, bar.y, labelWidth, kBarHeight), fitted.c_str(), label);
 
   if (showMap) drawMap(screen, map, model);
 

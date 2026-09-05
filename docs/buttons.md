@@ -57,10 +57,35 @@ if (button == Button::Back && wasBackGesture()) return true;
 ```
 
 and `wasBackGesture()` is a left-to-right swipe anchored near the left edge. So
-every `mappedInput.wasReleased(Button::Back)` in `apps_local` -- every app here
--- resolves through the gesture on this device, and every game is exitable. The
-physical half of that call has been dead since the X4 Pro was targeted and
-nothing depended on it.
+every `mappedInput.wasReleased(Button::Back)` in `apps_local` resolves through
+the gesture on this device. The physical half of that call has been dead since
+the X4 Pro was targeted and nothing depended on it.
+
+> **This section used to end "and every game is exitable", and that was not
+> true.** Card #250, September 2026: Trivia could not be left by swiping. The
+> mechanism above is correct and the conclusion drawn from it was not, because
+> reading the button is not the same as reading it where a swipe can arrive.
+> Trivia's only `Button::Back` was inside its download progress callback, a path
+> that exists only while a multi-minute fetch has blocked the loop; its `loop()`
+> returned early unless a tap had arrived, and a swipe is not a tap. **The
+> button count in the table below counted that read**, which is why the number
+> looked complete while one app had no exit at all.
+>
+> Two things follow, and both are worth carrying to the next app:
+>
+> 1. An app must read Back on its **per-frame input path** -- `loop()`,
+>    `gameLoop()` or its `route*()` handlers -- and **above** any "nothing to do
+>    unless a tap arrived" return. Below that line the read is on the frame path
+>    in name only.
+> 2. `host-tests/backgesture/` now enforces exactly that, and also refuses a
+>    second Back hand-rolled out of a horizontal `wasSwipe()`. Counting reads per
+>    file cannot see either failure; that suite looks at which function the read
+>    is in and where in it.
+>
+> A related misreading the same card produced: `wasSwipe()` is consulted by only
+> a few things in `apps_local`, which looks like most apps ignoring the back
+> gesture. It is not. `wasSwipe()` is the four-direction **paging** swipe, every
+> live comparison against it is `Up` or `Down`, and Back never goes through it.
 
 ## 3. What we actually use
 

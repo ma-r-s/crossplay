@@ -369,7 +369,6 @@ worker.onmessage = function (event) {
     $("reportPlaceholder").hidden = true;
     $("reportBody").hidden = false;
     reachedStep = Math.max(reachedStep, 4);
-    $("stepCheck").scrollTop = 0;
     if (currentStep < 2) goTo(2);
     else goTo(currentStep);
 
@@ -1213,6 +1212,7 @@ worker.onmessage = function (event) {
   var stepButtons = document.querySelectorAll("#stepper button");
 
   function goTo(step) {
+    var changed = step !== currentStep;
     currentStep = step;
     if (step > reachedStep) reachedStep = step;
     Object.keys(stepSections).forEach(function (key) {
@@ -1226,6 +1226,17 @@ worker.onmessage = function (event) {
       if (mine === step) button.setAttribute("aria-current", "step");
       else button.removeAttribute("aria-current");
     });
+    // A step change is a new screen, and it has to arrive at the top of itself.
+    // The PAGE is the scroll container now; it used to be the step box, which
+    // had its own overflow and its own scrollTop reset in the converter. When
+    // the box stopped clipping, that reset went quietly dead and nothing took
+    // its place: reading step 2 to the bottom and pressing Next put step 3 on
+    // screen at scrollY 380, with the stepper and the title above the fold.
+    //
+    // Only on a real change. The converter calls goTo(currentStep) to redraw
+    // the step somebody is already reading, and yanking the page to the top
+    // under them mid-sentence is its own bug.
+    if (changed) window.scrollTo(0, 0);
   }
 
   stepButtons.forEach(function (button) {
