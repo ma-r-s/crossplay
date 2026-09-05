@@ -71,11 +71,21 @@ def rederive(clue):
 
 
 def read_manifest(path):
-    """`index<TAB>id` per line, blanks and # comments skipped. Returns {index: id}."""
+    """`index<TAB>id` per line. Returns ({index: id}, pack_id or None).
+
+    The `# pack <id>` comment names the build this map is FOR. Without it the
+    file is only a list of ids, indistinguishable from another build's -- which
+    is exactly how the pack-id check this module's docstring promises came to be
+    unenforceable.
+    """
     out = {}
+    pack_id = None
     with open(path, encoding="utf-8") as f:
         for lineno, line in enumerate(f, 1):
             line = line.strip()
+            if line.startswith("# pack "):
+                pack_id = line[len("# pack "):].strip()
+                continue
             if not line or line.startswith("#"):
                 continue
             parts = line.split("\t")
@@ -88,7 +98,7 @@ def read_manifest(path):
             if index in out:
                 raise Refused(f"{path}:{lineno}: index {index} appears twice")
             out[index] = parts[1]
-    return out
+    return out, pack_id
 
 
 def existing_ids(path):
@@ -129,8 +139,9 @@ def collect(pack_path, state_path=None, queue_path=None, manifest_path=None):
         raise Refused(f"{state_path} does not exist; nothing has been flagged on this card")
 
     manifest = None
+    manifest_pack = None
     if manifest_path:
-        manifest = read_manifest(manifest_path)
+        manifest, manifest_pack = read_manifest(manifest_path)
         # The manifest describes a pack. If it does not describe THIS one, every
         # id it hands back is about a different question.
         if len(manifest) != count:
@@ -151,6 +162,25 @@ def collect(pack_path, state_path=None, queue_path=None, manifest_path=None):
                 f"{queue_path} was filed against a {queue_count}-question pack and "
                 f"this pack has {count}. Refusing rather than re-labelling: the "
                 "indices in it name different questions now."
+            )
+        # THE CHECK THIS MODULE'S DOCSTRING PROMISES, and which was missing.
+        # The count comparison above catches a replacement of a DIFFERENT size;
+        # this is the case it cannot see, and the one the docstring calls "the
+        # one case the device cannot detect for itself": a replacement pack with
+        # the same question count, whose indices name different questions.
+        if manifest_pack and queue_pack_id and queue_pack_id != manifest_pack:
+            raise Refused(
+                f"{queue_path} was filed against pack {queue_pack_id!r} and "
+                f"{manifest_path} describes {manifest_pack!r}. Same question count, "
+                "different build: every index in that queue names a different "
+                "question here. Use that build's own index map."
+            )
+        if manifest_path and not manifest_pack:
+            notes.append(
+                f"{os.path.basename(manifest_path)} carries no `# pack` line, so the "
+                "queue's pack id could not be checked against it. A same-count "
+                "rebuild would be indistinguishable; rebuild the map with a "
+                "current manifest.py."
             )
         for index, reason in entries:
             # First reason wins. A player who reports the same question twice is

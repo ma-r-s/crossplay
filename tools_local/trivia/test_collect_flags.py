@@ -138,6 +138,34 @@ def test_queue():
         refuses("a queue filed against another pack size is refused",
                 lambda: CF.collect(pack, queue_path=q), "Refusing rather than re-labelling")
 
+        # THE SAME-COUNT REBUILD, which the count check cannot see. Only the
+        # pack id can, and until this test the check did not exist: the module
+        # documented it, unpacked the id, printed it in a note, and compared it
+        # to nothing.
+        man = os.path.join(tmp, "pack.idx.tsv")
+        with open(man, "w", encoding="utf-8") as f:
+            f.write("# index\tid\n# pack 2026-09-05a\n")
+            for i in range(6):
+                f.write(f"{i}\tsticky{i:06d}\n")
+        RP.write(q, "2026-09-05a", 6, [(1, RP.CODES["wrong"])])
+        rows, _ = CF.collect(pack, queue_path=q, manifest_path=man)
+        check("a queue matching the map's build is collected", len(rows) == 2, f"got {len(rows)}")
+
+        RP.write(q, "2026-09-01z", 6, [(1, RP.CODES["wrong"])])
+        refuses("a same-count queue from ANOTHER build is refused",
+                lambda: CF.collect(pack, queue_path=q, manifest_path=man), "different build")
+
+        # A map with no `# pack` line cannot make the comparison, and says so
+        # rather than passing silently.
+        old_map = os.path.join(tmp, "old.idx.tsv")
+        with open(old_map, "w", encoding="utf-8") as f:
+            f.write("# index\tid\n")
+            for i in range(6):
+                f.write(f"{i}\tsticky{i:06d}\n")
+        rows, notes = CF.collect(pack, queue_path=q, manifest_path=old_map)
+        check("an index map with no pack line warns rather than passing quietly",
+              any("could not be checked" in n for n in notes), f"notes={notes}")
+
         RP.write(q, "2026-09-05a", 6, [(1, RP.CODES["wrong"])])
         with open(q, "ab") as f:
             f.write(b"\x01\x02\x03")  # a torn tail

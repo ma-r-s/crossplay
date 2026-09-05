@@ -408,7 +408,7 @@ def main():
         # keeps them in step and each is defensible alone.
         import manifest as _manifest
         man, man_path = _manifest.write(a.dat, built=_dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"))
-        idx_path = _manifest.write_index_map(pack, os.path.splitext(a.dat)[0] + ".idx.tsv")
+        idx_path = _manifest.write_index_map(pack, os.path.splitext(a.dat)[0] + ".idx.tsv", man["id"])
         print(f"  manifest        : {man_path} (id {man['id']}, {man['count']:,} questions)")
         print(f"  index map       : {idx_path}")
 

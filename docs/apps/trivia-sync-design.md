@@ -917,8 +917,25 @@ deployed** -- it goes live on a site deploy. D3b's overlay is still phase two.
 | 6 | The resolver: join `(pack, index)` to a corpus row through that build's map | **Not built.** Reports land with `outcome` `open` and nothing moves them. Until this exists the queue is a list a person reads, which is still better than the scavenger hunt it replaces. |
 | 7 | D3b's overlay, so an update is kilobytes | **Not built**, and deliberately last. |
 
-**The two things that need Mario and not code:** applying the migration to his
-Supabase, and deploying the site so the function exists. Until both, the device
+### Deploying it needs one environment variable that does not exist yet
+
+`TRIVIA_REPORT_SECRET`, on the Vercel project, any long random string. It salts
+the per-question report key and the address hash, and **the endpoint returns 503
+until it is set** rather than running without it.
+
+That refusal is deliberate and was not the first design. The first version fell
+back to `SUPABASE_SERVICE_ROLE_KEY.slice(0, 32)`, which is not a secret at all:
+a Supabase service-role JWT begins with the base64url of the standard HS256
+header, so its first 32 characters are **identical on every Supabase project**
+and are public knowledge. With that as the salt, `report_key` is computable
+offline by anyone holding a device id, and the address hash is brute-forceable
+across all of IPv4 in seconds. Every anonymity claim in this document was false
+in the default configuration, and the tests could not see it because they set
+the variable.
+
+**The three things that need Mario and not code:** setting
+`TRIVIA_REPORT_SECRET`, applying the migration to his Supabase, and deploying
+the site so the function exists. Until both, the device
 will queue reports and fail to send them, which is the designed behaviour -- the
 queue is not drained on failure and nothing is lost -- but it is not the finished
 feature.

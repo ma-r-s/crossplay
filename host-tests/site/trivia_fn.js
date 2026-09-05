@@ -278,6 +278,74 @@ const DEVICE = "9f2c" + "a".repeat(60);
   );
   check("the refusal names the release", /release/i.test(g.payload.error));
 
+  // --- bounds that do not depend on the batch declaring a count -------------
+  res = await post({ pack: "abc123", reports: [{ i: 9007199254740991 }] });
+  check("a huge index is refused even with no declared count", res.statusCode === 400,
+    `got ${res.statusCode}`);
+  res = await post({ pack: "..", count: 10, reports: [{ i: 1 }] });
+  check("a pack id of .. is refused", res.statusCode === 400);
+  res = await post({ pack: ".", count: 10, reports: [{ i: 1 }] });
+  check("a pack id of . is refused", res.statusCode === 400);
+
+  // A body the platform already parsed must still meet the size cap; the limit
+  // used to guard only the streaming path.
+  {
+    calls = [];
+    const big = sink();
+    const req = {
+      method: "POST",
+      url: "/api/trivia",
+      headers: { "x-forwarded-for": "10.0.0.9" },
+      socket: { remoteAddress: "10.0.0.9" },
+      body: { pack: "abc123", count: 10, note: "x".repeat(20000), reports: [{ i: 1 }] },
+    };
+    await handler(req, big);
+    check("an oversized pre-parsed body is refused", big.statusCode === 413, `got ${big.statusCode}`);
+  }
+
+  // x-forwarded-for is append-only, so the FIRST entry is whatever the caller
+  // chose. Two requests that differ only in that prefix must land in the same
+  // rate bucket, or anyone can pick their own.
+  {
+    const bucket = async (xff) => {
+      calls = [];
+      const r = sink();
+      await handler(deviceRequest(
+        { pack: "abc123", count: 10, reports: [{ i: 1 }] },
+        { "x-forwarded-for": xff },
+      ), r);
+      const c = calls.find((x) => x.url.includes("trivia_rate?ip_hash=eq."));
+      return c ? c.url.split("ip_hash=eq.")[1].split("&")[0] : null;
+    };
+    const honest = await bucket("203.0.113.7");
+    const spoofed = await bucket("1.2.3.4, 203.0.113.7");
+    check("the rate bucket is the last hop, not the caller's claim",
+      honest && honest === spoofed, `${honest} vs ${spoofed}`);
+  }
+
+  // --- the anonymity secret has no usable default --------------------------
+  //
+  // This test is why the module is re-required rather than reused: the harness
+  // sets TRIVIA_REPORT_SECRET at the top, so every assertion above runs in the
+  // configured case and NONE of them can see a bad default. The bad default
+  // was sha256 over the first 32 characters of a Supabase service key, which
+  // are the base64url of the standard HS256 header and identical on every
+  // Supabase project -- a public constant standing in for a secret.
+  {
+    const modPath = require.resolve(path.join(root, "site", "api", "trivia.js"));
+    const saved = process.env.TRIVIA_REPORT_SECRET;
+    delete process.env.TRIVIA_REPORT_SECRET;
+    delete require.cache[modPath];
+    const unconfigured = require(modPath);
+    calls = [];
+    const r = sink();
+    await unconfigured(deviceRequest({ pack: "abc123", count: 10, reports: [{ i: 1 }] }), r);
+    check("with no secret configured the endpoint refuses", r.statusCode === 503, `got ${r.statusCode}`);
+    check("and stores nothing", inserted() === null);
+    process.env.TRIVIA_REPORT_SECRET = saved;
+    delete require.cache[modPath];
+  }
+
   // --- the parity that keeps a code from meaning two things -----------------
   const py = fs.readFileSync(
     path.join(root, "tools_local", "trivia", "reports.py"),

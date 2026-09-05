@@ -38,12 +38,27 @@ const crypto = require("node:crypto");
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const SECRET = process.env.TRIVIA_REPORT_SECRET || SERVICE_KEY.slice(0, 32);
+// NO FALLBACK, deliberately. This was
+//     SECRET = process.env.TRIVIA_REPORT_SECRET || SERVICE_KEY.slice(0, 32)
+// which is not a secret at all: a Supabase service-role JWT begins with the
+// base64url of the standard HS256 header, so its first 32 characters are
+// IDENTICAL on every Supabase project and are public knowledge. Unset, the
+// report key became sha256(<public constant>, device, pack, index), offline
+// computable by anyone holding a device id, and the address hash became
+// brute-forceable across all of IPv4 in seconds. The migration's promise that
+// "the secret never leaves the server" was false in the default configuration.
+//
+// A missing secret is therefore a configuration error, not a degraded mode.
+const SECRET = process.env.TRIVIA_REPORT_SECRET || "";
 
 // Sized against what a device can actually hold queued. The card carries one
 // report per question a player hid; a long offline stretch is tens, not
 // thousands, and a batch larger than this did not come from a reader.
 const MAX_REPORTS = 64;
+// Comfortably above any pack (the live one is 49,958) and far below the
+// column's range, so an out-of-range index is a 400 with a sentence rather than
+// an overflow surfacing as a misleading 502.
+const MAX_INDEX = 10 * 1000 * 1000;
 const MAX_BODY = 8 * 1024;
 const WINDOW_MS = 60 * 60 * 1000;
 const BATCHES_PER_WINDOW = 20;
@@ -81,9 +96,14 @@ function json(res, status, body) {
 // hardware. Read the stream instead.
 async function readBody(req, limit) {
   if (req.body !== undefined && req.body !== null) {
-    if (Buffer.isBuffer(req.body)) return req.body;
-    if (typeof req.body === "string") return Buffer.from(req.body);
-    return Buffer.from(JSON.stringify(req.body));
+    // The cap applies here too. It guarded only the streaming path, so a
+    // platform that pre-parsed the body skipped it entirely.
+    const pre = Buffer.isBuffer(req.body)
+      ? req.body
+      : Buffer.from(
+          typeof req.body === "string" ? req.body : JSON.stringify(req.body),
+        );
+    return pre.length > limit ? null : pre;
   }
   const chunks = [];
   let size = 0;
@@ -96,8 +116,15 @@ async function readBody(req, limit) {
 }
 
 function clientIp(req) {
+  // The LAST entry, not the first. x-forwarded-for is append-only as a request
+  // crosses proxies, so the first element is whatever the CALLER put there --
+  // letting anyone choose their own rate-limit bucket by sending a header. The
+  // last is the one the nearest trusted proxy wrote.
   const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string" && fwd.length) return fwd.split(",")[0].trim();
+  if (typeof fwd === "string" && fwd.length) {
+    const hops = fwd.split(",").map((h) => h.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
   return (req.socket && req.socket.remoteAddress) || "0.0.0.0";
 }
 
@@ -183,7 +210,10 @@ async function postReports(req, res) {
   // A batch with no pack id names nothing. The device sends none when its own
   // pack.meta failed its binding check, which is the honest "I do not know
   // which build I hold" -- and in that state there is nothing worth storing.
-  if (!/^[a-z0-9._-]{1,32}$/i.test(pack)) {
+  // "." and ".." excluded explicitly: the resolver joins this into a path to
+  // that build's index map, and an id that can climb out of its own directory
+  // is harmless right up until it is not.
+  if (!/^[a-z0-9._-]{1,32}$/i.test(pack) || pack === "." || pack === "..") {
     return json(res, 400, { error: "That batch does not name a pack." });
   }
   const list = Array.isArray(body.reports) ? body.reports : null;
@@ -207,9 +237,13 @@ async function postReports(req, res) {
       });
     }
     const idx = item.i;
+    // MAX_INDEX applies even when the batch declares no count. Without it any
+    // integer up to 2^53 was accepted, which overflows the migration's integer
+    // column and makes every row of a flood distinct.
     if (
       !Number.isInteger(idx) ||
       idx < 0 ||
+      idx > MAX_INDEX ||
       (packCount !== null && idx >= packCount)
     ) {
       return json(res, 400, {
@@ -289,7 +323,10 @@ async function postReports(req, res) {
 }
 
 module.exports = async function handler(req, res) {
-  if (!SUPABASE_URL || !SERVICE_KEY) {
+  if (!SUPABASE_URL || !SERVICE_KEY || !SECRET) {
+    // SECRET is checked beside the others because without it every anonymity
+    // property this endpoint claims is false, and taking reports it cannot
+    // anonymise is worse than taking none.
     return json(res, 503, {
       error: "Reporting is not set up on this deployment.",
     });

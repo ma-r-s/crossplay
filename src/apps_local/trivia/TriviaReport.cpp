@@ -136,7 +136,9 @@ QueueOpen ReportQueue::open(WritableByteSource& source, const char* packId, cons
   const uint32_t size = source.size();
   if (size == 0) {
     source_ = &source;
-    return writeHeader() ? QueueOpen::Started : QueueOpen::Unusable;
+    if (writeHeader()) return QueueOpen::Started;
+    source_ = nullptr;  // a queue that could not be started is not open
+    return QueueOpen::Unusable;
   }
   if (size < kReportHeaderBytes) return QueueOpen::Unusable;
 
@@ -153,6 +155,11 @@ QueueOpen ReportQueue::open(WritableByteSource& source, const char* packId, cons
   if (body % kReportEntryBytes != 0) return QueueOpen::Unusable;
 
   const uint32_t stored = body / kReportEntryBytes;
+  // Bounded, so the reuse loop's "at most 64 writes" is true and find()'s scan
+  // stays short. A file longer than the cap allows was not written by this
+  // code, and guessing at its contents is how one report becomes another
+  // question's.
+  if (stored > kMaxQueuedReports) return QueueOpen::Unusable;
   const uint32_t storedSent = readU32(head + 16);
   if (storedSent > stored) return QueueOpen::Unusable;
 
@@ -218,12 +225,17 @@ QueueOpen ReportQueue::open(WritableByteSource& source, const char* packId, cons
   for (uint32_t i = 0; i < stored; ++i) {
     uint8_t rec[kReportEntryBytes] = {};
     writeU32(rec, kWithdrawnIndex);
-    if (!source.write(entryOffset(i), rec, kReportEntryBytes)) return QueueOpen::Unusable;
+    if (!source.write(entryOffset(i), rec, kReportEntryBytes)) {
+      source_ = nullptr;
+      return QueueOpen::Unusable;
+    }
   }
   count_ = stored;
   sent_ = stored;
   withdrawnPending_ = 0;  // every tombstone is behind the cursor, so none is pending
-  return writeHeader() ? QueueOpen::Started : QueueOpen::Unusable;
+  if (writeHeader()) return QueueOpen::Started;
+  source_ = nullptr;
+  return QueueOpen::Unusable;
 }
 
 bool ReportQueue::find(const uint32_t index, uint32_t& slotOut) const {

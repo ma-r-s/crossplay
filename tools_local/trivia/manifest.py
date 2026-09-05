@@ -85,7 +85,7 @@ def write(path, out_path=None, built=None):
     return man, out_path
 
 
-def write_index_map(items, out_path):
+def write_index_map(items, out_path, pack_id=None):
     """index<TAB>corpus_id, in pack order.
 
     Captured AT BUILD TIME on purpose. build_pack.py mints an item's id as a
@@ -96,6 +96,11 @@ def write_index_map(items, out_path):
     """
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("# index\tid -- frozen at build time; see manifest.py\n")
+        # The build this map is FOR. Without it the map is just a list of ids
+        # and nothing can tell it apart from another build's, which is how
+        # collect_flags.py came to document a pack-id check it could not make.
+        if pack_id:
+            f.write(f"# pack {pack_id}\n")
         for i, item in enumerate(items):
             qid = item.get("id")
             if not qid:

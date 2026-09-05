@@ -294,6 +294,60 @@ void testQueueCapDropsTheNewest() {
   CHECK(q.entry(0, index, reason) && index == 0);
 }
 
+// THE CAP IS A LIFETIME CAP UNLESS SOMETHING DROPS THE FILE, and that is the
+// whole reason TriviaActivity::compactReports exists. count_ comes from the
+// file's SIZE and the file can never shrink, so delivering every report does
+// NOT free a slot: without compaction a card reaches 64 reports once and then
+// silently refuses every report it is ever given again, for any pack.
+void testDeliveredQueueStaysFull() {
+  MemSource card;
+  ReportQueue q;
+  CHECK(q.open(card, kPack, 1000) == QueueOpen::Started);
+  for (uint32_t i = 0; i < kMaxQueuedReports; ++i) CHECK(q.add(i, Reason::Wrong));
+  CHECK(q.full());
+
+  CHECK(q.markSent(q.count()));
+  CHECK(q.pending() == 0);
+  // Everything delivered, and still full: the cursor moved, the file did not.
+  CHECK(q.full());
+  CHECK(q.count() == kMaxQueuedReports);
+
+  // add() reports success -- the FLAGGED bit is what the player asked for --
+  // so nothing upstream can notice the loss without asking full() first.
+  CHECK(q.add(900, Reason::Wrong));
+  CHECK(q.count() == kMaxQueuedReports);
+  uint32_t index = 0;
+  Reason reason = Reason::Count;
+  bool found = false;
+  for (uint32_t i = 0; i < q.count(); ++i) {
+    if (q.entry(i, index, reason) && index == 900) found = true;
+  }
+  CHECK(!found);
+
+  // And a delivered entry cannot be withdrawn to make room: it is a fact on the
+  // far end. So nothing the player or the sync can do frees a slot -- only
+  // dropping the file does, which is the activity's job.
+  CHECK(!q.withdraw(5));
+  CHECK(q.full());
+
+  // Reopening a delivered file does not reset it, which is why the fix has to
+  // be at the file level (drop and recreate) rather than in here.
+  ReportQueue again;
+  CHECK(again.open(card, kPack, 1000) == QueueOpen::Ready);
+  CHECK(again.full());
+
+  // A file larger than the cap could ever produce is refused rather than
+  // scanned: the reuse loop promises "at most 64 writes" and find() is linear.
+  MemSource oversize;
+  oversize.bytes.assign(kReportHeaderBytes + (kMaxQueuedReports + 1) * kReportEntryBytes, 0);
+  std::memcpy(oversize.bytes.data(), kReportMagic, 8);
+  oversize.bytes[8] = 1;
+  std::memcpy(oversize.bytes.data() + 20, kPack, std::strlen(kPack));
+  ReportQueue huge;
+  CHECK(huge.open(oversize, kPack, 1000) == QueueOpen::Unusable);
+  CHECK(!huge.isOpen());
+}
+
 void testTornAndForeignFiles() {
   {
     MemSource card;
@@ -302,6 +356,10 @@ void testTornAndForeignFiles() {
     card.bytes[8] = 1;
     ReportQueue q;
     CHECK(q.open(card, kPack, 50) == QueueOpen::Unusable);
+    // Unusable must also mean CLOSED. It did not, on three paths, so isOpen()
+    // reported true against a half-written file and the next add() wrote over
+    // stale entries with the cursor back at zero.
+    CHECK(!q.isOpen());
   }
   {
     MemSource card;
@@ -309,6 +367,7 @@ void testTornAndForeignFiles() {
     std::memcpy(card.bytes.data(), "NOTAQUEU", 8);
     ReportQueue q;
     CHECK(q.open(card, kPack, 50) == QueueOpen::Unusable);
+    CHECK(!q.isOpen());
   }
   {
     MemSource card;  // a version this reader does not know
@@ -524,6 +583,7 @@ int main(int argc, char** argv) {
   testMarkSentKeepsLateReports();
   testWithdraw();
   testQueueCapDropsTheNewest();
+  testDeliveredQueueStaysFull();
   testTornAndForeignFiles();
   testMeta();
   testManifest();

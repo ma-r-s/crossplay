@@ -46,7 +46,22 @@ class TriviaActivity final : public Activity {
   // until a sync settles it rather than guessing an id.
   void openReports(uint32_t count, uint32_t packBytes);
   void runSync();
+  // Fetches pack.json from the release and returns what it says. Empty/invalid
+  // when the fetch or the parse failed.
+  trivia::PackManifest fetchManifest();
+  // Writes pack.meta from a manifest that DESCRIBES THE PACK ON THIS CARD, and
+  // reopens the queue against it. Refuses a manifest whose count or byte size
+  // disagrees: adopting one would give the card a build id it does not have,
+  // and every later report would resolve through the wrong build's index map.
+  bool adoptManifest(const trivia::PackManifest& published);
+  // Drops a fully delivered queue and starts a new file. The queue is
+  // fixed-width and append-only, so without this its 64-entry cap is a
+  // LIFETIME cap per card rather than a depth.
+  void compactReports();
   void fileReport(uint32_t index, trivia::Reason reason);
+  // True when the open queue is about the pack currently on the card. EVERY
+  // write to the queue must ask; three call sites did not.
+  bool queueMatchesPack() const;
   void describePack(char* out, size_t capacity) const;
   int reasonRows(triviaui::ReasonModel& model) const;
   void onWifiChosen(bool connected);

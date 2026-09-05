@@ -80,6 +80,11 @@ class FileSource final : public trivia::WritableByteSource {
   void attach(HalFile& file) {
     file_ = &file;
     size_ = static_cast<uint32_t>(file.size());
+    // CLEARED, not left. attach() is the "fixed width" case and attachGrowing()
+    // the appending one; without this a source that was once growing stays
+    // growing, and pack.state -- which must never grow -- becomes growable on a
+    // path nothing tests.
+    grow_ = false;
   }
   bool read(const uint32_t offset, void* dst, const uint32_t length) override {
     if (length == 0) return true;
@@ -107,7 +112,15 @@ class FileSource final : public trivia::WritableByteSource {
     return true;
   }
   bool flush() override {
-    if (file_ != nullptr) file_->flush();
+    // A null handle is the one failure this CAN report, and it is worth
+    // reporting: writeHeader ends in `&& source_->flush()`.
+    if (file_ == nullptr) return false;
+    // Beyond that it cannot. HalFile::flush returns void (HalStorage.h:122), so
+    // an SD failure here is invisible to every caller -- said plainly rather
+    // than left as a `return true` that reads like a checked success. A torn
+    // queue is caught on the next open instead, by the magic, the version, the
+    // entry-size remainder and the sent-cursor bound.
+    file_->flush();
     return true;
   }
   uint32_t size() const override { return size_; }
@@ -139,14 +152,19 @@ struct ReasonRow {
   bool soloOnly;
   bool usOnly;
 };
+// LABELS ARE MEASURED, NOT COUNTED. Two of these overran the row and were cut
+// mid-word ("ONLY A LOCAL COULD KN...") in the first render. Character count
+// does not predict it: "THE OPTIONS GIVE IT AWAY" is 24 characters and fits,
+// while "ONLY A LOCAL COULD KNOW" is 23 and did not -- the wide round glyphs
+// cost more than the count suggests. Re-render after changing any of these.
 constexpr ReasonRow kReasonRows[] = {
     {"WRONG ANSWER", trivia::Reason::Wrong, false, false},
     {"MAKES NO SENSE", trivia::Reason::Nonsense, false, false},
     {"THE OPTIONS GIVE IT AWAY", trivia::Reason::Giveaway, true, false},
-    {"MORE THAN ONE ANSWER FITS", trivia::Reason::Ambiguous, false, false},
+    {"MORE THAN ONE FITS", trivia::Reason::Ambiguous, false, false},
     {"OUT OF DATE", trivia::Reason::Outdated, false, false},
     {"BROKEN TEXT", trivia::Reason::Broken, false, false},
-    {"ONLY A LOCAL COULD KNOW", trivia::Reason::Regional, false, false},
+    {"ONLY LOCALS KNOW", trivia::Reason::Regional, false, false},
     {"THIS IS A US QUESTION", trivia::Reason::Us, false, true},
     {"TOO HARD", trivia::Reason::Hard, false, false},
     {"TOO EASY", trivia::Reason::Easy, false, false},
@@ -229,6 +247,12 @@ void TriviaActivity::openReports(const uint32_t count, const uint32_t packBytes)
     if (read > 0) meta_ = trivia::parseMeta(text, static_cast<size_t>(read), count, packBytes);
   }
   if (!meta_.valid) {
+    // Closed, not merely left alone. Returning early used to leave reports_
+    // open against the PREVIOUS pack -- exactly what a successful in-app
+    // download produces, since it reopens the pack and the old meta then fails
+    // its own count/bytes check.
+    reports_ = trivia::ReportQueue{};
+    g_reportFile.close();
     LOG_INF("TRIVIA", "Pack build unknown; reports are held until a sync settles it");
     return;
   }
@@ -275,10 +299,21 @@ void TriviaActivity::describePack(char* out, const size_t capacity) const {
   if (!meta_.valid) {
     // Said plainly rather than hidden: an unknown build is why reports are not
     // being queued, and a player who is told nothing would report into a void.
-    std::snprintf(out, capacity, "%u QUESTIONS. BUILD UNKNOWN UNTIL YOU SYNC", static_cast<unsigned>(pack_.count()));
+    if (pack_.count() == 1) {
+      std::snprintf(out, capacity, "1 QUESTION. BUILD UNKNOWN UNTIL YOU SYNC");
+    } else {
+      std::snprintf(out, capacity, "%u QUESTIONS. BUILD UNKNOWN UNTIL YOU SYNC", static_cast<unsigned>(pack_.count()));
+    }
     return;
   }
-  std::snprintf(out, capacity, "%u QUESTIONS, BUILD %s", static_cast<unsigned>(pack_.count()), meta_.id);
+  // Singular spelled out, like questionCount() in TriviaScreens.cpp -- whose own
+  // comment says the one-question seed pack is exactly the case that exposes
+  // this, and which is the screenshot this line was caught in.
+  if (pack_.count() == 1) {
+    std::snprintf(out, capacity, "1 QUESTION, BUILD %s", meta_.id);
+  } else {
+    std::snprintf(out, capacity, "%u QUESTIONS, BUILD %s", static_cast<unsigned>(pack_.count()), meta_.id);
+  }
 }
 
 // Fills the WHY? list, skipping the two rows that cannot apply. Returns how
@@ -299,13 +334,33 @@ int TriviaActivity::reasonRows(triviaui::ReasonModel& model) const {
   return count;
 }
 
+// Whether the open queue is about the pack currently on screen.
+//
+// EVERY write to the queue must ask this, not just the one that files a report.
+// Two states put an open queue against a different pack: QueueOpen::Foreign,
+// and a pack replaced under a live activity, which clears meta_ while reports_
+// stays open. In either, an index means a different question on each side --
+// so UNDO would tombstone a stranger's report, the reason picker would
+// re-label one, and SHOW THEM ALL AGAIN would wipe every colliding entry in a
+// single tap. All three skipped this check until the cold review found them.
+bool TriviaActivity::queueMatchesPack() const {
+  return reports_.isOpen() && meta_.valid && std::strcmp(reports_.packId(), meta_.id) == 0;
+}
+
 // The FLAGGED bit and the outbound copy, in that order. The bit is what the
 // player asked for and must land even when the queue cannot take the report.
 void TriviaActivity::fileReport(const uint32_t index, const trivia::Reason reason) {
   state_.setFlag(index, trivia::kFlagged);
-  if (reports_.isOpen() && meta_.valid && std::strcmp(reports_.packId(), meta_.id) == 0) {
-    reports_.add(index, reason);
+  if (!queueMatchesPack()) return;
+  if (reports_.full()) {
+    // The question is still hidden, which is what the player asked for. Only
+    // the outbound copy is lost, and it is worth a line in the log because
+    // nothing on screen says so.
+    LOG_ERR("TRIVIA", "Report queue is full (%u); question %u is hidden but not queued",
+            static_cast<unsigned>(trivia::kMaxQueuedReports), static_cast<unsigned>(index));
+    return;
   }
+  reports_.add(index, reason);
 }
 
 namespace {
@@ -351,6 +406,9 @@ void TriviaActivity::onEnter() {
 
 void TriviaActivity::onExit() {
   g_packFile.close();
+  // The queue's handle outlives the activity otherwise, which matters for
+  // prepareForDeepSleep as much as for reopening the app.
+  g_reportFile.close();
   g_stateFile.close();
   Activity::onExit();
 }
@@ -526,11 +584,76 @@ void TriviaActivity::runPackDownload() {
     showNotice("BAD PACK", "Downloaded, but the pack did not open.", "TRY AGAIN", triviaui::ActionGetPack);
     return;
   }
+  // The manifest, in the same breath as the pack. Without it the card holds a
+  // pack whose build it cannot name, which switches reporting off entirely --
+  // and the natural moment to learn the id is the moment the bytes arrive.
+  // A failure here is not a failed download: the pack is good, only the id is
+  // unknown, and the next SYNC will settle it.
+  if (!adoptManifest(fetchManifest())) {
+    LOG_INF("TRIVIA", "Pack downloaded but its build is unknown; SYNC will settle it");
+  }
+  describePack(packLine_, sizeof(packLine_));
+
   char body[96];
   std::snprintf(body, sizeof(body), "%u questions on the card. Ready when you are.",
                 static_cast<unsigned>(pack_.count()));
   showNotice("READY", body, "PLAY", triviaui::ActionMenuRow);
   selected_ = -1;
+}
+
+trivia::PackManifest TriviaActivity::fetchManifest() {
+  std::string text;
+  if (!HttpDownloader::fetchUrl(kManifestUrl, text)) return trivia::PackManifest{};
+  return trivia::parseManifest(text.c_str(), text.size());
+}
+
+// The only thing that writes pack.meta. Without it the card never learns which
+// build it holds, so no report is ever queued, SYNC can never say "up to date",
+// and the whole feature is inert -- which is what shipped until this existed.
+bool TriviaActivity::adoptManifest(const trivia::PackManifest& published) {
+  if (!published.valid || !pack_.isOpen()) return false;
+  // The manifest must describe THIS pack. Both facts are free to check and
+  // adopting an id without checking is the hand-copy failure with extra steps:
+  // the card would name a build it does not hold and every report would resolve
+  // through the wrong index map.
+  if (published.count != pack_.count() || published.bytes != g_packSource.size()) {
+    LOG_INF("TRIVIA", "Manifest describes %u questions / %u bytes; this card has %u / %u",
+            static_cast<unsigned>(published.count), static_cast<unsigned>(published.bytes),
+            static_cast<unsigned>(pack_.count()), static_cast<unsigned>(g_packSource.size()));
+    return false;
+  }
+
+  char text[128] = {};
+  const size_t n = trivia::formatMeta(text, sizeof(text), published.id, published.count, published.bytes);
+  if (n == 0) return false;
+  HalFile out;
+  if (!Storage.openFileForWrite("TRIVIA", kMetaPath, out)) {
+    LOG_ERR("TRIVIA", "Cannot write %s", kMetaPath);
+    return false;
+  }
+  const bool wrote = out.write(reinterpret_cast<const uint8_t*>(text), n) == n;
+  out.flush();
+  out.close();
+  if (!wrote) return false;
+
+  // Re-read it the same way any other launch would, so a meta this device
+  // cannot read back is caught here rather than on the next open.
+  openReports(pack_.count(), g_packSource.size());
+  LOG_INF("TRIVIA", "Pack build is %s", published.id);
+  return meta_.valid;
+}
+
+// A delivered queue is dropped rather than carried. count_ comes from the
+// file's SIZE and the file can never shrink, so without this the 64-entry cap
+// is reached once per CARD and never released: every later report is silently
+// dropped, for every pack, forever, with nothing on screen saying so.
+void TriviaActivity::compactReports() {
+  if (!reports_.isOpen() || reports_.pending() > 0) return;
+  g_reportFile.close();
+  if (!Storage.remove(kReportsPath)) {
+    LOG_ERR("TRIVIA", "Could not drop the delivered queue at %s", kReportsPath);
+  }
+  if (meta_.valid) openReports(pack_.count(), g_packSource.size());
 }
 
 // SYNC: send what is queued, then ask what is published.
@@ -603,14 +726,17 @@ void TriviaActivity::runSync() {
       reports_.markSent(upTo);
       delivered = written;
       LOG_INF("TRIVIA", "Sent %u report(s)", static_cast<unsigned>(delivered));
-      // A queue that was FOREIGN -- undelivered reports about an older build --
-      // is now fully delivered, so it can be reused for the pack this card
-      // actually holds. Without this it stays foreign until the app is next
-      // opened, and every report filed in the rest of the session is silently
-      // dropped by fileReport's pack-id guard.
-      if (meta_.valid && std::strcmp(reports_.packId(), meta_.id) != 0) {
-        reports_.open(g_reportSource, meta_.id, pack_.count());
-      }
+      // Everything queued is now delivered, so the file is dropped and started
+      // again. That reopens it against the pack this card actually holds (a
+      // FOREIGN queue would otherwise stay foreign for the rest of the session
+      // and every later report would be discarded by fileReport's guard), and
+      // it releases the 64-entry cap, which is a LIFETIME cap per card without
+      // this because the file can never shrink.
+      compactReports();
+      // The settings line names the build; a sync can change it. Re-rendered
+      // here rather than on every paint, which would put an snprintf in the
+      // render path for a line that changes twice in a device's life.
+      describePack(packLine_, sizeof(packLine_));
     } else {
       // Nothing is marked, so they go again next time. A failed send must never
       // cost a report: the player cannot file it twice.
@@ -621,10 +747,13 @@ void TriviaActivity::runSync() {
   showNotice("SYNCING", "Checking for a newer pack.", nullptr, 0);
   requestUpdateAndWait();
 
-  std::string manifestText;
-  trivia::PackManifest published;
-  if (HttpDownloader::fetchUrl(kManifestUrl, manifestText)) {
-    published = trivia::parseManifest(manifestText.c_str(), manifestText.size());
+  const trivia::PackManifest published = fetchManifest();
+  // If this card does not know its build yet, and the published manifest
+  // describes exactly the pack it holds, that IS the answer -- adopt it. This
+  // is how "I do not know which build I hold" resolves without a download, and
+  // it is what turns reporting on for a card that already had a pack.
+  if (!meta_.valid && adoptManifest(published)) {
+    LOG_INF("TRIVIA", "Adopted the published build for the pack already on the card");
   }
 
   char body[192];
@@ -643,13 +772,24 @@ void TriviaActivity::runSync() {
       showNotice("UP TO DATE", body, "BACK", triviaui::ActionCloseSettings);
       break;
     case trivia::Freshness::Newer:
-    case trivia::Freshness::Unknown:
       // Says what it will cost BEFORE spending it. A sync that only spins is
       // what card #253 calls honest and useless, and this pack is minutes over
       // WiFi -- the size is the whole reason a player would rather not.
       std::snprintf(body, sizeof(body), "A newer pack is ready: %u questions, %u MB. This takes a few minutes.",
                     static_cast<unsigned>(published.count), static_cast<unsigned>(published.bytes / 1000000u));
       showNotice("NEWER PACK", body, "GET IT", triviaui::ActionGetPack);
+      break;
+    case trivia::Freshness::Unknown:
+      // NOT "a newer pack is ready", which is a claim the device cannot make.
+      // Unknown means adoptManifest refused: the published pack is a different
+      // size from the one on this card, so it IS different -- but this card's
+      // own build is still unidentified, and saying so is the only honest line.
+      // Sharing the Newer arm made SYNC offer a download that changed nothing
+      // and left the build unknown afterwards, forever.
+      std::snprintf(body, sizeof(body),
+                    "This card holds %u questions and a different pack is published. Fetching it will settle it.",
+                    static_cast<unsigned>(pack_.count()));
+      showNotice("DIFFERENT PACK", body, "GET IT", triviaui::ActionGetPack);
       break;
     case trivia::Freshness::NoManifest:
       if (delivered == 1) {
@@ -784,11 +924,15 @@ void TriviaActivity::routeAction(const int action, const int value) {
             // and is NOT withdrawn: un-hiding here cannot reach into what was
             // already delivered, and pretending it could would leave the two
             // silently disagreeing.
+            const bool ours = queueMatchesPack();
             uint32_t restored = 0;
             for (uint32_t i = 0; i < state_.count(); ++i) {
               if (!state_.flagged(i)) continue;
               state_.clearFlag(i, trivia::kFlagged);
-              reports_.withdraw(i);
+              // Only when the queue is about THIS pack. Otherwise these indices
+              // name different questions there, and un-hiding here would delete
+              // a report about something else entirely.
+              if (ours) reports_.withdraw(i);
               ++restored;
             }
             LOG_INF("TRIVIA", "Un-hid %u question(s)", static_cast<unsigned>(restored));
@@ -880,7 +1024,7 @@ void TriviaActivity::routeAction(const int action, const int value) {
       // The row carries the reason's WIRE value, never its position, so the
       // list can be reordered or a row hidden without changing what a report
       // means.
-      if (reasonIndexValid_ && value > 0 && value < static_cast<int>(trivia::Reason::Count)) {
+      if (reasonIndexValid_ && queueMatchesPack() && value > 0 && value < static_cast<int>(trivia::Reason::Count)) {
         reports_.setReason(reasonIndex_, static_cast<trivia::Reason>(value));
         LOG_INF("TRIVIA", "Reason %d on question %u", value, static_cast<unsigned>(reasonIndex_));
       }
@@ -897,7 +1041,7 @@ void TriviaActivity::routeAction(const int action, const int value) {
       // queued report, so a mis-tap costs nothing on either side.
       if (reasonIndexValid_) {
         state_.clearFlag(reasonIndex_, trivia::kFlagged);
-        reports_.withdraw(reasonIndex_);
+        if (queueMatchesPack()) reports_.withdraw(reasonIndex_);
         reasonIndexValid_ = false;
         LOG_INF("TRIVIA", "Un-hid question %u", static_cast<unsigned>(reasonIndex_));
         go(flagReturn_);

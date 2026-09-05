@@ -50,9 +50,12 @@ enum : fui::ActionId {
   // screen can change without changing what a report means.
   ActionReasonRow = 13,
   ActionCloseReason = 14,
-  ActionSync = 15,
-  ActionUnhideAll = 16,
 };
+// NO ActionSync and NO ActionUnhideAll. Both were declared here and emitted by
+// no screen and handled by no case: SYNC and SHOW-THEM-ALL-AGAIN are rows on
+// the settings list, so they arrive as ActionSettingsRow carrying a SettingRow.
+// Two ids that look like the mechanism but are not are worse than none -- the
+// next person wires a control to one and it does nothing.
 
 enum class MenuRow : int { Quizmaster = 0, Solo, Difficulty, Settings, Count };
 
