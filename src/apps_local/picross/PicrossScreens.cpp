@@ -129,6 +129,28 @@ void drawCell(toybox::Screen& screen, const fui::Rect& cell, const picross::Cell
   }
 }
 
+// A symmetric "done" chip: a light dot screen centred on (cx, cy) and built
+// from chip-local coordinates, so it is identical behind every satisfied clue
+// and mirrors left-right and top-bottom about its own centre. Paint::dither
+// cannot do this -- its 2x2 pattern is keyed to ABSOLUTE screen coordinates, so
+// it lands on a different phase behind each clue and reads as lopsided, the
+// defect Mario caught. 1px dots on a 2px lattice, anchored at the centre, are a
+// ~25% grey that is mirror-symmetric by construction and phase-stable clue to
+// clue.
+void drawDoneChip(toybox::Screen& screen, const int16_t cx, const int16_t cy, const int16_t halfW,
+                  const int16_t halfH) {
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  for (int16_t dy = 0; dy <= halfH; dy = static_cast<int16_t>(dy + 2)) {
+    for (int16_t dx = 0; dx <= halfW; dx = static_cast<int16_t>(dx + 2)) {
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(cx + dx), static_cast<int16_t>(cy + dy), 1, 1), ink);
+      if (dx) screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - dx), static_cast<int16_t>(cy + dy), 1, 1), ink);
+      if (dy) screen.target().fill(fui::makeRect(static_cast<int16_t>(cx + dx), static_cast<int16_t>(cy - dy), 1, 1), ink);
+      if (dx && dy)
+        screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - dx), static_cast<int16_t>(cy - dy), 1, 1), ink);
+    }
+  }
+}
+
 // A clue number, centred in `box`. When its line is satisfied the number is
 // struck through -- honest here only because a wrong fill never becomes a Filled
 // cell, so a satisfied count is a solved line and not a lucky miscount (see
@@ -138,24 +160,41 @@ void drawClueNumber(toybox::Screen& screen, const fui::Rect& box, const int valu
                     const bool satisfied) {
   char text[toybox::kIntTextChars];
   std::snprintf(text, sizeof(text), "%d", value);
-  // A satisfied line's clue is struck through (Mario's pick). A struck lone "1"
-  // is the trap: a horizontal rule crossing a single vertical stroke at its
-  // centre IS a plus. Three things together defeat that and none alone does:
-  //   - a dithered "done" chip behind, so the digit reads as greyed-out first;
-  //   - a hairline rule, a thin cancel line rather than a bar of a plus's weight;
-  //   - the rule dropped BELOW centre, so it cannot be the symmetric crossbar a
-  //     plus needs -- it reads as a line through the lower body of the number.
-  // Chip first, then the digit, then the rule over it.
-  if (satisfied)
-    screen.target().fill(box.inset(fui::Insets{1, 1, 1, 1}), fui::Paint::dither(fui::Color::LightGray),
-                         static_cast<uint8_t>(3));
   fui::TextStyle style;
   style.font = cm.font;
   style.align = fui::TextAlign::Center;
-  screen.target().text(toybox::inkCentred(box, cm.cut), text, style);
+
+  // inkCentred lands the digit's ink band centred in the box on both axes, so
+  // the box centre IS the digit's centre.
+  const int16_t cx = static_cast<int16_t>(box.x + box.width / 2);
+  const int16_t cy = static_cast<int16_t>(box.y + box.height / 2);
+
+  // A satisfied line's clue is struck through (Mario's pick). A struck lone "1"
+  // reads as a "+" only when a centred rule is CONTAINED within the single
+  // vertical stroke, the way a plus's crossbar is. Two things stop that and the
+  // strike still reads as a cancel: it is centred on the digit (not dropped
+  // below it), and it OVERSHOOTS the glyph on both sides -- a plus does not.
+  // Chip first, then the digit over it, then the rule over both.
   if (satisfied) {
-    const int16_t y = static_cast<int16_t>(box.y + (box.height * 5) / 8);
-    screen.target().fill(fui::makeRect(box.x, y, box.width, toybox::kHairline), fui::Paint::solid(fui::Color::Black));
+    const int16_t glyphW = screen.target().measureText(cm.font, text, style).width;
+    int16_t chipHalfW = static_cast<int16_t>(glyphW / 2 + 4);
+    int16_t chipHalfH = static_cast<int16_t>(cm.cut.inkHeight / 2 + 2);
+    // Never spill into the neighbouring stacked clue or the playfield.
+    if (chipHalfW > box.width / 2 - 1) chipHalfW = static_cast<int16_t>(box.width / 2 - 1);
+    if (chipHalfH > box.height / 2 - 1) chipHalfH = static_cast<int16_t>(box.height / 2 - 1);
+    if (chipHalfW > 0 && chipHalfH > 0) drawDoneChip(screen, cx, cy, chipHalfW, chipHalfH);
+  }
+
+  screen.target().text(toybox::inkCentred(box, cm.cut), text, style);
+
+  if (satisfied) {
+    const int16_t glyphW = screen.target().measureText(cm.font, text, style).width;
+    const int16_t overshoot = 3;
+    const int16_t half = static_cast<int16_t>(glyphW / 2 + overshoot);
+    const int16_t y = static_cast<int16_t>(cy - toybox::kHairline / 2);
+    screen.target().fill(
+        fui::makeRect(static_cast<int16_t>(cx - half), y, static_cast<int16_t>(half * 2), toybox::kHairline),
+        fui::Paint::solid(fui::Color::Black));
   }
 }
 
