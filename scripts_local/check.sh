@@ -1331,8 +1331,32 @@ if [ "$FAILED" -eq 0 ]; then
   # poll is the same silent lie as overwriting it. It is kilobytes of text, not
   # the ~900-file cmake-build tree the line above exists to collect, and the
   # 24h prune below plus log-sweep.sh's sibling sweep still bound the total.
+  # ...and it must not take a CONCURRENT run's work with it. $LOGS is one
+  # directory per tree and two runs of one tree share it, so an unconditional
+  # sweep here deletes a live sibling's cmake build directory mid-compile --
+  # the exact corruption card #320 is about, caused by the cleanup rather than
+  # by the build. A name that carries a pid can be attributed, so it is asked
+  # whether that pid is alive; a name that cannot be attributed is not spared,
+  # because sparing everything is the unbounded growth card #144 fixed.
+  #
+  # Another run's transcript is always kept: it may still be being written, and
+  # it is the path that run printed for somebody to read. The age prune below
+  # is what bounds those, on the same window log-sweep.sh uses for whole dirs.
   _keep="$(basename "${CHECK_RUNLOG:-.}")"
-  find "$LOGS" -mindepth 1 -maxdepth 1 ! -name "$_keep" -exec rm -rf {} + 2>/dev/null || true
+  for _leftover in "$LOGS"/*; do
+    [ -e "$_leftover" ] || continue
+    _base="$(basename "$_leftover")"
+    [ "$_base" = "$_keep" ] && continue
+    case "$_base" in
+      run.*) continue ;;
+      cmake-build.*|cmake.*.log)
+        _owner="${_base%.log}"
+        _owner="${_owner##*.}"
+        kill -0 "$_owner" 2>/dev/null && continue
+        ;;
+    esac
+    rm -rf "$_leftover"
+  done
   find "$LOGS" -maxdepth 1 -name 'run.*' -mmin +1440 -delete 2>/dev/null || true
 else
   VERDICT=failed; STATUS=1

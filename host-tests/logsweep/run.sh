@@ -180,15 +180,36 @@ else
   #
   # So both halves are asserted, and the second one is the interesting one: the
   # bytes must still go.
-  G="$BASE/greenlogs"; mkdir -p "$G/cmake-build.999"
-  echo x > "$G/ui.log"; echo x > "$G/cmake-build.999/a.o"; echo t > "$G/run.mine"
+  # A pid that has certainly exited, and one that certainly has not: the
+  # cleanup must tell them apart, because $LOGS is shared per tree and a green
+  # run finishing while a sibling compiles is a real sequence, not a contrived
+  # one.
+  DEADPID=$(bash -c 'echo $$')
+  sleep 30 & LIVEPID=$!
+  G="$BASE/greenlogs"; mkdir -p "$G/cmake-build.$DEADPID" "$G/cmake-build.$LIVEPID"
+  echo x > "$G/ui.log"; echo x > "$G/cmake-build.$DEADPID/a.o"
+  echo x > "$G/cmake-build.$LIVEPID/a.o"
+  echo x > "$G/cmake.$DEADPID.log"; echo x > "$G/cmake.$LIVEPID.log"
+  echo t > "$G/run.mine"; echo t > "$G/run.sibling"
   echo old > "$G/run.ancient"; touch -t 202501010000 "$G/run.ancient"
   run_tail 0 "$G" run.mine
 
   [ ! -f "$G/ui.log" ] && ok "a green verdict drops this run's suite logs" \
                       || bad "green run kept its suite logs (card #144 unfixed)"
-  [ ! -d "$G/cmake-build.999" ] && ok "and the build tree inside it, which is where the bytes are" \
-                              || bad "green run kept a whole cmake build tree; this is the 5.1GB"
+  [ ! -d "$G/cmake-build.$DEADPID" ] && ok "and a finished run's build tree, which is where the bytes are" \
+                                    || bad "green run kept a whole cmake build tree; this is the 5.1GB"
+  [ ! -f "$G/cmake.$DEADPID.log" ] && ok "and that run's cmake log with it" \
+                                  || bad "green run kept a dead run's cmake log"
+  # The other direction, and it is the one that corrupts somebody: this run
+  # going green while a SIBLING is still compiling must not delete the
+  # sibling's build directory. That is card #320's failure caused by the
+  # cleanup instead of by the build.
+  [ -d "$G/cmake-build.$LIVEPID" ] && ok "but SPARES a live sibling's build tree" \
+                                  || bad "the green cleanup deleted a concurrently running gate's build directory"
+  [ -f "$G/cmake.$LIVEPID.log" ] && ok "and the log it is still writing" \
+                                || bad "the green cleanup deleted a live sibling's cmake log"
+  [ -f "$G/run.sibling" ] && ok "and another run's transcript, which may still be open" \
+                         || bad "the green cleanup deleted a sibling run's transcript"
   [ -f "$G/run.mine" ] && ok "but KEEPS this run's transcript, the one path it published" \
                       || bad "green run deleted the transcript it printed on its own first line (card #314)"
   # Transcripts are text and tiny, but "tiny" is not "bounded": one per run,
@@ -196,6 +217,7 @@ else
   # for whole directories.
   [ ! -f "$G/run.ancient" ] && ok "and prunes transcripts older than the sweep window" \
                            || bad "old transcripts accumulate forever; the count grows per run again"
+  kill "$LIVEPID" 2>/dev/null; wait "$LIVEPID" 2>/dev/null
 
   Fd="$BASE/faillogs"; mkdir -p "$Fd"; echo x > "$Fd/ui.log"; echo t > "$Fd/run.mine"
   run_tail 1 "$Fd" run.mine

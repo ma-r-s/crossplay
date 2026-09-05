@@ -52,7 +52,8 @@ pid_cwd() {  # pid -> absolute working directory, or empty
 # The tree a working directory belongs to: the nearest ancestor holding a
 # scripts_local/, which is what makes a directory one of ours. Falls back to the
 # raw path rather than guessing, because a wrong tree name here would be read as
-# fact and this whole file exists because a wrong answer got somebody killed.
+# fact, and this whole file exists because a wrong answer got a sibling
+# session's build killed.
 tree_of() {  # cwd -> tree path
   _wg_d="$1"
   while [ -n "$_wg_d" ] && [ "$_wg_d" != "/" ]; do
