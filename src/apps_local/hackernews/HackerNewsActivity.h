@@ -134,6 +134,12 @@ class HackerNewsActivity final : public Activity {
   // Whether the reader was opened out of the library rather than off the front
   // page. Back honours it: a saved article returns to the shelf it came from.
   bool readingSaved_ = false;
+  // The last save in the reader was refused (a full card). Draws a transient
+  // toast over the reader instead of ejecting to a full-screen notice (card
+  // #40). Set by saveCurrentArticle on failure, and cleared by the reader's
+  // next input -- a page turn, an unsave, or leaving -- so it acknowledges the
+  // failure once and gets out of the way.
+  bool saveFailedNotice_ = false;
   hn::Library library_;
   bool articleAvailable_ = false;
   uint32_t topLine_ = 0;
