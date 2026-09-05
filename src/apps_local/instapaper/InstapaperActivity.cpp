@@ -102,8 +102,13 @@ void InstapaperActivity::request(const Step next, const char* busyMessage) {
     busyMessage_ = busyMessage;
     step_ = next;
   }
-  // Paint the busy screen now. The work happens on the next loop pass, so the
-  // panel is never blank while the radio works.
+  // Ask for the busy screen; the work happens on the NEXT loop pass, so this
+  // one can end and let ActivityManager notify the render task. That is enough
+  // to start the frame and NOT enough to guarantee it: the render task is only
+  // released to begin, and the step on the next pass may reach its socket
+  // first. Card #306 lists these steps as the weaker tier still open. Anything
+  // that blocks in THIS call stack must use paintBusyNow() instead, which
+  // waits for the panel rather than merely releasing the renderer.
   requestUpdate();
 }
 
@@ -164,7 +169,44 @@ void InstapaperActivity::showDisconnectConfirm() {
   requestUpdate();
 }
 
+// The busy screen, on the glass, before the caller blocks on a socket. Card
+// #306.
+//
+// requestUpdateAndWait() rather than the request()/Step machinery above: that
+// machinery defers the work to the next loop pass, which lets the render task
+// START the frame but never waits for it, so the paint races the socket.
+// requestUpdateAndWait() (ActivityManager.cpp:476) returns only after render()
+// has run, and render() ends in renderer.displayBuffer(), the blocking panel
+// path -- so the frame is genuinely showing. Plain requestUpdate() would be
+// worse still: it only sets a flag ActivityManager::loop() consumes at a tail
+// it cannot reach while the caller's socket call is on the stack, so nothing
+// would be notified at all.
+//
+// A helper because there are TWO of these on the same TLS client one switch
+// branch apart, and the first fix landed only on the one in front of me. See
+// the memory fix-the-twin-too. Callers must hold no RenderLock: the scope
+// below closes before the wait, and holding one across it trips an assert.
+void InstapaperActivity::paintBusyNow(const char* headline) {
+  {
+    RenderLock lock(*this);
+    phase_ = Phase::Busy;
+    busyMessage_ = headline;
+    // Only the download step ever writes this, and nothing else cleared it, so
+    // a busy screen could carry "3 of 5" left over from a previous download.
+    busyDetail_[0] = '\0';
+    // Nothing deferred is owed: the caller's own work is the whole step.
+    step_ = Step::None;
+  }
+  requestUpdateAndWait();
+}
+
 void InstapaperActivity::performDisconnect() {
+  // pairAbandon() below is a TLS round trip on a blocking socket, and this
+  // function had no busy state of any kind: the panel held the DISCONNECT
+  // confirm -- the question the reader had just answered -- for the length of
+  // a handshake, which reads as the wipe having hung half way.
+  paintBusyNow("DISCONNECTING");
+
   // Best-effort server revoke, and only if the radio is already up. Possession
   // of the device token is the whole authorization -- POST /api/pair/abandon
   // resolves it to a uid and revokes it with no session -- so this hands the
@@ -235,6 +277,12 @@ void InstapaperActivity::loop() {
         // Walking away from a pairing is worth telling the bridge about: the
         // code stops being claimable, and a registration the confirm screen
         // declined is revoked rather than left as a device nobody holds.
+        //
+        // Painted first, for the same reason performDisconnect() is: this is
+        // the same blocking TLS call on the same client, and without it the QR
+        // code sits on the glass through the handshake while the reader is
+        // already walking away. Card #306, and the memory fix-the-twin-too.
+        paintBusyNow("CANCELLING");
         sync_.pairAbandon(pollToken_, pendingToken_);
         pollToken_.clear();
         pendingToken_.clear();

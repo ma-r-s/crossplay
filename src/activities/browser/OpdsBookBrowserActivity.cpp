@@ -214,10 +214,7 @@ void OpdsBookBrowserActivity::loop() {
     int ty = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tx, ty)) {
       if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-        state = BrowserState::LOADING;
-        statusMessage = tr(STR_LOADING);
-        requestUpdate();
-        fetchFeed(currentPath);
+        beginFetch(currentPath);
       } else {
         launchWifiSelection();
       }
@@ -793,12 +790,9 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry) {
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
   currentPath = UrlUtils::buildUrl(feedUrl, entry.href);
 
-  state = BrowserState::LOADING;
-  statusMessage = tr(STR_LOADING);
   releaseEntries();
   selectorIndex = 0;
-  requestUpdate(true);
-  fetchFeed(currentPath);
+  beginFetch(currentPath);
 }
 
 void OpdsBookBrowserActivity::navigateBack() {
@@ -819,12 +813,9 @@ void OpdsBookBrowserActivity::navigateBack() {
     currentPath = navigationHistory.back();
     navigationHistory.pop_back();
     showingSearchResults = false;
-    state = BrowserState::LOADING;
-    statusMessage = tr(STR_LOADING);
     releaseEntries();
     selectorIndex = 0;
-    requestUpdate();
-    fetchFeed(currentPath);
+    beginFetch(currentPath);
   }
 }
 
@@ -853,7 +844,12 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   downloadProgress = downloadTotal = 0;
   cancelDownload = false;
   goHomeAfterCancel = false;
-  requestUpdate(true);
+  // WAITED for, like beginFetch(). Card #306: requestUpdate(true) notifies the
+  // render task and returns, so the download screen only RACED downloadToFile()
+  // -- and the whole TCP+TLS connect window sits before the first progress
+  // callback can repaint anything, so losing that race showed the catalog list
+  // with a cover half-drawn over it for the length of a handshake.
+  requestUpdateAndWait();
 
   // Build full download URL relative to the current feed, not the root server URL
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
@@ -1048,20 +1044,45 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
   currentPath = url;
   showingSearchResults = true;
 
-  state = BrowserState::LOADING;
-  statusMessage = tr(STR_LOADING);
   releaseEntries();
   selectorIndex = 0;
-  requestUpdate(true);
-  fetchFeed(url);
+  beginFetch(currentPath);
+}
+
+// The ONE way a feed fetch starts, and the only reason it is a function.
+//
+// HttpDownloader::fetchUrl() blocks the main task for the whole transfer.
+// Until card #306 every caller here asked for the busy frame with plain
+// requestUpdate() or requestUpdate(true) and then blocked in the SAME call
+// stack. Plain requestUpdate() only sets a flag that ActivityManager::loop()
+// consumes at its own tail, and that tail cannot be reached while the fetch is
+// still on the stack -- so the render task was never notified at all and the
+// panel held the PREVIOUS screen for the length of the download. On the
+// cold-start path (onEnter -> checkAndConnectWifi) that previous screen is the
+// shelf, which is what makes opening Get Books look like the device died. Two
+// cold testers have read a silent screen as a crash; see the memory
+// a-silent-screen-reads-as-a-crash.
+//
+// requestUpdateAndWait() (ActivityManager.cpp:455) blocks in ulTaskNotifyTake
+// until the render task has finished render(), and this activity's render()
+// ends in renderer.displayBuffer() -- the blocking panel path -- so the LOADING
+// frame is genuinely on the glass before the socket opens. Not a scheduled
+// hope: requestUpdate(true) notifies immediately but still only RACES the
+// socket.
+//
+// A helper rather than the same two lines fixed at six call sites, because the
+// call sites are what failed: see bounding-one-of-two-input-paths. Every path
+// into a feed goes through here, so a seventh cannot be written without one.
+void OpdsBookBrowserActivity::beginFetch(const std::string& path) {
+  state = BrowserState::LOADING;
+  statusMessage = tr(STR_LOADING);
+  requestUpdateAndWait();
+  fetchFeed(path);
 }
 
 void OpdsBookBrowserActivity::checkAndConnectWifi() {
   if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-    state = BrowserState::LOADING;
-    statusMessage = tr(STR_LOADING);
-    requestUpdate();
-    fetchFeed(currentPath);
+    beginFetch(currentPath);
     return;
   }
   launchWifiSelection();
@@ -1077,10 +1098,7 @@ void OpdsBookBrowserActivity::launchWifiSelection() {
 
 void OpdsBookBrowserActivity::onWifiSelectionComplete(const bool connected) {
   if (connected) {
-    state = BrowserState::LOADING;
-    statusMessage = tr(STR_LOADING);
-    requestUpdate(true);
-    fetchFeed(currentPath);
+    beginFetch(currentPath);
   } else {
     // Leave WiFi up; onExit's silent reboot handles teardown without fragmenting.
     state = BrowserState::ERROR;
