@@ -4,6 +4,7 @@
 #include <cstdlib>
 
 #include "../link/LinkScreens.h"
+#include "../ui/ToyboxFormat.h"
 
 namespace knuckleui {
 
@@ -155,7 +156,7 @@ void drawGrid(toybox::Screen& screen, const kb::Grid& grid, const bool yours) {
     // ornament.
     const int columnTotal = kb::columnScore(grid, column);
     if (columnTotal == 0) continue;
-    char label[8];
+    char label[toybox::kIntTextChars];
     std::snprintf(label, sizeof(label), "%d", columnTotal);
     fui::TextStyle style;
     // The body cut, not the small one: "the numbers are so little" was half of
@@ -253,7 +254,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const int16_t left = static_cast<int16_t>((device.width - width) / 2);
 
   miniGrid(screen, left, top, kMini, model.lastTheirs.cell, false);
-  char tally[32];
+  // "%d W   %d L   %d D"
+  constexpr int kTallyChars =
+      toybox::kIntChars + toybox::kIntChars + toybox::kIntChars + toybox::literalChars(" W    L    D") + 1;
+  char tally[kTallyChars];
   std::snprintf(tally, sizeof(tally), "%d W   %d L   %d D", model.wins, model.losses, model.draws);
   fui::TextStyle mid;
   mid.font = toybox::kTileFont;
@@ -291,7 +295,7 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
 
   // The page counter lives in the black band, jaipur's way, so it costs no
   // body space.
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, howToPages());
   toyboxChrome(screen, "HOW TO PLAY", progress);
 
@@ -471,8 +475,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // because their grid is above, YOU on the right because yours is below --
   // and named precisely so that mapping never has to be remembered.
   {
-    char mineText[8];
-    char theirsText[8];
+    char mineText[toybox::kIntTextChars];
+    char theirsText[toybox::kIntTextChars];
     std::snprintf(mineText, sizeof(mineText), "%d", kb::score(model.yours));
     std::snprintf(theirsText, sizeof(theirsText), "%d", kb::score(model.theirs));
     fui::TextStyle nameStyle;

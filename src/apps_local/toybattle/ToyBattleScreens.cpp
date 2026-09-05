@@ -2,6 +2,7 @@
 
 #include <cstdio>
 
+#include "../ui/ToyboxFormat.h"
 #include "ToyBattleMenus.h"
 
 // Two board treatments, built together so they can be photographed side by side
@@ -818,7 +819,10 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // Medals ride in the black band beside the title, where the eye already goes
   // and where they cost no body space. They were on their own line under the
   // rule and Mario could not find them.
-  char medals[20];
+  // "%d-%d OF %d"
+  constexpr int kMedalsChars =
+      toybox::kIntChars + toybox::kIntChars + toybox::kIntChars + toybox::literalChars("- OF ") + 1;
+  char medals[kMedalsChars];
   std::snprintf(medals, sizeof(medals), "%d-%d OF %d", shown.medals[model.seat], shown.medals[model.seat ^ 1],
                 b.medalsObjective);
   // A medals win happened in the tally, not on a base, so that is where it is
@@ -1056,7 +1060,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       } else {
         glyph(screen, fui::Point{static_cast<int16_t>(x + 4), mid}, 9, mark, false);
       }
-      char field[8];
+      char field[toybox::kIntTextChars];
       std::snprintf(field, sizeof(field), "%d", value);
       screen.target().text(
           toybox::inkCentred(fui::makeRect(static_cast<int16_t>(x + 10), y, 20, kCountsRow), toybox::kTileCut), field,

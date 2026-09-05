@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include "player/PlayerAvatar.h"
+#include "ui/ToyboxFormat.h"
 #include "ui/ToyboxIcons.h"
 
 namespace shelfui {
@@ -114,7 +115,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // title's, because it is an answer to a question about the title and not part
   // of the name.
   if (model.pageCount > 1) {
-    char counter[12];
+    char counter[toybox::kSlashCounterChars];
     snprintf(counter, sizeof(counter), "%d/%d", model.page + 1, model.pageCount);
     fui::TextStyle style;
     style.font = toybox::kUiFont;
@@ -262,7 +263,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
         screen.target().stroke(cell, fui::Paint::solid(fui::Color::Black), 1, 10);
       }
 
-      char number[8];
+      char number[toybox::kIntTextChars];
       snprintf(number, sizeof(number), "%d", p + 1);
       fui::TextStyle style;
       style.font = toybox::kUiFont;

@@ -2,6 +2,7 @@
 
 #include <cstdio>
 
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxText.h"
 #include "InsiderArt.h"
 
@@ -161,7 +162,7 @@ void seat(toybox::Screen& screen, const fui::Rect& box, const int number, const 
     screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kFrame, 10);
   }
 
-  char label[4];
+  char label[toybox::kIntTextChars];
   std::snprintf(label, sizeof(label), "%d", number + 1);
   const auto style =
       styled(toybox::kDisplayFont, fui::TextAlign::Center, filled ? fui::Color::White : fui::Color::Black);
@@ -306,7 +307,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 
   const insider::Record blank;
   const insider::Record& record = model.record ? *model.record : blank;
-  char stats[72];
+  // "%d ROUNDS   %d CAUGHT   %d AWAY   %d RAN OUT"
+  constexpr int kStatsChars = toybox::kIntChars + toybox::kIntChars + toybox::kIntChars + toybox::kIntChars +
+                              toybox::literalChars(" ROUNDS    CAUGHT    AWAY    RAN OUT") + 1;
+  char stats[kStatsChars];
   std::snprintf(stats, sizeof(stats), "%d ROUNDS   %d CAUGHT   %d AWAY   %d RAN OUT", record.rounds, record.won,
                 record.lost, record.outOfTime);
   screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(ruleY + 14), body.width, 22), stats,
@@ -365,7 +369,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 // ---------------------------------------------------------------------------
 
 void buildPass(toybox::Screen& screen, const PassModel& model) {
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", model.seat + 1, model.players);
   // Not the game's name, which is also the name of one of the roles: on the
   // card an Insider is handed, the band would then say INSIDER above a card
@@ -483,7 +487,9 @@ void buildPass(toybox::Screen& screen, const PassModel& model) {
 // ---------------------------------------------------------------------------
 
 void buildQuestions(toybox::Screen& screen, const QuestionsModel& model) {
-  char count[16];
+  // "%d PLAYERS"
+  constexpr int kCountChars = toybox::kIntChars + toybox::literalChars(" PLAYERS") + 1;
+  char count[kCountChars];
   std::snprintf(count, sizeof(count), "%d PLAYERS", model.players);
   chrome(screen, "QUESTIONS", count);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
@@ -832,7 +838,7 @@ int tutorialPages() { return 5; }
 
 void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
   const int pages = tutorialPages();
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", model.page + 1, pages);
   chrome(screen, "HOW TO PLAY", progress);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});

@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "../../activities/Activity.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxScreen.h"
 #include "../ui/ToyboxWrappedText.h"
 #include "HackerNewsCore.h"
@@ -138,7 +139,11 @@ class HackerNewsActivity final : public Activity {
   uint32_t topLine_ = 0;
   uint32_t lineCount_ = 0;
   uint16_t visibleLines_ = 0;
-  char pageLabel_[16] = "";
+  // "%lu/%lu", sized from that format. unsigned long is ten digits on the
+  // device, and a page count is nowhere near that -- but a buffer sized for
+  // the count you expect is how card 256 happened seventeen times.
+  static constexpr int kPageLabelCap = 2 * toybox::kULongChars + toybox::literalChars("/") + 1;
+  char pageLabel_[kPageLabelCap] = "";
 
   std::string noticeHeadline_;
   std::string noticeMessage_;

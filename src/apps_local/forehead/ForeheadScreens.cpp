@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../ui/ToyboxFormat.h"
 #include "ForeheadCategoryIcons.h"
 
 namespace foreheadui {
@@ -389,7 +390,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     drawText(screen, panel, "YOUR SCORES SHOW UP HERE", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
   }
 
-  char length[16];
+  // "%d SECONDS"
+  constexpr int kLengthChars = toybox::kIntChars + toybox::literalChars(" SECONDS") + 1;
+  char length[kLengthChars];
   std::snprintf(length, sizeof(length), "%d SECONDS", model.roundSeconds);
   fui::ListItem rows[static_cast<int>(MenuRow::Count)];
   rows[static_cast<int>(MenuRow::Category)].label = "CATEGORY";
@@ -420,7 +423,9 @@ int pickerRowsPerPage() { return kPickerRows; }
 int pickerPages() { return (fh::kCategoryCount + kPickerRows - 1) / kPickerRows; }
 
 void buildPicker(toybox::Screen& screen, const PickerModel& model) {
-  char right[16];
+  // "%d LISTS"
+  constexpr int kRightChars = toybox::kIntChars + toybox::literalChars(" LISTS") + 1;
+  char right[kRightChars];
   std::snprintf(right, sizeof(right), "%d LISTS", fh::kCategoryCount);
   toyboxChrome(screen, "CATEGORY", right);
 
@@ -571,7 +576,7 @@ void buildPlay(toybox::Screen& screen, const PlayModel& model) {
   // of its own below the bar, which cost the word forty-eight pixels of height
   // for something occupying one corner, and its right edge missed the bar's by
   // four pixels -- two near-aligned edges at 1 bit read as a mistake.
-  char scoreText[8];
+  char scoreText[toybox::kIntTextChars];
   std::snprintf(scoreText, sizeof(scoreText), "%d", model.score);
   const int16_t chromeH = static_cast<int16_t>(toybox::kMargin + kBarH + 38);
   drawText(screen,
@@ -630,7 +635,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   // difference between BEAUTY AND THE BEAST fitting and clipping.
   constexpr int16_t kScoreColumn = 140;
   const fui::Rect content = screen.body();
-  char scoreText[8];
+  char scoreText[toybox::kIntTextChars];
   std::snprintf(scoreText, sizeof(scoreText), "%d", model.score);
   drawText(screen, fui::makeRect(content.x, content.y, kScoreColumn, 140), scoreText, toybox::kBodyFont,
            fui::TextAlign::Center, toybox::kHugeCut);
@@ -898,7 +903,7 @@ int howToPages() { return kPageCount; }
 
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const int page = model.page < 0 ? 0 : (model.page >= kPageCount ? kPageCount - 1 : model.page);
-  char right[12];
+  char right[toybox::kSlashCounterChars];
   std::snprintf(right, sizeof(right), "%d/%d", page + 1, kPageCount);
   toyboxChrome(screen, "HOW TO PLAY", right);
 

@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "../Shelf.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxTheme.h"
 #include "SeaSaltCards.h"
@@ -468,7 +469,9 @@ void SeaSaltActivity::drawStartMenu() {
     target.bitmap(fui::makeRect(x, y + (rowH - 24) / 2, 24, 24), fui::bitmapFromIcon(seasaltui::kindIcon24(k)),
                   fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::Black));
     target.text(fui::makeRect(x + 32, y, colW - 96, rowH), seasaltui::kindName(k), name);
-    char n[8];
+    // "X%d"
+    constexpr int kNChars = toybox::kIntChars + toybox::literalChars("X") + 1;
+    char n[kNChars];
     std::snprintf(n, sizeof(n), "X%d", seasalt::kKindSupply[k]);
     target.text(fui::makeRect(x + colW - 64, y, 50 - (col ? 14 : 0), rowH), n, count);
   }

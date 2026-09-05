@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 #include "../link/LinkScreens.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxIcons.h"
 
 namespace checkui {
@@ -261,7 +262,7 @@ void doBuildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const int pages = howToPages();
   const int page = model.page < 0 ? 0 : (model.page >= pages ? pages - 1 : model.page);
 
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, pages);
   toyboxChrome(screen, "HOW TO PLAY", progress);
   const fui::Rect body = screen.body();

@@ -17,6 +17,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxText.h"
 #include "../ui/ToyboxTheme.h"
@@ -839,7 +840,9 @@ void InstapaperActivity::render(RenderLock&&) {
           std::snprintf(subtitle, sizeof(subtitle), "%u min%s%s", static_cast<unsigned>(article->minutes),
                         article->domain.empty() ? "" : ", ", article->domain.c_str());
           rowSubtitles_.push_back(subtitle);
-          char value[8] = "";
+          // "%d%%"
+          constexpr int kValueChars = toybox::kIntChars + toybox::literalChars("%") + 1;
+          char value[kValueChars] = "";
           if (article->progress >= 0.995f) {
             std::snprintf(value, sizeof(value), "DONE");
           } else if (article->progress > 0.01f) {
