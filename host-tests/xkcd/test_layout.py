@@ -289,6 +289,6 @@ if __name__ == "__main__":
     test_unmeasurable_lettering_still_lays_out()
     test_turning_has_to_buy_something()
     print(
-        f"{'FAIL' if failures else 'ok  '}  xkcd layout: {checks} checks, {failures} failures"
+        f"{'FAIL' if failures else 'ok  '}  xkcd layout: {checks} checks, {failures} failed"
     )
     sys.exit(1 if failures else 0)
