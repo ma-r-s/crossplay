@@ -102,6 +102,27 @@ bool parseIndex(std::string_view text, std::vector<Article>& out);
 // Strip anything that would break the row format, and collapse whitespace.
 std::string sanitizeField(std::string_view text);
 
+// The bound the two token columns are written under, and it is not a guess
+// about what Instapaper sends. The bridge stores every article at
+//   "".join(c for c in hash if c.isalnum())[:32] + ".txt"
+// (server/read-bridge/bridge/store.py, UserStore.article_path), so 32
+// alphanumerics IS the hash the service keeps; anything past that names no
+// file on either side of the link. `sha` is the bridge's own
+// sha256(...).hexdigest()[:16] and sits well inside it.
+inline constexpr size_t kTokenLimit = 32;
+
+// Instapaper's `hash` and the bridge's `sha`, cut to the form above.
+//
+// Called at every WRITE -- the index row here, the download URL in
+// InstapaperSync -- and not once at the point the Article was filled in.
+// Both strings arrive verbatim from a third party's JSON, and a guarantee
+// that lives in the function that RECEIVED them is a guarantee the next
+// caller of serializeIndex does not have. The writer is where the row format
+// is decided, so the writer is where the two free-form columns stop being
+// free-form. parseIndex applies it again on the way back for the index a
+// build without this rule already wrote.
+std::string sanitizeToken(std::string_view text);
+
 // "a1234.txt". The only place the filename is spelled.
 std::string articleFileName(int64_t id);
 

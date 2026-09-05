@@ -31,6 +31,13 @@ answers>'`. Never forward a worker's wording; write the three lines
      asks again.
    - `mario`: it is already in his inbox. Do nothing until `board answer`
      lands, then unblock the worker with the answer.
+   - A whole card that is his decision goes on app `mario`, and lands in his
+     inbox by itself: `board new "<the decision>" --from mario --default
+'<what happens if he never answers>'`, or `board app <id> mario` for one
+     already filed. It opens the blocker for you, asking the card's title, so
+     write the title as the question. Give it a `--default`; the fallback is
+     honest but generic, and an inbox of questions with no stated cost of
+     silence is one he stops reading.
 3. **Infrastructure.** A red gate, a full disk, a lock, a merge conflict:
    yours. Fix it or diagnose it and hand the diagnosis to the worker. Never
    edit app code yourself; whose file is that.

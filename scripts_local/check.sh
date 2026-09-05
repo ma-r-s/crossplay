@@ -23,7 +23,26 @@ cd "$REPO"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-xteink}"
 
 TAG="$(printf '%s' "$REPO" | shasum | cut -c1-8)"
-LOGS="${TMPDIR:-/tmp}/xteink-check-$TAG"
+# CHECK_OUTER_LOGS is set by a --committed run for the trial run it spawns, and
+# is the whole reason --committed stopped leaking a directory per invocation.
+#
+# The trial worktree's path embeds the pid ("xteink-committed-$TAG-$$"), so the
+# inner run's own TAG -- a hash of that path -- is UNIQUE PER RUN. Keyed on it,
+# the inner wrote its ~38MB of logs into a directory no later run would ever
+# reuse, and the outer's EXIT trap then deleted the trial worktree, orphaning
+# that directory by construction. Only the 24h sweep ever collected it: measured
+# 2026-09-05, 234 dirs / 4.4GB, essentially all of it one day's --committed runs.
+#
+# Carrying the OUTER path across the boundary makes the trial run write into the
+# directory keyed on the user's REAL tree, so there is one per tree, reused and
+# overwritten, and the green-verdict rm at the foot of this file collects it like
+# any other run's. It also puts a failed --committed run's logs at a STABLE path
+# for that tree instead of a per-pid one nobody could predict.
+#
+# The pid stays in the TRIAL path: worktree isolation between concurrent runs is
+# load-bearing and unrelated. Only the log path is shared, which is exactly what
+# the plain (non-committed) mode has always done for two runs of one tree.
+LOGS="${CHECK_OUTER_LOGS:-${TMPDIR:-/tmp}/xteink-check-$TAG}"
 mkdir -p "$LOGS"
 
 # Card #144 (corrected by #210): $LOGS is one directory per tree path, reused
@@ -162,6 +181,13 @@ if [ "$_committed" = "1" ]; then
   # you run precisely because you are about to rely on the result. Carry the
   # real branch across the boundary.
   export CHECK_OUTER_BRANCH="$(git branch --show-current 2>/dev/null)"
+  # Carry the log directory across too, so the trial run writes into THIS tree's
+  # directory instead of minting one keyed on its own per-pid path. See the long
+  # note at the LOGS assignment: without this line every --committed run left a
+  # ~38MB directory that no later run could ever reuse. This run already created
+  # the directory (above), and the trial run removes it on a green verdict, so
+  # the outer's `exit $?` below leaves nothing behind either.
+  export CHECK_OUTER_LOGS="$LOGS"
   # The trial worktree sits in TMPDIR, outside the workspace, so the installer
   # suite's venv lookup cannot climb to it. Resolve the venv HERE and carry it
   # across, or --committed skips those tests in the one mode you run because

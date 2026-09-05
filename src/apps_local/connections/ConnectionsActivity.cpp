@@ -52,10 +52,6 @@ HalFile gOutIndex;
 HalFile gOutData;
 connections::PackWriter gWriter;
 bool gWriteFailed = false;
-// Read by the progress repaint while the download blocks. Plain globals because
-// the write callback is a function pointer with no context of its own.
-int gImportedSoFar = 0;
-uint32_t gReachedDate = 0;
 
 bool writeTo(void* ctx, const void* src, const uint32_t len) {
   auto* file = static_cast<HalFile*>(ctx);
@@ -241,6 +237,15 @@ void ConnectionsActivity::buildCalendar() {
   const int count = connections::daysInMonth(calYear, calMonth);
   if (lead < 0 || count == 0) return;
 
+  // ONE OPEN FOR THE MONTH, not one per day. This used to call a readResult()
+  // that opened the results file, seeked, read a single byte and closed it --
+  // for each of up to 31 cells. Opening is the expensive part of a card read,
+  // the archive rebuilds this on every month and year step, and nothing is
+  // painted in between, so those thirty extra opens were a small freeze on a
+  // control the user taps repeatedly. Same file, same bytes, one open.
+  HalFile results;
+  const bool haveResults = Storage.openFileForRead("CONN", kResultsPath, results);
+
   for (int d = 1; d <= count; ++d) {
     const int i = lead + d - 1;
     if (i >= 42) break;
@@ -251,7 +256,12 @@ void ConnectionsActivity::buildCalendar() {
     // range check would offer them and then fail to open them.
     calCells[i].inArchive = packOpen && pack.indexOfDate(date) >= 0;
     if (!calCells[i].inArchive) continue;
-    const connections::Record record = readResult(date);
+    connections::Record record;
+    const int at = connections::resultIndex(date);
+    uint8_t byte = 0;
+    if (haveResults && at >= 0 && results.seek(static_cast<size_t>(at)) && results.read(&byte, 1) == 1) {
+      record = connections::decodeRecord(byte);
+    }
     calCells[i].played = record.played;
     calCells[i].finished = record.played;
     calCells[i].lost = record.lost;
@@ -339,18 +349,6 @@ void ConnectionsActivity::handleSubmit() {
     writeResult(game.puzzle().date, record);
   }
   requestUpdate();
-}
-
-connections::Record ConnectionsActivity::readResult(const uint32_t date) const {
-  connections::Record record;
-  const int index = connections::resultIndex(date);
-  if (index < 0) return record;
-  HalFile file;
-  if (!Storage.openFileForRead("CONN", kResultsPath, file)) return record;
-  if (!file.seek(static_cast<size_t>(index))) return record;
-  uint8_t byte = 0;
-  if (file.read(&byte, 1) != 1) return record;
-  return connections::decodeRecord(byte);
 }
 
 void ConnectionsActivity::fillStats(connectionsui::MenuModel& model) const {
@@ -473,10 +471,7 @@ void ConnectionsActivity::runImport() {
         // A puzzle the writer rejects (out of order, unplayable) is skipped, not
         // fatal. Only a failed write stops the import, and gWriteFailed is what
         // distinguishes the two.
-        if (gWriter.add(puzzle)) {
-          gImportedSoFar = gWriter.written();
-          gReachedDate = puzzle.date;
-        }
+        static_cast<void>(gWriter.add(puzzle));
         return !gWriteFailed;
       },
       nullptr);
@@ -484,28 +479,22 @@ void ConnectionsActivity::runImport() {
   // Streamed, never buffered: the archive is ~1.3MB and this device has less RAM
   // than that. Chunks arrive at whatever size the socket produces and go straight
   // into the parser, so peak memory is one puzzle.
-  // The fetch blocks for the whole download, so the only place a progress
-  // repaint can happen is inside the chunk callback. Throttled to one every two
-  // seconds: a partial refresh costs ~0.3s, and repainting per chunk would
-  // spend more time drawing than downloading.
-  gImportedSoFar = 0;
-  gReachedDate = 0;
-  uint32_t lastPaint = millis();
-  const bool fetched =
-      HttpDownloader::fetchUrl(kArchiveUrl, [this, &importer, &lastPaint](const uint8_t* data, const size_t len) {
-        if (!importer.feed(data, len)) return false;
-        // NOT SAFE HERE: painting from inside the fetch hangs the device. The
-        // renderer expects to own the frame for the duration of a paint, and
-        // this callback runs deep inside a blocking socket read, so
-        // displayBuffer() never returns. Verified by hanging the simulator at
-        // exactly the millisecond the fetch begins. Left as a marker: the count
-        // below is live and correct, it just cannot be shown until the fetch
-        // returns. Doing this properly means moving the download onto its own
-        // task and letting the activity loop keep painting, which is a bigger
-        // change than this slice.
-        (void)lastPaint;
-        return true;
-      });
+  //
+  // THE FETCH BLOCKS THE LOOP AND NOTHING REPAINTS INSIDE IT. That is stated
+  // once, here, rather than worked around: painting from within this callback
+  // was tried and hung the device, because it runs deep inside a blocking
+  // socket read and the renderer expects to own the frame for a whole paint.
+  // There is no counter to draw either -- a running total was written into
+  // this file once and could never be shown, so it is gone rather than left
+  // looking like it drives something.
+  //
+  // What makes the block acceptable is that the panel already SAYS SO: loop()
+  // paints the DOWNLOADING frame and waits for it before this line is
+  // reached. That is the whole fix for the device reading as crashed. Making
+  // it genuinely responsive means moving the download onto its own task,
+  // which is a larger change and is not the reported bug.
+  const bool fetched = HttpDownloader::fetchUrl(
+      kArchiveUrl, [&importer](const uint8_t* data, const size_t len) { return importer.feed(data, len); });
   const bool parsed = importer.finish();
   const int accepted = importer.stats().accepted;
 
@@ -611,7 +600,13 @@ void ConnectionsActivity::loop() {
   if (view == View::Importing && importStep == ImportStep::Ready) {
     importStep = ImportStep::Downloading;
     importDetail = "DOWNLOADING";
-    requestUpdate();
+    // AndWait, not requestUpdate(): the plain call only NOTIFIES the render
+    // task and returns, so the paint would race the socket read on the pass
+    // after this one. This blocks until the frame is on the panel, which is
+    // the only ordering that survives being read by someone holding it.
+    // Runs on the main task, from loop(), holding no RenderLock -- the three
+    // things requestUpdateAndWait() asserts about its caller.
+    requestUpdateAndWait();
     return;
   }
   if (view == View::Importing && importStep == ImportStep::Downloading) {
@@ -724,8 +719,27 @@ void ConnectionsActivity::render(RenderLock&&) {
     case View::HowTo:
       ui::buildHowTo(screen);
       break;
-    case View::Menu:
-    default: {
+    case View::Importing: {
+      // The screen this app has always had a builder for and never once drew:
+      // `default:` sat on the same label as View::Menu, so an import painted
+      // the MENU, byte-identical to the frame before the tap, and then blocked
+      // for the length of a 1.3MB download. That is the whole reported bug --
+      // not that the fetch is slow, but that nothing said it had started.
+      ui::ImportModel model;
+      model.detail = importDetail;
+      model.puzzles = importedCount;
+      model.done = importStep == ImportStep::Done;
+      model.failed = importStep == ImportStep::Failed;
+      ui::buildImport(screen, model);
+      break;
+    }
+    // NO `default:`. That label is what swallowed View::Importing: a case a
+    // default absorbs is invisible to the reader and to -Wswitch alike, and
+    // this build does not pass -Wall anyway, so the compiler was never going
+    // to be the guard here. Every view is named instead, and
+    // host-tests/connections/run.sh fails if the label comes back -- which is
+    // the half of the guarantee that does not depend on build flags.
+    case View::Menu: {
       ui::MenuModel model;
       model.hasPuzzles = packOpen && pack.count() > 0;
       model.puzzleCount = packOpen ? pack.count() : 0;
