@@ -85,6 +85,37 @@ def assert_alive(proc, port, what):
         )
 
 
+def _reap(proc):
+    """SIGTERM the process group, then SIGKILL what is left."""
+    import signal
+
+    try:
+        pgid = os.getpgid(proc.pid)
+    except (ProcessLookupError, PermissionError):
+        return
+    # Never signal our own group. Without this line a Popen that did not get
+    # start_new_session=True makes cleanup kill the suite, its shell and
+    # whatever started them -- which is exactly what happened on 2026-09-05
+    # when a formatter reflowed the Popen call and the edit adding
+    # start_new_session silently matched nothing. Absent code compiles; this
+    # is the guard that makes it fail loudly instead.
+    if pgid == os.getpgrp():
+        raise RuntimeError(
+            "refusing to kill my own process group: the child was started "
+            "without start_new_session=True"
+        )
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError):
+            return
+        try:
+            proc.wait(timeout=8)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
 def wait_port(port, timeout=40):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -297,6 +328,9 @@ def main():
                 [sys.executable, "-m", "anki.syncserver"],
                 cwd=str(ROOT),
                 env=env,
+                # Its own process group, so cleanup below can reap the WHOLE
+                # tree rather than just the launcher.
+                start_new_session=True,
                 # Kept, not discarded: a syncserver that comes up and then
                 # refuses everything is indistinguishable from a bridge that
                 # refuses a password, and the difference is in this log.
@@ -308,13 +342,13 @@ def main():
         assert_alive(procs[-1], SYNC_PORT, "the local anki syncserver")
         return asyncio.run(main_async())
     finally:
+        # By GROUP, not by process. `python -m anki.syncserver` and uvicorn
+        # both hold their listening socket in a child, so terminating the
+        # launcher leaves the port held -- and the NEXT run then refuses to
+        # start, or worse, attacks whatever is still sitting there. One of
+        # these leaked for two hours on 2026-09-05 and blocked the matrix.
         for p in procs:
-            p.terminate()
-        for p in procs:
-            try:
-                p.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                p.kill()
+            _reap(p)
         if os.environ.get("ATTACK_KEEP_TMP"):
             print(f"kept: {tmp}")
         else:
