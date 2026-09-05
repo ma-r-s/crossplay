@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.24
+
+- Settings: CrossPlay's System rows move below CrossPoint's, and the consent line shrinks
+
 ### 1.12.23
 
 - Reserve the murdle refusal band so the grid never moves
