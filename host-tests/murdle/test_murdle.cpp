@@ -19,6 +19,8 @@
 // without trial and error, and a puzzle carrying four redundant clues is
 // unique, solvable, and boring.
 
+#include <EpdFont.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -27,6 +29,7 @@
 #include "../../src/apps_local/murdle/MurdleCast.h"
 #include "../../src/apps_local/murdle/MurdleCore.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
+#include "../../src/apps_local/ui/fonts/toybox_10.h"
 
 namespace {
 
@@ -988,6 +991,138 @@ void testDenialNamesTheRuledOutItem() {
 }
 
 // ---------------------------------------------------------------------------
+// The refusal notice has to fit the band the grid reserves for it
+
+// The greedy wrap MurdleScreens.cpp::paragraph() performs, restated. It is
+// restated rather than shared because that function needs FreeInkUI and a draw
+// target, and this suite deliberately has neither -- what it has instead is the
+// real font, which is the half that matters here. Two rules, and they are the
+// whole of it: words are split on spaces, and a line is kept while the
+// ASSEMBLED string (spaces included) measures no wider than the box.
+int noticeLines(const EpdFont& face, const char* text, const int boxWidth) {
+  const auto width = [&face](const char* s) {
+    int w = 0, h = 0;
+    face.getTextDimensions(s, &w, &h);
+    return w;
+  };
+  int lines = 0;
+  // The same buffer paragraph() assembles into, so a line long enough to be cut
+  // short is cut short at the same place.
+  char line[128] = {};
+  int fill = 0;
+  const char* at = text;
+  while (true) {
+    while (*at == ' ') ++at;
+    if (*at == '\0') break;
+    int n = 0;
+    while (at[n] != '\0' && at[n] != ' ') ++n;
+    const int kept = fill;
+    if (fill != 0 && fill + 1 < static_cast<int>(sizeof(line))) line[fill++] = ' ';
+    for (int i = 0; i < n && fill + 1 < static_cast<int>(sizeof(line)); ++i) line[fill++] = at[i];
+    line[fill] = '\0';
+    if (kept != 0 && width(line) > boxWidth) {
+      line[kept] = '\0';
+      ++lines;
+      fill = 0;
+      for (int i = 0; i < n && fill + 1 < static_cast<int>(sizeof(line)); ++i) line[fill++] = at[i];
+      line[fill] = '\0';
+    }
+    at += n;
+  }
+  if (fill != 0) ++lines;
+  return lines;
+}
+
+// The grid face reserves a band of exactly this many lines whether there is a
+// notice or not, so that a refused tap does not move the board. A notice that
+// needed a third line would push the grid back down, which is the bug the band
+// exists to close -- so the band is only honest while this holds.
+//
+// The measurement is over the WHOLE cross product of the cast tables rather
+// than a sample or a hand-picked longest pair, because "widest name" is a
+// pixel question and greedy wrapping is not monotone in character count. It
+// runs against the real toybox_10 cut, so a regenerated cut moves this too.
+constexpr int kNoticeLines = 2;
+// The face's body width, which is what paragraph() wraps against. Asserted
+// against the real layout by testMurdleRefusalDoesNotMoveTheGrid in
+// host-tests/ui, which reads it off a drawn run rather than restating it.
+constexpr int kNoticeBoxWidth = 448;
+
+void testEveryRefusalFitsTheReservedBand() {
+  static const EpdFont tile(&toybox_10);
+  static Scratch scratch;
+  Puzzle puzzle;
+  CHECK(makeCase(Tier::Impossible, 99u, scratch, puzzle));
+
+  // A cell is always two DIFFERENT categories, and blockedLine names one item
+  // of each on both sides of its two pairs. Driving it through `puzzle.cast`
+  // uses the real tables and the real format string, so a new fixture or a
+  // reworded message is measured without anybody editing this test.
+  murdle::TapResult refused;
+  refused.changed = false;
+  refused.sameRow = 0;
+  refused.sameCol = 1;
+
+  int worst = 0;
+  int worstOneSided = 0;
+  char line[96];
+  char longest[96] = {};
+  for (int catA = 0; catA < kMaxCats; ++catA) {
+    for (int catB = 0; catB < kMaxCats; ++catB) {
+      if (catA == catB) continue;
+      for (int a0 = 0; a0 < castSize(catA); ++a0) {
+        for (int b0 = 0; b0 < castSize(catB); ++b0) {
+          for (int a1 = 0; a1 < castSize(catA); ++a1) {
+            for (int b1 = 0; b1 < castSize(catB); ++b1) {
+              // itemA/sameCol pick the two catA names, itemB/sameRow the two
+              // catB ones. Items 0 and 1 of each category carry them.
+              puzzle.cast[catA][0] = static_cast<uint8_t>(a0);
+              puzzle.cast[catA][1] = static_cast<uint8_t>(a1);
+              puzzle.cast[catB][0] = static_cast<uint8_t>(b0);
+              puzzle.cast[catB][1] = static_cast<uint8_t>(b1);
+              murdletext::blockedLine(puzzle, catA, 0, catB, 1, refused, line, sizeof(line));
+              const int lines = noticeLines(tile, line, kNoticeBoxWidth);
+              if (lines > worst) {
+                worst = lines;
+                std::snprintf(longest, sizeof(longest), "%s", line);
+              }
+            }
+          }
+          // And the one-blocker wording, which is shorter but wraps by its own
+          // arithmetic and so is not covered by the two-blocker worst case.
+          murdle::TapResult oneSided;
+          oneSided.changed = false;
+          oneSided.sameRow = 1;
+          puzzle.cast[catA][0] = static_cast<uint8_t>(a0);
+          puzzle.cast[catB][1] = static_cast<uint8_t>(b0);
+          murdletext::blockedLine(puzzle, catA, 0, catB, 0, oneSided, line, sizeof(line));
+          const int lines = noticeLines(tile, line, kNoticeBoxWidth);
+          if (lines > worstOneSided) worstOneSided = lines;
+        }
+      }
+    }
+  }
+
+  if (worst > kNoticeLines) std::printf("  a notice needing %d lines: %s\n", worst, longest);
+  CHECK(worst > 0);
+  CHECK(worst <= kNoticeLines);
+  CHECK(worstOneSided > 0);
+  CHECK(worstOneSided <= kNoticeLines);
+
+  // And the check can fail: one line narrower than the real box and the same
+  // sweep must find something that needs a third. Without this the assertion
+  // above would also pass on a box nothing could overflow.
+  int over = 0;
+  for (int entry = 0; entry < castSize(static_cast<int>(Cat::Weapon)); ++entry) {
+    puzzle.cast[static_cast<int>(Cat::Weapon)][0] = static_cast<uint8_t>(entry);
+    murdletext::blockedLine(puzzle, static_cast<int>(Cat::Weapon), 0, static_cast<int>(Cat::Suspect), 1, refused, line,
+                            sizeof(line));
+    if (noticeLines(tile, line, kNoticeBoxWidth / 2) > kNoticeLines) ++over;
+  }
+  CHECK(over > 0);
+}
+
+// ---------------------------------------------------------------------------
 // Mutation check
 //
 // A suite that passes more easily than expected is a suite that cannot fail.
@@ -1522,6 +1657,7 @@ int runTests() {
   testStatementsDoNotGiveTheCaseAway();
   testComparativeHeightMasks();
   testDossierBiasNeverStarvesGeneration();
+  testEveryRefusalFitsTheReservedBand();
   testTheChecksCanFail();
 
   const int seedsPerTier = 400;
