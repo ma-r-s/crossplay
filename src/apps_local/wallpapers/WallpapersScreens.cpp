@@ -3,18 +3,47 @@
 #include <algorithm>
 #include <cstdio>
 #include <string>
-#include <vector>
 
 #include "../ui/ToyboxText.h"
-#include "../ui/ToyboxTokens.h"
 
 namespace wallpapersui {
 
 namespace {
 
-// The top of any body: below the header band and the rule Toybox draws under
-// it, matching xkcd so the picker lines up with the shelf it came from.
+// The top of the body: below the header band and the rule Toybox draws under
+// it, matching the other apps so the grid lines up with the shelf it came from.
 constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter * 3);
+// A fixed strip under the chrome for the free-space advisory or the "nothing is
+// set yet" hint. Fixed so the grid's top does not jump when a hint appears.
+constexpr int16_t kHintH = 30;
+// The page-dot strip at the very bottom, reserved whether or not it is used, so
+// the grid height is the same on a one-page library as on a ten-page one.
+constexpr int16_t kPageStripH = 28;
+constexpr int16_t kBottomMargin = 12;
+constexpr int16_t kGap = 14;
+
+// The wallpaper's own shape. Sleep wallpapers are portrait 480x800 on this
+// device (verified: a 480x800 image fills the sleep screen), so the cells are
+// too and a thumbnail of a matching wallpaper fills its cell with no letterbox.
+constexpr float kCellAspectWoverH = 480.0f / 800.0f;
+
+struct VariantSpec {
+  int rows;
+  int16_t captionH;
+  int16_t borderW;
+};
+
+constexpr VariantSpec variantSpec() {
+#if WALLPAPERS_VARIANT == 1
+  return {2, 0, 6};
+#elif WALLPAPERS_VARIANT == 2
+  return {3, 22, 4};
+#elif WALLPAPERS_VARIANT == 3
+  return {2, 22, 9};
+#else
+#error "WALLPAPERS_VARIANT must be 1, 2 or 3"
+#endif
+}
 
 fui::TextStyle owned(fui::TextStyle style, fui::TextAlign align) {
   style.align = align;
@@ -27,7 +56,7 @@ fui::TextStyle onPaper(fui::TextStyle style, fui::TextAlign align) {
   return style;
 }
 
-void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
+void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
   fui::HeaderProps header;
   header.title = title;
   header.rightLabel = rightLabel;
@@ -41,122 +70,103 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = 
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
-// A short line under the chrome, from the given top. Returns the y just below
-// it so the caller stacks the next thing under it rather than through it.
-// `emphasis` fills the line background (used for the live-wallpaper strip; a
-// plain advisory leaves the paper alone).
-int16_t noticeLine(toybox::Screen& screen, const fui::Rect& safe, int16_t top, const char* text, bool emphasis) {
-  if (text == nullptr || text[0] == '\0') return top;
-  const int16_t height = 40;
-  const fui::Rect line = fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), top,
-                                       static_cast<int16_t>(safe.width - toybox::kMargin * 2), height);
-  if (emphasis) {
-    screen.target().fill(line, fui::Paint::solid(fui::Color::Black));
-  }
-  fui::TextStyle style = owned(screen.theme().smallText, fui::TextAlign::Left);
-  style.color = emphasis ? fui::Color::White : fui::Color::Black;
-  const fui::Rect textRect =
-      fui::makeRect(static_cast<int16_t>(line.x + (emphasis ? toybox::kGutter : 0)), line.y,
-                    static_cast<int16_t>(line.width - (emphasis ? toybox::kGutter * 2 : 0)), height);
-  std::string fitted = toybox::fittedTitle(screen.target(), text, textRect.width, style);
-  screen.target().text(textRect, fitted.c_str(), style);
-  return static_cast<int16_t>(top + height + toybox::kGutter);
-}
-
-// The band the list rows are laid into, from `top` down to the safe bottom.
-fui::Rect listBand(const fui::Rect& safe, int16_t top) {
-  return fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), top,
-                       static_cast<int16_t>(safe.width - toybox::kMargin * 2),
-                       static_cast<int16_t>(safe.bottom() - top));
-}
-
-// The list shared by all three variants. Names are fitted here, with an ASCII
-// ellipsis, so a long file name is never handed to the component long enough
-// for it to truncate with U+2026 -- a glyph the Toybox faces lack, which draws
-// as nothing and silently eats the end of the name.
-void drawList(toybox::Screen& screen, const PickerModel& model, const fui::Rect& band) {
-  fui::TextStyle labelStyle = owned(screen.theme().bodyText, fui::TextAlign::Left);
-  const int16_t labelWidth = static_cast<int16_t>(band.width - toybox::kMargin * 2 - 84);
-
-  std::vector<std::string> labels;
-  std::vector<fui::ListItem> items;
-  labels.reserve(static_cast<size_t>(model.count));
-  items.reserve(static_cast<size_t>(model.count));
-  for (int i = 0; i < model.count; ++i) {
-    fui::TextStyle probe = labelStyle;
-    labels.push_back(toybox::fittedTitle(screen.target(), model.items[i].name, labelWidth, probe));
-  }
-  for (int i = 0; i < model.count; ++i) {
-    fui::ListItem item;
-    item.label = labels[static_cast<size_t>(i)].c_str();
-    item.value = model.items[i].active ? "ON" : nullptr;
-    // The absolute index rides on the row, so a tap reports WHICH wallpaper it
-    // was rather than a bare 0. Without this the list defaults every row to 0.
-    item.actionValue = static_cast<int16_t>(i);
-    items.push_back(item);
-  }
-
-  fui::ListProps props;
-  props.items = items.data();
-  props.count = static_cast<uint16_t>(model.count);
-  props.selectedIndex = static_cast<int16_t>(model.selected);
-  props.action = ActionPick;
-  props.labelText = labelStyle;
-  props.valueText = owned(screen.theme().smallText, fui::TextAlign::Right);
-
-  // Scroll so the highlighted wallpaper is visible: the list does not do this
-  // for us (topIndex is the caller's job), and the overflow track is not
-  // tappable (shelf.md), so a library taller than the panel would otherwise
-  // strand every row past the first screenful. Centre the selection in the
-  // window; clamp to a full last page.
-  const int16_t rowHeight = screen.theme().rowHeight > 0 ? screen.theme().rowHeight : 44;
-  const int16_t rowGap = screen.theme().listRowGap;
-  const int visible = std::max(1, band.height / std::max<int>(1, rowHeight + rowGap));
-  if (model.count > visible) {
-    int top = model.selected - visible / 2;
-    top = std::max(0, std::min(top, model.count - visible));
-    props.topIndex = static_cast<uint16_t>(top);
-  }
-
-  const fui::Rect panel = screen.device().screen();
-  screen.setContentMarginAbsolute(fui::Insets{band.y, static_cast<int16_t>(panel.width - band.right()),
-                                              static_cast<int16_t>(panel.height - band.bottom()), band.x});
-  screen.list(props, band.height);
-}
-
 }  // namespace
 
-void buildPicker(toybox::Screen& screen, const PickerModel& model) {
-  chrome(screen, model.title, model.rightLabel);
-  const fui::Rect safe = screen.frame().safeRect();
-  int16_t top = static_cast<int16_t>(safe.y + kBodyTop);
+GridGeom gridGeom(const fui::DeviceContext& device) {
+  const fui::Rect safe = device.safeRect();
+  const VariantSpec spec = variantSpec();
 
-  // The free-space advisory always comes first when present.
-  top = noticeLine(screen, safe, top, model.warning, /*emphasis=*/false);
+  GridGeom g;
+  g.cols = 2;
+  g.rows = spec.rows;
+  g.perPage = g.cols * g.rows;
+  g.captionH = spec.captionH;
+  g.borderW = spec.borderW;
+  g.gapX = kGap;
+  g.gapY = kGap;
 
-  // The live wallpaper, named on an inked strip, so which one is on is
-  // unmissable rather than an easily-skimmed badge -- and it names it even when
-  // it has scrolled off the list.
-  const char* live = nullptr;
-  char banner[160];  // "SLEEP SCREEN:  " + a name up to kNameMax
-  for (int i = 0; i < model.count; ++i) {
-    if (model.items[i].active) {
-      snprintf(banner, sizeof(banner), "SLEEP SCREEN:  %s", model.items[i].name);
-      live = banner;
-      break;
-    }
+  const int16_t gridLeft = static_cast<int16_t>(safe.x + toybox::kMargin);
+  const int16_t gridW = static_cast<int16_t>(safe.width - toybox::kMargin * 2);
+  const int16_t gridTop = static_cast<int16_t>(safe.y + kBodyTop + kHintH);
+  const int16_t gridBottom = static_cast<int16_t>(safe.bottom() - kPageStripH - kBottomMargin);
+  const int16_t gridH = static_cast<int16_t>(gridBottom - gridTop);
+
+  // The largest a cell may be in each axis, then the wallpaper's aspect fitted
+  // inside that box so the thumbnail is never stretched.
+  const int16_t maxCellW = static_cast<int16_t>((gridW - g.gapX * (g.cols - 1)) / g.cols);
+  const int16_t maxCellH = static_cast<int16_t>((gridH - g.gapY * (g.rows - 1) - g.captionH * g.rows) / g.rows);
+  int16_t cellW = std::min<int16_t>(maxCellW, static_cast<int16_t>(maxCellH * kCellAspectWoverH));
+  if (cellW < 1) cellW = 1;
+  int16_t cellH = static_cast<int16_t>(cellW / kCellAspectWoverH);
+  if (cellH > maxCellH) {
+    cellH = maxCellH;
+    cellW = static_cast<int16_t>(cellH * kCellAspectWoverH);
   }
-  top = noticeLine(screen, safe, top, live != nullptr ? live : "SLEEP SCREEN:  none chosen yet", /*emphasis=*/true);
+  g.cellW = cellW;
+  g.cellH = cellH;
 
-  drawList(screen, model, listBand(safe, top));
+  // Centre the columns horizontally; top-align the rows.
+  const int16_t usedW = static_cast<int16_t>(g.cols * cellW + (g.cols - 1) * g.gapX);
+  g.originX = static_cast<int16_t>(gridLeft + (gridW - usedW) / 2);
+  g.originY = gridTop;
+  g.pageDotsY = static_cast<int16_t>(safe.bottom() - kPageStripH + 6);
+  return g;
+}
+
+fui::Rect thumbRect(const GridGeom& g, int slot) {
+  const int col = slot % g.cols;
+  const int row = slot / g.cols;
+  const int16_t x = static_cast<int16_t>(g.originX + col * (g.cellW + g.gapX));
+  const int16_t y = static_cast<int16_t>(g.originY + row * (g.cellH + g.captionH + g.gapY));
+  return fui::makeRect(x, y, g.cellW, g.cellH);
+}
+
+fui::Rect cellRect(const GridGeom& g, int slot) {
+  const fui::Rect t = thumbRect(g, slot);
+  return fui::makeRect(t.x, t.y, t.width, static_cast<int16_t>(t.height + g.captionH));
+}
+
+fui::Rect captionRect(const GridGeom& g, int slot) {
+  if (g.captionH <= 0) return fui::makeRect(0, 0, 0, 0);
+  const fui::Rect t = thumbRect(g, slot);
+  return fui::makeRect(t.x, static_cast<int16_t>(t.y + t.height), t.width, g.captionH);
+}
+
+int cellAt(const GridGeom& g, int x, int y) {
+  for (int slot = 0; slot < g.perPage; ++slot) {
+    const fui::Rect c = cellRect(g, slot);
+    if (x >= c.x && x < c.right() && y >= c.y && y < c.bottom()) return slot;
+  }
+  return -1;
+}
+
+void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
+  chrome(screen, model.title, model.rightLabel);
+
+  // The hint strip, at a fixed place so the grid below it never moves. The
+  // free-space advisory wins the strip when present; otherwise, if nothing is
+  // set yet, it says so -- a grid with no thick border and no words reads as a
+  // selection that failed to draw.
+  const fui::Rect safe = screen.frame().safeRect();
+  const int16_t hintY = static_cast<int16_t>(safe.y + kBodyTop);
+  const char* line = nullptr;
+  if (model.warning != nullptr && model.warning[0] != '\0') {
+    line = model.warning;
+  } else if (!model.hasActive) {
+    line = "Tap a wallpaper to set it as your sleep screen.";
+  }
+  if (line != nullptr) {
+    const fui::Rect rect = fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), hintY,
+                                         static_cast<int16_t>(safe.width - toybox::kMargin * 2), kHintH);
+    fui::TextStyle style = onPaper(screen.theme().smallText, fui::TextAlign::Left);
+    std::string fitted = toybox::fittedTitle(screen.target(), line, rect.width, style);
+    screen.target().text(rect, fitted.c_str(), style);
+  }
 }
 
 void buildEmpty(toybox::Screen& screen, const EmptyModel& model) {
-  chrome(screen, model.title);
+  chrome(screen, model.title, nullptr);
 
-  // Content flows down the content rect chrome() just inset, the same as
-  // buildNotice: a warning line (only when there is one), the headline, then
-  // the instructions filling what is left.
   if (model.warning != nullptr && model.warning[0] != '\0') {
     fui::TextStyle warn = onPaper(screen.theme().smallText, fui::TextAlign::Left);
     std::string fitted = toybox::fittedTitle(screen.target(), model.warning, screen.body().width, warn);

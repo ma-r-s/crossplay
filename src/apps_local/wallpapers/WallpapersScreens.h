@@ -1,65 +1,79 @@
 #pragma once
 
-// The Wallpapers screens. Freestanding builders in the XkcdScreens mould: a
-// model in, a drawn frame out, no renderer and no Activity, so host-tests/ui/
-// can assert what they drew and what they made tappable.
+// The Wallpapers screens. The chrome (header, page label, hints, empty state)
+// is a freestanding builder in the XkcdScreens mould, so host-tests/ui/ can
+// assert it. The grid of wallpaper thumbnails is the app's own surface: it is
+// drawn by the Activity, because a thumbnail is a BMP decoded and scaled down
+// off the SD card, which a freestanding screen cannot touch. What lives here
+// for the grid is only its GEOMETRY -- the cell rectangles -- shared between the
+// Activity's drawing and its hit-test so the two cannot disagree (the rule that
+// has caught more bugs in this fork than any other).
 //
-// Portrait, 480x800, like every other app on the device. The picker offers the
-// wallpapers already on the card and pins the chosen one as the sleep screen,
-// by copying it to the /sleep.bmp slot the sleep system already checks first.
-//
-// No live thumbnail: a wallpaper is a 1-bit image sized to the sleep canvas,
-// and the renderer's 1-bit blit neither scales nor rotates, so a landscape
-// wallpaper cannot be shown shrunk inside a portrait row without cropping to
-// nonsense. The picker names the wallpapers and marks the live one; seeing one
-// means setting it and letting the device sleep. A shrunk preview is a
-// follow-up that needs the uploader to emit a portrait thumbnail.
-//
-// Chosen from three rendered arrangements (immediate / confirm-button /
-// banner): a tap sets the wallpaper at once, and an inked banner under the
-// chrome names the live one so "which is on?" is never a question even when it
-// has scrolled off the list -- the a-silent-screen-reads-as-a-crash concern.
-// The other two were built behind a WALLPAPERS_VARIANT macro, composed side by
-// side, and deleted with the macro in the same commit.
+// Portrait, 480x800. Two columns of thumbnails (Mario's ask), the wallpaper's
+// own 480x800 aspect preserved in each cell. The wallpaper currently set as the
+// sleep screen wears a thick border; a tap on any cell makes that one the sleep
+// screen.
 
 #include "../ui/ToyboxScreen.h"
+
+// Three grid stylings, chosen at build time, rendered side by side, the winner
+// kept and this macro deleted in the same commit (docs/building-apps.md):
+//   1  BIG      -- 2x2 big thumbnails, no caption, a heavy border
+//   2  DENSE    -- 2x3 smaller thumbnails with a file-name caption, thinner border
+//   3  CAPTIONED -- 2x2 big thumbnails WITH a caption, the heaviest border
+#ifndef WALLPAPERS_VARIANT
+#define WALLPAPERS_VARIANT 1
+#endif
 
 namespace wallpapersui {
 
 namespace fui = freeink::ui;
 
-// Chess uses 1-4, the link layer owns the 200s, Hacker News the 300s, xkcd the
-// 400s. Wallpapers takes the 800s.
-enum : fui::ActionId {
-  ActionPick = 800,  // a wallpaper row; value carries its index
+// The grid's geometry for the current variant, derived from the panel rather
+// than guessed, so the drawing, the captions and the hit-test all read one set
+// of rectangles.
+struct GridGeom {
+  int cols = 2;     // two columns, always (the whole point of the redesign)
+  int rows = 2;     // rows per page
+  int perPage = 4;  // cols * rows
+  int16_t cellW = 0;
+  int16_t cellH = 0;     // the thumbnail area only (caption sits below it)
+  int16_t captionH = 0;  // 0 in variants without a caption
+  int16_t borderW = 6;   // the thick border on the set wallpaper
+  int16_t originX = 0;   // top-left of slot 0
+  int16_t originY = 0;
+  int16_t gapX = 0;
+  int16_t gapY = 0;
+  int16_t pageDotsY = 0;  // where the page-dot strip sits (when more than one page)
 };
 
-// One wallpaper on the card. `active` is the one currently pinned as the sleep
-// screen, marked so the user is never left guessing which is live.
-struct Entry {
-  const char* name = "";  // the file name
-  bool active = false;
-};
+GridGeom gridGeom(const fui::DeviceContext& device);
 
-struct PickerModel {
+// slot is 0..perPage-1, row-major. thumbRect is the image; cellRect includes
+// the caption row; captionRect is empty in variants without captions.
+fui::Rect thumbRect(const GridGeom& g, int slot);
+fui::Rect cellRect(const GridGeom& g, int slot);
+fui::Rect captionRect(const GridGeom& g, int slot);
+
+// Which slot a tap at (x, y) lands on, or -1. Reads the same rectangles the
+// Activity draws into.
+int cellAt(const GridGeom& g, int x, int y);
+
+// The chrome above and around the grid. rightLabel carries the count or the
+// page ("PAGE 2 / 3"); when nothing is set yet the hint says so, because a grid
+// with no border and no words is indistinguishable from one whose selection
+// simply is not drawing (a-silent-screen-reads-as-a-crash).
+struct GridChromeModel {
   const char* title = "WALLPAPERS";
-  const Entry* items = nullptr;
-  int count = 0;
-  int selected = 0;  // the highlighted wallpaper
-  // "3 SAVED", drawn in the header's right label.
   const char* rightLabel = nullptr;
-  // The free-space advisory. Left null when there is room; otherwise one short
-  // line under the chrome that does NOT claim the card is full when the real
-  // answer is "could not tell" (see WallpapersCore::roomFor). A warning, not a
-  // wall: the picker still works, because pinning a wallpaper is a tiny write.
-  const char* warning = nullptr;
+  const char* warning = nullptr;  // free-space advisory, null when there is room
+  bool hasActive = false;         // false -> draw the "tap one to set it" hint
 };
 
-void buildPicker(toybox::Screen& screen, const PickerModel& model);
+void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model);
 
-// The empty state. A wallpaper app with nothing to show must SAY so and say how
-// to fix it -- a blank body is indistinguishable from a crashed device (see the
-// a-silent-screen-reads-as-a-crash memory).
+// The empty state: no wallpapers on the card at all. Names the gap and how to
+// fill it, so a fresh device does not look broken.
 struct EmptyModel {
   const char* title = "WALLPAPERS";
   const char* warning = nullptr;

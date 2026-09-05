@@ -9242,12 +9242,12 @@ void testAHandDrawnRightLabelSitsOnTheTitlesLine() {
 
 // --- Wallpapers -------------------------------------------------------------
 
-void buildWallpapersPicker(Rendered& out, const wallpapersui::PickerModel& model) {
+void buildWallpapersChrome(Rendered& out, const wallpapersui::GridChromeModel& model) {
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
-  wallpapersui::buildPicker(screen, model);
+  wallpapersui::buildGridChrome(screen, model);
 }
 
 void buildWallpapersEmpty(Rendered& out, const wallpapersui::EmptyModel& model) {
@@ -9258,129 +9258,114 @@ void buildWallpapersEmpty(Rendered& out, const wallpapersui::EmptyModel& model) 
   wallpapersui::buildEmpty(screen, model);
 }
 
-// The picker lists every wallpaper on the card and marks the live one. A row
-// that is on but looks like every other row is the a-silent-screen failure in
-// miniature: the user cannot tell which is set.
-void testWallpapersListsAndMarksTheLiveOne() {
-  Rendered out;
-  const wallpapersui::Entry entries[] = {{"aurora.bmp", false}, {"canyon.bmp", true}, {"tide.bmp", false}};
-  wallpapersui::PickerModel model;
-  model.items = entries;
-  model.count = 3;
-  model.selected = 1;
-  model.rightLabel = "3 SAVED";
-  buildWallpapersPicker(out, model);
+// Two columns, always -- the point of the grid -- and slot 1 is to the right of
+// slot 0 on the same row; slot 2 drops to the next row's first column.
+void testWallpapersGridHasTwoColumns() {
+  const wallpapersui::GridGeom g = wallpapersui::gridGeom(device());
+  CHECK(g.cols == 2);
+  CHECK(g.perPage >= 2);
+  const fui::Rect c0 = wallpapersui::cellRect(g, 0);
+  const fui::Rect c1 = wallpapersui::cellRect(g, 1);
+  CHECK(c1.x > c0.x);
+  CHECK(c1.y == c0.y);
+  if (g.perPage >= 3) {
+    const fui::Rect c2 = wallpapersui::cellRect(g, 2);
+    CHECK(c2.y > c0.y);
+    CHECK(c2.x == c0.x);
+  }
+}
 
+// Every cell sits inside the panel: a thumbnail drawn off-screen is one nobody
+// sees.
+void testWallpapersCellsStayOnScreen() {
+  const fui::DeviceContext dev = device();
+  const wallpapersui::GridGeom g = wallpapersui::gridGeom(dev);
+  for (int slot = 0; slot < g.perPage; ++slot) {
+    const fui::Rect c = wallpapersui::cellRect(g, slot);
+    CHECK(c.x >= 0);
+    CHECK(c.y >= 0);
+    CHECK(c.right() <= dev.width);
+    CHECK(c.bottom() <= dev.height);
+  }
+}
+
+// The tap hit-test reads the SAME rectangles the Activity draws into: the centre
+// of each cell routes to that cell, and a point up in the header routes to none.
+void testWallpapersCellHitTestMatchesDraw() {
+  const wallpapersui::GridGeom g = wallpapersui::gridGeom(device());
+  for (int slot = 0; slot < g.perPage; ++slot) {
+    const fui::Rect c = wallpapersui::cellRect(g, slot);
+    CHECK(wallpapersui::cellAt(g, c.x + c.width / 2, c.y + c.height / 2) == slot);
+  }
+  CHECK(wallpapersui::cellAt(g, 0, 0) == -1);
+  CHECK(wallpapersui::cellAt(g, -5, -5) == -1);
+}
+
+// A grid with nothing set must SAY to tap one, or it reads as a selection that
+// failed to draw (a-silent-screen-reads-as-a-crash).
+void testWallpapersChromeSaysTapToSetWhenNothingIsSet() {
+  Rendered out;
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "6 SAVED";
+  model.hasActive = false;
+  buildWallpapersChrome(out, model);
   CHECK(drewText(out, "WALLPAPERS"));
-  CHECK(drewText(out, "aurora.bmp"));
-  CHECK(drewText(out, "canyon.bmp"));
-  CHECK(drewText(out, "tide.bmp"));
-  CHECK(drewText(out, "3 SAVED"));
-  // The live row wears an ON badge; without a live wallpaper there is no badge.
-  CHECK(drewText(out, "ON"));
-  // ...and the banner names the live wallpaper so it is unmissable even when
-  // it has scrolled off the list.
-  CHECK(drewText(out, "SLEEP SCREEN:"));
-  CHECK(drewText(out, "canyon.bmp"));
+  CHECK(drewText(out, "6 SAVED"));
+  CHECK(drewText(out, "Tap a wallpaper"));
 }
 
-// A tap on a row reports WHICH wallpaper it was, not a bare 0 -- the actionValue
-// has to ride on the ListItem, and forgetting it is a silent every-tap-is-row-0
-// bug (the same class as connectfour's index).
-// With nothing set, the banner says so in plain words rather than leaving the
-// user to guess whether a wallpaper is live.
-void testWallpapersBannerSaysNoneWhenNothingIsSet() {
+// With one set, the hint is gone -- the thick border the Activity draws is the
+// indicator.
+void testWallpapersChromeIsQuietWhenSomethingIsSet() {
   Rendered out;
-  const wallpapersui::Entry entries[] = {{"aurora.bmp", false}, {"tide.bmp", false}};
-  wallpapersui::PickerModel model;
-  model.items = entries;
-  model.count = 2;
-  model.rightLabel = "2 SAVED";
-  buildWallpapersPicker(out, model);
-
-  CHECK(drewText(out, "none chosen yet"));
-  CHECK(!drewText(out, "ON"));
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "6 SAVED";
+  model.hasActive = true;
+  buildWallpapersChrome(out, model);
+  CHECK(!drewText(out, "Tap a wallpaper"));
 }
 
-void testWallpapersTapCarriesTheRowIndex() {
+// The page label is shown verbatim so a paged library says where you are.
+void testWallpapersChromeShowsThePage() {
   Rendered out;
-  const wallpapersui::Entry entries[] = {{"aurora.bmp", false}, {"canyon.bmp", false}, {"tide.bmp", false}};
-  wallpapersui::PickerModel model;
-  model.items = entries;
-  model.count = 3;
-  model.rightLabel = "3 SAVED";
-  buildWallpapersPicker(out, model);
-
-  // Tap the third row where its name was drawn: the label rect sits inside the
-  // row's interaction rect, so its centre lands on the row.
-  const FakeTarget::TextRun* row = nullptr;
-  for (const auto& run : out.target.texts) {
-    if (run.text == "tide.bmp") row = &run;
-  }
-  CHECK(row != nullptr);
-  if (row != nullptr) {
-    const fui::ActionEvent ev = out.tap(row->rect.x + row->rect.width / 2, row->rect.y + row->rect.height / 2);
-    CHECK(ev.action == wallpapersui::ActionPick);
-    CHECK(ev.value == 2);
-  }
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "PAGE 2 / 3";
+  model.hasActive = true;
+  buildWallpapersChrome(out, model);
+  CHECK(drewText(out, "PAGE 2 / 3"));
 }
 
-// An empty library must SAY it is empty and say how to fix it. A blank body is
-// indistinguishable from a crashed device (a-silent-screen-reads-as-a-crash).
+// The free-space advisory wins the hint strip and is shown verbatim: "full" and
+// "could not tell" are different sentences.
+void testWallpapersChromeWarningVerbatim() {
+  Rendered out;
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "1 SAVED";
+  model.hasActive = false;
+  model.warning = "Could not check card space.";
+  buildWallpapersChrome(out, model);
+  CHECK(drewText(out, "Could not check card space."));
+  CHECK(!drewText(out, "Tap a wallpaper"));
+}
+
+// The empty state names the gap and how to fix it.
 void testWallpapersEmptyStateSaysSomething() {
   Rendered out;
   wallpapersui::EmptyModel model;
   buildWallpapersEmpty(out, model);
-
   CHECK(drewText(out, "NO WALLPAPERS"));
   CHECK(drewText(out, "File Transfer"));
 }
 
-// A long file name must never be handed to the list long enough for the
-// component to truncate it with U+2026 -- a glyph the Toybox faces lack, which
-// draws as nothing and eats the end of the name silently. fittedTitle cuts with
-// an ASCII ellipsis instead, so every byte the picker draws is ASCII.
-void testWallpapersLongNameStaysAscii() {
-  Rendered out;
-  const wallpapersui::Entry entries[] = {{"an-extremely-long-wallpaper-file-name-that-cannot-possibly-fit.bmp", false}};
-  wallpapersui::PickerModel model;
-  model.items = entries;
-  model.count = 1;
-  model.rightLabel = "1 SAVED";
-  buildWallpapersPicker(out, model);
-
-  bool allAscii = true;
-  for (const auto& run : out.target.texts) {
-    for (const unsigned char c : run.text) {
-      if (c >= 0x80) allAscii = false;
-    }
-  }
-  CHECK(allAscii);
-}
-
-// The free-space advisory says two DIFFERENT sentences for two different facts:
-// "the card is full" and "could not tell" are not the same, and one line for
-// both re-creates the conflation freeBytes() exists to prevent.
-void testWallpapersWarningIsShownVerbatim() {
-  Rendered out;
-  const wallpapersui::Entry entries[] = {{"aurora.bmp", false}};
-  wallpapersui::PickerModel model;
-  model.items = entries;
-  model.count = 1;
-  model.rightLabel = "1 SAVED";
-  model.warning = "Could not check card space.";
-  buildWallpapersPicker(out, model);
-
-  CHECK(drewText(out, "Could not check card space."));
-}
-
 int main() {
-  testWallpapersListsAndMarksTheLiveOne();
-  testWallpapersBannerSaysNoneWhenNothingIsSet();
-  testWallpapersTapCarriesTheRowIndex();
+  testWallpapersGridHasTwoColumns();
+  testWallpapersCellsStayOnScreen();
+  testWallpapersCellHitTestMatchesDraw();
+  testWallpapersChromeSaysTapToSetWhenNothingIsSet();
+  testWallpapersChromeIsQuietWhenSomethingIsSet();
+  testWallpapersChromeShowsThePage();
+  testWallpapersChromeWarningVerbatim();
   testWallpapersEmptyStateSaysSomething();
-  testWallpapersLongNameStaysAscii();
-  testWallpapersWarningIsShownVerbatim();
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();

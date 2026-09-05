@@ -12,18 +12,29 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxText.h"
 #include "../ui/ToyboxTheme.h"
+#include "Bitmap.h"
 #include "WallpapersCore.h"
 
 namespace fui = freeink::ui;
 
 namespace {
-// A wallpaper library will not be huge, but a runaway directory should not pin
-// unbounded heap in the list model. Well past any sane collection.
 constexpr int kMaxLibrary = 256;
 constexpr size_t kNameMax = 128;
-// The pinned copy is small; a page at a time keeps the stack flat.
 constexpr size_t kCopyChunk = 4096;
+// The border frames the thumbnail with a small gap, well inside the 14px cell
+// gap so it never touches a neighbour.
+constexpr int16_t kBorderInset = 3;
+
+// A page dot: a small square, filled for the current page.
+constexpr int16_t kDotSize = 12;
+constexpr int16_t kDotGap = 10;
+
+// Extract a 2-bpp pixel (0=black .. 3=white) from readNextRow's packed output.
+inline uint8_t px2(const uint8_t* data, int x) {
+  return static_cast<uint8_t>((data[x >> 2] >> (6 - ((x & 3) * 2))) & 0x3);
+}
 }  // namespace
 
 std::unique_ptr<Activity> WallpapersActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
@@ -33,13 +44,13 @@ std::unique_ptr<Activity> WallpapersActivity::create(GfxRenderer& renderer, Mapp
 void WallpapersActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
-  // Make the folder so the browser uploader and File Transfer have somewhere to
-  // land. Best-effort: if it fails the scan simply finds nothing and the empty
-  // state explains how to add wallpapers.
   Storage.mkdir(wallpapers::kLibraryDir);
   scanLibrary();
   loadActive();
   computeWarning();
+  // Open on the page holding the set wallpaper, so the border is on screen.
+  cachedPage_ = -1;
+  page_ = 0;
   requestUpdate();
 }
 
@@ -47,7 +58,6 @@ void WallpapersActivity::scanLibrary() {
   names_.clear();
   auto dir = Storage.open(wallpapers::kLibraryDir);
   if (!dir || !dir.isDirectory()) return;
-
   auto name = makeUniqueNoThrow<char[]>(kNameMax);
   if (!name) {
     LOG_ERR("WALL", "OOM: wallpaper name buffer");
@@ -61,20 +71,14 @@ void WallpapersActivity::scanLibrary() {
     if (static_cast<int>(names_.size()) >= kMaxLibrary) break;
   }
   std::sort(names_.begin(), names_.end());
-  if (selected_ >= static_cast<int>(names_.size())) selected_ = 0;
 }
 
 void WallpapersActivity::loadActive() {
   activeIndex_ = -1;
-  // The marker is only trusted when the pin it names actually exists and the
-  // sleep mode is CUSTOM -- otherwise the sleep screen is showing something
-  // else and marking a row "ON" would be a lie.
   if (SETTINGS.sleepScreen != CrossPointSettings::CUSTOM) return;
   if (!Storage.exists(wallpapers::kPinnedSleep)) return;
-
   char marker[kNameMax] = {};
   if (Storage.readFileToBuffer(wallpapers::kActiveMarker, marker, sizeof(marker)) == 0) return;
-  // The marker is a bare file name; trim any trailing newline the writer left.
   for (char* p = marker; *p; ++p) {
     if (*p == '\n' || *p == '\r') {
       *p = '\0';
@@ -84,7 +88,6 @@ void WallpapersActivity::loadActive() {
   for (int i = 0; i < static_cast<int>(names_.size()); ++i) {
     if (names_[i] == marker) {
       activeIndex_ = i;
-      selected_ = i;
       break;
     }
   }
@@ -98,21 +101,28 @@ void WallpapersActivity::computeWarning() {
     case wallpapers::Room::Ok:
       break;
     case wallpapers::Room::TooFull:
-      // Two facts, two sentences: this is FULL, not UNKNOWN. Sized by who pays
-      // when the card fills (a book download, a deck's review log), not by this
-      // app's own tiny write.
       warning_ = "Card is low on space. New wallpapers or books may not save.";
       break;
     case wallpapers::Room::Unknown:
-      // Never claim the card is full when the truth is "could not tell".
       warning_ = "Could not check card space.";
       break;
   }
 }
 
+int WallpapersActivity::pageCount() const {
+  const int per = wallpapersui::gridGeom(toybox::makeTarget(renderer).deviceContext()).perPage;
+  if (names_.empty() || per <= 0) return 1;
+  return (static_cast<int>(names_.size()) + per - 1) / per;
+}
+
+void WallpapersActivity::clampPage() {
+  const int pages = pageCount();
+  if (page_ < 0) page_ = 0;
+  if (page_ >= pages) page_ = pages - 1;
+}
+
 bool WallpapersActivity::setWallpaper(int index) {
   if (index < 0 || index >= static_cast<int>(names_.size())) return false;
-
   std::string src = std::string(wallpapers::kLibraryDir) + "/" + names_[static_cast<size_t>(index)];
   HalFile in;
   if (!Storage.openFileForRead("WALL", src, in)) {
@@ -144,8 +154,6 @@ bool WallpapersActivity::setWallpaper(int index) {
   out.close();
   in.close();
 
-  // Point the sleep system at the pinned copy and remember which library file
-  // it was, so the picker can mark it.
   SETTINGS.sleepScreen = CrossPointSettings::CUSTOM;
   SETTINGS.saveToFile();
 
@@ -155,11 +163,161 @@ bool WallpapersActivity::setWallpaper(int index) {
     marker.write(reinterpret_cast<const uint8_t*>(n.c_str()), n.size());
     marker.close();
   }
-
   activeIndex_ = index;
-  selected_ = index;
   LOG_INF("WALL", "Set sleep wallpaper: %s", names_[static_cast<size_t>(index)].c_str());
   return true;
+}
+
+WallpapersActivity::Thumb WallpapersActivity::decodeThumb(const std::string& path, int16_t cellW, int16_t cellH) const {
+  Thumb t;
+  HalFile file;
+  if (!Storage.openFileForRead("WALL", path, file)) return t;
+  Bitmap bmp(file);
+  if (bmp.parseHeaders() != BmpReaderError::Ok) return t;
+
+  const int sw = bmp.getWidth();
+  const int sh = bmp.getHeight();
+  if (sw <= 0 || sh <= 0) return t;
+  const bool topDown = bmp.isTopDown();
+
+  // Fit the wallpaper's aspect inside the cell (contain), centred.
+  const float scale = std::min(static_cast<float>(cellW) / sw, static_cast<float>(cellH) / sh);
+  int dw = std::max(1, static_cast<int>(sw * scale));
+  int dh = std::max(1, static_cast<int>(sh * scale));
+  if (dw > cellW) dw = cellW;
+  if (dh > cellH) dh = cellH;
+  t.w = static_cast<int16_t>(dw);
+  t.h = static_cast<int16_t>(dh);
+  t.ox = static_cast<int16_t>((cellW - dw) / 2);
+  t.oy = static_cast<int16_t>((cellH - dh) / 2);
+
+  const int bytesPerRow = (dw + 7) / 8;
+  t.bits.assign(static_cast<size_t>(bytesPerRow) * dh, 0);
+
+  auto data = makeUniqueNoThrow<uint8_t[]>((sw + 3) / 4);
+  auto rowBuffer = makeUniqueNoThrow<uint8_t[]>(bmp.getRowBytes());
+  std::vector<uint16_t> acc(static_cast<size_t>(dw), 0);
+  std::vector<uint16_t> cnt(static_cast<size_t>(dw), 0);
+  if (!data || !rowBuffer) return t;
+
+  auto flush = [&](int dy) {
+    if (dy < 0 || dy >= dh) return;
+    uint8_t* outRow = t.bits.data() + static_cast<size_t>(bytesPerRow) * dy;
+    for (int dx = 0; dx < dw; ++dx) {
+      // Majority dark in the box -> ink.
+      if (cnt[dx] > 0 && static_cast<int>(acc[dx]) * 2 >= static_cast<int>(cnt[dx])) {
+        outRow[dx >> 3] |= static_cast<uint8_t>(0x80 >> (dx & 7));
+      }
+    }
+    std::fill(acc.begin(), acc.end(), 0);
+    std::fill(cnt.begin(), cnt.end(), 0);
+  };
+
+  int curDy = -1;
+  for (int sy = 0; sy < sh; ++sy) {
+    if (bmp.readNextRow(data.get(), rowBuffer.get()) != BmpReaderError::Ok) break;
+    const int srcRow = topDown ? sy : (sh - 1 - sy);
+    int dy = srcRow * dh / sh;
+    if (dy >= dh) dy = dh - 1;
+    if (dy != curDy) {
+      if (curDy >= 0) flush(curDy);
+      curDy = dy;
+    }
+    for (int sx = 0; sx < sw; ++sx) {
+      const int dx = sx * dw / sw;
+      if (dx >= dw) continue;
+      // px2: 0=black .. 3=white; treat the darker half as ink.
+      if (px2(data.get(), sx) <= 1) acc[static_cast<size_t>(dx)]++;
+      cnt[static_cast<size_t>(dx)]++;
+    }
+  }
+  if (curDy >= 0) flush(curDy);
+  t.ok = true;
+  return t;
+}
+
+void WallpapersActivity::ensureThumbsForPage() {
+  const wallpapersui::GridGeom geom = wallpapersui::gridGeom(toybox::makeTarget(renderer).deviceContext());
+  if (cachedPage_ == page_ && cachedPerPage_ == geom.perPage && !thumbs_.empty()) return;
+
+  thumbs_.assign(static_cast<size_t>(geom.perPage), Thumb{});
+  const int base = page_ * geom.perPage;
+  for (int slot = 0; slot < geom.perPage; ++slot) {
+    const int idx = base + slot;
+    if (idx >= static_cast<int>(names_.size())) break;
+    std::string path = std::string(wallpapers::kLibraryDir) + "/" + names_[static_cast<size_t>(idx)];
+    thumbs_[static_cast<size_t>(slot)] = decodeThumb(path, geom.cellW, geom.cellH);
+  }
+  cachedPage_ = page_;
+  cachedPerPage_ = geom.perPage;
+}
+
+void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
+  const int base = page_ * geom.perPage;
+
+  for (int slot = 0; slot < geom.perPage; ++slot) {
+    const int idx = base + slot;
+    if (idx >= static_cast<int>(names_.size())) break;
+    const fui::Rect th = wallpapersui::thumbRect(geom, slot);
+    const Thumb& t = thumbs_[static_cast<size_t>(slot)];
+
+    // The thumbnail. A set bit is ink.
+    if (t.ok) {
+      const int bytesPerRow = (t.w + 7) / 8;
+      for (int y = 0; y < t.h; ++y) {
+        const uint8_t* row = t.bits.data() + static_cast<size_t>(bytesPerRow) * y;
+        for (int x = 0; x < t.w; ++x) {
+          if (row[x >> 3] & (0x80 >> (x & 7))) renderer.drawPixel(th.x + t.ox + x, th.y + t.oy + y, true);
+        }
+      }
+    } else {
+      // A wallpaper that would not decode still gets a mark, never a blank cell.
+      renderer.drawLine(th.x, th.y, th.right() - 1, th.bottom() - 1, true);
+      renderer.drawLine(th.x, th.bottom() - 1, th.right() - 1, th.y, true);
+    }
+
+    // Every cell gets a hairline so a white wallpaper is still a visible frame,
+    // and the pinned one gets the thick border Mario asked for.
+    renderer.drawRect(th.x, th.y, th.width, th.height, 1, true);
+    if (idx == activeIndex_) {
+      renderer.drawRect(static_cast<int>(th.x - kBorderInset), static_cast<int>(th.y - kBorderInset),
+                        static_cast<int>(th.width + kBorderInset * 2), static_cast<int>(th.height + kBorderInset * 2),
+                        geom.borderW, true);
+    }
+
+    // Caption (variants with one): the file name, fitted so it never truncates
+    // into a missing glyph.
+    if (geom.captionH > 0) {
+      const fui::Rect cap = wallpapersui::captionRect(geom, slot);
+      fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+      fui::TextStyle style = toybox::themeTokens().smallText;
+      // smallText maps to the BODY cut; the caption wants the actual small cut
+      // (toybox_10) so it fits the caption row instead of towering over it.
+      style.font = fui::FONT_SLOT_SMALL;
+      style.align = fui::TextAlign::Center;
+      style.color = fui::Color::Black;
+      // fitLines keeps the SMALL cut and truncates with an ASCII ellipsis;
+      // fittedTitle would up-size a short name to a huge font in a wide cell.
+      std::string fitted = toybox::fitLines(target, names_[static_cast<size_t>(idx)].c_str(), cap.width, 1, style);
+      target.text(cap, fitted.c_str(), style);
+    }
+  }
+
+  // Page dots, when the library spans more than one page.
+  const int pages = pageCount();
+  if (pages > 1) {
+    const int16_t totalW = static_cast<int16_t>(pages * kDotSize + (pages - 1) * kDotGap);
+    const fui::Rect panel = toybox::makeTarget(renderer).deviceContext().screen();
+    int16_t x = static_cast<int16_t>((panel.width - totalW) / 2);
+    for (int p = 0; p < pages; ++p) {
+      if (p == page_) {
+        renderer.fillRect(x, geom.pageDotsY, kDotSize, kDotSize, true);
+      } else {
+        renderer.drawRect(x, geom.pageDotsY, kDotSize, kDotSize, 1, true);
+      }
+      x = static_cast<int16_t>(x + kDotSize + kDotGap);
+    }
+  }
 }
 
 void WallpapersActivity::loop() {
@@ -167,43 +325,61 @@ void WallpapersActivity::loop() {
     shelf::leave(renderer, mappedInput);
     return;
   }
+  if (names_.empty()) return;
 
-  // Physical side keys move the highlight, so a library taller than the panel
-  // is reachable without the un-tappable overflow track (see shelf.md).
-  if (!names_.empty()) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-      selected_ = std::min(selected_ + 1, static_cast<int>(names_.size()) - 1);
+  const int pages = pageCount();
+  if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+    if (page_ + 1 < pages) {
+      ++page_;
       requestUpdate();
-      return;
     }
-    if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-      selected_ = std::max(selected_ - 1, 0);
+    return;
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+    if (page_ > 0) {
+      --page_;
       requestUpdate();
-      return;
     }
+    return;
   }
 
   int tapX = 0;
   int tapY = 0;
   if (!mappedInput.wasScreenTapped(tapX, tapY) || !interactionsReady_) return;
 
-  fui::InputSnapshot input;
-  input.touchReleased = true;
-  input.touchX = static_cast<int16_t>(tapX);
-  input.touchY = static_cast<int16_t>(tapY);
-  const fui::ActionEvent event = interactions_.route(input);
+  const wallpapersui::GridGeom geom = wallpapersui::gridGeom(toybox::makeTarget(renderer).deviceContext());
 
-  switch (event.action) {
-    case wallpapersui::ActionPick:
-      // A row tap sets that wallpaper as the sleep screen at once.
-      if (setWallpaper(event.value)) requestUpdate();
-      return;
-    default:
-      return;
+  // A page dot?
+  if (pages > 1) {
+    const int16_t totalW = static_cast<int16_t>(pages * kDotSize + (pages - 1) * kDotGap);
+    const fui::Rect panel = toybox::makeTarget(renderer).deviceContext().screen();
+    int16_t x = static_cast<int16_t>((panel.width - totalW) / 2);
+    for (int p = 0; p < pages; ++p) {
+      // A generous vertical band so the small dots are easy to hit.
+      if (tapX >= x - kDotGap / 2 && tapX < x + kDotSize + kDotGap / 2 && tapY >= geom.pageDotsY - 16 &&
+          tapY < geom.pageDotsY + kDotSize + 16) {
+        if (p != page_) {
+          page_ = p;
+          requestUpdate();
+        }
+        return;
+      }
+      x = static_cast<int16_t>(x + kDotSize + kDotGap);
+    }
   }
+
+  // A thumbnail cell?
+  const int slot = wallpapersui::cellAt(geom, tapX, tapY);
+  if (slot < 0) return;
+  if (!surfaceRevealed()) return;  // ignore a tap on a surface not yet seen
+  const int idx = page_ * geom.perPage + slot;
+  if (idx >= static_cast<int>(names_.size())) return;
+  if (idx == activeIndex_) return;  // already the sleep screen
+  if (setWallpaper(idx)) requestUpdate();
 }
 
 void WallpapersActivity::render(RenderLock&&) {
+  clampPage();
   renderer.clearScreen();
   fui::GfxRendererTarget target = toybox::makeTarget(renderer);
   const fui::DeviceContext device = target.deviceContext();
@@ -217,26 +393,27 @@ void WallpapersActivity::render(RenderLock&&) {
     model.warning = warning_.empty() ? nullptr : warning_.c_str();
     wallpapersui::buildEmpty(surface, model);
   } else {
-    char count[24];
-    snprintf(count, sizeof(count), "%d SAVED", static_cast<int>(names_.size()));
-    rightLabel_ = count;
-
-    std::vector<wallpapersui::Entry> entries;
-    entries.reserve(names_.size());
-    for (int i = 0; i < static_cast<int>(names_.size()); ++i) {
-      wallpapersui::Entry entry;
-      entry.name = names_[static_cast<size_t>(i)].c_str();
-      entry.active = (i == activeIndex_);
-      entries.push_back(entry);
+    const wallpapersui::GridGeom geom = wallpapersui::gridGeom(device);
+    const int pages = pageCount();
+    if (pages > 1) {
+      char label[24];
+      snprintf(label, sizeof(label), "PAGE %d / %d", page_ + 1, pages);
+      rightLabel_ = label;
+    } else {
+      char label[24];
+      snprintf(label, sizeof(label), "%d SAVED", static_cast<int>(names_.size()));
+      rightLabel_ = label;
     }
-
-    wallpapersui::PickerModel model;
-    model.items = entries.data();
-    model.count = static_cast<int>(entries.size());
-    model.selected = selected_;
+    wallpapersui::GridChromeModel model;
     model.rightLabel = rightLabel_.c_str();
     model.warning = warning_.empty() ? nullptr : warning_.c_str();
-    wallpapersui::buildPicker(surface, model);
+    model.hasActive = activeIndex_ >= 0;
+    wallpapersui::buildGridChrome(surface, model);
+
+    // The chrome is a screen tree; the grid is the app's own surface, drawn
+    // after it into the body the same way chess draws its board.
+    ensureThumbsForPage();
+    drawGrid(geom);
   }
 
   interactionsReady_ = true;
@@ -245,4 +422,10 @@ void WallpapersActivity::render(RenderLock&&) {
   const auto labels = mappedInput.mapLabels("Back", "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
+}
+
+uint32_t WallpapersActivity::surfaceMeaning() const {
+  uint32_t m = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(page_));
+  m = paintclock::mixMeaning(m, static_cast<uint32_t>(activeIndex_ + 1));
+  return paintclock::mixMeaning(m, static_cast<uint32_t>(names_.size()));
 }
