@@ -542,6 +542,20 @@ else
   FAILED=1
 fi
 
+# Reading flags back off a card. Every check in this tool is a REFUSAL, and a
+# refusal that stops refusing looks exactly like a tool that found nothing to
+# do: the run prints "0 flagged" and exits 0. The damage is downstream and
+# silent -- build_pack.py applies a verdict without review, so a wrong id
+# deletes a question nobody reported and the pack just comes out a row smaller.
+if (cd "$REPO" && python3 tools_local/trivia/test_collect_flags.py) \
+    > "$LOGS/trivia-collect.log" 2>&1; then
+  printf "  %-12s ok\n" "collect"
+else
+  printf "  %-12s FAILED\n" "collect"
+  tail -12 "$LOGS/trivia-collect.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
 # The rating-fed assembler. Same argument as above, plus one of its own: three
 # of its rules fail SILENTLY when undone -- a dropped rating, a short option
 # set and a refitted difficulty level all produce a pack that builds, ships and

@@ -1,5 +1,5 @@
 # Permanent record of human judgements on individual questions.
 # id<TAB>verdict<TAB>reason        verdict is "bad" (remove) or "good" (pin in)
 # ids are content hashes of the clue, so they survive pack rebuilds.
-# Appended to by hand, and by flags.txt collected from the device.
+# Appended to by hand, and by collect_flags.py reading a card's pack.state.
 d3f0a6986d78	bad	expired present-tense claim: no longer the sole inmate on Imrali

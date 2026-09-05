@@ -291,13 +291,80 @@ The parent card's read is that versioning is shared machinery for #253. **That
 is right for freshness and wrong for incrementality, and the two have been
 running together.** Splitting them is the main correction this design makes.
 
+### The starting position, stated plainly
+
+**Nothing is shared between the three packs today.** Verified against the live
+releases on 2026-09-05, not inferred: each is its own **prerelease tag** with its
+own assets (`trivia-pack/pack.dat`, `xkcd-pack/{index,text,images}.dat`,
+`wallpapers/wallpapers.dat`), each app fetches its own thing its own way, and
+updating one touches nothing else. There is no shared manifest, no common
+freshness check, no shared download path and no shared wording. A reader who
+assumes some sharing already exists will misread this whole proposal: the
+sharing is what is being *proposed*, and the current count of shared machinery
+is zero.
+
+### Every size, measured, and labelled with which one it is
+
+Two different quantities have been travelling under one name in this document,
+and each is defensible alone, which is worse than one wrong number. **Bytes over
+the wire** size the sync-and-incremental argument this card exists for. **Bytes
+resting on the card** size the free-space precondition and decide what happens
+to someone whose card is nearly full. Measured from the live releases:
+
+| Pack | Over the wire | On the card | Note |
+| --- | --- | --- | --- |
+| trivia | 6,624,675 B (6.6 MB) | 6,674,633 B | +`pack.state`, exactly `count` bytes; the live pack is **49,958** questions, so 49,958 B |
+| xkcd | 140,179,380 B (140.2 MB) | the same | **not unpacked** -- the three `.dat` files are the card layout, and `runUpdate()` appends to `images.dat` in place |
+| wallpapers | 1,009,302 B (1.0 MB) | the same, as 21 files of 48,062 B | the `.dat` is exactly the concatenation, so unpacking changes the shape, not the total |
+
+**The 217 MB figure in `xkcd-pack-format.md:211` describes a pack that was never
+published.** It is not a card-versus-wire confusion, which was the obvious
+theory and is wrong: xkcd is not unpacked, so its two numbers are the same
+number. The live `index.dat` settles it. Its records imply an `images.dat`
+ending at exactly 139,590,525 bytes, which is exactly the published file's size,
+so the released pack is internally complete and consistent — but it carries
+**247** comics with a closer rendition where the doc's 217 MB build has **493**.
+Same 3,279 comics, different rendition policy. The documented build exists on one
+machine and the published one is a different, earlier artifact.
+
+That is #253's central claim turned into a number: *"nothing regenerates the
+pack, so the device can only ever be as fresh as the last time a person
+remembered."* The published pack is not stale by a few comics; it is a different
+build from the one the documentation describes.
+
+### The host already supports Range, so incrementality is entirely our client
+
+Worth correcting prominently, because the first draft treated resume as
+structurally impossible. It is not. Verified against the live release:
+
+```
+$ curl -r 0-15 .../releases/download/trivia-pack/pack.dat
+HTTP/2 206
+accept-ranges: bytes
+content-range: bytes 0-15/6624675
+```
+
+The CDN honours byte ranges and reports the full length. **So nothing on the
+server side blocks resuming or fetching a difference** — the only obstacle is
+that `HttpDownloader::downloadToFile` exposes no header parameter and removes the
+destination before the first byte. `freeink::SecureHttpClient` already has
+`addHeader` and `getHeader`, so this is a contained change to one function, not a
+new stack.
+
+It also hands the freshness check a cheaper shape than a sidecar manifest: a
+16-byte Range request returns the pack's own header **and** `content-range` gives
+the total size, so one tiny request answers "how many questions and how big" with
+no new asset to publish. It does not answer "which build", because the header's
+`flags` and `resv` bytes are zero and carry no id — which is the gap a manifest
+or a format bump fills, and the reason the manifest is still recommended.
+
 ### The three packs are not the same shape
 
 | Pack       | Bytes                                            | Container                                                                                       | How it changes                                    |
 | ---------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| trivia     | `pack.dat`, 3.4-5.4 MB                           | one blob, index + records                                                                       | rows **removed and edited** in place              |
-| xkcd | `index.dat` + `text.dat` + `images.dat`, **217 MB** (`xkcd-pack-format.md:211`) | three blobs | content appends; the **artifact is rebuilt and `--clobber`ed wholesale** |
-| wallpapers | `wallpapers.dat`, 1,009,302 bytes                | **no format at all** — a bare concatenation of 48062-byte images, no magic, no header, no count | a set: added and removed                          |
+| trivia | **6,624,675 B** wire / **6,674,633 B** card (+ `pack.state`, one byte per question) | one blob, index + records | rows **removed and edited** in place |
+| xkcd | **140,179,380 B** wire (3 assets) / same on card, it is not unpacked | three blobs | content appends; the **artifact is rebuilt and `--clobber`ed wholesale** |
+| wallpapers | **1,009,302 B** wire / same, as 21 files of 48,062 B | **no format at all** -- a bare concatenation, no magic, no header, no count | a set: added and removed |
 
 So _"can I tell whether I am stale, and what will it cost me to fix that"_ is one
 question with one answer for all three. _"Can I fetch only the difference"_ is
@@ -791,7 +858,10 @@ rather than owning it.
 0. **Card #326 first**, because it is the only step whose cost rises with delay:
    put the rated corpus somewhere durable. Nothing else here is safe to build on
    top of a join table that one `wt.sh prune` deletes, and step 2 needs it.
-0.5. **The extraction tool, and the stale doc.** A small tool that reads
+0.5. **DONE on this branch.** The extraction tool, and the stale doc:
+   `tools_local/trivia/collect_flags.py` + `reports.py`, gated by
+   `test_collect_flags.py`, and `docs/trivia-curation.md` no longer describes a
+   `flags.txt` nothing writes. Original entry: A small tool that reads
    `pack.state` beside `pack.dat` and emits `id<TAB>bad` lines into
    `verdicts.tsv`, and delete the `flags.txt` paragraph at
    `docs/trivia-curation.md:165` describing a file nothing writes. This is the
