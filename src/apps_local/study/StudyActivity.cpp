@@ -629,9 +629,14 @@ bool StudyActivity::loadCurrent() {
     if (note_.isCloze()) {
       fonts_.prewarm(renderer, "", note_.field(study::Field::Sentence));
       fonts_.prewarm(renderer, "", note_.field(study::Field::ClozeQuestion));
+      fonts_.prewarmRuby(renderer, note_.field(study::Field::ClozeQuestion));
     } else {
       fonts_.prewarm(renderer, note_.field(study::Field::Headword), note_.field(study::Field::Sentence));
+      fonts_.prewarmRuby(renderer, note_.field(study::Field::Headword));
     }
+    // The readings on the answer face live in the same cut whichever kind of
+    // card this is.
+    fonts_.prewarmRuby(renderer, note_.field(study::Field::Sentence));
   }
 
   image_ = study::ImageRef{};
@@ -1010,8 +1015,11 @@ int StudyActivity::drawWrappedMarked(const int fontId, const int y, const int ma
   // stay visible next to the stack budget they count against.
   char line[kLineBytes];
   char scratch[kLineBytes];
+  // Zero unless this deck shipped a furigana cut, in which case the readings
+  // are drawn above their base rather than lost.
+  const int rubyFontId = fontsReady_ ? fonts_.rubyFontId() : 0;
   return study::drawWrappedMarked(renderer, fontId, y, maxWidth, text, spanStart, spanLength, measureOnly, line,
-                                  kLineBytes, scratch);
+                                  kLineBytes, scratch, rubyFontId);
 }
 
 bool StudyActivity::fitsAsDrawn(const int fontId, const char* text, const int maxWidth) const {
@@ -1022,34 +1030,60 @@ bool StudyActivity::fitsAsDrawn(const int fontId, const char* text, const int ma
   // size has nowhere to break and hangs off both edges. 927 of the GRE deck's
   // 1992 headwords did exactly that. Runs are measured the same way drawWrapped
   // breaks them, so the two cannot disagree.
-  if (renderer.getTextWidth(fontId, text) == 0) return false;
   char run[kLineBytes];
   int runLength = 0;
+  int painted = 0;
+  bool fits = true;
+  // Flush the run built so far: measure it, count what it painted, and say
+  // whether it fits. The painting total is accumulated HERE rather than from
+  // the leftover at the end, because a text ending in a space leaves nothing
+  // in the buffer and would have read as "this face paints nothing".
   const auto runFits = [&]() {
     if (runLength == 0) return true;
     run[runLength] = '\0';
     runLength = 0;
-    return renderer.getTextWidth(fontId, run) <= maxWidth;
+    const int width = renderer.getTextWidth(fontId, run);
+    painted += width;
+    return width <= maxWidth;
   };
-  // The same isBreakable the wrap uses, decoded the same way. A private
-  // approximation here once treated every 3-byte character as a break, so an
-  // em-dash inside a word split the *measured* runs while the renderer drew
-  // the word whole -- the guard approved exactly the overflow it exists to
-  // stop.
-  for (const char* p = text; *p != '\0';) {
-    const char* at = p;
-    const uint32_t codepoint = nextCodepoint(p);
-    if (codepoint == 0) break;
-    if (isBreakable(codepoint)) {
-      if (!runFits()) return false;
-      continue;
+  // Per ruby segment, because a segment's base is what this face draws: the
+  // markers and the reading are not text in this cut, and measuring the
+  // encoded string whole would count a reading's kana against the base's
+  // width and refuse a face that draws the card perfectly well.
+  study::forEachRubySegment(text, [&](const study::RubySegment& segment) {
+    if (!fits) return;
+    // The same isBreakable the wrap uses, decoded the same way. A private
+    // approximation here once treated every 3-byte character as a break, so
+    // an em-dash inside a word split the *measured* runs while the renderer
+    // drew the word whole -- the guard approved exactly the overflow it
+    // exists to stop.
+    const char* const end = segment.base + segment.baseBytes;
+    for (const char* p = segment.base; p < end;) {
+      const char* at = p;
+      const uint32_t codepoint = nextCodepoint(p);
+      if (codepoint == 0) break;
+      if (isBreakable(codepoint)) {
+        if (!runFits()) {
+          fits = false;
+          return;
+        }
+        continue;
+      }
+      const int bytes = static_cast<int>(p - at);
+      if (runLength + bytes < static_cast<int>(sizeof(run))) {
+        for (int i = 0; i < bytes; ++i) run[runLength++] = at[i];
+      }
     }
-    const int bytes = static_cast<int>(p - at);
-    if (runLength + bytes < static_cast<int>(sizeof(run))) {
-      for (int i = 0; i < bytes; ++i) run[runLength++] = at[i];
-    }
-  }
-  return runFits();
+    // A ruby segment ends a run: the reading sits above this base, and the
+    // next base starts its own run rather than joining this one.
+    if (segment.ruby != nullptr && !runFits()) fits = false;
+  });
+  if (!fits) return false;
+  if (!runFits()) return false;
+  // Nothing painted at all -- stale or mis-built fonts -- shows as a total
+  // width of zero. A missing glyph is simply not drawn, so this is the only
+  // symptom there is.
+  return painted > 0;
 }
 
 void StudyActivity::drawClozeCard(const Rect& body) {

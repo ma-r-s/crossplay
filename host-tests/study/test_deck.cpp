@@ -12,6 +12,7 @@
 #include <string>
 
 #include "../../src/apps_local/study/StudyDeck.h"
+#include "../../src/apps_local/study/StudyText.h"
 
 namespace {
 
@@ -99,6 +100,8 @@ void run(const std::string& dir) {
   int cloze = 0;
   int clozeUnhidden = 0;
   int clozeNoAnswer = 0;
+  int rubyNotes = 0;
+  int rubyBadSegments = 0;
   for (int i = 0; i < deck.noteCount(); ++i) {
     if (!deck.loadNote(deckFile, i, note)) continue;
     ++parsed;
@@ -117,6 +120,29 @@ void run(const std::string& dir) {
       if (failures < 5) std::printf("  FAIL: note %d has an empty headword\n", i);
       ++failures;
     }
+    // Furigana, through the real converter and the real parser. test_text.cpp
+    // checks the layout against synthetic input; this checks that what the
+    // converter writes is what the device's own walker reads back, which is
+    // the half a synthetic fixture cannot cover.
+    for (int f = 0; f < study::kFieldCount; ++f) {
+      const char* text = note.field(static_cast<study::Field>(f));
+      if (!study::hasRuby(text)) continue;
+      ++rubyNotes;
+      study::forEachRubySegment(text, [&](const study::RubySegment& segment) {
+        if (segment.baseBytes <= 0) ++rubyBadSegments;
+        if (segment.ruby != nullptr && segment.rubyBytes <= 0) ++rubyBadSegments;
+        // A segment's codepoint count is of its base alone. Getting this
+        // wrong slides every emphasis span after it along by the length of
+        // the reading.
+        int counted = 0;
+        for (const char* q = segment.base; q < segment.base + segment.baseBytes;) {
+          if (study::nextCodepoint(q) == 0) break;
+          ++counted;
+        }
+        if (counted != segment.codepoints) ++rubyBadSegments;
+      });
+    }
+
     if (!note.empty(study::Field::Sentence)) {
       ++withSentence;
       if (note.emphasisLength() > 0) {
@@ -136,6 +162,8 @@ void run(const std::string& dir) {
   check(parsed == deck.noteCount(), "every note parses");
   check(emphasisOutOfRange == 0, "every emphasis span lies inside its sentence");
   std::printf("  %d cloze card(s)\n", cloze);
+  std::printf("  %d field(s) carrying furigana\n", rubyNotes);
+  check(rubyBadSegments == 0, "every ruby segment parses with a base and a whole-base codepoint count");
   check(clozeNoAnswer == 0, "every cloze card has an answer face");
   check(clozeUnhidden == 0, "no cloze card shows its answer on the question face");
 

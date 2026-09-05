@@ -181,6 +181,76 @@ check(conv.trim_to_bytes("中文字", 5) == "…" or
       conv.trim_to_bytes("中文字", 6).endswith("…"),
       "a multi-byte string is cut on a codepoint boundary")
 
+# --- scripts -----------------------------------------------------------------
+#
+# The classification decides which glyph file a character lands in, which
+# decides which face gets built for it. Hangul is the reason this is tested:
+# it is in no CJK range, so the old predicate called it Latin and routed every
+# Korean deck to the built-in serif -- 1070 glyphs, no Hangul, no error and no
+# readable card.
+
+import scripts  # noqa: E402
+
+check(scripts.script_of("a") == "latin", "ASCII is latin")
+check(scripts.script_of("漢") == "han", "a hanzi is han")
+check(scripts.script_of("々") == "han", "and so is the repeat mark")
+check(scripts.script_of("か") == "kana", "hiragana is kana")
+check(scripts.script_of("カ") == "kana", "and so is katakana")
+check(scripts.script_of("한") == "hangul", "a Hangul syllable is hangul, not latin")
+check(scripts.script_of("ㄱ") == "hangul", "and so is a compatibility jamo")
+check(scripts.script_of("в") == "other", "Cyrillic is neither, and is not called latin")
+check(scripts.script_of("\u4e00") == "han" and scripts.script_of("\u3400") == "han",
+      "CJK Extension A is han too")
+
+# Wide means full width AND written without spaces, which together is what
+# lets the wrap break beside a character. Korean has spaces, so it is not
+# wide: breaking between syllables would split words the space rule keeps.
+check(scripts.is_wide("漢") and scripts.is_wide("か"), "han and kana are wide")
+check(not scripts.is_wide("한"), "hangul is not, because Korean is written with spaces")
+check(not scripts.is_wide("a"), "and neither is Latin")
+
+check(scripts.scripts_in(["학생", "abc"]) == {"hangul", "latin"}, "a deck's scripts are collected")
+check("hangul" in scripts.intervals_for({"hangul"}), "a Korean deck asks for the hangul interval")
+check("hangul" not in scripts.intervals_for({"han"}), "and a Chinese deck does not pay for it")
+check(scripts.intervals_for({"latin"}).startswith("latin-ext"),
+      "latin-ext is always in: the deck's own face draws the headword whatever script it is")
+
+# --- furigana ----------------------------------------------------------------
+#
+# Anki writes a reading as " 漢字[かんじ]" and reads it three ways:
+# {{furigana:}} draws it as ruby, {{kanji:}} shows the base, {{kana:}} the
+# reading. All three have to agree with Anki, because the deck was authored
+# against Anki's answer.
+
+JP = "私[わたし]は 学生[がくせい]です"
+check(scripts.ruby_base(JP) == "私は学生です", "kanji: drops the readings AND the syntax space")
+check(scripts.ruby_reading(JP) == "わたしはがくせいです", "kana: keeps the particles between readings")
+check(scripts.has_ruby(JP), "and the field is recognised as carrying furigana")
+check(scripts.ruby_segments(JP) == [("私", "わたし"), ("は", ""), ("学生", "がくせい"), ("です", "")],
+      "the segmentation is base/reading pairs with the plain runs between")
+
+# The encoding round-trips, and what the device counts codepoints over is the
+# base text -- an emphasis span counted over the encoded form would underline
+# however many kana too far along.
+encoded = scripts.ruby_encode(JP)
+check(scripts.visible_text(encoded) == scripts.ruby_base(JP), "encode then decode gives the base back")
+check(scripts.reading_text(encoded) == "わたしがくせい", "and the readings, for the ruby-size face")
+check(scripts.decode_ruby(encoded) == scripts.ruby_segments(JP), "the decoder mirrors the segmenter")
+
+# What must NOT be read as furigana. The reading has to contain kana, and
+# that one rule settles all three of these.
+for not_ruby in (
+    "see also[1]",  # a footnote in an English deck
+    "The capital is [...].",  # A CLOZE HOLE. Reading this as a reading would
+    "Mitochondria are the [organelle] of it.",  # print the answer above the gap.
+    "plain text",
+):
+    check(not scripts.has_ruby(not_ruby), f"not furigana: {not_ruby!r}")
+    check(scripts.ruby_encode(not_ruby) == not_ruby, f"and left alone: {not_ruby!r}")
+
+check(scripts.decode_ruby("a\x1eb") == [("a\x1eb", "")],
+      "a stray marker is text, not an error: a card should lose a reading, never a sentence")
+
 # --- where a picture lives ---------------------------------------------------
 #
 # This looked in field 18 and nowhere else, because that is where the HSK note

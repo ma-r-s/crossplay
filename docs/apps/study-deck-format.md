@@ -14,7 +14,9 @@ total. This is not a close call.
         revlog.dat      append-only review history, read back by the sync script
         meta.dat        FSRS parameters, learning steps, limits, identity
         glyphs-*.txt    the codepoints the deck uses, split by the size they
-                        are rendered at, for the font pipeline
+                        are rendered at, for the font pipeline: headword,
+                        sentence, latin, and ruby (the furigana readings,
+                        empty for a deck that has none)
 
 ## The one design rule
 
@@ -76,6 +78,37 @@ too: the device does no text-building at review time, the hint (which differs
 per hole and is written in the deck's own script) survives, and the format
 stays a flat list of fields. The cost is that a cloze card is the note kind
 that reaches the size limit first, which is why that limit moved -- see below.
+
+### Furigana
+
+A field may carry Japanese readings, encoded inline:
+
+    RUBY_START  base  RUBY_SEP  reading  RUBY_END      (\x1e \x1f \x1d)
+
+Three markers rather than two, so the device's wrap knows a segment is coming
+*before* it reads the base -- with only a separator and a terminator it would
+have to scan ahead at every character to find out whether the run it is in is
+a base or ordinary text, which is the work the wrap exists not to do per glyph.
+
+Control characters and not brackets, and that is load-bearing: the obvious
+encoding is to leave Anki's own `漢字[かんじ]` in the field, and it collides
+head-on with cloze, whose question face is text with `[...]` in it. A hole
+would be read as a reading and the answer printed directly above the gap
+hiding it. None of the three markers can occur in a cleaned field, because
+`clean()` drops every character below space except the newline.
+
+**Codepoint offsets count bases only.** The emphasis span, cloze's included,
+is measured over the text a reader sees -- markers and readings are not in it.
+`study::forEachRubySegment` and `scripts.decode_ruby` are the same walker in
+two languages, and `test_deck.cpp` checks that a segment's codepoint count is
+of its base alone: getting that wrong slides every span after it along by the
+length of a reading.
+
+The readings are drawn in a third cut of the deck's face at
+`kRubyPointSize`, built from `glyphs-ruby.txt` -- the readings alone, which is
+about a hundred kana rather than the deck's whole character set at a third
+size. The cut is optional: a deck with no furigana has none built, and a deck
+whose fonts predate it draws the base and loses the reading.
 
 ### The size limit
 

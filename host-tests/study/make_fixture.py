@@ -76,6 +76,23 @@ CLOZE_NOTES = [
     ("Only {{c1::one}} hole remains here.", "", 2),
 ]
 
+# A Japanese note type in the shape the Japanese Support add-on produces --
+# Expression, Reading (the same words with furigana in Anki's " 漢字[かんじ]"
+# syntax), Meaning -- and a Korean one. Between them they cover the two
+# script gaps the converter used to have: a reading that must become ruby
+# rather than literal brackets, and Hangul, which is in no CJK range and was
+# therefore classified as Latin and sent to a face with no Hangul in it.
+JAPANESE_NOTES = [
+    ("学生", "学生[がくせい]", "student"),
+    ("私は学生です", "私[わたし]は 学生[がくせい]です", "I am a student"),
+    ("水", "水[みず]", "water"),
+]
+
+KOREAN_NOTES = [
+    ("학생", "haksaeng", "student"),
+    ("물", "mul", "water"),
+]
+
 # FSRS-5 defaults. Any 19 plausible numbers would do; these are the ones Anki
 # ships, so a deck built here schedules the way a real one does.
 FSRS_PARAMS = [
@@ -219,6 +236,35 @@ def build_collection(path, crt):
                 "insert into revlog (id, cid, ease, type) values (?, ?, ?, 1)",
                 ((crt + 86400 * (r + 1)) * 1000 + i, card_id, 3),
             )
+    # Japanese and Korean, each with its own note type, both routed through
+    # generic_profile by field name.
+    for model_id, name, field_names, rows in (
+        (3, "Japanese", ["Expression", "Reading", "Meaning"], JAPANESE_NOTES),
+        (4, "Korean", ["Expression", "Reading", "Meaning"], KOREAN_NOTES),
+    ):
+        db.execute("insert into notetypes (id, name) values (?, ?)", (model_id, name))
+        for ordinal, field_name in enumerate(field_names):
+            db.execute(
+                "insert into fields (ntid, ord, name) values (?, ?, ?)",
+                (model_id, ordinal, field_name),
+            )
+        db.execute(
+            "insert into templates (ntid, ord, name) values (?, 0, 'Card 1')",
+            (model_id,),
+        )
+        for i, values in enumerate(rows):
+            note_id = base_id + model_id * 100000 + i * 10
+            db.execute(
+                "insert into notes (id, mid, flds) values (?, ?, ?)",
+                (note_id, model_id, "\x1f".join(values)),
+            )
+            db.execute(
+                """insert into cards (id, nid, did, odid, ord, type, queue, due, ivl,
+                                      reps, lapses, left, data)
+                   values (?, ?, 1, 0, 0, 0, 0, ?, 0, 0, 0, 0, '')""",
+                (note_id + 1, note_id, 200 + i),
+            )
+
     # The cloze note type, and its cards. Anki generates one card per cloze
     # ordinal present in the text, with the card's `ord` one less than the
     # cloze number -- which is the mapping render_cloze depends on, so the

@@ -23,6 +23,9 @@ import statistics
 import struct
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import scripts  # noqa: E402
+
 # The device's layout, from StudyActivity.cpp.
 SCREEN_W, SCREEN_H = 480, 800
 HEADER, FOOTER, MARGIN = 89, 128, 16
@@ -92,9 +95,10 @@ def cpfont(path):
     return advances, _asc
 
 
+# The device breaks beside a wide character and at a space; scripts.py owns
+# that rule so this measurement and the wrap it mirrors cannot drift.
 def is_cjk(ch):
-    o = ord(ch)
-    return 0x2E80 <= o <= 0x9FFF or 0xF900 <= o <= 0xFAFF or 0xFF00 <= o <= 0xFFEF
+    return scripts.is_wide(ch)
 
 
 def wrapped_height(text, advances, ascender):

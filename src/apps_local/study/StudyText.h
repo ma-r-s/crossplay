@@ -51,16 +51,68 @@ inline uint32_t nextCodepoint(const char*& p) {
   return value;
 }
 
+// Is this character drawn full width and written without spaces? Those two
+// go together, and together they are what lets a line break beside it.
+//
+// Hangul is deliberately absent. It is full width, but Korean is written with
+// spaces between words, so the space rule already breaks it correctly and
+// breaking between syllables would split words the space rule keeps whole.
+// This mirrors scripts.WIDE in tools_local/study/scripts.py, which is where
+// the same question is answered for the converter.
+inline bool isWideScript(const uint32_t codepoint) {
+  return (codepoint >= 0x3000 && codepoint <= 0x303F) ||   // CJK punctuation
+         (codepoint >= 0x3040 && codepoint <= 0x30FF) ||   // kana
+         (codepoint >= 0x31F0 && codepoint <= 0x31FF) ||   // katakana extensions
+         (codepoint >= 0x2E80 && codepoint <= 0x2FDF) ||   // radicals
+         (codepoint >= 0x3400 && codepoint <= 0x4DBF) ||   // Extension A
+         (codepoint >= 0x4E00 && codepoint <= 0x9FFF) ||   // Unified
+         (codepoint >= 0xF900 && codepoint <= 0xFAFF) ||   // compatibility
+         (codepoint >= 0xFF00 && codepoint <= 0xFFEF);     // fullwidth forms
+}
+
+// Characters that may not BEGIN a line. Japanese and Chinese typesetting call
+// this kinsoku shori, and without it a sentence breaks so that the next line
+// starts with a full stop or a closing quote, which is the one wrapping
+// mistake a reader of those languages notices immediately. Only the leading
+// half of the rule is implemented: the trailing half (characters that may not
+// END a line) needs a lookahead the greedy wrap does not have, and getting
+// half of it right is a clear improvement while getting it wrong is not.
+inline bool isProhibitedLineStart(const uint32_t codepoint) {
+  switch (codepoint) {
+    case 0x3001:  // 、
+    case 0x3002:  // 。
+    case 0xFF0C:  // ，
+    case 0xFF0E:  // ．
+    case 0xFF1A:  // ：
+    case 0xFF1B:  // ；
+    case 0xFF01:  // ！
+    case 0xFF1F:  // ？
+    case 0x300D:  // 」
+    case 0x300F:  // 』
+    case 0xFF09:  // ）
+    case 0x3009:  // 〉
+    case 0x300B:  // 》
+    case 0x3011:  // 】
+    case 0xFF3D:  // ］
+    case 0xFF5D:  // ｝
+    case 0x30FC:  // ー  the long vowel mark
+    case 0x3005:  // 々  the repeat mark
+    case 0x309D:  // ゝ
+    case 0x309E:  // ゞ
+      return true;
+    default:
+      return false;
+  }
+}
+
 // May a line break happen either side of this character? True for spaces and
-// for CJK, which is written without spaces and breaks almost anywhere, and
-// for the newline, which is not a break the wrap may take but one it MUST --
-// fitsAsDrawn measures runs with this same predicate, so a newline that was
-// not breakable here made two paragraphs look like one unbreakable run and
-// condemned the card to the fallback face.
+// for the wide scripts, and for the newline, which is not a break the wrap
+// may take but one it MUST -- fitsAsDrawn measures runs with this same
+// predicate, so a newline that was not breakable here made two paragraphs
+// look like one unbreakable run and condemned the card to the fallback face.
 inline bool isBreakable(const uint32_t codepoint) {
   if (codepoint == ' ' || codepoint == '\n') return true;
-  return (codepoint >= 0x2E80 && codepoint <= 0x9FFF) || (codepoint >= 0xF900 && codepoint <= 0xFAFF) ||
-         (codepoint >= 0xFF00 && codepoint <= 0xFFEF);
+  return isWideScript(codepoint);
 }
 
 // Codepoints in a NUL-terminated string.
@@ -82,6 +134,140 @@ inline int bytesForCodepoints(const char* text, const int count) {
     if (nextCodepoint(p) == 0) break;
   }
   return static_cast<int>(p - text);
+}
+
+// --- Japanese ruby ----------------------------------------------------------
+//
+// A reading printed above the text it reads. Anki writes it into a field as
+// " 漢字[かんじ]"; the converter turns that into
+//
+//     RUBY_START base RUBY_SEP reading RUBY_END
+//
+// using three control characters, which is what lets the wrap below see a
+// segment coming without scanning ahead at every glyph -- and what keeps it
+// from colliding with a cloze card's "[...]", where reading a hole as a
+// reading would print the answer directly above the gap hiding it.
+//
+// See tools_local/study/scripts.py, which is where the markers are written.
+inline constexpr char kRubyStart = '\x1e';
+inline constexpr char kRubySep = '\x1f';
+inline constexpr char kRubyEnd = '\x1d';
+
+// One piece of a line: text, and the reading above it when it has one.
+//
+// A plain run of text is a segment with no reading, so everything downstream
+// -- measuring, drawing, the emphasis underline -- has one shape rather than
+// two. That is why the ruby path did not turn into a second renderer beside
+// the plain one.
+struct RubySegment {
+  const char* base = "";
+  int baseBytes = 0;
+  const char* ruby = nullptr;  // null when this is plain text
+  int rubyBytes = 0;
+  int codepoints = 0;  // of the BASE only: markers and readings do not count,
+                       // because the emphasis spans the converter records are
+                       // measured over the text a reader sees.
+};
+
+// Walk the segments of an encoded string. `fn(const RubySegment&)`.
+//
+// Malformed input -- a start with no separator, a separator with no end --
+// is treated as plain text rather than refused. This is drawn on a card, and
+// a sentence with a stray control byte in it should still be readable.
+template <typename Fn>
+void forEachRubySegment(const char* text, Fn fn) {
+  if (text == nullptr) return;
+  const char* p = text;
+  const char* plainStart = text;
+
+  const auto flushPlain = [&](const char* end) {
+    if (end <= plainStart) return;
+    RubySegment segment;
+    segment.base = plainStart;
+    segment.baseBytes = static_cast<int>(end - plainStart);
+    for (const char* q = plainStart; q < end;) {
+      if (nextCodepoint(q) == 0) break;
+      ++segment.codepoints;
+    }
+    fn(segment);
+  };
+
+  while (*p != '\0') {
+    if (*p != kRubyStart) {
+      ++p;
+      continue;
+    }
+    const char* sep = p + 1;
+    while (*sep != '\0' && *sep != kRubySep && *sep != kRubyStart) ++sep;
+    if (*sep != kRubySep) {
+      ++p;
+      continue;
+    }
+    const char* end = sep + 1;
+    while (*end != '\0' && *end != kRubyEnd && *end != kRubyStart) ++end;
+    if (*end != kRubyEnd) {
+      ++p;
+      continue;
+    }
+
+    flushPlain(p);
+    RubySegment segment;
+    segment.base = p + 1;
+    segment.baseBytes = static_cast<int>(sep - (p + 1));
+    segment.ruby = sep + 1;
+    segment.rubyBytes = static_cast<int>(end - (sep + 1));
+    for (const char* q = segment.base; q < sep;) {
+      if (nextCodepoint(q) == 0) break;
+      ++segment.codepoints;
+    }
+    fn(segment);
+    p = end + 1;
+    plainStart = p;
+  }
+  flushPlain(p);
+}
+
+inline bool hasRuby(const char* text) {
+  bool found = false;
+  forEachRubySegment(text, [&](const RubySegment& segment) {
+    if (segment.ruby != nullptr) found = true;
+  });
+  return found;
+}
+
+// Copy one segment's base or reading out as a NUL-terminated string, because
+// the renderer measures and draws C strings. Returns the length written.
+inline int copyRun(const char* text, const int bytes, char* out, const int outBytes) {
+  const int length = bytes < outBytes - 1 ? bytes : outBytes - 1;
+  if (length > 0) std::memcpy(out, text, static_cast<size_t>(length));
+  out[length > 0 ? length : 0] = '\0';
+  return length > 0 ? length : 0;
+}
+
+// How wide one segment is: the wider of its base and its reading, because the
+// narrower of the two is centred under or over the other.
+template <typename MeasureBase, typename MeasureRuby>
+int rubySegmentWidth(const RubySegment& segment, MeasureBase measureBase, MeasureRuby measureRuby, char* scratch,
+                     const int scratchBytes) {
+  copyRun(segment.base, segment.baseBytes, scratch, scratchBytes);
+  const int baseWidth = measureBase(scratch);
+  if (segment.ruby == nullptr) return baseWidth;
+  copyRun(segment.ruby, segment.rubyBytes, scratch, scratchBytes);
+  const int rubyWidth = measureRuby(scratch);
+  return baseWidth > rubyWidth ? baseWidth : rubyWidth;
+}
+
+// The advance of a whole encoded string. This is the measurement the wrap
+// uses, so a line of ruby wraps by what it will actually occupy rather than
+// by the width of its base text alone.
+template <typename MeasureBase, typename MeasureRuby>
+int measureRubyText(const char* text, MeasureBase measureBase, MeasureRuby measureRuby, char* scratch,
+                    const int scratchBytes) {
+  int total = 0;
+  forEachRubySegment(text, [&](const RubySegment& segment) {
+    total += rubySegmentWidth(segment, measureBase, measureRuby, scratch, scratchBytes);
+  });
+  return total;
 }
 
 // One laid-out line, handed to the caller as it is produced.
@@ -128,14 +314,33 @@ void wrapText(const char* text, const int maxWidth, char* line, const int lineBy
   while (*p != '\0') {
     // One break unit. Measured, not counted: a CJK glyph is three bytes and
     // full width, a Latin one is one byte and narrow.
+    //
+    // A ruby segment is ONE unit, whole. Breaking inside it would put a
+    // reading over half a word on one line and the other half bare on the
+    // next, which is not a line break Japanese typesetting has.
     const char* unitEnd = p;
-    if (isBreakable(nextCodepoint(unitEnd))) {
-      unitEnd = p + utf8Length(p);
-    } else {
-      while (*unitEnd != '\0') {
-        const char* peek = unitEnd;
-        if (isBreakable(nextCodepoint(peek))) break;
-        unitEnd = peek;
+    int unitCodepoints = -1;  // -1: count it below, the ordinary way
+    if (*p == kRubyStart) {
+      const char* end = p;
+      while (*end != '\0' && *end != kRubyEnd) ++end;
+      if (*end == kRubyEnd) {
+        unitEnd = end + 1;
+        unitCodepoints = 0;
+        forEachRubySegment(p, [&](const RubySegment& segment) {
+          if (unitCodepoints == 0) unitCodepoints = segment.codepoints;
+        });
+      }
+    }
+    if (unitEnd == p) {
+      if (isBreakable(nextCodepoint(unitEnd))) {
+        unitEnd = p + utf8Length(p);
+      } else {
+        while (*unitEnd != '\0') {
+          const char* peek = unitEnd;
+          if (*peek == kRubyStart) break;  // a segment starts its own unit
+          if (isBreakable(nextCodepoint(peek))) break;
+          unitEnd = peek;
+        }
       }
     }
     int unitBytes = static_cast<int>(unitEnd - p);
@@ -188,6 +393,17 @@ void wrapText(const char* text, const int maxWidth, char* line, const int lineBy
       // and rolled back if it does not fit, which avoids a second buffer.
       std::memcpy(line + lineLength, p, static_cast<size_t>(unitBytes));
       line[lineLength + unitBytes] = '\0';
+      // Kinsoku: a full stop or a closing bracket may not open the next line,
+      // so it stays on this one even though it does not fit. One character of
+      // overhang is what every Japanese typesetter does here, and it is far
+      // less wrong than a line beginning with 。
+      const char* peek = p;
+      if (*p != kRubyStart && measure(line) > maxWidth && isProhibitedLineStart(nextCodepoint(peek))) {
+        lineLength += unitBytes;
+        cpIndex += 1;
+        p = unitEnd;
+        continue;
+      }
       if (measure(line) > maxWidth) {
         flush();
         // A leading space after a break IS the break, and it still counts as
@@ -206,10 +422,13 @@ void wrapText(const char* text, const int maxWidth, char* line, const int lineBy
       std::memcpy(line + lineLength, p, static_cast<size_t>(unitBytes));
     }
 
-    int unitCp = 0;
-    for (const char* q = p; q < unitEnd;) {
-      if (nextCodepoint(q) == 0) break;
-      ++unitCp;
+    int unitCp = unitCodepoints;
+    if (unitCp < 0) {
+      unitCp = 0;
+      for (const char* q = p; q < unitEnd;) {
+        if (nextCodepoint(q) == 0) break;
+        ++unitCp;
+      }
     }
     lineLength += unitBytes;
     cpIndex += unitCp;
@@ -253,41 +472,80 @@ inline bool spanOnLine(const WrappedLine& line, const int spanStart, const int s
 template <typename Target>
 int drawWrappedMarked(const Target& target, const int fontId, int y, const int maxWidth, const char* text,
                       const int spanStart, const int spanLength, const bool measureOnly, char* line,
-                      const int lineBytes, char* scratch) {
+                      const int lineBytes, char* scratch, const int rubyFontId = 0) {
   if (text == nullptr || *text == '\0') return y;
 
   const int lineHeight = target.getTextHeight(fontId);
   const int screenWidth = target.getScreenWidth();
+  // Without a ruby face there is nowhere to put a reading, so readings are
+  // measured as nothing and the base draws alone -- which is what a deck
+  // whose fonts predate the ruby cut should do, rather than refusing to draw.
+  const int rubyHeight = rubyFontId != 0 ? target.getTextHeight(rubyFontId) : 0;
 
-  wrapText(
-      text, maxWidth, line, lineBytes, [&](const char* candidate) { return target.getTextWidth(fontId, candidate); },
-      [&](const WrappedLine& laid) {
-        if (!measureOnly) {
-          const int textWidth = target.getTextWidth(fontId, laid.text);
-          const int left = (screenWidth - textWidth) / 2;
-          target.drawText(fontId, left, y, laid.text, true);
+  const auto measureBase = [&](const char* run) { return target.getTextWidth(fontId, run); };
+  const auto measureRuby = [&](const char* run) {
+    return rubyFontId != 0 ? target.getTextWidth(rubyFontId, run) : 0;
+  };
+  const auto measureLine = [&](const char* candidate) {
+    return measureRubyText(candidate, measureBase, measureRuby, scratch, lineBytes);
+  };
 
-          int from = 0;
-          int to = 0;
-          if (spanOnLine(laid, spanStart, spanLength, from, to)) {
-            // Measured through the same font that drew the line, so the mark
-            // starts under the glyph rather than under the byte: one line can
-            // hold a three-byte full-width hanzi beside a one-byte letter.
-            const int fromBytes = bytesForCodepoints(laid.text, from);
-            const int toBytes = bytesForCodepoints(laid.text, to);
-            std::memcpy(scratch, laid.text, static_cast<size_t>(fromBytes));
-            scratch[fromBytes] = '\0';
-            const int x0 = left + target.getTextWidth(fontId, scratch);
-            std::memcpy(scratch, laid.text, static_cast<size_t>(toBytes));
-            scratch[toBytes] = '\0';
-            const int x1 = left + target.getTextWidth(fontId, scratch);
-            // Two pixels clear of the baseline so descenders are not struck
-            // through, and one pixel thick: this is a mark, not a rule.
-            if (x1 > x0) target.fillRect(x0, y + lineHeight - 2, x1 - x0, 1, true);
-          }
+  wrapText(text, maxWidth, line, lineBytes, measureLine, [&](const WrappedLine& laid) {
+    // A line carrying a reading is taller by the height of that reading, and
+    // only that line: a card whose first sentence has furigana and whose
+    // second does not should not be double-spaced throughout.
+    const int above = (rubyFontId != 0 && hasRuby(laid.text)) ? rubyHeight : 0;
+    if (!measureOnly) {
+      const int totalWidth = measureLine(laid.text);
+      int x = (screenWidth - totalWidth) / 2;
+      int cp = laid.startCodepoint;
+
+      forEachRubySegment(laid.text, [&](const RubySegment& segment) {
+        const int width = rubySegmentWidth(segment, measureBase, measureRuby, scratch, lineBytes);
+
+        // The base, centred under its reading when the reading is wider.
+        copyRun(segment.base, segment.baseBytes, scratch, lineBytes);
+        const int baseWidth = target.getTextWidth(fontId, scratch);
+        const int baseX = x + (width - baseWidth) / 2;
+        target.drawText(fontId, baseX, y + above, scratch, true);
+
+        // The emphasis span, underlined. Measured inside THIS segment, which
+        // is what makes one code path serve a plain line and a ruby one: a
+        // plain line is a single segment and the arithmetic is the same.
+        int from = 0;
+        int to = 0;
+        WrappedLine piece;
+        piece.startCodepoint = cp;
+        piece.codepoints = segment.codepoints;
+        if (spanOnLine(piece, spanStart, spanLength, from, to)) {
+          const int fromBytes = bytesForCodepoints(scratch, from);
+          const int toBytes = bytesForCodepoints(scratch, to);
+          // scratch still holds the base; truncate in place to measure the
+          // prefix, longest first so the shorter cut does not destroy it.
+          const char saved = scratch[toBytes];
+          scratch[toBytes] = '\0';
+          const int x1 = baseX + target.getTextWidth(fontId, scratch);
+          scratch[toBytes] = saved;
+          scratch[fromBytes] = '\0';
+          const int x0 = baseX + target.getTextWidth(fontId, scratch);
+          // Two pixels clear of the baseline so descenders are not struck
+          // through, and one pixel thick: this is a mark, not a rule.
+          if (x1 > x0) target.fillRect(x0, y + above + lineHeight - 2, x1 - x0, 1, true);
+          copyRun(segment.base, segment.baseBytes, scratch, lineBytes);
         }
-        y += lineHeight;
+        // The reading, centred over its base.
+        if (segment.ruby != nullptr && rubyFontId != 0) {
+          copyRun(segment.ruby, segment.rubyBytes, scratch, lineBytes);
+          const int rubyWidth = target.getTextWidth(rubyFontId, scratch);
+          target.drawText(rubyFontId, x + (width - rubyWidth) / 2, y, scratch, true);
+        }
+
+        x += width;
+        cp += segment.codepoints;
       });
+    }
+    y += lineHeight + above;
+  });
   return y;
 }
 

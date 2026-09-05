@@ -28,6 +28,10 @@ MEMBERS = [
     "tools_local/study/apkg.py",
     "tools_local/study/anki_to_deck.py",
     "tools_local/study/fsrs.py",
+    # anki_to_deck, check_deck, make_fonts and measure_layout all import this.
+    # Leaving it out is a page that dies on import with a traceback the user
+    # cannot read, which is exactly what happened to deck_to_anki.py once.
+    "tools_local/study/scripts.py",
     "tools_local/study/check_deck.py",
     # Forgetting this one shipped a page whose sync step was dead: the host
     # test ran beside the real files and could not notice. test_web_glue.py

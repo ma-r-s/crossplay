@@ -89,6 +89,7 @@ struct Recorder {
     int x = 0;
     int y = 0;
     std::string text;
+    int font = 0;
   };
   struct Rule {
     int x = 0;
@@ -98,19 +99,31 @@ struct Recorder {
   mutable std::vector<Text> texts;
   mutable std::vector<Rule> rules;
 
+  // Font 2 is the ruby cut: half the height and half the width of font 1,
+  // which is about the proportion a real furigana face has.
+  static constexpr int kRubyFont = 2;
+
   int getScreenWidth() const { return 800; }
-  int getTextHeight(int) const { return 20; }
-  int getTextWidth(int, const char* text) const { return fakeWidth(text); }
-  void drawText(int, int x, int y, const char* text, bool) const { texts.push_back({x, y, text}); }
+  int getTextHeight(int fontId) const { return fontId == kRubyFont ? 10 : 20; }
+  int getTextWidth(int fontId, const char* text) const {
+    return fontId == kRubyFont ? fakeWidth(text) / 2 : fakeWidth(text);
+  }
+  void drawText(int fontId, int x, int y, const char* text, bool) const { texts.push_back({x, y, text, fontId}); }
   void fillRect(int x, int y, int width, int, bool) const { rules.push_back({x, y, width}); }
 };
 
-Recorder draw(const char* text, int maxWidth, int spanStart, int spanLength) {
+Recorder draw(const char* text, int maxWidth, int spanStart, int spanLength, int rubyFont = 0) {
   Recorder target;
   char line[256];
   char scratch[256];
-  study::drawWrappedMarked(target, 1, 100, maxWidth, text, spanStart, spanLength, false, line, sizeof(line), scratch);
+  study::drawWrappedMarked(target, 1, 100, maxWidth, text, spanStart, spanLength, false, line, sizeof(line), scratch,
+                           rubyFont);
   return target;
+}
+
+// The encoded form the converter writes: RUBY_START base SEP reading END.
+std::string ruby(const std::string& base, const std::string& reading) {
+  return std::string("\x1e") + base + "\x1f" + reading + "\x1d";
 }
 
 void run() {
@@ -180,6 +193,31 @@ void run() {
     check(out.lines.size() == 4, "each paragraph wraps on its own");
     check(out.lines.size() == 4 && out.lines[1] == "ccc", "the first paragraph's tail is its own line");
     check(out.lines.size() == 4 && out.lines[2] == "ddd eee", "and the second starts a new one");
+  }
+
+  // --- kinsoku: what may not open a line ------------------------------------
+  //
+  // Japanese and Chinese typesetting forbid a line that starts with a full
+  // stop or a closing bracket. It is the one wrapping mistake a reader of
+  // those languages notices immediately, and the greedy wrap makes it
+  // constantly: three hanzi fit at 90px, so the fourth character starts the
+  // next line whatever it is.
+  {
+    const Laid out = lay("中文句。", 90);
+    check(out.lines.size() == 1, "a full stop stays on the line it ends");
+    check(out.lines.size() == 1 && out.lines[0] == "中文句。", "even though it does not fit");
+  }
+  {
+    const Laid out = lay("中文句子。", 90);
+    check(out.lines.size() == 2, "an ordinary character still wraps");
+    check(out.lines.size() == 2 && out.lines[1] == "子。", "and takes its own full stop with it");
+  }
+  {
+    // Not every wide character is protected -- only the ones that may not
+    // open a line. This is the case that would break if the rule were "keep
+    // whatever does not fit".
+    const Laid out = lay("中文句子", 90);
+    check(out.lines.size() == 2 && out.lines[0] == "中文句", "an unprotected character wraps normally");
   }
 
   // --- the span, which is what cloze rides on -------------------------------
@@ -271,6 +309,99 @@ void run() {
     check(out.rules.size() == 1 && out.rules[0].x - out.texts[0].x == 60,
           "the mark is offset by glyph width, not by byte count");
     check(out.rules.size() == 1 && out.rules[0].width == 60, "and covers two full-width glyphs");
+  }
+
+  // --- Japanese ruby --------------------------------------------------------
+  //
+  // A reading printed above the text it reads. The three things that have to
+  // be true: the reading is drawn in the smaller face above the base, the
+  // segment occupies the wider of the two, and a segment never splits across
+  // a line -- a reading over half a word is not a break Japanese has.
+  {
+    // 私[わたし] : the base is one full-width glyph (30px); the reading is
+    // three kana in the half-size face (3 * 30 / 2 = 45px). The segment takes
+    // the wider of the two, 45, and the base is centred inside it -- which is
+    // the case that matters, because a one-character word with a four-kana
+    // reading is the shape most Japanese vocabulary cards have.
+    const Recorder out = draw(ruby("私", "わたし").c_str(), 800, 0, 0, Recorder::kRubyFont);
+    check(out.texts.size() == 2, "a ruby segment draws its base and its reading");
+    if (out.texts.size() == 2) {
+      check(out.texts[0].text == "私" && out.texts[0].font == 1, "the base is in the main face");
+      check(out.texts[1].text == "わたし" && out.texts[1].font == Recorder::kRubyFont,
+            "and the reading is in the ruby face");
+      check(out.texts[1].y == 100, "the reading sits on the line's own y");
+      check(out.texts[0].y == 110, "and the base is pushed down by the reading's height");
+      // Segment 45 wide, centred on an 800px screen: left edge 377. The base
+      // is 30 wide, so it sits (45 - 30) / 2 = 7 further in.
+      check(out.texts[1].x == 377, "the reading starts at the segment's left edge");
+      check(out.texts[0].x == 384, "and the narrower base is centred under it");
+    }
+  }
+  {
+    // Mixed: a ruby segment followed by plain kana, which is what a real
+    // Japanese sentence is. The plain run must follow the segment, not
+    // overlap it.
+    const std::string text = ruby("私", "わたし") + "は";
+    const Recorder out = draw(text.c_str(), 800, 0, 0, Recorder::kRubyFont);
+    check(out.texts.size() == 3, "plain text after a segment is its own run");
+    if (out.texts.size() == 3) {
+      check(out.texts[2].text == "は", "and it is the text that followed");
+      check(out.texts[2].x == out.texts[1].x + 45, "placed after the whole segment, not after the base");
+    }
+  }
+  {
+    // Without a ruby face there is nowhere to put a reading. The base must
+    // still draw: a deck whose fonts predate the ruby cut should lose the
+    // furigana, not the sentence.
+    const std::string text = ruby("私", "わたし") + "は";
+    const Recorder out = draw(text.c_str(), 800, 0, 0, 0);
+    check(out.texts.size() == 2, "with no ruby face only the base is drawn");
+    if (out.texts.size() == 2) {
+      check(out.texts[0].text == "私" && out.texts[1].text == "は", "and the sentence still reads");
+      check(out.texts[0].y == 100, "with no extra height reserved above it");
+    }
+  }
+  {
+    // The segment is one unit to the wrap. Three segments of 45 in a 100px
+    // line: two fit (90), the third does not (135) -- and no segment is ever
+    // split, which is the property under test.
+    const std::string text = ruby("私", "わたし") + ruby("私", "わたし") + ruby("私", "わたし");
+    const Recorder out = draw(text.c_str(), 100, 0, 0, Recorder::kRubyFont);
+    check(out.texts.size() == 6, "three segments draw six runs");
+    if (out.texts.size() == 6) {
+      // A line carrying a reading is 20 + 10 tall, so the second line's
+      // reading sits at 130 and its base at 140.
+      check(out.texts[3].y == 100, "the second segment is still on the first line");
+      check(out.texts[5].y == 130, "the third segment's reading is on the second line");
+      check(out.texts[4].y == 140, "with its base below it");
+    }
+  }
+  {
+    // Codepoints are counted over the BASE only, so an emphasis span recorded
+    // by the converter still lands on the right characters. "私" then "は":
+    // the span (1, 1) is は, not the second character of the reading.
+    const std::string text = ruby("私", "わたし") + "は";
+    const Recorder out = draw(text.c_str(), 800, 1, 1, Recorder::kRubyFont);
+    check(out.rules.size() == 1, "a span past a ruby segment underlines once");
+    if (out.rules.size() == 1 && out.texts.size() == 3) {
+      check(out.rules[0].x == out.texts[2].x, "under the character after the segment");
+      check(out.rules[0].width == 30, "and only that character");
+    }
+  }
+  {
+    // And a span ON the base underlines the base, not the reading.
+    const Recorder out = draw(ruby("私", "わたし").c_str(), 800, 0, 1, Recorder::kRubyFont);
+    check(out.rules.size() == 1 && out.rules[0].width == 30, "a span on a ruby base underlines the base");
+    if (out.rules.size() == 1 && out.texts.size() == 2) {
+      check(out.rules[0].x == out.texts[0].x, "starting where the base starts");
+    }
+  }
+  {
+    // Malformed encoding is text, not an error: a stray marker must not eat
+    // the rest of the sentence.
+    const std::string stray = std::string("a") + study::kRubyStart + "b";
+    const Recorder out = draw(stray.c_str(), 800, 0, 0, Recorder::kRubyFont);
+    check(!out.texts.empty(), "a stray marker still draws something");
   }
 
   // --- degenerate input must not spin --------------------------------------

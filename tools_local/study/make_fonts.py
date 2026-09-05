@@ -57,6 +57,7 @@ import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mono_cpfont  # noqa: E402  (needs the path line above)
+import scripts  # noqa: E402
 
 # The five faces Mario's HSK card template randomises between, and the family
 # name each becomes on the device. Order is the order they appear in the
@@ -76,15 +77,23 @@ STYLE_TOC_FORMAT = "<B3xIIBhhHHBBBI4x"
 GLYPH_STRUCT_SIZE = 16
 INTERVAL_STRUCT_SIZE = 12
 
-# Broad enough to cover every CJK codepoint the deck uses, and narrow enough
-# that the resident interval table stays at a handful of entries. Codepoints in
-# range but absent from the subset become empty records on disk.
-# latin-ext is here because the device draws the headword in the randomised CJK
-# face whatever script it is. Without it the converter never rasterises an
-# ASCII codepoint, so "T恤" loses its T and a deck of English words draws
-# nothing at all -- silently, because a missing glyph is simply not painted.
-# The subset carries the letters; this is what lets them through.
-INTERVALS = "latin-ext,cjk,punctuation"
+# The intervals are CHOSEN PER DECK, by scripts.intervals_for, from the
+# characters the deck actually contains.
+#
+# It was the fixed string "latin-ext,cjk,punctuation", which had two problems
+# pulling in opposite directions. Hangul is in none of those presets, so a
+# Korean deck built a face with no interval its characters could live in and
+# every card drew empty -- and CJK Extension A, where a few thousand rare
+# hanzi and kanji sit, was missing the same way. Meanwhile simply adding both
+# to the fixed string would make every Chinese deck pay for them: a codepoint
+# inside an interval but absent from the subset still costs an empty 16-byte
+# record on the card, and `hangul` alone is 11184 of them.
+#
+# latin-ext is always in, whatever the deck. The device draws a headword in
+# the deck's own face whatever script the headword is, so a face with no ASCII
+# draws nothing at all for "T恤" or for a deck of English words -- silently,
+# because a missing glyph is simply not painted. The subset carries the
+# letters; this is what lets them through.
 
 
 def deck_headwords(deck_dir):
@@ -214,8 +223,8 @@ def threshold_bitmaps(path):
     return changed, total
 
 
-def convert(script, font, name, size, out_dir, mono, name_size=None):
-    """Build one face at one size.
+def convert(script, font, name, size, out_dir, mono, interval_str, name_size=None):
+    """Build one face at one size, over the intervals this deck needs.
 
     `mono` rasterises through FreeType's 1-bit hinting (mono_cpfont.py), which
     is the default and the reason thin strokes survive. The antialiased path is
@@ -225,7 +234,7 @@ def convert(script, font, name, size, out_dir, mono, name_size=None):
     output = out_dir / f"{name}_{name_size if name_size is not None else size}.cpfont"
     if mono:
         repo_root = script.parents[3]
-        intervals = mono_cpfont.resolve_intervals(repo_root, INTERVALS)
+        intervals = mono_cpfont.resolve_intervals(repo_root, interval_str)
         mono_cpfont.build(repo_root, font, size, intervals, output)
         return output
 
@@ -235,7 +244,7 @@ def convert(script, font, name, size, out_dir, mono, name_size=None):
             str(script),
             str(font),
             "--intervals",
-            INTERVALS,
+            interval_str,
             "--size",
             str(size),
             "--style",
@@ -285,6 +294,11 @@ def main():
     )
     ap.add_argument("--headword-size", type=int, default=50)
     ap.add_argument("--sentence-size", type=int, default=17)
+    # The furigana cut. 10 against the sentence's 17 is roughly the half-size
+    # ratio Japanese typesetting uses for ruby, and at the converter's 2.38x
+    # it lands near 24px -- small enough to sit above a 40px line and still
+    # large enough that four kana are legible on e-ink.
+    ap.add_argument("--ruby-size", type=int, default=10)
     ap.add_argument("--only", help="build just this family (for a quick look)")
     ap.add_argument(
         "--antialiased",
@@ -307,6 +321,7 @@ def main():
 
     headword = (args.deck / "glyphs-headword.txt").read_text(encoding="utf-8")
     sentence = (args.deck / "glyphs-sentence.txt").read_text(encoding="utf-8")
+
     # The Latin set goes into both CJK cuts as well as its own.
     #
     # The device draws a headword in the randomised CJK face whatever script the
@@ -316,6 +331,22 @@ def main():
     latin = (args.deck / "glyphs-latin.txt").read_text(encoding="utf-8")
     headword += latin
     sentence += latin
+
+    # Furigana. The readings are drawn above the text they read, so they need
+    # a face of their own at a size the base is not -- and only the readings
+    # go in it, which is why a deck with furigana pays about a hundred kana
+    # rather than its whole sentence set at a third size.
+    #
+    # Absent or empty means this deck has no furigana, and no third cut is
+    # built. A deck converted before glyphs-ruby.txt existed reads as the
+    # same thing, which is correct: it has no ruby markup in it either.
+    ruby_path = args.deck / "glyphs-ruby.txt"
+    ruby = ruby_path.read_text(encoding="utf-8") if ruby_path.is_file() else ""
+    if ruby:
+        ruby += latin
+
+    intervals = scripts.intervals_for(scripts.scripts_in([headword, sentence, ruby]))
+    print(f"  intervals {intervals}")
 
     # --font swaps the whole table for one family named Custom. The device
     # knows that name (StudyFonts::kFamilies) and rolls over whichever families
@@ -356,13 +387,17 @@ def main():
         with tempfile.TemporaryDirectory() as tmp:
             tmp = pathlib.Path(tmp)
             headword_size = fitted if args.font else args.headword_size
-            for label, chars, size in (
+            cuts = [
                 ("headword", headword, headword_size),
                 ("sentence", sentence, args.sentence_size),
-            ):
+            ]
+            if ruby:
+                cuts.append(("ruby", ruby, args.ruby_size))
+            for label, chars, size in cuts:
                 cut = tmp / f"{family}-{label}.ttf"
                 subset(src, chars, cut)
                 produced = convert(script, cut, family, size, out_dir, mono=not args.antialiased,
+                                   interval_str=intervals,
                                    name_size=args.headword_size if label == "headword" else None)
                 note = ""
                 if args.threshold:

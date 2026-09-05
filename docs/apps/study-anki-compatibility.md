@@ -49,16 +49,47 @@ which.
 | Audio and video (`[sound:...]`) | **Dropped.** No speaker. |
 | Text-to-speech (`[anki:tts]`) | **Tag dropped, words kept.** The text inside is usually the answer. |
 | LaTeX and MathJax | **Delimiters dropped, source kept.** Anki renders these through a TeX install; there is none here. A formula whose source you can read beats a card that shows `[latex]` and beats one that shows nothing. |
-| Furigana ruby syntax (`漢字[かんじ]`) | **Left as written.** There is no ruby positioning, and the bracketed reading is still readable inline. |
+| Furigana ruby syntax (`漢字[かんじ]`) | **Drawn as ruby**, above the text it reads. See the Scripts section. |
 | A field longer than 1024 bytes of record | **Trimmed** by the converter, longest fields together, marked with an ellipsis. The device refuses an oversized record, which is a card that silently is not there. |
 
 ## Scripts
 
+Which script a character belongs to decides which glyph file it lands in,
+which decides which face gets built for it. `tools_local/study/scripts.py` is
+the one place that answers it, and `study::isWideScript` in `StudyText.h`
+mirrors the half of it the wrap needs.
+
 | | Status |
 | --- | --- |
 | English / Latin | **Yes**, built-in serif, or a large headword face built from any TTF. |
-| Chinese (simplified) | **Yes.** Five CJK faces built from the TTFs in your Anki media folder, randomised per card. |
-| Everything else — Korean, Japanese kana, Arabic, Cyrillic, Devanagari, Hebrew | **Not supported, not refused.** Nothing stops the converter, but nobody has made the fonts or the text layout right for them; RTL in particular needs a bidi pass the renderer does not have. Setup warns about every character the built-in face cannot draw rather than pretending. |
+| Chinese, simplified or traditional | **Yes.** Five CJK faces built from the TTFs in your Anki media folder, randomised per card, or any TTF via `--font`. |
+| Japanese | **Yes**, kanji and both kana, and **furigana is drawn as ruby** — see below. |
+| Korean | **Yes**, with a Korean TTF via `--font`. Hangul used to be classified as Latin, which routed it to the built-in serif — 1070 glyphs, none of them Hangul — so a Korean deck converted with no error and no readable card. It now goes into the deck's own face and asks the font pipeline for the `hangul` interval. |
+| Arabic, Hebrew | **No.** Both need bidirectional layout and contextual shaping, and the renderer has neither: it walks a string placing one glyph after another left to right. This is a real piece of work, not a missing font. |
+| Cyrillic, Greek, Devanagari, Thai and the rest | **Not supported, not refused.** Nothing stops the converter; the fonts and, for the Indic and Thai scripts, the shaping are not there. The converter names any such script in its output rather than letting it arrive as a screen of nothing. |
+
+### Line breaking
+
+| | Status |
+| --- | --- |
+| Chinese and Japanese | **Break between characters**, which is how those scripts break, plus the leading half of **kinsoku shori**: a full stop, a closing bracket, a long-vowel mark or a repeat mark is never left to open a line. The trailing half — characters that may not *end* a line — needs a lookahead the greedy wrap does not have. |
+| Korean | **Breaks at spaces**, which is correct: Korean is written with spaces between words, and breaking between syllables would split words the space rule keeps whole. |
+| Latin | **Breaks at spaces.** A word longer than the line overhangs rather than being split, and `fitsAsDrawn` refuses a face that would let that happen; a run longer than the whole line buffer is broken by codepoint, because the alternative is a blank card. |
+
+### Furigana
+
+**Yes, drawn as ruby** — the reading above the text it reads, in a smaller cut
+of the deck's own face.
+
+| Anki | Status |
+| --- | --- |
+| ` 漢字[かんじ]` in a field | **Yes.** Parsed into base and reading, and carried to the card as a segment rather than as brackets. |
+| `{{furigana:Field}}` | **This is what the card does.** |
+| `{{kanji:Field}}` | **Applied** to every slot drawn in the built-in serif, which has no CJK: a reading there would be boxes above boxes. |
+| `{{kana:Field}}` | **Applied** to the reading slots, so a reading line says `わたしはがくせいです` rather than repeating the source. |
+| The Japanese Support add-on's Expression / Reading / Meaning | **Yes**, and this is the case that needed care: the add-on writes Expression as plain kanji and puts the furigana in Reading. Anki's own template draws the second one, so the converter promotes it — otherwise the most common Japanese note type in existence converts with no furigana anywhere. |
+| A hint, footnote or cloze hole that merely looks like `x[y]` | **Not read as furigana.** A reading has to contain kana. That one rule separates a real reading from `see also[1]`, from `[hint]`, and — the collision that matters — from a cloze card's `[...]`, where reading a hole as a reading would print the answer directly above the gap hiding it. |
+| Ruby on a deck whose fonts predate the ruby cut | **Degrades to the base text.** The reading is lost, the sentence is not. |
 
 ## Scheduling
 
@@ -106,8 +137,13 @@ The ones with a real case, in the order they would be worth doing:
 
 1. **Leeches and sibling burying.** Both are per-preset numbers already sitting in the deck config protobuf, and both are small state machines on top of the queue that is already there.
 2. **Interval fuzz.** Twenty lines, and it removes a small standing divergence.
-3. **Image Occlusion.** The card kind with the largest audience of those refused. It needs shape data in the deck file and a compositing step on the device, so it is a real piece of work rather than a rule.
-4. **A template renderer.** The biggest, and the one to be most careful about: the value is not in reproducing a stylesheet but in letting a deck say *which of a few layouts* it wants.
+3. **Trailing kinsoku.** The half of the rule that is missing. It needs the wrap to look one unit ahead before committing a break.
+4. **Image Occlusion.** The card kind with the largest audience of those refused. It needs shape data in the deck file and a compositing step on the device, so it is a real piece of work rather than a rule.
+5. **A template renderer.** The biggest, and the one to be most careful about: the value is not in reproducing a stylesheet but in letting a deck say *which of a few layouts* it wants.
+
+Arabic and Hebrew are not on that list, and should not be until someone wants
+them enough to write a bidi pass. A right-to-left script drawn left to right
+is not a degraded card, it is a wrong one.
 
 SM-2 is deliberately not on that list. A second scheduler is not the fix for a
 collection that has FSRS off; turning FSRS on is, and Anki agrees.

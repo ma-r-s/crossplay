@@ -35,6 +35,7 @@ import sys
 import unicodedata
 
 import fsrs
+import scripts
 
 DECK_MAGIC = b"XSTUDYD\0"
 META_MAGIC = b"XSTUDYM\0"
@@ -377,17 +378,20 @@ def render_cloze(raw, ordinal):
     if not found:
         return None
 
-    question = clean("".join(question_parts))
-    answer = clean("".join(answer_parts))
+    question, _q_visible = rubyify(clean("".join(question_parts)), "clozeQuestion")
+    answer, visible = rubyify(clean("".join(answer_parts)), "sentence")
     if not question or not answer:
         return None
 
-    before = clean(prefix_raw)
-    target = clean(target_raw)
-    offset = answer.find(target, max(0, len(before) - 2)) if target else -1
+    # Measured over the text without its readings, which is what the device
+    # counts: a Japanese cloze card whose span was counted over the encoded
+    # form would underline however many kana earlier than the hole.
+    before = scripts.ruby_base(clean(prefix_raw))
+    target = scripts.ruby_base(clean(target_raw))
+    offset = visible.find(target, max(0, len(before) - 2)) if target else -1
     if offset < 0 or not target:
         return question, answer, 0, 0
-    return question, answer, len(answer[:offset]), len(target)
+    return question, answer, len(visible[:offset]), len(target)
 BOLD_RE = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
 SOUND_RE = re.compile(r"\[sound:[^\]]*\]")
@@ -447,6 +451,41 @@ def clean(text):
     return "\n".join(line for line in lines if line)
 
 
+# Where furigana goes, per slot.
+#
+# The device draws a reading above its base only in the two faces that have a
+# ruby cut beside them -- the headword and the sentence. Everything else is
+# drawn in the built-in serif, which has no CJK at all, so a reading there
+# would be boxes above boxes.
+#
+# The reading slots get Anki's {{kana:}}: the readings alone. That is what an
+# Anki Japanese template shows on the back, and it is the difference between
+# a reading line saying "わたしはがくせいです" and one saying
+# "私[わたし]は 学生[がくせい]です", which is not a reading, it is source.
+RUBY_ENCODED_SLOTS = {"headword", "sentence", "clozeQuestion"}
+RUBY_KANA_SLOTS = {"reading", "sentenceReading"}
+
+
+def rubyify(text, slot):
+    """Apply this slot's furigana rule. Returns (stored, visible).
+
+    `visible` is what a reader sees and what the device counts codepoints
+    over, which is what every emphasis span has to be measured against: the
+    stored form carries the readings and the markers, and an offset counted
+    over those would underline the wrong word by however many kana came
+    before it.
+    """
+    if not scripts.has_ruby(text):
+        return text, text
+    if slot in RUBY_ENCODED_SLOTS:
+        return scripts.ruby_encode(text), scripts.ruby_base(text)
+    if slot in RUBY_KANA_SLOTS:
+        kana = scripts.ruby_reading(text)
+        return kana, kana
+    base = scripts.ruby_base(text)
+    return base, base
+
+
 def clean_sentence(raw):
     """Clean an example sentence and locate the emphasised target word.
 
@@ -456,17 +495,21 @@ def clean_sentence(raw):
     """
     match = BOLD_RE.search(raw)
     if not match:
-        return clean(raw), 0, 0
-    before = clean(raw[: match.start()])
-    target = clean(match.group(1))
-    full = clean(BOLD_RE.sub(r"\1", raw))
+        stored, _visible = rubyify(clean(raw), "sentence")
+        return stored, 0, 0
+    before = scripts.ruby_base(clean(raw[: match.start()]))
+    target = scripts.ruby_base(clean(match.group(1)))
+    cleaned = clean(BOLD_RE.sub(r"\1", raw))
+    stored, full = rubyify(cleaned, "sentence")
     # Locate the cleaned target inside the cleaned whole, rather than trusting
     # the offset from the raw string: stripping tags moves everything.
     offset = full.find(target, max(0, len(before) - 2)) if target else -1
     if offset < 0 or not target:
-        return full, 0, 0
-    # Codepoints, not bytes -- that is what the renderer counts.
-    return full, len(full[:offset]), len(target)
+        return stored, 0, 0
+    # Codepoints, not bytes -- that is what the renderer counts -- and counted
+    # over `full`, the text without its readings, because that is what the
+    # renderer counts too.
+    return stored, len(full[:offset]), len(target)
 
 
 def parse_deck_config(blob):
@@ -761,6 +804,9 @@ def collect_notes(db, deck_name, limit=None, override=None):
                 parts, cloze_index, names_in_order.get(nt_name, [])
             )
             extra = clean(parts[extra_index]) if extra_index >= 0 else ""
+            # The extra is drawn in the built-in serif, which has no CJK, so a
+            # reading there would be boxes above boxes.
+            extra, _visible = rubyify(extra, "meaning")
             if nt_name not in announced:
                 announced.add(nt_name)
                 field_names = names_in_order.get(nt_name, [])
@@ -844,11 +890,36 @@ def collect_notes(db, deck_name, limit=None, override=None):
             idx = by_ord.get(name, -1) if name else -1
             return parts[idx] if 0 <= idx < len(parts) else ""
 
-        headword = clean(get("headword"))
+        def slot(key):
+            """One slot's text, cleaned and with this slot's furigana rule."""
+            stored, _visible = rubyify(clean(get(key)), key)
+            return stored
+
+        sentence, bold_off, bold_len = clean_sentence(get("sentence"))
+        headword = slot("headword")
         if not headword:
             skipped += 1
             continue
-        sentence, bold_off, bold_len = clean_sentence(get("sentence"))
+        # Where a Japanese deck actually keeps its furigana.
+        #
+        # The Japanese Support add-on writes Expression as plain kanji and
+        # Reading as the SAME WORDS with the readings attached -- 学生 and
+        # " 学生[がくせい]" -- and Anki's own card template draws the second
+        # one, through {{furigana:}}. Take the same route: when the reading
+        # field is the headword with readings on it, the headword becomes the
+        # ruby form. Without this the most common Japanese note type in
+        # existence converts with no furigana anywhere, because the field the
+        # furigana is in is not one the device draws ruby in.
+        raw_reading = clean(get("reading"))
+        if scripts.has_ruby(raw_reading) and scripts.ruby_base(raw_reading) == headword:
+            headword = scripts.ruby_encode(raw_reading)
+        raw_sentence_reading = clean(get("sentenceReading"))
+        sentence_visible = scripts.visible_text(sentence)
+        if (
+            scripts.has_ruby(raw_sentence_reading)
+            and scripts.ruby_base(raw_sentence_reading) == sentence_visible
+        ):
+            sentence = scripts.ruby_encode(raw_sentence_reading)
 
         notes.append(
             make_note(
@@ -856,12 +927,12 @@ def collect_notes(db, deck_name, limit=None, override=None):
                 nt_name,
                 [
                     headword,
-                    clean(get("reading")),
-                    clean(get("meaning")),
-                    clean(get("partOfSpeech")),
+                    slot("reading"),
+                    slot("meaning"),
+                    slot("partOfSpeech"),
                     sentence,
-                    clean(get("sentenceReading")),
-                    clean(get("sentenceMeaning")),
+                    slot("sentenceReading"),
+                    slot("sentenceMeaning"),
                     "",  # clozeQuestion: empty is what makes this a vocabulary card
                 ],
                 (bold_off, bold_len),
@@ -1147,11 +1218,6 @@ def write_meta(path, name, config, crt, rollover, flags=0):
         f.write(encoded)
 
 
-def is_cjk(ch):
-    o = ord(ch)
-    return 0x2E80 <= o <= 0x9FFF or 0xF900 <= o <= 0xFAFF or 0xFF00 <= o <= 0xFFEF
-
-
 def write_glyphs(notes, out_dir):
     """Write the codepoint sets the font pipeline subsets against.
 
@@ -1167,21 +1233,36 @@ def write_glyphs(notes, out_dir):
     to the hanzi, and the pinyin needs tone-marked vowels that four of the five
     CJK faces do not carry at all.
     """
-    headword, sentence, latin = set(), set(), set()
+    headword, sentence, latin, ruby = set(), set(), set(), set()
     for note in notes:
         for i, text in enumerate(note["fields"]):
-            for ch in text:
-                # The newline is a hard break, not a character to draw.
-                # Asking the font pipeline to subset a glyph for it produces a
-                # box on every card that has one.
-                if ch < " ":
-                    continue
-                if not is_cjk(ch):
-                    latin.add(ch)
-                elif i == 0:
-                    headword.add(ch)
-                else:
-                    sentence.add(ch)
+            # A field may carry furigana, and a reading is drawn at the ruby
+            # size rather than at the size of the text under it. Splitting
+            # them here is what keeps the ruby cut to the hundred-odd kana a
+            # deck actually reads with, instead of the whole sentence set at
+            # a third size.
+            for base, reading in scripts.decode_ruby(text):
+                for ch in reading:
+                    if ch >= " ":
+                        ruby.add(ch)
+                for ch in base:
+                    # The newline is a hard break, not a character to draw.
+                    # Asking the font pipeline to subset a glyph for it
+                    # produces a box on every card that has one.
+                    if ch < " ":
+                        continue
+                    # "Does the deck have to ship a face for this", not "is it
+                    # CJK". Hangul is the character that made the difference:
+                    # it is not CJK by any definition, the built-in serif
+                    # cannot draw it either, and calling it Latin sent every
+                    # Korean deck to a face with 1070 glyphs and no Hangul in
+                    # them.
+                    if scripts.script_of(ch) == "latin":
+                        latin.add(ch)
+                    elif i == 0:
+                        headword.add(ch)
+                    else:
+                        sentence.add(ch)
     # A headword character also has to render at sentence size, because the
     # word appears inside its own example sentence.
     sentence |= headword
@@ -1198,6 +1279,11 @@ def write_glyphs(notes, out_dir):
         ("headword", headword),
         ("sentence", sentence),
         ("latin", latin),
+        # Written even when empty: make_fonts.py reads the file to decide
+        # whether this deck needs a ruby cut at all, and "the file is not
+        # there" and "this deck has no furigana" would otherwise look the
+        # same as "this deck was converted by an older tool".
+        ("ruby", ruby),
     ):
         path = out_dir / f"glyphs-{name}.txt"
         path.write_text("".join(sorted(chars)), encoding="utf-8")
@@ -1330,9 +1416,28 @@ def main():
             f" ({MAX_NOTE_BYTES} bytes); the tail is marked with an ellipsis"
         )
     print(f"  state     {len(notes) * CARD_RECORD_SIZE / 1024:.0f} KB")
+    ruby_note = f", {glyphs['ruby']} ruby" if glyphs["ruby"] else ""
     print(
-        f"  glyphs    {glyphs['headword']} headword, {glyphs['sentence']} sentence, {glyphs['latin']} latin"
+        f"  glyphs    {glyphs['headword']} headword, {glyphs['sentence']} sentence,"
+        f" {glyphs['latin']} latin{ruby_note}"
     )
+    # Which faces this deck needs, said in the converter's own voice, because
+    # the answer decides what make_fonts.py has to build -- and because a
+    # script this app cannot draw should be named here rather than discovered
+    # as a screen of empty boxes.
+    used = scripts.scripts_in(t for n in notes for t in n["fields"])
+    named = sorted(used & scripts.SUPPORTED)
+    print(f"  scripts   {', '.join(named) if named else 'latin'}")
+    unsupported = used - scripts.SUPPORTED
+    if unsupported:
+        print(
+            "  WARNING: this deck also uses a script the reader has no face"
+            " for, so those characters"
+        )
+        print(
+            "           will not be drawn at all. Supported:"
+            f" {', '.join(sorted(scripts.SUPPORTED))}."
+        )
     if config.get("params"):
         print(
             f"  FSRS      {len(config['params'])} parameters, retention {config.get('desiredRetention', 0.9):.2f}"

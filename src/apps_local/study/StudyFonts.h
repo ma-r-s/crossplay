@@ -77,10 +77,18 @@ class StudyFonts {
   // Pull this card's glyphs off the SD card before drawing them. Without this
   // every glyph is fetched during the draw, one seek at a time.
   void prewarm(GfxRenderer& renderer, const char* headword, const char* sentence) const;
+  // The readings on this card, which live in a different cut from the text
+  // under them and so need a pass of their own.
+  void prewarmRuby(GfxRenderer& renderer, const char* text) const;
 
   bool loaded() const { return headwordFontId_ != 0 && sentenceFontId_ != 0; }
   int headwordFontId() const { return headwordFontId_; }
   int sentenceFontId() const { return sentenceFontId_; }
+  // Zero when this deck has no furigana, which is every deck that is not
+  // Japanese. drawWrappedMarked takes that as "there is nowhere to put a
+  // reading" and draws the base alone, so a deck whose fonts predate this cut
+  // loses its readings rather than its sentences.
+  int rubyFontId() const { return rubyFontId_; }
   int familyIndex() const { return familyIndex_; }
   const char* familyName() const { return familyName(familyIndex_); }
 
@@ -88,6 +96,7 @@ class StudyFonts {
   SdCardFontManager manager_;
   int headwordFontId_ = 0;
   int sentenceFontId_ = 0;
+  int rubyFontId_ = 0;
   int familyIndex_ = -1;
   int present_[kFamilyCount] = {};
   int presentCount_ = 0;
@@ -99,5 +108,14 @@ class StudyFonts {
 // and 17 is a ~40px one. Changing either means rebuilding every face.
 inline constexpr uint8_t kHeadwordPointSize = 50;
 inline constexpr uint8_t kSentencePointSize = 17;
+// Furigana: the reading printed above the text it reads. Roughly the
+// half-size ratio Japanese typesetting uses for ruby, which at the
+// converter's 2.38x lands near 24px -- small enough to sit above a 40px line,
+// large enough that four kana stay legible on e-ink.
+//
+// OPTIONAL, unlike the other two. Only a deck with furigana in it has this
+// cut built, so a Chinese or English deck pays neither the file nor the
+// interval table it would hold resident.
+inline constexpr uint8_t kRubyPointSize = 10;
 
 }  // namespace study

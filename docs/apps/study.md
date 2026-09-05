@@ -93,11 +93,33 @@ them:
   face: a hole belongs in the sentence it was cut from, and a paragraph at
   headword size fits about four words on the screen.
 
-The supported scripts are English (anything the built-in Latin face covers)
-and Chinese. Other scripts -- Korean, Arabic, Cyrillic and the rest -- are out
-of scope: nothing stops the converter, but nobody has made the fonts or the
-text layout right for them, and setup will warn about every character the
-built-in face cannot draw rather than pretend.
+### Which scripts work
+
+**English, Chinese, Japanese and Korean.**
+
+- **Chinese** needs the CJK faces from your Anki media folder (below), or any
+  TTF via `--font`.
+- **Japanese** works the same way, with one addition: **furigana is drawn as
+  ruby**, the reading set above the word in a smaller cut of the same face.
+  Anki's ` 漢字[かんじ]` syntax is understood wherever it appears, and the
+  Japanese Support add-on's Expression / Reading / Meaning note type is
+  handled as Anki's own template handles it -- the furigana lives in the
+  Reading field, and that is the form the headword is drawn from. Slots drawn
+  in the built-in serif get the readings alone or the kanji alone, exactly as
+  `{{kana:}}` and `{{kanji:}}` would.
+- **Korean** needs a Korean TTF via `--font`. (Hangul used to be treated as
+  Latin, which sent it to the built-in face -- 1070 glyphs and no Hangul -- so
+  a Korean deck converted with no error and no readable card. Fixed.)
+
+Arabic and Hebrew are out of scope for a reason worth stating: they need
+bidirectional layout and contextual shaping, and the renderer has neither. A
+right-to-left script drawn left to right is not a degraded card, it is a wrong
+one. Cyrillic, Greek, Devanagari and Thai are simply not done. Setup names any
+script it cannot draw rather than letting it arrive as a screen of nothing.
+
+Line breaking follows the script: between characters for Chinese and
+Japanese, with the leading half of kinsoku (a line never opens with 。 or a
+closing bracket), and at spaces for Korean and English.
 
 Scheduling state comes along: a card due in 21 days in Anki is due in 21 days
 on the reader, with the same stability and difficulty. New decks start fresh,
@@ -105,7 +127,7 @@ exactly as they would in Anki.
 
 ### Fonts
 
-- **A Chinese deck** needs real CJK faces. The converter builds
+- **A Chinese or Japanese deck** needs real CJK faces. The converter builds
   them from the TTFs in your Anki media folder -- `_simsun.ttf`, `_simhei.ttf`,
   `_msyahei.ttf`, `_kaiti.ttf`, `_fangsong.ttf` -- and the reader randomises
   the typeface per card, which stops you learning the shape of one font instead
@@ -123,6 +145,12 @@ exactly as they would in Anki.
   The size is fitted to the deck: the face is built as large as the longest
   word allows, so an English deck's `incontrovertible` fits where a Chinese
   deck's four characters would.
+
+- **A deck with furigana** gets a third, smaller cut of the same face, built
+  from the readings alone -- about a hundred kana, not the deck's whole
+  character set at a third size. Only a deck that has furigana in it pays for
+  this. A card whose fonts predate the ruby cut draws the base text and loses
+  the reading, rather than losing the sentence.
 
 - A card whose text the installed fonts cannot draw falls back to the built-in
   face on its own, per card. A wrong font install can look plain; it cannot
@@ -193,6 +221,8 @@ export.
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | "No deck on the card yet" on the reader  | The card has no converted deck. Run `study.py setup`.                                                                                           |
 | A headword draws in the small plain face | The installed fonts cannot draw that card, so it fell back. Re-run `setup` (it rebuilds fonts that no longer cover the deck), or pass `--font`. |
+| Japanese readings appear beside the word, not above it | The deck has no ruby cut. Re-run `setup`, or `make_fonts.py`, after a conversion that reported a `ruby` glyph count. |
+| Korean draws as blank | An older card, converted before Hangul was classified correctly. Re-run `setup`; the fonts are rebuilt with the `hangul` interval. |
 | `no convertible cards` during setup      | A note type whose first field is empty, or a deck whose cloze cards are all empty ones. Use `--map` to name the right fields.                   |
 | Sync says Anki is running                | Quit Anki and re-run. `--force` exists but means two writers.                                                                                   |
 | Word and meaning came out swapped        | The converter guessed fields by order. Re-run setup with `--map headword=... --map meaning=...`.                                                |
