@@ -91,7 +91,14 @@ show them all again.
 
 `python3 tools_local/trivia/collect_flags.py <card>/trivia/pack.dat --apply`
 turns the flags and their reasons into `verdicts.tsv` lines, which the next pack
-build applies. That tool is new with #257: `docs/trivia-curation.md` used to
+build applies.
+
+**Not every reason is a deletion.** `bad` removes the question, and three
+reasons do not ask for that: TOO EASY and TOO HARD move a level, and THIS IS A
+US QUESTION sets bit 7 of a difficulty byte. Those are written with the verdict
+`repair`, which no builder applies and which a person acts on -- emitting them
+as `bad` would delete a good question for a one-byte defect. A report with no
+reason at all is still a removal, which is the point of allowing one. That tool is new with #257: `docs/trivia-curation.md` used to
 describe a `flags.txt` that nothing ever wrote, nothing read a card, and
 `verdicts.tsv` had accumulated exactly one verdict in its lifetime.
 
@@ -114,8 +121,20 @@ resolvable. The endpoint is `/api/trivia` on the site; `site/api/trivia.js`
 describes what it does and does not learn about the reader.
 
 Then it fetches `pack.json` from the same release as `pack.dat` and says what it
-found -- `UP TO DATE`, or a `NEWER PACK` notice naming the size **before**
-spending it. Before this, `ActionGetPack` was reachable only from the empty-card
+found -- `UP TO DATE`, a `NEWER PACK` notice naming the size **before** spending
+it, or `DIFFERENT PACK` when this card's own build is unknown. Those last two
+are deliberately not the same sentence: "a newer pack is ready" is a claim the
+device cannot make about a build it cannot name, and while they shared a branch
+SYNC offered a download that changed nothing and left the build unknown
+afterwards, forever.
+
+**Sync is also what turns reporting on.** If the card holds a pack whose build
+it does not know, and the published manifest describes exactly that pack -- same
+question count, same byte size -- the id is adopted and `pack.meta` written.
+That is the only path by which a device that already had a pack starts queueing
+reports; it is also why nothing is adopted when the sizes disagree, since an id
+the card does not actually hold would resolve every later report through the
+wrong build's index map. Before this, `ActionGetPack` was reachable only from the empty-card
 and failure notices, so a device that already held a pack could never receive a
 newer one at all.
 
