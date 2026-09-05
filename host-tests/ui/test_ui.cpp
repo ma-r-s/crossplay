@@ -9373,6 +9373,107 @@ void testWavelengthNoSessionScoreButtonIsHonest() {
   if (off && on) CHECK(off->rect.y == on->rect.y && off->rect.height == on->rect.height);
 }
 
+// Icons earn their place only if they cost no text. Every mark this game draws
+// sits in an empty margin; this renders the icon-bearing screens (at whatever
+// WL_ICONS level is compiled) and asserts no icon bitmap lands on a text run's
+// ink. It fails loudly on the exact mistake a first megaphone made -- an icon in
+// the margin left of a centred title, merged into its first letters.
+void testWavelengthIconsClearOfText() {
+  const auto inkOf = [](const FakeTarget::TextRun& run) {
+    const int16_t measured = static_cast<int16_t>(run.text.size() * 10);
+    const int16_t w = measured < run.rect.width ? measured : run.rect.width;
+    int16_t x = run.rect.x;
+    if (run.style.align == fui::TextAlign::Right)
+      x = static_cast<int16_t>(run.rect.x + run.rect.width - w);
+    else if (run.style.align == fui::TextAlign::Center)
+      x = static_cast<int16_t>(run.rect.x + (run.rect.width - w) / 2);
+    return fui::Rect{x, run.rect.y, w, run.rect.height};
+  };
+  const auto overlaps = [](const fui::Rect& a, const fui::Rect& b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  };
+  struct Case {
+    const char* name;
+    void (*build)(Rendered&);
+  };
+  static const Case kCases[] = {
+      {"menu, session",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::MenuModel m;
+         m.sessionInProgress = true;
+         m.sessionRound = 7;
+         m.sessionTotal = 8;
+         m.sessionScored = 5;
+         wavelengthui::renderMenu(screen, m);
+       }},
+      {"pass",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PassModel m;
+         m.roundNumber = 3;
+         m.total = 8;
+         wavelengthui::renderPassLeft(screen, m);
+       }},
+      {"peek, not revealed",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PeekModel m;
+         m.spectrum = wavelengthui::Spectrum{"FLEXIBLE", "INFLEXIBLE"};
+         m.target = 12;
+         wavelengthui::renderPeek(screen, m);
+       }},
+      {"reveal, wide verdict",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 1;
+         m.target = 18;  // miss 17 -> "SEVENTEEN OFF", the deck's widest verdict
+         m.roundNumber = 5;
+         m.total = 12;
+         wavelengthui::renderReveal(screen, m);
+       }},
+      {"summary",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::SummaryModel m;
+         m.rounds = 7;
+         m.total = 19;
+         m.averageTenths = 27;
+         m.nextRound = 8;
+         wavelengthui::renderSummary(screen, m);
+       }},
+  };
+  for (const Case& c : kCases) {
+    Rendered out;
+    c.build(out);
+    for (const FakeTarget::Blit& b : out.target.blits) {
+      for (const FakeTarget::TextRun& t : out.target.texts) {
+        if (!overlaps(b.rect, inkOf(t))) continue;
+        std::printf("  %s: an icon at (%d,%d %dx%d) lands on \"%s\"\n", c.name, b.rect.x, b.rect.y, b.rect.width,
+                    b.rect.height, t.text.c_str());
+        CHECK(false);
+      }
+    }
+  }
+}
+
 int main() {
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
@@ -9567,6 +9668,7 @@ int main() {
   testWavelengthEverySlotIsTappable();
   testWavelengthLayoutIsDerivedNotAbsolute();
   testWavelengthNoSessionScoreButtonIsHonest();
+  testWavelengthIconsClearOfText();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 
   testInkCentredPutsTheInkInTheMiddleOfAnyBox();
