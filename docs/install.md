@@ -51,6 +51,11 @@ that exact filename, so do not rename it.
 updater: that would be writing a bootloader into a slot meant for the
 application.
 
+**Do not follow the install steps on the v1.0.0 or v1.0.1 release pages.** Those
+two releases published the application image alone and told you to write it to
+`0x0`, which on an ESP32-S3 is where the second-stage bootloader lives. Every
+release since publishes a `-full.bin`, and the steps above are the current ones.
+
 **A device first installed before v1.5.3 has smaller firmware slots, and may
 refuse the update.** The partition table is written by a USB flash and never by
 an update over the air, so those devices keep 6.25MB slots for life while newer

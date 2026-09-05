@@ -218,5 +218,80 @@ else
   fi
 fi
 
+# -- the packaging change must say what is new -------------------------------
+#
+# scripts_local/device-build-needed.sh calls
+# .github/workflows/crossplay-release.yml `quiet`: it cuts a release, and it
+# cannot describe itself in a player's words, so release_notes.py gives it a
+# bullet only when the pull request wrote one. Without this step the page goes
+# silent about a packaging fix -- and PR #42's packaging fix is the reason
+# somebody's install works at all.
+#
+# EXECUTED, not grepped, for the reason at the top of this file: four greps for
+# a step's ingredients once passed a version of it ending in `&& false`.
+STEP="$(python3 - "$YML" <<'LIFT'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+try:
+    i = next(i for i, l in enumerate(lines)
+             if l.strip() == "- name: A change to what the release publishes must say what is new")
+except StopIteration:
+    sys.exit(0)
+j = next(k for k in range(i, len(lines)) if lines[k].strip() == "run: |")
+out = []
+for l in lines[j + 1:]:
+    if l.strip() and not l.startswith(" " * 10):
+        break
+    out.append(l[10:] if l.startswith(" " * 10) else "")
+print("\n".join(out))
+LIFT
+)"
+if [ -z "$STEP" ]; then
+  checks=$((checks + 1)); failed=$((failed + 1))
+  echo "FAIL ci  crossplay-ci.yml has no step asking a packaging change to say what is new; a release-workflow fix would reach the page as its own title or not at all"
+else
+  # A repository where the change DOES touch the publishing workflow, so the
+  # step gets past its own early exit and actually judges the body.
+  PKG="$WORK/pkg"; mkdir -p "$PKG/.github/workflows"
+  ( cd "$PKG" \
+    && git init -q -b xteink && git config user.email t@t && git config user.name t \
+    && echo x > seed.txt && git add -A && git commit -qm base \
+    && git checkout -qb pr && echo y >> .github/workflows/crossplay-release.yml \
+    && git add -A && git commit -qm "ci: publish the merged image" ) >/dev/null 2>&1
+  ( cd "$PKG" && git remote add origin "$PKG" && git fetch -q origin 2>/dev/null ) >/dev/null 2>&1
+
+  step_says() {  # <body>  -> 0 when the step is satisfied
+    ( cd "$PKG" && PR_BODY="$1" BASE=xteink bash -c "$STEP" ) >/dev/null 2>&1
+  }
+  if step_says "What is new: installs that failed part-way now work."; then
+    checks=$((checks + 1))
+  else
+    checks=$((checks + 1)); failed=$((failed + 1))
+    echo "FAIL ci  the step rejects a pull request that DID write a What is new line"
+  fi
+  # The half a grep cannot see.
+  if step_says "Just a refactor, nothing to say."; then
+    checks=$((checks + 1)); failed=$((failed + 1))
+    echo "FAIL ci  the step ACCEPTS a packaging change with no What is new line; the release page would be silent about it"
+  else
+    checks=$((checks + 1))
+  fi
+  # And it must not fire on a change that publishes nothing, or every pull
+  # request in the repository needs release prose.
+  OTHER="$WORK/other"; mkdir -p "$OTHER"
+  ( cd "$OTHER" \
+    && git init -q -b xteink && git config user.email t@t && git config user.name t \
+    && echo x > seed.txt && git add -A && git commit -qm base \
+    && git checkout -qb pr && mkdir -p src && echo 'int x;' > src/x.cpp \
+    && git add -A && git commit -qm "fix: a game" \
+    && git remote add origin "$OTHER" && git fetch -q origin ) >/dev/null 2>&1
+  if ( cd "$OTHER" && PR_BODY="nothing here" BASE=xteink bash -c "$STEP" ) >/dev/null 2>&1; then
+    checks=$((checks + 1))
+  else
+    checks=$((checks + 1)); failed=$((failed + 1))
+    echo "FAIL ci  the step demands release prose from a pull request that publishes nothing"
+  fi
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

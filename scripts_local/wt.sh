@@ -174,7 +174,27 @@ cmd_prune() {
     [ -n "$branch" ] || { kept=$((kept + 1)); continue; }
     dirty="$(git -C "$d" status --porcelain --ignore-submodules=untracked 2>/dev/null | grep -c '' | tr -d ' ')"
     unmerged="$(git -C "$INTEGRATION" rev-list --count origin/xteink.."$branch" 2>/dev/null || echo 1)"
-    if [ "$dirty" != "0" ] || [ "$unmerged" != "0" ] || pgrep -f "^$d/.pio/build/simulator_x4_pro/program" >/dev/null 2>&1; then
+    # A tree in ACTIVE USE can be clean and merged at the same time, and
+    # dropping it destroys work that was never going to be committed.
+    #
+    # 2026-09-04: a user-test session lost wt/usertest and wt/usertest2
+    # mid-run, twice, taking their screenshots with them. A QA or review tree
+    # never commits anything -- reading, building and screenshotting is the
+    # whole job -- so it is clean by definition and merged by definition, and
+    # every one of the three tests above says "safe to delete" while somebody
+    # is working in it. The simulator check only covers the seconds a shot is
+    # actually being taken.
+    #
+    # So: recent write activity keeps a tree. Cheap, and it needs nothing from
+    # the board -- a tree nobody has touched in two hours is abandoned, and one
+    # written to since then is not. .git and .pio are excluded because a fetch
+    # or a build cache touches them without anyone being there.
+    local touched
+    touched="$(find "$d" -mindepth 1 -maxdepth 3 \
+                 -not -path "$d/.git/*" -not -path "$d/.git" \
+                 -not -path "$d/.pio/*" -not -path "$d/.pio" \
+                 -newermt '-120 minutes' -print -quit 2>/dev/null)"
+    if [ "$dirty" != "0" ] || [ "$unmerged" != "0" ] || [ -n "$touched" ] || pgrep -f "^$d/.pio/build/simulator_x4_pro/program" >/dev/null 2>&1; then
       kept=$((kept + 1)); continue
     fi
     if [ "$dry" = 1 ]; then

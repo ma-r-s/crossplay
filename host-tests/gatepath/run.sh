@@ -9,6 +9,15 @@
 # rule against the next person adding a top-level directory that feeds the
 # image.
 #
+# It also owns the OTHER column of the same table, `ships` (--ships), read by
+# release-needed.sh and release_notes.py. The two columns have opposite risk
+# profiles -- a wrong "build" costs runner minutes, a wrong "release" puts an
+# update prompt on every device in the field -- and for a day they shared one
+# predicate whose unknown-path default was live. That released v1.12.21 for a
+# `.gitignore` edit. The "two columns, one table" block near the end is the
+# assertion that they cannot be collapsed back into one: it names paths whose
+# two answers DIFFER, in both directions.
+#
 #   host-tests/gatepath/run.sh
 set -uo pipefail
 
@@ -38,6 +47,15 @@ echo x > site/index.html; echo x > scripts/build_html.py; echo x > platformio.in
 echo x > scripts_local/require_build_lock.py; echo x > scripts_local/check.sh
 echo x > scripts_local/README.md; echo x > nix/flake.nix; echo x > requirements.txt
 echo x > .gitignore; echo x > .github/workflows/ci.yml
+# The rows the ships column is asserted on below. Without files at these paths
+# the fixture cannot exercise them, and four rows sat with no assertion at all
+# -- a partition-table change or an SDK pointer bump could have stopped cutting
+# a release and every suite would have stayed green.
+mkdir -p assets_local test playground-submission
+echo x > partitions.csv; echo x > .gitmodules
+echo x > assets_local/base.svg; echo x > test/CMakeLists.txt
+echo x > playground-submission/logo.svg  # NOT .md: *.md matches first and the row would never be reached
+echo x > sim-stubs-marker; rm -f sim-stubs-marker; mkdir -p sim-stubs; echo x > sim-stubs/nvs.h
 q git add -A; q git commit -m base
 q git push -u origin xteink
 
@@ -373,6 +391,160 @@ loop "an unrecognised top-level directory" yes "1"
 
 reset_tree; echo edit >> scripts_local/check.sh; q git add -A; q git commit -m sl
 loop "scripts_local/check.sh -- the gate cannot skip its own builds" yes "1"
+
+echo
+echo "two columns, one table (--ships)"
+# Every case here is a path whose two answers differ, or the refusal. A path
+# that builds and ships, or neither, cannot tell the columns apart.
+ships() {  # label, expect yes|no|refuse
+  local label="$1" expect="$2" out rc
+  out="$(env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --ships 2>&1)"; rc=$?
+  case "$expect" in
+    yes)    [ "$rc" -eq 0 ] && ok "$label -> reaches a user" || bad "$label -> said no, must not ($out)" ;;
+    no)     [ "$rc" -eq 1 ] && ok "$label -> reaches nobody" || bad "$label -> would release, expected no (rc=$rc: $out)" ;;
+    quiet)  [ "$rc" -eq 3 ] && ok "$label -> quiet: cuts a release, earns no line by itself" \
+                            || bad "$label -> answered $rc, expected quiet ($out)" ;;
+    refuse) if [ "$rc" -eq 2 ]; then
+              case "$out" in *"$3"*) ok "$label -> refuses, naming $3" ;;
+                             *) bad "$label -> refused without naming $3 ($out)" ;; esac
+            else
+              bad "$label -> answered $rc instead of refusing ($out)"
+            fi ;;
+  esac
+}
+
+# THE ONE THAT CUT v1.12.21. Both columns, on the same commit, in that order --
+# a single check on either column alone is what the old shape was.
+reset_tree; echo edit >> .gitignore; q git add -A; q git commit -m gi2
+needed ".gitignore" yes
+ships  ".gitignore" no
+# The workspace's own machinery: runs inside the build, ships nothing.
+reset_tree; echo edit >> scripts_local/require_build_lock.py; q git add -A; q git commit -m sl2
+needed "scripts_local/ (a pre: extra_script)" yes
+ships  "scripts_local/ (a pre: extra_script)" no
+reset_tree; echo edit >> nix/flake.nix; q git add -A; q git commit -m nx2
+needed "nix/" yes
+ships  "nix/" no
+# And the direction that is card #190: no local device build can see this file,
+# and it decides what a person downloads.
+reset_tree; echo edit >> .github/workflows/crossplay-release.yml; q git add -A; q git commit -m rel
+needed "crossplay-release.yml (CI's build, not the local four)" no
+# QUIET, not yes, and the difference is the second half of card #190's fix. It
+# cuts a release -- the assets really are packaged differently -- but nothing
+# in a build workflow describes itself in a player's words, so it earns a line
+# only when its pull request wrote one. Answering `yes` here is what put
+# "build both devices in one pio run, and stop misdescribing why" on a page
+# written for players.
+ships  "crossplay-release.yml (it publishes the assets)" quiet
+
+# ...and `yes` OUTRANKS quiet when both are in one change. `sort -u` puts
+# .github before src, so a scan that returned on its first shipping path would
+# call a firmware landing quiet purely because of filename order.
+reset_tree
+echo edit >> .github/workflows/crossplay-release.yml; echo edit >> src/main.cpp
+q git add -A; q git commit -m relsrc
+ships  "the publishing workflow AND a src/ change" yes
+# Its neighbours in the same directory must not come with it, or the fix is
+# "add .github wholesale" and every CI tweak cuts a release.
+reset_tree; echo edit >> .github/workflows/ci.yml; q git add -A; q git commit -m gh2
+ships  ".github/workflows/ci.yml (verifies, publishes nothing)" no
+reset_tree; mkdir -p .github/workflows; echo x >> .github/workflows/crossplay-autorelease.yml
+q git add -A; q git commit -m ar
+ships  "crossplay-autorelease.yml (decides WHEN, never what)" no
+# The website deploys continuously and is not part of a release.
+reset_tree; echo edit >> site/index.html; q git add -A; q git commit -m si
+ships  "site/" no
+# The obvious yes, so the column is not simply "no" to everything.
+reset_tree; echo edit >> src/main.cpp; q git add -A; q git commit -m sc
+ships  "src/" yes
+
+# THE ROWS THAT HAD NO SHIPS ASSERTION AT ALL. Each of these mutants -- flip
+# the row's ships value -- survived every suite in the workspace, and the first
+# two are the dangerous ones: a partition table or an SDK pointer that silently
+# stopped cutting a release is invisible until somebody's device never offers
+# the update. Asserted here rather than trusted to the `builds` cases above,
+# which pass whatever the second column says.
+reset_tree; echo edit >> partitions.csv; q git add -A; q git commit -m pc
+ships  "partitions.csv (it is flashed at 0x8000)" yes
+reset_tree; echo edit >> platformio.ini; q git add -A; q git commit -m pi
+ships  "platformio.ini (envs, flags and the version)" yes
+reset_tree; echo edit >> freeink-sdk; q git add -A; q git commit -m sdkp
+ships  "the freeink-sdk pointer" yes
+reset_tree; echo edit >> .gitmodules; q git add -A; q git commit -m gm
+ships  ".gitmodules (it names which SDK a checkout gets)" yes
+
+# And the four that must NOT ship, for the same reason in reverse: a row
+# flipped to yes here cuts a release for an avatar SVG or a host unit test.
+reset_tree; echo edit >> assets_local/base.svg; q git add -A; q git commit -m al
+ships  "assets_local/ (no build reads it)" no
+reset_tree; echo edit >> sim-stubs/nvs.h; q git add -A; q git commit -m ss
+ships  "sim-stubs/ (the simulator env's include path only)" no
+reset_tree; echo edit >> test/CMakeLists.txt; q git add -A; q git commit -m tst
+ships  "test/ (reached by pio run -t unit-tests)" no
+reset_tree; echo edit >> playground-submission/logo.svg; q git add -A; q git commit -m ps
+ships  "playground-submission/ (a non-.md file, or *.md answers first)" no
+
+# THE REFUSAL. Not a default in either direction: the build runs (never skip
+# verification) and the release question declines and names the path.
+reset_tree; mkdir -p unheard; echo x > unheard/x.c; q git add -A; q git commit -m uh
+needed "an unclassified path (builds, loudly)" yes
+ships  "an unclassified path" refuse "unheard/x.c"
+# And it refuses even when something else in the same change plainly ships. A
+# "does anything ship?" loop that returns yes on the first match would answer
+# before it ever saw the unclassified path, and the row would never get added.
+reset_tree; mkdir -p unheard; echo x > unheard/x.c; echo edit >> src/main.cpp
+q git add -A; q git commit -m uh2
+ships  "an unclassified path beside a src/ change" refuse "unheard/x.c"
+
+# CHECK_BUILD_RELEASE_ENVS is about a build and must not answer this.
+reset_tree; echo edit >> docs/a.md; q git add -A; q git commit -m dc
+if CHECK_BUILD_RELEASE_ENVS=1 "$TOOL" --ships >/dev/null 2>&1; then
+  bad "--ships called a docs-only change a release, because release envs were requested"
+else
+  ok "--ships ignores CHECK_BUILD_RELEASE_ENVS"
+fi
+
+echo
+echo "the table covers this repository"
+# THE TABLE'S COMPLETENESS, asserted against the real tree rather than a
+# fixture. Every check above uses paths the fixture invents, so all of them
+# would still pass with a table that had never heard of half the repository --
+# and the only symptom would be a release refusing, weeks later, in a CI job.
+# This is the same finding at pull-request time.
+#
+# It reads classify() out of the tool rather than re-listing the rows here: a
+# second copy of the table in its own test is how the test starts agreeing with
+# a table that has gone wrong.
+#
+# Bare directory names are NOT required to be classified. git never reports one
+# in `--name-only` except a submodule gitlink, and the only submodule is
+# freeink-sdk, which has a row. A new submodule would arrive unclassified,
+# which builds and refuses to release -- loud, which is the design.
+REAL="$(cd "$HERE/../.." && pwd)"
+if [ -d "$REAL/.git" ] || [ -f "$REAL/.git" ]; then
+  awk '/^classify\(\) \{/,/^\}/' "$TOOL" > "$WORK/classify.sh"
+  if [ ! -s "$WORK/classify.sh" ]; then
+    bad "could not lift classify() out of the tool; this check read nothing"
+  else
+    # shellcheck disable=SC1090
+    . "$WORK/classify.sh"
+    missing="$(cd "$REAL" && git ls-files | while IFS= read -r f; do
+                 [ -z "$(classify "$f")" ] && echo "$f"
+               done | head -5)"
+    if [ -z "$missing" ]; then
+      ok "every tracked file in this repository is in a row of the table"
+    else
+      bad "paths in no row of the classification table (first few): $(echo "$missing" | tr '\n' ' ')"
+    fi
+    # And the lift itself has to be able to fail, or an awk that matched
+    # nothing would read as full coverage.
+    [ -z "$(classify "definitely/not/a/row/x.zzz")" ] \
+      && ok "the lifted classify() still returns nothing for an unknown path" \
+      || bad "the lifted classify() classifies everything, so the check above proves nothing"
+  fi
+else
+  bad "not run from a git checkout, so the table's coverage of the real tree was never checked"
+fi
 
 reset_tree
 echo "$((PASS+FAIL)) checks, $FAIL failed"

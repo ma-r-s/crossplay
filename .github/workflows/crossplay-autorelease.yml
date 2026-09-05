@@ -1,13 +1,14 @@
 # A release starts the moment a merge passes CI. No clock, no train.
 #
 # Runs after every completed "CrossPlay" CI run on xteink. If the run was
-# green, the tip of xteink is still the commit CI verified, and something that
-# can reach a device image has merged since the newest tag, this bumps [crossplay] version, rewrites the
-# "What is new" block in docs/release-notes.md from the merged pull requests'
-# own lines (scripts_local/release_notes.py), commits, tags, and dispatches
-# the release workflow on that tag. Only the pull requests that can reach a
-# device image become lines -- the same rule the gate below uses -- and the
-# rest are named in this job's log rather than in the notes.
+# green, the tip of xteink is still the commit CI verified, and something a
+# person could receive has merged since the newest tag, this bumps [crossplay]
+# version, writes docs/release-body.md (the page the release publishes) and
+# prepends the release to docs/release-notes.md (the history), from the merged
+# pull requests' own lines (scripts_local/release_notes.py), commits, tags, and
+# dispatches the release workflow on that tag. Only the pull requests that
+# reach a user become lines -- the same column of the same table the gate below
+# reads -- and the rest are named in this job's log rather than in the notes.
 #
 # One at a time: the concurrency group queues a second green run behind a
 # release in progress instead of cancelling either, so merges that land while
@@ -22,10 +23,10 @@
 # secret the push is made with the workflow's own token, which starts nothing,
 # and the job dispatches the release workflow itself (the last step, which
 # says why it is conditional). Never both: on 2026-09-04 v1.12.16 was built
-# and published twice, once per path. The bump commit touches platformio.ini
-# and docs/release-notes.md only: GitHub refuses workflow-file changes from
-# the default token, which is why the notes do not live in the release
-# workflow.
+# and published twice, once per path. The bump commit touches platformio.ini,
+# docs/release-notes.md and docs/release-body.md only: GitHub refuses
+# workflow-file changes from the default token, which is why the notes do not
+# live in the release workflow.
 name: CrossPlay autorelease
 
 on:
@@ -78,14 +79,28 @@ jobs:
             fi
             echo "xteink moved past $VERIFIED only by emulator rebuilds; releasing from $tip."
           fi
-          # A merge that cannot change a device image (docs, site, tooling,
-          # workflows) is not a release: no bump, no tag, no update prompt on
-          # every device for nothing. scripts_local/release-needed.sh asks the
-          # one rule that knows which paths reach an image.
-          if ! bash scripts_local/release-needed.sh; then
-            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          echo "go=true" >> "$GITHUB_OUTPUT"
+          # A merge nobody can receive anything different from (docs, site,
+          # tooling, the workspace's own machinery) is not a release: no bump,
+          # no tag, no update prompt on every device for nothing.
+          # scripts_local/release-needed.sh reads the `ships` column of the one
+          # classification table; the `builds` column is a different question
+          # and reading it here is what cut v1.12.21.
+          #
+          # THREE ANSWERS, TWO OF WHICH ARE NOT "no". Exit 2 means a changed
+          # path is in no row of the table, and the job FAILS on it rather than
+          # guessing: releasing for nothing and silently withholding a real fix
+          # are both bad, and a red job that names the path gets the row added.
+          # A green run that quietly picked a side would not.
+          set +e
+          bash scripts_local/release-needed.sh
+          gate_rc=$?
+          set -e
+          case "$gate_rc" in
+            0) echo "go=true" >> "$GITHUB_OUTPUT" ;;
+            1) echo "go=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            *) echo "::error::release-needed.sh refused to decide (exit $gate_rc). A changed path is in no row of the classification table in scripts_local/device-build-needed.sh; the log above names it. Add a row saying whether it builds and whether it ships, then re-run."
+               exit 1 ;;
+          esac
 
       - name: Write the version and the notes
         id: notes
@@ -105,11 +120,11 @@ jobs:
         run: |
           git config user.name "crossplay-release[bot]"
           git config user.email "crossplay-release@users.noreply.github.com"
-          git add platformio.ini docs/release-notes.md
+          git add platformio.ini docs/release-notes.md docs/release-body.md
           git commit -m "chore: crossplay $NEXT" -m "Released by crossplay-autorelease after a green CI run on xteink."
           git tag "v$NEXT"
           if ! git push origin xteink "v$NEXT"; then
-            echo "::error::The push was refused. The bump touches platformio.ini and docs/release-notes.md only; if the message names workflow permissions, something put a workflow file in the commit."
+            echo "::error::The push was refused. The bump touches platformio.ini, docs/release-notes.md and docs/release-body.md only; if the message names workflow permissions, something put a workflow file in the commit."
             exit 1
           fi
           echo "Tagged v$NEXT at $(git rev-parse --short HEAD)"

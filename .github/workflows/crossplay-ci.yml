@@ -154,33 +154,92 @@ jobs:
       # repo already got burned by. A forgiven suite that no longer fails is a
       # door held open for the next regression.
       #
-      # Pull postgres BEFORE the firmware build, not when the suite wants it.
-      #
-      # host-tests/relwatch runs a real postgres in docker. Twice today it
-      # failed a pull request whose diff could not touch a database, and the
-      # diagnostic showed why: the container was still running its
-      # INITIALISATION when the suite gave up, i.e. it had started late. The
-      # image pull competes with a firmware build for the same runner IO.
-      #
-      # Pulling here costs seconds on a warm runner and removes the race
-      # entirely: by the time the suite runs, the image is local and the
-      # container only has to start. `|| true` because a pull failure must not
-      # fail the build -- the suite still pulls on demand and reports properly
-      # if that fails.
-      - name: Pre-pull the relwatch database image
-        run: docker pull postgres:16-alpine || true
-
       # host-tests/ci/run.sh executes this step's actual text (extracted from
       # this yaml, not copied) and asserts the no-forgiveness shape, so drift
       # here fails a suite there.
       - name: Host tests
         run: |
           for suite in host-tests/*/run.sh; do
+            # relwatch has its own job. It runs a real postgres in docker, and
+            # sharing a runner with a 20-minute cross-compile starved it: the
+            # container's own log showed it had not begun INITIALISING seven
+            # minutes after `docker run` returned. Raising the timeout twice
+            # and pre-pulling the image both failed, because neither was the
+            # problem -- contention was. It has failed four unrelated pull
+            # requests this way; see the relwatch job below.
+            case "$suite" in */relwatch/*) continue;; esac
             bash "$suite"
           done
 
+  # relwatch runs a real postgres in docker, and it gets its OWN runner.
+  #
+  # It shared the build job until 2026-09-04, where it failed four pull
+  # requests whose diffs could not touch a database -- a Forehead word list, a
+  # worktree script, a trivia pack and a docs change. Two timeout bumps (60 ->
+  # 180 -> 420) and a pre-pull of the image all failed, because none of them
+  # was the problem: the container's own log showed it had not begun
+  # INITIALISING seven minutes after `docker run` returned, with the image
+  # already local. A 20-minute cross-compile was starving it of IO.
+  #
+  # Alone on a runner it has the machine to itself. This also fails
+  # independently, so a database that will not start no longer hides whether
+  # the firmware compiles.
+  relwatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull the database image
+        run: docker pull postgres:16-alpine
+      - name: The release watcher's suite
+        run: bash host-tests/relwatch/run.sh
+
   # check.sh runs the same formatter check (clang-format 21, pinned there too)
   # and the same cmake suite locally; CI is the copy nobody can skip.
+  # A packaging change cuts a release and cannot describe itself.
+  #
+  # scripts_local/device-build-needed.sh classifies
+  # .github/workflows/crossplay-release.yml as `quiet`: changing it changes
+  # what a person downloads, so it releases, but nothing in a build workflow
+  # says anything in a player's words. release_notes.py therefore gives such a
+  # landing a bullet only when its pull request wrote one, and otherwise leaves
+  # the page silent about it and shouts in the autorelease log.
+  #
+  # Silent is the wrong outcome for the case this exists for: PR #42 repaired
+  # the defect that shipped v1.12.14 and v1.12.15 with bootloader.bin,
+  # firmware.bin and partitions.bin missing from the published image. Somebody
+  # whose install was broken needs telling it is fixed. So the line is asked
+  # for HERE, where the person who knows what changed is still reading, rather
+  # than discovered weeks later by a reader of a job log.
+  release-notes-line:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: A change to what the release publishes must say what is new
+        env:
+          # Through the environment, never interpolated into the script: a pull
+          # request body is attacker-controlled text and `${{ }}` inside run:
+          # pastes it in as shell source.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          git fetch -q origin "$BASE"
+          if ! git diff --name-only --no-renames "origin/$BASE...HEAD" |
+               grep -qx '.github/workflows/crossplay-release.yml'; then
+            echo "This pull request does not change what the release publishes."
+            exit 0
+          fi
+          if printf '%s' "$PR_BODY" |
+             grep -qiE '^[[:space:]]*(-[[:space:]]*)?(\*\*)?what is new(\*\*)?[[:space:]]*[:-]'; then
+            echo "It changes what the release publishes, and it says what is new. Good."
+            exit 0
+          fi
+          echo "::error::This pull request changes .github/workflows/crossplay-release.yml, so merging it will cut a release. Nothing in a build workflow describes itself in a player's words, so the release page would either print this pull request's title or say nothing about the change at all. Add a line to the description, written for someone who installs the firmware: 'What is new: <one sentence>'."
+          exit 1
+
   clang-format:
     runs-on: ubuntu-latest
     steps:

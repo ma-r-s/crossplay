@@ -64,6 +64,14 @@ for table, kind in (("kGames", "game"), ("kApps", "app")):
 # release notes said "Eight of them" and named eight, months after Toy Battle
 # became the ninth. The truth is LinkPlay.h's GameId enum -- an id is what a
 # device actually offers to play -- so the sentence is checked against it.
+#
+# THE RELEASE PAGE IS NO LONGER ONE OF THE PLACES CHECKED, because it no longer
+# enumerates: docs/release-body.md carries one sentence with no names and no
+# number in it. The list moved out on 2026-09-04, when the page stopped being
+# the archive as well. What this therefore no longer examines is whether the
+# release page names every game -- it deliberately names none, and the check
+# further down asserts that it stays that way rather than leaving the question
+# unasked.
 # ---------------------------------------------------------------------------
 
 link = (root / "src/apps_local/link/LinkPlay.h").read_text()
@@ -79,7 +87,6 @@ spaced = [re.sub(r"(?<!^)(?=[A-Z])", " ", name) for name in ids]
 
 prose = {
     "the README": (root / "README.md").read_text(),
-    "the release notes": (root / "docs/release-notes.md").read_text(),
 }
 for where, text in prose.items():
     near = " ".join(par for par in re.split(r"\n\s*\n", text) if "PLAY NEARBY" in par)
@@ -111,6 +118,27 @@ WORDS = {
 
 def as_number(token):
     return int(token) if token.isdigit() else WORDS.get(token.lower())
+
+
+# The release page must state no total of its own. It is rewritten by
+# scripts_local/release_notes.py on every release, from the merged pull
+# requests, and that generator knows nothing about Shelf.cpp -- so a number
+# written into its standing text is a fact about one file maintained by hand in
+# another, on the one page a stranger reads first. It said "Eight of them" for
+# months. The README is where the enumerated list and the totals live, and both
+# are checked against the source above and below.
+body_preamble = (root / "docs/release-body.md").read_text().split("### ", 1)[0]
+counted = re.search(
+    r"\b(\d+|" + "|".join(WORDS) + r")\s+(?:of them\b|of the games\b|games\b|apps\b)",
+    body_preamble,
+    re.I,
+)
+if counted:
+    print(
+        f"docs/release-body.md counts the shelf in its standing text "
+        f"({counted.group(0)!r}); that is a fact about Shelf.cpp on a page "
+        f"nothing regenerates from it, and it went stale there once already"
+    )
 
 
 readme = (root / "README.md").read_text()
