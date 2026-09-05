@@ -3,12 +3,15 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <WiFi.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 
 #include "../../CrossPointSettings.h"
+#include "../../activities/network/WifiSelectionActivity.h"
+#include "../../network/HttpDownloader.h"
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -56,12 +59,16 @@ void WallpapersActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
   Storage.mkdir(wallpapers::kLibraryDir);
+  sweepPartFiles();
   scanLibrary();
   loadActive();
   computeWarning();
   // Open on the page holding the set wallpaper, so the border is on screen.
   cachedPage_ = -1;
   page_ = 0;
+  // Grid or Offer, decided by what is on the card. An empty grid is never a
+  // state this app shows.
+  pickView();
   requestUpdate();
 }
 
@@ -82,6 +89,15 @@ void WallpapersActivity::scanLibrary() {
     if (static_cast<int>(names_.size()) >= kMaxLibrary) break;
   }
   std::sort(names_.begin(), names_.end());
+
+  // How much of the built-in set is here, counted from the listing we already
+  // walked rather than with 21 more exists() calls on every scan.
+  int have = 0;
+  for (size_t i = 0; i < wallpapers::builtInCount(); ++i) {
+    const std::string want = std::string(wallpapers::builtInStem(i)) + ".bmp";
+    if (std::binary_search(names_.begin(), names_.end(), want)) ++have;
+  }
+  builtInsMissing_ = static_cast<int>(wallpapers::builtInCount()) - have;
 }
 
 void WallpapersActivity::loadActive() {
@@ -136,14 +152,29 @@ void WallpapersActivity::clampPage() {
 bool WallpapersActivity::setWallpaper(int index) {
   if (index < 0 || index >= static_cast<int>(names_.size())) return false;
   std::string src = std::string(wallpapers::kLibraryDir) + "/" + names_[static_cast<size_t>(index)];
+
+  // Through a .part name, renamed only when the whole file is written.
+  //
+  // Writing straight to /sleep.bmp truncates the user's CURRENT sleep image on
+  // the first byte, so a card that fills (or a power cut) halfway leaves a
+  // short file where a good one used to be. Bitmap::parseHeaders seeks to
+  // bfOffBits and never checks that the pixel data is complete, and
+  // SleepActivity::findNextValidSleepImage accepts a file on exactly that
+  // check -- so a truncated 480x800 image is a VALID sleep image and gets
+  // drawn, half-rendered, on every sleep, with nothing on screen to say why.
+  // The rename is the only thing between a failed copy and a permanently
+  // broken sleep screen.
+  const std::string part = std::string(wallpapers::kPinnedSleep) + ".part";
+  Storage.remove(part.c_str());
+
   HalFile in;
   if (!Storage.openFileForRead("WALL", src, in)) {
     LOG_ERR("WALL", "Cannot open wallpaper %s", src.c_str());
     return false;
   }
   HalFile out;
-  if (!Storage.openFileForWrite("WALL", wallpapers::kPinnedSleep, out)) {
-    LOG_ERR("WALL", "Cannot open %s for write", wallpapers::kPinnedSleep);
+  if (!Storage.openFileForWrite("WALL", part, out)) {
+    LOG_ERR("WALL", "Cannot open %s for write", part.c_str());
     return false;
   }
   auto buffer = makeUniqueNoThrow<uint8_t[]>(kCopyChunk);
@@ -151,20 +182,44 @@ bool WallpapersActivity::setWallpaper(int index) {
     LOG_ERR("WALL", "OOM: copy buffer");
     return false;
   }
+  uint64_t copied = 0;
   for (;;) {
     const int got = in.read(buffer.get(), kCopyChunk);
     if (got < 0) {
       LOG_ERR("WALL", "Read error copying wallpaper");
+      out.close();
+      in.close();
+      Storage.remove(part.c_str());
       return false;
     }
     if (got == 0) break;
     if (out.write(buffer.get(), static_cast<size_t>(got)) != static_cast<size_t>(got)) {
       LOG_ERR("WALL", "Write error pinning wallpaper (card full?)");
+      out.close();
+      in.close();
+      Storage.remove(part.c_str());
       return false;
     }
+    copied += static_cast<uint64_t>(got);
   }
   out.close();
   in.close();
+
+  // The size is knowable and exact, so check it rather than trusting that the
+  // writes returned what they claimed.
+  if (copied != wallpapers::kWallpaperFileBytes) {
+    LOG_ERR("WALL", "Pinned wallpaper is %u bytes, expected %u -- not swapping it in", static_cast<unsigned>(copied),
+            static_cast<unsigned>(wallpapers::kWallpaperFileBytes));
+    Storage.remove(part.c_str());
+    return false;
+  }
+
+  Storage.remove(wallpapers::kPinnedSleep);
+  if (!Storage.rename(part.c_str(), wallpapers::kPinnedSleep)) {
+    LOG_ERR("WALL", "Card refused the final rename of %s", wallpapers::kPinnedSleep);
+    Storage.remove(part.c_str());
+    return false;
+  }
 
   SETTINGS.sleepScreen = CrossPointSettings::CUSTOM;
   SETTINGS.saveToFile();
@@ -256,10 +311,14 @@ void WallpapersActivity::ensureThumbsForPage() {
 
   thumbs_.assign(static_cast<size_t>(geom.perPage), Thumb{});
   const int base = page_ * geom.perPage;
+  // specialTiles(), not a literal 1: the decode and the draw must agree about
+  // which wallpaper is in a cell, and when they did not, one tile drew its
+  // neighbour's picture and the next drew a decode-failure cross.
+  const int specials = specialTiles();
   for (int slot = 0; slot < geom.perPage; ++slot) {
     const int combined = base + slot;
-    if (combined == 0) continue;  // the + Add tile has no thumbnail
-    const int idx = combined - 1;
+    if (combined < specials) continue;  // the chrome tiles have no thumbnail
+    const int idx = combined - specials;
     if (idx >= static_cast<int>(names_.size())) break;
     std::string path = std::string(wallpapers::kLibraryDir) + "/" + names_[static_cast<size_t>(idx)];
     thumbs_[static_cast<size_t>(slot)] = decodeThumb(path, geom.cellW, geom.cellH);
@@ -270,17 +329,28 @@ void WallpapersActivity::ensureThumbsForPage() {
 
 void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
   const int base = page_ * geom.perPage;
-  const int total = 1 + static_cast<int>(names_.size());
+  const int specials = specialTiles();
+  const int total = specials + static_cast<int>(names_.size());
 
   for (int slot = 0; slot < geom.perPage; ++slot) {
     const int combined = base + slot;
     if (combined >= total) break;
     const fui::Rect th = wallpapersui::thumbRect(geom, slot);
     if (combined == 0) {
-      drawAddTile(geom, th);  // the first cell is + Add a wallpaper
+      drawAddTile(geom, th);  // cell 0 is always + Add a wallpaper
       continue;
     }
-    const int idx = combined - 1;
+    // PARTIAL: the user has their own wallpapers but not the built-in set, so
+    // the offer stays on screen as a tile rather than vanishing because one
+    // wallpaper exists. It retires itself when the set is complete.
+    //
+    // Cell 1, never cell 0: moving + Add would put a different action under a
+    // pixel people have already learned (same-pixel-different-action).
+    if (specials > 1 && combined == 1) {
+      drawGetSetTile(geom, th);
+      continue;
+    }
+    const int idx = combined - specials;
     const Thumb& t = thumbs_[static_cast<size_t>(slot)];
 
     // The thumbnail. A set bit is ink.
@@ -348,6 +418,36 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
   }
 }
 
+// How many chrome tiles sit in front of the wallpapers. One (+ Add) always,
+// two while the built-in set is incomplete. Read by BOTH the drawing and the
+// hit-test, because a grid whose two halves disagree about what is in a cell
+// opens the wrong thing -- the bug this fork has caught more often than any
+// other.
+int WallpapersActivity::specialTiles() const { return builtInsMissing_ > 0 ? 2 : 1; }
+
+void WallpapersActivity::drawGetSetTile(const wallpapersui::GridGeom& geom, const fui::Rect& th) const {
+  renderer.drawRect(th.x, th.y, th.width, th.height, 3, true);
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+  fui::TextStyle style = toybox::themeTokens().smallText;
+  style.font = fui::FONT_SLOT_SMALL;
+  style.align = fui::TextAlign::Center;
+  style.color = fui::Color::Black;
+  style.maxLines = 2;
+
+  char label[48];
+  // One line of text, wrapped by width. An embedded newline is not a break
+  // this renderer honours: it vanished and joined the words into "GET THE21".
+  std::snprintf(label, sizeof(label), "GET THE %d BUILT-INS", builtInsMissing_);
+  const fui::Rect box =
+      fui::makeRect(th.x + 6, static_cast<int16_t>(th.y + th.height / 2 - 30), static_cast<int16_t>(th.width - 12), 60);
+  target.text(box, label, style);
+
+  const fui::Rect cap = wallpapersui::captionRect(geom, 1);
+  fui::TextStyle capStyle = style;
+  capStyle.maxLines = 1;
+  target.text(cap, "Tap to fetch", capStyle);
+}
+
 void WallpapersActivity::drawMarker(const fui::Rect& th) const {
   // Four corner brackets in the cell's padding. The rectangles come from
   // wallpapersui::markerRects so the shape the panel draws is the same shape
@@ -390,17 +490,331 @@ void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const f
   (void)geom;
 }
 
+// The whole set as one asset. Twenty-one separate downloads would be 42 TLS
+// handshakes, because GitHub redirects release assets to a CDN host and
+// HttpDownloader opens a fresh connection per hop with no session reuse: about
+// a minute of dead time against roughly ten seconds for one file. Per-file
+// "resume" would not have paid for it either, since downloadToFile has no Range
+// support and deletes its destination before the first byte arrives.
+//
+// The pack needs no format: every wallpaper is exactly kWallpaperFileBytes, so
+// it is a bare concatenation, image i lives at i * kWallpaperFileBytes, and the
+// count is the file size divided by it. Built by tools_local/wallpapers/build_pack.py
+// in the same order as the built-in table, which host-tests/wallpack asserts.
+constexpr const char* kPackUrl = "https://github.com/ma-r-s/crossplay/releases/download/wallpapers/wallpapers.dat";
+constexpr const char* kPackPart = "/wallpapers.dat.part";
+
+// The HAL exposes a size only through an open file, and the difference between
+// "absent" and "there but the wrong length" is the whole resume rule, so it is
+// worth the open. A short file is a torn write, and Bitmap would accept it.
+uint64_t fileSizeOf(const std::string& path) {
+  HalFile f;
+  if (!Storage.openFileForRead("WALL", path, f)) return 0;
+  const uint64_t n = static_cast<uint64_t>(f.size());
+  f.close();
+  return n;
+}
+
+// A power cut mid-unpack leaves <name>.bmp.part behind. They are unambiguously
+// ours and unambiguously incomplete, so they go on entry. Nothing else is
+// touched: a .bmp of an unexpected length might be a wallpaper the user made
+// elsewhere, and deleting a user's file to tidy up is not this app's call.
+void WallpapersActivity::sweepPartFiles() {
+  auto dir = Storage.open(wallpapers::kLibraryDir);
+  if (!dir) return;
+  std::vector<std::string> stale;
+  for (;;) {
+    auto entry = dir.openNextFile();
+    if (!entry) break;
+    char nameBuf[kNameMax] = {};
+    entry.getName(nameBuf, sizeof(nameBuf));
+    entry.close();
+    const std::string name(nameBuf);
+    if (name.size() > 5 && name.compare(name.size() - 5, 5, ".part") == 0) stale.push_back(name);
+  }
+  dir.close();
+  for (const std::string& name : stale) {
+    const std::string path = std::string(wallpapers::kLibraryDir) + "/" + name;
+    Storage.remove(path.c_str());
+    LOG_INF("WALL", "Swept incomplete %s", name.c_str());
+  }
+}
+
+void WallpapersActivity::showNotice(const char* headline, const char* body, const char* actionLabel,
+                                    const fui::ActionId action) {
+  noticeHead_ = headline;
+  noticeBody_ = body;
+  noticeAction_ = actionLabel;
+  noticeActionId_ = action;
+  view_ = View::Notice;
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+int WallpapersActivity::builtInsPresent() const {
+  return static_cast<int>(wallpapers::builtInCount()) - builtInsMissing_;
+}
+
+// The screen is a function of the card, with no remembered "already offered"
+// flag to go stale or to make two identical cards show different things.
+void WallpapersActivity::pickView() { view_ = names_.empty() ? View::Offer : View::Grid; }
+
+void WallpapersActivity::startSetDownload() {
+  // The radio first: entering the TLS stack with WiFi never started fails in a
+  // way whose message says nothing about WiFi.
+  WiFi.mode(WIFI_STA);
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) { onWifiChosen(!result.isCancelled); });
+}
+
+void WallpapersActivity::onWifiChosen(const bool connected) {
+  if (!connected) {
+    showNotice("NO WIFI", "The wallpapers need WiFi to download. The card is unchanged.", "TRY AGAIN",
+               wallpapersui::ActionRetry);
+    return;
+  }
+  // Queued, not run here: this is the result handler of an activity that is
+  // still unwinding, and the fetch blocks.
+  fetchQueued_ = true;
+}
+
+void WallpapersActivity::runSetDownload() {
+  // exists() first: mkdir returns false for a directory that is already there,
+  // and treating that as failure means every attempt after the first reports a
+  // full card. Trivia shipped exactly that bug.
+  if (!Storage.exists(wallpapers::kLibraryDir) && !Storage.mkdir(wallpapers::kLibraryDir)) {
+    showNotice("NO ROOM", "Could not create the wallpapers folder on the card. Is the card in, and writable?",
+               "TRY AGAIN", wallpapersui::ActionRetry);
+    return;
+  }
+
+  // Sized for the WHOLE set plus the floor that protects other apps, not for one
+  // file: a check that passes for one wallpaper and fills the card at number
+  // nine costs Study its review log, silently, later.
+  uint64_t freeNow = 0;
+  const bool queryOk = Storage.freeBytes(freeNow);
+  switch (wallpapers::roomFor(queryOk, freeNow, wallpapers::kPackFloorBytes)) {
+    case wallpapers::Room::Unknown:
+      // NOT the same screen as NO ROOM: freeBytes() returns false for "could not
+      // answer", never for "full", and saying the card is full when we do not
+      // know that is the conflation the call exists to prevent.
+      showNotice("CAN'T TELL",
+                 "The card did not answer when asked how much room is left, so nothing was written. "
+                 "Trying again usually works.",
+                 "TRY AGAIN", wallpapersui::ActionRetry);
+      return;
+    case wallpapers::Room::TooFull: {
+      char body[192];
+      std::snprintf(body, sizeof(body),
+                    "The wallpapers need about %u MB free and the card has %u MB. "
+                    "Delete something from the card, then try again. Nothing was written.",
+                    static_cast<unsigned>(wallpapers::kPackFloorBytes >> 20), static_cast<unsigned>(freeNow >> 20));
+      showNotice("NO ROOM", body, "TRY AGAIN", wallpapersui::ActionRetry);
+      return;
+    }
+    case wallpapers::Room::Ok:
+      break;
+  }
+
+  fetchCancel_ = false;
+  fetchDone_ = 0;
+  fetchTotal_ = static_cast<int>(wallpapers::kBuiltInCount);
+  view_ = View::Fetching;
+  interactionsReady_ = false;
+  // requestUpdateAndWait, not requestUpdate: a plain request is DEFERRED and
+  // never reaches the render task while a blocking call sits in the same call
+  // stack, so the app would freeze on the previous screen for the whole
+  // transfer. This is the #306 family; PR #123 is the reference.
+  requestUpdateAndWait();
+
+  size_t lastPainted = 0;
+  const auto progress = [this, &lastPainted](const size_t got, const size_t total) {
+    // Every ~200KB: five honest steps across a ~1MB pack. Each paint is an
+    // e-ink refresh, so finer steps would spend longer refreshing than fetching.
+    if (got - lastPainted >= 200u * 1024u || (total > 0 && got == total)) {
+      lastPainted = got;
+      const uint64_t per = wallpapers::kWallpaperFileBytes;
+      fetchDone_ = static_cast<int>(got / (per > 0 ? per : 1));
+      if (fetchDone_ > fetchTotal_) fetchDone_ = fetchTotal_;
+      requestUpdateAndWait();
+    }
+    // The sanctioned exception to the one-pump rule: nothing else pumps while
+    // this blocks, and without it Back could not stop a download at all.
+    mappedInput.update();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) fetchCancel_ = true;
+    if (mappedInput.wasHomeGesture()) fetchCancel_ = true;
+    if (fetchCancel_) {
+      fetchCancel_ = true;
+      requestUpdateAndWait();
+    }
+  };
+
+  const auto err = HttpDownloader::downloadToFile(kPackUrl, kPackPart, progress, &fetchCancel_);
+  if (err != HttpDownloader::OK) {
+    Storage.remove(kPackPart);
+    // Every one of these offers TRY AGAIN. A screen that reports a failure and
+    // gives nothing to press is a dead end whose only exit is unmarked.
+    if (err == HttpDownloader::ABORTED) {
+      showNotice("STOPPED", "Download stopped. Nothing was kept, and the card is unchanged.", "TRY AGAIN",
+                 wallpapersui::ActionRetry);
+    } else if (err == HttpDownloader::FILE_ERROR) {
+      showNotice("CARD TROUBLE", "The card would not take the file. Nothing was kept.", "TRY AGAIN",
+                 wallpapersui::ActionRetry);
+    } else {
+      showNotice("NO ANSWER", "The download did not answer. The card is unchanged.", "TRY AGAIN",
+                 wallpapersui::ActionRetry);
+    }
+    return;
+  }
+
+  if (!unpackSet()) return;
+
+  Storage.remove(kPackPart);
+  scanLibrary();
+  loadActive();
+  computeWarning();
+  page_ = 0;
+  cachedPage_ = -1;
+  pickView();
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+// Pack -> one .bmp per wallpaper. Resumable for free: an image already on the
+// card at exactly the right size is skipped, so a torn unpack costs seconds of
+// SD work on retry rather than another download.
+bool WallpapersActivity::unpackSet() {
+  HalFile pack;
+  if (!Storage.openFileForRead("WALL", kPackPart, pack)) {
+    showNotice("CARD TROUBLE", "The download arrived but could not be read back.", "TRY AGAIN",
+               wallpapersui::ActionRetry);
+    return false;
+  }
+
+  auto buffer = makeUniqueNoThrow<uint8_t[]>(kCopyChunk);
+  if (!buffer) {
+    showNotice("OUT OF MEMORY", "Not enough memory to unpack the wallpapers.", "TRY AGAIN", wallpapersui::ActionRetry);
+    return false;
+  }
+
+  const size_t count = wallpapers::builtInCount();
+  for (size_t i = 0; i < count; ++i) {
+    if (fetchCancel_) {
+      pack.close();
+      showNotice("STOPPED", "Stopped. The wallpapers that already arrived are on the card.", "TRY AGAIN",
+                 wallpapersui::ActionRetry);
+      return false;
+    }
+
+    const std::string target = std::string(wallpapers::kLibraryDir) + "/" + wallpapers::builtInStem(i) + ".bmp";
+    if (fileSizeOf(target) == wallpapers::kWallpaperFileBytes) {
+      // Already here and the right length: skip the bytes and move on.
+      pack.seekCur(static_cast<size_t>(wallpapers::kWallpaperFileBytes));
+      fetchDone_ = static_cast<int>(i) + 1;
+      continue;
+    }
+
+    const std::string part = target + ".part";
+    HalFile out;
+    if (!Storage.openFileForWrite("WALL", part, out)) {
+      pack.close();
+      showNotice("CARD TROUBLE", "The card would not take a wallpaper. The ones already written are kept.", "TRY AGAIN",
+                 wallpapersui::ActionRetry);
+      return false;
+    }
+
+    uint64_t left = wallpapers::kWallpaperFileBytes;
+    bool ok = true;
+    while (left > 0) {
+      const size_t want = left < kCopyChunk ? static_cast<size_t>(left) : kCopyChunk;
+      const int got = pack.read(buffer.get(), want);
+      if (got <= 0 || out.write(buffer.get(), static_cast<size_t>(got)) != static_cast<size_t>(got)) {
+        ok = false;
+        break;
+      }
+      left -= static_cast<uint64_t>(got);
+    }
+    out.close();
+
+    if (!ok || left != 0) {
+      Storage.remove(part.c_str());
+      pack.close();
+      showNotice("CARD TROUBLE", "A wallpaper did not write completely. The ones already written are kept.",
+                 "TRY AGAIN", wallpapersui::ActionRetry);
+      return false;
+    }
+
+    Storage.remove(target.c_str());
+    if (!Storage.rename(part.c_str(), target.c_str())) {
+      Storage.remove(part.c_str());
+      pack.close();
+      showNotice("CARD TROUBLE", "The card refused to name a wallpaper. The ones already written are kept.",
+                 "TRY AGAIN", wallpapersui::ActionRetry);
+      return false;
+    }
+
+    fetchDone_ = static_cast<int>(i) + 1;
+    // Every few files, not every file: 21 e-ink refreshes would take longer
+    // than the unpack they are reporting on.
+    if ((i % 5) == 0 || i + 1 == count) {
+      mappedInput.update();
+      if (mappedInput.wasReleased(MappedInputManager::Button::Back)) fetchCancel_ = true;
+      requestUpdateAndWait();
+    }
+  }
+
+  pack.close();
+  return true;
+}
+
 void WallpapersActivity::loop() {
+  // Started here rather than in the action handler: the fetch blocks for a
+  // while and pumps input itself, which must not happen while a tap is still
+  // being routed (the Trivia precedent, and the whole of the #306 family).
+  if (fetchQueued_) {
+    fetchQueued_ = false;
+    runSetDownload();
+    return;
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (showingHelp_) {
-      showingHelp_ = false;
+    if (view_ == View::Help || view_ == View::Notice) {
+      pickView();
       requestUpdate();
       return;
     }
     shelf::leave(renderer, mappedInput);
     return;
   }
-  if (showingHelp_ || names_.empty()) return;
+  // The Offer and Notice screens carry real buttons, so their taps go through
+  // Interactions rather than the grid's geometry hit-test.
+  if (view_ == View::Offer || view_ == View::Notice) {
+    int ax = 0;
+    int ay = 0;
+    if (!mappedInput.wasScreenTapped(ax, ay) || !interactionsReady_) return;
+    fui::InputSnapshot input{};
+    input.touchReleased = true;
+    input.touchX = static_cast<int16_t>(ax);
+    input.touchY = static_cast<int16_t>(ay);
+    const fui::ActionEvent action = interactions_.route(input);
+    switch (action.action) {
+      case wallpapersui::ActionGetSet:
+      case wallpapersui::ActionRetry:
+        startSetDownload();
+        return;
+      case wallpapersui::ActionAddOwn:
+        view_ = View::Help;
+        requestUpdate();
+        return;
+      case wallpapersui::ActionDismiss:
+        pickView();
+        requestUpdate();
+        return;
+      default:
+        return;
+    }
+  }
+  if (view_ != View::Grid) return;
 
   const int pages = pageCount();
   if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
@@ -448,14 +862,19 @@ void WallpapersActivity::loop() {
   if (slot < 0) return;
   if (!surfaceRevealed()) return;  // ignore a tap on a surface not yet seen
   const int combined = page_ * geom.perPage + slot;
-  const int total = 1 + static_cast<int>(names_.size());
+  const int specials = specialTiles();
+  const int total = specials + static_cast<int>(names_.size());
   if (combined >= total) return;
   if (combined == 0) {
-    showingHelp_ = true;
+    view_ = View::Help;
     requestUpdate();
     return;
   }
-  const int idx = combined - 1;
+  if (specials > 1 && combined == 1) {
+    startSetDownload();
+    return;
+  }
+  const int idx = combined - specials;
   if (idx == activeIndex_) return;  // already the sleep screen
   if (setWallpaper(idx)) requestUpdate();
 }
@@ -463,19 +882,43 @@ void WallpapersActivity::loop() {
 void WallpapersActivity::render(RenderLock&&) {
   clampPage();
   renderer.clearScreen();
-  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+  // Faces per view, not per app. The grid is a menu and wants the Jersey cut it
+  // shares with the shelf; the offer, the progress and the notices are
+  // SENTENCES, and at the 20px UI cut a sentence runs off the panel and is cut
+  // with an ellipsis. Trivia carries the same split for the same reason.
+  const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Help;
+  fui::GfxRendererTarget target =
+      toybox::makeTarget(renderer, prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces());
   const fui::DeviceContext device = target.deviceContext();
   const fui::InputSnapshot noInput{};
   interactionsReady_ = false;
   toybox::Frame frame(target, device, noInput, interactions_);
   toybox::Screen surface(frame);
 
-  if (showingHelp_) {
+  if (view_ == View::Help) {
     wallpapersui::buildHelp(surface);
-  } else if (names_.empty()) {
-    wallpapersui::EmptyModel model;
+  } else if (view_ == View::Fetching) {
+    wallpapersui::FetchingModel model;
+    model.done = fetchDone_;
+    model.total = fetchTotal_;
+    model.cancelling = fetchCancel_;
+    wallpapersui::buildFetching(surface, model);
+  } else if (view_ == View::Notice) {
+    wallpapersui::NoticeModel model;
+    model.headline = noticeHead_.c_str();
+    model.body = noticeBody_.c_str();
+    model.actionLabel = noticeAction_;
+    model.action = noticeActionId_;
+    wallpapersui::buildNotice(surface, model);
+  } else if (view_ == View::Offer) {
+    // BEFORE: the set is not here. Never an empty grid -- a screen showing
+    // nothing reads as a crash, confirmed twice by cold testers.
+    wallpapersui::OfferModel model;
+    model.count = static_cast<int>(wallpapers::kBuiltInCount);
+    model.bytes = wallpapers::builtInPackBytes();
+    model.alreadyHave = builtInsPresent();
     model.warning = warning_.empty() ? nullptr : warning_.c_str();
-    wallpapersui::buildEmpty(surface, model);
+    wallpapersui::buildOffer(surface, model);
   } else {
     const wallpapersui::GridGeom geom = wallpapersui::gridGeom(device);
     const int pages = pageCount();
@@ -511,6 +954,6 @@ void WallpapersActivity::render(RenderLock&&) {
 uint32_t WallpapersActivity::surfaceMeaning() const {
   uint32_t m = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(page_));
   m = paintclock::mixMeaning(m, static_cast<uint32_t>(activeIndex_ + 1));
-  m = paintclock::mixMeaning(m, showingHelp_ ? 1u : 0u);
+  m = paintclock::mixMeaning(m, static_cast<uint32_t>(view_));
   return paintclock::mixMeaning(m, static_cast<uint32_t>(names_.size()));
 }

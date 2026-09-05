@@ -66,6 +66,50 @@ MarkerRects markerRects(const fui::Rect& thumb);
 // property of the layout rather than of any one string.
 int markerBottomExtent(const fui::Rect& thumb);
 
+// What a tap on one of the built screens means. The grid's cells are hit-tested
+// against geometry instead (see cellAt), so these are only the chrome controls.
+enum : fui::ActionId {
+  ActionGetSet = 1,   // fetch the built-in wallpapers over WiFi
+  ActionAddOwn = 2,   // the "make your own in a browser" card
+  ActionRetry = 3,    // try the fetch again after a failure
+  ActionDismiss = 4,  // acknowledge a notice and go back to whatever is on the card
+};
+
+// The BEFORE state: the built-in set is not on the card. This screen has to sell
+// the set and offer exactly one action, because an empty grid with a lone "+"
+// reads as a crash -- the most repeated user-visible failure in this fork, found
+// by cold testers twice (a-silent-screen-reads-as-a-crash).
+struct OfferModel {
+  int count = 0;       // how many wallpapers are on offer
+  uint64_t bytes = 0;  // what the download weighs, derived not typed
+  const char* warning = nullptr;
+  // Some of the built-ins are already here (a resumed or partial fetch), so the
+  // offer says "the rest" rather than claiming the whole set is missing.
+  int alreadyHave = 0;
+};
+void buildOffer(toybox::Screen& screen, const OfferModel& model);
+
+// The DOWNLOADING state. Painted from inside the blocking fetch through
+// requestUpdateAndWait(), so it must be cheap and must never depend on state the
+// download has not settled yet.
+struct FetchingModel {
+  int done = 0;
+  int total = 0;
+  bool cancelling = false;
+};
+void buildFetching(toybox::Screen& screen, const FetchingModel& model);
+
+// The FAILED state, and every other "something happened, here is what" screen.
+// Always carries an action: a screen that reports a failure and gives you
+// nothing to press is a dead end, and Get Books shipped exactly that once.
+struct NoticeModel {
+  const char* headline = "";
+  const char* body = "";
+  const char* actionLabel = nullptr;
+  fui::ActionId action = 0;
+};
+void buildNotice(toybox::Screen& screen, const NoticeModel& model);
+
 // The chrome above and around the grid. rightLabel carries the count or the
 // page ("PAGE 2 / 3"); when nothing is set yet the hint says so, because a grid
 // with no border and no words is indistinguishable from one whose selection

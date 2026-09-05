@@ -58,6 +58,12 @@ DisplayName displayName(std::string_view fileName);
 // The built-in library, walkable. A proof that "no caption collides" has to
 // visit EVERY name, and a test that hand-copies the list stops covering the
 // one that gets added next. host-tests/wallcaption iterates these.
+// The size of that table, as a constant the table itself is static_assert'd
+// against in WallpapersCore.cpp. Everything that needs "how many built-ins"
+// reads THIS -- the download's size estimate, the offer screen's headline, the
+// wallcaption proof -- so adding a 22nd wallpaper cannot leave a stale 21 in a
+// sentence somewhere (derived-facts-written-as-literals).
+inline constexpr size_t kBuiltInCount = 21;
 size_t builtInCount();
 const char* builtInStem(size_t index);
 
@@ -72,5 +78,17 @@ Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes);
 // explicitly not derived from any current asset size (see the
 // derived-facts-written-as-literals memory for why a pinned byte count rots).
 inline constexpr uint64_t kCardFloorBytes = 12ull * 1024 * 1024;
+
+// Every device wallpaper is exactly this size: 480x800, 1 bit, uncompressed,
+// 62-byte header. The converter emits exactly this and the panel accepts
+// nothing else, so the download's size estimate is DERIVED rather than typed
+// into a sentence that would go stale the day a wallpaper is added.
+inline constexpr uint64_t kWallpaperFileBytes = 48062;
+inline constexpr uint64_t builtInPackBytes() { return kWallpaperFileBytes * kBuiltInCount; }
+
+// What the card must have free before fetching the SET: the floor that protects
+// other apps plus the whole set, not one file -- the download writes all of
+// them, and checking for one would pass on a card that fills at wallpaper 9.
+inline constexpr uint64_t kPackFloorBytes = kCardFloorBytes + builtInPackBytes();
 
 }  // namespace wallpapers

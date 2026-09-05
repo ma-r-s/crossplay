@@ -45,7 +45,22 @@ class WallpapersActivity final : public Activity {
     bool ok = false;
   };
 
+  // What the screen is showing. Derived from what is on the card, never from a
+  // remembered "have I offered already" flag: a stored value that decides what
+  // you see turns a reproducible screen into a nondeterministic one
+  // (invisible-saved-state-reads-as-nondeterminism).
+  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Help };
+  View view_ = View::Grid;
+
   void scanLibrary();
+  int builtInsPresent() const;  // how many of the built-in set are on the card
+  void pickView();              // Grid or Offer, from the card alone
+  void sweepPartFiles();        // drop incomplete unpacks left by a power cut
+  void startSetDownload();      // ask for WiFi, then queue the fetch
+  void onWifiChosen(bool connected);
+  void runSetDownload();  // blocking: fetch the pack, then unpack it
+  bool unpackSet();       // pack -> individual .bmp files, resumable
+  void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
   void loadActive();
   void computeWarning();
   bool setWallpaper(int index);  // copy /wallpapers/<index> -> /sleep.bmp
@@ -55,12 +70,22 @@ class WallpapersActivity final : public Activity {
   Thumb decodeThumb(const std::string& path, int16_t cellW, int16_t cellH) const;
   void drawGrid(const wallpapersui::GridGeom& geom);
   void drawAddTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th);
+  void drawGetSetTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th) const;
+  int specialTiles() const;  // chrome tiles in front of the wallpapers
   void drawMarker(const freeink::ui::Rect& th) const;
 
   std::vector<std::string> names_;  // library file names, sorted
   int activeIndex_ = -1;            // which name is pinned, or -1
+  int builtInsMissing_ = 0;         // how many of the built-in set are not on the card
   int page_ = 0;
-  bool showingHelp_ = false;  // the help card reached from the + Add tile
+  int fetchDone_ = 0;
+  int fetchTotal_ = 0;
+  bool fetchCancel_ = false;
+  bool fetchQueued_ = false;
+  std::string noticeHead_;
+  std::string noticeBody_;
+  const char* noticeAction_ = nullptr;
+  freeink::ui::ActionId noticeActionId_ = 0;
   std::string rightLabel_;
   std::string warning_;
 

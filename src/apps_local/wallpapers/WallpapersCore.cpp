@@ -50,7 +50,12 @@ constexpr Entry kBuiltIns[] = {
 };
 }  // namespace
 
-size_t builtInCount() { return sizeof(kBuiltIns) / sizeof(kBuiltIns[0]); }
+// The header publishes the count as a constant so sentences and size estimates
+// can be constexpr; this is what stops the two from drifting apart.
+static_assert(sizeof(kBuiltIns) / sizeof(kBuiltIns[0]) == kBuiltInCount,
+              "kBuiltInCount and the kBuiltIns table disagree -- update the constant with the table");
+
+size_t builtInCount() { return kBuiltInCount; }
 
 const char* builtInStem(const size_t index) {
   if (index >= builtInCount()) return "";

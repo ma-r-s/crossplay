@@ -9476,7 +9476,7 @@ void testWallpapersChromeSaysTapToSetWhenNothingIsSet() {
   buildWallpapersChrome(out, model);
   CHECK(drewText(out, "WALLPAPERS"));
   CHECK(drewText(out, "6 SAVED"));
-  CHECK(drewText(out, "Tap a wallpaper"));
+  CHECK(drewText(out, "Tap one to set"));
 }
 
 // With one set, the hint is gone -- the thick border the Activity draws is the

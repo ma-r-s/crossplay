@@ -53,6 +53,42 @@ fui::TextStyle onPaper(fui::TextStyle style, fui::TextAlign align) {
   return style;
 }
 
+// Which arrangement of the BEFORE screen to build. Three are rendered side by
+// side for Mario to choose from; the losers and this macro go in the same
+// commit as the decision (docs/building-apps.md).
+#ifndef WALLPAPERS_OFFER_VARIANT
+#define WALLPAPERS_OFFER_VARIANT 1
+#endif
+
+// A button: filled black, white label, hit-tested. 64 tall because that is the
+// fork's finger target and the reason the offer is not a 30px strip.
+constexpr int16_t kButtonH = 64;
+
+void drawButton(toybox::Screen& screen, const fui::Rect& box, const char* label, const fui::ActionId action) {
+  screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
+  fui::TextStyle style = screen.theme().smallText;
+  style.align = fui::TextAlign::Center;
+  style.color = fui::Color::White;
+  style.maxLines = 1;
+  screen.target().text(box, label, style);
+  screen.frame().hit(box, action);
+}
+
+void drawProse(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::TextAlign align) {
+  fui::TextStyle style = onPaper(screen.theme().bodyText, align);
+  const int16_t lineH = screen.target().lineHeight(style.font);
+  const int lines = lineH > 0 ? box.height / lineH : 1;
+  style.maxLines = static_cast<uint8_t>(lines < 1 ? 1 : (lines > 16 ? 16 : lines));
+  screen.target().text(box, text, style);
+}
+
+// "1.0 MB". Tenths, rounded, so a 0.96MB set does not render as "0 MB" -- which
+// is what a plain >>20 gives and would read as "nothing to download".
+void formatSize(const uint64_t bytes, char* out, const size_t n) {
+  const unsigned tenths = static_cast<unsigned>((bytes * 10 + (1u << 19)) >> 20);
+  std::snprintf(out, n, "%u.%u MB", tenths / 10, tenths % 10);
+}
+
 void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
   fui::HeaderProps header;
   header.title = title;
@@ -149,7 +185,9 @@ void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
   if (model.warning != nullptr && model.warning[0] != '\0') {
     line = model.warning;
   } else if (!model.hasActive) {
-    line = "Tap a wallpaper to set it as your sleep screen.";
+    // Short enough to fit the hint strip at the grid's cut. The longer form
+    // ("Tap a wallpaper to set it as your sleep screen.") was cut mid-phrase.
+    line = "Tap one to set your sleep screen.";
   }
   if (line != nullptr) {
     const fui::Rect rect = fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), hintY,
@@ -223,6 +261,179 @@ int markerBottomExtent(const fui::Rect& thumb) {
   int lowest = thumb.y + thumb.height;
   for (const fui::Rect& r : m.r) lowest = std::max(lowest, static_cast<int>(r.y + r.height));
   return lowest;
+}
+
+// ---------------------------------------------------------------------------
+// BEFORE: the built-in set is not on the card.
+//
+// Three arrangements, all obeying the same contract: name the set, say how many
+// and roughly how big, and offer exactly ONE primary action. None of them can
+// show the wallpapers themselves -- they are not downloaded yet, and embedding
+// previews is the flash cost this whole download exists to avoid -- so the set
+// is sold with its NAMES, which cost nothing and are the actual draw.
+void buildOffer(toybox::Screen& screen, const OfferModel& model) {
+  chrome(screen, "WALLPAPERS", nullptr);
+
+  if (model.warning != nullptr && model.warning[0] != '\0') {
+    fui::TextStyle warn = onPaper(screen.theme().smallText, fui::TextAlign::Left);
+    std::string fitted = toybox::fittedTitle(screen.target(), model.warning, screen.body().width, warn);
+    screen.target().text(screen.takeTop(kHintH, toybox::kGutter), fitted.c_str(), warn);
+  }
+
+  const int remaining = model.count - model.alreadyHave;
+  char size[24];
+  formatSize(model.bytes, size, sizeof(size));
+
+  char headline[40];
+  std::snprintf(headline, sizeof(headline), "%d WALLPAPERS", remaining);
+
+  // The one sentence that has to carry the size, so nobody taps a download of
+  // unknown weight on a metered connection.
+  char weight[96];
+  if (model.alreadyHave > 0) {
+    std::snprintf(weight, sizeof(weight), "The %d you are missing. About %s over WiFi.", remaining, size);
+  } else {
+    std::snprintf(weight, sizeof(weight), "About %s over WiFi, onto the card.", size);
+  }
+
+  const fui::Rect body = screen.body();
+  const int16_t left = static_cast<int16_t>(body.x);
+  const int16_t width = body.width;
+  // Room under the button for TWO lines of the secondary sentence: at the
+  // reading cut it does not fit on one, and a sentence cut with an ellipsis is
+  // the defect this screen exists to avoid.
+  const int16_t buttonY = static_cast<int16_t>(body.y + body.height - kButtonH - 96);
+
+#if WALLPAPERS_OFFER_VARIANT == 1
+  // A: the hero. One big name, one paragraph, one button. Nothing else on the
+  // screen competes for the tap.
+  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Left);
+  screen.target().text(fui::makeRect(left, static_cast<int16_t>(body.y + 12), width, 56), headline, head);
+  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(body.y + 78), width, 300),
+            "Woodcuts, engravings and patterns, cut for this screen: Durer's Four Horsemen, "
+            "a celestial chart, Bauhaus, Penrose tiling, herringbone and more.",
+            fui::TextAlign::Left);
+  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(body.y + 392), width, 96), weight, fui::TextAlign::Left);
+
+#elif WALLPAPERS_OFFER_VARIANT == 2
+  // B: show the shape of what arrives. Two empty frames at the picker's OWN
+  // cell size, captioned with real names, so the screen previews the grid
+  // rather than describing it. Sized from gridGeom instead of from the
+  // wallpaper's aspect: a cell derived from 480x800 is taller than the body and
+  // lands on the button, which is how the first draft of this looked.
+  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Center);
+  screen.target().text(fui::makeRect(left, static_cast<int16_t>(body.y + 2), width, 56), headline, head);
+
+  const GridGeom preview = gridGeom(screen.device());
+  const int16_t cellW = preview.cellW;
+  const int16_t cellH = preview.cellH;
+  const int16_t pairW = static_cast<int16_t>(cellW * 2 + preview.gapX);
+  const int16_t startX = static_cast<int16_t>(left + (width - pairW) / 2);
+  const int16_t gridY = static_cast<int16_t>(body.y + 66);
+  // The SHORT forms. This screen is drawn in the reading faces, where
+  // FONT_SLOT_SMALL is a wider serif than the grid's toybox_10, so a name that
+  // fits a real cell does not fit this preview of one.
+  const char* names[2] = {"Horsemen", "Celestial"};
+  for (int i = 0; i < 2; ++i) {
+    const int16_t cx = static_cast<int16_t>(startX + i * (cellW + preview.gapX));
+    screen.target().stroke(fui::makeRect(cx, gridY, cellW, cellH), fui::Paint::solid(fui::Color::Black), 1);
+    fui::TextStyle cap = onPaper(screen.theme().smallText, fui::TextAlign::Center);
+    cap.font = fui::FONT_SLOT_SMALL;
+    cap.maxLines = 1;
+    screen.target().text(
+        fui::makeRect(cx, static_cast<int16_t>(gridY + cellH + preview.markerRoom), cellW, preview.captionH), names[i],
+        cap);
+  }
+  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(buttonY - 96), width, 88), weight, fui::TextAlign::Center);
+
+#else
+  // C: the list. The names ARE the pitch, so give them the room and keep the
+  // headline small. Row pitch comes from the real line height rather than a
+  // guessed 34, which overlapped at the reading cut.
+  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Left);
+  screen.target().text(fui::makeRect(left, static_cast<int16_t>(body.y + 10), width, 50), headline, head);
+  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(body.y + 66), width, 44),
+            "In one download:", fui::TextAlign::Left);
+
+  const char* rows[6] = {"Durer, The Four Horsemen",   "Durer, Adam and Eve",         "A celestial chart",
+                         "Bauhaus and Penrose tiling", "Herringbone and houndstooth", "and eleven more"};
+  fui::TextStyle rowStyle = onPaper(screen.theme().bodyText, fui::TextAlign::Left);
+  rowStyle.maxLines = 1;
+  const int16_t pitch = static_cast<int16_t>(screen.target().lineHeight(rowStyle.font) + 4);
+  for (int i = 0; i < 6; ++i) {
+    screen.target().text(fui::makeRect(static_cast<int16_t>(left + 14), static_cast<int16_t>(body.y + 118 + i * pitch),
+                                       static_cast<int16_t>(width - 14), pitch),
+                         rows[i], rowStyle);
+  }
+  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(buttonY - 96), width, 88), weight, fui::TextAlign::Left);
+
+#endif
+
+  drawButton(screen, fui::makeRect(left, buttonY, width, kButtonH), "GET THEM", ActionGetSet);
+
+  // The secondary route stays a sentence, never a second button: two buttons on
+  // a "before" screen is two obvious actions, which is none.
+  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(buttonY + kButtonH + 8), width, 84),
+            "Or make your own from any picture, in a browser.", fui::TextAlign::Center);
+}
+
+// DOWNLOADING. Painted from inside the blocking fetch, so it says what is
+// happening, how far along, and that Back stops it -- the three things a person
+// staring at a frozen-looking panel needs (a-silent-screen-reads-as-a-crash).
+void buildFetching(toybox::Screen& screen, const FetchingModel& model) {
+  chrome(screen, "WALLPAPERS", nullptr);
+  const fui::Rect body = screen.body();
+  const int16_t left = body.x;
+
+  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Left);
+  screen.target().text(fui::makeRect(left, static_cast<int16_t>(body.y + 40), body.width, 52),
+                       model.cancelling ? "STOPPING" : "GETTING THEM", head);
+
+  char line[96];
+  if (model.cancelling) {
+    std::snprintf(line, sizeof(line), "Finishing the current one, then stopping.");
+  } else {
+    std::snprintf(line, sizeof(line), "Wallpaper %d of %d.",
+                  model.done + 1 > model.total ? model.total : model.done + 1, model.total);
+  }
+  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(body.y + 104), body.width, 40), line,
+            fui::TextAlign::Left);
+
+  // A bar, because "7 of 21" is a number and a bar is a glance. Drawn as an
+  // outline with a filled portion so a 1-bit panel shows both ends of it.
+  const int16_t barY = static_cast<int16_t>(body.y + 158);
+  const fui::Rect bar = fui::makeRect(left, barY, body.width, 26);
+  screen.target().stroke(bar, fui::Paint::solid(fui::Color::Black), 2);
+  if (model.total > 0 && model.done > 0) {
+    const int16_t inner = static_cast<int16_t>(body.width - 8);
+    const int16_t filled = static_cast<int16_t>(static_cast<int>(inner) * model.done / model.total);
+    if (filled > 0) {
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(left + 4), static_cast<int16_t>(barY + 4), filled, 18),
+                           fui::Paint::solid(fui::Color::Black));
+    }
+  }
+
+  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(barY + 56), body.width, 200),
+            "They go onto the card, not into the app. Press Back to stop; what has arrived is kept.",
+            fui::TextAlign::Left);
+}
+
+// FAILED, and every other "here is what happened". Always has a button.
+void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
+  chrome(screen, "WALLPAPERS", nullptr);
+  const fui::Rect body = screen.body();
+  const int16_t left = body.x;
+
+  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Left);
+  screen.target().text(fui::makeRect(left, static_cast<int16_t>(body.y + 48), body.width, 52), model.headline, head);
+  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(body.y + 116), body.width, 200), model.body,
+            fui::TextAlign::Left);
+
+  if (model.actionLabel != nullptr) {
+    drawButton(screen,
+               fui::makeRect(left, static_cast<int16_t>(body.y + body.height - kButtonH - 44), body.width, kButtonH),
+               model.actionLabel, model.action);
+  }
 }
 
 }  // namespace wallpapersui
