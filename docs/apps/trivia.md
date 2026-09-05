@@ -76,6 +76,16 @@ card exactly as it was and the app simply finds no pack.
 served and what someone rejected, and it is rewritten locally when a new pack's
 question count no longer matches it.
 
+## International by default
+
+The pack ships every question, but US-centric ones are marked and the chooser
+hides them unless Settings > System > "Show US-centric trivia" is on (off by
+default). The difficulty levels are calibrated for an international table, where
+the US-centric questions are the hardest, so turning the toggle on adds them
+mostly to level 5. The flag rides bit 7 of each question's difficulty byte; see
+[trivia-pack-format.md](trivia-pack-format.md) and board #191/#223. Nothing is
+deleted from the data, so the toggle needs no re-download and no re-rating.
+
 ## What the device never does
 
 No scoring history, no streaks, no leaderboard. A bar game's score belongs to the

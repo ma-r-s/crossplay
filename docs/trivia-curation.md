@@ -281,8 +281,8 @@ tree holding the rating run.
 #    prints the same thing with a verdict. This line needs nothing but the run.)
 echo "$(cut -d'"' -f4 .rate/enriched.jsonl | sort -u | wc -l) rated of $(wc -l < .rate/rest40383.ids)"
 
-# 2. Assemble. US-centric questions are dropped by default; --keep-us includes
-#    them. Nothing is deleted from the corpus or the ratings either way.
+# 2. Assemble. US-centric questions SHIP tagged (us:true); the device toggle
+#    hides them by default. Nothing is deleted from the corpus or the ratings.
 python3 tools_local/trivia/assemble_pack.py \
     --corpus .rate/corpus_repaired.jsonl \
     --enriched .rate/enriched.jsonl \
@@ -346,12 +346,12 @@ gap -- is computed from `r`, and `d` is CUT from `r`, so those are arithmetic.
 Shuffle the ratings across questions and they all still pass; the panel drops to
 34%.
 
-| ratings | panel agreement |
-| --- | --- |
-| the cloud judge's, which the pairs were sampled from | 50/50 = 100% |
-| the LOCAL run, which builds the shipping pack | 35/50 = 70% |
-| the local run, raw `r`, thresholds removed | 38/50 = 76% |
-| the local run, shuffled across questions | 17/50 = 34% |
+| ratings                                              | panel agreement |
+| ---------------------------------------------------- | --------------- |
+| the cloud judge's, which the pairs were sampled from | 50/50 = 100%    |
+| the LOCAL run, which builds the shipping pack        | 35/50 = 70%     |
+| the local run, raw `r`, thresholds removed           | 38/50 = 76%     |
+| the local run, shuffled across questions             | 17/50 = 34%     |
 
 That second row was 36/50 until the levels were recalibrated for the
 international-only pack on 2026-09-04. Measured on one snapshot with only the
@@ -430,6 +430,7 @@ applies the international correction through `r` even where its own flag missed.
 One bad row was one bad row.
 
 ### Three rules in that tool, each of which fails silently when undone
+
 ### Four rules in that tool, each of which fails silently when undone
 
 **Join on the corpus's stored id. Never re-derive it.** Ids are a sha1 of
@@ -460,14 +461,18 @@ Fixed does not mean arbitrary. The constants are still chosen on a population,
 and when that population changes they have to be chosen again -- as fixed
 numbers, on the new population. See "Recalibrating the thresholds" below.
 
-**US-centric questions do not ship, and are not deleted.** Mario's call on
-2026-09-04: they should not show up, until and unless a toggle is written for
-them. The filter is therefore at the pack build and nowhere upstream of it.
-`enrich_pack.py` still writes `us` as a field rather than a deletion, every
-US-centric row keeps its rating, and `--keep-us` rebuilds the inclusive pack
-from exactly the same inputs. **When the toggle is written, nothing needs
-re-rating.** Deleting the rows instead would cost 5,905 ratings that took hours
-of local model time and cannot be recovered from the pack.
+**US-centric questions ship TAGGED, and the device hides them by default.**
+Mario's call on 2026-09-04: they should not show up until a toggle is written;
+2026-09-05, the toggle (#191/#223). The pack now carries every us_centric
+question with a `us` flag (bit 7 of the difficulty byte), and the
+`triviaShowUsCentric` setting decides at runtime whether the chooser deals them.
+The default is hidden, so the pack is international by default. `enrich_pack.py`
+still writes `us` as a field rather than a deletion, every US-centric row keeps
+its rating, and no re-rating is ever needed to flip the toggle. Deleting the
+rows instead would cost thousands of ratings that took hours of local model time
+and cannot be recovered from the pack. The r->d levels stay calibrated on the
+international-only population (`calibrate_levels.py`), because a level means
+"hard for an international table" -- which is what the default player sees.
 
 `test_assemble.py` exists to make undoing any of the four loud, and
 `check.sh --tests` runs it.
