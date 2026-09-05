@@ -350,6 +350,21 @@ else
 fi
 # and the page talks only to that gate, never to the board directly
 grep -q '"/api/inbox"' "$ROOT/site/inbox/index.html" && ok || bad "the inbox page does not call /api/inbox"
+
+# api/trivia.js takes question reports off a device. Two of its properties are
+# invisible in the code and only a test can hold them: the device id is used to
+# build the row key and is then DROPPED, so it appears in no column; and the key
+# is per-question, so two reports from one reader cannot be joined into a
+# reading history. Both are asserted against what the stub was actually asked to
+# store, never against what the source appears to do.
+if trivia_out="$(node "$HERE/trivia_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$trivia_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "trivia_fn: $line"; done < <(printf '%s\n' "$trivia_out" | grep '^  FAIL'); }
+else
+  bad "trivia_fn.js could not run, so api/trivia.js went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$trivia_out"
+fi
 grep -q 'supabase.co\|/rest/v1/\|/auth/v1/' "$ROOT/site/inbox/index.html" && bad "the inbox page still talks to the board directly" || ok
 
 # -- the inbox fixture, spelled in three files that never see each other -------
