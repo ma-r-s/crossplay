@@ -411,6 +411,20 @@ select t('a card on any other app opens nothing',
          (select count(*)::text from blockers b join cards c on c.id = b.card_id
           where c.title = 'Sudoku keeps its own puzzle'), '0');
 
+-- A decision already taken is not one to ask again, and the trigger has to
+-- agree with the backfill in the same file about that: a board restored by
+-- INSERTing a dump would otherwise open one blocker per settled decision.
+insert into cards (title, app, kind, state) values
+  ('A decision taken long ago', 'mario', 'task', 'done'),
+  ('A decision parked on purpose', 'mario', 'task', 'parked');
+select t('a settled card filed on app mario opens nothing',
+         (select count(*)::text from blockers b join cards c on c.id = b.card_id
+          where c.title in ('A decision taken long ago', 'A decision parked on purpose')), '0');
+update cards set app = 'sudoku' where title = 'A decision taken long ago';
+update cards set app = 'mario' where title = 'A decision taken long ago';
+select t('and moving a settled card there opens nothing either',
+         (select count(*)::text from inbox where title = 'A decision taken long ago'), '0');
+
 -- Moved there, not only filed there: a decision that becomes his on Tuesday is
 -- as invisible as one that was his on Monday.
 update cards set app = 'mario' where title = 'Sudoku keeps its own puzzle';

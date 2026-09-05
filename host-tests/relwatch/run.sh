@@ -121,15 +121,26 @@ fi
 # apply before anything here inserts a card), so the half of that file which
 # repairs cards dropped before the rule existed would never have been executed
 # by anything. checks.sql leaves two behind the trigger's back; re-applying the
-# file runs the backfill over them, which it can do because the file is
-# re-runnable by construction (create or replace, drop trigger if exists).
+# file runs the backfill over them. The file's definitions are re-runnable
+# (create or replace, drop trigger if exists); the backfill itself is a plain
+# INSERT and production applies it exactly once, through board_migrations.
 if ! psql < "$MIG/20260905000300_mario_inbox.sql" > "$WORK/backfill.out" 2>&1; then
   echo "FAIL relwatch  the mario-inbox migration is not re-runnable"; tail -20 "$WORK/backfill.out"; exit 1
 fi
-psql -c "select t('the backfill files the open card that was dropped',
-                  (select count(*)::text from inbox where title = 'A decision that aged in reported'), '1')" >/dev/null
-psql -c "select t('and leaves the one he has already answered alone',
-                  (select count(*)::text from inbox where title = 'A decision he already took'), '0')" >/dev/null
+# `if ! ... exit 1`, like every other psql in this file. Under `set -uo pipefail`
+# with no -e, a bare `psql -c ... >/dev/null` that errored would simply not
+# insert its row, and the report below counts only what landed: the suite would
+# print "N passed, 0 failed" for a check that never ran.
+for q in \
+  "select t('the backfill files the open card that was dropped',
+            (select count(*)::text from inbox where title = 'A decision that aged in reported'), '1')" \
+  "select t('and leaves the settled one out of his inbox',
+            (select count(*)::text from inbox where title = 'A decision he already took'), '0')"
+do
+  if ! psql -c "$q" >/dev/null 2>"$WORK/backfill.out"; then
+    echo "FAIL relwatch  a backfill check did not run:"; sed 's/^/  /' "$WORK/backfill.out"; exit 1
+  fi
+done
 
 # The keys under test contain '|', which is psql's own column separator, so the
 # report is formatted in SQL and read back as whole lines.

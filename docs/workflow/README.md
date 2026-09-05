@@ -75,9 +75,16 @@ opens a `mario` blocker asking the card's title, and one only: a card that
 already has an open one never gets a second, however many times it is moved.
 `--default` says what happens if he never answers; without one the blocker
 says `nothing happens until he answers`, which is honest and lets him ignore
-it safely. Both the CLI and a trigger on `cards` enforce this, because the CLI
-is not the only writer -- the site's report function, the inbox page and a
-hand-typed `UPDATE` all reach the table directly.
+it safely. A card already `done`, `released` or `parked` is left alone: a
+decision taken is not one to ask again.
+
+Two enforcers, because the CLI is not the only writer -- the site's report
+function, the inbox page and a hand-typed `UPDATE` all reach `cards` directly.
+**Only the CLI half is live.** `20260905000300_mario_inbox.sql` adds the
+triggers and backfills the cards dropped before the rule existed, and it is
+written but **not yet applied**; until `server/board/migrate.sh` has run it,
+a card that reaches `cards` by any route other than `board` gets no blocker.
+`server/board/migrate.sh --list` says whether it is still pending.
 
 ## When the guard itself breaks
 

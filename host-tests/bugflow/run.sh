@@ -265,6 +265,65 @@ board app "$OID" mario >/dev/null
 board answer "$MID" "retire it" >/dev/null
 board show "$MID" | grep -q "closed: retire it" && ok "he answers the auto blocker like any other" || bad "the auto blocker cannot be answered"
 
+# A decision already taken is not one to ask again. The rule and the backfill
+# in the migration have to agree about this, or a board restored by INSERTing
+# a dump opens one blocker per settled decision it ever held.
+DID=$(board new "A decision he already took" --from tooling | sed 's/^#\([0-9]*\).*/\1/')
+board state "$DID" done >/dev/null
+board app "$DID" mario >/dev/null
+board show "$DID" | grep -q "BLOCKED(mario)" && bad "a done card was put back in the inbox" || ok "a settled card moved to app mario opens nothing"
+board new "A decision long since parked" --from mario >/dev/null
+SID2=$(board list | grep "A decision long since parked" | sed 's/^#\([0-9]*\).*/\1/')
+board state "$SID2" parked >/dev/null
+
+# The words the filer typed must not vanish in silence. This is the one case
+# where they cannot be used: the card is already asking him something else, and
+# overwriting THAT blocker's default would be worse than not applying these.
+EID=$(board new "Archive the empty duplicate" --from tooling | sed 's/^#\([0-9]*\).*/\1/')
+board block "$EID" --session "$WORKER" --need mario --ask "Archive it or keep it?" --default "it stays" >/dev/null
+board app "$EID" mario --default "THESE WORDS SHOULD MATTER" 2>&1 | grep -q -- "--default not applied" \
+  && ok "a --default that cannot be used says so out loud" || bad "a --default was dropped in silence"
+board show "$EID" | grep -q "if nothing: it stays" \
+  && ok "and the blocker already there keeps its own words" || bad "the existing blocker's default was overwritten"
+
+# Two open mario blockers on one card. Rare before this rule; routine once
+# every card on app mario carries one of its own. The inbox prints two lines,
+# and an answer typed against one of them must not land on the other -- which
+# is what `board answer` did, silently, by keeping the last match.
+FID=$(board new "Wavelength retail deck" --from mario --default "the deck ships" | sed 's/^#\([0-9]*\).*/\1/')
+board block "$FID" --session "$WORKER" --need mario --ask "Do we have permission for the retail deck?" --default "we assume not" >/dev/null
+board inbox | grep -q -- "board answer $FID '<choice>' --n 2" \
+  && ok "the inbox names the blocker in the command it prints" || bad "the inbox prints an ambiguous answer command"
+# Into a file, not a pipe: an ambiguous answer is REFUSED, so `board` exits 1,
+# and under `set -o pipefail` that non-zero status is the pipeline's however
+# well grep matched. A refusal read as a missing message is the one shape this
+# assertion must not have.
+board answer "$FID" "yes" > "$WORK/amb" 2>&1
+grep -q "say which with --n" "$WORK/amb" \
+  && ok "an ambiguous answer is refused rather than guessed" || bad "an ambiguous answer picked one silently: $(head -c 120 "$WORK/amb")"
+board answer "$FID" "we have it" --n 2 >/dev/null
+board show "$FID" | grep -q "blocker 2 \[mario, closed: we have it\]" \
+  && ok "--n answers the blocker it names" || bad "--n answered the wrong blocker"
+board show "$FID" | grep -q "blocker 1 \[mario, open\]" \
+  && ok "and leaves the other one open" || bad "--n closed a blocker it did not name"
+
+# Moving a card off his desk does not withdraw what he was asked: taking an
+# item out of his inbox with no answer is the dropped message this whole rule
+# is about. It is said out loud and left for a person.
+board app "$FID" tooling 2>&1 | grep -q "still in Mario.s inbox" \
+  && ok "moving a card off app mario says what it leaves in his inbox" || bad "a card left the app and its inbox item went unmentioned"
+board inbox | grep -q "Need from you: Wavelength retail deck" \
+  && ok "and does not silently withdraw it" || bad "the move withdrew an unanswered question"
+
+# Filed by heading, and by the GitHub sweep: same rule, same wording.
+printf '## mario: Which of the three layouts ships\nbody\n' > "$WORK/import3.md"
+board import "$WORK/import3.md" >/dev/null
+board inbox | grep -q "Need from you: Which of the three layouts ships" \
+  && ok "an imported card on app mario reaches the inbox" || bad "import skipped the rule"
+board new "Capital App" --from MARIO >/dev/null
+board list | grep -q "^#[0-9]* *reported *mario *Capital App" \
+  && ok "the app name is lowercased on the way in" || bad "board new stored a mixed-case app the SQL trigger would miss"
+
 # Filing on app mario is not the orchestrator-only `board ask`: a worker
 # already records `--need mario` blockers on its own card by the contract, so
 # the same worker may file the decision as a card. The gate that stays shut is

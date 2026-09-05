@@ -27,6 +27,13 @@ language plpgsql security definer set search_path = public as $$
 declare
   next_n integer;
 begin
+  -- A decision already taken is not one to ask again. Without this the two
+  -- halves of this file disagree: the backfill below skips settled cards, but
+  -- a board restored by INSERTing a dump would fire this trigger for every
+  -- settled decision it ever held, which is the flood the backfill avoids.
+  if new.state in ('done', 'released', 'parked') then
+    return null;
+  end if;
   if exists (select 1 from blockers where card_id = new.id and open and need = 'mario') then
     return null;
   end if;
