@@ -327,6 +327,18 @@ for field in url anonKey; do
     && ok || bad "install.js and board-config.js disagree on the field '$field'"
 done
 
+# A failed install is a card only when the failure is the page's, not the
+# person's (cards 153 and 157 were a closed port picker and a silent cable).
+# The decision function is lifted from install.js and run under node.
+if install_out="$(node "$HERE/install_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$install_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "install_fn: $line"; done < <(printf '%s\n' "$install_out" | grep '^  FAIL'); }
+else
+  bad "install_fn.js could not run, so install.js's error levels went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$install_out"
+fi
+
 # under node with the board stubbed; the wrong passphrase must read nothing.
 if inbox_out="$(node "$HERE/inbox_fn.js" "$ROOT" 2>&1)"; then
   ok
