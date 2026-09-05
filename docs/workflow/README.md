@@ -23,6 +23,31 @@ them changes nothing; `touch .board/enabled` arms every session from its next
 start, `rm .board/enabled` disarms. A running session picks the hooks up when
 it restarts, not before.
 
+## The scratchpad is shared
+
+The agent scratchpad is described as session-specific and is not: several
+agents run under one session id, so they all get the same directory, and each
+of them independently reaches for `gate.log`, `pr.md`, `out.txt`, `check.log`.
+Collision is therefore the default rather than bad luck, and it is silent --
+a truncated-then-rewritten log reads as a legitimate result. Three runs were
+corrupted on 2026-09-05 and one reached GitHub: an agent wrote its pull request
+body to `scratchpad/pr.md`, another session overwrote that exact path, and the
+first pushed the second's text into PR #117.
+
+A convention cannot fix this, because the failure mode IS everybody
+independently choosing the same obvious name. So the guard **refuses a write to
+the flat top level** and names the subdirectory to use instead:
+`<scratchpad>/<your worktree name>/`. The worktree is the key because one card,
+one branch, one worktree is this workflow's own rule -- and because a working
+directory was the only thing that distinguished four concurrently running gates
+the night `pgrep -f "check.sh --committed"` nearly got two siblings killed.
+`scripts_local/whose-gate.sh` answers that question directly now.
+
+The other half of the same lesson is in the worker contract: a run's verdict is
+its own captured output, never a file another process can write. `check.sh`
+prints a `transcript:` path named with `mktemp` for exactly this, and a
+`CHECKSH-VERDICT:` token to grep for instead of a line to count to.
+
 ## Identity
 
 A session cannot learn its own id from Bash, so the SessionStart hook prints
