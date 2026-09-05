@@ -63,9 +63,16 @@ inline Faces readingChromeFaces() { return Faces{kButtonFontId, kReadingFontId, 
 
 // And for a screen whose header band carries a story's title rather than the
 // app's name: the title slot takes the bold reading cut so a whole headline
-// fits and still reads as a headline. The app's own name stays in the display
-// cut on the screen where it *is* the title, which is the front page.
-inline Faces readerFaces() { return Faces{kButtonFontId, kReadingFontId, kReadingBoldFontId}; }
+// fits and still reads as a headline, and the SMALL slot takes the small
+// reading cut so a headline too long for the bold cut steps DOWN through real
+// reading faces (bold 16 -> 14 -> 11) rather than falling straight to an
+// ellipsis. The step used to be the Jersey tile cut (kButtonFontId), which is
+// a pixel display face with no business setting prose -- so a long headline was
+// either cut at reading_serif_14 or shrunk into a 21px Jersey line box, and the
+// fork's own shrink rule had nothing worth stepping down to (card #268). The
+// app's own name stays in the display cut on the screen where it *is* the
+// title, which is the front page.
+inline Faces readerFaces() { return Faces{kReadingSmallFontId, kReadingFontId, kReadingBoldFontId}; }
 
 // A screen whose content is ONE WORD, sized to be read across a room. All three
 // slots carry a different size of the same face, largest in the title slot,

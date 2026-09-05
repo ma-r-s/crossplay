@@ -44,6 +44,7 @@
 #include "../../src/apps_local/ui/ToyboxWrappedText.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
+#include "../../src/apps_local/yahtzee/YahtzeeScreens.h"
 
 namespace fui = freeink::ui;
 
@@ -725,6 +726,89 @@ void testSettingsRouting() {
   CHECK(screen.tap(240, closeY).action == chessui::ActionCloseSettings);
   CHECK(screen.tap(toybox::kMargin + 4, closeY).action == chessui::ActionCloseSettings);
   CHECK(screen.tap(480 - toybox::kMargin - 4, closeY).action == chessui::ActionCloseSettings);
+}
+
+// --- the dice clear the chrome ---------------------------------------------
+//
+// Mario: "Yahtzee dices touch the top header after rolled." They did, by five
+// pixels: the band owns 0..kHeaderHeight, headerRule paints kRule below it,
+// and contentTop() shaved four more off the gutter that was supposed to
+// separate them.
+//
+// Asked of dieRect() rather than of the constant, so this measures where the
+// die is DRAWN. A test that re-derived contentTop() from kHeaderHeight would
+// agree with the bug.
+//
+// And note what this does NOT test, because it was the fix that was tried and
+// did not work: making the header shorter moves the band and the dice
+// together and changes the clearance by nothing.
+// Mario asked for the decorative line on EVERY screen, and for no screen's
+// content to move to buy it. Both halves are asserted here, against
+// headerBand() itself rather than against any one app's screen: a per-app
+// assertion is precisely what let 12 of the fork's 41 band sites ship with no
+// rule at all, the Yahtzee card among them.
+void everyBandCarriesItsRule() {
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  fui::HeaderProps props;
+  props.title = "TITLE";
+  toybox::headerBand(screen, props);
+
+  // Half one, and the constraint that shaped the whole fix: the header still
+  // reserves exactly kHeaderHeight, so not one pixel of content anywhere in
+  // the fork moves. Adding the rule BELOW the band would have pushed every
+  // board, table and card down by six.
+  CHECK(screen.body().y == toybox::kHeaderHeight);
+
+  // Half two: a black, full-bleed rule, kBandRuleGap below the band.
+  bool ruled = false;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    const fui::Paint& paint = out.target.fillPaints[i];
+    if (paint.kind != fui::PaintKind::Solid || paint.color != fui::Color::Black) continue;
+    if (r.y != toybox::kHeaderHeight + toybox::kBandRuleGap || r.height != toybox::kRule) continue;
+    if (r.x == 0 && r.width == ctx.screen().width) ruled = true;
+  }
+  CHECK(ruled);
+
+  // The band's own black must still reach kHeaderHeight, or the rule is not a
+  // rule under a band -- it is a stripe in a gap. This is the assertion that
+  // fails on the arrangement tried first, which carved the gap and rule out of
+  // the header's height: that shortened the band to 70, tripped the vertical
+  // clamp on the title's line box, and stopped the header looking centred
+  // behind the X4 Pro's bezel.
+  bool bandFull = false;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    if (r.y == 0 && r.height == toybox::kHeaderHeight && r.width == ctx.screen().width) bandFull = true;
+  }
+  CHECK(bandFull);
+
+  // headerRule() is a no-op now. 27 call sites still name it, and if it drew
+  // anything they would each paint a SECOND line down in the body.
+  const size_t before = out.target.fills.size();
+  toybox::headerRule(screen);
+  CHECK(out.target.fills.size() == before);
+}
+
+void yahtzeeDiceClearTheHeader() {
+  const fui::DeviceContext ctx = device();
+  const fui::Rect die = yzui::dieRect(ctx, 0);
+
+  // A full gutter below the whole chrome -- band, gap AND rule -- which is
+  // what kChromeHeight names. Measuring it from kHeaderHeight instead is the
+  // bug: it counts the band and forgets the line drawn under it, which is how
+  // the dice came to sit five pixels beneath a rule nobody had counted. The
+  // value this replaced was `kHeaderHeight + kGutter - 4`, a fudge that
+  // borrowed four pixels from above the table to spend below it.
+  CHECK(die.y == toybox::kChromeHeight + toybox::kGutter);
+  CHECK(die.y - (toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule) == toybox::kGutter);
+
+  // Every die shares the row, so none of them can be the exception.
+  for (int i = 1; i < 5; ++i) CHECK(yzui::dieRect(ctx, i).y == die.y);
 }
 
 // --- the board's chrome ----------------------------------------------------
@@ -3214,6 +3298,37 @@ void testHnReaderShowsWhereYouAre() {
   }
   CHECK(headlineOnTheBand);
   CHECK(!drewText(out, "ARTICLE"));
+}
+
+// A card that would not take a save says so OVER the reader, not by replacing
+// it. Card #40: a failed save called showNotice(), which switched the Activity
+// to its full-screen Notice phase and threw the reader out of the page it was
+// on -- for the one failure that leaves what you were reading perfectly intact.
+// buildReader now draws the refusal from the model as a transient toast, so the
+// reader's own chrome is still there beneath it and nothing navigated away.
+void testHnReaderSaveFailedToastStaysOnTheReader() {
+  Rendered out;
+  hnui::ReaderModel model = articleModel();
+  model.canSave = true;
+  model.saveNotice = "Not saved: the card is full.";
+  buildHnReader(out, model);
+
+  // The refusal is on the page.
+  CHECK(drewText(out, "card is full"));
+  // And the reader is STILL the reader underneath it: the swap control, the
+  // page label and the save mark are all drawn, which a full-screen notice
+  // would not carry. That is the whole of #40 -- an overlay, not a new screen.
+  CHECK(drewText(out, "COMMENTS"));
+  CHECK(drewText(out, "1/3"));
+  CHECK(saveMarkIn(out) != nullptr);
+
+  // The ordinary paint, with nothing refused, is clean: the toast is drawn only
+  // when the model carries a reason.
+  Rendered clean;
+  hnui::ReaderModel plain = articleModel();
+  plain.canSave = true;
+  buildHnReader(clean, plain);
+  CHECK(!drewText(clean, "card is full"));
 }
 
 void testHnFitLines() {
@@ -9216,6 +9331,7 @@ int main() {
   testHnEmptyStateStacksWithoutOverlap();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
+  testHnReaderSaveFailedToastStaysOnTheReader();
   testHnSaveMarkIsLoudestWhenSaved();
   testHnAThreadCanBeKept();
   testTheColumnYouTapIsTheColumnTheRulesGet();
@@ -9321,6 +9437,8 @@ int main() {
   testAShortBoxIsWhatMakesTheCorrectionNecessary();
   testAMinesweeperDigitIsCentredInItsCell();
   testAKnucklebonesColumnTotalClearsItsBand();
+  everyBandCarriesItsRule();
+  yahtzeeDiceClearTheHeader();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
