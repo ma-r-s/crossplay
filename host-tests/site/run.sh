@@ -650,6 +650,17 @@ awk '/^\.study-preview-frame \{/,/^}/' "$SCSS" | grep -q -- 'var(--preview-chrom
 grep -q 'window.scrollTo' "$ROOT/site/study/study.js" \
   && ok || bad "study.js never resets the page scroll, so a step arrives at the previous step's offset"
 
+# A deck dropped on the zone must run the open-and-convert pipeline ONCE. Two
+# drop listeners reach takeFile -- one on the dropzone, one on document for a
+# deck dropped anywhere on the page -- and a drop on the zone bubbles to both,
+# so the zone's handler has to stop the bubble or the pipeline fires twice.
+# That it fires exactly once was counted in a browser (twice without the guard,
+# once with it); only the guard's presence can be checked here. Scoped to the
+# zone's own drop handler so a stray stopPropagation elsewhere cannot satisfy it.
+awk '/dropzone\.addEventListener\("drop"/,/\}\);/' "$ROOT/site/study/study.js" \
+  | grep -q 'stopPropagation' \
+  && ok || bad "study.js's dropzone drop handler does not stopPropagation, so a dropped deck bubbles to the document handler and runs the pipeline twice"
+
 # -- the emulator, which is no longer in the repository -----------------------
 #
 # site/emulator/ is 3.7MB of generated wasm that used to be committed on every
