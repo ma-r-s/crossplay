@@ -1,5 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "app/**": false,
+      "sync/**": false,
+      "xteink": true
+    }
+  },
   "ignoreCommand": "[ \"$VERCEL_GIT_COMMIT_REF\" != \"xteink\" ] || git diff --quiet HEAD^ HEAD ./",
   "buildCommand": "node fetch-emulator.mjs",
   "installCommand": "",

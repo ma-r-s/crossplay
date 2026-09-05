@@ -9,29 +9,61 @@ button** below before touching it.
 
 ## When it deploys, and when it does not
 
-`vercel.json` carries `"ignoreCommand": "git diff --quiet HEAD^ HEAD ./"`.
-Vercel runs it from this directory: **exit 0 skips the build, non-zero builds**.
-`git diff --quiet` exits 0 when nothing here changed, so a commit that does not
-touch `site/` never deploys.
+Two settings, and they act at different moments. Confusing them is what cost
+the fork a day: the account was deploy-rate-limited on 2026-09-04 and again on
+2026-09-05, and the first fix went in believing the second setting could do the
+first one's job.
 
-This is not tidiness. On 2026-09-04 the account hit its deployment rate limit
-and every pull request in the fork went red on a Vercel check, including ones
-whose diff was a word list or a shell script. Of the 305 commits on `xteink`
-that day, **57 touched `site/`** -- so four deploys in five built nothing new
-and the fifth could not run.
+**`git.deploymentEnabled` decides whether a deployment is CREATED.** Vercel
+reads it before anything runs. `app/**` and `sync/**` are `false`, so a push to
+a worktree branch or to the daily upstream sync branch produces nothing at all:
+no deployment, no build, no Vercel check on the pull request. `xteink` is the
+only branch left enabled.
 
-Two properties worth keeping if you edit it:
+**`ignoreCommand` decides whether an already-created deployment BUILDS.** It
+runs from this directory, inside the deployment, after Vercel has booked a
+build machine and cloned the repository. **Exit 0 skips the build, non-zero
+builds** -- the reverse of the intuitive reading. The command is:
 
-- **It fails towards building.** If the command errors -- a shallow clone with
-  no `HEAD^`, a git that is not there -- it exits non-zero and the deploy
+```
+[ "$VERCEL_GIT_COMMIT_REF" != "xteink" ] || git diff --quiet HEAD^ HEAD ./
+```
+
+so on `xteink` it builds only when this directory changed, and on any other ref
+it skips. The build log for a skip reads *"The deployment was canceled because
+the Ignored Build Step command returned exit code 0"*.
+
+**A skipped build is still a deployment, and it still counts.** The free plan's
+limit is worded *Deployments Created per Day: 100*, over a rolling 86400
+seconds. That is why the ref guard above did not stop the rate limit on its own
+and `git.deploymentEnabled` had to be added: measured across 2026-09-03..05,
+265 deployments, **159 of them previews** off `app/**` and `sync/**`, peaking at
+**154 in one rolling 24 hours against a limit of 100**. Denying those two
+namespaces takes the same peak to **64**. The remaining 106 are production:
+64 pull-request merges, 22 emulator rebuilds, 16 release version bumps.
+
+Properties worth keeping if you edit any of it:
+
+- **`ignoreCommand` fails towards building.** If it errors -- a shallow clone
+  with no `HEAD^`, a git that is not there -- it exits non-zero and the deploy
   proceeds. Never skip when unsure.
+- **`HEAD^` is the first parent**, so on the merge commit a pull request lands
+  as, `git diff HEAD^ HEAD ./` is exactly that pull request's changes to this
+  directory. That is the case that actually runs, and it is correct.
 - **`./` means this directory, not the repository root**, because the Vercel
   project root is `site/`. Changing the project root without changing this
   path silently stops every deploy.
+- **Never write a catch-all into `git.deploymentEnabled`.** The deny list names
+  the two namespaces branches are actually created in
+  (`scripts_local/wt.sh`, `docs/workflow/upstream-sync.md`), and
+  `host-tests/site/run.sh` checks it against them rather than against a copy.
+  A pattern that swept `xteink` up would stop the site updating for good, and
+  nothing would go red: a deployment that is never created cannot fail.
 
-The emulator rebuild CI commits after a firmware merge DOES touch `site/` --
-it writes `site/emulator-manifest.json` -- so it still deploys. That is correct:
-the page really did change.
+The emulator rebuild CI commits after a firmware merge DO touch `site/` -- they
+write `site/emulator-manifest.json`, which is the pointer `fetch-emulator.mjs`
+follows -- so they still deploy, and they must: without that deploy the live
+page keeps serving the previous emulator.
 
 ## Before it deploys
 
