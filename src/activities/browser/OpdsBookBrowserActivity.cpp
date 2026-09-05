@@ -82,8 +82,13 @@ void OpdsBookBrowserActivity::onEnter() {
   searchTemplate = "";
   currentPath = "";
   selectorIndex = 0;
-  errorMessage.clear();
-  statusMessage = tr(STR_CHECKING_WIFI);
+  {
+    // setCurrentActivity() installs this activity BEFORE onEnter() runs, so the
+    // render task can already be painting it while these run.
+    RenderLock lock(*this);
+    errorMessage.clear();
+    statusMessage = tr(STR_CHECKING_WIFI);
+  }
 
   listNav.reset();
   resetUi();
@@ -182,9 +187,14 @@ void OpdsBookBrowserActivity::onSavedDoneEvent(const fui::ActionEvent&, void* us
 }
 
 void OpdsBookBrowserActivity::leaveSavedScreen() {
-  state = BrowserState::BROWSING;
-  savedName.clear();
-  savedFolder.clear();
+  // clear() frees the buffer buildSavedScreen() reads through .c_str(), so it
+  // is a write like any other.
+  {
+    RenderLock lock(*this);
+    state = BrowserState::BROWSING;
+    savedName.clear();
+    savedFolder.clear();
+  }
   savedDwell.arm();
   // The list's first rows land on the pixels the verdict just occupied, so
   // shut routing until the panel has SHOWN the list. Same gate the rest of
@@ -214,10 +224,7 @@ void OpdsBookBrowserActivity::loop() {
     int ty = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tx, ty)) {
       if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-        state = BrowserState::LOADING;
-        statusMessage = tr(STR_LOADING);
-        requestUpdate();
-        fetchFeed(currentPath);
+        beginFetch(currentPath);
       } else {
         launchWifiSelection();
       }
@@ -650,8 +657,11 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
 
 void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   if (server.url.empty()) {
-    state = BrowserState::ERROR;
-    errorMessage = tr(STR_NO_SERVER_URL);
+    {
+      RenderLock lock(*this);
+      state = BrowserState::ERROR;
+      errorMessage = tr(STR_NO_SERVER_URL);
+    }
     requestUpdate();
     return;
   }
@@ -662,26 +672,32 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   {
     OpdsParserStream stream{parser};
     if (!HttpDownloader::fetchUrl(url, stream, server.username, server.password)) {
-      state = BrowserState::ERROR;
       // A catalog that wants credentials is not a broken catalog, and saying
       // "failed to fetch" sends the reader looking at their Wi-Fi instead of
       // at the server's username and password.
       const int status = HttpDownloader::lastStatus();
-      errorMessage = (status == 401 || status == 403) ? tr(STR_AUTH_FAILED) : tr(STR_FETCH_FEED_FAILED);
-      // The number the server actually sent, appended raw. It is the one fact
-      // that separates "the catalog is down" from "the catalog moved" from
-      // "we never got a reply", and diagnosing it over a USB cable is not
-      // something a reader can do. Digits need no translation; 0 means the
-      // request got no response at all.
-      errorMessage += " (" + std::to_string(status) + ")";
+      {
+        RenderLock lock(*this);
+        state = BrowserState::ERROR;
+        errorMessage = (status == 401 || status == 403) ? tr(STR_AUTH_FAILED) : tr(STR_FETCH_FEED_FAILED);
+        // The number the server actually sent, appended raw. It is the one fact
+        // that separates "the catalog is down" from "the catalog moved" from
+        // "we never got a reply", and diagnosing it over a USB cable is not
+        // something a reader can do. Digits need no translation; 0 means the
+        // request got no response at all.
+        errorMessage += " (" + std::to_string(status) + ")";
+      }
       requestUpdate();
       return;
     }
   }
 
   if (!parser) {
-    state = BrowserState::ERROR;
-    errorMessage = tr(STR_PARSE_FEED_FAILED);
+    {
+      RenderLock lock(*this);
+      state = BrowserState::ERROR;
+      errorMessage = tr(STR_PARSE_FEED_FAILED);
+    }
     requestUpdate();
     return;
   }
@@ -704,49 +720,71 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   const auto& nextUrl = parser.getNextPageUrl();
   const auto& prevUrl = parser.getPrevPageUrl();
   const bool feedTruncated = parser.truncated();
-  // Reset the selection before the swap: the render task reads
-  // entries[selectorIndex] under only an empty() guard, and the new feed can
-  // be shorter than the old selection.
-  selectorIndex = 0;
-  listNav.reset();
-  entries = std::move(parser).getEntries();
+  // THE LOCK IS THE INVARIANT. Everything from here to rebuildRowItems() below
+  // replaces `entries` wholesale and rebuilds `rowItems` from it, and
+  // buildBrowsingScreen() reads rowItems on the render task -- whose ListItems
+  // hold const char* INTO entries[i].title. A render overlapping this swap is a
+  // use-after-free, not a torn frame.
+  //
+  // Card #306 first tried to close that window by arguing about notification
+  // ordering: nothing can notify the render task while this call is on the main
+  // task's stack. That argument is true on one core and worthless on two. The
+  // render task is pinned to core 1 (ActivityManager.cpp, renderTaskCore) and
+  // every board this fork ships -- X4 Pro, Sticky, Paper Mono -- is a dual-core
+  // S3, so a notification left unconsumed between the render task's
+  // ulTaskNotifyTake and its claim of waitingTaskHandle runs a render here in
+  // genuine parallel. A timing argument does not survive a second core; a lock
+  // does.
+  //
+  // Released before requestUpdate() below, and well before the tail can reach
+  // launchSearch() -> beginFetch() -> requestUpdateAndWait(), which asserts if
+  // the caller holds this lock.
+  {
+    RenderLock lock(*this);
+    // Reset the selection before the swap: the render task reads
+    // entries[selectorIndex] under only an empty() guard, and the new feed can
+    // be shorter than the old selection.
+    selectorIndex = 0;
+    listNav.reset();
+    entries = std::move(parser).getEntries();
 
-  // Language filter. Navigation rows are never dropped -- hiding the way into a
-  // folder because the folder itself carries a language tag would strand the
-  // user -- and neither are books the feed did not tag. See opdsLanguageAllowed.
-  const uint32_t languageMask = opdsLanguageMaskFromCodes(SETTINGS.opdsLanguages);
-  if (languageMask != 0 && languageMask != opdsAllLanguagesMask()) {
-    const size_t before = entries.size();
-    entries.erase(std::remove_if(entries.begin(), entries.end(),
-                                 [languageMask](const OpdsEntry& entry) {
-                                   return entry.type == OpdsEntryType::BOOK &&
-                                          !opdsLanguageAllowed(entry.language, languageMask);
-                                 }),
-                  entries.end());
-    if (before != entries.size()) {
-      LOG_DBG("OPDS", "Language filter hid %zu of %zu entries", before - entries.size(), before);
+    // Language filter. Navigation rows are never dropped -- hiding the way into a
+    // folder because the folder itself carries a language tag would strand the
+    // user -- and neither are books the feed did not tag. See opdsLanguageAllowed.
+    const uint32_t languageMask = opdsLanguageMaskFromCodes(SETTINGS.opdsLanguages);
+    if (languageMask != 0 && languageMask != opdsAllLanguagesMask()) {
+      const size_t before = entries.size();
+      entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                   [languageMask](const OpdsEntry& entry) {
+                                     return entry.type == OpdsEntryType::BOOK &&
+                                            !opdsLanguageAllowed(entry.language, languageMask);
+                                   }),
+                    entries.end());
+      if (before != entries.size()) {
+        LOG_DBG("OPDS", "Language filter hid %zu of %zu entries", before - entries.size(), before);
+      }
     }
-  }
 
-  entries.reserve(entries.size() + (prevUrl.empty() ? 0 : 1) + (nextUrl.empty() ? 0 : 1));
-  if (!prevUrl.empty()) {
-    entries.insert(entries.begin(), OpdsEntry{OpdsEntryType::NAVIGATION, tr(STR_PREV_PAGE), "", prevUrl, ""});
-  }
-  if (!nextUrl.empty()) {
-    entries.push_back(OpdsEntry{OpdsEntryType::NAVIGATION, tr(STR_NEXT_PAGE), "", nextUrl, ""});
-  }
-  if (feedTruncated) {
-    LOG_INF("OPDS", "Feed truncated to fit memory");
-  }
+    entries.reserve(entries.size() + (prevUrl.empty() ? 0 : 1) + (nextUrl.empty() ? 0 : 1));
+    if (!prevUrl.empty()) {
+      entries.insert(entries.begin(), OpdsEntry{OpdsEntryType::NAVIGATION, tr(STR_PREV_PAGE), "", prevUrl, ""});
+    }
+    if (!nextUrl.empty()) {
+      entries.push_back(OpdsEntry{OpdsEntryType::NAVIGATION, tr(STR_NEXT_PAGE), "", nextUrl, ""});
+    }
+    if (feedTruncated) {
+      LOG_INF("OPDS", "Feed truncated to fit memory");
+    }
 
-  // A catalog with nothing to browse but a search link is not broken -- that is
-  // what a lookup-only catalog looks like, and LibGen is one. The feed itself
-  // tells us which shape it is, so no per-catalog setting is needed.
-  searchOnlyCatalog = entries.empty() && !searchTemplate.empty();
+    // A catalog with nothing to browse but a search link is not broken -- that is
+    // what a lookup-only catalog looks like, and LibGen is one. The feed itself
+    // tells us which shape it is, so no per-catalog setting is needed.
+    searchOnlyCatalog = entries.empty() && !searchTemplate.empty();
 
-  state = (entries.empty() && !searchOnlyCatalog) ? BrowserState::ERROR : BrowserState::BROWSING;
-  if (entries.empty() && !searchOnlyCatalog) errorMessage = tr(STR_NO_ENTRIES);
-  rebuildRowItems();
+    state = (entries.empty() && !searchOnlyCatalog) ? BrowserState::ERROR : BrowserState::BROWSING;
+    if (entries.empty() && !searchOnlyCatalog) errorMessage = tr(STR_NO_ENTRIES);
+    rebuildRowItems();
+  }
   requestUpdate();
 
   // Where the reader lands depends on the catalog's shape, not on a
@@ -780,6 +818,13 @@ void OpdsBookBrowserActivity::rebuildRowItems() {
 }
 
 void OpdsBookBrowserActivity::releaseEntries() {
+  // Same containers, same render task, same reason as the swap in fetchFeed():
+  // this frees every string rowItems points into. THREE callers reach it
+  // (navigateToEntry, navigateBack, performSearch), all on the main task while
+  // the render task may be mid-frame. (An earlier draft of this comment said
+  // four and listed a "search arrival" that does not call it -- a count written
+  // as a literal instead of derived; see derived-facts-written-as-literals.)
+  RenderLock lock(*this);
   // The app's interaction table holds row indices (and hit rects) for the old
   // entries; stop routing touches against it until the next render.
   closeRouting();
@@ -793,12 +838,9 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry) {
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
   currentPath = UrlUtils::buildUrl(feedUrl, entry.href);
 
-  state = BrowserState::LOADING;
-  statusMessage = tr(STR_LOADING);
   releaseEntries();
   selectorIndex = 0;
-  requestUpdate(true);
-  fetchFeed(currentPath);
+  beginFetch(currentPath);
 }
 
 void OpdsBookBrowserActivity::navigateBack() {
@@ -819,12 +861,9 @@ void OpdsBookBrowserActivity::navigateBack() {
     currentPath = navigationHistory.back();
     navigationHistory.pop_back();
     showingSearchResults = false;
-    state = BrowserState::LOADING;
-    statusMessage = tr(STR_LOADING);
     releaseEntries();
     selectorIndex = 0;
-    requestUpdate();
-    fetchFeed(currentPath);
+    beginFetch(currentPath);
   }
 }
 
@@ -846,14 +885,52 @@ void OpdsBookBrowserActivity::paintPrepareCover() {
 }
 
 void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
-  state = BrowserState::DOWNLOADING;
-  statusMessage = book.title;
-  downloadAuthor = book.author;
-  downloadCoverPath = cachedCoverPath();
-  downloadProgress = downloadTotal = 0;
-  cancelDownload = false;
-  goHomeAfterCancel = false;
-  requestUpdate(true);
+  // Probed BEFORE the lock: cachedCoverPath() stats the SD card, and holding
+  // the render lock across storage I/O would stall the panel rather than
+  // protect it.
+  const std::string coverPath = cachedCoverPath();
+  // Three std::strings the render task reads through .c_str()
+  // (buildDownloadScreen, paintPrepareCover), written immediately before a
+  // wait. Same reason as beginFetch above.
+  {
+    RenderLock lock(*this);
+    state = BrowserState::DOWNLOADING;
+    statusMessage = book.title;
+    downloadAuthor = book.author;
+    downloadCoverPath = coverPath;
+    downloadProgress = downloadTotal = 0;
+    cancelDownload = false;
+    goHomeAfterCancel = false;
+  }
+  // Screen ENTRY, so the reveal gate is armed for it like every other entry in
+  // this file. Without this the download screen was the one state that
+  // published an interaction table nothing had announced.
+  resetUi();
+  // WAITED for, like beginFetch(). Card #306: requestUpdate(true) notifies the
+  // render task and returns, so the download screen only RACED downloadToFile()
+  // -- and the whole TCP+TLS connect window sits before the first progress
+  // callback can repaint anything, so losing that race showed the catalog list
+  // with a cover half-drawn over it for the length of a handshake.
+  requestUpdateAndWait();
+
+  // The tap that got here was a DOWNLOAD on the detail screen, and this runs
+  // from that activity's result handler -- so the finger may still be on the
+  // glass, and its release belongs to the detail screen, not to this one.
+  // Waiting for the frame (above) makes that certain rather than likely: the
+  // panel finishes its refresh before the first progress callback, so Cancel is
+  // reliably live by the time the contact lifts.
+  //
+  // swallowCurrentTouch(), not a read-and-discard. wasScreenTapped() is a pure
+  // QUERY -- it reads touchReleasedEvent and only update() clears it -- so
+  // reading the tap and throwing the value away suppresses nothing and the very
+  // next routeTouch() sees the same event. This is the SDK's suppression latch,
+  // the same one Minesweeper and Sudoku use after a hold fires, and it covers
+  // both a contact still down and the release-edge frame
+  // (InputManager::suppressTouchContact latches when touchPressed ||
+  // touchReleasedEvent). The reveal gate cannot cover this: it opens on the
+  // first paint after resetUi(), and the wait guarantees that paint has landed.
+  // See a-tap-is-a-touch-down and same-pixel-different-action.
+  mappedInput.swallowCurrentTouch();
 
   // Build full download URL relative to the current feed, not the root server URL
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
@@ -889,7 +966,11 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
         // answered here or not at all. Shared with the cover fetch on the
         // detail screen -- see components/BlockingFetchInput.h.
         pumpBlockingFetch(mappedInput, cancelDownload, goHomeAfterCancel);
-        routeTouch(mappedInput);
+        // Gated like the SAVED screen's routing, and for the same reason: this
+        // is the ONLY place a touch is routed during a download, and it was
+        // routing against a table whose screen entry announced nothing. See
+        // UiAppHost::revealed().
+        if (routingReady()) routeTouch(mappedInput);
         const int percent = total > 0 ? static_cast<int>(static_cast<uint64_t>(downloaded) * 100 / total) : 0;
         const unsigned long now = millis();
         if (percent >= 100 || lastRenderedPercent < 0 ||
@@ -909,9 +990,12 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
     // holds -- not the catalog's title, which opdsBookFilename() routinely
     // rewrites (one author out of a ';'-joined list, two separate byte
     // budgets, illegal characters replaced).
-    savedName = opdsPathBasename(filename);
-    savedFolder = opdsPathFolder(filename);
-    state = BrowserState::SAVED;
+    {
+      RenderLock lock(*this);
+      savedName = opdsPathBasename(filename);
+      savedFolder = opdsPathFolder(filename);
+      state = BrowserState::SAVED;
+    }
     savedDwell.arm();
     // Arms the reveal gate: the download screen's Cancel button was live under
     // whatever finger is on the glass, and this screen must not answer that
@@ -928,6 +1012,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
     state = BrowserState::BROWSING;
   } else {
     LOG_ERR("OPDS", "Download failed: %d", static_cast<int>(result));
+    RenderLock lock(*this);
     state = BrowserState::ERROR;
     errorMessage = tr(STR_DOWNLOAD_FAILED);
   }
@@ -1048,20 +1133,55 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
   currentPath = url;
   showingSearchResults = true;
 
-  state = BrowserState::LOADING;
-  statusMessage = tr(STR_LOADING);
   releaseEntries();
   selectorIndex = 0;
-  requestUpdate(true);
-  fetchFeed(url);
+  beginFetch(currentPath);
+}
+
+// The ONE way a feed fetch starts, and the only reason it is a function.
+//
+// HttpDownloader::fetchUrl() blocks the main task for the whole transfer.
+// Until card #306 every caller here asked for the busy frame with plain
+// requestUpdate() or requestUpdate(true) and then blocked in the SAME call
+// stack. Plain requestUpdate() only sets a flag that ActivityManager::loop()
+// consumes at its own tail, and that tail cannot be reached while the fetch is
+// still on the stack -- so the render task was never notified at all and the
+// panel held the PREVIOUS screen for the length of the download. On the
+// cold-start path (onEnter -> checkAndConnectWifi) that previous screen is the
+// shelf, which is what makes opening Get Books look like the device died. Two
+// cold testers have read a silent screen as a crash; see the memory
+// a-silent-screen-reads-as-a-crash.
+//
+// requestUpdateAndWait() (ActivityManager.cpp:455) blocks in ulTaskNotifyTake
+// until the render task has finished render(), and this activity's render()
+// ends in renderer.displayBuffer() -- the blocking panel path -- so the LOADING
+// frame is genuinely on the glass before the socket opens. Not a scheduled
+// hope: requestUpdate(true) notifies immediately but still only RACES the
+// socket.
+//
+// A helper rather than the same two lines fixed at six call sites, because the
+// call sites are what failed: see bounding-one-of-two-input-paths. Every path
+// into a feed goes through here, so a seventh cannot be written without one.
+void OpdsBookBrowserActivity::beginFetch(const std::string& path) {
+  // Under the lock, and scoped shut before the wait. statusMessage is a
+  // std::string the render task reads through .c_str() (buildStatusScreen), so
+  // a reallocating operator= frees the buffer it is holding -- the same
+  // use-after-free class as the entries swap, in the very TAKE/CLAIM window
+  // this branch admits still exists. KOReaderAuthActivity and
+  // InstapaperActivity::paintBusyNow already write their busy state this way;
+  // these two OPDS sites were the inconsistent ones.
+  {
+    RenderLock lock(*this);
+    state = BrowserState::LOADING;
+    statusMessage = tr(STR_LOADING);
+  }
+  requestUpdateAndWait();
+  fetchFeed(path);
 }
 
 void OpdsBookBrowserActivity::checkAndConnectWifi() {
   if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-    state = BrowserState::LOADING;
-    statusMessage = tr(STR_LOADING);
-    requestUpdate();
-    fetchFeed(currentPath);
+    beginFetch(currentPath);
     return;
   }
   launchWifiSelection();
@@ -1077,14 +1197,14 @@ void OpdsBookBrowserActivity::launchWifiSelection() {
 
 void OpdsBookBrowserActivity::onWifiSelectionComplete(const bool connected) {
   if (connected) {
-    state = BrowserState::LOADING;
-    statusMessage = tr(STR_LOADING);
-    requestUpdate(true);
-    fetchFeed(currentPath);
+    beginFetch(currentPath);
   } else {
     // Leave WiFi up; onExit's silent reboot handles teardown without fragmenting.
-    state = BrowserState::ERROR;
-    errorMessage = tr(STR_WIFI_CONN_FAILED);
+    {
+      RenderLock lock(*this);
+      state = BrowserState::ERROR;
+      errorMessage = tr(STR_WIFI_CONN_FAILED);
+    }
     requestUpdate();
   }
 }

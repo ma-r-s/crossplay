@@ -96,6 +96,10 @@ class InstapaperActivity final : public Activity {
   // happens only in performDisconnect(), reached by a deliberate press on the
   // confirm's marked control.
   void showDisconnectConfirm();
+  // Busy screen ON THE PANEL before the caller blocks on a socket (card #306).
+  // Every blocking call in this app that runs in its own call stack goes
+  // through here; request() above only DEFERS to the next loop pass.
+  void paintBusyNow(const char* headline);
   void performDisconnect();
 
   // Epoch seconds, or 0 when the clock has never been set. A progress stamp

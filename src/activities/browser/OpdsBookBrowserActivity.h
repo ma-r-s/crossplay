@@ -128,6 +128,10 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   void checkAndConnectWifi();
   void launchWifiSelection();
   void onWifiSelectionComplete(bool connected);
+  // The only entry point for a feed fetch: paints LOADING and WAITS for the
+  // panel before fetchFeed() blocks. Card #306 -- never call fetchFeed()
+  // directly from a new path.
+  void beginFetch(const std::string& path);
   void fetchFeed(const std::string& path);
   void releaseEntries();
   void navigateToEntry(const OpdsEntry& entry);
