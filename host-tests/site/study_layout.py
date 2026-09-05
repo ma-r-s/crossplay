@@ -1,5 +1,5 @@
-"""The study wizard's steps must stay in normal flow, and the page must be
-allowed to grow.
+"""The study wizard's steps must stay in normal flow, the page must be allowed
+to grow, and it must fit the width of a phone.
 
 WHAT WENT WRONG. `.wiz-step` was `position: absolute` inside a `min-height: 0`
 row and `.study-body` clamped the page to `100vh` with `overflow: hidden`, so a
@@ -83,6 +83,13 @@ if step_class:
 if not container_class:
     say("study/index.html's steps have no classed <div> around them, so the step container cannot be found")
 
+# The stepper is whatever element wraps the numbered step buttons.
+m = re.search(r"<(?:nav|ol|ul|div)[^>]*\bclass=\"([^\"]+)\"[^>]*>\s*(?:<!--.*?-->\s*)*<button[^>]*\bdata-step=",
+              html, flags=re.S)
+stepper_class = m.group(1).split()[0] if m else None
+if not stepper_class:
+    say("study/index.html has no element wrapping the data-step buttons, so the stepper cannot be found")
+
 
 # -- their rule blocks -------------------------------------------------------
 
@@ -132,6 +139,49 @@ if cont is not None:
     if rows and "minmax(0" in rows.group(1).replace(" ", ""):
         say(f".{container_class} (step container) sizes its row with minmax(0, ...), which lets it be "
             "shorter than the step again -- the clip under another name")
+
+# -- the 320px overflow: floor the column, let the stepper reflow -------------
+#
+# WHAT WENT WRONG. .wizard is a grid that declares no column of its own, so its
+# single implicit column is `auto` and takes its minimum from the widest child.
+# That child is the stepper, a nowrap flex row of four chips measuring ~342px,
+# so on a 320px phone the column cannot shrink: every child starts at x=20 and
+# the page is 42px wider than the screen, with the "Write" chip, the Invert
+# toggle and the dropzone's right border all off-screen.
+#
+# TWO PROPERTIES fix it and both are checked. The column must be FLOORED with
+# `grid-template-columns: minmax(0, ...)`; a bare `1fr` or `auto` keeps the
+# min-content floor and still overflows, so the value is checked, not just the
+# property. With the column floored the nowrap stepper would still overflow its
+# own box, so the stepper must be allowed to REFLOW -- flex-wrap:wrap drops the
+# fourth chip to a second line, or an overflow on the stepper scrolls it.
+#
+# WHAT THIS CANNOT SEE, plainly: that the page actually stops overflowing at
+# 320 and 360. That is a browser measurement (document.scrollWidth ==
+# clientWidth, both themes) and it was made in one; nothing here can.
+wiz_decls = block(wizard_class) if wizard_class else None
+if wiz_decls is not None:
+    cols = re.search(r"grid-template-columns\s*:([^;]*)", wiz_decls)
+    if not cols:
+        say(f".{wizard_class} (wizard) sets no grid-template-columns, so its implicit auto column "
+            "takes the stepper's width and overflows a phone")
+    elif "minmax(0" not in cols.group(1).replace(" ", ""):
+        say(f".{wizard_class} (wizard) does not floor its column with minmax(0, ...), so the column "
+            "keeps its min-content floor and the page overflows a phone")
+
+if stepper_class:
+    step_decls = block(stepper_class)
+    if step_decls is None:
+        say(f"study.css has no `.{stepper_class}` rule, and study/index.html says it wraps the steps")
+    else:
+        have = props(step_decls)
+        wrap = re.search(r"flex-wrap\s*:([^;]*)", step_decls)
+        wraps = bool(wrap and "nowrap" not in wrap.group(1) and "wrap" in wrap.group(1))
+        scrolls = any(p == "overflow" or p.startswith("overflow-") for p in have)
+        if not wraps and not scrolls:
+            say(f".{stepper_class} (stepper) neither wraps nor scrolls, so its nowrap chips overflow "
+                "the floored column and the page scrolls sideways on a phone")
+
 
 for line in problems:
     print(line)

@@ -46,6 +46,12 @@
   margin-inline: auto;
   padding: 0 var(--gutter);
   display: grid;
+  /* The single column is explicit and floored at 0, not the implicit auto
+     track: an auto column takes its min size from the stepper's max-content
+     (four nowrap chips, wider than a 320px phone) and pushes the whole page
+     wider than the viewport. minmax(0, 1fr) lets the column shrink to the
+     window so the stepper fits inside it instead of overflowing it. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto 1fr auto;
   gap: 0.4rem;
 }
@@ -67,6 +73,11 @@
 
 .wiz-stepper {
   display: flex;
+  /* Wrap on a phone too narrow for four chips in a row: the grid column above
+     is floored at 0 so it no longer stretches to the stepper's width, which
+     leaves the nowrap chips overflowing the viewport unless they can fall to a
+     second line. At any width wide enough for one row this is inert. */
+  flex-wrap: wrap;
   gap: 0.5rem;
   border-bottom: 1px solid var(--edge);
   padding-bottom: 0.5rem;
