@@ -7735,6 +7735,106 @@ void testTheQueueOffersUndoOnlyAfterAnArchive() {
   CHECK(!offered.interactions.overflowed());
 }
 
+// When paired, the queue grows an account control at the FAR RIGHT of the
+// footer and SYNC gives up exactly that width -- but SYNC keeps its left edge,
+// the primary-action home a thumb learns, so the tap a reader makes without
+// looking still syncs. An unpaired reader sees no account control and no change
+// to SYNC. The control opens the disconnect flow; it destroys nothing itself.
+void testPairedQueueOffersAccountBesideSync() {
+  fui::ListItem row{};
+  row.label = "Something to read";
+  row.subtitle = "6 min . example.com";
+  row.value = "";
+  row.actionValue = 0;
+
+  const fui::DeviceContext ctx = device();
+  const int16_t footerY = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+
+  // Unpaired: no account control anywhere on the footer.
+  Rendered unpaired;
+  instapaperui::QueueModel plain;
+  plain.items = &row;
+  plain.count = 1;
+  buildInstaQueue(unpaired, plain);
+  for (int x = toybox::kMargin; x < ctx.width - toybox::kMargin; ++x) {
+    CHECK(unpaired.tap(x, footerY).action != instapaperui::ActionAccount);
+  }
+
+  // Paired: the account control answers at the right end, and SYNC still answers
+  // on the left where it has always been.
+  Rendered paired;
+  instapaperui::QueueModel model = plain;
+  model.accountIcon = &icon_account_32;
+  buildInstaQueue(paired, model);
+  CHECK(!paired.interactions.overflowed());
+
+  const fui::ActionEvent right =
+      paired.tap(static_cast<int>(ctx.width - toybox::kMargin - toybox::kPillHeight / 2), footerY);
+  CHECK(right.action == instapaperui::ActionAccount);
+
+  const fui::ActionEvent left = paired.tap(toybox::kMargin + 8, footerY);
+  CHECK(left.action == instapaperui::ActionSync);
+}
+
+// The disconnect confirm is the whole safety of a destructive wipe, so it makes
+// the SAFE answer the prominent one: KEEP IT takes the primary action band at
+// the bottom, where a thumb -- and any tap carried across the phase change from
+// the queue's account icon -- lands. DISCONNECT is a smaller control set apart
+// above it, on pixels no queue control ever occupied. Both answer; the
+// destructive one is nowhere the primary band is; and the count is on screen
+// before the tap, so a reader knows what they are agreeing to lose.
+void testDisconnectConfirmMakesKeepThePrimaryAnswer() {
+  Rendered out;
+  instapaperui::DisconnectModel model;
+  model.account = "reader@example.com";
+  model.articleCount = 4;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    instapaperui::buildDisconnectConfirm(screen, model);
+  }
+  CHECK(!out.interactions.overflowed());
+  CHECK(drewText(out, "DISCONNECT?"));
+
+  const fui::DeviceContext ctx = device();
+  // The primary band -- the full-width bottom pill -- is the SAFE answer.
+  const int16_t primaryY = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+  const int16_t primaryTop = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight);
+  CHECK(out.tap(ctx.width / 2, primaryY).action == instapaperui::ActionDisconnectCancel);
+
+  bool sawDisconnect = false;
+  bool sawKeep = false;
+  bool disconnectOnPrimaryBand = false;
+  for (int y = toybox::kMargin; y < ctx.height - toybox::kMargin; y += 4) {
+    for (int x = toybox::kMargin; x < ctx.width - toybox::kMargin; x += 8) {
+      const fui::ActionId action = out.tap(x, y).action;
+      if (action == instapaperui::ActionDisconnect) {
+        sawDisconnect = true;
+        if (y >= primaryTop) disconnectOnPrimaryBand = true;
+      }
+      if (action == instapaperui::ActionDisconnectCancel) sawKeep = true;
+    }
+  }
+  CHECK(sawDisconnect);
+  CHECK(sawKeep);
+  // The destructive control never sits where the safe primary button is, so no
+  // remembered tap can reach it.
+  CHECK(!disconnectOnPrimaryBand);
+
+  // The count is on the screen. Joined across runs, because the sentence wraps
+  // and a line break can fall anywhere in it.
+  std::string joined;
+  for (const auto& run : out.target.texts) {
+    joined += run.text;
+    joined += ' ';
+  }
+  CHECK(joined.find("4 article") != std::string::npos);
+  // And whose account it is, drawn whole (an email is one unbreakable token).
+  CHECK(drewText(out, "reader@example.com"));
+}
+
 // A title wider than the band must be cut on a word and marked, never clipped
 // mid-word: a word broken in half reads as a rendering fault.
 void testALongTitleIsEllipsisedRatherThanClipped() {
@@ -9051,6 +9151,8 @@ int main() {
   testArchiveIsLiveOnTheLastPage();
   testArchiveIsNotBetweenThePageControls();
   testTheQueueOffersUndoOnlyAfterAnArchive();
+  testPairedQueueOffersAccountBesideSync();
+  testDisconnectConfirmMakesKeepThePrimaryAnswer();
   testALongTitleIsEllipsisedRatherThanClipped();
   testTheReaderTextGoesInTheReaderBody();
   testWavelengthSpectrumEndsShareOneSize();

@@ -155,6 +155,39 @@ void InstapaperActivity::showNotice(const char* headline, std::string message, c
   requestUpdate();
 }
 
+void InstapaperActivity::showDisconnectConfirm() {
+  {
+    RenderLock lock(*this);
+    phase_ = Phase::DisconnectConfirm;
+  }
+  requestUpdate();
+}
+
+void InstapaperActivity::performDisconnect() {
+  // Best-effort server revoke, and only if the radio is already up. Possession
+  // of the device token is the whole authorization -- POST /api/pair/abandon
+  // resolves it to a uid and revokes it with no session -- so this hands the
+  // LIVE token, not a pairing pollToken. (The endpoint's docstring says it
+  // revokes "the registration poll() created before the human confirmed"; the
+  // code revokes any device token it can resolve, which is what this wants.)
+  // Not worth summoning the Wi-Fi picker for: the token is erased locally a line
+  // below so this reader can never use it again either way, and the account page
+  // at read.ma-r-s.com/devices revokes it server-side whenever this could not.
+  if (!bridge_.token.empty() && WiFi.status() == WL_CONNECTED) {
+    sync_.pairAbandon("", bridge_.token);
+  }
+  // The card, not just RAM. The token, the index and every downloaded article
+  // are removed from storage here, so a wake -- which is a chip reset -- returns
+  // to a reader that never paired rather than to a half-erased one. See
+  // state-lives-in-ram-until-you-back-out.
+  library_.wipeAccount();
+  bridge_ = instapaper::BridgeState{};
+  undoArchiveId_ = 0;
+  topIndex_ = 0;
+  LOG_INF("INSTA", "account disconnected; pairing and articles wiped");
+  showQueue();
+}
+
 // --- The loop ------------------------------------------------------------
 
 void InstapaperActivity::loop() {
@@ -209,6 +242,11 @@ void InstapaperActivity::loop() {
         break;
       case Phase::Notice:
       case Phase::Busy:
+        showQueue();
+        break;
+      case Phase::DisconnectConfirm:
+        // Back is the safe answer to "disconnect?": it keeps the account and
+        // the reading list, exactly like KEEP IT.
         showQueue();
         break;
       case Phase::Queue:
@@ -311,6 +349,9 @@ void InstapaperActivity::loop() {
       if (!pendingToken_.empty()) {
         bridge_.paired = true;
         bridge_.token = pendingToken_;
+        // Kept so the account can be named on the disconnect confirm. This is
+        // the one moment the device learns it; it is otherwise never shown.
+        bridge_.user = pendingUser_;
         library_.saveBridgeState(bridge_);
         pendingToken_.clear();
         pollToken_.clear();
@@ -319,6 +360,17 @@ void InstapaperActivity::loop() {
       }
       break;
     case instapaperui::ActionNotice:
+      showQueue();
+      break;
+    case instapaperui::ActionAccount:
+      // Opens the confirm. Destroys nothing: the wipe is a second, deliberate
+      // press on the confirm's marked control.
+      showDisconnectConfirm();
+      break;
+    case instapaperui::ActionDisconnect:
+      performDisconnect();
+      break;
+    case instapaperui::ActionDisconnectCancel:
       showQueue();
       break;
     default:
@@ -745,6 +797,18 @@ void InstapaperActivity::render(RenderLock&&) {
       break;
     }
 
+    case Phase::DisconnectConfirm: {
+      instapaperui::DisconnectModel model;
+      model.account = bridge_.user.c_str();
+      // The number the reader is agreeing to lose is every row in the index --
+      // which is exactly what wipeAccount() deletes off the card.
+      library_.load();
+      model.articleCount = static_cast<int>(library_.articles().size());
+      instapaperui::buildDisconnectConfirm(screen, model);
+      what = "Instapaper disconnect";
+      break;
+    }
+
     case Phase::Reading: {
       // Measured here because measuring needs a draw target, and measured from
       // the same rect the text is drawn into: readerBody() is the one function
@@ -920,6 +984,10 @@ void InstapaperActivity::render(RenderLock&&) {
       model.topIndex = topIndex_;
       model.lastSync = lastSyncLabel_;
       model.canUndoArchive = undoArchiveId_ != 0;
+      // The account door appears only when there is an account to manage. On an
+      // unpaired reader this stays null and the footer is exactly what it was:
+      // a full-width SYNC that starts pairing.
+      model.accountIcon = bridge_.paired ? &icon_account_32 : nullptr;
       instapaperui::buildQueue(screen, model);
       what = "Instapaper queue";
       break;
