@@ -30,6 +30,7 @@
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
+#include "../../src/apps_local/picross/PicrossScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
@@ -9239,6 +9240,236 @@ void testAHandDrawnRightLabelSitsOnTheTitlesLine() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Picross. A grid too big for the interaction buffer (a 10x10 is a hundred
+// cells against twenty-four slots), hit-tested through its Layout, plus a mode
+// capsule and a picker that must not spoil an unsolved picture.
+// ---------------------------------------------------------------------------
+
+void buildPicrossBoard(Rendered& out, const picrossui::BoardModel& model, picrossui::Layout& layout) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  picrossui::buildBoard(screen, model, layout);
+}
+
+void buildPicrossMenu(Rendered& out, const picrossui::MenuModel& model, picrossui::PickerLayout& layout) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  picrossui::buildMenu(screen, model, layout);
+}
+
+void buildPicrossWin(Rendered& out, const picrossui::WinModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  picrossui::buildWin(screen, model);
+}
+
+// A mid-game HEART: two correct fills, one locked mistake, one annotation.
+picross::Board picrossMidGame() {
+  picross::Board board;
+  board.load(0);  // HEART 5x5
+  int filled = 0;
+  for (int r = 0; r < board.size() && filled < 2; ++r)
+    for (int c = 0; c < board.size() && filled < 2; ++c)
+      if (board.solid(r, c)) {
+        board.fill(r, c);
+        ++filled;
+      }
+  for (int r = 0; r < board.size(); ++r)
+    for (int c = 0; c < board.size(); ++c)
+      if (!board.solid(r, c)) {
+        board.fill(r, c);
+        goto marked;
+      }  // one wrong fill -> mistake
+marked:
+  for (int r = 0; r < board.size(); ++r)
+    for (int c = 0; c < board.size(); ++c)
+      if (!board.solid(r, c) && board.cell(r, c) == picross::Cell::Blank) {
+        board.mark(r, c);
+        return board;
+      }
+  return board;
+}
+
+bool allDigits(const std::string& s) {
+  if (s.empty()) return false;
+  for (const char ch : s)
+    if (ch < '0' || ch > '9') return false;
+  return true;
+}
+
+// The whole grid is one target, so every one of a hundred cells does not land in
+// a twenty-four slot buffer. The direct assertion is that a full-panel sweep
+// reaches only the handful of real controls, and the grid through its Layout.
+void testPicrossBoardSpendsFewInteractions() {
+  picross::Board board = picrossMidGame();
+  Rendered out;
+  picrossui::BoardModel model;
+  model.board = &board;
+  model.mode = picrossui::ModeFill;
+  model.solvedCount = 0;
+  model.total = picross::kPuzzleCount;
+  picrossui::Layout layout;
+  buildPicrossBoard(out, model, layout);
+
+  std::vector<int> actions;
+  bool sawFill = false, sawMark = false, sawRestart = false, sawPuzzles = false, sawBoard = false;
+  for (int y = 2; y < 800; y += 7) {
+    for (int x = 2; x < 480; x += 7) {
+      const fui::ActionEvent e = out.tap(x, y);
+      if (e.action == fui::NO_ACTION) continue;
+      bool seen = false;
+      for (const int a : actions) seen = seen || a == static_cast<int>(e.action);
+      if (!seen) actions.push_back(static_cast<int>(e.action));
+      if (e.action == picrossui::ActionBoard) sawBoard = true;
+      if (e.action == picrossui::ActionMode && e.value == picrossui::ModeFill) sawFill = true;
+      if (e.action == picrossui::ActionMode && e.value == picrossui::ModeMark) sawMark = true;
+      if (e.action == picrossui::ActionButton && e.value == picrossui::ButtonRestart) sawRestart = true;
+      if (e.action == picrossui::ActionButton && e.value == picrossui::ButtonPuzzles) sawPuzzles = true;
+    }
+  }
+  // Only the real controls answer, and the grid is one of them (not a hundred).
+  CHECK(actions.size() <= 4);
+  CHECK(sawBoard);
+  CHECK(sawFill && sawMark);  // both halves of the mode capsule report their mode
+  CHECK(sawRestart && sawPuzzles);
+}
+
+// The pair has to be an exact inverse over the board it actually drew: a rect the
+// hit test misses is a dead cell, and a point it claims outside a cell's rect is
+// a tap that lands where the finger did not.
+void testPicrossGridHitTestIsExactInverse() {
+  picross::Board board = picrossMidGame();
+  Rendered out;
+  picrossui::BoardModel model;
+  model.board = &board;
+  picrossui::Layout layout;
+  buildPicrossBoard(out, model, layout);
+
+  const int n = layout.size;
+  bool everyPixelMapsHome = true;
+  bool everyClaimIsInsideItsRect = true;
+  for (int r = 0; r < n; ++r) {
+    for (int c = 0; c < n; ++c) {
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(layout.board.x + c * layout.cell),
+                        static_cast<int16_t>(layout.board.y + r * layout.cell), layout.cell, layout.cell);
+      for (int y = box.y; y < box.bottom(); ++y) {
+        for (int x = box.x; x < box.right(); ++x) {
+          int gotR = -1, gotC = -1;
+          if (!layout.cellAt(x, y, gotR, gotC) || gotR != r || gotC != c) everyPixelMapsHome = false;
+        }
+      }
+    }
+  }
+  for (int y = layout.board.y; y < layout.board.bottom(); ++y) {
+    for (int x = layout.board.x; x < layout.board.right(); ++x) {
+      int gotR = -1, gotC = -1;
+      if (!layout.cellAt(x, y, gotR, gotC)) continue;
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(layout.board.x + gotC * layout.cell),
+                        static_cast<int16_t>(layout.board.y + gotR * layout.cell), layout.cell, layout.cell);
+      if (x < box.x || x >= box.right() || y < box.y || y >= box.bottom()) everyClaimIsInsideItsRect = false;
+    }
+  }
+  CHECK(everyPixelMapsHome);
+  CHECK(everyClaimIsInsideItsRect);
+
+  // It claims nothing in the header band or the clue gutters.
+  int rr = -1, cc = -1;
+  CHECK(!layout.cellAt(240, 40, rr, cc));
+  CHECK(!layout.cellAt(layout.board.x - 4, layout.board.y + 4, rr, cc));
+}
+
+// Every clue number is drawn -- the fittedtitle/fmtwidth lesson: a clue elided
+// for want of gutter is a puzzle that cannot be solved. Count the digit-only
+// runs and match the clue total the board must show.
+void testPicrossDrawsEveryClue() {
+  for (const int idx : {0, 9}) {  // a 5x5 and a 10x10
+    picross::Board board;
+    board.load(idx);
+    Rendered out;
+    picrossui::BoardModel model;
+    model.board = &board;
+    picrossui::Layout layout;
+    buildPicrossBoard(out, model, layout);
+
+    uint8_t buf[picross::kMaxSize];
+    int expected = 0;
+    for (int r = 0; r < board.size(); ++r) {
+      const int k = board.rowClues(r, buf);
+      expected += k == 0 ? 1 : k;
+    }
+    for (int c = 0; c < board.size(); ++c) {
+      const int k = board.colClues(c, buf);
+      expected += k == 0 ? 1 : k;
+    }
+    int drawn = 0;
+    for (const FakeTarget::TextRun& run : out.target.texts)
+      if (allDigits(run.text)) ++drawn;
+    CHECK(drawn == expected);
+  }
+}
+
+// The picker must never show an unsolved puzzle's name -- the picture is the
+// reward, and its name gives it away. With nothing solved, no name is drawn.
+void testPicrossPickerHidesUnsolvedNames() {
+  picross::Progress progress;  // nothing solved
+  Rendered out;
+  picrossui::MenuModel model;
+  model.progress = &progress;
+  model.selectedIndex = 0;
+  model.inProgressIndex = -1;
+  model.solvedCount = 0;
+  model.total = picross::kPuzzleCount;
+  picrossui::PickerLayout layout;
+  buildPicrossMenu(out, model, layout);
+
+  CHECK(out.target.drew("PICROSS"));
+  CHECK(out.target.drew("PLAY"));
+  bool anyName = false;
+  for (int i = 0; i < picross::kPuzzleCount; ++i)
+    if (out.target.drew(picross::kPuzzles[i].name)) anyName = true;
+  CHECK(!anyName);
+
+  // The picker registers one target for the whole grid and resolves the tile
+  // through the layout, so a full sweep reaches ActionPick and the PLAY button.
+  bool sawPick = false;
+  for (int y = 2; y < 800; y += 9)
+    for (int x = 2; x < 480; x += 9)
+      if (out.tap(x, y).action == picrossui::ActionPick) sawPick = true;
+  CHECK(sawPick);
+  CHECK(layout.indexAt(layout.grid.x + 2, layout.grid.y + 2) == 0);
+}
+
+// The reveal names the picture and grades the solve. Zero mistakes is PERFECT.
+void testPicrossWinRevealsNameAndGrade() {
+  Rendered out;
+  picrossui::WinModel model;
+  model.cleared = &picross::kPuzzles[0];  // HEART
+  model.mistakes = 0;
+  model.solvedCount = 1;
+  model.total = picross::kPuzzleCount;
+  model.moreToPlay = true;
+  buildPicrossWin(out, model);
+  CHECK(out.target.drew("SOLVED"));
+  CHECK(out.target.drew("HEART"));
+  CHECK(out.target.drew("PERFECT -- NO MISTAKES"));
+  CHECK(out.target.drew("NEXT"));
+
+  Rendered flawed;
+  picrossui::WinModel two = model;
+  two.mistakes = 2;
+  buildPicrossWin(flawed, two);
+  CHECK(flawed.target.drew("SOLVED WITH 2 MISTAKES"));
+}
+
 int main() {
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
@@ -9282,6 +9513,11 @@ int main() {
   testEverySudokuLessonPagesAndClearsItsButton();
   testTheSudokuOrnamentCarriesTheGame();
   testTheSudokuFrontDoorNeverSharesInkBetweenTwoLines();
+  testPicrossBoardSpendsFewInteractions();
+  testPicrossGridHitTestIsExactInverse();
+  testPicrossDrawsEveryClue();
+  testPicrossPickerHidesUnsolvedNames();
+  testPicrossWinRevealsNameAndGrade();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
   testMurdleRefusalDoesNotMoveTheGrid();

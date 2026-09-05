@@ -246,6 +246,12 @@ toybattle = share-2
 # game, and every game here is played with one), `brain` (mush at 32px).
 sudoku      = hash
 
+# PICROSS. The reward is a revealed PICTURE, so `image` -- a framed picture --
+# rather than another grid. `grid-2x2`/`hash` are already spoken for and read as
+# the same boxed lattice; `pencil`/`paintbrush` are tools, which this file bans
+# for a game (see the sudoku note above).
+picross     = image
+
 # Get Books lives in APPS. library-big rather than book: the row's job is to
 # say "a place with many books", not "a book" -- every other row here is one
 # thing, and this one is a catalog.
