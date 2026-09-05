@@ -1947,5 +1947,30 @@ else
   fi
 fi
 
+
+# --- a test file its suite never runs -----------------------------------------
+#
+# The block that lists test files run.sh never names is lifted between its
+# markers and run against fixture suite directories: one that names every file,
+# one that forgot a file, one that globs test_* and therefore runs whatever is
+# there.
+python3 - "$CHECK" >"$WORK/unrun.sh" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+a = next(i for i, l in enumerate(lines) if 'unrun test files begin' in l)
+b = next(i for i, l in enumerate(lines) if 'unrun test files end' in l)
+print('\n'.join(lines[a + 1:b]))
+PY
+[ -s "$WORK/unrun.sh" ] || { echo "FAIL checksh  could not lift the unrun-test-file block out of check.sh"; failed=$((failed + 1)); }
+unrun_case() {  # label, run.sh body, wanted unrun value (space-led names, or empty)
+  local d="$WORK/suite"; rm -rf "$d"; mkdir -p "$d"; printf '%s\n' "$2" >"$d/run.sh"; : >"$d/test_a.py"; : >"$d/test_b.cpp"
+  local got; got="$(suite="$d" bash -c '. "'"$WORK"'/unrun.sh"; printf "%s" "$unrun"')"
+  checks=$((checks + 1))
+  if [ "$got" != "$3" ]; then failed=$((failed + 1)); echo "FAIL checksh  unrun test files: $1: got '$got', wanted '$3'"; fi
+}
+unrun_case "every test file named is clean"            'python3 test_a.py && g++ test_b.cpp -o t && ./t' ""
+unrun_case "a file run.sh never names is reported"     'python3 test_a.py' " test_b.cpp"
+unrun_case "a run.sh that globs test_* runs everything" 'for f in test_*.py; do python3 "$f"; done; for c in test_*.cpp; do g++ "$c"; done' ""
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
