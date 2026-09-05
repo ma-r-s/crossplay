@@ -36,11 +36,12 @@ enum : fui::ActionId {
 //
 // Counted by setting every word of the published archive (1143 puzzles, 18288
 // words) in the real serif face against the 105px a tile gives it: 89% fit one
-// line at the tile cut and 97% at the small cut. Per BOARD that is 62% holding
-// at least one word the tile cut cannot take -- which is why the cut is chosen
-// once for the whole board and not per tile (see chooseTileCut), and why 62%
-// of boards therefore set at the small cut. Sixteen tiles at one size is the
-// point of the layout; sixteen at two sizes says one of them matters more.
+// line at the tile cut and 97% at the small cut. The cut is chosen once for the
+// whole board rather than per tile (see chooseTileCut) -- sixteen tiles at one
+// size is the point of the layout, and sixteen at two sizes says one of them
+// matters more. A word too wide for one line breaks across lines instead of
+// dropping the whole board a size, so 1139 of the 1143 boards keep the large
+// cut. host-tests/tilefit walks every one of them.
 constexpr int kGridMargin = 12;
 constexpr int kTileGap = 4;
 constexpr int kTilePad = 3;

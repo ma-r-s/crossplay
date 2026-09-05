@@ -55,173 +55,365 @@ constexpr fui::Insets kTileTextInsets{2, kTilePad, 2, kTilePad};
 // (View::Board in ConnectionsActivity.cpp). Every other Connections screen
 // takes serifMenuFaces(), where the two slots are the other way round -- small
 // holds the 15px cut and body the 20px -- so an order-dependent ladder would
-// step UP there. chooseTileCut() therefore asks each face for its line height
-// instead of trusting this array's order, and the rebind above can change
-// without silently inverting the result.
+// step UP there. Everything below asks each face for its line height instead of
+// trusting this array's order, so the rebind can change without silently
+// inverting the result.
 constexpr fui::FontId kTileCuts[2] = {toybox::kTileFont, toybox::kBodyFont};
 
-// TEMPORARY, for one decision. Two candidate rules for how a board picks its
-// cut, built side by side so they can be looked at rather than argued about
-// (docs/building-apps.md). The loser and this macro go in the same commit.
-//
-//   1  SHRINK. The largest cut whose widest word fits on ONE line. Every tile
-//      is one line and one size; 62% of the published archive's boards drop to
-//      the small cut because a single long word is on them.
-//   2  WRAP. The largest cut where every word can be LAID OUT at all, over up
-//      to kTileLines lines. 99.9% of boards keep the large cut, and the price
-//      is a long word setting on two or three lines beside one-line
-//      neighbours.
-#ifndef CONNECTIONS_VARIANT
-#define CONNECTIONS_VARIANT 1
-#endif
-
-// How many lines a tile will break a word over before it gives up. Shared by
-// the split fallback and by variant 2's fit test, which must agree about it:
-// the test exists precisely to ask "will the fallback manage this".
-constexpr int kTileLines = 3;
-
-// Whether `word` can be set in `cut` inside `innerWidth`.
-//
-// Variant 2 asks the same width/parts question the split fallback asks itself,
-// so it is exact about the fallback's own decision. It is NOT a promise that
-// every emitted line fits: the fallback cuts by character count, so a segment
-// of wide letters can still overflow and be ellipsised. That gap is visible in
-// a render and in nothing else, which is the reason for the side-by-side.
-bool tileWordFits(toybox::Screen& screen, const fui::FontId cut, const char* word, const int innerWidth) {
-  fui::TextStyle probe;
-  probe.align = fui::TextAlign::Center;
-  probe.maxLines = 1;
-  const int width = screen.target().measureText(cut, word, probe).width;
-#if CONNECTIONS_VARIANT == 2
-  return width <= innerWidth * kTileLines;
-#else
-  return width <= innerWidth;
-#endif
+// The two cuts, biggest first, asked of the target rather than assumed.
+void orderedCuts(toybox::Screen& screen, fui::FontId out[2]) {
+  out[0] = kTileCuts[0];
+  out[1] = kTileCuts[1];
+  if (screen.target().lineHeight(out[1]) > screen.target().lineHeight(out[0])) {
+    const fui::FontId bigger = out[1];
+    out[1] = out[0];
+    out[0] = bigger;
+  }
 }
 
-// One size for all sixteen tiles: the largest cut whose WIDEST word still fits
-// a tile, or the smallest cut when none of them does.
+// How many lines a tile prefers to break a word over. A cap on the look, not a
+// limit on what fits: the last resort in chooseTileCut lifts it to whatever the
+// tile is tall enough to hold, because showing the whole word beats keeping to
+// three lines.
+constexpr int kTileLines = 3;
+
+// The ceiling on any one string's lines, and the bound on the arrays below. Six
+// lines of the smaller cut is taller than any box on this screen, so nothing is
+// ever refused for want of a slot here.
+constexpr int kMaxLines = 6;
+
+// The longest string this screen sets: a group's four members joined. Sized
+// once so the scratch buffers that carry a line agree with it.
+constexpr int kMaxLineChars = connections::kMaxWordLen * 4 + 8;
+
+// One string, cut into lines that each MEASURE inside their box.
+//
+// This struct is the whole no-truncation guarantee. GfxRendererTarget::text()
+// draws a string untouched when it already fits and reaches for U+2026 only
+// when it does not, so a line measured to fit before it is handed over cannot
+// come back shortened. Every string this screen draws goes through breakToFit
+// first and is then drawn one single-line run per line.
+//
+// Offsets into the caller's buffer rather than copies: this is measured once
+// per candidate cut per string, and the copying is what it would otherwise
+// spend its time on.
+struct LineBreaks {
+  int count = 0;
+  uint8_t begin[kMaxLines] = {};
+  uint8_t end[kMaxLines] = {};
+};
+
+int spanWidth(toybox::Screen& screen, const fui::FontId cut, const char* text, const int begin, const int end) {
+  const int span = end - begin;
+  if (span <= 0 || span >= kMaxLineChars) return 0;
+  char buffer[kMaxLineChars] = {};
+  std::memcpy(buffer, text + begin, static_cast<size_t>(span));
+  buffer[span] = '\0';
+  fui::TextStyle probe;
+  probe.maxLines = 1;
+  return screen.target().measureText(cut, buffer, probe).width;
+}
+
+// Breaks `text` so that every line measures inside `width`, preferring the last
+// space in the fitting prefix and cutting mid-word when there is no space to
+// use. A break eats the space it broke at.
+//
+// Returns false when the text needs more than `maxLines`, or when not even one
+// character fits -- the caller steps down a cut rather than accept a line it
+// would have to cut short. `out` still holds what was laid out, so a caller
+// with nowhere left to step can draw a long block rather than a short lie.
+bool breakToFit(toybox::Screen& screen, const fui::FontId cut, const char* text, const int width, const int maxLines,
+                LineBreaks& out) {
+  out.count = 0;
+  if (text == nullptr || width <= 0) return false;
+  const int length = static_cast<int>(std::strlen(text));
+  if (length >= kMaxLineChars) return false;
+  const int cap = maxLines < kMaxLines ? maxLines : kMaxLines;
+  int at = 0;
+  while (at < length) {
+    while (at < length && text[at] == ' ') ++at;
+    if (at >= length) break;
+    if (out.count >= cap) return false;
+    int take = length - at;
+    if (spanWidth(screen, cut, text, at, at + take) > width) {
+      // Binary search the longest prefix that fits. Text width grows with
+      // prefix length in these faces, and this loop runs per cut per string, so
+      // it costs a handful of measures rather than one per character.
+      int lo = 1;
+      int hi = take;
+      while (lo < hi) {
+        const int mid = (lo + hi + 1) / 2;
+        if (spanWidth(screen, cut, text, at, at + mid) <= width) {
+          lo = mid;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      take = lo;
+      if (spanWidth(screen, cut, text, at, at + take) > width) return false;
+      // A phrase breaks at its own space when one is in reach; a single long
+      // word has none and is cut where it stopped fitting. Re-measured after
+      // the move, so the guarantee does not rest on width growing with length:
+      // a face whose kerning made the shorter line wider would otherwise slip
+      // an overflowing line past the one check that exists to stop it.
+      for (int i = take; i > 0; --i) {
+        if (text[at + i - 1] == ' ') {
+          if (i - 1 > 0 && spanWidth(screen, cut, text, at, at + i - 1) <= width) take = i - 1;
+          break;
+        }
+      }
+      if (take <= 0) return false;
+    }
+    out.begin[out.count] = static_cast<uint8_t>(at);
+    out.end[out.count] = static_cast<uint8_t>(at + take);
+    ++out.count;
+    at += take;
+  }
+  return true;
+}
+
+// Evens out a break that had to cut through a word.
+//
+// breakToFit fills each line as far as it goes, which is what makes it a
+// minimal line count and an ugly one: "MISCREANT" over two lines comes out
+// "MISCREAN / T", and an orphaned letter reads as a bug rather than a word that
+// did not fit. Re-cut into equal shares of the same number of lines, nudged to
+// a nearby space so a phrase still breaks between its words.
+//
+// Only ever applied when it is measured to fit -- an even split is a
+// preference, and the whole line must stay inside the box whatever happens to
+// it. Where the shares do not fit, the greedy break stands.
+void balanceBreaks(toybox::Screen& screen, const fui::FontId cut, const char* text, const int width, LineBreaks& io) {
+  if (io.count < 2) return;
+  const int length = static_cast<int>(std::strlen(text));
+  const int parts = io.count;
+  int bound[kMaxLines + 1] = {};
+  bound[parts] = length;
+  for (int i = 1; i < parts; ++i) bound[i] = length * i / parts;
+  // The old two-way split's window, kept: the nearest space four characters
+  // out is further than a reader forgives, and past that a clean mid-word cut
+  // beats a lopsided one.
+  for (int i = 1; i < parts; ++i) {
+    for (int slack = 0; slack <= 3; ++slack) {
+      if (bound[i] - slack > bound[i - 1] && text[bound[i] - slack] == ' ') {
+        bound[i] -= slack;
+        break;
+      }
+      if (bound[i] + slack < bound[i + 1] && text[bound[i] + slack] == ' ') {
+        bound[i] += slack;
+        break;
+      }
+    }
+  }
+
+  LineBreaks even;
+  even.count = parts;
+  for (int i = 0; i < parts; ++i) {
+    int begin = bound[i];
+    int end = bound[i + 1];
+    while (begin < end && text[begin] == ' ') ++begin;
+    while (end > begin && text[end - 1] == ' ') --end;
+    if (end <= begin) return;
+    if (spanWidth(screen, cut, text, begin, end) > width) return;
+    even.begin[i] = static_cast<uint8_t>(begin);
+    even.end[i] = static_cast<uint8_t>(end);
+  }
+  io = even;
+}
+
+// Draws an already-broken string as a block of single-line runs from `top`.
+// Each run gets a rect as wide as the box and exactly one line tall, so text()
+// takes its fits-already path and draws the line whole.
+void drawBrokenText(toybox::Screen& screen, const fui::Rect& box, const int top, const char* text,
+                    const LineBreaks& lines, const fui::TextStyle& style) {
+  const int16_t lineHeight = screen.target().lineHeight(style.font);
+  for (int i = 0; i < lines.count; ++i) {
+    const int span = lines.end[i] - lines.begin[i];
+    if (span <= 0 || span >= kMaxLineChars) continue;
+    char part[kMaxLineChars] = {};
+    std::memcpy(part, text + lines.begin[i], static_cast<size_t>(span));
+    part[span] = '\0';
+    screen.target().text(fui::makeRect(box.x, static_cast<int16_t>(top + i * lineHeight), box.width, lineHeight), part,
+                         style);
+  }
+}
+
+// One size for all sixteen tiles: the largest cut at which EVERY word still on
+// the board lays out whole inside a tile.
 //
 // Sizing each tile against its own word made a long word set a quarter smaller
 // than the fifteen beside it, and on a board whose whole premise is sixteen
 // interchangeable candidates a size difference reads as significance that is
-// not there. Measured at draw time against the real face, for the reason
-// murdleui's drawLegend gives (MurdleScreens.cpp): the host tests' draw
-// target answers a flat ten pixels a character and would call any of this fine.
-fui::FontId chooseTileCut(toybox::Screen& screen, const char* const* words, const int count, const int innerWidth) {
-  fui::FontId smallest = kTileCuts[0];
-  int16_t smallestHeight = 0;
-  fui::FontId fitting = kTileCuts[0];
-  int16_t fittingHeight = -1;
+// not there.
+//
+// The fit test is the layout itself rather than a proxy for it: this and
+// drawTileText call the same breakToFit, so a cut is only chosen once the break
+// that will actually be drawn is known to fit. An earlier version asked a width
+// question here and split by character count there, and the two disagreed on 48
+// boards of the published archive -- every one of them a tile that showed the
+// player a shortened phrase. host-tests/tilefit walks all 1143 and fails on a
+// single elided line.
+//
+// Measured at draw time against the real face, for the reason murdleui's
+// drawLegend gives (MurdleScreens.cpp): the host tests' draw target answers a
+// flat ten pixels a character and would call any of this fine.
+struct TileCut {
+  fui::FontId font = kTileCuts[0];
+  int maxLines = 1;
+};
 
-  for (const fui::FontId cut : kTileCuts) {
-    const int16_t height = screen.target().lineHeight(cut);
-    if (smallestHeight == 0 || height < smallestHeight) {
-      smallestHeight = height;
-      smallest = cut;
-    }
-    bool fits = true;
-    for (int i = 0; i < count && fits; ++i) {
-      fits = tileWordFits(screen, cut, words[i], innerWidth);
-    }
-    if (fits && height > fittingHeight) {
-      fittingHeight = height;
-      fitting = cut;
-    }
+TileCut chooseTileCut(toybox::Screen& screen, const char* const* words, const int count, const int innerWidth,
+                      const int innerHeight) {
+  fui::FontId cuts[2];
+  orderedCuts(screen, cuts);
+  for (const fui::FontId cut : cuts) {
+    const int lineHeight = screen.target().lineHeight(cut);
+    if (lineHeight <= 0) continue;
+    int lines = innerHeight / lineHeight;
+    if (lines > kTileLines) lines = kTileLines;
+    if (lines < 1) continue;
+    bool all = true;
+    LineBreaks probe;
+    for (int i = 0; i < count && all; ++i) all = breakToFit(screen, cut, words[i], innerWidth, lines, probe);
+    if (all) return TileCut{cut, lines};
   }
-  return fittingHeight >= 0 ? fitting : smallest;
+  // The last resort, and it has to be one: a word that no cut takes in three
+  // lines still has to appear in full, so the smaller cut gets every line the
+  // tile is tall enough to hold. No board in the published archive reaches
+  // here; the suite is what says so, and would say so again if the source ever
+  // published something longer.
+  const fui::FontId cut = cuts[1];
+  const int lineHeight = screen.target().lineHeight(cut);
+  int lines = lineHeight > 0 ? innerHeight / lineHeight : 1;
+  if (lines > kMaxLines) lines = kMaxLines;
+  if (lines < 1) lines = 1;
+  return TileCut{cut, lines};
 }
 
-// Lays a tile's word out over up to three centred lines, breaking inside a word
-// when it has to. The cut is decided for the whole board by chooseTileCut() and
-// handed in, so the split below is the only per-tile decision left.
+// Lays a tile's word out over as many centred lines as the board's chosen cut
+// allows, breaking inside a word when it has to. The cut is decided for the
+// whole board by chooseTileCut() and handed in, so the break below is the only
+// per-tile decision left.
 //
 // Not the target's own multi-line text(): that delegates to the renderer's
 // wrappedText(), which only ever breaks at a space and then ellipsises. A tile
 // holds a single word most of the time, so "ACTUALLY" came out as "ACTUA..." --
 // a different word, with no way for the player to tell. Breaking mid-word is
 // uglier than wrapping at a space and much better than lying about the word.
-//
-// Each emitted line is drawn as its own single-line run, so it is measured
-// before it is drawn and can never be the thing that overflows.
 void drawTileText(toybox::Screen& screen, const fui::Rect& box, const char* word, const bool inverted,
-                  const fui::FontId cut) {
+                  const TileCut& cut) {
   const fui::Rect inner = box.inset(kTileTextInsets);
 
   fui::TextStyle style;
   style.align = fui::TextAlign::Center;
   style.maxLines = 1;
   style.color = inverted ? fui::Color::White : fui::Color::Black;
-  style.font = cut;
+  style.font = cut.font;
 
-  const int16_t lineHeight = screen.target().lineHeight(style.font);
-  if (screen.target().measureText(style.font, word, style).width > inner.width) {
-    // Too wide even at the board's cut, which chooseTileCut() has already
-    // dropped to the smallest available: JOHANNESBURGER is fourteen letters
-    // with nowhere to break. Only here is the word split, and it is split into
-    // halves rather than filled greedily, because "JOHANNESBURGE / R" orphans a
-    // letter and reads as a bug. The renderer's own wrapper is no use for this:
-    // it breaks at spaces only and then ellipsises, which silently shows a
-    // different word.
-    const int length = static_cast<int>(std::strlen(word));
-    // Two parts for a long single word, three for a long phrase. Chosen by
-    // measuring rather than by counting characters, because SMILING FACE WITH
-    // SUNGLASSES is 28 characters and no two halves of it fit.
-    int parts = 2;
-    while (parts < kTileLines && screen.target().measureText(style.font, word, style).width / parts > inner.width) {
-      ++parts;
-    }
-    if (parts == kTileLines) {
-      int bound[4] = {0, length / 3, (2 * length) / 3, length};
-      for (int i = 1; i < 3; ++i) {
-        for (int slack = 0; slack <= 4; ++slack) {
-          if (bound[i] - slack > bound[i - 1] && word[bound[i] - slack] == ' ') {
-            bound[i] -= slack;
-            break;
-          }
-          if (bound[i] + slack < bound[i + 1] && word[bound[i] + slack] == ' ') {
-            bound[i] += slack;
-            break;
-          }
-        }
-      }
-      const int top3 = inner.y + (inner.height - lineHeight * 3) / 2;
-      for (int i = 0; i < 3; ++i) {
-        char part[connections::kMaxWordLen + 2] = {};
-        const int span = bound[i + 1] - bound[i];
-        std::memcpy(part, word + bound[i], static_cast<size_t>(span));
-        part[span] = '\0';
-        const char* text = part[0] == ' ' ? part + 1 : part;
-        screen.target().text(fui::makeRect(inner.x, top3 + i * lineHeight, inner.width, lineHeight), text, style);
-      }
-      return;
-    }
-    char first[connections::kMaxWordLen + 2] = {};
-    char second[connections::kMaxWordLen + 2] = {};
-    int split = length / 2;
-    // Prefer a nearby space or hyphen so a two-word tile still breaks naturally.
-    for (int slack = 0; slack <= 3; ++slack) {
-      if (split - slack > 0 && (word[split - slack] == ' ' || word[split - slack] == '-')) {
-        split -= slack;
-        break;
-      }
-      if (split + slack < length && (word[split + slack] == ' ' || word[split + slack] == '-')) {
-        split += slack;
-        break;
-      }
-    }
-    std::memcpy(first, word, static_cast<size_t>(split));
-    first[split] = '\0';
-    std::memcpy(second, word + split, static_cast<size_t>(length - split));
-    second[length - split] = '\0';
-    const char* tail = second[0] == ' ' ? second + 1 : second;
-    const int top = inner.y + (inner.height - lineHeight * 2) / 2;
-    screen.target().text(fui::makeRect(inner.x, top, inner.width, lineHeight), first, style);
-    screen.target().text(fui::makeRect(inner.x, top + lineHeight, inner.width, lineHeight), tail, style);
-    return;
+  LineBreaks lines;
+  if (!breakToFit(screen, cut.font, word, inner.width, cut.maxLines, lines)) {
+    // chooseTileCut promised this fits, so arriving here means the board holds
+    // a word no cut can. Take every line the block has rather than the cut's
+    // budget: type running past a tile is a defect anyone can see, where a
+    // dropped tail is one nobody can.
+    breakToFit(screen, cut.font, word, inner.width, kMaxLines, lines);
   }
-  screen.target().text(fui::makeRect(inner.x, inner.y + (inner.height - lineHeight) / 2, inner.width, lineHeight), word,
-                       style);
+  balanceBreaks(screen, cut.font, word, inner.width, lines);
+  const int16_t lineHeight = screen.target().lineHeight(style.font);
+  const int top = inner.y + (inner.height - lines.count * lineHeight) / 2;
+  drawBrokenText(screen, inner, top, word, lines, style);
+}
+
+// A solved group takes over the row its tiles occupied: the name it turned out
+// to be, and the four words it took.
+//
+// Both strings are laid out before either is drawn, because they share one
+// row's height. The pair of cuts is chosen together, most type first, and the
+// name keeps its size ahead of the list -- the group name is the answer, the
+// words are what it was made of. Across the published archive 4187 of 4572
+// groups take the larger cut for both.
+//
+// This row is where the app truncated most. The list was set at a fixed cut
+// with maxLines 2 into a box one line tall, so a two-line list drew its second
+// line past the black fill: white type on white paper, which reads as the
+// sentence simply stopping.
+void drawSolvedRow(toybox::Screen& screen, const fui::Rect& row, const connections::Group& group) {
+  // Solid black: a solved row never repaints again, so by the ink budget rule
+  // its ink is free, and it makes the shrinking board read as progress.
+  screen.target().fill(row, fui::Paint::solid(fui::Color::Black));
+
+  char words[kMaxLineChars];
+  std::snprintf(words, sizeof(words), "%s, %s, %s, %s", group.members[0], group.members[1], group.members[2],
+                group.members[3]);
+
+  const int width = row.width - 2 * kTilePad;
+  fui::FontId cuts[2];
+  orderedCuts(screen, cuts);
+
+  fui::FontId nameCut = cuts[1];
+  fui::FontId listCut = cuts[1];
+  LineBreaks nameLines;
+  LineBreaks listLines;
+  int nameHeight = 0;
+  int listHeight = 0;
+  bool placed = false;
+  for (int n = 0; n < 2 && !placed; ++n) {
+    for (int l = 0; l < 2 && !placed; ++l) {
+      LineBreaks name;
+      LineBreaks list;
+      if (!breakToFit(screen, cuts[n], group.name, width, kMaxLines, name)) continue;
+      if (!breakToFit(screen, cuts[l], words, width, kMaxLines, list)) continue;
+      const int nameBlock = name.count * screen.target().lineHeight(cuts[n]);
+      const int listBlock = list.count * screen.target().lineHeight(cuts[l]);
+      if (nameBlock + listBlock > row.height) continue;
+      nameCut = cuts[n];
+      listCut = cuts[l];
+      nameLines = name;
+      listLines = list;
+      nameHeight = nameBlock;
+      listHeight = listBlock;
+      placed = true;
+    }
+  }
+  if (!placed) {
+    // Both strings whole at the smaller cut even though the pair is taller than
+    // the row. Nothing in the published archive reaches this -- its tightest
+    // group needs 108px of a 111px row -- and if a future pack does, a block
+    // that runs a few pixels long is a defect that can be seen, where a
+    // shortened category name is one that cannot. The suite fails rather than
+    // let it arrive unnoticed.
+    breakToFit(screen, listCut, group.name, width, kMaxLines, nameLines);
+    breakToFit(screen, listCut, words, width, kMaxLines, listLines);
+    nameHeight = nameLines.count * screen.target().lineHeight(nameCut);
+    listHeight = listLines.count * screen.target().lineHeight(listCut);
+  }
+
+  // Whatever the row has left over becomes the gap, up to the gutter the rest
+  // of the block uses. The pair is centred as one block, so the common case --
+  // a one-line name over a one-line list -- sits where it always did.
+  int gap = row.height - nameHeight - listHeight;
+  if (gap > kTileGap) gap = kTileGap;
+  if (gap < 0) gap = 0;
+  const fui::Rect box =
+      fui::makeRect(static_cast<int16_t>(row.x + kTilePad), row.y, static_cast<int16_t>(width), row.height);
+  const int top = row.y + (row.height - nameHeight - gap - listHeight) / 2;
+
+  balanceBreaks(screen, nameCut, group.name, width, nameLines);
+  balanceBreaks(screen, listCut, words, width, listLines);
+
+  fui::TextStyle name;
+  name.font = nameCut;
+  name.align = fui::TextAlign::Center;
+  name.maxLines = 1;
+  // White, spelled out here rather than borrowed from a shared style: this row
+  // is a solid black fill, and a pair picked up from the paper ground would
+  // paint the answer invisible.
+  name.color = fui::Color::White;
+  drawBrokenText(screen, box, top, group.name, nameLines, name);
+
+  fui::TextStyle list = name;
+  list.font = listCut;
+  drawBrokenText(screen, box, top + nameHeight + gap, words, listLines, list);
 }
 
 }  // namespace
@@ -285,30 +477,8 @@ void buildBoardTiles(toybox::Screen& screen, const BoardModel& model, const Boar
   const int blockTop = grid.y;
   const int revealed = game.revealedCount();
   for (int i = 0; i < revealed; ++i) {
-    const connections::Group& group = game.solvedGroup(i);
     const fui::Rect row = fui::makeRect(grid.x, blockTop + i * (rowHeight + kTileGap), grid.width, rowHeight);
-    // Solid black: a solved row never repaints again, so by the ink budget rule
-    // its ink is free, and it makes the shrinking board read as progress.
-    screen.target().fill(row, fui::Paint::solid(fui::Color::Black));
-
-    fui::TextStyle name;
-    name.font = toybox::kUiFont;
-    name.align = fui::TextAlign::Center;
-    name.color = fui::Color::White;
-    screen.target().text(
-        toybox::inkCentred(fui::makeRect(row.x, row.y + rowHeight / 2 - 26, row.width, 26), toybox::kUiCut), group.name,
-        name);
-
-    char words[connections::kMaxWordLen * 4 + 8];
-    std::snprintf(words, sizeof(words), "%s, %s, %s, %s", group.members[0], group.members[1], group.members[2],
-                  group.members[3]);
-    fui::TextStyle list;
-    list.font = toybox::kTileFont;
-    list.align = fui::TextAlign::Center;
-    list.maxLines = 2;
-    list.color = fui::Color::White;
-    screen.target().text(fui::makeRect(row.x + kTilePad, row.y + rowHeight / 2 + 2, row.width - 2 * kTilePad, 30),
-                         words, list);
+    drawSolvedRow(screen, row, game.solvedGroup(i));
   }
 
   // A loss reveals every group as a row, so there is no board left to draw. The
@@ -328,8 +498,8 @@ void buildBoardTiles(toybox::Screen& screen, const BoardModel& model, const Boar
   // interchangeable, and the set only ever gets easier to read.
   const char* words[connections::kTiles];
   for (int i = 0; i < tiles; ++i) words[i] = game.tileWord(i);
-  const int16_t innerWidth = fui::makeRect(0, 0, kTileWidth, rowHeight).inset(kTileTextInsets).width;
-  const fui::FontId cut = chooseTileCut(screen, words, tiles, innerWidth);
+  const fui::Rect probe = fui::makeRect(0, 0, kTileWidth, rowHeight).inset(kTileTextInsets);
+  const TileCut cut = chooseTileCut(screen, words, tiles, probe.width, probe.height);
 
   for (int i = 0; i < tiles; ++i) {
     const int col = i % 4;
