@@ -1,14 +1,14 @@
 {
   "_comment": "Written by tools_local/site/publish_emulator.py; read by site/fetch-emulator.mjs during Vercel's build. The bytes live on the GitHub release below rather than in git. Do not hand-edit.",
   "base": "https://github.com/ma-r-s/crossplay/releases/download/emulator/",
-  "built_from": "b1f82cdfdeaadf844dccfe42ba8d6bdc46ce44d5",
+  "built_from": "408cb6beefddcda8e7f8e04a88ed67b2284f873f",
   "files": [
     {
       "name": "BUILT_FROM",
-      "asset": "3aed9a4088fdc4b1-BUILT_FROM",
-      "sha256": "3aed9a4088fdc4b140861720098eab5fc6c725763a711bdbe3c61a4c0b3b21d6",
-      "sha256_raw": "dc4df97d2274a985d69e60fd32da71f2a232aec59acfc9cad83cd302b7a6c874",
-      "bytes": 37,
+      "asset": "48b310a489fc4cc1-BUILT_FROM",
+      "sha256": "48b310a489fc4cc16008b32320b8b5f7e2c29e7d17d2dbbc5b958b4c11ad3461",
+      "sha256_raw": "30b8ad65447239224f5903c5ef695406aacbe25555e15a4fa6900af22c749964",
+      "bytes": 38,
       "bytes_raw": 41
     },
     {
@@ -29,11 +29,11 @@
     },
     {
       "name": "crossplay.wasm",
-      "asset": "4b437883e982c830-crossplay.wasm",
-      "sha256": "4b437883e982c830f60ef5c62a6f7faf1f09e9a0dec8a3e7fa7c8d01a1a0733b",
-      "sha256_raw": "b4686d97a24e61b8f6cd597915aaf77605b98a10665e15deaa40281593aedb6c",
-      "bytes": 2916893,
-      "bytes_raw": 5494069
+      "asset": "b007df1861fe32ea-crossplay.wasm",
+      "sha256": "b007df1861fe32ea3e05a20d37cd9f000f414a2602e1874057c57730307a332c",
+      "sha256_raw": "c46106efa661abf8918dd6380f705320b8cd8e1b937beaeec132d32dd5fa4ec8",
+      "bytes": 2916263,
+      "bytes_raw": 5494002
     }
   ]
 }
