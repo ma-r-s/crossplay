@@ -111,23 +111,3 @@ the account was reconnected. Press SYNC and pair again.
   online, tells the service to forget this reader too.
 - The service: `server/read-bridge/` in this repo, and its design in
   [instapaper-plan.md](instapaper-plan.md).
-
-### The two token columns are the bridge's rule, not the device's
-
-`index.tsv` has two columns that are neither numbers nor free text: `hash` (
-Instapaper's own, relayed verbatim by the bridge) and `sha` (the bridge's
-`sha256(text).hexdigest()[:16]`). Both are **alphanumerics only, 32 at most**,
-and that bound is set on the service side: `UserStore.article_path` in
-`server/read-bridge/bridge/store.py` files every article under
-`"".join(c for c in hash if c.isalnum())[:32] + ".txt"`, so 32 alphanumerics
-is the key the bridge itself holds. Anything longer names no file at either
-end.
-
-The device applies that rule with `instapaper::sanitizeToken`, and applies it
-at **every write** -- the index row, and the `/api/article/<id>/<hash>` path
-the downloader builds -- rather than once where the sync response is parsed.
-The reason is what the old code did: the writer inherited the bound from the
-reader, put both raw strings through one `char[160]`, and a hash with a tab in
-it shifted every column after it. A short row is a corrupted row here, because
-this index *is* the sync protocol. If a column is ever added, bound it where
-it is written.

@@ -33,7 +33,22 @@ void KOReaderAuthActivity::onWifiSelectionComplete(const bool success) {
     state = AUTHENTICATING;
     statusMessage = mode == Mode::SIGN_UP ? tr(STR_CREATING_ACCOUNT) : tr(STR_AUTHENTICATING);
   }
-  requestUpdate();
+  // WAITED for, not merely requested. Card #306: performAuthentication() opens
+  // a TLS connection and blocks the main task inside it, and plain
+  // requestUpdate() only sets a flag that ActivityManager::loop() consumes at
+  // its own tail -- a tail that cannot be reached while that call sits in this
+  // same stack. The AUTHENTICATING screen below therefore existed, was
+  // correct, and never once reached the panel: the reader watched the settings
+  // page they had just left for the length of a handshake. This is the trap
+  // OtaUpdateActivity.cpp already documents.
+  //
+  // requestUpdateAndWait() (ActivityManager.cpp:455) returns only after the
+  // render task has finished render(), and render() below ends in
+  // renderer.displayBuffer(), the blocking panel path -- so the frame is on the
+  // glass before the socket opens. Safe here: the RenderLock above is scoped
+  // shut, and this runs on the main task, never the render task (both are
+  // asserts inside requestUpdateAndWait()).
+  requestUpdateAndWait();
 
   performAuthentication();
 }

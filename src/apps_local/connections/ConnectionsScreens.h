@@ -93,27 +93,21 @@ struct ArchiveModel {
 
 void buildArchive(toybox::Screen& screen, const ArchiveModel& model);
 
-// The import screen. Two states and the transition between them is the whole
-// reward: while it works the panel is an outline carrying the sentence that
-// says the stillness is expected, and when it finishes the block inverts to
-// solid black around the number of puzzles that landed. No animation -- on a
-// panel that refreshes once every couple of seconds an animation is a lie, but
-// a state change that lands with weight is not.
-//
-// THIS SCREEN MUST BE ON THE PANEL BEFORE THE FETCH STARTS. It is the only
-// thing standing between a user and the belief that the device has crashed:
-// the download blocks the loop for about a minute and paints nothing. See
-// ConnectionsActivity::loop(), which pays a requestUpdateAndWait() to
-// guarantee the ordering.
+// The import screen: one line of state, because there is nothing to do while it
+// runs and a progress bar on e-ink costs a refresh per update.
+// The import screen. One design, two states, and the transition between them is
+// the whole reward: the count is real (it is the number of puzzles parsed so
+// far, climbing as they arrive), and when it stops the block inverts to solid
+// black. No animation -- on a panel that refreshes once every couple of seconds
+// an animation is a lie, but a state change that lands with weight is not.
 struct ImportModel {
-  // The step, in the app's own words: "JOINING WI-FI", "DOWNLOADING", or the
-  // reason a failure failed.
   const char* detail = "";
-  // Puzzles on the card, drawn only once the import has finished. There is no
-  // running count to draw: the fetch blocks the loop, so no frame exists
-  // between the one that says DOWNLOADING and the one that says how many
-  // arrived. A climbing counter was written here once and could never climb.
+  // Puzzles parsed so far. Climbs during the download; this IS the progress.
   int puzzles = 0;
+  // Date of the newest puzzle read so far, so you watch it sweep from 2023 to
+  // now rather than watching an abstract bar.
+  uint32_t reachedDate = 0;
+  bool wifiDone = false;
   bool done = false;
   bool failed = false;
 };

@@ -15,9 +15,7 @@ are enforced by hooks and will refuse rather than remind.
 - **You never talk to Mario.** If only he can move you, record it on the card:
   `board block <id> --session <your id> --need mario --ask '<one line>'
 --default '<what happens if nobody answers>'`. The orchestrator decides
-  whether it reaches him. A card is not a blocker, so a decision filed as a
-  card only reaches him on app `mario`, where filing it opens the blocker by
-  itself; still your card's blocker that unblocks you, not a message to him.
+  whether it reaches him.
 - **A turn does not end on a question or a list of next steps.** It ends with
   the next step taken, or with a blocker recorded and one line saying so.
   The Stop hook refuses anything else.

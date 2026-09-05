@@ -34,31 +34,25 @@ uint32_t toUint(const std::string& text) { return static_cast<uint32_t>(std::str
 
 int64_t toInt64(const std::string& text) { return static_cast<int64_t>(std::strtoll(text.c_str(), nullptr, 10)); }
 
-// The one definition of what this column may hold. serializeIndex clamps with
-// it too, so a wire value of 1e30 is written as "1.0000" rather than as the
-// forty characters "%.4f" would otherwise spell -- and so serialising an
-// article, parsing it and serialising it again cannot change the file.
-float clampProgress(const float value) {
-  if (!(value > 0.0f)) return 0.0f;  // also catches NaN, which would poison every later comparison
-  return value > 1.0f ? 1.0f : value;
-}
-
 float toFloat(const std::string& text) {
   const double value = std::strtod(text.c_str(), nullptr);
-  if (!(value > 0.0)) return 0.0f;
+  if (!(value > 0.0)) return 0.0f;  // also catches NaN, which would poison every later comparison
   return value > 1.0 ? 1.0f : static_cast<float>(value);
 }
 
-}  // namespace
-
-std::string sanitizeToken(const std::string_view text) {
+// Hex only, and bounded. Both fields come off the wire and both end up in a
+// filename or a URL path, so a stray slash or dot is worth refusing here
+// rather than trusting three layers down.
+std::string sanitizeToken(std::string_view text, size_t limit) {
   std::string out;
   for (const char c : text) {
-    if (out.size() >= kTokenLimit) break;
+    if (out.size() >= limit) break;
     if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) out.push_back(c);
   }
   return out;
 }
+
+}  // namespace
 
 std::string sanitizeField(const std::string_view text) {
   std::string out;
@@ -92,40 +86,11 @@ std::string serializeIndex(const std::vector<Article>& articles) {
     if (a.renderable) flags |= kFlagRenderable;
     if (a.progressDirty) flags |= kFlagProgressDirty;
     if (a.archivePending) flags |= kFlagArchivePending;
-    // No shared buffer for the row. It used to be one char[160] holding every
-    // numeric column AND both tokens, and snprintf does not overflow -- it
-    // truncates, which here is worse. A long `hash` did not corrupt memory; it
-    // cut the row off mid-number, so the tail (domain, title) was appended
-    // straight onto a half-written column and the next parse read the title
-    // out of the sha column, lost savedAt, progress and the flags, and with
-    // them the archive intent the reader had already pressed. A short row is a
-    // corrupted row because this index IS the sync protocol.
-    //
-    // Every column below is bounded where it is written: the integers by
-    // std::to_string, the float by clampProgress, the two tokens by
-    // sanitizeToken. Nothing here can be made too long by anything the service
-    // sends.
-    char progressText[16];
-    std::snprintf(progressText, sizeof(progressText), "%.4f", static_cast<double>(clampProgress(a.progress)));
-
-    out += std::to_string(static_cast<long long>(a.id));
-    out += '\t';
-    out += sanitizeToken(a.hash);
-    out += '\t';
-    out += sanitizeToken(a.sha);
-    out += '\t';
-    out += std::to_string(a.savedAt);
-    out += '\t';
-    out += std::to_string(a.words);
-    out += '\t';
-    out += std::to_string(static_cast<unsigned>(a.minutes));
-    out += '\t';
-    out += progressText;
-    out += '\t';
-    out += std::to_string(a.progressAt);
-    out += '\t';
-    out += std::to_string(flags);
-    out += '\t';
+    char numbers[160];
+    std::snprintf(numbers, sizeof(numbers), "%lld\t%s\t%s\t%u\t%u\t%u\t%.4f\t%u\t%u\t", static_cast<long long>(a.id),
+                  a.hash.c_str(), a.sha.c_str(), a.savedAt, a.words, static_cast<unsigned>(a.minutes),
+                  static_cast<double>(a.progress), a.progressAt, flags);
+    out += numbers;
     out += sanitizeField(a.domain);
     out += '\t';
     // Title last: the only free-form column, so damage stops at the newline.
@@ -158,8 +123,8 @@ bool parseIndex(const std::string_view text, std::vector<Article>& out) {
     size_t cursor = 0;
     Article a;
     a.id = toInt64(field(row, cursor));
-    a.hash = sanitizeToken(field(row, cursor));
-    a.sha = sanitizeToken(field(row, cursor));
+    a.hash = sanitizeToken(field(row, cursor), 32);
+    a.sha = sanitizeToken(field(row, cursor), 32);
     a.savedAt = toUint(field(row, cursor));
     a.words = toUint(field(row, cursor));
     a.minutes = static_cast<uint16_t>(toUint(field(row, cursor)));
