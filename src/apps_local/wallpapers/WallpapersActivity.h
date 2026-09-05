@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "../../activities/Activity.h"
+#include "../../network/CrossPointWebServer.h"
 #include "../ui/ToyboxScreen.h"
 #include "WallpapersScreens.h"
 
@@ -62,7 +63,10 @@ class WallpapersActivity final : public Activity {
   bool unpackSet();       // pack -> individual .bmp files, resumable
   void prewarmThumbs();   // build the thumbnail cache while the bar is still up
   void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
-  void openAdd();  // build the address and show the QR screen
+  void openAdd();          // entry: get the radio, then serve
+  void startAddServer();   // latch dev mode, bind, advertise, build the address
+  void stopAddServer();    // and undo all four, in reverse
+  void pollAddArrivals();  // has a wallpaper landed while the code was up?
   void loadActive();
   void computeWarning();
   bool setWallpaper(int index);  // copy /wallpapers/<index> -> /sleep.bmp
@@ -94,6 +98,12 @@ class WallpapersActivity final : public Activity {
   std::string noticeBody_;
   const char* noticeAction_ = nullptr;
   freeink::ui::ActionId noticeActionId_ = 0;
+  std::unique_ptr<CrossPointWebServer> addServer_;
+  int addBefore_ = 0;   // library size when the code went up
+  int addArrived_ = 0;  // how many have landed since
+  bool addWaitingWifi_ = false;
+  unsigned long addLastPoll_ = 0;
+  std::string addStatus_;
   std::string addUrl_;     // http://crossplay.local/w -- what the QR encodes and the screen prints
   std::string addAltUrl_;  // http://<ip>/w -- the fallback, printed under it, never encoded
   std::string rightLabel_;
