@@ -1,5 +1,31 @@
-.venv/
-data/
+# ma-r-s/crossplay is a PUBLIC repository and this directory is deployed by
+# hand from a developer machine, so the only thing between a maintainer's
+# `git add -A` and their Instapaper credentials on GitHub is this file.
+#
+# Every entry below is something this service, its deploy or its tests
+# actually write. Nothing here is speculative, and nothing that is written is
+# missing -- the two halves an ignore file gets wrong.
+
+# Secrets. .env exists on the pi at mode 600 (READ_FERNET_KEY, the Instapaper
+# consumer key and secret, CLOUDFLARE_TUNNEL_TOKEN, the Supabase anon key) and
+# is what `docker compose` substitutes ${VAR} from, so it appears in this
+# directory the moment anyone runs the stack locally. deploy.sh excludes it
+# from the rsync TO the pi; this excludes it from the trip INTO git.
 .env
+.env.*
+!.env.example
+# cloudflared writes these when a tunnel is run credentials-file style rather
+# than token style. Neither belongs to any tracked file here.
+*.pem
+*.key
+
+# The live credential store: users/<uid>/state.json holds every account's
+# Fernet-encrypted OAuth token and the device tokens paired to it.
+data/
+
+# Local build and tool output.
+.venv/
 __pycache__/
+# The deployed commit, stamped by scripts/deploy.sh and served on /healthz.
+# Derived per deploy; committing it would make every deploy a diff.
 BUILD

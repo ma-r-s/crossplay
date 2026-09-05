@@ -1,0 +1,13 @@
+# The board's connection secrets live in <workspace>/.board/supabase.env, which
+# is outside this repository -- but the Supabase CLI, `supabase link` and
+# dotenvx all write into the directory they are run from, and this repository
+# is public. supabase/.gitignore covers .env.local and .env.keys under
+# supabase/ only; it does not cover a plain .env, and it does not cover here.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.branches
+.temp
+__pycache__/
