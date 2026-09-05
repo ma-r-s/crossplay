@@ -34,11 +34,32 @@ enum : fui::ActionId {
   // implementation that was not there.
   ActionOption = 5,
   ActionQuit = 6,
-  ActionDifficulty = 7,
   ActionGetPack = 8,  // fetch the question pack over WiFi
+  // TRIVIA's own settings screen. Carries the row in the event VALUE, like
+  // every other settings list in this fork (chess, forehead, toybattle).
+  ActionSettingsRow = 9,
+  ActionCloseSettings = 10,
 };
 
-enum class MenuRow : int { Quizmaster = 0, Solo, Difficulty, Count };
+enum class MenuRow : int { Quizmaster = 0, Solo, Difficulty, Settings, Count };
+
+// The rows of TRIVIA's own SETTINGS screen.
+//
+// DIFFICULTY is deliberately NOT one of these, and it is worth saying why here
+// rather than rediscovering it. The two options are different KINDS. Difficulty
+// is a per-session mood -- easy tonight, hard tomorrow, changed as often as the
+// mode is -- so it belongs beside QUIZMASTER and SOLO on the front door, where
+// it costs no taps. US QUESTIONS is a persistent preference about which
+// questions exist for you at all: set once, near enough to never changed again.
+// One surface each is not two option surfaces; a chess LEVEL is set-and-forget
+// and that is why chess keeps its on this screen instead.
+enum class SettingRow : int { UsCentric = 0, Count };
+
+// What the SETTINGS screen shows. The activity owns the value; this is a
+// picture of it, and the screen writes nothing.
+struct SettingsModel {
+  bool usCentric = false;
+};
 
 // A headline, a sentence, and at most one thing to do about it. Used for the
 // empty card and for every download outcome.
@@ -85,6 +106,7 @@ struct ChoiceModel {
 };
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
+void buildSettings(toybox::Screen& screen, const SettingsModel& model);
 void buildNotice(toybox::Screen& screen, const NoticeModel& model);
 void buildQuestion(toybox::Screen& screen, const QuestionModel& model);
 void buildChoice(toybox::Screen& screen, const ChoiceModel& model);

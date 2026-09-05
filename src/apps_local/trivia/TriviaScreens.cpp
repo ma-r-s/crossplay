@@ -304,26 +304,45 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const int16_t left = static_cast<int16_t>(body.x + kMargin);
   const int16_t wide = static_cast<int16_t>(body.width - kMargin * 2);
 
-  // The cards take the room between the header and the difficulty row, which
-  // sits just above the footer rule. Derived from the panel rather than fixed,
-  // so the layout does not need re-tuning if the chrome changes height.
+  // The cards take the room between the header and the two rows, which sit
+  // just above the footer rule. Derived from the panel rather than fixed, so
+  // the layout does not need re-tuning if the chrome changes height or a third
+  // row ever arrives.
   const int16_t top = static_cast<int16_t>(body.y + 24);
-  const int16_t diffH = 62;
-  const int16_t diffY = static_cast<int16_t>(footerTop(screen) - diffH - 18);
-  const int16_t cardH = static_cast<int16_t>((diffY - top - 16 - 20) / 2);
+  const int16_t rowH = 62;
+  const int16_t rowGap = 12;
+  const int16_t rowsH = static_cast<int16_t>(rowH * 2 + rowGap);
+  const int16_t rowsY = static_cast<int16_t>(footerTop(screen) - rowsH - 18);
+  const int16_t cardH = static_cast<int16_t>((rowsY - top - 16 - 20) / 2);
 
   modeCard(screen, fui::Rect{left, top, wide, cardH}, "QUIZMASTER", "Read it out, argue, reveal", ActionMenuRow, 0,
            true);
   modeCard(screen, fui::Rect{left, static_cast<int16_t>(top + cardH + 16), wide, cardH}, "SOLO", "Four options, scored",
            ActionMenuRow, 1, false);
 
-  const fui::Rect diffBox{left, diffY, wide, diffH};
+  // DIFFICULTY stays on the front door, and the value stays beside it. It is a
+  // per-session mood -- easy tonight, hard tomorrow -- changed about as often
+  // as the mode is, so it costs no taps and it is readable without opening
+  // anything. The app's persistent preference lives one row below, behind a
+  // door; see SettingRow in TriviaScreens.h for why the two are not the same
+  // kind of thing.
+  const fui::Rect diffBox{left, rowsY, wide, rowH};
   screen.target().stroke(diffBox, fui::Paint::solid(fui::Color::Black), 1);
-  drawLabel(screen, fui::Rect{static_cast<int16_t>(left + 16), diffBox.y, 200, diffH}, "DIFFICULTY", toybox::kSmallFont,
+  drawLabel(screen, fui::Rect{static_cast<int16_t>(left + 16), diffBox.y, 200, rowH}, "DIFFICULTY", toybox::kSmallFont,
             fui::TextAlign::Left, toybox::kButtonCut);
-  drawLabel(screen, fui::Rect{left, diffBox.y, static_cast<int16_t>(wide - 16), diffH}, diff, toybox::kSmallFont,
+  drawLabel(screen, fui::Rect{left, diffBox.y, static_cast<int16_t>(wide - 16), rowH}, diff, toybox::kSmallFont,
             fui::TextAlign::Right, toybox::kButtonCut);
-  screen.frame().hit(diffBox, ActionMenuRow, 2);
+  screen.frame().hit(diffBox, ActionMenuRow, static_cast<int16_t>(MenuRow::Difficulty));
+
+  // The door to the app's own settings. No value on the right: this row is a
+  // door, not a setting, and a value column beside SETTINGS would read as one
+  // thing the tap changes rather than a screen of several. Chess's start menu
+  // does exactly this.
+  const fui::Rect settingsBox{left, static_cast<int16_t>(rowsY + rowH + rowGap), wide, rowH};
+  screen.target().stroke(settingsBox, fui::Paint::solid(fui::Color::Black), 1);
+  drawLabel(screen, fui::Rect{static_cast<int16_t>(left + 16), settingsBox.y, 240, rowH}, "SETTINGS",
+            toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
+  screen.frame().hit(settingsBox, ActionMenuRow, static_cast<int16_t>(MenuRow::Settings));
 
   if (model.packCount > 0) {
     char count[48];
@@ -331,6 +350,61 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     drawLabel(screen, fui::Rect{body.x, static_cast<int16_t>(footerTop(screen) + 20), body.width, 40}, count,
               toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
   }
+}
+
+// TRIVIA's own settings. One screen, two rows, and it writes nothing: the
+// activity owns both values and this is a picture of them.
+//
+// A list rather than the hand-drawn boxes the front door uses. Screen::list()
+// substitutes the theme into every row (height, gap, side padding, minimum
+// touch size) where a stack of stroked rects only does layout, and it is the
+// shape chess, forehead and toybattle already settled on -- including the value
+// column, where a boolean is the word ON or OFF rather than fui::ListItem's
+// `toggle` switch. The switch is not unused in this fork (OpdsFilterActivity
+// draws one); it is the wrong pick HERE, because at arm's length on e-ink a
+// knob's position is a guess and a word is not, and every settings row this
+// screen sits beside in chess and toybattle spells it out.
+void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
+  chrome(screen, "SETTINGS", nullptr);
+  // The list needs a content rect; Trivia's own chrome() leaves the raw body
+  // because every other screen here draws straight to the target.
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+
+  // Anchored to the bottom margin BEFORE the rows take the rest, so the list
+  // can never grow into it.
+  fui::ButtonProps back;
+  back.label = "BACK TO MENU";
+  back.action = ActionCloseSettings;
+  back.borderEdges = fui::EdgesNone;
+  screen.button(back, screen.takeBottom(toybox::kPillHeight));
+
+  fui::ListItem rows[static_cast<int>(SettingRow::Count)] = {};
+  rows[static_cast<int>(SettingRow::UsCentric)].label = "US QUESTIONS";
+  rows[static_cast<int>(SettingRow::UsCentric)].value = model.usCentric ? "ON" : "OFF";
+  // Says what OFF costs you, not just what the row is. The pack ships
+  // international by default and a player who never turns this on never learns
+  // the marked questions were held back at all.
+  rows[static_cast<int>(SettingRow::UsCentric)].subtitle = "OFF HIDES CLUES ONLY A US PLAYER WOULD KNOW";
+
+  for (int i = 0; i < static_cast<int>(SettingRow::Count); ++i) {
+    rows[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  fui::ListProps list;
+  list.items = rows;
+  list.count = static_cast<uint16_t>(SettingRow::Count);
+  // Touch-only, like the rest of this app: nothing is "selected".
+  list.selectedIndex = -1;
+  list.action = ActionSettingsRow;
+  // Set EXPLICITLY. FONT_SLOT_SMALL is 0, so a style naming only the font is
+  // indistinguishable from a default-constructed one and Screen::list quietly
+  // substitutes the theme's 20px body cut -- which is how FOREHEAD shipped a
+  // subtitle drawn as large as the label it was subtitling, truncated with an
+  // ellipsis its cut has no glyph for. maxLines makes the style caller-owned
+  // and gives a long sentence a real second line to wrap into.
+  list.subtitleText.font = toybox::kSmallFont;
+  list.subtitleText.maxLines = 2;
+  screen.list(list);
 }
 
 void buildChoice(toybox::Screen& screen, const ChoiceModel& model) {
