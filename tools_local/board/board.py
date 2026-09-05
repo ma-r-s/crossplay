@@ -20,7 +20,8 @@ file store so the hooks never need the network.
     board dispatcher --name Dispatch --session <id>   the session Mario talks to; may message anyone
     board pulse [add <host> <GET|POST> <url> <alive> <app> | remove <host>]   what the board probes every 30 min
     board release                                     is the release watcher awake, and what is it owed
-    board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."] [--parent <id>]
+    board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."] [--parent <id>] [--default "..."]
+    board app <id> <app> [--default "..."]             move a card to another app
     board parent <id> --of <parent>                    put a card under another (subtasks)
     board bind <id> --session <sid> [--tree wt/x] [--branch app/x]
     board block <id> --session <sid> --need desk|design|info|mario --ask "..." --default "..."
@@ -37,6 +38,11 @@ file store so the hooks never need the network.
 Session ids are the ones the SessionStart hook prints; nothing else identifies
 a session from inside Bash, which is why every write that belongs to a session
 takes --session explicitly.
+
+A card on app `mario` is an inbox item by construction: filing one there, or
+moving one there, opens a `mario` blocker asking the card's title, because the
+inbox lists open `mario` blockers and Mario reads nothing else. --default says
+what happens if he never answers; without one it says so honestly.
 """
 
 import argparse
@@ -63,6 +69,13 @@ STATES = [
     "parked",
 ]
 NEEDS = ["desk", "design", "info", "mario", "device", "other"]
+
+# The app whose cards are Mario's own decisions, and what an auto-opened
+# blocker says happens when he never answers one. The wording is the honest
+# one on purpose: a blocker with no stated default forces him to engage before
+# he can safely ignore it, which is how an inbox turns into noise.
+MARIO_APP = "mario"
+MARIO_DEFAULT = "nothing happens until he answers"
 
 
 def now():
@@ -182,6 +195,13 @@ class FileStore:
     def save_card(self, c):
         c["updated"] = now()
         self._write(self.cards / f"{c['id']}.json", c)
+
+    def set_blocker_default(self, cid, n, default):
+        c = self.get_card(cid)
+        for b in c["blockers"]:
+            if b["n"] == n:
+                b["default"] = default
+        self.save_card(c)
 
     def list_cards(self):
         out = []
@@ -449,6 +469,14 @@ class SupaStore:
             prefer="return=minimal",
         )
 
+    def set_blocker_default(self, cid, n, default):
+        self._req(
+            "PATCH",
+            f"blockers?card_id=eq.{cid}&n=eq.{n}",
+            {"default": default},
+            prefer="return=minimal",
+        )
+
     def list_cards(self):
         rows = self._req("GET", f"cards?select={self.SELECT}&order=id.asc") or []
         return [self._to_card(r) for r in rows]
@@ -704,7 +732,8 @@ def cmd_new(st, a):
                 "history": [{"at": now(), "what": "created"}],
             }
         )
-    print(f"#{c['id']} {c['title']}")
+        inbox = ensure_inbox(st, c["id"], a.default, "board", adopt=True)
+    print(f"#{c['id']} {c['title']}" + ("  (in Mario's inbox)" if inbox else ""))
 
 
 def cmd_bind(st, a):
@@ -753,6 +782,50 @@ def _block(st, cid, need, ask, default, by, steps=None):
         hist(c, f"blocked ({need}): {ask}")
         st.save_card(c)
     return c, n
+
+
+def ensure_inbox(st, cid, default=None, by="board", adopt=False):
+    """A card on app `mario` is an item in Mario's inbox, by construction.
+
+    The inbox is the open `mario` blockers and nothing else, so a card filed on
+    the app that already means "only Mario decides this" was invisible to him
+    until someone remembered to block on it. Twice nobody did (cards 75 and 84
+    aged a day in `reported`), which is a dropped message, not a delay.
+
+    Idempotent on the only thing that matters -- whether an open `mario`
+    blocker is already there -- so re-running it, or moving a card to `mario`
+    twice, never files a second one.
+    """
+    c = st.get_card(cid)
+    if str(c.get("from", "")).lower() != MARIO_APP:
+        return False
+    want = (default or "").strip() or MARIO_DEFAULT
+    already = [b for b in c["blockers"] if b["open"] and b["need"] == "mario"]
+    if already:
+        # On the Supabase store the trigger opens this blocker inside the
+        # card's own INSERT or UPDATE, so the CLI arrives to find the work
+        # done and its --default dropped on the floor. `adopt` is the caller
+        # saying it knows none was open before it wrote, so the blocker it
+        # found is that one and the words it was given belong on it.
+        if adopt and (default or "").strip():
+            st.set_blocker_default(cid, already[-1]["n"], want)
+        return False
+    _block(st, cid, "mario", c["title"], want, by)
+    return True
+
+
+def cmd_app(st, a):
+    """Move a card to another app, and into Mario's inbox when the app is his."""
+    app = a.app.lower()
+    with st.lock():
+        c = st.get_card(a.id)
+        had = any(b["open"] and b["need"] == "mario" for b in c["blockers"])
+        if str(c.get("from", "")).lower() != app:
+            c["from"] = app
+            card_history(st, c, f"moved to app {app}")
+            st.save_card(c)
+        opened = ensure_inbox(st, c["id"], a.default, "board", adopt=not had)
+    print(f"#{c['id']} -> {app}" + ("  (in Mario's inbox)" if opened else ""))
 
 
 def cmd_block(st, a):
@@ -1039,6 +1112,7 @@ def cmd_import(st, a):
                     ],
                 }
             )
+            ensure_inbox(st, c["id"])
             made += 1
             print(f"#{c['id']} {c['title']}")
     print(f"board: imported {made} cards")
@@ -1118,6 +1192,7 @@ def cmd_issues(st, a):
                     ],
                 }
             )
+            ensure_inbox(st, c["id"])
             made += 1
             print(f"#{c['id']} <- issue #{i['number']} {c['title']}")
     closed = 0
@@ -1243,7 +1318,19 @@ def main(argv=None):
     s.add_argument("--from", dest="from_app", required=True)
     s.add_argument("--kind", choices=["bug", "feature", "task"], default="task")
     s.add_argument("--body")
+    s.add_argument(
+        "--default",
+        help="on app mario: what happens if he never answers (a card filed there opens a mario blocker by itself)",
+    )
     s.set_defaults(fn=cmd_new)
+    s = sub.add_parser("app", help="move a card to another app")
+    s.add_argument("id", type=int)
+    s.add_argument("app")
+    s.add_argument(
+        "--default",
+        help="on app mario: what happens if he never answers",
+    )
+    s.set_defaults(fn=cmd_app)
     s = sub.add_parser("bind")
     s.add_argument("id", type=int)
     s.add_argument("--session", required=True)

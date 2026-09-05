@@ -60,6 +60,25 @@ against the mirror alone (what the tests do). `board sync` copies the file
 store into Supabase once, ids kept, for the migration that already happened
 on 2026-09-03.
 
+## A card addressed to Mario is an inbox item
+
+The inbox is the open `mario` blockers and nothing else, and a card is not a
+blocker. So a card filed on app `mario` -- which by convention already means
+"only Mario can decide this" -- reached him only if somebody also remembered
+to block on it, and twice nobody did: cards 75 and 84 were his decisions and
+aged a day in `reported` while his inbox said nothing needs you. That is a
+dropped message, not a delay.
+
+Since card #209 it is not something to remember. Filing a card on app `mario`
+(`board new "..." --from mario`) or moving one there (`board app <id> mario`)
+opens a `mario` blocker asking the card's title, and one only: a card that
+already has an open one never gets a second, however many times it is moved.
+`--default` says what happens if he never answers; without one the blocker
+says `nothing happens until he answers`, which is honest and lets him ignore
+it safely. Both the CLI and a trigger on `cards` enforce this, because the CLI
+is not the only writer -- the site's report function, the inbox page and a
+hand-typed `UPDATE` all reach the table directly.
+
 ## When the guard itself breaks
 
 It fails open, on purpose. Anything unexpected inside `guard.py` exits 0

@@ -226,6 +226,51 @@ board integrator --session "$WORKER" >/dev/null 2>&1 && bad "a second integrator
 board integrator --session "$WORKER" --release >/dev/null 2>&1 && bad "a stranger released the claim" || ok "only the holder releases the claim"
 board integrator --session "$INTEG" --release >/dev/null && ok "the holder releases the claim" || bad "holder cannot release"
 
+# Mario reads his inbox and nothing else, the inbox is the open `mario`
+# blockers and nothing else, and a card is not a blocker. So a card filed on
+# app `mario` -- the app that by convention already means "only Mario can
+# decide this" -- reached him only if somebody also remembered to block on it.
+# Twice nobody did: cards 75 and 84 were his decisions and aged a day in
+# `reported` while his inbox said nothing needs you. Card #209 made the rule
+# physical, and this is where it is watched holding.
+echo "a card addressed to Mario is an inbox item by construction"
+MID=$(board new "Retire Main and open a fresh orchestrator" --from mario | sed 's/^#\([0-9]*\).*/\1/')
+board inbox | grep -q "Need from you: Retire Main and open a fresh orchestrator" \
+  && ok "a card filed on app mario reaches the inbox, asking its title" || bad "a card filed on app mario never reached the inbox"
+board inbox | grep -q "If you do nothing: nothing happens until he answers" \
+  && ok "the blocker it opens says what happens if he never answers" || bad "the auto blocker states no default"
+board new "Archive the four dead apps" --from mario --default "they stay on the shelf" >/dev/null
+board inbox | grep -q "If you do nothing: they stay on the shelf" \
+  && ok "a filer-supplied default wins over the honest fallback" || bad "the filer's default was dropped"
+OID=$(board new "Sudoku keeps its own puzzle" --from sudoku | sed 's/^#\([0-9]*\).*/\1/')
+board show "$OID" | grep -q "BLOCKED(mario)" && bad "a card on another app opened a mario blocker" || ok "only app mario opens one"
+
+# Moved there, not only filed there: the orchestrator retargets cards, and a
+# decision that becomes Mario's on Tuesday is as invisible as one that was his
+# on Monday.
+board app "$OID" mario --default "the puzzle stays where it is" >/dev/null
+board inbox | grep -q "Need from you: Sudoku keeps its own puzzle" \
+  && ok "moving a card to app mario reaches the inbox" || bad "a move to app mario never reached the inbox"
+board show "$OID" | grep -q "moved to app mario" && ok "the move is on the card" || bad "the move left no history"
+board app "$OID" mario >/dev/null
+board app "$OID" mario >/dev/null
+[ "$(board show "$OID" | grep -c '^  blocker ')" = 1 ] \
+  && ok "moving it there again files no second blocker" || bad "repeated moves multiplied the blocker"
+board inbox | grep -q "If you do nothing: the puzzle stays where it is" \
+  && ok "a repeat move keeps the default the filer gave" || bad "a repeat move overwrote the default"
+board app "$OID" sudoku >/dev/null
+board app "$OID" mario >/dev/null
+[ "$(board show "$OID" | grep -c '^  blocker ')" = 1 ] \
+  && ok "a round trip through another app files no second blocker" || bad "a round trip multiplied the blocker"
+board answer "$MID" "retire it" >/dev/null
+board show "$MID" | grep -q "closed: retire it" && ok "he answers the auto blocker like any other" || bad "the auto blocker cannot be answered"
+
+# Filing on app mario is not the orchestrator-only `board ask`: a worker
+# already records `--need mario` blockers on its own card by the contract, so
+# the same worker may file the decision as a card. The gate that stays shut is
+# `board ask`, asserted above.
+expect "a worker may file a card on app mario" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board new 'Which layout ships' --from mario\"}}"
+
 echo "emulator staleness, one answer for check.sh and CI"
 STALE="$HERE/../../scripts_local/emulator-stale.sh"
 E="$WORK/emu"; mkdir -p "$E/src" "$E/site/emulator"; ( cd "$E" && git init -q -b xteink && git config user.email t@t && git config user.name t \
