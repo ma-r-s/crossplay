@@ -179,6 +179,155 @@ void testProgressBounds() {
   CHECK(out[2].progress == 0.0f);
 }
 
+// ------------------------------------------- the two columns off the wire
+//
+// `hash` is Instapaper's and reaches this device verbatim through the bridge
+// (bridge/engine.py: str(e.get("hash") or "")); nothing between the two ends
+// caps its length or its characters. `sha` is the bridge's own
+// sha256(...).hexdigest()[:16]. The bound both are written under is not a
+// guess about what a well-behaved service sends: the bridge stores every
+// article at "".join(c for c in hash if c.isalnum())[:32] + ".txt"
+// (bridge/store.py), so 32 alphanumerics IS the key on the other side.
+//
+// These build their Articles by hand rather than through a sync, on purpose.
+// The point of the fix is that the row format is enforced by the function
+// that WRITES the row, not by whoever filled the struct in.
+
+// The failure a reader would actually meet. serializeIndex used to put the
+// whole row -- both tokens and every number -- through one char[160], and
+// snprintf truncates rather than overflows, so a long hash cut the row off
+// mid-column and the domain and title were appended onto the stump. What
+// came back was not "an article with a shortened hash". It was an article
+// that had lost its title, its reading position, and the ARCHIVE the reader
+// had already pressed: the row reappears in the queue, and nothing on screen
+// explains why.
+void testALongHashDoesNotUnarchiveAnArticle() {
+  instapaper::Article a = make(101, "A headline the reader would recognise");
+  a.hash = std::string(200, 'a');
+  a.progress = 0.5f;
+  a.progressAt = 1756100000;
+  a.archivePending = true;
+  a.renderable = false;
+
+  std::vector<instapaper::Article> read;
+  CHECK(instapaper::parseIndex(instapaper::serializeIndex({a}), read));
+  CHECK(read.size() == 1);
+  CHECK(read[0].id == 101);
+  CHECK_EQ(read[0].title, "A headline the reader would recognise");
+  CHECK_EQ(read[0].domain, "example.com");
+  CHECK(read[0].savedAt == 1000);
+  CHECK(read[0].words == 900 && read[0].minutes == 4);
+  CHECK(read[0].progressAt == 1756100000);
+  CHECK(read[0].progress > 0.499f && read[0].progress < 0.501f);
+  CHECK(read[0].archivePending);
+  CHECK(!read[0].renderable);
+  // And the one thing that IS lost is only the sync key, cut to exactly the
+  // form the bridge files the article under -- so the download URL built from
+  // it still names the bridge's own file.
+  CHECK(read[0].hash.size() == instapaper::kTokenLimit);
+  CHECK_EQ(read[0].hash, std::string(instapaper::kTokenLimit, 'a'));
+}
+
+// The sharper half, and not a length problem at all: a tab inside a token
+// spells a column boundary. One arriving in Instapaper's hash used to shift
+// every column after it by one, which parseIndex has no way to notice --
+// sanitising on the READ side cannot put back a separator the WRITE side
+// already emitted.
+void testASeparatorInsideATokenCannotShiftTheColumns() {
+  instapaper::Article a = make(102, "Still the right title");
+  a.hash = "aa\tbb";
+  a.sha = "cc\ndd\re";
+  a.savedAt = 4242;
+  a.progressAt = 99;
+
+  std::vector<instapaper::Article> read;
+  CHECK(instapaper::parseIndex(instapaper::serializeIndex({a}), read));
+  CHECK(read.size() == 1);
+  CHECK_EQ(read[0].hash, "aabb");
+  CHECK_EQ(read[0].sha, "ccdde");
+  CHECK(read[0].savedAt == 4242);
+  CHECK(read[0].words == 900 && read[0].minutes == 4);
+  CHECK(read[0].progressAt == 99);
+  CHECK_EQ(read[0].title, "Still the right title");
+  CHECK_EQ(read[0].domain, "example.com");
+}
+
+// A traversal in the hash never reaches the file, because the file never
+// holds it. The existing round-trip check passed while the raw "../../" sat
+// on the card and in the URL the downloader built from the in-memory copy;
+// this one reads the bytes.
+void testTheWrittenRowHoldsNoTraversal() {
+  instapaper::Article a = make(103, "x");
+  a.hash = "../../etc/passwd";
+  a.sha = "ab/cd";
+  const std::string text = instapaper::serializeIndex({a});
+  CHECK(text.find("..") == std::string::npos);
+  CHECK(text.find("/etc/") == std::string::npos);
+  CHECK(text.find("\t103\t") == std::string::npos);  // and the id column did not move
+  CHECK(text.find("\netcpasswd\t") == std::string::npos);
+}
+
+// The float column, which is bounded by the same rule the reader applies.
+// "%.4f" of an unclamped wire value spells forty characters, which is how a
+// progress of 1e30 could cut a row short all by itself.
+void testTheProgressColumnIsBoundedWhereItIsWritten() {
+  instapaper::Article big = make(104, "x");
+  big.progress = 1e30f;
+  instapaper::Article negative = make(105, "x");
+  negative.progress = -4.0f;
+  const std::string text = instapaper::serializeIndex({big, negative});
+  CHECK(text.find("\t1.0000\t") != std::string::npos);
+  CHECK(text.find("\t0.0000\t") != std::string::npos);
+  CHECK(text.find("e+") == std::string::npos);
+
+  std::vector<instapaper::Article> read;
+  CHECK(instapaper::parseIndex(text, read));
+  CHECK(read.size() == 2);
+  CHECK(read[0].progress == 1.0f);
+  CHECK(read[1].progress == 0.0f);
+}
+
+// The property that says writer and reader agree, and the cheapest guard
+// against the two drifting apart again: writing an index, reading it and
+// writing it again must produce the same bytes. It did not, and could not,
+// while the writer emitted a 200-character hash the reader cut to 32.
+void testWritingAnIndexTwiceProducesTheSameFile() {
+  instapaper::Article a = make(106, "Fixed point");
+  a.hash = std::string(90, 'Z');
+  a.sha = "sha-256-ish";
+  a.progress = 12345.0f;
+  a.progressDirty = true;
+  instapaper::Article b = make(107, "Second\trow", 7);
+  b.hash = "ok";
+  b.domain = "caf\xc3\xa9.example.com";
+
+  const std::string once = instapaper::serializeIndex({a, b});
+  std::vector<instapaper::Article> read;
+  CHECK(instapaper::parseIndex(once, read));
+  CHECK_EQ(instapaper::serializeIndex(read), once);
+}
+
+// What truncation must NOT reach. The title is the one column a reader looks
+// at, and it is free-form and last precisely so a fixed budget never has to
+// cut it. Sizing a buffer instead of bounding the tokens would have looked
+// like a fix and quietly capped headlines with no ellipsis to show for it --
+// the failure this fork has filed a shelf of cards about. So: the only
+// truncation in this file is the two protocol tokens, and it stops there.
+void testNoReadableColumnIsEverCut() {
+  const std::string longTitle(4000, 'w');
+  const std::string longDomain(600, 'd');
+  instapaper::Article a = make(108, longTitle.c_str());
+  a.domain = longDomain;
+  a.hash = std::string(64, 'f');
+
+  std::vector<instapaper::Article> read;
+  CHECK(instapaper::parseIndex(instapaper::serializeIndex({a}), read));
+  CHECK(read.size() == 1);
+  CHECK_EQ(read[0].title, longTitle);
+  CHECK_EQ(read[0].domain, longDomain);
+  CHECK(read[0].hash.size() == instapaper::kTokenLimit);
+}
+
 // ---------------------------------------------------------------- the merge
 void testMergeNewAndChanged() {
   std::vector<instapaper::Article> local = {make(101, "Known"), make(102, "Also known")};
@@ -417,6 +566,12 @@ int main() {
   testDamage();
   testSanitising();
   testProgressBounds();
+  testALongHashDoesNotUnarchiveAnArticle();
+  testASeparatorInsideATokenCannotShiftTheColumns();
+  testTheWrittenRowHoldsNoTraversal();
+  testTheProgressColumnIsBoundedWhereItIsWritten();
+  testWritingAnIndexTwiceProducesTheSameFile();
+  testNoReadableColumnIsEverCut();
   testMergeNewAndChanged();
   testMergeMetadataOnlyChangeDoesNotDownload();
   testMergeMissingFileIsDownloaded();
