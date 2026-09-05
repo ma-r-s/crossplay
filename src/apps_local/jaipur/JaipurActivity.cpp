@@ -138,6 +138,11 @@ constexpr char kSavePath[] = "/.crosspoint/jaipur.sav";
 // correct v2 one. Version 3: Game grew a record of the last move.
 constexpr int kSaveVersion = 3;
 
+// The record line's own file, kept apart from kSavePath because that one is
+// removed at GameOver. Text and versioned, the way battleship writes bship.cfg.
+constexpr char kStatsPath[] = "/.crosspoint/jaipur.stats";
+constexpr int kStatsVersion = 1;
+
 char hexDigit(const int value) { return static_cast<char>(value < 10 ? '0' + value : 'A' + value - 10); }
 
 int hexValue(const char c) {
@@ -198,6 +203,7 @@ void JaipurActivity::onEnter() {
   // Mixed from the clock, so two games in a row are not the same game.
   seed = toybox::seed();
 
+  loadStats();
   hasSavedGame = loadGame();
   goToMenu();
 }
@@ -254,6 +260,7 @@ void JaipurActivity::onMatchStart(const bool goesFirst) {
   game.newGame(nextSeed(), 0);
   if (goesFirst) link.play(game);
   clearSelection();
+  recorded = false;
   view = View::Board;
   requestUpdate();
 }
@@ -1103,7 +1110,42 @@ jaipurui::StartModel JaipurActivity::startModel() const {
   model.hasSavedGame = hasSavedGame;
   model.continueDetail = continueDetail;
   model.selected = menuSelected;
+  model.played = played;
+  model.won = won;
   return model;
+}
+
+void JaipurActivity::recordResult() {
+  if (recorded) return;
+  recorded = true;
+  ++played;
+  // matchWinner() is -1 until a seat holds two seals, and exactly one does at
+  // GameOver, so this is "did the human win the match".
+  if (game.matchWinner() == seat) ++won;
+  // Straight to the card, at the finish: a wake is a chip reset, so anything
+  // not written before the player looks away can be lost.
+  saveStats();
+}
+
+void JaipurActivity::saveStats() const {
+  char line[48];
+  std::snprintf(line, sizeof(line), "%d %d %d\n", kStatsVersion, played, won);
+  Storage.writeFile(kStatsPath, String(line));
+}
+
+void JaipurActivity::loadStats() {
+  // Absent on every device that ran an earlier build: that is zero games, not
+  // an error, and jaipur.sav (a different file) still loads on its own.
+  if (!Storage.exists(kStatsPath)) return;
+  char buffer[48] = {};
+  if (Storage.readFileToBuffer(kStatsPath, buffer, sizeof(buffer)) == 0) return;
+  int version = 0;
+  int storedPlayed = 0;
+  int storedWon = 0;
+  if (std::sscanf(buffer, "%d %d %d", &version, &storedPlayed, &storedWon) < 3) return;
+  if (version != kStatsVersion) return;
+  played = storedPlayed;
+  won = storedWon;
 }
 
 jaipurui::BoardModel JaipurActivity::boardModel() {
@@ -1261,6 +1303,7 @@ void JaipurActivity::startNewGame() {
   game.newGame(nextSeed(), 0);
   clearSelection();
   hasSavedGame = true;
+  recorded = false;
   report[0] = '\0';
 
   view = View::Board;
@@ -1477,6 +1520,14 @@ void JaipurActivity::gameLoop() {
     playOpponentTurn();
     return;
   }
+
+  // A solo match that has just ended: count it while it is still in RAM, since
+  // saveGame() removes a GameOver save so it is never reloaded. recordResult
+  // latches, and a link match is counted through onMatchEnded() instead (the
+  // link layer stops calling this once the game is over). Runs regardless of
+  // view: the finished game sits on View::RoundOver, but Back to the menu keeps
+  // it in RAM, and this must not depend on which screen is up.
+  if (!inMatch() && game.currentPhase() == jaipur::Phase::GameOver) recordResult();
 
   switch (view) {
     case View::Menu:

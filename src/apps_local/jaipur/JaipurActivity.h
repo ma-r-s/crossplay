@@ -49,11 +49,11 @@ class JaipurActivity final : public linkplay::LinkActivity {
   void onRematch() override;
   void onLinkEnded() override;
   bool matchGameOver() const override { return game.currentPhase() == jaipur::Phase::GameOver; }
-  // Nothing to record: Jaipur keeps no played/won counter (its menu draws one,
-  // and it has never been anything but zero -- filed separately). The screen
-  // half applies though: viewForPhase() puts View::RoundOver up at GameOver,
-  // and until now nobody ever saw it in a match. See link/LinkEndgame.h.
-  void onMatchEnded() override {}
+  // Counted here for a link match, and nowhere else in one: the link layer
+  // stops running gameLoop() the moment the game ends (it puts up its own
+  // endgame screen), so the solo path's GameOver check in gameLoop() never
+  // fires for a match. See link/LinkEndgame.h.
+  void onMatchEnded() override { recordResult(); }
   // The link screen's ornament, and after a match its result: it takes the
   // screen the moment the game ends, so this is where the final position is
   // reported.
@@ -163,6 +163,14 @@ class JaipurActivity final : public linkplay::LinkActivity {
   void saveGame() const;
   void refreshContinueDetail();
 
+  // The record line under the front-door title. Counted once per finished match
+  // (recordResult latches on `recorded`) and kept in jaipur.stats, its own
+  // file: jaipur.sav is removed at GameOver, so a finished game is never
+  // reloaded and the count cannot live in it. The pattern is battleship's.
+  void recordResult();
+  void saveStats() const;
+  void loadStats();
+
   jaipur::Game game;
   linkplay::Play<jaipur::Game> link;
 
@@ -172,6 +180,14 @@ class JaipurActivity final : public linkplay::LinkActivity {
   int tutorialPage = 0;
   bool hasSavedGame = false;
   uint32_t seed = 1;
+
+  // The front-door tally. Loaded once on entry, incremented when a match ends.
+  int played = 0;
+  int won = 0;
+  // One finish is counted once. A finished match sits on screen for a while
+  // (the round-over view, or the link endgame hold), so the loop sees GameOver
+  // on many passes; this latches the count to the first of them.
+  bool recorded = false;
 
   // Set when the opponent owes a move, consumed on the next loop pass.
   bool opponentPending = false;

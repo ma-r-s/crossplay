@@ -8,6 +8,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxTheme.h"
 #include "ToyBattleScreens.h"
 
@@ -15,6 +16,10 @@ namespace tb = toybattle;
 
 // The fork-local convention, the pattern knucklebones.sav set.
 static constexpr char kSavePath[] = "/.crosspoint/toybattle.sav";
+// A separate file for the record line, because kSavePath is removed the moment
+// a game ends. Text and versioned, the way battleship writes bship.cfg.
+static constexpr char kStatsPath[] = "/.crosspoint/toybattle.stats";
+static constexpr int kStatsVersion = 1;
 
 std::unique_ptr<Activity> ToyBattleActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   return std::make_unique<ToyBattleActivity>(renderer, mappedInput);
@@ -27,6 +32,7 @@ void ToyBattleActivity::onEnter() {
   // moment the app appears.
   hasSave = loadGame();
   dealt = hasSave;
+  loadStats();
   screen = tb::Screen::Menu;
   menuSelected = 0;
   refreshSaveLine();
@@ -190,6 +196,9 @@ void ToyBattleActivity::recordResult() {
   recorded = true;
   ++played;
   if (game.winner == seat) ++won;
+  // Written here, at the finish, rather than in onExit: a chip-reset wake loses
+  // anything not on the card, so the count reaches disk the moment it changes.
+  saveStats();
   hasSave = false;
   if (Storage.exists(kSavePath)) Storage.remove(kSavePath);
   requestUpdate();
@@ -260,10 +269,14 @@ void ToyBattleActivity::gameLoop() {
     // but Back". That was the real objection and it is answered by giving the
     // action bar a way on rather than by taking the board away.
     //
-    // Still the one place a result is recorded and the save is cleared: a
-    // finished game must not be offered as one to continue.
+    // The one place a result is recorded and the save is cleared: a finished
+    // game must not be offered as one to continue. recordResult() latches, so
+    // running it every pass is a no-op after the first.
     recordResult();
-    return;
+    // No return: the finished board's action bar (HOW IT ENDED, ?) is the only
+    // way on and has to answer a tap. Falling through reaches interactions.route
+    // below; the brain and the board's own hit-testing are both gated on
+    // Phase::Playing (and canAct()), so only the registered controls are live.
   }
 
   // The brain only plays when there is nobody on the other end. In a match the
@@ -706,6 +719,30 @@ bool ToyBattleActivity::loadGame() {
   seat = saved.seat;
   preview = saved.game;
   return true;
+}
+
+void ToyBattleActivity::saveStats() const {
+  // "%d %d %d\n"
+  constexpr int kLineChars =
+      toybox::kIntChars + toybox::kIntChars + toybox::kIntChars + toybox::literalChars("  \n") + 1;
+  char line[kLineChars];
+  std::snprintf(line, sizeof(line), "%d %d %d\n", kStatsVersion, played, won);
+  Storage.writeFile(kStatsPath, String(line));
+}
+
+void ToyBattleActivity::loadStats() {
+  // No file is the ordinary state on every device that ran a build before this
+  // one: leave the counters at zero rather than treat its absence as an error.
+  if (!Storage.exists(kStatsPath)) return;
+  char buffer[48] = {};
+  if (Storage.readFileToBuffer(kStatsPath, buffer, sizeof(buffer)) == 0) return;
+  int version = 0;
+  int storedPlayed = 0;
+  int storedWon = 0;
+  if (std::sscanf(buffer, "%d %d %d", &version, &storedPlayed, &storedWon) < 3) return;
+  if (version != kStatsVersion) return;
+  played = storedPlayed;
+  won = storedWon;
 }
 
 void ToyBattleActivity::onExit() {

@@ -24,6 +24,7 @@
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/instapaper/InstapaperScreens.h"
+#include "../../src/apps_local/jaipur/JaipurScreens.h"
 #include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
@@ -5665,6 +5666,22 @@ void testToyBattleShell() {
     CHECK(out.target.drew("HOW TO PLAY"));
     // A save that is offered has to say what it is offering.
     CHECK(out.target.drew("CONTINUE") == (save != 0));
+    // The record line carries the tally it is handed. It read a permanent
+    // "0 PLAYED 0 WON" for the app's whole life because the counters were never
+    // persisted (#195): here the model has them, and they have to reach ink.
+    CHECK(out.target.drew("3 PLAYED   2 WON"));
+  }
+
+  {
+    // A player who has never finished a game gets a sentence, not three noughts.
+    tbui::MenuModel model;
+    model.preview = &preview;
+    model.played = 0;
+    model.won = 0;
+    Rendered out;
+    buildTbMenu(out, model);
+    CHECK(out.target.drew("NO BATTLES YET"));
+    CHECK(!out.target.drew("0 PLAYED   0 WON"));
   }
 
   for (int link = 0; link < 2; ++link) {
@@ -5930,7 +5947,102 @@ void testTheFinishedBoardCarriesItsOwnEnding() {
     CHECK(!out.target.drew("DRAW 2"));
     CHECK(!out.target.drew("SKIP"));
     CHECK(!out.target.drew("WAIT"));
+
+    // The way on has to ANSWER, not just draw (#197): a tap where HOW IT ENDED
+    // sits routes to ActionResult, and the ? beside it to ActionBrief. Drawn
+    // and dead is this fork's "a silent screen reads as a crash". The Activity's
+    // gameLoop() no longer returns before this route on a finished board.
+    const FakeTarget::TextRun* how = out.target.find("HOW IT ENDED");
+    CHECK(how != nullptr);
+    if (how != nullptr) {
+      const fui::ActionEvent hit = out.tap(how->rect.x + how->rect.width / 2, how->rect.y + how->rect.height / 2);
+      CHECK(hit.action == tbui::ActionResult);
+    }
+    const FakeTarget::TextRun* brief = out.target.find("?");
+    CHECK(brief != nullptr);
+    if (brief != nullptr) {
+      const fui::ActionEvent hit =
+          out.tap(brief->rect.x + brief->rect.width / 2, brief->rect.y + brief->rect.height / 2);
+      CHECK(hit.action == tbui::ActionBrief);
+    }
   }
+}
+
+void buildTbResult(Rendered& out, const tbui::ResultModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildResult(screen, model);
+}
+
+// HOW IT ENDED opens the Result screen, which was unreachable dead code until
+// #197 routed its button -- so buildResult() had never drawn and nothing tested
+// it. It names which of the three endings happened, and its two buttons answer.
+void testTheResultScreenReads() {
+  toybattle::Game game;
+  game.newGame(11u, static_cast<int>(toybattle::TerrainId::CastleField), 0, true);
+  // Seat 0 captures an H.Q., the same construction the finished-board test uses.
+  const toybattle::Terrain& b = game.board();
+  int hq = -1;
+  for (int s = b.baseCount; s < b.slotCount(); ++s) {
+    if (b.hqOwner(s) == 1) hq = s;
+  }
+  CHECK(hq >= 0);
+  game.placeSlot[game.placementCount] = static_cast<uint8_t>(hq);
+  game.placeTile[game.placementCount] = static_cast<uint8_t>((0 << 3) | static_cast<int>(toybattle::Troop::Roxy));
+  ++game.placementCount;
+  game.winner = 0;
+  game.ending = static_cast<uint8_t>(toybattle::Ending::HqCaptured);
+  game.phase = static_cast<uint8_t>(toybattle::Phase::GameOver);
+
+  tbui::ResultModel model;
+  model.game = game;
+  model.seat = 0;
+  Rendered out;
+  buildTbResult(out, model);
+
+  CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+  CHECK(out.target.drew("YOU WIN"));
+  CHECK(out.target.drew("YOU TOOK THEIR H.Q."));
+  CHECK(out.target.drew("DONE"));
+  CHECK(out.target.drew("PLAY AGAIN"));
+
+  const FakeTarget::TextRun* done = out.target.find("DONE");
+  CHECK(done != nullptr);
+  if (done != nullptr) {
+    const fui::ActionEvent hit = out.tap(done->rect.x + done->rect.width / 2, done->rect.y + done->rect.height / 2);
+    CHECK(hit.action == tbui::ActionDone);
+  }
+  const FakeTarget::TextRun* again = out.target.find("PLAY AGAIN");
+  CHECK(again != nullptr);
+  if (again != nullptr) {
+    const fui::ActionEvent hit = out.tap(again->rect.x + again->rect.width / 2, again->rect.y + again->rect.height / 2);
+    CHECK(hit.action == tbui::ActionAgain);
+  }
+}
+
+void buildJaipurStart(Rendered& out, const jaipurui::StartModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  jaipurui::buildStartMenu(screen, model);
+}
+
+// Jaipur's front door drew "0 PLAYED 0 WON" for the app's whole life because
+// startModel() never set the counters and the activity kept no tally (#196).
+// With a real tally on the model, the record line has to print it.
+void testJaipurRecordLine() {
+  jaipurui::StartModel model;
+  model.played = 12;
+  model.won = 5;
+  Rendered out;
+  buildJaipurStart(out, model);
+  CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+  CHECK(out.interactions.count() > 0);
+  CHECK(out.target.drew("12 PLAYED   5 WON"));
+  CHECK(!out.target.drew("0 PLAYED   0 WON"));
 }
 
 // Playing the other side has to be the same game seen from the other chair, not
@@ -9029,6 +9141,8 @@ int main() {
   testTheSeaSaltTutorialPagesAndEnds();
   testEitherSideSeesItsOwnHqAtTheBottom();
   testTheFinishedBoardCarriesItsOwnEnding();
+  testTheResultScreenReads();
+  testJaipurRecordLine();
   testEveryRulesPositionCouldExist();
   testTheTerrainCardNeverTruncatesWhatItDraws();
   testNoRulesPageDrawsOverItsOwnButtons();
