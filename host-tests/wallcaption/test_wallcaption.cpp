@@ -180,6 +180,32 @@ int main() {
 
   // The margin left, stated rather than implied: the next name added has this
   // much room before the fallback to the short form kicks in.
+  // 4. User uploads. These have no entry in the built-in table, so the caption
+  //    falls back to the file's own stem: an arbitrary string this app never
+  //    chose. It may be ellipsised -- there is no short form to invent for
+  //    "DSC_00417_final_v2" -- but it must still be ONE line inside the box,
+  //    because a caption that wrapped would grow up into the bracket row. The
+  //    unbreakable single word is the case that matters: fitLines breaks on
+  //    spaces only, so a long stem with none has no break to take.
+  const char* uploads[] = {
+      "DSC_00417_final_v2.bmp",
+      "a-really-long-holiday-photo-name-from-a-phone.bmp",
+      "supercalifragilisticexpialidociouswallpaper.bmp",
+      "SCREENSHOT 2026 09 05 AT 14 23 07.bmp",
+      "x.bmp",
+      ".bmp",
+  };
+  for (const char* file : uploads) {
+    const wallpapers::DisplayName name = wallpapers::displayName(file);
+    for (int slot = 0; slot < g.perPage; ++slot) {
+      const fui::Rect cap = wallpapersui::captionRect(g, slot);
+      const std::string drawn = drawnCaption(target, name, cap.width, caption);
+      const std::string at = std::string(" [upload ") + file + " @ slot " + std::to_string(slot) + "]";
+      check(target.widthOf(fui::FONT_SLOT_SMALL, drawn) <= cap.width, "upload caption overflows its box" + at);
+      check(drawn.find('\n') == std::string::npos, "upload caption wrapped to a second line" + at);
+    }
+  }
+
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,
               wallpapersui::captionRect(g, 0).width, wallpapersui::captionRect(g, 0).width - widest);
   std::printf("wallcaption: %d checks, %d failed\n", checks, failed);
