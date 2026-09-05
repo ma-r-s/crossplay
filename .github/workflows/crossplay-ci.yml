@@ -154,30 +154,44 @@ jobs:
       # repo already got burned by. A forgiven suite that no longer fails is a
       # door held open for the next regression.
       #
-      # Pull postgres BEFORE the firmware build, not when the suite wants it.
-      #
-      # host-tests/relwatch runs a real postgres in docker. Twice today it
-      # failed a pull request whose diff could not touch a database, and the
-      # diagnostic showed why: the container was still running its
-      # INITIALISATION when the suite gave up, i.e. it had started late. The
-      # image pull competes with a firmware build for the same runner IO.
-      #
-      # Pulling here costs seconds on a warm runner and removes the race
-      # entirely: by the time the suite runs, the image is local and the
-      # container only has to start. `|| true` because a pull failure must not
-      # fail the build -- the suite still pulls on demand and reports properly
-      # if that fails.
-      - name: Pre-pull the relwatch database image
-        run: docker pull postgres:16-alpine || true
-
       # host-tests/ci/run.sh executes this step's actual text (extracted from
       # this yaml, not copied) and asserts the no-forgiveness shape, so drift
       # here fails a suite there.
       - name: Host tests
         run: |
           for suite in host-tests/*/run.sh; do
+            # relwatch has its own job. It runs a real postgres in docker, and
+            # sharing a runner with a 20-minute cross-compile starved it: the
+            # container's own log showed it had not begun INITIALISING seven
+            # minutes after `docker run` returned. Raising the timeout twice
+            # and pre-pulling the image both failed, because neither was the
+            # problem -- contention was. It has failed four unrelated pull
+            # requests this way; see the relwatch job below.
+            case "$suite" in */relwatch/*) continue;; esac
             bash "$suite"
           done
+
+  # relwatch runs a real postgres in docker, and it gets its OWN runner.
+  #
+  # It shared the build job until 2026-09-04, where it failed four pull
+  # requests whose diffs could not touch a database -- a Forehead word list, a
+  # worktree script, a trivia pack and a docs change. Two timeout bumps (60 ->
+  # 180 -> 420) and a pre-pull of the image all failed, because none of them
+  # was the problem: the container's own log showed it had not begun
+  # INITIALISING seven minutes after `docker run` returned, with the image
+  # already local. A 20-minute cross-compile was starving it of IO.
+  #
+  # Alone on a runner it has the machine to itself. This also fails
+  # independently, so a database that will not start no longer hides whether
+  # the firmware compiles.
+  relwatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull the database image
+        run: docker pull postgres:16-alpine
+      - name: The release watcher's suite
+        run: bash host-tests/relwatch/run.sh
 
   # check.sh runs the same formatter check (clang-format 21, pinned there too)
   # and the same cmake suite locally; CI is the copy nobody can skip.
