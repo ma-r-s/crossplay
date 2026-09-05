@@ -68,14 +68,18 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Four cross-compiles, the simulator and every host suite: about 15 minutes
-    # warm, and the comment on the relwatch job below records a cross-compile
-    # starving a container for 20. Without this it inherits GitHub's 6-hour
-    # default, so a step that hangs -- a fetch that retries forever, a build
-    # waiting on a lock -- holds the runner for a quarter of a day while the
-    # merge that started it shows as still running. Deliberately loose: this is
-    # the cap that says "stuck", not a budget anyone should tune against.
-    timeout-minutes: 45
+    # MEASURED, not guessed: this job took 19, 20, 20 and 19 minutes on runs
+    # 33951055693, 33950407386, 33949430216 and 33948549676 -- four
+    # cross-compiles, the simulator and every host suite. Without a cap it
+    # inherits GitHub's SIX HOUR default, so a step that hangs (a fetch that
+    # retries forever, a build waiting on a lock) holds the runner for a quarter
+    # of a day while the merge that started it reads as still running, which is
+    # the same display as a build that is merely slow.
+    #
+    # 60 is three times the observed run, deliberately: this is the number that
+    # says "stuck", not a budget anyone should tune against. Raise it rather
+    # than let it start failing honest builds.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
         with:

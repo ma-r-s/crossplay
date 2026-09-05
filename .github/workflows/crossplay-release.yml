@@ -44,9 +44,9 @@ permissions:
 # one tag ran side by side.
 #
 # That is not hypothetical. v1.12.16 was built and published TWICE, one second
-# apart (runs 33884760714 event=push and 33884760111 event=workflow_dispatch),
-# both ~14 minutes of runner, both racing to upload the same files, both exiting
-# 0. The fix at the time was a condition on the dispatch side
+# apart: runs 33884760714 (event=push) and 33884760111 (event=workflow_dispatch),
+# 12 minutes each, both racing to upload the same files, both exiting 0. The fix
+# at the time was a condition on the dispatch side
 # (crossplay-autorelease.yml), which is correct and still there -- but it makes
 # the double build avoidable rather than impossible, and it lives in a different
 # file from the one it protects. A hand dispatch during a tag build still
@@ -61,11 +61,13 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    # A release is two cross-compiles and an upload; it takes about 15 minutes
-    # cold. Without this it inherits GitHub's 6-hour default, so a hung pio run
-    # or a network step that never returns holds a runner for a quarter of a day
-    # and the tag it was cutting stays unpublished with nothing said. Wide
-    # headroom on purpose: this is a stuck-job cap, not a performance budget.
+    # MEASURED, not guessed: the last ten successful releases ran 9 to 19
+    # minutes (two cross-compiles, the merge-bins and an upload). Without a cap
+    # this inherits GitHub's SIX HOUR default, so a hung pio run or a network
+    # step that never returns holds a runner for a quarter of a day while the
+    # tag it was cutting stays unpublished and nothing says so.
+    #
+    # 60 is three times the worst of those. A stuck-job cap, not a budget.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

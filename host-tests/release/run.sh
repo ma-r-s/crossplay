@@ -1126,8 +1126,8 @@ fi
 #
 # It has already gone wrong. v1.12.16 was built and published TWICE, one second
 # apart: run 33884760714 on the tag push and 33884760111 on the dispatch, same
-# tag, both about fourteen minutes of runner, both racing to upload the same
-# assets, and both exiting 0. The dispatch condition asserted above closes the
+# tag, twelve minutes each, both racing to upload the same assets, and both
+# exiting 0. The dispatch condition asserted above closes the
 # path that caused THAT one, but it makes the collision avoidable rather than
 # impossible: a hand dispatch during a tag build still overlaps, and the guard
 # lives in a different file from the workflow it protects.
