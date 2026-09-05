@@ -564,6 +564,21 @@ how often a player will reach for them, not alphabetically:
 Ten codes, at most nine ever shown at once, because two are conditional: `us`
 only when US questions are off, `giveaway` only in solo.
 
+**SETTLED, and not the way the estimate went.** The list is virtualised:
+`list.h` says only rows that fully fit are "laid out, drawn, and registered for
+interaction", so a row past the bottom has no pixels *and no hit region*. At the
+theme's 62px row plus a 4px gap the band takes **nine**, and the worst case is
+**ten** -- solo with US questions off is the one combination where both
+conditional rows appear at once. The tenth, TOO EASY, would have been absent
+with no error. Fixed by setting `ListProps::rowHeight` to 52 for this list,
+which is correct on its own terms: these rows carry a label and nothing else,
+while 62 is sized for rows with a subtitle or a value. `host-tests/trivia` now
+asserts every selectable reason fits `ReasonModel::kMax`.
+
+The original note is kept below, because its instruction was right and following
+it is what found the bug -- though by reading the component's contract rather
+than by rendering, and the screenshot is still owed.
+
 **Whether nine rows fit one screen has to be rendered, not calculated.** The
 numbers say it is close and probably fits: `kRowHeight` is 62 with a theme row
 gap, `kChromeHeight` is 76 plus the rule, and a `kPillHeight` of 52 goes to the
