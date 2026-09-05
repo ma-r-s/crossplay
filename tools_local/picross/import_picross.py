@@ -125,6 +125,50 @@ def parse_non_dir(path, sizes):
 FORMATS = {"janko-json": parse_janko_json, "non-dir": parse_non_dir}
 
 
+# A permission record has to SAY these things before it counts. The check is
+# deliberately about the shape of the record rather than its prose: it cannot
+# tell whether a permission is real, only whether somebody wrote down who
+# granted it, to whom, when, and that it is not a public licence. That last one
+# is the load-bearing line -- a reader of a public repository will otherwise
+# assume a fork inherits the right, and it does not.
+PERMISSION_MUST_MENTION = (
+    ("who granted it", ("granted by", "permission from", "permission was obtained")),
+    ("that it is not a licence", ("not a licence", "not a license", "no public licence", "no public license")),
+    ("that it does not travel to forks", ("does not extend", "does not transfer", "not inherited", "do not inherit")),
+    ("a date", ("20",)),
+)
+
+
+def check_permission(ref):
+    """None if `ref` cites a real, sufficiently specific permission record.
+
+    Otherwise a sentence saying what is missing. The guard opens because a
+    permission is RECORDED IN THE REPOSITORY, never because it was waived on the
+    command line: the file has to exist and has to say the things a reader needs
+    in order not to be misled. The next corpus faces the same check.
+    """
+    if not ref:
+        return "No --permission given."
+    path = ref if os.path.isabs(ref) else os.path.join(ROOT, ref)
+    path = os.path.abspath(path)
+    if not path.startswith(ROOT + os.sep):
+        return "--permission must cite a file inside this repository, so the record ships with the data."
+    if not os.path.exists(path):
+        return "--permission cites %s, which does not exist." % ref
+    try:
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read().lower()
+    except OSError as exc:
+        return "--permission cites %s, which could not be read (%s)." % (ref, exc)
+    missing = [label for label, needles in PERMISSION_MUST_MENTION
+               if not any(n in text for n in needles)]
+    if missing:
+        return ("%s does not record %s. A permission record has to state who granted it, "
+                "that it is not a public licence, that it does not extend to forks, and when."
+                % (ref, ", ".join(missing)))
+    return None
+
+
 class GateTimeout(Exception):
     pass
 
@@ -197,6 +241,14 @@ def main():
     )
     ap.add_argument("--limit", type=int, default=0, help="stop after N passes")
     ap.add_argument(
+        "--permission",
+        default="",
+        help="path (inside the repo) to the record of the permission that allows "
+             "redistributing this corpus. Required to write a non-redistributable "
+             "corpus into the tree; the record must name who granted it, say it is "
+             "not a public licence, say it does not extend to forks, and be dated.",
+    )
+    ap.add_argument(
         "--gate-timeout",
         type=float,
         default=20.0,
@@ -213,13 +265,17 @@ def main():
     inside_repo = out.startswith(ROOT + os.sep)
     free = args.license.strip().lower() in REDISTRIBUTABLE
     if inside_repo and not free:
-        sys.exit(
-            "refusing to write %s inside this repository under licence %r.\n"
-            "Third-party puzzles are all rights reserved until somebody obtains\n"
-            "permission, and a file in the repo is a file in every clone and every\n"
-            "release. Evaluate it outside the tree (a scratch directory) instead."
-            % (os.path.relpath(out, ROOT), args.license)
-        )
+        permission_error = check_permission(args.permission)
+        if permission_error:
+            sys.exit(
+                "refusing to write %s inside this repository under licence %r.\n"
+                "%s\n"
+                "Third-party puzzles are all rights reserved until somebody obtains\n"
+                "permission, and a file in the repo is a file in every clone and every\n"
+                "release. Evaluate it outside the tree (a scratch directory) instead,\n"
+                "or record the permission first and cite it with --permission."
+                % (os.path.relpath(out, ROOT), args.license, permission_error)
+            )
 
     authors = {}
     if args.author_map:
@@ -294,10 +350,16 @@ def main():
     print()
     print("  %d puzzles written to %s" % (len(kept), out))
     print("  %d of them name a known author; %d fall back to %r" % (named, len(kept) - named, args.author))
-    if not free:
+    if not free and not args.permission:
         print()
         print("  LICENCE %r is not redistributable. This file must not be" % args.license)
         print("  committed, shipped, or published. Delete it when the evaluation is done.")
+    elif not free:
+        print()
+        print("  LICENCE %r is not redistributable; this import rests on the" % args.license)
+        print("  permission recorded in %s." % args.permission)
+        print("  That record travels with the data and must stay accurate. It is a")
+        print("  permission to THIS project, not a licence: a fork does not inherit it.")
 
 
 if __name__ == "__main__":
