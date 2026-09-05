@@ -410,5 +410,116 @@ else
   bad "site/inbox/fixture.json is missing, so the inbox cannot be looked at without a passphrase"
 fi
 
+# -- the emulator, which is no longer in the repository -----------------------
+#
+# site/emulator/ is 3.7MB of generated wasm that used to be committed on every
+# firmware merge (111 revisions, ~357MB of history, ~20MB a day). It is now
+# published to a GitHub release by tools_local/site/publish_emulator.py, pointed
+# at by site/emulator-manifest.json, and pulled back in during Vercel's build by
+# site/fetch-emulator.mjs. Three files that never see each other, on the path to
+# the front page's headline feature, and every way they can disagree deploys
+# green and 404s in a browser.
+MANIFEST="$ROOT/site/emulator-manifest.json"
+FETCH="$ROOT/site/fetch-emulator.mjs"
+VERCEL="$ROOT/site/vercel.json"
+for f in "$MANIFEST" "$FETCH" "$VERCEL"; do
+  [ -f "$f" ] || { echo "FAIL site  missing $f"; exit 1; }
+done
+
+# vercel.json is the only thing that makes the fetch run at all. Two properties:
+# the command must name a script that is really there, and an outputDirectory
+# must be declared -- an Output Directory override left on and empty in the
+# Vercel dashboard SKIPS the build step entirely, and declaring one here is what
+# takes that decision away from a setting nobody can see from the repository.
+build_cmd="$(sed -nE 's/.*"buildCommand": *"([^"]*)".*/\1/p' "$VERCEL")"
+if [ -z "$build_cmd" ]; then
+  bad "site/vercel.json has no buildCommand, so nothing fetches the emulator and the demo 404s"
+else
+  ok
+  script="$(printf '%s' "$build_cmd" | awk '{print $NF}')"
+  [ -f "$ROOT/site/$script" ] \
+    && ok || bad "vercel.json's buildCommand runs '$script' and site/$script does not exist"
+fi
+grep -q '"outputDirectory"' "$VERCEL" \
+  && ok || bad "site/vercel.json declares no outputDirectory; a dashboard override can then skip the build step and the emulator is never fetched"
+
+# .vercelignore exists to keep laptop-only tooling off a public URL, and both
+# halves of the fetch look exactly like that. Ignoring either leaves the build
+# unable to find the file it was told to run.
+VIGNORE="$ROOT/site/.vercelignore"
+if [ -f "$VIGNORE" ]; then
+  for needed in "$(basename "$MANIFEST")" "$(basename "$FETCH")"; do
+    if grep -qE "^[^#]*$(printf '%s' "$needed" | sed 's/\./\\./g')" "$VIGNORE"; then
+      bad ".vercelignore excludes $needed, so Vercel's build cannot see it and the emulator never reaches the site"
+    else
+      ok
+    fi
+  done
+  # *.mjs or *.json as a blanket rule takes them both out just as effectively.
+  grep -qE '^[^#]*\*\.(mjs|json)' "$VIGNORE" \
+    && bad ".vercelignore excludes all .mjs or .json, which removes the build command or the manifest it reads" \
+    || ok
+fi
+
+# The manifest and the script that reads it, on the field names. Read out of the
+# script rather than listed here, so a rename on either side fails this instead
+# of failing a deploy.
+# The KEY, not the local name it is destructured into: `built_from: builtFrom`
+# asks the manifest for built_from and nothing else.
+fields="$(sed -nE 's/.*const \{ ([^}]*) \} = manifest.*/\1/p' "$FETCH" | tr ',' '\n' \
+  | sed -E 's/ *:.*//; s/^ *//; s/ *$//' | grep -v '^$' | sort -u)"
+entry_fields="$(sed -nE 's/.*const \{ ([^}]*) \} = file;.*/\1/p' "$FETCH" | tr ',' '\n' \
+  | sed -E 's/^ *//; s/ *$//; s/^([A-Za-z0-9_]+):.*/\1/' | grep -v '^$' | sort -u)"
+if [ -z "$fields" ] || [ -z "$entry_fields" ]; then
+  bad "cannot tell which manifest fields fetch-emulator.mjs reads; the check has stopped checking"
+else
+  ok
+  if man_bad="$(python3 - "$MANIFEST" "$fields" "$entry_fields" <<'PY' 2>&1
+import json, sys
+m = json.load(open(sys.argv[1]))
+top = [f for f in sys.argv[2].split() if f]
+per = [f for f in sys.argv[3].split() if f]
+for f in top:
+    if f not in m:
+        print(f"fetch-emulator.mjs reads manifest.{f} and the manifest has no such key")
+files = m.get("files") or []
+if not files:
+    print("the manifest names no files, so a deploy would fetch nothing and still be green")
+for e in files:
+    for f in per:
+        if f not in e:
+            print(f"fetch-emulator.mjs reads entry.{f} and {e.get('name', '?')} has no such key")
+if not str(m.get("base", "")).endswith("/"):
+    print("manifest base does not end in '/', so new URL(asset, base) drops the last path segment")
+PY
+  )"; then
+    if [ -z "$man_bad" ]; then ok; else while IFS= read -r line; do bad "$line"; done <<< "$man_bad"; fi
+  else
+    bad "the emulator manifest could not be checked:"
+    while IFS= read -r line; do echo "      $line"; done <<< "$man_bad"
+  fi
+fi
+
+# The pre-compression contract, which the manifest now rides on: everything
+# under site/emulator/ is served with Content-Encoding: br, so publish and fetch
+# both hash brotli bytes. Either half of that removed alone ships a wasm no
+# browser can decode, with nothing on the wire wrong until the decoder gives up.
+grep -q '"emulator"' "$ROOT/tools_local/site/precompress.py" \
+  && ok || bad "precompress.py no longer compresses site/emulator/, but vercel.json still promises brotli for it"
+grep -q '"/emulator/(.\*)"' "$VERCEL" || grep -q '/emulator/' "$VERCEL" \
+  && ok || bad "vercel.json no longer sets Content-Encoding for /emulator/, but the files are stored brotli"
+
+# And the script itself, run for real against a local server -- including the
+# case that matters, bytes that arrive corrupted. Status checked as well as
+# output, for the reason spelled out in the shelf block above.
+if fetch_out="$(node "$HERE/fetch_emulator.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$fetch_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "fetch_emulator: $line"; done < <(printf '%s\n' "$fetch_out" | grep '^  FAIL'); }
+else
+  bad "fetch_emulator.js could not run, so site/fetch-emulator.mjs went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$fetch_out"
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

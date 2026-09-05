@@ -43,13 +43,28 @@ sdkconfig.x4pro
 # fork-local: simulator screenshots and logs (scripts_local/)
 qa-artifacts/
 
-# The browser build's output is deliberately NOT ignored. It is generated (by
-# tools_local/wasm/build.py, from tracked sources) and it is 9MB, both of which
-# argue for ignoring it -- but Vercel has no Emscripten, so a git-connected
-# deploy that cannot see these files ships a site whose headline feature 404s.
-# Committing it is the cheaper failure mode. If the history size ever becomes
-# the problem, ignore it again and deploy with `cd site && vercel` instead,
-# which uploads the working directory rather than the commit.
+# The browser build's output is no longer committed on every rebuild, and the
+# history size is why: 111 revisions of site/emulator/crossplay.wasm, ~357MB of
+# blobs, 56 of those revisions in one week. The repository reached ~497MB on
+# GitHub for a ~104MB checkout and grew about 20MB a day, forever, paid for by
+# every clone and every CI checkout in the fork.
+#
+# Ignoring it outright is still not an option, and that is what this note used
+# to say: Vercel has no Emscripten, so a git-connected deploy that cannot see
+# these files ships a site whose headline feature 404s. So the bytes go to a
+# GitHub release instead and the repository keeps a ~1KB pointer:
+#
+#   tools_local/site/publish_emulator.py   uploads, and writes the manifest
+#   site/emulator-manifest.json            the pointer, committed per rebuild
+#   site/fetch-emulator.mjs                vercel.json's buildCommand, fetches
+#   .github/workflows/crossplay-site-live.yml   asks the live site if it worked
+#
+# The files under site/emulator/ ARE still tracked, frozen at the last revision
+# CI ever committed, and they are deliberately not ignored yet: they are the
+# fallback that keeps the demo up if the new path is not picked up, and an
+# ignore rule would be inert over tracked files anyway. Removing them from the
+# index is a separate change, to be made once a Vercel build log shows the
+# fetch running, and it is also where the history rewrite belongs.
 
 # Tool cache. It holds an account id and an email address and has no business
 # in a public repo.

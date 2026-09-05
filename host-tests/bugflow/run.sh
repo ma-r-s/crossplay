@@ -244,6 +244,60 @@ grep -qx "src" <<< "$PATHS" && grep -qx "tools_local/wasm" <<< "$PATHS" \
   && ok "--paths names the source list" || bad "--paths is missing sources"
 grep -q 'emulator-stale.sh' "$HERE/../../scripts_local/check.sh" && ok "check.sh asks the shared script" || bad "check.sh still carries its own staleness test"
 
+# The artefact is now a POINTER, not the bytes. crossplay-emulator.yml publishes
+# the wasm to a GitHub release and commits site/emulator-manifest.json; the bytes
+# under site/emulator/ are frozen at the last revision that was ever committed
+# and never move again. A staleness test that only watched the directory would
+# therefore call every rebuild stale forever, and check.sh fails on stale on the
+# deploy branch -- a permanently red gate on the branch that matters most.
+( cd "$E" && sleep 1 && echo c > src/a.cpp && git add -A && git commit -qm "source moved again" )
+bash "$STALE" "$E" >/dev/null && ok "a source change after a rebuild reads stale again" || bad "stale not detected after a rebuild"
+( cd "$E" && sleep 1 && echo '{"files":[]}' > site/emulator-manifest.json && git add -A && git commit -qm "chore: emulator rebuilt" )
+bash "$STALE" "$E" >/dev/null && bad "a manifest-only rebuild still reads stale, so the deploy branch's gate is permanently red" || ok "a manifest-only rebuild reads fresh"
+
+echo "the emulator rebuild's commit subject, spelled in two workflows"
+# crossplay-autorelease.yml tells an emulator rebuild from a real merge that
+# moved the tip past what CI verified by MATCHING THE SUBJECT. Reword it in
+# crossplay-emulator.yml and every release silently stops: the gate decides the
+# tip moved, declines, and says so in a log nobody reads. Nothing links the two
+# files, so this is the link.
+AR="$HERE/../../.github/workflows/crossplay-autorelease.yml"
+EM="$HERE/../../.github/workflows/crossplay-emulator.yml"
+subject="$(grep -oE "grep -vq '\^[^']+'" "$AR" | sed -E "s/.*'\^//; s/'$//")"
+if [ -z "$subject" ]; then
+  bad "crossplay-autorelease.yml no longer matches an emulator-rebuild subject at all"
+else
+  ok "autorelease matches the subject '$subject'"
+  grep -q -- "-m \"$subject" "$EM" \
+    && ok "crossplay-emulator.yml still commits under that subject" \
+    || bad "crossplay-emulator.yml's commit subject no longer starts with '$subject', so autorelease will read every rebuild as a moved tip and stop releasing"
+fi
+
+echo "what the rebuild commits, against what CI ignores"
+# crossplay-ci.yml's paths-ignore exists so the rebuild's own push does not
+# start a second CrossPlay run -- one that CANCELS the merge's run and takes
+# the autorelease with it, because a cancelled run is not a success. That cost
+# two full builds per merge on 2026-09-04. The filter names paths; the rebuild
+# picks them. Nothing links the two, and the failure is a doubled build and a
+# skipped release, neither of which says why.
+CI="$HERE/../../.github/workflows/crossplay-ci.yml"
+added="$(grep -oE '^ *git add [^|&;]+' "$EM" | sed -E 's/^ *git add //' | tr -s ' ' '\n' | grep -v '^$' | sort -u)"
+if [ -z "$added" ]; then
+  bad "crossplay-emulator.yml stages nothing; the check cannot tell what CI must ignore"
+else
+  ok "the rebuild stages: $(printf '%s' "$added" | tr '\n' ' ')"
+  ignored="$(sed -n '/paths-ignore:/,/^  [a-z_]*:/p' "$CI" | grep -oE "'[^']+'" | tr -d "'")"
+  for path in $added; do
+    match=no
+    for pat in $ignored; do
+      case "$path" in ${pat%/\*\*}|${pat%/\*\*}/*|$pat) match=yes;; esac
+    done
+    [ "$match" = yes ] \
+      && ok "crossplay-ci.yml ignores $path" \
+      || bad "crossplay-emulator.yml commits $path and crossplay-ci.yml's paths-ignore does not cover it, so every rebuild starts a second CI run that cancels the merge's own and skips the release"
+  done
+fi
+
 echo
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

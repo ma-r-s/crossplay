@@ -1,0 +1,81 @@
+# Does the live site actually serve the emulator?
+#
+# THE HOLE THIS FILLS. Since the emulator stopped being committed
+# (crossplay-emulator.yml) the browser demo reaches production through three
+# things that can each fail silently: the assets are uploaded to a GitHub
+# release, a ~1KB manifest is committed, and Vercel's build runs
+# site/fetch-emulator.mjs to put them back. Nothing about the page's own HTML
+# changes if any of that breaks. The homepage renders, the hero sits there, and
+# the first thing the README offers a stranger 404s -- with every check in the
+# fork green, because every check in the fork looks at the repository and this
+# is a question about an origin.
+#
+# So this asks the origin. Twice over:
+#
+#   * after every emulator rebuild, waiting up to twelve minutes for Vercel to
+#     deploy the manifest that was just pushed;
+#   * once a day regardless, because the ways this breaks later (an asset
+#     deleted, a Vercel build setting changed by hand, a project unlinked) are
+#     not tied to a push and would otherwise wait for the next firmware merge
+#     to be discovered.
+#
+# It reads the expected hashes out of site/emulator-manifest.json on xteink, so
+# it cannot drift from what was published, and it takes the site's address from
+# index.html's own og:url rather than keeping a second copy of the hostname.
+name: CrossPlay site live
+
+on:
+  workflow_run:
+    workflows: ["CrossPlay emulator"]
+    types: [completed]
+  schedule:
+    # 07:20 UTC. Off the hour, because the hour is when every scheduled job on
+    # GitHub queues at once.
+    - cron: "20 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crossplay-site-live
+  cancel-in-progress: false
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The branch the site deploys from, not whatever a workflow_run event
+          # would otherwise hand us.
+          ref: xteink
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Only needed for one branch of the check: a body handed back still
+      # brotli-encoded has to be decoded before it can be recognised.
+      - run: pip install brotli
+
+      - name: Is the emulator live?
+        run: |
+          set -uo pipefail
+          # Held to the manifest as it was when this run started. A rebuild
+          # that lands while the poll is running would otherwise make this fail
+          # for having waited on a commit that is no longer the tip.
+          cp site/emulator-manifest.json "$RUNNER_TEMP/expected.json"
+          if python3 tools_local/site/verify_live_emulator.py \
+               --manifest "$RUNNER_TEMP/expected.json" --timeout 720; then
+            exit 0
+          fi
+          git fetch --quiet --depth 1 origin xteink
+          if ! git diff --quiet FETCH_HEAD -- site/emulator-manifest.json; then
+            echo "::warning::A newer emulator was published while this check was waiting, so the deploy it was watching for was superseded. That rebuild's own run checks it, and the daily run checks it regardless."
+            exit 0
+          fi
+          echo "::error::The live site is not serving the emulator that site/emulator-manifest.json publishes. The browser demo on the front page is down. The step log above names which files and what to look at."
+          exit 1
