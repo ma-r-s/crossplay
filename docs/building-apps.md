@@ -376,11 +376,20 @@ the 64px cut in BODY and `cardFaces()` puts 64 in TITLE and 44 in SMALL, so on
 those screens a hand-rolled "step down" steps up. `fittedTitle` orders its rungs
 by what `lineHeight()` answers, so it cannot.
 
-`host-tests/fittedtitle/` walks every real string the fork can put in a title
-through the real builders, with a target that measures in the real cuts, and
-fails on any string cut short while a cut that screen bound would have shown it
-whole. It also prints what no cut can save, per screen, so that number is
-visible rather than folded into a pass.
+`host-tests/fittedtitle/` walks the real strings of EIGHT screens -- the
+dungeon's guide and its 65 names, Forehead's categories, the linkplay games, Toy
+Battle's maps and how-to, every date the Connections header can format, the
+Hacker News reader's headlines and every comic title in the pack -- through the
+real builders, with a target that measures in the real cuts. It fails on any
+string cut short while a cut that screen bound would have shown it whole.
+
+Eight screens, not all of them: about twenty files call `headerBand` and this
+compiles seven of them. Adding yours is a line in its `run.sh` and a loop.
+
+It also prints, per screen, what no bound cut could have saved, and pins the one
+band that keeps a known exception. Those numbers are output rather than
+assertions on purpose: a gap published as a count is a gap somebody can act on,
+and a gap folded into a pass is one nobody sees.
 
 **A glyph the font does not have draws as nothing.** No box, no fallback.
 `EpdFont::getGlyph` answers nullptr and the pen does not advance, so the

@@ -48,6 +48,7 @@ python3 ./corpus.py "$BUILD_DIR/corpus.generated.h"
   -I../../lib/Utf8 -I../../lib/EpdFont \
   -I"$APPS/ui" -I"$APPS/connections" -I"$APPS/dungeon" -I"$APPS/forehead" \
   -I"$APPS/link" -I"$APPS/toybattle" -I"$APPS/xkcd" -I"$APPS/player" \
+  -I"$APPS/hackernews" \
   "$SDK/src/FreeInkUI.cpp" \
   ../../lib/Utf8/Utf8.cpp \
   ../../lib/EpdFont/EpdFont.cpp \
@@ -56,6 +57,7 @@ python3 ./corpus.py "$BUILD_DIR/corpus.generated.h"
   "$APPS/dungeon/DungeonCore.cpp" \
   "$APPS/dungeon/DungeonScreens.cpp" \
   "$APPS/forehead/ForeheadCore.cpp" \
+  "$APPS/hackernews/HackerNewsScreens.cpp" \
   "$APPS/forehead/ForeheadScreens.cpp" \
   "$APPS/link/LinkScreens.cpp" \
   "$APPS/player/PlayerAvatar.cpp" \

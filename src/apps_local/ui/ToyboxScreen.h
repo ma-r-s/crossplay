@@ -257,9 +257,31 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
     fitted.titleText.align = screen.theme().headerTitleAlign;
   }
   if (fui::textStyleUnset(fitted.subtitleText)) fitted.subtitleText = screen.theme().smallText;
+  // trailingText too, and it is not a tidy-up: headerTitleWidth measures the
+  // trailing button's LABEL to know how much of the band it takes, and an
+  // unset style measures it at font 0 -- the SMALL slot -- while the component
+  // draws it at BODY. On the Hacker News band those are toybox_10 and
+  // reading_serif_14, so "SAVED" measured 51px against the 91px it really
+  // occupies and the fit believed it had 40px it did not have. The error
+  // points the wrong way: the ladder declines to step down and the renderer
+  // cuts instead.
+  if (fui::textStyleUnset(fitted.trailingText)) fitted.trailingText = screen.theme().bodyText;
   if (fitted.sidePadding < 0) fitted.sidePadding = screen.theme().headerSidePadding;
-  const std::string title =
+  const fui::TextStyle asked = fitted.titleText;
+  std::string title =
       fittedTitle(screen.target(), fitted.title, headerTitleWidth(screen, ink, fitted), fitted.titleText);
+  // A fitted style that reads as DEFAULT would be replaced by the theme's own
+  // inside Screen::header(), putting the cut we just chose back to the display
+  // one -- silently, and only on the longest strings. FONT_SLOT_SMALL is 0, so
+  // a title stepped all the way down with every other field left alone is one
+  // field away from that. Toybox's own titleText is White and cannot reach it;
+  // a caller supplying a black, left-aligned title style could. Rather than
+  // emit a style that will be undone, keep the cut that caller asked for and
+  // let fitLines mark the overflow instead.
+  if (fui::textStyleUnset(fitted.titleText) && !fui::textStyleUnset(asked)) {
+    fitted.titleText = asked;
+    title = fitLines(screen.target(), props.title, headerTitleWidth(screen, ink, fitted), 1, fitted.titleText);
+  }
   if (fitted.title != nullptr) fitted.title = title.c_str();
 
   screen.header(fitted, ink);
