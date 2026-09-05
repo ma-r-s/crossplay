@@ -303,7 +303,7 @@ void XkcdActivity::fillListRows() {
     xkcd::readTitle(*textSrc_, c, raw, sizeof(raw));
     char shout[kRowTextCap];
     upper(raw, shout, sizeof(shout));
-    snprintf(rowLabels_[rowCount_], kRowTextCap, "%u  %s", static_cast<unsigned>(c.num), shout);
+    snprintf(rowLabels_[rowCount_], kRowLabelCap, "%u  %s", static_cast<unsigned>(c.num), shout);
 
     // The read mark goes in the value slot, not a subtitle: a row's title band
     // is one line tall the moment it has a subtitle, so a wrapping label would

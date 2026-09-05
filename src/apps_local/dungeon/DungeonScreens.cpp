@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <string>
 
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxText.h"
 #include "DungeonArt.h"
 
@@ -189,7 +190,7 @@ fui::FontId fitLabel(toybox::Screen& screen, const char* text, const int width, 
 }
 
 void drawClue(toybox::Screen& screen, const fui::Rect& box, const fui::Rect& chip, const int value, const int placed) {
-  char text[4];
+  char text[toybox::kIntTextChars];
   std::snprintf(text, sizeof(text), "%d", value);
   fui::TextStyle style;
   style.font = toybox::kDisplayFont;
@@ -388,7 +389,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   const dungeon::Board& board = *model.board;
   const dungeon::Puzzle& puzzle = board.puzzle();
 
-  char progress[12];
+  char progress[toybox::kSlashCounterChars];
   std::snprintf(progress, sizeof(progress), "%d/%d", model.solvedCount, model.total);
   // The app's name in the band, the dungeon's name in a strip of its own.
   //
@@ -495,7 +496,7 @@ void mapCell(toybox::Screen& screen, const fui::Rect& box, const int index, cons
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& layout) {
   layout = PickerLayout{};
-  char progress[12];
+  char progress[toybox::kSlashCounterChars];
   std::snprintf(progress, sizeof(progress), "%d/%d", model.solvedCount, model.total);
   chrome(screen, "D&DIAGRAMS", progress);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
@@ -570,7 +571,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
                               static_cast<int16_t>(cell), static_cast<int16_t>(cell)),
                 index, cleared, model.selectedIndex == index);
       }
-      char tierLabel[3];
+      char tierLabel[toybox::kIntTextChars];
       std::snprintf(tierLabel, sizeof(tierLabel), "%d", tier + 1);
       const fui::Rect chip =
           fui::makeRect(static_cast<int16_t>(left), rowY, static_cast<int16_t>(lane - 6), static_cast<int16_t>(cell));
@@ -710,7 +711,7 @@ void buildGuide(toybox::Screen& screen, const GuideModel& model) {
   const int page = (model.page < 0 || model.page >= kGuidePages) ? 0 : model.page;
   const GuidePage& content = kGuide[page];
 
-  char counter[8];
+  char counter[toybox::kSlashCounterChars];
   std::snprintf(counter, sizeof(counter), "%d/%d", page + 1, kGuidePages);
   chrome(screen, content.title, counter);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
@@ -775,7 +776,7 @@ void buildGuide(toybox::Screen& screen, const GuideModel& model) {
 }
 
 void buildWin(toybox::Screen& screen, const WinModel& model) {
-  char progress[12];
+  char progress[toybox::kSlashCounterChars];
   std::snprintf(progress, sizeof(progress), "%d/%d", model.solvedCount, model.total);
   chrome(screen, "CLEARED", progress);
   screen.insetContent(fui::Insets{toybox::kMargin, toybox::kMargin, toybox::kMargin, toybox::kMargin});

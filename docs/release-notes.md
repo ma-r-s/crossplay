@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.27
+
+- Size 22 snprintf buffers from their formats, and delete the flag that hid them
+
 ### 1.12.26
 
 - Three visible fixes -- murdle's refusal band, connect four's lip, the Seeed tile

@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "../ui/ToyboxFormat.h"
+
 namespace sudokuui {
 
 namespace {
@@ -606,7 +608,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const int page = model.page < 0 ? 0 : (model.page >= kLessonCount ? kLessonCount - 1 : model.page);
   const Lesson& lesson = kLessons[page];
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, kLessonCount);
   toyboxChrome(screen, "HOW TO PLAY", progress);
 

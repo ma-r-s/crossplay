@@ -4,10 +4,16 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "../ui/ToyboxFormat.h"
+
 namespace wavelengthui {
 namespace {
 
 using wavelength::kSlots;
+
+// "%d.%d" -- points per round, carried in tenths and printed with the point
+// put back. Two ints, so two ints wide, plus the point and the terminator.
+constexpr int kTenthsChars = 2 * toybox::kIntChars + toybox::literalChars(".") + 1;
 
 fui::TextStyle textStyle(const fui::FontId font, const fui::TextAlign align,
                          const fui::Color colour = fui::Color::Black) {
@@ -211,7 +217,9 @@ int dialSlotAt(const int16_t screenW, const int16_t screenH, const int16_t x, co
 // on?" without backing out of it.
 void roundTag(toybox::Screen& screen, const int roundNumber, const bool practice) {
   const int16_t w = screen.device().screen().width;
-  char tag[16];
+  // "ROUND %d"
+  constexpr int kTagChars = toybox::kIntChars + toybox::literalChars("ROUND ") + 1;
+  char tag[kTagChars];
   if (practice) {
     snprintf(tag, sizeof(tag), "PRACTICE");
   } else {
@@ -775,7 +783,7 @@ void renderCall(toybox::Screen& screen, const CallModel& model) {
   // The locked number sits BETWEEN the two ends, in the strip's own order, so
   // the screen is a picture of the question rather than two buttons and a
   // floating caption pointing at nothing.
-  char lockedNum[8];
+  char lockedNum[toybox::kIntTextChars];
   snprintf(lockedNum, sizeof(lockedNum), "%d", model.guess);
   caps(screen, fui::makeRect(toybox::kMargin, 360, inner, toybox::kDisplayCut.lineHeight), lockedNum, toybox::kBodyFont,
        fui::TextAlign::Center);
@@ -968,7 +976,9 @@ void ornament(toybox::Screen& screen, const fui::Rect& box, const wavelength::Re
       // that says most about how the table is doing.
       fill(screen, mark);
     }
-    char count[8];
+    // "%u"
+    constexpr int kCountChars = toybox::kUIntChars + 1;
+    char count[kCountChars];
     snprintf(count, sizeof(count), "%u", static_cast<unsigned>(record.buckets[i]));
     caps(screen, fui::makeRect(static_cast<int16_t>(box.x + box.width - 60), y, 46, rowH), count, toybox::kSmallFont,
          fui::TextAlign::Right);
@@ -1088,8 +1098,8 @@ void renderMenu(toybox::Screen& screen, const MenuModel& model) {
   // abbreviation. ALL TIME  5 ROUNDS  1.6 PTS/ROUND was one string in a
   // 24-character buffer, so the D of ROUND was cut off by the buffer rather
   // than by the panel -- and even whole, nothing said which number was which.
-  char rounds[12];
-  char perRound[12];
+  char rounds[toybox::kIntTextChars];
+  char perRound[kTenthsChars];
   snprintf(rounds, sizeof(rounds), "%d", rec.rounds);
   snprintf(perRound, sizeof(perRound), "%d.%d", rec.averageTenths() / 10, rec.averageTenths() % 10);
   caps(screen, fui::makeRect(toybox::kMargin, 200, inner, toybox::kButtonCut.lineHeight), "ROUNDS ALL TIME",
@@ -1214,7 +1224,9 @@ void renderResume(toybox::Screen& screen, const ResumeModel& model) {
 
   // The front door's own button rect, shared rather than repeated: see
   // frontDoorPlayRect. A blind tap aimed at PLAY ROUND N carries the round on.
-  char play[24];
+  // "CARRY ON ROUND %d"
+  constexpr int kPlayChars = toybox::kIntChars + toybox::literalChars("CARRY ON ROUND ") + 1;
+  char play[kPlayChars];
   snprintf(play, sizeof(play), "CARRY ON ROUND %d", model.roundNumber);
   action(screen, frontDoorPlayRect(w), play, ActionCarryOn);
 
@@ -1265,8 +1277,8 @@ void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
   // a loose number: A GOOD TABLE 2.5 gave no clue whether that was points,
   // slots or rounds, and nothing anywhere else on the device said either.
   if (model.rounds > 0) {
-    char avg[16];
-    char good[16];
+    char avg[kTenthsChars];
+    char good[kTenthsChars];
     snprintf(avg, sizeof(avg), "%d.%d", model.averageTenths / 10, model.averageTenths % 10);
     snprintf(good, sizeof(good), "%d.%d", wavelength::kGoodTableTenths / 10, wavelength::kGoodTableTenths % 10);
     caps(screen, fui::makeRect(toybox::kMargin, 262, inner, lineH), "POINTS PER ROUND", toybox::kSmallFont,

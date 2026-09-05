@@ -690,6 +690,19 @@ void testCastTableIsDrawable() {
   for (int i = 0; i < kWeaponCount; ++i) CHECK(kWeapons[i].trait[0] != '\0');
   for (int i = 0; i < kPlaceCount; ++i) CHECK(kPlaces[i].trait[0] != '\0');
 
+  // Every name fits murdletext::kLabelMax, which is what the case file's cast
+  // line is sized from. The names are runtime pointers so no static_assert can
+  // reach them; this loop is that assert, one step later. A name past the bound
+  // would not crash -- snprintf CUTS -- it would put a shortened suspect on the
+  // one page a player reads to solve the case.
+  for (int i = 0; i < kSuspectCount; ++i)
+    CHECK(static_cast<int>(std::strlen(kSuspects[i].name)) <= murdletext::kLabelMax);
+  for (int i = 0; i < kWeaponCount; ++i)
+    CHECK(static_cast<int>(std::strlen(kWeapons[i].name)) <= murdletext::kLabelMax);
+  for (int i = 0; i < kPlaceCount; ++i) CHECK(static_cast<int>(std::strlen(kPlaces[i].name)) <= murdletext::kLabelMax);
+  for (int i = 0; i < kMotiveCount; ++i)
+    CHECK(static_cast<int>(std::strlen(kMotives[i].name)) <= murdletext::kLabelMax);
+
   // NO TWO DETAILS ANYWHERE SHARE A SIGNIFICANT WORD, across both tables.
   //
   // Distinctness of the whole string is not enough and was not enough: "a bent

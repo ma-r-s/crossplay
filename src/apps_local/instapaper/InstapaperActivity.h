@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "../../activities/Activity.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxScreen.h"
 #include "../ui/ToyboxWrappedText.h"
 #include "InstapaperIndex.h"
@@ -143,7 +144,10 @@ class InstapaperActivity final : public Activity {
   uint32_t topLine_ = 0;
   uint32_t lineCount_ = 0;
   uint16_t visibleLines_ = 0;
-  char pageLabel_[16] = "";
+  // "%lu / %lu", sized from that format rather than from the page counts a
+  // reasonable article produces.
+  static constexpr int kPageLabelCap = 2 * toybox::kULongChars + toybox::literalChars(" / ") + 1;
+  char pageLabel_[kPageLabelCap] = "";
 
   // The article ARCHIVE was last pressed on, while it can still be taken back:
   // until the next sync carries the intent up, until another article is

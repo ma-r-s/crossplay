@@ -7,7 +7,10 @@ BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-revealsweep-$(cd ../.. && p
 SDK=../../freeink-sdk/libs/ui/FreeInkUI
 ICONS=../../freeink-sdk/libs/assets/Icons
 mkdir -p "$BUILD_DIR"
-"${CXX:-c++}" -std=c++17 -Wall -Wextra -Wno-comment -Wno-format-truncation \
+# -Wno-format-truncation is deliberately NOT here: it hid seven of the
+# buffers card 256 fixed. The screens below are compiled with -Werror in
+# host-tests/ui, which is where this class actually stops a build.
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Wno-comment \
   -I"$SDK/include" -I"$ICONS/include" \
   "$SDK/src/FreeInkUI.cpp" \
   ../../src/apps_local/battleship/BattleshipScreens.cpp \
