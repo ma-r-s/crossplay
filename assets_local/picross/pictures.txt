@@ -1,6 +1,11 @@
 # Picross pictures -- ORIGINAL artwork, authored for this fork (public domain /
 # CC0). See PROVENANCE.md in this directory. No third-party source is used.
 #
+# The three '@@' lines below are the file-level PROVENANCE, read by the
+# generator and written into the header beside every bitmap. They are what lets
+# a bank state its licence when it mixes origins; a single '@' line above a
+# name overrides them for that one picture. See gen_picross.py.
+#
 # '#' is a solid cell (filled in the finished picture), '.' is empty. The line
 # before a grid is its NAME. Blank lines separate puzzles; '#'-prefixed lines
 # that are not part of a grid are comments (a grid line is only '#' and '.').
@@ -9,6 +14,10 @@
 # is not both UNIQUE and LINE-SOLVABLE; every picture here passed that gate
 # (tools_local/picross/gen_picross.py --curate). Ordered easy-first: the 5x5
 # warmups, then the 10x10s, then the 15x15s. See docs/apps/picross.md.
+
+@@author CrossPlay
+@@license CC0-1.0
+@@source 
 
 # ---- 5x5 ----
 

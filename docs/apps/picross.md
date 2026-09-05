@@ -51,12 +51,46 @@ one `#`/`.` grid per name, and the origin is recorded in
 Author a batch of candidates and triage them with `gen_picross.py --curate`
 (PASS/FAIL per picture, no emit); only the passers go into `pictures.txt`.
 
-There is deliberately no third-party set. An arbitrary two-tone image converted
-to clues is usually _not_ a valid nonogram (it has several solutions), and any
-collection taken from elsewhere would need its source and licence recorded here
-the way this paragraph would -- the Wavelength retail-deck problem. Drawing the
-pictures ourselves sidesteps both: the licence is ours, and the generator throws
-out any drawing that does not make a fair puzzle.
+No third-party set **ships**. An arbitrary two-tone image converted to clues is
+usually _not_ a valid nonogram (it has several solutions), and any collection
+taken from elsewhere needs its source and licence honoured -- the Wavelength
+retail-deck problem. Drawing the pictures ourselves sidesteps both: the licence
+is ours, and the generator throws out any drawing that does not make a fair
+puzzle.
+
+### Provenance is a field, not a paragraph
+
+Every puzzle carries an index into a `kProvenances[]` table of
+`{author, license, source}` triples, emitted beside the bitmaps by the
+generator. One row per distinct origin, so this fork's own bank costs a single
+row -- and a bank that ever mixes origins can still state, per picture, who drew
+it and under what terms.
+
+It is a field rather than a note in this file because a note describes a bank
+that no longer exists the moment anything is added to it. `host-tests/picross`
+asserts that every puzzle names a row that exists and that no row leaves its
+author or licence blank: an empty licence and "all rights reserved" are the same
+fact, so the empty string must never stand in for one.
+
+### Importing a corpus, and what stops one shipping
+
+`tools_local/picross/import_picross.py` converts a third-party corpus into
+`pictures.txt` format, running each candidate through the SAME `evaluate()` the
+hand-drawn pictures face (it imports it from `gen_picross`, rather than keeping
+a second copy to drift). It exists because the pictures people enjoy solving are
+_designed_, and a corpus somebody drew and somebody else played is the only
+place to find a lot of them at once.
+
+The script **refuses to write inside this repository** unless the licence it was
+given is one of a short redistributable list. A puzzle whose licence is unstated
+is all rights reserved; a file in `assets_local/` is in every clone and every
+release. Evaluating a corpus locally is fine and is what the script is for.
+Shipping one is a permission somebody has to obtain first, and the refusal is a
+mechanism rather than a line in a checklist.
+
+The `pictures.txt` format carries the provenance itself: `@@author` /
+`@@license` / `@@source` set a file-level default from that point down, and a
+single-`@` line above a name overrides it for that one picture.
 
 ## Verification
 
@@ -138,6 +172,13 @@ number and size. The reveal is the whole reward, so the name and the picture sta
 hidden until the puzzle is done -- the name especially, because the name _is_ the
 answer, which is also why the board never shows it while you play.
 
+**The name has exactly one site on screen**: the win screen (`buildWin`), under
+the grade and above the revealed picture. Nothing else in the app draws it --
+not the picker, not the board, not the status strip. That is worth knowing
+before importing a corpus with no titles: a made-up or catalogue name cannot
+spoil anything, because it is never shown to anybody who has not already seen
+the picture. It only has to be a decent punchline once.
+
 ## The picker: size tabs, one selection language
 
 68 puzzles is too many for one grid, so the picker is **size-tabbed**: a row of
@@ -162,6 +203,15 @@ of kilobytes -- so it is flash-resident like the dungeon's, with no SD pack.
 `kMaxSize` is computed by the generator from the widest picture (15 today); the
 row type is `uint16_t`, so **a picture wider than 16 needs the row type widened**
 and is why 20x20 is not shipped.
+
+The bank is emitted **size-sorted**, and that is load-bearing rather than tidy.
+The picker recovers its size tabs by run-scanning the bank for changes of size
+into `kSizeGroupCount` slots (itself derived by the generator), so each size has
+to be one contiguous run. An unsorted bank -- which is what appending an import
+produces -- makes every alternation a new group, fills the slots, and leaves
+every puzzle after that point unreachable from the tabs, with nothing drawn
+wrong and nothing logged. `gen_picross.sort_by_size` constructs the order and
+`host-tests/picross` re-proves it over the shipped header.
 
 Solved-progress is a bitset sized from the bank (`kProgressWords` 32-bit words in
 `Progress`), not the single word the original 17 used, and the on-SD save

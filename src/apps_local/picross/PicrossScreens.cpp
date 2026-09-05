@@ -464,13 +464,24 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
 
 namespace {
 
-// The bank is stored easy-first with each size contiguous, so the size groups
-// are runs. Recover their extents once, for the tabs and the paging.
+// The bank is emitted size-sorted, so each size is one contiguous run and the
+// groups are recoverable by scanning for the changes. Recover their extents
+// once, for the tabs and the paging.
+//
+// The slots are sized from picross::kSizeGroupCount, which the GENERATOR
+// derives from the bank it just wrote. They were a literal 4 with a `break`
+// underneath, and that pairing is a silent data-loss bug rather than a bound:
+// a bank whose sizes are not one run each produces more groups than slots, the
+// break fires, and every puzzle after it is simply unreachable from the tabs --
+// no error, no log, nothing to see on the screen. Deriving the count means the
+// array cannot be too small for a sorted bank, and host-tests/picross asserts
+// the sortedness, so the break below is now unreachable rather than merely
+// unlikely.
 struct SizeGroups {
   int count = 0;
-  int size[4] = {};
-  int start[4] = {};
-  int len[4] = {};
+  int size[picross::kSizeGroupCount] = {};
+  int start[picross::kSizeGroupCount] = {};
+  int len[picross::kSizeGroupCount] = {};
 };
 
 SizeGroups sizeGroups() {
@@ -478,7 +489,7 @@ SizeGroups sizeGroups() {
   for (int i = 0; i < picross::kPuzzleCount; ++i) {
     const int s = picross::kPuzzles[i].size;
     if (g.count == 0 || g.size[g.count - 1] != s) {
-      if (g.count >= 4) break;
+      if (g.count >= picross::kSizeGroupCount) break;
       g.size[g.count] = s;
       g.start[g.count] = i;
       g.len[g.count] = 0;

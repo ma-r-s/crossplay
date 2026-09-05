@@ -19,6 +19,26 @@ This fork has been burned before by shipping data whose origin could not be
 cleanly stated. Authoring the pictures ourselves removes that risk entirely:
 the pictures are ours, so there is nothing to launder and no licence to breach.
 
+## The origin is a field, not just this file
+
+Since the provenance change, `pictures.txt` declares its origin in the file
+itself -- the `@@author` / `@@license` / `@@source` lines at the top -- and the
+generator writes it into `PicrossPuzzles.h` as a `kProvenances[]` row that every
+puzzle indexes. A single `@author` / `@license` / `@source` line above a name
+overrides the file default for that one picture.
+
+That matters because this document describes a bank that is entirely ours, and
+the moment anything is added from anywhere else, a document is the wrong place
+for the answer: it would have to be right about which puzzles it still covers.
+The field is per puzzle and cannot go stale. `host-tests/picross` asserts every
+puzzle names a row that exists and that no row leaves author or licence blank.
+
+`tools_local/picross/import_picross.py` converts an outside corpus into this
+format and REFUSES to write inside the repository unless the licence it is given
+is redistributable. An unstated licence is all rights reserved; a file here is
+in every clone and every release. Local evaluation is fine, shipping is a
+permission somebody has to obtain first.
+
 ## How the bank is validated (not a provenance claim, a correctness one)
 
 `tools_local/picross/gen_picross.py` DERIVES each puzzle's clues from its

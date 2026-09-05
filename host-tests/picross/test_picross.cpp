@@ -453,6 +453,58 @@ void bankFillsItsGrid() {
   }
 }
 
+// The picker recovers its size tabs by RUN-SCANNING the bank: a new group
+// starts wherever the size differs from the previous entry, into
+// kSizeGroupCount slots, and it breaks out when they are full. That is only
+// correct while each size is ONE contiguous run. An unsorted bank -- which is
+// exactly what appending an import produces -- makes every alternation a fresh
+// group, fills the slots, and leaves every puzzle after that point unreachable
+// from the tabs. Nothing renders wrong, nothing logs, nothing fails: the
+// puzzles are simply not there any more.
+//
+// So the sortedness is asserted here rather than trusted. The generator
+// constructs it (gen_picross.sort_by_size) and this re-proves it over the
+// header that ships, which is the only copy the device reads.
+void bankIsSizeSorted() {
+  int runs = 0;
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    if (p == 0 || picross::kPuzzles[p].size != picross::kPuzzles[p - 1].size) ++runs;
+    if (p > 0 && picross::kPuzzles[p].size < picross::kPuzzles[p - 1].size)
+      std::printf("  bank is not size-sorted: puzzle %d is %dx%d after %dx%d\n", p, picross::kPuzzles[p].size,
+                  picross::kPuzzles[p].size, picross::kPuzzles[p - 1].size, picross::kPuzzles[p - 1].size);
+    CHECK(p == 0 || picross::kPuzzles[p].size >= picross::kPuzzles[p - 1].size);
+  }
+  // One run per distinct size, and exactly as many as the picker has slots for.
+  // Counting the runs is the half that matters: sorted-ascending alone would
+  // still pass with a size that appears twice, which is the shape that breaks
+  // the scan.
+  if (runs != picross::kSizeGroupCount)
+    std::printf("  bank has %d size runs but kSizeGroupCount is %d\n", runs, picross::kSizeGroupCount);
+  CHECK(runs == picross::kSizeGroupCount);
+}
+
+// Every puzzle names a provenance row that exists, and no row is blank where a
+// blank would read as a claim. An empty `license` and "all rights reserved" are
+// the same fact, so the empty string must never stand in for one: a picture
+// whose licence was never recorded has to SAY that, or the next reader assumes
+// it was cleared. `source` is the one field legitimately empty -- artwork drawn
+// for this fork came from nowhere.
+void bankRecordsItsProvenance() {
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    const picross::Puzzle& z = picross::kPuzzles[p];
+    if (z.provenance >= picross::kProvenanceCount)
+      std::printf("  %s names provenance %d of %d\n", z.name, static_cast<int>(z.provenance),
+                  picross::kProvenanceCount);
+    CHECK(z.provenance < picross::kProvenanceCount);
+  }
+  for (int i = 0; i < picross::kProvenanceCount; ++i) {
+    const picross::Provenance& prov = picross::kProvenances[i];
+    CHECK(prov.author != nullptr && prov.author[0] != '\0');
+    CHECK(prov.license != nullptr && prov.license[0] != '\0');
+    CHECK(prov.source != nullptr);
+  }
+}
+
 // rowSatisfied and colSatisfied are ONE question asked along two axes, and this
 // fork's most expensive recurring bug is repairing one of a symmetric pair and
 // leaving its twin. On a fully solved board every row AND every column must be
@@ -503,6 +555,8 @@ void satisfiedAgreesOnBothAxes() {
 int main() {
   validateBank();
   bankFillsItsGrid();
+  bankIsSizeSorted();
+  bankRecordsItsProvenance();
   satisfiedAgreesOnBothAxes();
   clueDerivation();
   mistakeAndWin();

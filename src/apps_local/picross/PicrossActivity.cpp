@@ -22,7 +22,12 @@ constexpr char kSavePath[] = "/.crosspoint/picross.sav";
 // Bumped whenever the layout below changes, per the cache-format rule. An old
 // save is then discarded rather than misread. v2 widened `solved` from one word
 // to a bitset over the (now much larger) bank and grew the cell grid to kMaxSize.
-constexpr uint8_t kSaveVersion = 2;
+// v3 widened `index` from uint8_t: a bank of more than 256 puzzles -- which an
+// import reaches immediately -- wrapped the index on the way out, so the save
+// named a DIFFERENT puzzle than the one being played and restore() then
+// discarded every mark for not matching it. Nothing logged; the board simply
+// came back empty, and only on the puzzles past the 256th.
+constexpr uint8_t kSaveVersion = 3;
 
 // How many MARKS may go unwritten. A committing FILL is flushed immediately --
 // it is irreversible and unrepeatable, so losing one to a sleep is the worst
@@ -34,11 +39,18 @@ constexpr int kSaveEvery = 12;
 constexpr int kFlashEvery = 24;
 
 struct SaveState {
-  uint8_t index;
+  uint16_t index;
   uint8_t mistakes;
   uint8_t cells[picross::kMaxSize * picross::kMaxSize];
   uint32_t solved[picross::kProgressWords];
 } __attribute__((packed));
+
+// The bank has to fit the field that names a puzzle in the save. Derived from
+// the field rather than written as a number, so widening one does not leave the
+// other behind -- and asserted rather than assumed, because the failure is a
+// wrapped index that names a real, wrong puzzle and reads as a lost save.
+static_assert(picross::kPuzzleCount <= (1 << (8 * static_cast<int>(sizeof(SaveState::index)))) - 1,
+              "the picross bank has outgrown SaveState::index -- widen it and bump kSaveVersion");
 
 }  // namespace
 
@@ -347,7 +359,7 @@ void PicrossActivity::flushSave() {
 
 void PicrossActivity::saveState() {
   SaveState state{};
-  state.index = static_cast<uint8_t>(board.index());
+  state.index = static_cast<uint16_t>(board.index());
   state.mistakes = static_cast<uint8_t>(board.mistakes() > 255 ? 255 : board.mistakes());
   const uint8_t* cells = board.cells();
   for (int i = 0; i < picross::kMaxSize * picross::kMaxSize; ++i) state.cells[i] = cells[i];

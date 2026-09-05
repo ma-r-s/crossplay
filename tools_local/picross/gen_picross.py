@@ -24,8 +24,13 @@ what one solution means. An independent exhaustive count (a different
 implementation, in the spirit of the dungeon's two-languages cross-check) then
 confirms the count is 1.
 
-The pictures in pictures.txt are ORIGINAL artwork authored for this fork, so
-there is no third-party licence to record -- see docs/apps/picross.md.
+Every picture carries its PROVENANCE -- who drew it, under what licence, and
+where it came from -- and the generator writes that into the header beside the
+bitmap. The pictures in pictures.txt are ORIGINAL artwork authored for this
+fork, so their row says so; a picture imported from anywhere else (see
+import_picross.py) carries its own. Provenance is recorded at the moment a
+picture enters the bank because retrofitting it afterwards is how this fork has
+been burned before: by the time anyone asks, the origin is a guess.
 
   python3 tools_local/picross/gen_picross.py
 
@@ -41,15 +46,50 @@ SOURCE = os.path.join(ROOT, "assets_local", "picross", "pictures.txt")
 OUTPUT = os.path.join(ROOT, "src", "apps_local", "picross", "PicrossPuzzles.h")
 
 
+# The provenance keys a picture may carry, and what an unset one means. `source`
+# is empty for artwork this fork drew: there is nowhere it came from.
+PROV_KEYS = ("author", "license", "source")
+PROV_DEFAULT = {"author": "unknown", "license": "unknown", "source": ""}
+
+
 def parse(path):
-    """Read the text source into (name, cells) with cells a list of 0/1 rows."""
+    """Read the text source into (name, cells, provenance) records.
+
+    `cells` is a list of 0/1 rows; `provenance` is a dict over PROV_KEYS.
+
+    Two directive forms, both introduced by '@' so they can never be mistaken
+    for a grid line (which is only '#' and '.') or for a name (no name starts
+    with '@'):
+
+      @@author Someone      a FILE-LEVEL default, in force from here down
+      @author Someone       overrides it for the NEXT puzzle only
+
+    A file that declares nothing gets PROV_DEFAULT, which says "unknown" rather
+    than silently claiming the picture is ours.
+    """
     puzzles = []
     lines = [ln.rstrip("\n") for ln in open(path, encoding="utf-8")]
     i = 0
     n = len(lines)
+    defaults = dict(PROV_DEFAULT)
+    pending = {}
     while i < n:
         line = lines[i].rstrip()
         if not line.strip() or line.lstrip().startswith("#"):
+            i += 1
+            continue
+        if line.lstrip().startswith("@"):
+            text = line.strip()
+            sticky = text.startswith("@@")
+            body = text.lstrip("@")
+            key, _, value = body.partition(" ")
+            key = key.strip().lower()
+            if key not in PROV_KEYS:
+                sys.exit(
+                    "line %d: unknown provenance key %r (expected one of %s)"
+                    % (i + 1, key, ", ".join(PROV_KEYS))
+                )
+            (defaults if sticky else pending)[key] = value.strip()
             i += 1
             continue
         # A grid line is made only of '#' and '.'; anything else is the name.
@@ -71,7 +111,10 @@ def parse(path):
                     "%s: grid is not square -- row %d has %d cells, expected %d"
                     % (name, r, len(row), size)
                 )
-        puzzles.append((name, cells))
+        prov = dict(defaults)
+        prov.update(pending)
+        pending = {}
+        puzzles.append((name, cells, prov))
     return puzzles
 
 
@@ -267,11 +310,11 @@ def curate(puzzles):
     """Report pass/fail per candidate without emitting or aborting."""
     passed = []
     by_size = {}
-    for name, cells in puzzles:
+    for name, cells, prov in puzzles:
         ok, reason = evaluate(name, cells)
         n = len(cells)
         if ok:
-            passed.append((name, cells))
+            passed.append((name, cells, prov))
             by_size[n] = by_size.get(n, 0) + 1
             print("  PASS  %-16s %2dx%-2d" % (name, n, n))
         else:
@@ -287,15 +330,53 @@ def curate(puzzles):
     return passed
 
 
+def cstring(text):
+    """A C string literal for `text`. Escapes rather than trusting the input."""
+    out = []
+    for ch in text:
+        if ch in ('"', "\\"):
+            out.append("\\" + ch)
+        elif ch == "\n":
+            out.append("\\n")
+        elif 32 <= ord(ch) < 127:
+            out.append(ch)
+        else:
+            # The header is compiled as plain C++ with no encoding promises, so
+            # anything outside ASCII goes in as an escape rather than as bytes.
+            out.append("".join("\\x%02X" % b for b in ch.encode("utf-8")))
+    return '"%s"' % "".join(out)
+
+
+def sort_by_size(puzzles):
+    """Order the bank by size, ascending, stable within a size.
+
+    This is not cosmetic. The picker recovers its size tabs by RUN-SCANNING the
+    bank (PicrossScreens::sizeGroups): it starts a new group whenever the size
+    changes from the previous entry. An unsorted bank therefore produces one
+    group per alternation, and everything past the last group the picker can
+    hold is unreachable from the tabs -- with no error anywhere, because
+    nothing is wrong from the picker's point of view. Sorting here makes each
+    size exactly one contiguous run, which is the property the picker needs and
+    host-tests/picross now asserts over the shipped header.
+    """
+    return sorted(puzzles, key=lambda entry: len(entry[1]))
+
+
 def emit(puzzles):
-    maxsize = max((len(cells) for _, cells in puzzles), default=5)
+    puzzles = sort_by_size(puzzles)
+    maxsize = max((len(cells) for _, cells, _ in puzzles), default=5)
     hexdigits = (maxsize + 3) // 4  # 5->2, 10->3, 15->4
     emitted = []
     longest = 0
     max_row_runs = 0
     max_col_runs = 0
     max_run = 0
-    for name, cells in puzzles:
+    # One row per DISTINCT (author, licence, source), so a bank imported from
+    # one collection costs one row and not one per puzzle -- and two puzzles
+    # that share an origin cannot drift apart.
+    prov_rows = []
+    prov_index = {}
+    for name, cells, prov in puzzles:
         n = len(cells)
         ok, reason = evaluate(name, cells)
         if not ok:
@@ -317,19 +398,42 @@ def emit(puzzles):
         max_row_runs = max(max_row_runs, max(len(rc) for rc in rows))
         max_col_runs = max(max_col_runs, max(len(cc) for cc in cols))
         max_run = max(max_run, max(max(rc) for rc in rows), max(max(cc) for cc in cols))
+        key = tuple(prov.get(k, PROV_DEFAULT[k]) for k in PROV_KEYS)
+        if key not in prov_index:
+            prov_index[key] = len(prov_rows)
+            prov_rows.append(key)
         emitted.append(
-            '    {"%s", %d, {%s}},'
+            '    {%s, %d, %d, {%s}},'
             % (
-                name.upper(),
+                cstring(name.upper()),
                 n,
+                prov_index[key],
                 ", ".join(("0x%0" + str(hexdigits) + "X") % b for b in bits),
             )
         )
         print("  %-16s %2dx%-2d  unique, line-solvable" % (name, n, n))
 
+    # `provenance` is a uint8_t index, so the table has to fit one. A bank with
+    # more distinct origins than that wants a wider field, not a truncated
+    # table, and saying so here is cheaper than debugging the wrap.
+    if len(prov_rows) > 256:
+        sys.exit(
+            "%d distinct provenances; Puzzle::provenance is a uint8_t and holds 256. "
+            "Widen the field (and kProvenanceCount with it) before importing more."
+            % len(prov_rows)
+        )
+
+    provenances = "\n".join(
+        "    {%s, %s, %s}," % (cstring(a), cstring(li), cstring(src))
+        for a, li, src in prov_rows
+    )
+    sizes = sorted({len(cells) for _, cells, _ in puzzles})
+
     header = HEADER % {
         "count": len(emitted),
         "rows": "\n".join(emitted),
+        "provenances": provenances,
+        "sizegroups": len(sizes),
         "maxsize": maxsize,
         "longest": longest,
         "maxrowruns": max_row_runs,
@@ -405,9 +509,31 @@ namespace picross {
 // uint16_t, so this must stay <= 16.
 constexpr int kMaxSize = %(maxsize)d;
 
+// Where a picture came from and what may be done with it. Recorded per puzzle
+// because a bank that mixes origins -- this fork's own drawings and an imported
+// collection -- cannot state its licence any other way, and a picture whose
+// origin was not written down at import is a picture nobody can clear later.
+//
+// `source` is empty for artwork drawn for this fork: there is nowhere it came
+// from. `license` is an SPDX identifier where one exists and a plain phrase
+// where it does not; it is never empty, because "no licence recorded" and "all
+// rights reserved" are the same thing and must read as such.
+struct Provenance {
+  const char* author;
+  const char* license;
+  const char* source;
+};
+
+constexpr Provenance kProvenances[] = {
+%(provenances)s
+};
+
+constexpr int kProvenanceCount = static_cast<int>(sizeof(kProvenances) / sizeof(kProvenances[0]));
+
 struct Puzzle {
   const char* name;
   uint8_t size;             // 5, 10 or 15
+  uint8_t provenance;       // index into kProvenances
   uint16_t rows[kMaxSize];  // bit c set when (row, col) is solid
 };
 
@@ -416,6 +542,15 @@ constexpr Puzzle kPuzzles[] = {
 };
 
 constexpr int kPuzzleCount = static_cast<int>(sizeof(kPuzzles) / sizeof(kPuzzles[0]));
+
+// How many DISTINCT sizes the bank holds, and therefore how many tabs the
+// picker draws. The bank is emitted size-sorted, so each size is one contiguous
+// run and the picker's run-scan recovers exactly this many groups. It is
+// derived from the bank rather than written as a literal: a 4-slot array with a
+// silent `break` made every puzzle past the fourth run unreachable from the
+// tabs, and nothing anywhere reported it. host-tests/picross asserts the
+// sortedness this number assumes.
+constexpr int kSizeGroupCount = %(sizegroups)d;
 
 // The longest name in the bank, so a screen sizes its buffer from this rather
 // than measuring at runtime, and the generator keeps it honest.
@@ -427,6 +562,12 @@ constexpr int kMaxNameLen = %(longest)d;
 constexpr int kMaxRowRuns = %(maxrowruns)d;
 constexpr int kMaxColRuns = %(maxcolruns)d;
 constexpr int kMaxRun = %(maxrun)d;
+
+// The provenance of puzzle `index`. Out of range answers the first row rather
+// than reading past the table, the same way Board::load() clamps.
+constexpr const Provenance& provenanceOf(const Puzzle& puzzle) {
+  return kProvenances[puzzle.provenance < kProvenanceCount ? puzzle.provenance : 0];
+}
 
 }  // namespace picross
 """
