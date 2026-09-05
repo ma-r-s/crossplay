@@ -52,6 +52,13 @@ buttons (`buttons.md`), what scale does to games (`games-at-scale.md`), how to
 reflash and inspect a device over Wi-Fi with no cable
 (`developer-mode.md`), and what is knowingly unfinished (`open-items.md`).
 
+Four more are narrower but no less load-bearing, and this paragraph did not
+name any of them until the suite started asking: what the glass hides
+(`bezel-insets.md`), the unbounded build cache that fails builds by filling
+the disk (`build-cache.md`), the pixel budget an unwrapped string has in 32
+languages (`i18n-overflow.md`), and where Trivia's questions come from
+(`trivia-curation.md`).
+
 **Two files, and only one of them is published.** `release-body.md` is what a
 tag publishes, and it is deliberately tiny: one line of links, then this
 release's `### What is new in <version>` block. Nothing else. It describes

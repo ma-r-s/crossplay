@@ -372,6 +372,16 @@ else:
             check(fn in listed,
                   "docs/README.md contributing table omits a file in that directory", fn)
 
+# docs/README.md is the index of docs/. A doc it never names is a doc nobody
+# finds: four of them (bezel-insets, build-cache, i18n-overflow,
+# trivia-curation) went unmentioned, the same omission that hid
+# landing-and-integration.md. Checked without the upstream ref, so CI sees it.
+for fn in sorted(os.listdir(os.path.join(root, "docs"))):
+    if not fn.endswith(".md") or fn == "README.md":
+        continue
+    check(f"`{fn}`" in docs_readme or f"({fn})" in docs_readme or f"/{fn}" in docs_readme,
+          "docs/README.md never names a doc in its own directory", fn)
+
 print(f"{checks} checks, {failed} failed")
 sys.exit(1 if failed else 0)
 PY
