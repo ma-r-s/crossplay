@@ -891,20 +891,24 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   // with a cover half-drawn over it for the length of a handshake.
   requestUpdateAndWait();
 
-  // The tap that got here was a DOWNLOAD on the detail screen, and this
-  // function is reached from that activity's result handler -- so the finger
-  // may still be on the glass, and its release is the detail screen's, not
-  // this one's. Waiting for the frame (above) makes that certain rather than
-  // likely: the panel now finishes the refresh before the first progress
-  // callback runs, so Cancel is reliably live by the time the contact lifts.
-  // Discarded once, here, because the reveal gate cannot help -- it opens on
-  // the first paint after resetUi(), and the wait guarantees that paint has
-  // already landed. See a-tap-is-a-touch-down and same-pixel-different-action.
-  {
-    int staleX = 0;
-    int staleY = 0;
-    (void)mappedInput.wasScreenTapped(staleX, staleY);
-  }
+  // The tap that got here was a DOWNLOAD on the detail screen, and this runs
+  // from that activity's result handler -- so the finger may still be on the
+  // glass, and its release belongs to the detail screen, not to this one.
+  // Waiting for the frame (above) makes that certain rather than likely: the
+  // panel finishes its refresh before the first progress callback, so Cancel is
+  // reliably live by the time the contact lifts.
+  //
+  // swallowCurrentTouch(), not a read-and-discard. wasScreenTapped() is a pure
+  // QUERY -- it reads touchReleasedEvent and only update() clears it -- so
+  // reading the tap and throwing the value away suppresses nothing and the very
+  // next routeTouch() sees the same event. This is the SDK's suppression latch,
+  // the same one Minesweeper and Sudoku use after a hold fires, and it covers
+  // both a contact still down and the release-edge frame
+  // (InputManager::suppressTouchContact latches when touchPressed ||
+  // touchReleasedEvent). The reveal gate cannot cover this: it opens on the
+  // first paint after resetUi(), and the wait guarantees that paint has landed.
+  // See a-tap-is-a-touch-down and same-pixel-different-action.
+  mappedInput.swallowCurrentTouch();
 
   // Build full download URL relative to the current feed, not the root server URL
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);

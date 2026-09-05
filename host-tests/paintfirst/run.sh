@@ -245,6 +245,12 @@ else bad "downloadBook() does not requestUpdateAndWait() before downloadToFile()
 if printf '%s\n' "$dl" | ahead_re "$(stmt "$I2" 'resetUi\(\)')" "$(stmt "$I2" 'requestUpdateAndWait\(\)')"; then ok
 else bad "downloadBook() does not resetUi() before its paint; the download screen publishes an interaction table no screen entry announced, and the reveal gate is never armed for it"; fi
 
+# The contact that tapped DOWNLOAD must be suppressed, not merely read. A
+# read-and-discard of wasScreenTapped() suppresses NOTHING -- it is a pure query
+# and only update() clears the event -- so the next routeTouch() sees it again.
+if printf '%s\n' "$dl" | ahead_re "$(stmt "$I2" 'mappedInput\.swallowCurrentTouch\(\)')" '^ +const auto result = HttpDownloader::downloadToFile'; then ok
+else bad "downloadBook() does not swallowCurrentTouch() after its paint; the DOWNLOAD tap's own release routes against the download screen's live Cancel target"; fi
+
 if printf '%s\n' "$dl" | grep -qE '^ +if \(routingReady\(\)\) routeTouch\(mappedInput\);'; then ok
 else bad "the download progress callback routes touches without a routingReady() gate; it is the only place input is read during a download and it routes against an unannounced table"; fi
 
