@@ -475,3 +475,51 @@ Two defects the renders caught that no test could, both fixed before the compose
 `PHONE MUST BE ON THE SAM...` -- the failure explanation, truncated. Both now go
 through `toybox::fittedTitle`, and the Wi-Fi requirement moved out of the footer
 into the prose, where it is information rather than chrome.
+
+### What the UI review changed
+
+Mario asked for a dedicated UI review by name, and it found two things a render
+I had already looked at did not show me. Both are fixed and the numbers are
+measured against the real cuts, not the ui suite's ten-pixels-a-character target.
+
+**The screen had one type size, not three.** `drawAddress` and `drawHeadline`
+both asked for the display cut and **neither can ever have it**: "SCAN WITH YOUR
+PHONE" measures 579 against a 448px body at toybox_30, and a worst-case IPv4 URL
+measures 632. So `fittedTitle` stepped both down to reading_serif_14 -- the same
+cut as the prose and the footer -- and the one line a person has to read off the
+glass and type was the third line of a four-line paragraph. Nothing looked
+broken. That is what made it survive.
+
+Fixed by `readingAddressFaces()`, which rebinds the SMALL slot (bound on this
+screen and never drawn) to the bold reading cut: the longest possible address
+measures 399 against 448. The headline keeps the display cut by being short
+enough to hold it -- `SCAN THIS CODE`.
+
+**The footer drew outside the body.** A 24px box for a 40px line box:
+`text()` clamps the negative centring offset to zero, so the line ran 758..798,
+below `body.bottom()` at 784 and eleven pixels from the panel edge. Measured in
+the render before the fix: ink at 769..789. After: 755..775. It came verbatim
+from `InstapaperScreens.cpp:527`, where the same box is correct because it draws
+in toybox_10 (line box 21) -- **the box came across from the twin and the font
+did not.** Every text height on this screen is now asked of the face that will
+draw it.
+
+**The header right label is gone.** Any label costs the band its display cut:
+"ADD A WALLPAPER" needs 433 of 448, and even "1 ADDED" at the smallest cut
+leaves 380. The title would have dropped from a 38px Jersey cap to a 21px serif
+one the moment a wallpaper arrived. It was also a literal "1 ADDED" for any
+count, on a field nothing assigns -- so the state it existed for was the one
+state no render had ever shown.
+
+**One correction to a standing assumption**, verified in the renderer rather
+than taken on report: `truncatedText` (`GfxRenderer.cpp:1834`) asks the RESOLVED
+face for U+2026 and falls back to a literal `"..."`, so overflow **through that
+path** is visible, not silent -- as the first render's own `SCAN WITH YOUR...`
+showed. The defensive comments elsewhere claiming silent truncation are stale
+for it.
+
+The review recommends **variant 1**, for the headline: it is the only
+arrangement that says what the black square is before you see it, on a screen
+whose whole failure mode is "my phone is on the wrong network". Variant 3 has
+the best code (9px modules against v1's 7 and v2's 6) and no sentence attached
+to it; variant 2 has the best content and the worst page. The pick is Mario's.
