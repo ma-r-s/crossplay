@@ -217,6 +217,7 @@ void WallpapersActivity::clampPage() {
 }
 
 bool WallpapersActivity::setWallpaper(int index) {
+  const uint32_t tSet = millis();
   if (index < 0 || index >= static_cast<int>(names_.size())) return false;
   std::string src = std::string(wallpapers::kLibraryDir) + "/" + names_[static_cast<size_t>(index)];
 
@@ -320,7 +321,8 @@ bool WallpapersActivity::setWallpaper(int index) {
     marker.close();
   }
   activeIndex_ = index;
-  LOG_INF("WALL", "Set sleep wallpaper: %s", names_[static_cast<size_t>(index)].c_str());
+  LOG_INF("WALL", "Set sleep wallpaper: %s (copy+settings took %ums)", names_[static_cast<size_t>(index)].c_str(),
+          millis() - tSet);
   return true;
 }
 
@@ -1236,7 +1238,14 @@ void WallpapersActivity::loop() {
   // A grid cell? The first cell of page 0 is the + Add a wallpaper tile.
   const int slot = wallpapersui::cellAt(geom, tapX, tapY);
   if (slot < 0) return;
-  if (!surfaceRevealed()) return;  // ignore a tap on a surface not yet seen
+  if (!surfaceRevealed()) {
+    // Still refused for a REAL remap (a page turn or the library changing under
+    // the finger), never for a moved selection any more. Logged because "my tap
+    // did nothing" is otherwise indistinguishable from a dropped touch, and this
+    // is the line that tells the two apart on hardware.
+    LOG_INF("WALL", "tap refused: surface not yet seen (a real remap, not the marker)");
+    return;
+  }
   const int combined = page_ * geom.perPage + slot;
   const int specials = specialTiles();
   const int total = specials + static_cast<int>(names_.size());
@@ -1360,8 +1369,8 @@ void WallpapersActivity::render(RenderLock&&) {
 }
 
 uint32_t WallpapersActivity::surfaceMeaning() const {
-  uint32_t m = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(page_));
-  m = paintclock::mixMeaning(m, static_cast<uint32_t>(activeIndex_ + 1));
-  m = paintclock::mixMeaning(m, static_cast<uint32_t>(view_));
-  return paintclock::mixMeaning(m, static_cast<uint32_t>(names_.size()));
+  // activeIndex_ is NOT in here. See wallpapersui::gridMeaning: the selection
+  // does not remap a single cell, so gating taps on it made the picker deaf for
+  // a whole refresh after every tap -- Mario's "touches get lost".
+  return wallpapersui::gridMeaning(page_, static_cast<int>(view_), static_cast<int>(names_.size()), specialTiles());
 }

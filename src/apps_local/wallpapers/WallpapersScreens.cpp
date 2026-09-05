@@ -535,6 +535,13 @@ void buildOffer(toybox::Screen& screen, const OfferModel& model) {
 // DOWNLOADING. Painted from inside the blocking fetch, so it says what is
 // happening, how far along, and that Back stops it -- the three things a person
 // staring at a frozen-looking panel needs (a-silent-screen-reads-as-a-crash).
+uint32_t gridMeaning(const int page, const int view, const int libraryCount, const int specialTiles) {
+  uint32_t m = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(page));
+  m = paintclock::mixMeaning(m, static_cast<uint32_t>(view));
+  m = paintclock::mixMeaning(m, static_cast<uint32_t>(libraryCount));
+  return paintclock::mixMeaning(m, static_cast<uint32_t>(specialTiles));
+}
+
 BarSpan fetchBarSpan(const FetchingModel& model) {
   BarSpan span;
   const int phases = model.phaseCount < 1 ? 1 : model.phaseCount;
