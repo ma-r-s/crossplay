@@ -23,6 +23,21 @@ are enforced by hooks and will refuse rather than remind.
   to Mario. To show him something: identify it by MAC, `wifi-flash.sh` your
   build, drive it with `drive.py --ip`, and record one `mario` blocker saying
   what to look at. `desk` means a person's eyes or fingers, never a cable.
+- **If CrossPoint owns it, it is not ours to fix.** Mario, 2026-09-04:
+  *"stuff that crosspoint owns is not ours to fix. If the change is not
+  CrossPlay specific it is dismissed."* Dismissed -- not filed, not parked for
+  later, not reported upstream. The test is one command, and **author names do
+  not work**, because a merge attributes upstream commits to whoever merged
+  them:
+
+      git cat-file -e crosspoint/develop:<path> && echo UPSTREAM || echo OURS
+
+  OURS is `src/apps_local/**` plus fork additions upstream lacks. THEIRS is
+  `src/activities/**` (the reader, the keyboard, settings), `src/components/**`
+  and the `lib/**` upstream ships. **Classify BEFORE you start**, not after a
+  report is written: a tester pointed at a synced feature finds upstream bugs
+  by construction, and four such cards were filed as ours before anyone
+  checked.
 - **Done means:** the test that fails without the fix, the twin path checked,
   host suites green in your tree, pushed, a pull request open, and
   `board state <id> review`. Say in the PR what was not verified. Hardware
