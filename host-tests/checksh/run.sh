@@ -1305,5 +1305,75 @@ else
   echo "FAIL checksh  could not lift the submodule wiring, freshness wiring, verdict or qualifier out of check.sh"
 fi
 
+# ---------------------------------------------------------------------------
+# The SKIP surfacing, against every SKIP this tree can actually print.
+#
+# check.sh's host-tests loop ends with a grep whose comment reads "A check that
+# did not run must not scroll past looking like one that passed." That grep was
+# anchored at column zero for its whole life, and three of the six emitters
+# indent theirs by two spaces -- host-tests/study twice and host-tests/
+# autorelease once -- so the mechanism built to stop a skip hiding could not
+# see half of the skips. Both study ones were checks that had never run once.
+#
+# So the test does not assert a pattern. It DISCOVERS the skip lines the tree
+# can print, by reading the string literals out of every suite, and asserts
+# check.sh's own grep -- lifted from the file, not copied -- matches each one.
+# A future SKIP printed with any indentation adds itself to this list.
+SKIPGREP="$(grep -E '^[[:space:]]*grep -E .*SKIP.*LOGS' "$CHECK" | head -1)"
+checks=$((checks + 1))
+if [ -z "$SKIPGREP" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  could not lift the SKIP surfacing out of check.sh"
+else
+  # Just the pattern, as a literal: the line is
+  #   grep -E "<pattern>" "$LOGS/$name.log" | head -5 | sed ...
+  SKIPPAT="$(printf '%s\n' "$SKIPGREP" | sed -E 's/^[[:space:]]*grep -E "([^"]*)".*$/\1/')"
+  python3 - "$HERE/../.." "$SKIPPAT" <<'PY_SKIP'
+import pathlib, re, subprocess, sys
+
+root = pathlib.Path(sys.argv[1]).resolve()
+pattern = sys.argv[2]
+
+# Every string literal in a host suite that a run would print starting with
+# SKIP, with the indentation it would print. Comments are excluded: a line
+# whose first non-space characters are a comment marker prints nothing.
+emit = re.compile(r'(printf|print|echo|puts|cout)', re.I)
+literal = re.compile(r'"((?:[ \t]*)SKIP[^"\\]*)')
+lines = []
+for path in sorted((root / "host-tests").rglob("*")):
+    if not path.is_file() or path.suffix not in (".sh", ".py", ".cpp", ".c", ".h"):
+        continue
+    for raw in path.read_text(errors="replace").splitlines():
+        head = raw.lstrip()
+        if head.startswith(("//", "#", "*")):
+            continue
+        if not emit.search(raw):
+            continue
+        for m in literal.finditer(raw):
+            lines.append((path.relative_to(root), m.group(1)))
+
+if not lines:
+    print("FAIL checksh  found no SKIP emitters at all -- the discovery is broken,")
+    print("              which would make this assertion pass by finding nothing")
+    raise SystemExit(1)
+
+bad = []
+for where, text in lines:
+    # grep -E, exactly as check.sh runs it, against the one line.
+    hit = subprocess.run(["grep", "-E", pattern], input=text + "\n",
+                         text=True, capture_output=True).returncode == 0
+    if not hit:
+        bad.append((where, text))
+
+for where, text in bad:
+    print("FAIL checksh  check.sh's SKIP surfacing cannot see %r from %s" % (text, where))
+print("      (checked %d SKIP literals across the tree)" % len(lines))
+raise SystemExit(1 if bad else 0)
+PY_SKIP
+  if [ $? -ne 0 ]; then
+    failed=$((failed + 1))
+  fi
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

@@ -4,22 +4,31 @@ CrossPoint runs on real hardware, so debugging usually combines local build chec
 
 ## Local checks
 
-Make sure `clang-format` 21+ is installed and available in `PATH` before running the formatting step.
+Make sure `clang-format` 21 is installed and on `PATH` as `clang-format-21` before running the formatting step.
 If needed, see [Getting Started](./getting-started.md).
 
 ```sh
 ./bin/clang-format-fix
-pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
-pio run
+pio check --fail-on-defect high
+./scripts_local/check.sh --committed
 ```
+
+`check.sh` runs the host suites and both builds behind the workspace build
+lock. It has four verdicts and one non-zero exit code, so read its **last
+line**, never `$?`.
 
 ## Flash and monitor
 
-Flash firmware:
+Flash firmware -- **always naming an environment**, because a bare `pio run`
+builds `[env:default]`, which is upstream's ESP32-C3 target and not this fork's
+([Getting Started](./getting-started.md) says why that matters):
 
 ```sh
-pio run --target upload
+pio run -e x4pro --target upload      # or -e sticky
 ```
+
+A device already running CrossPlay takes a build over Wi-Fi instead, with no
+cable: [docs/developer-mode.md](../developer-mode.md).
 
 Open serial monitor:
 

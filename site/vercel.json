@@ -1,6 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "ignoreCommand": "git diff --quiet HEAD^ HEAD ./",
+  "buildCommand": "node fetch-emulator.mjs",
+  "installCommand": "",
+  "outputDirectory": ".",
   "headers": [
     {
       "source": "/(.*)",
