@@ -17,6 +17,7 @@
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/DeviceHostname.h"
 #include "util/QrUtils.h"
 #include "util/TaskWatchdog.h"
 
@@ -24,7 +25,11 @@ namespace {
 // AP Mode configuration
 constexpr const char* AP_SSID = "CrossPlay";
 constexpr const char* AP_PASSWORD = nullptr;  // Open network for ease of use
-constexpr const char* AP_HOSTNAME = "crossplay";
+// The mDNS name is per-device now (see util/DeviceHostname.h): two X4 Pros
+// on one network both answered for "crossplay", and a QR pointing at the
+// name would open whichever replied first. The AP SSID below is UNCHANGED --
+// it is branding, it is what people look for in a WiFi list, and it is not
+// what resolves anything.
 constexpr uint8_t AP_CHANNEL = 1;
 constexpr uint8_t AP_MAX_CONNECTIONS = 4;
 constexpr int QR_CODE_WIDTH = 198;
@@ -213,7 +218,7 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
     isApMode = false;
 
     // Start mDNS for hostname resolution
-    restartMdns(AP_HOSTNAME, "WEBACT");
+    restartMdns(devicehost::mdnsName(), "WEBACT");
 
     // Start the web server
     startWebServer();
@@ -269,7 +274,7 @@ void CrossPointWebServerActivity::startAccessPoint() {
   LOG_DBG("WEBACT", "IP: %s", connectedIP.c_str());
 
   // Start mDNS for hostname resolution
-  restartMdns(AP_HOSTNAME, "WEBACT");
+  restartMdns(devicehost::mdnsName(), "WEBACT");
 
   // Start DNS server for captive portal behavior
   // This redirects all DNS queries to our IP, making any domain typed resolve to us
@@ -477,7 +482,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
                       EpdFontFamily::BOLD);
     startY += height10 + metrics.verticalSpacing * 2;
 
-    std::string hostnameUrl = std::string("http://") + AP_HOSTNAME + ".local/";
+    std::string hostnameUrl = std::string("http://") + devicehost::mdnsName() + ".local/";
     std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
 
     // Show QR code for URL
@@ -510,7 +515,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     startY += height10 + 5;
 
     // Also show hostname URL
-    std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
+    std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + devicehost::mdnsName() + ".local/";
     renderer.drawCenteredText(SMALL_FONT_ID, startY, hostnameUrl.c_str(), true);
   }
 

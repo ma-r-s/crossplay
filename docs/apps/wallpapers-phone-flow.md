@@ -467,11 +467,16 @@ copy it across" path still exists for it -- it just stops being the headline.
    hostname is the literal `"crossplay"` in both that file (`:27`) and
    `CalibreConnectActivity.cpp:18`.
 
-   **And it is not unique.** Nothing derives the hostname from the MAC, so two
-   X4 Pros on one network both answer for `crossplay.local` -- which Mario has.
-   A stale IP fails loudly; a name collision succeeds against the *wrong*
-   device and puts the photo on the other reader with nothing said. Filed as
-   #355, mitigated here only by drawing the numeric address as well. Station mode only: the hotspot has no NAT and a
+   **The name is per device** (#355, done). It was the literal `"crossplay"` in
+   both places that advertise it, so two X4 Pros on one network both answered
+   for `crossplay.local` -- which Mario has, and they are told apart by MAC
+   because nothing else distinguished them. A stale IP fails loudly; a name
+   collision succeeds against the *wrong* device and puts the photo on the
+   other reader with nothing said. `devicehost::mdnsName()` now derives
+   `crossplay-<6 hex>` from a hash of all six MAC bytes -- hashed rather than
+   sliced, because the first three bytes of a MAC are the OUI and taking the
+   wrong end would give every unit the same name, silently, which is the bug
+   being fixed reintroduced inside the fix. Station mode only: the hotspot has no NAT and a
    captive-portal DNS answering every name with the device, so a phone joined to
    it has no internet and both iOS and Android offer to drop back to cellular,
    mid-upload. (HTTPS-First does not threaten this: Chromium's own adoption guide
@@ -527,6 +532,7 @@ screen has is a phone on the wrong network) and that Back stops it.
 
 1. **The pairing twin** -- Instapaper's screen, which Mario named as the
    precedent, with the address where its 8-character code sits. QR 232px.
+   **CHOSEN.** Built; the macro and the other two are deleted.
 2. **The three steps** -- the site's numbered rail, on the panel. QR 200px.
 3. **The code, mostly** -- the largest square the body will take. QR 300px.
 
@@ -578,7 +584,8 @@ path** is visible, not silent -- as the first render's own `SCAN WITH YOUR...`
 showed. The defensive comments elsewhere claiming silent truncation are stale
 for it.
 
-The review recommends **variant 1**, for the headline: it is the only
+Mario picked **variant 1**, which is also what the review recommended, for the
+headline: it is the only
 arrangement that says what the black square is before you see it, on a screen
 whose whole failure mode is "my phone is on the wrong network". Variant 3 has
 the best code (9px modules against v1's 7 and v2's 6) and no sentence attached

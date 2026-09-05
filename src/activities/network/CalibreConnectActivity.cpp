@@ -12,10 +12,12 @@
 #include "WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/DeviceHostname.h"
 #include "util/TaskWatchdog.h"
 
 namespace {
-constexpr const char* HOSTNAME = "crossplay";
+// Per-device, see util/DeviceHostname.h. This advertises THIS reader; the
+// Calibre server it goes looking for is a different name entirely.
 }  // namespace
 
 void CalibreConnectActivity::onEnter() {
@@ -80,9 +82,9 @@ void CalibreConnectActivity::startWebServer() {
   requestUpdate();
 
   MDNS.end();
-  if (MDNS.begin(HOSTNAME)) {
+  if (MDNS.begin(devicehost::mdnsName())) {
     // mDNS is optional for the Calibre plugin but still helpful for users.
-    LOG_DBG("CAL", "mDNS started: http://%s.local/", HOSTNAME);
+    LOG_DBG("CAL", "mDNS started: http://%s.local/", devicehost::mdnsName());
   }
 
   // Heap-critical allocation: SD-font caches retained for the CJK UI fallback

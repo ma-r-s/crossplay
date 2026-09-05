@@ -12,6 +12,7 @@
 #include "../../CrossPointSettings.h"
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../network/HttpDownloader.h"
+#include "../../util/DeviceHostname.h"
 #include "../../util/QrUtils.h"
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
@@ -688,13 +689,14 @@ void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const f
 // it is a bare concatenation, image i lives at i * kWallpaperFileBytes, and the
 // count is the file size divided by it. Built by tools_local/wallpapers/build_pack.py
 // in the same order as the built-in table, which host-tests/wallpack asserts.
-// The mDNS name the fork already advertises, in CrossPointWebServerActivity and
-// CalibreConnectActivity alike. NOT shared with either: both spell it as a file
-// -static literal ("crossplay") and restartMdns lives in an anonymous namespace,
-// so nothing outside that translation unit can call it. PR 1 therefore calls
-// MDNS.begin itself -- the web-server activity ends mDNS in its own onExit, so
-// it is definitely not running when this screen opens.
-constexpr const char* kMdnsHostname = "crossplay";
+// The name is devicehost::mdnsName(), shared with the two activities that
+// advertise it, so this screen cannot print a name the device does not answer
+// to. It used to be a third copy of the literal "crossplay" here.
+//
+// Sharing the NAME is not sharing the LIFECYCLE: restartMdns lives in an
+// anonymous namespace in CrossPointWebServerActivity.cpp and the web-server
+// activity runs MDNS.end() in its own onExit, so mDNS is definitively not
+// running when this screen opens. PR 1 calls MDNS.begin itself.
 
 // Version 4, ECC_LOW, BYTE mode. Not the 114 QrUtils believes (that is the
 // alphanumeric figure, and every URL with a lowercase letter is byte mode).
@@ -766,8 +768,9 @@ void WallpapersActivity::pickView() { view_ = names_.empty() ? View::Offer : Vie
 void WallpapersActivity::openAdd() {
   IPAddress ip = WiFi.localIP();
   const std::string dotted = std::string(ip.toString().c_str());
-  // SCAFFOLDING for the three-variant render, removed with WALLADD_VARIANT:
-  // the real screen is reached only after WifiSelectionActivity has an address.
+  // SCAFFOLDING, and the last of it: PR 1 reaches this screen only after
+  // WifiSelectionActivity has a real address, so the placeholder goes with the
+  // WiFi step. Until then it keeps the screen renderable off-device.
   const bool haveIp = !dotted.empty() && dotted != "0.0.0.0";
   const std::string ipUrl = haveIp ? "http://" + dotted + "/w" : std::string("http://192.168.1.42/w");
 
@@ -780,7 +783,7 @@ void WallpapersActivity::openAdd() {
   // with mDNS filtering, or a phone on a VPN, drops on the floor. So the
   // address is printed too, and a reader who cannot reach the name has
   // something to type that does not depend on discovery at all.
-  addUrl_ = std::string("http://") + kMdnsHostname + ".local/w";
+  addUrl_ = std::string("http://") + devicehost::mdnsName() + ".local/w";
   addAltUrl_ = ipUrl;
 
   // Card #352: QrUtils picks its version from the ALPHANUMERIC capacity table,
