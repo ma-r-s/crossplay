@@ -21,6 +21,11 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.36
+
+- Rebuild the download-failure screen around the book
+- Trivia: report a question, filter what you get, and sync the pack (#257)
+
 ### 1.12.35
 
 - Wallpapers: six fixes from the first hardware runs
