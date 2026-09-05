@@ -4114,9 +4114,9 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
     quiet.face = murdleui::Face::Grid;
 
     murdleui::CaseModel refused = quiet;
-    // The longest thing blockedLine can produce; see the reserved band in
+    // The only thing blockedLine can produce; see the reserved band in
     // buildCase and the measurement in host-tests/murdle.
-    refused.notice = "ALREADY TICKED: HAMMER/REVENGE AND HAMMER/REVENGE. CLEAR THEM TO TICK HERE.";
+    refused.notice = murdletext::kBlockedNotice;
 
     Rendered without;
     Rendered with;
@@ -4135,9 +4135,7 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
     const fui::Rect grid = fui::makeRect(after.originX, static_cast<int16_t>(after.originY - after.headerH), 1, 1);
     int noticeRuns = 0;
     for (const auto& run : with.target.texts) {
-      if (run.text.find("ALREADY TICKED") == std::string::npos && run.text.find("CLEAR THEM") == std::string::npos) {
-        continue;
-      }
+      if (run.text.find(murdletext::kBlockedNotice) == std::string::npos) continue;
       ++noticeRuns;
       // And it drew ABOVE the grid rather than over the column labels, which is
       // the way a reserved band goes wrong that a moved origin does not.
@@ -4146,12 +4144,21 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
       // the worst-case notice against rather than written down twice. This IS
       // the body width: paragraph() draws each line into the rect it was given.
       CHECK(run.rect.width == 448);
+      // THE BAND IS ONE LINE, and this is the assertion that says so. Mario,
+      // 2026-09-05: the two-line band "moved [the board] down which now looks
+      // awful, specially when no message is showing" -- it is reserved on every
+      // frame, so a second line is a line of dead space on every frame of the
+      // face. The gap from the top of the notice to the top of the grid IS the
+      // band, plus the 8px it has always carried.
+      CHECK(grid.y - run.rect.y == with.target.lineHeight(toybox::kTileFont) + 8);
     }
-    CHECK(noticeRuns > 0);
+    // One run, because the message is one line. Two runs is the wording that
+    // wrapped, which is the other half of what made the band cost two lines.
+    CHECK(noticeRuns == 1);
 
     // The quiet render says nothing in the band it reserved.
     for (const auto& run : without.target.texts) {
-      CHECK(run.text.find("ALREADY TICKED") == std::string::npos);
+      CHECK(run.text.find(murdletext::kBlockedNotice) == std::string::npos);
     }
 
     // The key still gets room under the grid. The band is paid for out of that
@@ -4399,6 +4406,116 @@ void testTheConnectFourResultNamesTheOutcomeFromYourSeat() {
   Rendered c;
   buildC4<c4ui::ResultModel, c4ui::buildResult>(c, drawn);
   CHECK(c.target.drew("A DRAW"));
+}
+
+// Card 247, Mario: "I dont get the change of the top row on connect 4 from
+// circles to some kind of squares when the cpu is thinking, looks weird."
+//
+// The lip drew an available slot as a ring and an unavailable one as a filled
+// RECT, while the comment over it said "the slot keeps its size and its place
+// and loses only its solidity". A dithered square does not keep its place and
+// lose only its solidity; it changes shape. On the opponent's turn no column
+// has its waiting bit set, so all seven took that branch at once and the row
+// read as a mode change rather than a state.
+//
+// Asked of the drawn fills rather than of a flag, because "is it round" is a
+// pixel question: a disc is many one-pixel rows of differing widths, a rect is
+// one fill as wide as it is tall.
+void testTheConnectFourLipDimsWithoutChangingShape() {
+  struct Slot {
+    int rows = 0;
+    int16_t widest = 0;
+    int16_t narrowest = 32767;
+    int16_t top = 32767;
+    int16_t bottom = -32768;
+    bool square = false;  // one fill covering the whole slot, corner to corner
+    bool centred = true;  // every row centred on the same x
+  };
+
+  // The slot is the tappable column strip; the disc sits in the middle of it.
+  // Gather every dithered DarkGray fill that lands inside one, which is what
+  // the unavailable treatment paints and nothing else on the board does.
+  const auto slotsOf = [](const Rendered& out) {
+    std::vector<Slot> slots(static_cast<size_t>(connectfour::kColumns));
+    for (int column = 0; column < connectfour::kColumns; ++column) {
+      const fui::Rect box = c4ui::slotRect(device(), column);
+      Slot& slot = slots[static_cast<size_t>(column)];
+      int16_t widestCentre = 0;
+      for (size_t i = 0; i < out.target.fills.size(); ++i) {
+        const fui::Paint paint = out.target.fillPaints[i];
+        if (paint.kind != fui::PaintKind::Dither || paint.color != fui::Color::DarkGray) continue;
+        const fui::Rect r = out.target.fills[i];
+        if (r.x < box.x || r.x + r.width > box.x + box.width) continue;
+        if (r.y < box.y || r.y + r.height > box.y + box.height) continue;
+        ++slot.rows;
+        if (r.width > slot.widest) {
+          slot.widest = r.width;
+          widestCentre = static_cast<int16_t>(r.x + r.width / 2);
+        }
+        if (r.width < slot.narrowest) slot.narrowest = r.width;
+        if (r.y < slot.top) slot.top = r.y;
+        if (r.y + r.height > slot.bottom) slot.bottom = static_cast<int16_t>(r.y + r.height);
+        if (r.height >= r.width) slot.square = true;
+      }
+      for (size_t i = 0; i < out.target.fills.size(); ++i) {
+        const fui::Paint paint = out.target.fillPaints[i];
+        if (paint.kind != fui::PaintKind::Dither || paint.color != fui::Color::DarkGray) continue;
+        const fui::Rect r = out.target.fills[i];
+        if (r.x < box.x || r.x + r.width > box.x + box.width) continue;
+        if (r.y < box.y || r.y + r.height > box.y + box.height) continue;
+        if (r.x + r.width / 2 != widestCentre) slot.centred = false;
+      }
+    }
+    return slots;
+  };
+
+  const auto checkDisc = [](const Slot& slot) {
+    // Many rows, not one block: this is the assertion the rect fails.
+    CHECK(slot.rows > 8);
+    CHECK(!slot.square);
+    // Round: the rows are not all the same width, and they are stacked on one
+    // axis. A stack of equal rows is a rectangle drawn the slow way.
+    CHECK(slot.narrowest < slot.widest);
+    CHECK(slot.centred);
+    // AND IT STILL OCCUPIES THE SLOT. The bug this branch already fixed was a
+    // control that vanished; a disc that shrank to a dot would be the same bug
+    // wearing a different shape. Its extent is the diameter it draws at.
+    CHECK(slot.widest >= 30);
+    CHECK(slot.bottom - slot.top >= 30);
+  };
+
+  // THEIR turn: every column takes the unavailable branch at once, which is the
+  // frame the card is about.
+  c4ui::BoardModel theirs;
+  connectfour::start(theirs.game);
+  theirs.open = connectfour::openColumns(theirs.game);
+  theirs.yourTurn = false;
+  Rendered t;
+  buildC4<c4ui::BoardModel, c4ui::buildBoard>(t, theirs);
+  const std::vector<Slot> onTheirTurn = slotsOf(t);
+  for (int column = 0; column < connectfour::kColumns; ++column) {
+    checkDisc(onTheirTurn[static_cast<size_t>(column)]);
+  }
+
+  // YOUR turn with one column FULL: the same branch, one slot at a time. This
+  // is the case the comment was written about and it was square all along --
+  // never seven at once, which is why nobody saw it.
+  c4ui::BoardModel mine;
+  connectfour::start(mine.game);
+  for (int i = 0; i < connectfour::kRows; ++i) CHECK(connectfour::drop(mine.game, 2));
+  mine.open = connectfour::openColumns(mine.game);
+  mine.yourTurn = true;
+  CHECK((mine.open & (1u << 2)) == 0);
+  Rendered m;
+  buildC4<c4ui::BoardModel, c4ui::buildBoard>(m, mine);
+  const std::vector<Slot> onMyTurn = slotsOf(m);
+  checkDisc(onMyTurn[2]);
+  // And an open column is untouched by the dimmed treatment -- otherwise the
+  // check above would pass on a lip that dithered everything.
+  for (int column = 0; column < connectfour::kColumns; ++column) {
+    if (column == 2) continue;
+    CHECK(onMyTurn[static_cast<size_t>(column)].rows == 0);
+  }
 }
 
 // A board full of discs is a lot of registered controls if anyone ever
@@ -8853,6 +8970,7 @@ int main() {
   testTheConnectFourGridKeepsOffTheChrome();
   testTheBoardSaysWhoseDrop();
   testTheConnectFourResultNamesTheOutcomeFromYourSeat();
+  testTheConnectFourLipDimsWithoutChangingShape();
   testTheRackShowsEveryTroopYouHold();
   testTheRackTileYouTapIsTheTroopYouGet();
   testAFullBoardDoesNotOverflowTheInteractionBuffer();

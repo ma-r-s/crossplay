@@ -45,12 +45,24 @@ void accusationLine(const murdle::Puzzle& puzzle, const uint8_t picks[murdle::kM
 // The name of a category, for a heading.
 const char* categoryName(int cat);
 
-// "ALREADY TICKED: SPADE/FARM AND PAN/GARDEN. CLEAR THEM TO TICK HERE." -- what
-// the grid says when a tap could only have been honoured by deleting a tick the
-// player made. Empty when the tap was not blocked. Names the squares rather
-// than restating the rule: the rule is obvious and the squares are not.
-void blockedLine(const murdle::Puzzle& puzzle, int catA, int itemA, int catB, int itemB,
-                 const murdle::TapResult& result, char* out, int cap);
+// What the grid says when a tap could only have been honoured by deleting a
+// tick the player made.
+//
+// THREE WORDS, and the band above the grid is sized from this one string.
+// It used to name the squares in the way -- "ALREADY TICKED: SPADE/FARM AND
+// PAN/GARDEN. CLEAR THEM TO TICK HERE." -- which is two wrapped lines of the
+// tile cut at real cast names, and the band that has to hold it is reserved on
+// every frame so the grid never moves. That spent a paragraph of the board's
+// room permanently to say something on a handful of frames. The squares are
+// already on screen with the player's own ticks in them, and "clear them" is
+// the next thing they try; ELSEWHERE is the only part they cannot see, because
+// the square they tapped is not itself ticked.
+constexpr const char* kBlockedNotice = "ALREADY TICKED ELSEWHERE";
+
+// `kBlockedNotice`, or empty when the tap was not blocked. The puzzle is not a
+// parameter any more: the wording names no fixture, so nothing here can depend
+// on the cast.
+void blockedLine(const murdle::TapResult& result, char* out, int cap);
 
 // One distinct letter per item of a category, for the grid's axes, plus a
 // terminating null. A 34px column header cannot hold a word and this renderer

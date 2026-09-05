@@ -158,12 +158,24 @@ It took two goes to get right, and both failures were invisible in source:
   the lip is 42px deep with 16px discs, against 64px cells and 26px discs. The
   rule stays.
 
-**A full column shows plain slab**, which reads as sealed. Not a crossed-out
-mark: the column below is visibly full to the brim, so there is nothing to
-resolve, and a negative mark would be the only ink on the screen saying "no".
+**A slot you cannot use is DIMMED, not removed and not reshaped.** It is a
+dithered disc of the same radius in the same place: dither is this fork's
+disabled treatment, so the slot keeps its size and its place and loses only its
+solidity.
 
-**On their turn the lip is empty.** It says "not yours" with the same ink the
-capsule spends words on.
+Both halves of that took a bug to learn. It first showed **plain slab**, on the
+argument that a full column is visibly full to the brim -- but a control that
+disappears takes its space with it, and six rings and a gap in a row of seven is
+not something anyone notices. Then it showed a dithered **square**, which is a
+change of shape rather than of state. That one is only occasionally visible on
+your own turn, where at most a column or two is full at a time; on the
+opponent's turn NO column has its waiting bit set, so all seven changed at once
+and the lip read as a mode change rather than a state. Mario, card 247: "I dont
+get the change of the top row on connect 4 from circles to some kind of squares
+when the cpu is thinking, looks weird."
+
+**On their turn every slot is dimmed.** It says "not yours" with the same ink
+the capsule spends words on, and the row is still a row of discs.
 
 ### Empty places are drawn
 

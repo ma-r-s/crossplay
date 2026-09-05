@@ -349,20 +349,28 @@ a pencil does: one suspect cannot hold two weapons. Reaching across blocks is
 the deduction, and doing that for the player would be playing the game for them.
 
 Locking one in is **refused** while another lock stands in that row or column,
-and the refusal names the squares: `ALREADY TICKED: SPADE/FARM AND PAN/GARDEN.
-CLEAR THEM TO TICK HERE.` Changing your mind costs two more taps than it did --
-clear the old lock, then rule the new square out and lock it in -- and every one
-of them is the player's own.
+and the refusal is three words: `ALREADY TICKED ELSEWHERE`. Changing your mind
+costs two more taps than it did -- clear the old lock, then rule the new square
+out and lock it in -- and every one of them is the player's own.
 
 **The refusal has a band of its own, reserved whether it says anything or not.**
 It used to appear above the grid only when there was something to say, which
 pushed the board down the moment a tap was refused and pulled it back up on the
 next tap. On a panel that takes a second to answer, that is the one surface
-being read by position moving under the reader's finger. The band is two lines
-of the tile cut, which is the worst case `blockedLine` can produce measured
-against the real face over the whole cross product of the cast tables
-(`host-tests/murdle`); the grid is width-bound at every tier, so it pays for the
-band out of the slack the key was spreading into and loses no cell size.
+being read by position moving under the reader's finger. The band is **one line**
+of the tile cut, measured against the real face in `host-tests/murdle`; the grid
+is width-bound at every tier, so it pays for the band out of the slack the key
+was spreading into and loses no cell size.
+
+One line is what makes reserving it on every frame the right trade, and getting
+there is why the wording is three words. The refusal used to name both blocking
+pairs -- `ALREADY TICKED: SPADE/FARM AND PAN/GARDEN. CLEAR THEM TO TICK HERE.`
+-- which at real fixture names wraps to two lines, so the board paid a paragraph
+of its room on every frame to say something on a handful of them. The squares it
+named are on screen already, with the player's own ticks in them; `ELSEWHERE` is
+the only part of that sentence a player cannot see, because the square they
+tapped is not itself ticked. `blockedLine` cannot see a puzzle any more, so no
+new fixture can widen the band.
 
 It used to overrule instead, and that is the worst bug this game has had. From a
 finished, correct board a cold tester tapped one false square and watched three

@@ -358,9 +358,12 @@ inline void iconAtRowRight(Screen& screen, const freeink::ui::Rect& band, const 
 // Use it in pairs to make a ring: a disc in ink with a smaller disc in paper on
 // top closes by construction. The circle test is per row, which also avoids the
 // flat-topped lozenge silhouette the table produced.
-inline void disc(Screen& screen, const int16_t cx, const int16_t cy, const int16_t r, const freeink::ui::Color colour) {
+//
+// Takes a Paint, not just a colour, because a disc is not always solid ink: the
+// fork's disabled treatment is dither, and a disabled round control has to stay
+// round or it is a different control rather than a dimmer one.
+inline void disc(Screen& screen, const int16_t cx, const int16_t cy, const int16_t r, const freeink::ui::Paint& paint) {
   namespace fui = freeink::ui;
-  const fui::Paint paint = fui::Paint::solid(colour);
   for (int16_t dy = static_cast<int16_t>(-r); dy <= r; ++dy) {
     int16_t half = 0;
     while ((half + 1) * (half + 1) + dy * dy <= r * r) ++half;
@@ -369,6 +372,11 @@ inline void disc(Screen& screen, const int16_t cx, const int16_t cy, const int16
                                        static_cast<int16_t>(half * 2), 1),
                          paint);
   }
+}
+
+// Solid ink of one colour, which is what most callers want.
+inline void disc(Screen& screen, const int16_t cx, const int16_t cy, const int16_t r, const freeink::ui::Color colour) {
+  disc(screen, cx, cy, r, freeink::ui::Paint::solid(colour));
 }
 
 // A ring: `r` outside, `weight` thick, over whatever `fill` the middle should be.

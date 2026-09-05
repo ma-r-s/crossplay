@@ -346,15 +346,15 @@ void MurdleActivity::handleGridTap(const int x, const int y) {
   const int itemB = cell.itemB;
 
   // One call, and it writes at most the cell that was tapped -- see Marks::tap.
-  // When it writes nothing it says which of the player's own ticks stood in the
-  // way, and that has to reach the screen: a tap that changes nothing and says
-  // nothing is a tap that looks lost, on a panel that takes a second to answer.
+  // When it writes nothing it says so, and that has to reach the screen: a tap
+  // that changes nothing and says nothing is a tap that looks lost, on a panel
+  // that takes a second to answer.
   const murdle::TapResult result = marks.tap(catA, itemA, catB, itemB);
   if (result.changed) {
     notice[0] = '\0';
     dirty = true;
   } else {
-    murdletext::blockedLine(puzzle, catA, itemA, catB, itemB, result, notice, sizeof(notice));
+    murdletext::blockedLine(result, notice, sizeof(notice));
   }
   requestUpdate();
 }
