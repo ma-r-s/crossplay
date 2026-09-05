@@ -311,7 +311,21 @@ uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBod
           ? static_cast<int16_t>(screen.target().measureText(labelStyle.font, model.pageLabel, labelStyle).width +
                                  toybox::kGutter)
           : 0;
-  const int16_t room = static_cast<int16_t>(screen.device().width - 2 * toybox::kMargin - labelWidth);
+  // The SAVE control is in the band too, and it was in NEITHER term of this
+  // sum. The component reserves `label + 20 + icon + 4`, then another 8 of
+  // gutter (components/controls/header.h), so a headline was fitted to a room
+  // about ninety pixels wider than the one it is drawn into -- and then cut a
+  // second time by the component, with a second ellipsis, on the one screen in
+  // this fork whose title is always somebody else's sentence. Instapaper's twin
+  // has no trailing control and so had no second term to forget.
+  int16_t saveWidth = 0;
+  if (model.canSave) {
+    const fui::TextStyle& trailing = screen.theme().bodyText;
+    const char* label = model.saved ? "SAVED" : "SAVE";
+    saveWidth = static_cast<int16_t>(screen.target().measureText(trailing.font, label, trailing).width + 20 +
+                                     icon_saved_32.w + 4 + 8);
+  }
+  const int16_t room = static_cast<int16_t>(screen.device().width - 2 * toybox::kMargin - labelWidth - saveWidth);
   const std::string headline = fitLines(screen.target(), model.title, room, 1, bandTitle);
   chrome(screen, headline.c_str(), model.pageLabel, &bandTitle, model.canSave, model.saved);
 
