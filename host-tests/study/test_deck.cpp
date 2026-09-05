@@ -64,9 +64,17 @@ void run(const std::string& dir) {
   FileSource deckFile(dir + "/deck.dat");
   FileSource metaFile(dir + "/meta.dat");
   FileSource cardFile(dir + "/cards.dat");
+  // A missing deck is a FAILURE, not a skip. This used to print
+  //   SKIP: no converted deck at /tmp/studytest/mandarin
+  // indented by two spaces, so check.sh's "^SKIP" surfacing could not see it
+  // either, and the binary went on to print PASS (0 checks, 0 failures).
+  // Nothing in check.sh or CI has ever produced a deck here, so every run of
+  // this file for its whole life took this branch. run.sh now builds one with
+  // make_fixture.py; if that failed, this must say so rather than pass.
   if (!deckFile.ok() || !metaFile.ok() || !cardFile.ok()) {
-    std::printf("  SKIP: no converted deck at %s\n", dir.c_str());
-    std::printf("        generate one with tools_local/study/anki_to_deck.py\n");
+    check(false, "the converted deck exists");
+    std::printf("        no deck.dat/meta.dat/cards.dat under %s -- host-tests/study/run.sh\n", dir.c_str());
+    std::printf("        builds one with make_fixture.py; run the suite through it\n");
     return;
   }
 
@@ -163,6 +171,9 @@ void run(const std::string& dir) {
 int main(const int argc, char** argv) {
   std::printf("StudyDeck\n");
   run(argc > 1 ? argv[1] : "/tmp/studytest/mandarin");
-  std::printf("%s (%d checks, %d failures)\n", failures == 0 ? "PASS" : "FAIL", checks, failures);
+  // "failed", not "failures": check.sh counts sub-suites by grepping for
+  // "checks, 0 failed", so the other spelling made every study binary
+  // invisible to it and the suite reported "ok (0 sub-suite(s))".
+  std::printf("%s %d checks, %d failed\n", failures == 0 ? "PASS" : "FAIL", checks, failures);
   return failures == 0 ? 0 : 1;
 }
