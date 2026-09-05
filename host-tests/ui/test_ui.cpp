@@ -9221,6 +9221,46 @@ void testTheHeaderTitleStaysOutOfTheCoveredRows() {
 // And the third: the band's BOTTOM edge is what every layout below it is tuned
 // against, so widening the paint upward must not move it. Under absolute chrome
 // that edge is kHeaderHeight, with or without the glass.
+// And the band is absolute WITHOUT the screen asking, which is the half that
+// was missing. absoluteChrome() used to be an opt-in call placed before
+// headerBand(), and screens forgot it the same way they forgot the rule:
+// Yahtzee called it on its menu and not on its card, so the card's band began
+// at the bezel's safe top and painted 85 rows where the menu painted 76. Two
+// headers, two heights, in one game. This drives headerBand() directly on a
+// bezelled frame with no absoluteChrome() call of its own, which is exactly
+// what those screens did.
+void testTheBandIsAbsoluteWithoutBeingAsked() {
+  Rendered out;
+  const fui::DeviceContext ctx = bezelDevice();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  fui::HeaderProps props;
+  props.title = "TITLE";
+  toybox::headerBand(screen, props);
+
+  // The bezel must not push the band down. Both numbers matter: a band that
+  // starts at the safe top AND keeps its height ends kHeaderHeight + 10 down
+  // the panel, which is the 85px band Mario saw.
+  CHECK(screen.body().y == toybox::kHeaderHeight);
+
+  bool paintedFromRowZero = false;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    if (r.y == 0 && r.height == toybox::kHeaderHeight && r.width == ctx.screen().width) paintedFromRowZero = true;
+  }
+  CHECK(paintedFromRowZero);
+
+  // And the rule tracks it, rather than sitting 10px lower on this screen than
+  // on its sibling.
+  bool ruled = false;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    if (r.y == toybox::kHeaderHeight + toybox::kBandRuleGap && r.height == toybox::kRule) ruled = true;
+  }
+  CHECK(ruled);
+}
+
 void testTheHeaderBandBottomIgnoresTheBezel() {
   fui::ListItem items[1] = {};
   items[0].label = "CHESS";
@@ -9284,6 +9324,7 @@ int main() {
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();
   testTheHeaderBandBottomIgnoresTheBezel();
+  testTheBandIsAbsoluteWithoutBeingAsked();
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
   testTriviaDrawsNoOptionsWithoutAQuestion();
