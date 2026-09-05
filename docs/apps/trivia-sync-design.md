@@ -764,7 +764,7 @@ would create it.
   residual in `trivia-pack-format.md` stays open, and this design does not close
   it.
 
-## The critic round
+## The first critic round, on the design
 
 A cold agent with no context fact-checked this document against the tree. Four
 claims were wrong and are corrected above. What follows is what it broke that
