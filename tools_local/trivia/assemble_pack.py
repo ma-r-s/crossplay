@@ -79,26 +79,37 @@ def rederive(clue):
 # r is "out of ten groups, how many get it right", so HIGH r is EASY and level
 # 1 is the easiest tier -- the same direction as build_pack.py's dollar tiers.
 #
-# CALIBRATED ON: the INTERNATIONAL half of the rating run, 2026-09-04, 20,063
-# surviving rows (25,968 rated, minus the 5,905 flagged us_centric that no
-# longer ship). That population is the whole reason these numbers changed. The
-# previous floors (9, 7, 5, 3) were chosen when US-centric questions still
-# shipped, and for an international table those questions genuinely ARE the
-# hard ones: 68% of them rate r<=1, against 2% of the rest. Dropping them took
-# level 5 from 5,926 questions to 845 and the pack failed test_pack.py's
-# difficulty spread. These floors are the same fixed-constant scheme measured
-# against the population that actually ships.
+# CALIBRATED ON: the INTERNATIONAL survivors of the FINISHED rating run,
+# 2026-09-05, 38,883 surviving rows (49,980 rated, minus the 11,075 flagged
+# us_centric that are hidden by default). The previous floors (9, 8, 7, 5) were
+# chosen on 2026-09-04 against a PARTIAL run of 20,063 rows; the run then
+# roughly doubled and on the completed population they no longer hold -- the
+# calibrator's "rated last" view (the second half of the append order) scored
+# 3.587 on them, past the 2.5 spread limit, i.e. level 5 over-stuffed relative
+# to the earlier tiers. calibrate_levels.py's minimax over its three views now
+# picks these floors (worst spread 2.513 vs the old floors' 3.587). A constant
+# derived from a population that has since changed is the exact failure the
+# curation notes warn about; these are re-derived on the full data.
 #
-# Bands are narrow at the easy end and wide at the hard end because that is
-# where the international mass sits, not as a balancing trick: level 1 still
-# means "9 or 10 groups in 10 get it" and level 5 still means "at most 4 do".
+# For an international table the US-centric questions genuinely ARE the hard
+# ones -- 73.4% of them rate r<=1, against 3.2% of the rest -- which is why they
+# are calibrated out here (they ship tagged and hidden, rule 4).
 #
-# Re-derive them in one command when the rating run finishes:
+# On the shipping international population these floors deal:
+#     level 1  r 9-10   6,630 (17.1%)      level 4  r 4-5   9,968 (25.6%)
+#     level 2  r 8      6,511 (16.7%)      level 5  r 0-3   5,337 (13.7%)
+#     level 3  r 6-7   10,437 (26.8%)
+# level 1 still means "9 or 10 groups in 10 get it" and level 5 now means "at
+# most 3 groups in 10 do". Bands are narrowest at the ends and widest in the
+# middle because that is where the international mass sits, not as a balancing
+# trick.
+#
+# Re-derive them in one command when the rating run changes:
 #     python3 tools_local/trivia/calibrate_levels.py \
 #         --corpus .rate/corpus_repaired.jsonl --enriched .rate/enriched.jsonl
 # It prints how these constants stand on the current data and what it would
 # choose instead. See docs/trivia-curation.md.
-LEVELS = ((9, 1), (8, 2), (7, 3), (5, 4))
+LEVELS = ((9, 1), (8, 2), (6, 3), (4, 4))
 
 
 def level(r):
