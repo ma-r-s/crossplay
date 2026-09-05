@@ -77,9 +77,21 @@ them:
   `sentenceReading`, `sentenceMeaning`.
 
 - **HSK / HSK+ / Basic+** have full built-in profiles (all seven slots).
-- **Cloze decks do not convert.** The front of a cloze card is text with a
-  hole in it, and this card format has nowhere to put a hole. Cloze stays in
-  Anki.
+- **Cloze notes** convert, one card per hole, exactly as Anki generates them.
+  The question face is the note's text with this card's hole shown as `[...]`
+  -- or as the hint, when the note wrote one -- and every *other* hole filled
+  in, because those are context this card is not testing. The answer face
+  fills the hole and underlines it. Back Extra, if the note type has one,
+  goes under a rule beneath the answer.
+
+  Two holes sharing an ordinal (`{{c1::Berlin}} is the capital of
+  {{c1::Germany}}`) are one card with two holes, again as in Anki. A card
+  whose hole is no longer in the text is dropped and counted -- that is what
+  Anki calls an *empty card*, and deletes under **Tools > Empty Cards**.
+
+  Cloze cards are drawn in the sentence face rather than the big headword
+  face: a hole belongs in the sentence it was cut from, and a paragraph at
+  headword size fits about four words on the screen.
 
 The supported scripts are English (anything the built-in Latin face covers)
 and Chinese. Other scripts -- Korean, Arabic, Cyrillic and the rest -- are out
@@ -180,7 +192,7 @@ export.
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | "No deck on the card yet" on the reader  | The card has no converted deck. Run `study.py setup`.                                                                                           |
 | A headword draws in the small plain face | The installed fonts cannot draw that card, so it fell back. Re-run `setup` (it rebuilds fonts that no longer cover the deck), or pass `--font`. |
-| `no convertible cards` during setup      | Cloze-only deck, or a note type whose first field is empty. Use `--map` to name the right fields.                                               |
+| `no convertible cards` during setup      | A note type whose first field is empty, or a deck whose cloze cards are all empty ones. Use `--map` to name the right fields.                   |
 | Sync says Anki is running                | Quit Anki and re-run. `--force` exists but means two writers.                                                                                   |
 | Word and meaning came out swapped        | The converter guessed fields by order. Re-run setup with `--map headword=... --map meaning=...`.                                                |
 | Reviews look doubled in Anki             | They cannot: replay is keyed by review timestamp, and rows that already exist are skipped. Run `sync` as often as you like.                     |
@@ -190,10 +202,17 @@ export.
 - **Editing, adding, custom study, browsing** -- Anki does these better on a
   screen with a keyboard.
 - **Audio** -- the device has no speaker.
+- **Typing the answer** (`{{type:Field}}`) -- there is no keyboard, and a
+  soft one on an 800x480 panel that takes a second to redraw is not one
+  either. The card shows as an ordinary question and answer.
 - **A second level of undo** -- the state before the previous review is not
   kept.
 
 ## Under the hood
+
+What of Anki converts, what converts in a reduced form, and what is
+deliberately left behind -- with the reason in each case -- is
+[study-anki-compatibility.md](study-anki-compatibility.md).
 
 The on-card format, the FSRS implementation and its Anki-agreement tests, and
 the sync mechanics are documented in

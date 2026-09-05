@@ -96,10 +96,24 @@ void run(const std::string& dir) {
   int withSentence = 0;
   int withEmphasis = 0;
   int emphasisOutOfRange = 0;
+  int cloze = 0;
+  int clozeUnhidden = 0;
+  int clozeNoAnswer = 0;
   for (int i = 0; i < deck.noteCount(); ++i) {
     if (!deck.loadNote(deckFile, i, note)) continue;
     ++parsed;
-    if (note.length(study::Field::Headword) == 0) {
+    if (note.isCloze()) {
+      // A cloze card carries its question in its own field and its answer in
+      // the sentence, and has no headword by construction.
+      ++cloze;
+      if (note.empty(study::Field::Sentence)) ++clozeNoAnswer;
+      // The hole is the whole point: a question face identical to the answer
+      // face is a card that gives itself away, and it is what a converter
+      // that lost the markup would produce.
+      if (std::strcmp(note.field(study::Field::ClozeQuestion), note.field(study::Field::Sentence)) == 0) {
+        ++clozeUnhidden;
+      }
+    } else if (note.length(study::Field::Headword) == 0) {
       if (failures < 5) std::printf("  FAIL: note %d has an empty headword\n", i);
       ++failures;
     }
@@ -121,6 +135,9 @@ void run(const std::string& dir) {
               withEmphasis);
   check(parsed == deck.noteCount(), "every note parses");
   check(emphasisOutOfRange == 0, "every emphasis span lies inside its sentence");
+  std::printf("  %d cloze card(s)\n", cloze);
+  check(clozeNoAnswer == 0, "every cloze card has an answer face");
+  check(clozeUnhidden == 0, "no cloze card shows its answer on the question face");
 
   // Field NUL-termination: the fields are handed straight to C APIs, so a
   // missing terminator is a buffer overrun rather than a display glitch.

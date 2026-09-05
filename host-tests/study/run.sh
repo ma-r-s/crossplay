@@ -35,6 +35,12 @@ SRC=../../src/apps_local/study
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyImages.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_images.cpp \
   -o "$BUILD_DIR/test_images"
+# StudyText is header-only, and this is the only test that compiles the card
+# face's drawing at all: StudyActivity needs Arduino, the HAL and a panel, so
+# for as long as the wrap lived inside it nothing could check where a line
+# broke or where the cloze underline went.
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
+  test_text.cpp -o "$BUILD_DIR/test_text"
 
 # The deck under test. An argument wins; otherwise build one. A failure here
 # is a failure of the suite: the tests below now REFUSE a missing deck rather
@@ -47,6 +53,9 @@ if [ -z "$DECK" ]; then
   python3 make_fixture.py --out "$DECK"
 fi
 
+# Before the fixture is even needed: it takes no deck, and a wrap that is
+# broken makes every card unreadable whatever the deck says.
+"$BUILD_DIR/test_text"
 "$BUILD_DIR/test_fsrs"
 "$BUILD_DIR/test_deck" "$DECK"
 "$BUILD_DIR/test_scheduler"

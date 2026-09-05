@@ -59,6 +59,23 @@ WORDS = [
     ("nascent", "just coming into existence", "A <b>nascent</b> industry."),
 ]
 
+# Cloze notes, in the shape Anki's stock Cloze type produces: one text field
+# with the markup and a Back Extra beside it. Between them they cover what the
+# converter has to get right -- a plain hole, a hole with a hint, two ordinals
+# in one note (which becomes two cards), two holes sharing one ordinal (which
+# becomes one card with two holes), and a card whose ordinal is no longer in
+# the text, which Anki calls an empty card and which must be dropped rather
+# than shown with no hole in it.
+CLOZE_NOTES = [
+    # (text, back extra, how many cards Anki would generate)
+    ("The capital of France is {{c1::Paris}}.", "Geography", 1),
+    ("Mitochondria are the {{c1::powerhouse::organelle}} of the cell.", "", 1),
+    ("{{c1::Rome}} was founded in {{c2::753 BC}}.", "Livy's date", 2),
+    ("{{c1::Berlin}} is the capital of {{c1::Germany}}.", "", 1),
+    # Card ord 1 exists, {{c2::}} does not: an empty card.
+    ("Only {{c1::one}} hole remains here.", "", 2),
+]
+
 # FSRS-5 defaults. Any 19 plausible numbers would do; these are the ones Anki
 # ships, so a deck built here schedules the way a real one does.
 FSRS_PARAMS = [
@@ -202,6 +219,32 @@ def build_collection(path, crt):
                 "insert into revlog (id, cid, ease, type) values (?, ?, ?, 1)",
                 ((crt + 86400 * (r + 1)) * 1000 + i, card_id, 3),
             )
+    # The cloze note type, and its cards. Anki generates one card per cloze
+    # ordinal present in the text, with the card's `ord` one less than the
+    # cloze number -- which is the mapping render_cloze depends on, so the
+    # fixture states it here rather than assuming it.
+    db.execute("insert into notetypes (id, name) values (2, 'Cloze')")
+    for ordinal, name in enumerate(["Text", "Back Extra"]):
+        db.execute(
+            "insert into fields (ntid, ord, name) values (2, ?, ?)", (ordinal, name)
+        )
+    db.execute("insert into templates (ntid, ord, name) values (2, 0, 'Cloze')")
+
+    cloze_base = base_id + len(WORDS) * 2 + 2
+    for i, (text, extra, cards) in enumerate(CLOZE_NOTES):
+        note_id = cloze_base + i * 10
+        db.execute(
+            "insert into notes (id, mid, flds) values (?, 2, ?)",
+            (note_id, "\x1f".join([text, extra])),
+        )
+        for card_ord in range(cards):
+            db.execute(
+                """insert into cards (id, nid, did, odid, ord, type, queue, due, ivl,
+                                      reps, lapses, left, data)
+                   values (?, ?, 1, 0, ?, 0, 0, ?, 0, 0, 0, 0, '')""",
+                (note_id + 1 + card_ord, note_id, card_ord, 100 + i),
+            )
+
     db.commit()
     db.close()
 
@@ -255,6 +298,15 @@ class TinyImage:
         return Pixels()
 
 
+def deck_note_count(path):
+    """How many notes the converter actually wrote. Read back rather than
+    counted here, because the converter is the one that decides -- it drops an
+    empty cloze card and generates two cards from one two-ordinal note."""
+    with open(path, "rb") as f:
+        header = f.read(16)
+    return struct.unpack_from("<I", header, 12)[0]
+
+
 def write_images(out_dir, card_count, every):
     """images.dat, through make_images.py's own packer and header writer."""
     sys.path.insert(0, str(TOOLS))
@@ -306,8 +358,13 @@ def main():
     crt = int(time.mktime((2024, 1, 1, 4, 0, 0, 0, 1, -1)))
     build_collection(collection, crt)
     convert(collection, args.out)
-    packed = write_images(args.out, len(WORDS), 3)
-    print("fixture: %d notes, %d with an image -> %s" % (len(WORDS), packed, args.out))
+    # One entry per CARD, which is what make_images.py writes for a real deck
+    # -- not one per word. The cloze cards pushed the two apart, and an
+    # images.dat shorter than deck.dat is a file the device indexes past the
+    # end of.
+    notes = deck_note_count(args.out / "deck.dat")
+    packed = write_images(args.out, notes, 3)
+    print("fixture: %d notes, %d with an image -> %s" % (notes, packed, args.out))
     return 0
 
 

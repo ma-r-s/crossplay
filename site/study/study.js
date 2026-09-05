@@ -331,19 +331,18 @@ worker.onmessage = function (event) {
       $("reportBody").hidden = false;
       reachedStep = Math.max(reachedStep, 2);
       goTo(2);
-      // The plain-English reason belongs in the headline. The cloze
-      // sentence already existed for the sample deck; a real cloze deck got
-      // "This deck did not convert." with the reason folded inside a
-      // collapsed log written in command-line flags.
+      // The plain-English reason belongs in the headline. A deck that
+      // converts to nothing at all is now almost always one whose cloze
+      // cards are all empty -- the hole was edited out and Anki left the
+      // card behind -- so that is the sentence worth having.
       var why = "";
-      var cloze = /(\d+) cloze card\(s\) skipped/.exec(result.error || "");
+      var cloze = /(\d+) empty cloze card\(s\) skipped/.exec(result.error || "");
       if (cloze) {
         why =
           " All " +
           cloze[1] +
-          " cards are cloze: the question is a sentence with a hole in it," +
-          " and this card format has nowhere to put a hole. Cloze decks stay" +
-          " in Anki.";
+          " cards are empty cloze cards: their hole is no longer in the" +
+          ' text. Anki deletes these under Tools > "Empty Cards".';
       }
       $("reportVerdict").textContent = "This deck did not convert." + why;
       $("reportVerdict").className = "study-verdict is-bad";
@@ -418,9 +417,9 @@ worker.onmessage = function (event) {
           (result.skipped === 1
             ? " card stays behind: "
             : " cards stay behind: ") +
-          (result.clozeSkipped > 0
-            ? "cloze cards have a hole in the question, and this card format" +
-              " has nowhere to put a hole. They stay in Anki."
+          (result.clozeEmpty > 0
+            ? "their cloze hole is no longer in the text, so there is nothing" +
+              ' to ask. Anki deletes these under Tools > "Empty Cards".'
             : "their note type could not be read."),
       );
     }

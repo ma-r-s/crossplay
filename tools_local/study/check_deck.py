@@ -48,6 +48,9 @@ FIELD_NAMES = [
     "sentence",
     "sentenceReading",
     "sentenceMeaning",
+    # deck.dat v3. A note with text here is a cloze card; a v2 deck has no
+    # such field at all, which zip() below handles by simply running out.
+    "clozeQuestion",
 ]
 
 
@@ -102,7 +105,23 @@ def check_faces(fields, on_question):
     deck put every card's example sentence on the question face, and the
     only thing that noticed was a human reading the screen.
     """
-    headword, reading, meaning, pos, sentence, s_reading, s_meaning = fields
+    padded = list(fields) + [""] * (len(FIELD_NAMES) - len(fields))
+    headword, reading, meaning, pos, sentence, s_reading, s_meaning, cloze = padded
+
+    if cloze.strip():
+        # A cloze card asks with the hole and answers by filling it, so the two
+        # faces share their text on purpose and every check below that reads
+        # sharing as a leak would fire on all of them. What can still go wrong
+        # is a hole that never got made: a question identical to its answer is
+        # a card that gives itself away.
+        problems = []
+        if not sentence.strip():
+            problems.append("nothing on the answer face")
+        identical = cloze.strip() == sentence.strip()
+        if identical:
+            problems.append("the question face shows no hole: it is the answer")
+        return cloze, "\n".join(filter(None, [sentence, meaning])), problems, identical
+
     question = [headword] + ([sentence] if on_question else [])
     answer = [reading, meaning, pos, s_reading, s_meaning]
     if not on_question:
@@ -269,6 +288,9 @@ def main():
     for index, fields in read_deck(args.deck / "deck.dat"):
         notes += 1
         headword, sentence = fields[0], fields[4]
+        # A cloze card's question IS its sentence; naming it in a report line
+        # by an empty headword identifies nothing.
+        label = headword or (fields[7] if len(fields) > 7 else "")
 
         question, answer, face_problems, identical = check_faces(fields, on_question)
         if identical:
@@ -277,7 +299,7 @@ def main():
             first_faces = (question, answer)
         for problem in face_problems:
             problems["a card whose faces do not work as a question and an answer"].append(
-                f"note {index} {headword[:24]!r}: {problem}"
+                f"note {index} {label[:24]!r}: {problem}"
             )
 
         for family in families:

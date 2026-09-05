@@ -634,11 +634,11 @@ async def start_sync(request: Request, dev=Depends(require_device)):
         manifests = []
         prints = fresh.setdefault("deck_fingerprints", {})
         # One deck that cannot be built must not cost the user the others, nor
-        # the sync itself. The converter refuses an empty deck, a cloze-only
-        # deck and a deck renamed away on the desktop side; aborting the job
-        # here left the reader with an error, no decks, and no route back to
-        # the picker, repeating identically forever because the state below
-        # was never saved.
+        # the sync itself. The converter refuses an empty deck, a deck renamed
+        # away on the desktop side, and a deck whose every card is an empty
+        # cloze; aborting the job here left the reader with an error, no
+        # decks, and no route back to the picker, repeating identically
+        # forever because the state below was never saved.
         failed = []
         for name in fresh["chosen_decks"]:
             try:

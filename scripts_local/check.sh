@@ -795,6 +795,19 @@ else
   echo "  installer    SKIPPED: no .venv-study -- the page's Python suite did NOT run"
 fi
 
+# The cloze rules. Standard library only and no Anki, so it runs even where
+# the installer suite above is skipped for want of a venv -- which matters
+# here more than anywhere: every rule it pins is a way to put the answer on
+# the question face, and a card that answers itself looks fine on the screen.
+if (cd "$REPO" && python3 tools_local/study/test_cloze.py) \
+    > "$LOGS/study-cloze.log" 2>&1; then
+  printf "  %-12s ok\n" "cloze"
+else
+  printf "  %-12s FAILED\n" "cloze"
+  tail -10 "$LOGS/study-cloze.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
 # The trivia option-picker. Standard library only, so it never skips: the pack
 # it guards is a published release asset, and the last regression in it (option
 # sets that told you the answer without the question) shipped and stayed

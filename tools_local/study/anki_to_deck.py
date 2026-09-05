@@ -37,7 +37,10 @@ import fsrs
 
 DECK_MAGIC = b"XSTUDYD\0"
 META_MAGIC = b"XSTUDYM\0"
-FORMAT_VERSION = 2
+# 3 added the eighth field, clozeQuestion, and with it cloze decks. A v2 deck
+# is still readable by a v3 firmware; a v3 deck on a v2 firmware is refused at
+# the header rather than half-read, which is why the version moved at all.
+FORMAT_VERSION = 3
 
 CARD_RECORD_SIZE = 32
 NUM_PARAMS = 19
@@ -222,6 +225,20 @@ FIELD_ORDER = [
     "sentenceMeaning",
 ]
 
+# What actually goes on disk. FIELD_ORDER stays the list of slots a *profile*
+# can fill and that --map can name, because clozeQuestion is not something a
+# user maps a field onto -- it is built, from the cloze markup, by the code
+# below. Splitting the two lists is what keeps generic_profile from offering a
+# slot nobody can usefully fill.
+#
+# A note with a non-empty clozeQuestion IS a cloze card. That is the whole
+# marker: no kind byte, no second table. It costs nothing (a vocabulary note
+# writes a zero length there) and it means every tool that reads deck.dat by
+# looping over the header's `fields` count -- check_deck.py, make_fonts.py,
+# measure_layout.py -- keeps working with no change at all. A kind byte in
+# front of the lengths would have broken all three.
+DEVICE_FIELDS = FIELD_ORDER + ["clozeQuestion"]
+
 # Characters a few notes use that are typographically identical to an ASCII
 # letter but sit outside the built-in serif's coverage, so they would draw as a
 # box in the middle of a reading. Found by tools_local/study/check_deck.py
@@ -238,6 +255,111 @@ LOOKALIKES = {
 }
 
 CLOZE_RE = re.compile(r"\{\{c\d+::")
+# The full form, with the optional hint: {{c1::answer}} or {{c1::answer::hint}}.
+# Non-greedy on both halves, which is what makes the two shapes one pattern --
+# see the walk-through in test_cloze.py. Nested cloze (a {{c2::}} inside a
+# {{c1::}}) is Anki's own corner case and is left as literal text rather than
+# half-parsed: the outer hole still works, which is the behaviour that loses
+# the least.
+CLOZE_SPAN_RE = re.compile(r"\{\{c(\d+)::(.*?)(?:::(.*?))?\}\}", re.DOTALL)
+
+# The hole, as it appears on the question face. Anki draws a blue [...]; there
+# is no colour here, so the brackets carry the whole signal and have to be
+# visible in the sentence face at 34px -- which square brackets are and an
+# ellipsis alone is not.
+CLOZE_BLANK = "[...]"
+
+# Fields that hold the note's extra material rather than its cloze text.
+# Anki's stock Cloze type calls it "Back Extra"; the shared decks that grew
+# from it use these.
+CLOZE_EXTRA_PATTERNS = ("back extra", "extra", "notes", "note", "comment", "source")
+
+
+def cloze_field_index(parts):
+    """Which of a note's fields carries the cloze markup.
+
+    The template would say so -- {{cloze:Text}} names it -- but the template
+    body is not in the tables apkg.py builds for a legacy package, and a rule
+    that works on a live collection and not on an AnkiWeb shared deck is worse
+    than no rule. The first field with markup in it is the answer in every
+    real deck: the stock type has exactly one such field, and a type with two
+    generates its cards from both, which this format cannot show anyway.
+    """
+    for index, value in enumerate(parts):
+        if CLOZE_RE.search(value):
+            return index
+    return -1
+
+
+def cloze_extra_index(parts, cloze_index, field_names):
+    """Which field is the Back Extra, by name first and position second."""
+    for pattern in CLOZE_EXTRA_PATTERNS:
+        for index, name in enumerate(field_names):
+            if pattern in name.lower() and index != cloze_index and index < len(parts):
+                if clean(parts[index]):
+                    return index
+    for index in range(len(parts)):
+        if index != cloze_index and clean(parts[index]):
+            return index
+    return -1
+
+
+def render_cloze(raw, ordinal):
+    """Build one cloze card's two faces out of the note's cloze field.
+
+    Returns (question, answer, offset, length) with the offsets in codepoints
+    into `answer`, or None when this ordinal has no hole in the text -- which
+    happens when someone edits a cloze out and Anki leaves the card behind as
+    an empty one. Skipping it is what Anki's own "Empty cards" does; showing
+    it would put a question with no hole and its own answer on one face.
+
+    The two faces follow Anki's {{cloze:}} exactly: on the question the target
+    ordinal's holes become [...] (or [hint]), and every OTHER ordinal is shown
+    filled in, because those are context this card is not testing. On the
+    answer every hole is filled and the target is the one marked.
+    """
+    if not CLOZE_SPAN_RE.search(raw):
+        return None
+
+    question_parts, answer_parts = [], []
+    prefix_raw, target_raw = None, None
+    last = 0
+    found = False
+    for match in CLOZE_SPAN_RE.finditer(raw):
+        between = raw[last : match.start()]
+        question_parts.append(between)
+        answer_parts.append(between)
+        text, hint = match.group(2), match.group(3)
+        if int(match.group(1)) == ordinal:
+            if not found:
+                # Where the answer's marked span begins, measured the way
+                # clean_sentence measures it: on the CLEANED prefix, because
+                # stripping tags moves every offset after it.
+                prefix_raw = "".join(answer_parts)
+                target_raw = text
+                found = True
+            question_parts.append(f"[{hint}]" if hint else CLOZE_BLANK)
+        else:
+            question_parts.append(text)
+        answer_parts.append(text)
+        last = match.end()
+    question_parts.append(raw[last:])
+    answer_parts.append(raw[last:])
+
+    if not found:
+        return None
+
+    question = clean("".join(question_parts))
+    answer = clean("".join(answer_parts))
+    if not question or not answer:
+        return None
+
+    before = clean(prefix_raw)
+    target = clean(target_raw)
+    offset = answer.find(target, max(0, len(before) - 2)) if target else -1
+    if offset < 0 or not target:
+        return question, answer, 0, 0
+    return question, answer, len(answer[:offset]), len(target)
 BOLD_RE = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
 SOUND_RE = re.compile(r"\[sound:[^\]]*\]")
@@ -376,6 +498,50 @@ def deck_config_for(db, deck_name):
     return parse_deck_config(row[0]) if row else {}
 
 
+def make_note(
+    cid,
+    nt_name,
+    fields,
+    bold,
+    data,
+    due,
+    ivl,
+    ctype,
+    queue,
+    left,
+    reps,
+    lapses,
+    last_review_day,
+):
+    """One note record, however it was built. The vocabulary path and the cloze
+    path fill `fields` differently and agree on everything else, and the
+    everything-else is the scheduling state -- which is the half that must not
+    drift between them."""
+    memory = {}
+    if data:
+        try:
+            memory = json.loads(data)
+        except ValueError:
+            memory = {}
+    assert len(fields) == len(DEVICE_FIELDS), fields
+    return {
+        "ankiCardId": cid,
+        "noteType": nt_name,
+        "fields": fields,
+        "bold": bold,
+        "stability": float(memory.get("s", 0.0)),
+        "difficulty": float(memory.get("d", 0.0)),
+        "due": due,
+        "ivl": ivl,
+        "ctype": ctype,
+        "queue": queue,
+        "left": left,
+        "reps": reps,
+        "lapses": lapses,
+        "lastReviewDay": last_review_day,
+    }
+
+
 def collect_notes(db, deck_name, limit=None, override=None):
     # A card sitting in a filtered deck (Custom Study) has did = the filtered
     # deck and odid = the deck it came from. Joining on did alone dropped every
@@ -474,9 +640,16 @@ def collect_notes(db, deck_name, limit=None, override=None):
             if counts.get(ordinal, 0) <= total * 0.05
         }
 
+    # ord -> field name, per note type: the cloze path needs the names in
+    # order and `ordinals` is keyed the other way.
+    names_in_order = {
+        nt: [name for name, _ in sorted(by_name.items(), key=lambda kv: kv[1])]
+        for nt, by_name in ordinals.items()
+    }
+
     USED_PROFILES.clear()
     announced = set()
-    notes, skipped, cloze_skipped = [], 0, 0
+    notes, skipped, cloze_empty = [], 0, 0
     for (
         cid,
         flds,
@@ -494,14 +667,72 @@ def collect_notes(db, deck_name, limit=None, override=None):
         profile = PROFILES.get(nt_name)
         if profile:
             USED_PROFILES.setdefault(nt_name, dict(profile))
-        if not profile:
-            # By name, and by content: a renamed cloze type would otherwise fall
-            # through to the generic profile and put the raw markup -- answer
-            # included -- on the question face. Leaking the answer is the worst
-            # thing a flashcard converter can do.
-            if "cloze" in nt_name.lower() or CLOZE_RE.search(flds):
-                cloze_skipped += 1
+        # By name, and by content: a renamed cloze type still has to take the
+        # cloze path, because the generic profile would put the raw markup --
+        # answer included -- on the question face, and leaking the answer is
+        # the worst thing a flashcard converter can do.
+        if not profile and ("cloze" in nt_name.lower() or CLOZE_RE.search(flds)):
+            parts = flds.split("\x1f")
+            cloze_index = cloze_field_index(parts)
+            if cloze_index < 0:
+                skipped += 1
                 continue
+            # Anki numbers a cloze card's template ordinal from zero and its
+            # cloze from one, so this card is the hole {{c<ord+1>::}}.
+            rendered = render_cloze(parts[cloze_index], card_ord + 1)
+            if rendered is None:
+                cloze_empty += 1
+                continue
+            question, answer, bold_off, bold_len = rendered
+            extra_index = cloze_extra_index(
+                parts, cloze_index, names_in_order.get(nt_name, [])
+            )
+            extra = clean(parts[extra_index]) if extra_index >= 0 else ""
+            if nt_name not in announced:
+                announced.add(nt_name)
+                field_names = names_in_order.get(nt_name, [])
+                cloze_name = (
+                    field_names[cloze_index]
+                    if cloze_index < len(field_names)
+                    else f"field {cloze_index}"
+                )
+                print(
+                    f"  note type {nt_name!r} is cloze; the hole comes from"
+                    f" {cloze_name!r}"
+                    + (
+                        f", the extra from {field_names[extra_index]!r}"
+                        if 0 <= extra_index < len(field_names)
+                        else ""
+                    )
+                )
+            notes.append(
+                make_note(
+                    cid,
+                    nt_name,
+                    [
+                        "",  # headword: a cloze card's question is the sentence
+                        "",
+                        extra,
+                        "",
+                        answer,
+                        "",
+                        "",
+                        question,
+                    ],
+                    (bold_off, bold_len),
+                    data,
+                    due,
+                    ivl,
+                    ctype,
+                    queue,
+                    left,
+                    reps,
+                    lapses,
+                    last_review.get(cid, -1),
+                )
+            )
+            continue
+        if not profile:
             in_order = (
                 sorted(ordinals.get(nt_name, {}), key=ordinals[nt_name].get)
                 if nt_name in ordinals
@@ -546,18 +777,11 @@ def collect_notes(db, deck_name, limit=None, override=None):
             continue
         sentence, bold_off, bold_len = clean_sentence(get("sentence"))
 
-        memory = {}
-        if data:
-            try:
-                memory = json.loads(data)
-            except ValueError:
-                memory = {}
-
         notes.append(
-            {
-                "ankiCardId": cid,
-                "noteType": nt_name,
-                "fields": [
+            make_note(
+                cid,
+                nt_name,
+                [
                     headword,
                     clean(get("reading")),
                     clean(get("meaning")),
@@ -565,26 +789,98 @@ def collect_notes(db, deck_name, limit=None, override=None):
                     sentence,
                     clean(get("sentenceReading")),
                     clean(get("sentenceMeaning")),
+                    "",  # clozeQuestion: empty is what makes this a vocabulary card
                 ],
-                "bold": (bold_off, bold_len),
-                "stability": float(memory.get("s", 0.0)),
-                "difficulty": float(memory.get("d", 0.0)),
-                "due": due,
-                "ivl": ivl,
-                "ctype": ctype,
-                "queue": queue,
-                "left": left,
-                "reps": reps,
-                "lapses": lapses,
-                "lastReviewDay": last_review.get(cid, -1),
-            }
+                (bold_off, bold_len),
+                data,
+                due,
+                ivl,
+                ctype,
+                queue,
+                left,
+                reps,
+                lapses,
+                last_review.get(cid, -1),
+            )
         )
-    if cloze_skipped:
+    if cloze_empty:
         print(
-            f"  {cloze_skipped} cloze card(s) skipped: a cloze front is text with a hole in it,"
-            f" and this format has nowhere to put a hole"
+            f"  {cloze_empty} empty cloze card(s) skipped: their hole is no longer in"
+            f" the text. Anki calls these empty cards and deletes them under"
+            f' Tools > "Empty Cards"'
         )
-    return notes, skipped + cloze_skipped
+    return notes, skipped + cloze_empty
+
+
+# study::kMaxNoteBytes. A record the device would refuse is a card that
+# silently does not appear, so the budget is enforced HERE, where there is
+# somewhere to print about it, rather than discovered on the reader.
+MAX_NOTE_BYTES = 1024
+
+
+def trim_to_bytes(text, budget):
+    """Cut `text` to at most `budget` UTF-8 bytes, on a codepoint boundary and
+    preferably on a word one, ending in a marker that says it was cut."""
+    if len(text.encode("utf-8")) <= budget:
+        return text
+    marker = "\u2026"
+    room = budget - len(marker.encode("utf-8"))
+    if room <= 0:
+        return ""
+    cut = text
+    while len(cut.encode("utf-8")) > room:
+        cut = cut[:-1]
+    spaced = cut.rsplit(" ", 1)[0]
+    # Only if that leaves most of the text: a Chinese sentence has no spaces
+    # and rsplit would throw the whole thing away.
+    if len(spaced) > len(cut) * 0.6:
+        cut = spaced
+    return cut.rstrip() + marker
+
+
+def enforce_note_budget(notes):
+    """Bring every record inside what StudyDeck can read.
+
+    The device rejects an oversized record outright, which shows up as a card
+    that is simply not there -- the worst failure mode available, because
+    nothing on the reader can say why. Trimming loses the tail of one long
+    note instead, visibly, and says how many it did.
+
+    Trimmed by water-filling: the longest field comes down to the second
+    longest, then both come down together, and so on. Taking the whole
+    overflow out of the single longest field is the obvious loop and it is
+    wrong for exactly the note kind this exists for -- a cloze card's question
+    and answer are the same sentence twice, so they are always the two longest
+    fields and always within a few bytes of each other, and the obvious loop
+    empties one of them completely while leaving the other untouched.
+    """
+    # Two length bytes per field, one NUL per field on the device, the two
+    # emphasis bytes that ride inside the sentence field, and one spare.
+    overhead = 3 * len(DEVICE_FIELDS) + 2 + 1
+    trimmed = 0
+    for note in notes:
+        fields = note["fields"]
+        sizes = [len(f.encode("utf-8")) for f in fields]
+        if sum(sizes) + overhead <= MAX_NOTE_BYTES:
+            continue
+        budget = MAX_NOTE_BYTES - overhead
+        # The cap that makes the fields fit: every field longer than `cap`
+        # comes down to it, everything shorter is left alone. Searched
+        # downward one byte at a time -- at most MAX_NOTE_BYTES steps over
+        # eight numbers, and only for a note that is actually over, which is
+        # cheaper than it looks and is obviously right, which the closed form
+        # was not.
+        cap = budget
+        while cap > 0 and sum(min(size, cap) for size in sizes) > budget:
+            cap -= 1
+        for i, size in enumerate(sizes):
+            if size > cap:
+                fields[i] = trim_to_bytes(fields[i], cap)
+                trimmed += 1
+        # The emphasis span points into the sentence by codepoint; once that
+        # has been cut the span can point past the end of it.
+        note["bold"] = (0, 0)
+    return trimmed
 
 
 def write_deck(notes, path):
@@ -594,14 +890,22 @@ def write_deck(notes, path):
         payload = bytearray()
         for i, text in enumerate(note["fields"]):
             encoded = text.encode("utf-8")
-            if i == 4:
+            if i == FIELD_ORDER.index("sentence"):
                 # The two emphasis bytes ride inside the sentence field's
                 # length, so a reader that ignores them still sees valid text.
                 # Appended *unconditionally*, including as (0, 0): if they were
                 # only present when Anki had a <b>, the reader could not tell a
                 # sentence ending in two low bytes from one carrying a span,
                 # and would chop two bytes off the wrong records.
-                encoded += bytes((min(note["bold"][0], 255), min(note["bold"][1], 255)))
+                # Dropped, not clamped, when it will not fit a byte: a
+                # clamped offset points at the wrong word, and underlining the
+                # wrong word is worse than underlining none. Cloze answers are
+                # what made this reachable -- a vocabulary example sentence is
+                # never 255 codepoints long, a cloze paragraph can be.
+                off, span = note["bold"]
+                if off > 255 or span > 255:
+                    off, span = 0, 0
+                encoded += bytes((off, span))
             if len(encoded) > 0xFFFF:
                 encoded = encoded[:0xFFFF]
             payload += struct.pack("<H", len(encoded)) + encoded
@@ -610,7 +914,7 @@ def write_deck(notes, path):
 
     with open(path, "wb") as f:
         f.write(DECK_MAGIC)
-        f.write(struct.pack("<HBBI", FORMAT_VERSION, len(FIELD_ORDER), 0, len(notes)))
+        f.write(struct.pack("<HBBI", FORMAT_VERSION, len(DEVICE_FIELDS), 0, len(notes)))
         base = len(DECK_MAGIC) + 8 + 4 * len(index)
         f.write(b"".join(struct.pack("<I", base + off) for off in index))
         f.write(blob)
@@ -872,8 +1176,8 @@ def main():
     if not notes:
         sys.exit(
             f"no convertible cards in '{args.deck}'. Cards convert when their note type"
-            f" has a profile ({', '.join(PROFILES)}), or generically by field order --"
-            f" only cloze cards cannot. If the generic guess picked the wrong fields,"
+            f" has a profile ({', '.join(PROFILES)}), generically by field order, or"
+            f" as cloze. If the generic guess picked the wrong fields,"
             f" name them: --map headword=Word --map meaning=Definition"
         )
     config = deck_config_for(db, args.deck)
@@ -881,6 +1185,7 @@ def main():
 
     args.out.mkdir(parents=True, exist_ok=True)
     name = args.name or args.deck.split("::")[-1]
+    over_budget = enforce_note_budget(notes)
     blob_size = write_deck(notes, args.out / "deck.dat")
     write_cards(
         notes,
@@ -906,6 +1211,11 @@ def main():
         f" ({learned} with scheduling state{replay_note}, {skipped} skipped)"
     )
     print(f"  content   {blob_size / 1024:.0f} KB")
+    if over_budget:
+        print(
+            f"  trimmed   {over_budget} field(s) too long for one card"
+            f" ({MAX_NOTE_BYTES} bytes); the tail is marked with an ellipsis"
+        )
     print(f"  state     {len(notes) * CARD_RECORD_SIZE / 1024:.0f} KB")
     print(
         f"  glyphs    {glyphs['headword']} headword, {glyphs['sentence']} sentence, {glyphs['latin']} latin"

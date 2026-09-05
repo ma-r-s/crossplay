@@ -104,18 +104,33 @@ def main():
             f"anki_to_deck failed on the unwrapped export:\n{result.stdout}\n{result.stderr}",
         )
         ok(
-            "33 cards" in result.stdout,
-            f"expected 33 converted cards in:\n{result.stdout}",
+            "34 cards" in result.stdout,
+            f"expected 34 converted cards in:\n{result.stdout}",
         )
         ok(
-            "1 skipped" in result.stdout,
-            f"expected the cloze note skipped in:\n{result.stdout}",
+            "0 skipped" in result.stdout,
+            f"expected nothing skipped in:\n{result.stdout}",
         )
 
         notes = dict(check_deck.read_deck(deck_out / "deck.dat"))
-        ok(len(notes) == 33, f"deck.dat holds {len(notes)} notes, wanted 33")
+        ok(len(notes) == 34, f"deck.dat holds {len(notes)} notes, wanted 34")
         headwords = {fields[0] for fields in notes.values()}
         ok("incontrovertible" in headwords, "a known headword is missing from deck.dat")
+
+        # The cloze note is a card now, and it is a card with a hole: the
+        # question face must not contain the word the answer face reveals.
+        cloze_notes = [f for f in notes.values() if len(f) > 7 and f[7]]
+        ok(len(cloze_notes) == 1, f"expected one cloze card, got {len(cloze_notes)}")
+        question, answer = cloze_notes[0][7], cloze_notes[0][4]
+        ok(
+            "ubiquitous" not in question,
+            f"the cloze question face gives away its answer: {question!r}",
+        )
+        ok("[...]" in question, f"the cloze question has no hole: {question!r}")
+        ok(
+            "ubiquitous" in answer,
+            f"the cloze answer face does not fill the hole: {answer!r}",
+        )
 
         # The Barron's-shaped note type: field NAMES must win over position,
         # or every answer face reads "V." instead of the definition.
