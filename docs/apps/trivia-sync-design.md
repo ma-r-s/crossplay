@@ -852,6 +852,25 @@ is the entire point of the card. **Publish the manifest as a release asset besid
 `pack.dat`, in the same upload**, so they cannot skew; the site function reads it
 rather than owning it.
 
+## What was built
+
+Mario's call, relayed 2026-09-05: build the whole thing now -- service, endpoint,
+reporting UI and sync -- having heard the "the loop has never run locally"
+finding and wanting it anyway. The reordering below survived as sequence inside
+one effort rather than as a gate.
+
+| Step | Where |
+| --- | --- |
+| The extraction tool, and the stale `flags.txt` doc | `tools_local/trivia/collect_flags.py`, `reports.py`, `test_collect_flags.py` |
+| Pack id, manifest, index map, `pack.meta` | `tools_local/trivia/manifest.py`, both builders, `test_manifest.py` |
+| The report endpoint | `site/api/trivia.js`, `host-tests/site/trivia_fn.js`, migration `20260905000400` |
+| Device queue, `pack.meta`, manifest reader | `src/apps_local/trivia/TriviaReport.{h,cpp}`, `host-tests/trivia/test_report.cpp` |
+| Report UI, `HIDE` in solo, `WHY?`, `UNDO`, SETTINGS rows, SYNC | `TriviaScreens.{h,cpp}`, `TriviaActivity.{h,cpp}` |
+
+Two things deliberately not done, because neither is ours to do unilaterally:
+the migration is **not applied** to Mario's Supabase, and the function is **not
+deployed** -- it goes live on a site deploy. D3b's overlay is still phase two.
+
 ## Order of work
 
 

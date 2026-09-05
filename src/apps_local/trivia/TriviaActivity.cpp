@@ -45,6 +45,22 @@ constexpr const char* kReportsPath = "/trivia/reports.dat";
 // rule: the device never brings the radio up to report. The headers that
 // identify it are attached by bridge::identify() and are the SAME ones every
 // other service already receives -- nothing new about a reader is sent.
+// TLS, and the answer is not the obvious one. This host is the SITE, on Vercel,
+// and unlike read./sync.ma-r-s.com it is NOT proxied through Cloudflare -- so it
+// does not present the Google Trust chain that StudySyncRoots.h's bundle was
+// assembled for. Checked rather than assumed, 2026-09-05:
+//
+//   read./sync.  leaf -> GTS WE1 -> GTS Root R4          (in the bundle)
+//   this host    leaf -> LE YR2  -> ISRG Root YR
+//                                 which is CROSS-SIGNED BY ISRG Root X1
+//
+// The server sends all three, and that third certificate terminates the chain
+// at ISRG Root X1, which the bundle does carry. Verified with the bundle's two
+// ISRG roots alone. So this works today with no trust change -- but it works
+// because of a cross-signature Let's Encrypt controls, not because the root is
+// trusted directly. If SYNC ever fails on TLS and nothing else changed, this is
+// the first thing to re-check: drop a newer bundle at the path below, which
+// wins over the baked copy and needs no reflash.
 constexpr bridge::Endpoint kReportEndpoint = {
     "crossplay.ma-r-s.com",
     "TRIVIASYNC",
@@ -549,8 +565,13 @@ void TriviaActivity::runSync() {
     std::snprintf(num, sizeof(num), "%u", static_cast<unsigned>(reports_.packCount()));
     body += num;
     body += ",\"reports\":[";
+    // The exact range this request covers, snapshotted BEFORE it is built. Using
+    // count() again after the response would mark entries that were never in
+    // the body as delivered, and those reports would be lost with nothing
+    // anywhere recording it.
+    const uint32_t upTo = reports_.count();
     uint32_t written = 0;
-    for (uint32_t i = reports_.sent(); i < reports_.count(); ++i) {
+    for (uint32_t i = reports_.sent(); i < upTo; ++i) {
       uint32_t index = 0;
       trivia::Reason reason = trivia::Reason::None;
       if (!reports_.entry(i, index, reason)) continue;
@@ -579,9 +600,17 @@ void TriviaActivity::runSync() {
       // Marks the entries that were BUILT INTO THIS REQUEST as sent, not the
       // whole queue: a report filed while the request was in flight sits after
       // this point and must survive its success.
-      reports_.markSent(reports_.count());
+      reports_.markSent(upTo);
       delivered = written;
       LOG_INF("TRIVIA", "Sent %u report(s)", static_cast<unsigned>(delivered));
+      // A queue that was FOREIGN -- undelivered reports about an older build --
+      // is now fully delivered, so it can be reused for the pack this card
+      // actually holds. Without this it stays foreign until the app is next
+      // opened, and every report filed in the rest of the session is silently
+      // dropped by fileReport's pack-id guard.
+      if (meta_.valid && std::strcmp(reports_.packId(), meta_.id) != 0) {
+        reports_.open(g_reportSource, meta_.id, pack_.count());
+      }
     } else {
       // Nothing is marked, so they go again next time. A failed send must never
       // cost a report: the player cannot file it twice.

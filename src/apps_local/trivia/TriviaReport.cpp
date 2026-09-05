@@ -181,9 +181,32 @@ QueueOpen ReportQueue::open(WritableByteSource& source, const char* packId, cons
     sent_ = storedSent;
     return QueueOpen::Foreign;
   }
+  // Reusing a fully delivered queue for a DIFFERENT pack. The file cannot
+  // shrink, so its old entries are still there, and they are about questions
+  // that are no longer at those indices. They must be neutralised, not merely
+  // stepped over:
+  //
+  //   * leaving them and rewriting the header would present them as PENDING
+  //     reports for the new pack the next time this file is opened, because
+  //     `stored` comes from the file's size and `sent` would have been reset to
+  //     zero. That sends old indices under a new pack id -- exactly the
+  //     mislabelling this whole class exists to prevent;
+  //   * leaving them and setting the cursor past them fixes the sending, but
+  //     find() would still match one by index, and add() treats a match below
+  //     the cursor as already reported -- so the first report of a question
+  //     that happens to share an index with an old entry would be silently
+  //     dropped.
+  //
+  // Tombstoning is the only option that is correct on both paths. Bounded by
+  // kMaxQueuedReports, so it is at most 64 eight-byte writes.
   source_ = &source;
-  count_ = 0;
-  sent_ = 0;
+  for (uint32_t i = 0; i < stored; ++i) {
+    uint8_t rec[kReportEntryBytes] = {};
+    writeU32(rec, kWithdrawnIndex);
+    if (!source.write(entryOffset(i), rec, kReportEntryBytes)) return QueueOpen::Unusable;
+  }
+  count_ = stored;
+  sent_ = stored;
   return writeHeader() ? QueueOpen::Started : QueueOpen::Unusable;
 }
 

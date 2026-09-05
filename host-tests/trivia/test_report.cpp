@@ -133,8 +133,30 @@ void testForeignQueueIsNotRelabelled() {
   CHECK(after.markSent(after.count()));
   ReportQueue fresh;
   CHECK(fresh.open(card, "newpack00002", 60) == QueueOpen::Started);
-  CHECK(fresh.count() == 0);
+  CHECK(fresh.pending() == 0);
   CHECK(std::strcmp(fresh.packId(), "newpack00002") == 0);
+
+  // THE FILE CANNOT SHRINK, so the old entries are still in it. Reopening must
+  // not resurrect them as pending reports for the new pack -- `stored` comes
+  // from the file's SIZE, so a plain header rewrite would do exactly that the
+  // next time this file is opened.
+  ReportQueue reopened;
+  CHECK(reopened.open(card, "newpack00002", 60) == QueueOpen::Ready);
+  CHECK(reopened.pending() == 0);
+  for (uint32_t i = 0; i < reopened.count(); ++i) {
+    uint32_t idx = 0;
+    Reason r = Reason::Count;
+    CHECK(reopened.entry(i, idx, r) && idx == kWithdrawnIndex);
+  }
+
+  // And an old entry's index must not shadow a NEW report of the question that
+  // now sits there: add() treats a match below the cursor as already reported,
+  // so a surviving entry would silently swallow the first real report.
+  CHECK(reopened.add(7, Reason::Nonsense));
+  CHECK(reopened.pending() == 1);
+  uint32_t idx = 0;
+  Reason r = Reason::Count;
+  CHECK(reopened.entry(reopened.count() - 1, idx, r) && idx == 7 && r == Reason::Nonsense);
 }
 
 // A same-count replacement is the case the device cannot otherwise see. The id
@@ -455,6 +477,6 @@ int main() {
   testFreshness();
   testReasonCodesArePinned();
 
-  std::printf("%d checks, %d failures\n", checks, failures);
+  std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;
 }
