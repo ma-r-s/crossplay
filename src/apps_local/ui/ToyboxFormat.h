@@ -5,17 +5,19 @@
 // A tile must show the whole text, no exceptions. snprintf does not overrun --
 // it CUTS -- so a buffer that is one byte short is not a crash, it is a
 // shortened string on the panel with nothing to say it was shortened. That is
-// exactly the defect these constants exist to prevent, and it shipped eleven
-// times because every one of those buffers was a number that looked roomy.
+// exactly the defect these constants exist to prevent, and card 256 found it
+// twenty-two times over twelve apps, every one of them a number that looked
+// roomy at the time it was typed.
 //
 // So: size a buffer as (the ints it can carry * kIntChars) + the format's own
 // literal characters + the terminator. Written that way the size IS the
 // derivation, so changing the format changes the buffer, and a format that
 // outgrows its buffer stops compiling instead of quietly truncating.
 //
-// The class was invisible for a year: clang has no -Wformat-truncation in any
-// form, and the three GCC suites that could have seen it passed
-// -Wno-format-truncation. Those flags are gone; keep them gone.
+// The class was invisible on this Mac entirely: clang has no
+// -Wformat-truncation in any form, and the three GCC suites that could have
+// seen it all passed -Wno-format-truncation. Those flags are gone; keep them
+// gone. See host-tests/ui/run.sh, and card 270 for the -O level it still needs.
 //
 // Freestanding, like the rest of ui/: no renderer, no device, no Arduino.
 

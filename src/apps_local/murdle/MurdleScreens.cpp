@@ -446,12 +446,13 @@ void drawCastBlocks(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rec
         // is whatever murdletext wrote into a kLineMax buffer, so it gets a
         // whole one; a line cut here would be a shortened fact on the case
         // file, which is the one page a player reads to solve the thing.
-        constexpr int kCastLineChars = 1                                 // %c, the axis letter
-                                       + murdletext::kLabelMax           // %s, the label
-                                       + toybox::literalChars("with ")   // %s, the preposition or ""
-                                       + (murdletext::kLineMax - 1)      // %s, the detail
-                                       + toybox::literalChars("    ()")  // the format's own characters
-                                       + 1;                              // the terminator
+        constexpr int kCastLineChars = 1                                // %c, the axis letter
+                                       + murdletext::kLabelMax          // %s, the label
+                                       + toybox::literalChars("with ")  // %s, the preposition or ""
+                                       + (murdletext::kLineMax - 1)     // %s, the detail
+                                       + toybox::literalChars("  ") + toybox::literalChars("  (") +
+                                       toybox::literalChars(")")  // the format's own characters
+                                       + 1;                       // the terminator
         char line[kCastLineChars];
         // A SUSPECT IS ONE LINE, THE SAME SHAPE AS EVERY OTHER FIXTURE, and
         // that is what makes the whole cast fit one page at every tier. It used
