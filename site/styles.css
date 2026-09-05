@@ -295,6 +295,20 @@ section.tight {
   padding-block: 0.4rem;
   border-bottom: 1px solid transparent;
 }
+/* A bar is one line high. A label that wraps inside it is 49px of text in a
+ * 50px box, which is what ANKI DECKS did at 320, 390 and 414, and INSTALL THE
+ * FIRMWARE did on /study/ at the same widths.
+ *
+ * Scoped to .has-menu, and that scope is the point. Unscoped, this rule made
+ * the no-script bar WORSE rather than leaving it alone: with the links still
+ * inline and no longer allowed to wrap, at 320px the last one ran to x=339 past
+ * a 320px viewport, and .topbar is position:fixed, so there is no scrollbar to
+ * reach it with -- the GitHub link simply could not be got at. Wrapping is ugly
+ * and reachable; overflowing a fixed bar is neither. Where the panel exists,
+ * nothing needs to wrap. */
+.topbar.has-menu .topnav a {
+  white-space: nowrap;
+}
 .topnav a:hover,
 .topnav a:focus-visible {
   color: var(--ink);
@@ -309,16 +323,68 @@ section.tight {
 .topnav-out svg {
   display: block;
 }
-/* The section jumps go first on a narrow bar; the source link and the action
- * are the two that survive. */
+/* --- the narrow bar ------------------------------------------------------
+ * Five labels of this length cannot share one line at 320px, and the bar used
+ * to answer that by dropping THE SHELF and PLAY NEARBY -- the two that lead to
+ * what the site is for -- and keeping ANKI DECKS, which then wrapped to two
+ * lines anyway. So below 720px the bar carries the name and one control, and
+ * every link moves into a panel under it where each has a line of its own.
+ *
+ * .has-menu is added by assets/topnav.js. Without it the bar keeps the old
+ * inline row, so a page whose scripts did not run is no worse off than it was
+ * rather than left with an inert button and no links at all.
+ */
+.topnav-toggle {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: none;
+  border: 1px solid var(--edge);
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  white-space: nowrap;
+  display: none;
+}
+.topnav-toggle[aria-expanded="true"] {
+  border-color: var(--ink);
+}
+
 @media (max-width: 720px) {
-  .topnav a[href="#shelf"],
-  .topnav a[href="#nearby"] {
+  .topbar.has-menu .topnav-toggle {
+    display: block;
+  }
+  .topbar.has-menu .topnav {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0.2rem var(--gutter) 0.6rem;
+    background: var(--paper);
+    border-bottom: 1px solid var(--edge);
+    font-size: 0.75rem;
+  }
+  .topbar.has-menu .topnav.is-open {
+    display: flex;
+  }
+  .topbar.has-menu .topnav a {
+    padding-block: 0.75rem;
+  }
+  /* Without the script the old bar is what is left, and the section jumps are
+   * the two it can afford to drop. */
+  .topbar:not(.has-menu) .topnav a[href="#shelf"],
+  .topbar:not(.has-menu) .topnav a[href="#nearby"] {
     display: none;
   }
 }
 @media (max-width: 380px) {
-  .topnav-out span {
+  .topbar:not(.has-menu) .topnav-out span {
     display: none;
   }
 }

@@ -410,6 +410,102 @@ by `tools_local/site/build_esptool.sh`. Edit the script, never the file. At
 presses Install; it sits under the ~1MB line where `precompress.py` starts
 mattering, and does not want a `Content-Encoding` of its own.
 
+## The top bar on a phone
+
+Five labels do not share one line at 320px, and the bar is one line high. Until
+2026-09-05 the stylesheet answered that below 720px by hiding `THE SHELF` and
+`PLAY NEARBY` -- the two links that lead to what the site is for -- and keeping
+`ANKI DECKS`, which then wrapped to two 49px lines inside a 50px bar at 320,
+390 and 414 anyway. `/study/` did the same with `INSTALL THE FIRMWARE`.
+
+So below 720px the bar carries the wordmark and a `Menu` button, and every link
+moves into a panel under it with a line each. Three files have to agree and
+none of them imports another:
+
+- `index.html` and `study/index.html` carry the `.topnav-toggle` button, give
+  the `<nav>` the id its `aria-controls` names, and load the script;
+- `assets/topnav.js` adds `.has-menu` to the bar and toggles `.is-open` on the
+  nav;
+- `styles.css` decides what those two classes mean.
+
+`.has-menu` comes from the script rather than the markup on purpose: a page
+whose scripts did not run keeps the plain inline bar instead of a button that
+opens nothing. **`white-space: nowrap` is scoped to `.topbar.has-menu` for the
+same reason.** Unscoped it made the no-script bar worse rather than leaving it
+alone: links still inline and no longer allowed to wrap, the last one running
+to x=339 past a 320px viewport, and `.topbar` is `position: fixed`, so there
+was no scrollbar to reach it with. Wrapping is ugly and reachable; overflowing
+a fixed bar is neither.
+
+The close listener is on the **bar**, not the panel. The wordmark is an anchor
+inside `.topbar` and outside `.topnav`, so a listener on the panel alone let it
+jump the page and leave the panel covering the heading it had jumped to. Escape
+hands focus back to the toggle, because `display: none` on the nav drops the
+caret on `BODY` and the next Tab restarts at the top of the document; a close
+caused by a click or a jump deliberately does not, since the person is already
+somewhere else.
+
+`host-tests/site/run.sh` checks both pages against the script, `aria-controls`
+against the element it names, and every class the script writes against the
+stylesheet's **selectors** -- `host-tests/site/css_selectors.py`, comments and
+`:not()` contents stripped. Grepping the whole file was answered YES by the
+sentence " * .has-menu is added by assets/topnav.js" in a comment, and a
+reviewer renamed all four real rules with the suite still green and the bar
+broken. What the suite cannot see is behaviour: the wordmark case and the focus
+return were measured in a browser at 390x844.
+
+The breakpoint lives only in `styles.css`. The script closes the panel by
+asking whether the button still has an `offsetParent`, not by comparing a width
+it would have to keep in step.
+
+## One release request per page
+
+The Install button names the version and the report form uses it as the version
+field's placeholder. Both asked GitHub themselves for a day, which put two
+identical requests on every front-page load against an unauthenticated limit of
+60 an hour per IP -- the very limit `assets/install.js`'s own comment gives as
+the reason it asks from the visitor's browser rather than from `/api/firmware`.
+
+`assets/release.js` is the single asker: it publishes `window
+.crossplayLatestRelease()`, memoised, never rejecting. Load it **before** the
+scripts that call it. The suite checks that neither caller has gone back to
+fetching for itself, and that every page carrying one loads the helper first.
+
+## The study wizard is one step at a time, not one screen
+
+`study/study.css` sizes the wizard to the window when the step fits and lets
+the page scroll when it does not. It used to clamp to `100vh` and clip:
+`.wiz-step` was `position: absolute` inside a `min-height: 0` row, so a step
+taller than the window was cropped by the row rather than growing the page.
+At 1440x900 the step-2 `Next` button hung 29 of its 45 pixels below the cut --
+`document.elementFromPoint` at the button's own centre returned `.wiz-foot` --
+and at 1280x720 none of it was on screen while `scrollHeight` equalled
+`innerHeight`, so the page reported nothing more to see and looked finished
+with the form cut mid-select.
+
+The steps stack in one grid cell now and stay in flow. Two consequences worth
+knowing before editing:
+
+- The emulator panel's height is capped by `--preview-chrome`, not by the box
+  around it. That cap used to be irrelevant, because the box cropped the panel
+  first; it is now the only thing sizing it. It is **not** a constant: the
+  foot's one sentence wraps on a narrower window, so the chrome measures 274px
+  where it fits on one line and 285px at 1100x700 where it does not. The token
+  is the worst case (15rem), which is why 12.5rem and then 14rem were both
+  wrong. Re-run the sweep if the foot's wording changes. Below 650px tall the
+  step scrolls whatever this is set to, because the side column's own text is
+  taller than the window -- do not chase those sizes with the token.
+- A step change resets the page scroll, in `study.js`'s `goTo()`. The page is
+  the scroll container now; the step box was, and its own `scrollTop` reset
+  went quietly dead when the box stopped clipping.
+- Reachability is a browser question. The suite checks the mechanism -- that
+  the step is in flow and the page may grow -- and cannot see whether a control
+  can be clicked. `host-tests/site/study_layout.py` says so in its own header.
+  It asserts PROPERTIES, not spellings: the first version forbade three exact
+  declarations and a reviewer restored the identical breakage through three
+  others with nothing reported. Reachability itself is measured with
+  `elementFromPoint` and a real click, the way the bug was found.
+
 ## The rules this page follows
 
 `docs/identity.md` governs the copy and the look, and it is worth reading before

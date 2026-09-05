@@ -50,7 +50,7 @@
   <div class="report-row">
     <div class="report-field">
       <label class="report-label" for="report-version">Firmware version <small>(optional)</small></label>
-      <input type="text" id="report-version" name="version" inputmode="decimal" placeholder="1.12.9" autocomplete="off">
+      <input type="text" id="report-version" name="version" inputmode="decimal" placeholder="" autocomplete="off">
       <p class="report-hint">Settings &gt; About on the device.</p>
     </div>
     <div class="report-field">
@@ -130,6 +130,22 @@
     });
   }
 
+  // The version field's placeholder is the version the site is shipping, asked
+  // for rather than typed here: a number written into this file is right on the
+  // day it is written and wrong at the next release, and this one had drifted
+  // eleven releases behind before anyone noticed. Same source as the Install
+  // button, so the two can never disagree. A failed fetch leaves the field
+  // blank -- the hint under it already says where to find the number -- because
+  // an empty placeholder is better than a confidently wrong one.
+  function fillVersionPlaceholder(version) {
+    if (version.value) return; // ?v= already said which
+    if (!window.crossplayLatestRelease) return;
+    window.crossplayLatestRelease().then(function (data) {
+      if (!data || !data.tag_name || version.value) return;
+      version.placeholder = String(data.tag_name).replace(/^v/, "");
+    });
+  }
+
   // Draws the form into `root` and wires it. Returns the handful of things a
   // host page needs: where to put focus, whether a report has been sent, and
   // how to start over.
@@ -179,6 +195,7 @@
     if (q.get("kind") === "idea")
       form.querySelector('input[name="kind"][value="idea"]').checked = true;
     if (q.get("app")) app.value = q.get("app");
+    fillVersionPlaceholder(version);
 
     photo.addEventListener("change", function () {
       var f = photo.files && photo.files[0];

@@ -1,15 +1,47 @@
-/* The Study installer, as a wizard: one viewport, no page scroll, one step
-   at a time. Shared tokens come from /styles.css; everything here is layout
-   and the handful of components the installer owns. Logs scroll inside
-   their own panes; the page itself never does. */
+/* The Study installer, as a wizard: one step at a time, sized to the viewport
+   when it fits and scrolling the page when it does not. Shared tokens come
+   from /styles.css; everything here is layout and the handful of components
+   the installer owns. Logs scroll inside their own panes.
+
+   It used to clamp the page to 100vh and clip: the step was position:absolute
+   inside a min-height:0 row, so on a 900px-tall window the step-2 "Next" button
+   hung 29 of its 45 pixels below the clip and elementFromPoint at its own
+   centre returned the footer. At 720px tall none of it was on screen and the
+   document reported no scrollable height at all, so the page looked finished.
+   Everything in a step is in normal flow now, and the page scrolls when the
+   step is taller than the window. */
 
 .study-body {
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  /* Everything the wizard puts above and below the emulator: the top bar, the
+     title block, the stepper, the step's own padding and the foot. It is NOT a
+     constant -- the foot's one sentence wraps to two lines on a narrower
+     window -- so this is the worst case, not the typical one.
+
+     Measured at step 3 across 721x600 .. 1920x1080: the chrome is 274px where
+     the foot fits on one line and 285px at 1100x700 where it does not, which
+     needs 14.71rem. 12.5rem was the number before, and it was wrong at every
+     one of those sizes; nobody could tell, because the step box was
+     position:absolute and cropped the panel before the cap ever applied. 14rem
+     was the wide-window truth only, and left step 3 overflowing by 4 to 11px
+     between 721 and 1100. 15rem takes step 3's overflow to zero from 900x650
+     up, and costs the panel 16px of height at 1440x900.
+
+     BELOW 650px TALL IT STILL SCROLLS, AND NO VALUE HERE CAN STOP IT: at
+     721x600 the side column's own paragraph, buttons and status line come to
+     330px against a 310px panel, so the text is what exceeds the window. That
+     is the page doing exactly what this file was changed to let it do. Do not
+     shrink this token chasing those three sizes -- it will not move them, and
+     it will shrink the panel on every screen that was already fine.
+
+     If the foot's wording changes, re-run the sweep. Too large costs a
+     slightly smaller panel; too small puts a scrollbar on a step that did not
+     need one. Neither crops anything any more. */
+  --preview-chrome: 15rem;
 }
 
 .wizard {
-  height: calc(100vh - var(--bar));
+  min-height: calc(100vh - var(--bar));
   max-width: var(--wrap);
   margin-inline: auto;
   padding: 0 var(--gutter);
@@ -86,16 +118,20 @@
 
 /* --- the step area -------------------------------------------------------- */
 
+/* One cell, every step stacked in it. Only .is-current is displayed, so they
+   never collide; stacking them in a grid cell rather than with position:
+   absolute keeps the visible one in flow, which is what lets a tall step push
+   the page taller instead of being clipped by it. The 1fr row still fills the
+   window when the step is short, so a short step looks exactly as it did. */
 .wiz-body {
-  position: relative;
-  min-height: 0;
+  display: grid;
+  grid-template-rows: 1fr;
 }
 
 .wiz-step {
-  position: absolute;
-  inset: 0;
+  grid-area: 1 / 1;
+  min-width: 0;
   display: none;
-  overflow: auto; /* safety net on short screens; panes scroll first */
   padding: 0.9rem 0.1rem;
 }
 
@@ -351,9 +387,16 @@
   overflow: hidden;
 }
 
+/* --preview-chrome is everything the wizard puts above and below the panel:
+   the top bar, the title block, the stepper, the step's own padding and the
+   foot. 12.5rem was 1.5rem short of the truth (274px of chrome at 1440x900)
+   and nobody could tell, because the step box was position:absolute and
+   cropped the panel before its own cap ever applied. In flow the cap is what
+   decides, so it has to be the real number: too large now costs a short page
+   scroll instead of silently trimming the device. */
 .study-preview-frame {
   height: 100%;
-  max-height: calc(100vh - var(--bar) - 12.5rem);
+  max-height: calc(100vh - var(--bar) - var(--preview-chrome));
   aspect-ratio: 3 / 5;
   max-width: 100%;
   border: 1px solid var(--edge);
@@ -571,17 +614,7 @@
 /* --- small screens ---------------------------------------------------------- */
 
 @media (max-width: 720px) {
-  .study-body {
-    height: auto;
-    overflow: auto;
-  }
-
-  .wizard {
-    height: auto;
-  }
-
   .wiz-step {
-    position: static;
     padding: 0.7rem 0;
   }
 
