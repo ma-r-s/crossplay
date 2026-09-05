@@ -55,7 +55,7 @@ void SettingsActivity::rebuildSettingsLists() {
 
   // Filled by the loop, drained after the action rows below.
   std::vector<SettingInfo> forkSystemSettings;
-  forkSystemSettings.reserve(2);
+  forkSystemSettings.reserve(3);
 
   for (auto& setting : getSettingsList(&sdFontSystem.registry(), &dictionaries)) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
@@ -82,7 +82,8 @@ void SettingsActivity::rebuildSettingsLists() {
       // CrossPlay's own settings sort below every CrossPoint one. Held back
       // rather than pushed here, because the action rows below are appended
       // after this loop and would otherwise sit underneath them.
-      if (setting.valuePtr == &CrossPointSettings::deviceReport || setting.valuePtr == &CrossPointSettings::devMode) {
+      if (setting.valuePtr == &CrossPointSettings::deviceReport || setting.valuePtr == &CrossPointSettings::devMode ||
+          setting.valuePtr == &CrossPointSettings::triviaShowUsCentric) {
         forkSystemSettings.push_back(setting);
         continue;
       }

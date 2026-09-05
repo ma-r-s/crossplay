@@ -350,6 +350,11 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
         // whose owner turned that off must not come back on under a new key.
         SettingInfo::Toggle(StrId::STR_DEVICE_REPORT, &CrossPointSettings::deviceReport, "heartbeat",
                             StrId::STR_CAT_SYSTEM),
+        // Trivia ships international by default; this opts a US player back into
+        // the US-centric questions. A CrossPlay setting, held back by
+        // SettingsActivity so it renders below every CrossPoint one.
+        SettingInfo::Toggle(StrId::STR_TRIVIA_US_CENTRIC, &CrossPointSettings::triviaShowUsCentric,
+                            "triviaShowUsCentric", StrId::STR_CAT_SYSTEM),
         // Placed last by SettingsActivity, after the action rows, not by this
         // declaration order: it is the one setting that opens the device to
         // the network, so it should not sit next to a reading preference.
