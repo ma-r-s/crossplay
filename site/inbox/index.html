@@ -42,6 +42,8 @@
   .login label { display: block; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; }
   .login .answer { margin-top: 0; }
   .status { min-height: 1.4em; margin: 0.8rem 0 0; color: var(--muted); font-size: 0.95rem; }
+  .triage { margin: 0 0 0.8rem; color: var(--muted); font-size: 0.9rem; }
+  .triage b { color: var(--ink); font-weight: 600; }
   .status.err { color: var(--ink); font-weight: 600; }
   details { margin-top: 1.8rem; border-top: 1px solid var(--edge); padding-top: 0.8rem; }
   summary { cursor: pointer; font-weight: 600; }
@@ -128,6 +130,7 @@
     <h1>Inbox</h1>
     <span class="count" id="inbox-count"></span>
   </div>
+  <p class="triage col" id="inbox-triage" hidden></p>
 
   <section class="login" id="inbox-login" hidden>
     <label for="inbox-pass">Passphrase</label>
@@ -187,12 +190,27 @@
       $("inbox-login").hidden = true;
       say("");
       render();
+      triage(res.triage);
       loadNumbers();
     }).catch(function (err) {
       if (err.status === 401) { savePass(null); showLogin("That is not the passphrase."); return; }
       if (err.status === 503) { showLogin("The inbox is not set up on this deployment."); return; }
       say("Could not read the board: " + err.message, true);
     });
+  }
+
+  // One line on how far behind triage is: what waits in `reported`, the oldest
+  // of it, and when anything was last triaged. Bold once the oldest has waited
+  // a day; the question "is triage up to date?" once took a database query.
+  function hours(h) { return h >= 48 ? Math.round(h / 24) + " days" : h + " h"; }
+  function triage(t) {
+    var el = $("inbox-triage");
+    if (!t || typeof t.waiting !== "number") { el.hidden = true; return; }
+    var s = !t.waiting ? "Triage: nothing waiting."
+      : "Triage: " + t.waiting + (t.waiting === 1 ? " card" : " cards") + " waiting, oldest " + hours(t.oldest_h) +
+        (t.since_triage_h != null ? "; last triage " + hours(t.since_triage_h) + " ago" : "") + ".";
+    el.innerHTML = (t.waiting && t.oldest_h >= 24) ? "<b>" + esc(s) + "</b>" : esc(s);
+    el.hidden = false;
   }
 
   function pending() {

@@ -10,7 +10,8 @@
 // INBOX_PASSPHRASE_HASH on Vercel to the hex and redeploy.
 //
 // Operations:
-//   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card]}
+//   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card],
+//                triage: {waiting, oldest_h, last_triaged_at, since_triage_h} or null}
 //   numbers  -> {byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
 //   answer   -> closes one blocker: {card_id, n, choice, note}
 
@@ -72,11 +73,15 @@ async function rest(path, init) {
 }
 
 async function opList() {
-  const [inbox, cards] = await Promise.all([
+  const [inbox, cards, triage] = await Promise.all([
     rest("inbox?select=*"),
     rest("cards?select=id,title,app,state,parent,updated_at&order=id.desc"),
+    // How far behind triage is, for one line at the top of the page. A board
+    // without the view (or a failing read) leaves the line out; the inbox
+    // itself must not depend on it.
+    rest("triage_backlog?select=*").catch(() => []),
   ]);
-  return { inbox: inbox || [], cards: cards || [] };
+  return { inbox: inbox || [], cards: cards || [], triage: (triage || [])[0] || null };
 }
 
 async function opNumbers() {
