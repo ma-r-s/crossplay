@@ -32,8 +32,27 @@ CID="$(docker run --rm -d -e POSTGRES_PASSWORD=x -e POSTGRES_DB=board "$IMAGE" -
 trap 'docker rm -f "$CID" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
 # Two minutes: a GitHub runner took more than the 30 seconds this first
 # allowed (relwatch allows 60), and the failure said only "never came up".
-for _ in $(seq 1 120); do docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1 && break; sleep 1; done
-if ! docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1; then
+# -h 127.0.0.1, and that one flag is the whole fix.
+#
+# postgres's docker-entrypoint runs initdb against a TEMPORARY server before
+# restarting the real one, and it starts that server with `listen_addresses=''`
+# (docker-entrypoint.sh:297) -- Unix socket only, no TCP, by construction. A
+# bare `pg_isready` talks to that socket, so it answers YES to the init server,
+# the loop below breaks after a second or two, and the identical check behind
+# it then runs inside the restart window and fails. The container log in every
+# such failure is the same three lines: `database "board" does not exist`, then
+# `CREATE DATABASE`, then `waiting for server to shut down`.
+#
+# Probing TCP cannot see the init server at all, so the loop breaks only when
+# the real server is up. Confirmed in the image: the init server logs one
+# `listening on` line (Unix socket); the real one logs three (IPv4, IPv6,
+# socket).
+#
+# This is not the timeout being too short. The failure that prompted the fix
+# printed "never came up in 120s" 4.9 seconds after the previous suite's last
+# line -- a 120-iteration loop with `sleep 1` had not run.
+for _ in $(seq 1 120); do docker exec "$CID" pg_isready -h 127.0.0.1 -U postgres -d board >/dev/null 2>&1 && break; sleep 1; done
+if ! docker exec "$CID" pg_isready -h 127.0.0.1 -U postgres -d board >/dev/null 2>&1; then
   echo "FAIL boardmigrate  postgres never came up in 120s; its last lines:"
   docker logs --tail 15 "$CID" 2>&1 | sed 's/^/  /'
   exit 1
