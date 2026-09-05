@@ -33,7 +33,11 @@ void KOReaderAuthActivity::onWifiSelectionComplete(const bool success) {
     state = AUTHENTICATING;
     statusMessage = mode == Mode::SIGN_UP ? tr(STR_CREATING_ACCOUNT) : tr(STR_AUTHENTICATING);
   }
-  requestUpdate();
+  // immediate: performAuthentication() opens TLS and blocks this task, and a
+  // deferred update is only a flag ActivityManager::loop() consumes at a tail
+  // it cannot reach until that returns -- so the AUTHENTICATING screen below
+  // existed, was correct, and never once reached the panel. #306.
+  requestUpdate(true);
 
   performAuthentication();
 }
