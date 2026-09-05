@@ -2379,8 +2379,16 @@ void StudyActivity::runSyncFlow() {
     }
     if (!status.empty()) transportBlips = 0;
     const uint32_t elapsed = (millis() - started) / 1000;
-    // "%um%02us"
-    constexpr int kClockChars = toybox::kUIntChars + toybox::kUIntChars + toybox::literalChars("ms") + 1;
+    // "%um%02us", and the seconds field is TWO characters, not ten: it prints
+    // (elapsed % 60) / 5 * 5, which is 0..55 by construction rather than by
+    // luck. Sizing it as a full unsigned made this buffer wider than the field
+    // it is copied into four lines down, which the device build caught -- a
+    // buffer widened past its consumer is the same defect pointing the other
+    // way, so the static_assert below is the half that matters.
+    constexpr int kClockChars =
+        toybox::kUIntChars + toybox::literalChars("m") + 2 + toybox::literalChars("s") + 1;
+    static_assert(kClockChars <= static_cast<int>(sizeof(studyui::SyncFlowModel::facts[0])),
+                  "the clock has to fit the stage fact it is copied into");
     char clock[kClockChars];
     if (elapsed < 60) {
       std::snprintf(clock, sizeof(clock), "%us", static_cast<unsigned>(elapsed / 5 * 5));
