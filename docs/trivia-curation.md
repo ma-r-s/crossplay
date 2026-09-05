@@ -354,17 +354,16 @@ Shuffle the ratings across questions and they all still pass; the panel drops to
 | the local run, shuffled across questions             | 17/50 = 34%     |
 
 That second row was 36/50 until the levels were recalibrated for the
-international-only pack on 2026-09-04. Measured on one snapshot with only the
-thresholds changed, the old floors score 36/50 with 5 tied pairs and the new
-ones 35/50 with **10** tied pairs; raw `r` is 38/50 either way, so all of it is
-the cut and none of it is the rater. The doubling is the more interesting half:
-level 5 has to span r 0-4 to be populated at all once the US-centric questions
-are gone, and a band that wide stops separating pairs the old cut told apart at
-the hard end. That is the price of the recalibration, and it is paid where the
-pack has least data. No candidate that kept the hard end sharper also passed
-the difficulty-spread check on every view of the run -- see "Recalibrating the
-thresholds" -- so this is a trade that was forced, not chosen. Worth revisiting
-against a fresh panel when the run finishes.
+international-only pack. The interim floors `(9, 8, 7, 5)`, chosen on the
+partial 2026-09-04 run, spanned level 5 across r 0-4 and a band that wide stops
+separating pairs the old cut told apart at the hard end, doubling the tied pairs
+from 5 to 10. When the run finished (49,980 rated, 2026-09-05) the thresholds
+were re-derived on the full population to `(9, 8, 6, 4)`, which pulls level 5
+back to r 0-3; that narrows the wide bottom band and brings the tied pairs back
+down to **7**, while level agreement holds at 35/50 and raw `r` stays 38/50
+throughout. All of the movement is the cut and none of it is the rater. See
+"Recalibrating the thresholds". Still worth revisiting against a fresh panel
+drawn from this rater, since these pairs were sampled under an earlier cut.
 
 **Do not read that first row as quality, and do not read the second as a
 verdict on the local rater.** Candidates were sampled as level 1 against level 5
@@ -503,17 +502,25 @@ Bands are narrow at the easy end and wide at the hard end because that is where
 the international mass sits. Level 1 still means "9 or 10 groups in 10 get it"
 and level 5 still means "at most 4 do"; the numbers are absolute, not quantiles.
 
-**The wide bottom band has a measured cost**, recorded rather than buried: it
-separates fewer of the blind panel's hard pairs than the old cut did, doubling
-the tied pairs from 5 to 10. No candidate that kept the hard end sharper also
-passed the spread check on every view, so the trade was forced. See "The levels
-against a blind panel" below, and revisit it against a fresh panel drawn from
-this rater once the run finishes.
+**The interim `(9, 8, 7, 5)` cut had a measured cost**, recorded rather than
+buried: level 5 spanned r 0-4, which separates fewer of the blind panel's hard
+pairs than the old cut did, doubling the tied pairs from 5 to 10. On the partial
+run no candidate that kept the hard end sharper also passed the spread check on
+every view, so the trade was forced at the time.
 
-**These constants are provisional.** They were chosen at 25,977 rated rows of a
-run that will finish near 50,000, so re-derive them when it does -- one command,
-which prints how the shipped constants stand on the current data and what it
-would choose instead:
+**2026-09-05: the run finished (49,980 rated) and the thresholds were
+re-derived on the full international population (38,883 rows), moving `LEVELS`
+from `(9, 8, 7, 5)` to `(9, 8, 6, 4)`.** On the completed run the old floors
+failed the calibrator's "rated last" view at 3.587 (past the 2.5 limit), i.e.
+level 5 over-stuffed; `(9, 8, 6, 4)` is the minimax pick (worst spread 2.513)
+and pulls level 5 back to r 0-3. Full-population international tiers are now
+`{1: 6630, 2: 6511, 3: 10437, 4: 9968, 5: 5337}`, spread 1.96, and the narrower
+level 5 brings the blind panel's tied pairs back down from 10 to 7. The
+`CALIBRATED ON` comment in `assemble_pack.py` carries the date and population.
+
+**Re-derive the constants whenever the run changes** -- one command, which
+prints how the shipped constants stand on the current data and what it would
+choose instead:
 
 ```bash
 python3 tools_local/trivia/calibrate_levels.py \
@@ -597,31 +604,28 @@ the real writer as well.
 
 ### What a run of this looks like
 
-At 25,977 rated, with US-centric questions dropped:
+The finished run (49,980 rated, US-centric shipped tagged and hidden by
+default):
 
 ```text
 corpus            : 50,000
-ratings           : 25,977
+ratings           : 49,980
   ids that moved  : 349 rows carry a pre-repair id
-  re-derive would : lose 193 ratings SILENTLY (card #146)
-  dropped  24,023  unrated (not yet reached by the run)
-  dropped   5,905  rejected: us_centric (default; --keep-us to include)
-  dropped       9  rejected: unanswerable
+  re-derive would : lose 349 ratings SILENTLY (card #146)
+  dropped      22  rejected: unanswerable
+  dropped      20  unrated (not yet reached by the run)
 
-pack              : 20,063
-  solo MC ready   : 15,244 (3 stored options each)
-  read-aloud only : 4,819 (no sound option set; card #172)
-  difficulty      : {1: 3754, 2: 3849, 3: 3022, 4: 5101, 5: 4337}
+pack              : 49,958
+  solo MC ready   : 37,650 (3 stored options each)
+  read-aloud only : 12,308 (no sound option set; card #172)
+  us-centric      : 11,075 (tagged; hidden by default, toggle shows)
+  difficulty full : {1: 6651, 2: 6513, 3: 10470, 4: 10473, 5: 15851}  (toggle ON)
+  difficulty intl : {1: 6630, 2: 6511, 3: 10437, 4: 9968, 5: 5337}  (default)
 ```
 
-`test_pack.py` passes 21/21 on that pack.
-
-**Watch the difficulty spread as the run finishes.** The gate wants no tier more
-than 2.5x the smallest, and the current thresholds put that at 5,101 against
-3,022 -- a ratio of 1.69. That is comfortable but it is not guaranteed: the
-thresholds are absolute by design, so a second half of the run that rates
-differently from the first will move the tiers, and this run's two halves
-already do disagree.
+`test_pack.py` passes 21/21 on that pack. The spread gate wants no tier more
+than 2.5x the smallest, measured on the international default (US hidden): with
+the `(9, 8, 6, 4)` floors that is 10,437 against 5,337, a ratio of 1.96.
 
 This has now happened once, which is what "Recalibrating the thresholds" above
 is about. When `difficulty reasonably spread` fails, look at the r histogram and
