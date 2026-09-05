@@ -488,7 +488,34 @@ void testReasonCodesArePinned() {
 
 }  // namespace
 
-int main() {
+// Writes a queue with the REAL device writer so the Python reader can be run
+// against it. The two halves of this format are a C++ struct-by-hand and a
+// Python struct.Struct, and nothing else makes them meet: a reader tested only
+// against its own writer will agree with a format both of them get wrong, which
+// is the argument test_realpack already makes for pack.dat.
+static int writeFixture(const char* path) {
+  MemSource card;
+  ReportQueue q;
+  if (q.open(card, "fixture0001", 500) != QueueOpen::Started) return 1;
+  if (!q.add(7, Reason::Wrong)) return 1;
+  if (!q.add(42, Reason::Giveaway)) return 1;
+  if (!q.add(99, Reason::None)) return 1;
+  if (!q.add(123, Reason::Easy)) return 1;
+  if (!q.withdraw(42)) return 1;  // a tombstone the Python reader must skip
+  if (!q.markSent(2)) return 1;   // a cursor the Python reader must report
+  std::FILE* f = std::fopen(path, "wb");
+  if (f == nullptr) return 1;
+  const size_t n = std::fwrite(card.bytes.data(), 1, card.bytes.size(), f);
+  std::fclose(f);
+  return n == card.bytes.size() ? 0 : 1;
+}
+
+int main(int argc, char** argv) {
+  // `--write-fixture <path>` writes a queue and exits; run.sh then reads it
+  // with tools_local/trivia/reports.py.
+  if (argc == 3 && std::strcmp(argv[1], "--write-fixture") == 0) {
+    return writeFixture(argv[2]);
+  }
   testQueueBasics();
   testQueueReopens();
   testForeignQueueIsNotRelabelled();
