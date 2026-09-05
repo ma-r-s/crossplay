@@ -1,5 +1,5 @@
 #!/bin/bash
-# release_notes.py, against a repository built for the purpose.
+# release_notes.py and release-needed.sh, against repositories built for the purpose.
 #
 # The script decides the next version and rewrites the notes block that
 # host-tests/release then insists on, so a wrong answer here ships a release
@@ -7,16 +7,30 @@
 # input the script reads is replaced: the git history, the pull requests (a
 # JSON file instead of gh), the workflow file and platformio.ini.
 #
-# The second half of this suite is v1.12.17 rebuilt commit by commit. That
-# release announced seven changes, four of which no device could see (a board
-# watcher, a server-side bridge and two release-pipeline fixes), and the one
-# line that DID reach the firmware named the operation -- "Sync CrossPoint
-# develop (6 commits) and FreeInk SDK" -- rather than the fonts, translations
-# and glyph-arena fix inside it. Mario got the update prompt on his device,
-# read that version's notes, and asked why a release had happened at all. The
+# TWO FILES since 2026-09-04, and the split is the point of half of this suite:
+#
+#   docs/release-body.md   what a tag publishes. This release only.
+#   docs/release-notes.md  the history. Every release, newest first, never
+#                          published.
+#
+# They were one file, and so every release page carried every earlier release:
+# v1.12.21's body was 20,402 characters and opened with a standing catalogue,
+# then "What is new in 1.12.21", then what WAS new in 1.12.12, 1.12.11,
+# 1.12.10, 1.12.9, 1.12.8 and 1.12.7.
+#
+# The second block is v1.12.17 rebuilt commit by commit. That release announced
+# seven changes, four of which no device could see, and the one line that DID
+# reach the firmware named the operation -- "Sync CrossPoint develop (6
+# commits) and FreeInk SDK" -- rather than the fonts, translations and
+# glyph-arena fix inside it. Mario got the update prompt on his device, read
+# that version's notes, and asked why a release had happened at all. The
 # fixture carries the real titles, the real sync body and the real path sets,
 # because the bug was invisible to every check that existed and the only thing
 # that could have caught it is the actual release it shipped in.
+#
+# The last block is v1.12.21 itself, from the real repository rather than a
+# fixture: a release whose only device-reaching change was the version number
+# the release wrote. It asserts the range does NOT warrant a release.
 #
 # The notes are read on the GitHub release page and nowhere else: the firmware
 # parses tag_name, the asset name, its url and its size (ReleaseJsonParser.cpp)
@@ -27,7 +41,10 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TOOL="$HERE/../../scripts_local/release_notes.py"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+TOOL="$REPO_ROOT/scripts_local/release_notes.py"
+RULE="$REPO_ROOT/scripts_local/device-build-needed.sh"
+NEEDED="$REPO_ROOT/scripts_local/release-needed.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 [ -f "$TOOL" ] || { echo "FAIL cannot find $TOOL"; exit 1; }
@@ -36,6 +53,33 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ok   $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL $1"; }
 q()   { "$@" >/dev/null 2>&1; }
+
+# Both files, in the shape release_notes.py writes them. Used by every fixture
+# so the layout is stated once.
+lay_out_docs() {  # <repo dir> <version> <one old bullet>
+  mkdir -p "$1/docs"
+  cat > "$1/docs/release-body.md" <<MD
+Games and small tools for the device.
+
+### What is new in $2
+
+- $3
+- Another old note
+
+### Installing
+
+Flash it.
+MD
+  cat > "$1/docs/release-notes.md" <<MD
+# CrossPlay release history
+
+<!-- releases, newest first -->
+
+### $2
+
+- $3
+MD
+}
 
 R="$WORK/repo"; mkdir -p "$R/.github/workflows"; cd "$R" || exit 1
 q git init -q -b xteink
@@ -47,19 +91,7 @@ version = 1.5.0
 [crossplay]
 version = 1.12.9
 INI
-mkdir -p docs
-cat > docs/release-notes.md <<'MD'
-Games and small tools for the device.
-
-### What is new in 1.12.9
-
-- The old note
-- Another old note
-
-### Installing
-
-Flash it.
-MD
+lay_out_docs "$R" 1.12.9 "The old note"
 echo base > a.txt; q git add -A; q git commit -qm "base"; q git tag v1.12.9
 # two landings: one through a pull request with a What is new line, one plain merge
 q git checkout -qb app/one; echo one > one.txt; q git add -A; q git commit -qm "feat(trivia): options that do not give the answer away"
@@ -86,22 +118,32 @@ grep -q "version = 1.12.9" platformio.ini && ok "dry run writes nothing" || bad 
 q python3 "$TOOL" --repo-dir "$R" --pr-json "$WORK/prs.json" --write
 grep -q "^version = 1.12.10" platformio.ini && ok "platformio.ini bumped" || bad "platformio.ini not bumped"
 grep -q "^version = 1.5.0" platformio.ini && ok "upstream's version key untouched" || bad "upstream's version key changed"
-Y=docs/release-notes.md
-grep -q "### What is new in 1.12.10" "$Y" && ok "the notes heading names the new version" || bad "heading not rewritten"
+Y=docs/release-body.md
+H=docs/release-notes.md
+grep -q "### What is new in 1.12.10" "$Y" && ok "the body's heading names the new version" || bad "heading not rewritten"
 git diff --quiet --exit-code -- .github/ && ok "no workflow file is touched by the bump" || bad "the bump touched a workflow file, which the default token may not push"
-grep -q "The old note" "$Y" && bad "the old notes survived" || ok "the old notes are gone"
+grep -q "The old note" "$Y" && bad "the old notes survived in the body" || ok "the body carries this release only"
 grep -q "### Installing" "$Y" && grep -q "Flash it." "$Y" && ok "the rest of the body is intact" || bad "the body lost text outside the block"
 grep -q "Games and small tools" "$Y" && ok "the preamble is intact" || bad "preamble lost"
-python3 - "$Y" <<'PY' && ok "the block starts at column 0" || bad "the block picked up an indent"
-import sys
-t=open(sys.argv[1]).read()
-i=t.index("### What is new in 1.12.10"); blk=t[t.rfind("\n", 0, i) + 1:t.index("### Installing")]
-lines=[l for l in blk.splitlines() if l.strip()]
-sys.exit(0 if all(not l.startswith(" ") for l in lines) else 1)
+# THE HISTORY, which is the half that stops a release page growing. The new
+# release goes on top and the previous one is still there -- a prepend that
+# quietly replaced would look identical on the release page and lose the archive.
+grep -q "^### 1.12.10$" "$H" && ok "the history gained the new release" || bad "the history did not gain 1.12.10"
+grep -q "^### 1.12.9$" "$H" && ok "the history kept the previous release" || bad "the history dropped 1.12.9"
+python3 - "$H" <<'PY' && ok "the newest release is first in the history" || bad "the new block was appended, not prepended"
+import re, sys
+heads = re.findall(r"^### (\S+)$", open(sys.argv[1]).read(), re.M)
+sys.exit(0 if heads[:2] == ["1.12.10", "1.12.9"] else 1)
 PY
+grep -q "The old note" "$H" && ok "the previous release's text lives on in the history" || bad "the history lost the previous release's bullets"
+# Writing the same version twice must not stack two blocks. A failed push
+# followed by a hand re-run is the obvious way it happens and a doubled entry
+# is silent.
+q python3 "$TOOL" --repo-dir "$R" --pr-json "$WORK/prs.json" --last-tag v1.12.9 --write
+[ "$(grep -c '^### 1.12.10$' "$H")" = "1" ] && ok "re-writing a version does not stack a second history block" || bad "the history doubled the release"
 
 # a minor label on any merged pull request bumps the minor instead
-q git checkout -- platformio.ini "$Y"
+q git checkout -- platformio.ini "$Y" "$H"
 sed -i.bak 's/"labels": \[\]/"labels": [{"name": "release:minor"}]/' "$WORK/prs.json"
 python3 "$TOOL" --repo-dir "$R" --pr-json "$WORK/prs.json" --dry-run 2>&1 | grep -q "NEXT_VERSION=1.13.0" && ok "release:minor bumps the minor" || bad "minor bump missing"
 
@@ -110,16 +152,16 @@ q git checkout -q v1.12.9 2>/dev/null; q git checkout -q -b quiet
 python3 "$TOOL" --repo-dir "$R" --pr-json "$WORK/prs.json" --dry-run 2>&1 | grep -q "NEXT_VERSION=$" && ok "nothing since the tag means no version" || bad "released with nothing merged"
 
 echo
-echo "v1.12.17: only what a device can see becomes a note"
+echo "v1.12.17: only what a person can receive becomes a note"
 # The seven landings of v1.12.16..v1.12.17, with their real path sets. The
-# rule that classifies them is scripts_local/device-build-needed.sh, asked by
+# table that classifies them is scripts_local/device-build-needed.sh, asked by
 # release_notes.py rather than copied into it -- so this suite is also the
-# place a change to that allowlist shows up in the notes.
+# place a change to that table shows up in the notes.
 R2="$WORK/v11217"; mkdir -p "$R2/docs"; cd "$R2" || exit 1
 q git init -q -b xteink
 q git config user.email t@t; q git config user.name t
 printf '[crossplay]\nversion = 1.12.16\n' > platformio.ini
-printf 'CrossPlay.\n\n### What is new in 1.12.16\n\n- The previous release\n\n### Installing\n\nFlash it.\n' > docs/release-notes.md
+lay_out_docs "$R2" 1.12.16 "The previous release"
 q git add -A; q git commit -qm base; q git tag v1.12.16
 
 land() { # land <branch> <merge subject> <path>...
@@ -190,49 +232,95 @@ json.dump(
 PY
 
 out="$(python3 "$TOOL" --repo-dir "$R2" --pr-json "$WORK/v11217.json" --write 2>&1)"
-N=docs/release-notes.md
+N=docs/release-body.md
 grep -q "### What is new in 1.12.17" "$N" && ok "the release is still 1.12.17" || bad "version: $out"
 
-# A GAP THIS INHERITS AND DOES NOT CLOSE, worth reading before trusting the
-# four assertions below. "Build both devices in one pio run" (#42) is the fix
-# for the defect that shipped v1.12.14 and v1.12.15 with bootloader.bin,
-# firmware.bin and partitions.bin missing from the published -full.bin, and it
-# lives in .github/workflows/crossplay-release.yml. device-build-needed.sh
-# holds .github/ inert, on an argument its own comment scopes to the LOCAL
-# build ("Inert for this question, not inert in general" -- those builds run in
-# CI). Asking it about the notes inherits that exemption, so the repair of the
-# most user-visible release defect in this fork's history is filed here as a
-# change no device can see.
+# CARD #190, AND THE HALF OF IT THAT IS NOT A BULLET. "Build both devices in
+# one pio run" (#42) is the fix for the defect that shipped v1.12.14 and
+# v1.12.15 with bootloader.bin, firmware.bin and partitions.bin missing from
+# the published -full.bin, and it lives in
+# .github/workflows/crossplay-release.yml. While one predicate answered both
+# questions, .github/ was inert and the repair of the most user-visible release
+# defect in this fork's history cut no release and appeared in none.
 #
-# It is left alone deliberately. release-needed.sh consults the same inert(),
-# so a .github-only fix does not cut a release either and rides along on the
-# next one; the two answers are wrong together, which is the only state in
-# which they can be fixed together. Fixing it HERE, in Python, would be the
-# second definition this whole change exists to avoid. If it is ever fixed, it
-# is fixed in inert() and this assertion is what will fail first.
+# It cuts a release now -- asserted in the release-needed.sh block below -- and
+# it is still NOT a bullet here, because its title is "fix: build both devices
+# in one pio run, and stop misdescribing why". Putting that on a page written
+# for players is the complaint this whole change answers, so the two questions
+# separate, and the table's `quiet` value is where. What a packaging landing
+# needs is one written sentence, and the block after this asserts that a
+# written one DOES become a bullet.
 #
-# The four that reach nothing a device runs. Each is asserted TWICE, and the
-# pair is the point: absent from the notes file, AND present in the run's own
-# output as an excluded title. A one-sided "not in the notes" check passes for
-# any reason a title is missing -- a pull request the lookup failed to match
-# produces no bullet either, and would have read as the filter working.
+# #46 rides the same row. #50 does not: it changed crossplay-ci.yml, which
+# publishes nothing, and earns its line from src/apps_local/link/LinkPlay.cpp.
+for quiet in \
+  "Build both devices in one pio run" \
+  "One release build per tag"
+do
+  if grep -qi "$quiet" "$N"; then
+    bad "a build-workflow title reached the release page: $quiet"
+  elif ! echo "$out" | grep -qi "CUT THIS RELEASE and said nothing.*$quiet"; then
+    bad "packaging landing neither a note nor reported as unsaid, so nothing found it: $quiet ($out)"
+  else
+    ok "packaging with no written line: cuts the release, says so in the log, not on the page: $quiet"
+  fi
+done
+
+# AND THE OTHER HALF: a packaging landing that DID write a line is an ordinary
+# bullet, in the words its author chose. Without this the rule reads as "the
+# publishing workflow can never be a note", which is card #190 reopened with
+# extra steps.
+python3 - "$WORK/v11217.json" "$WORK/said.json" <<'SAID'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for pr in d:
+    if pr["number"] == 42:
+        pr["body"] = ("One invocation, both envs.\n\n"
+                      "What is new: Installs that failed part-way now work; "
+                      "the download was missing part of the firmware.")
+json.dump(d, open(sys.argv[2], "w"))
+SAID
+said="$(python3 "$TOOL" --repo-dir "$R2" --pr-json "$WORK/said.json" --last-tag v1.12.16 --dry-run 2>&1)"
+echo "$said" | grep -q "Installs that failed part-way now work" \
+  && ok "a packaging landing that wrote its own line IS a bullet" \
+  || bad "a written What is new line was dropped along with the title: $said"
+echo "$said" | grep -qi "CUT THIS RELEASE and said nothing.*Build both devices" \
+  && bad "it wrote a line and was still reported as unsaid" \
+  || ok "and it is no longer reported as unsaid"
+echo "$said" | grep -qi "stop misdescribing why" \
+  && bad "the title came along with the written line" \
+  || ok "the title stayed off the page"
+
+# The three that reach nobody. Each is asserted TWICE, and the pair is the
+# point: absent from the body, AND present in the run's own output as an
+# excluded title. A one-sided "not in the notes" check passes for any reason a
+# title is missing -- a pull request the lookup failed to match produces no
+# bullet either, and would have read as the filter working.
 for gone in \
   "The release watcher" \
   "Readbridge: the running service" \
-  "one release build per tag" \
-  "Build both devices in one pio run"
+  "Quotes are stripped before the command is split"
 do
   if grep -qi "$gone" "$N"; then
-    bad "a change no device can see is still a note: $gone"
-  elif ! echo "$out" | grep -qi "(not a note, reaches no device image).*$gone"; then
+    bad "a change nobody can receive is still a note: $gone"
+  elif ! echo "$out" | grep -qi "(not a note, reaches no user).*$gone"; then
     bad "missing from the notes but never excluded either, so nothing found it: $gone"
   else
     ok "excluded, and said so: $gone"
   fi
 done
 
-# The sync is the one line of v1.12.17 that did reach the firmware, and it said
-# nothing. Its body says what came in, so the body is what the notes carry.
+# scripts_local/ is the row that moved, and it moved on ONE axis. It stays live
+# for the build -- two of its files are `pre:` extra_scripts that run inside
+# every device build, asserted by host-tests/gatepath -- and it does not ship,
+# because a build lock and an SCons signature shard can refuse a build or slow
+# it and cannot put different source into one. #47 is the guard hook, and a
+# player receives nothing different for it.
+grep -qi "quotes are stripped" "$N" && bad "the workspace's own machinery became a release note" \
+                                    || ok "scripts_local/ builds but does not ship"
+
+# The sync is one of the lines of v1.12.17 that did reach the firmware, and it
+# said nothing. Its body says what came in, so the body is what the notes carry.
 grep -q "Sync CrossPoint develop" "$N" && bad "the sync still announces itself by the operation" \
                                        || ok "the sync's title is replaced by what came in"
 for kept in "Language-specific fonts" "Update translations" "Keep the glyph arena usable under heap pressure" "Add icons to tabs"; do
@@ -241,17 +329,21 @@ done
 grep -qi "bump version" "$N" && bad "the sync's own version bump became a note" || ok "a version bump is not a note"
 grep -q "(#3126)" "$N" && bad "upstream's pull request number reads as one of ours" || ok "upstream's PR numbers are stripped"
 
-# Two that DO reach a device image, and are notes for reasons worth stating.
-# #50 rewrote src/apps_local/link/LinkPlay.cpp (a ternary cppcheck misreads);
-# its title describes only the CI half, which is a title problem and not this
-# rule's to solve. #47 touched scripts_local/, which device-build-needed.sh
-# holds on the live side because two files there are `pre:` extra_scripts that
-# run inside every device build. Both are the rule answering honestly; if
-# either line disappears, the rule was narrowed here instead of there.
+# A src/ change is a note whatever its title says: #50's title describes only
+# the CI half, which is a title problem and not this rule's to solve.
 grep -q "clang-format, unit tests and cppcheck" "$N" && ok "a src/ change is a note whatever its title says" || bad "a src/ change was filtered out"
-grep -q "quotes are stripped before the command is split" "$N" && ok "scripts_local/ stays on the live side, as the build rule has it" || bad "the notes narrowed the rule that device-build-needed.sh owns"
 
-grep -q "Plus 4 changes nothing on the device can see" "$N" && ok "the four excluded ones are counted, not hidden" || bad "the excluded count is missing"
+# THE COUNT LINE IS NOT A RELEASE NOTE. "Plus 3 changes nothing on the device
+# can see." is itself a line a player cannot act on, on a page written for
+# players. The excluded landings are named on stdout, where the autorelease job
+# log keeps them, and the count goes with them.
+grep -qi "^- Plus " "$N" && bad "the excluded count is still a bullet on the release page" || ok "the excluded count is not a bullet"
+# Three that reach nobody, plus two that reach people only through packaging
+# and wrote nothing. The count covers both kinds: both are landings a reader
+# comparing the page against the merge log will not find on the page.
+echo "$out" | grep -q "5 landings excluded from the notes, named above." \
+  && ok "the count is on stdout, where the job log keeps it" \
+  || bad "the excluded landings were not counted anywhere: $out"
 
 echo
 echo "the range, the gates and the fail-safe"
@@ -264,7 +356,7 @@ R4="$WORK/ranges"; mkdir -p "$R4/docs"; cd "$R4" || exit 1
 q git init -q -b xteink
 q git config user.email t@t; q git config user.name t
 printf '[crossplay]\nversion = 3.0.0\n' > platformio.ini
-printf 'X\n\n### What is new in 3.0.0\n\n- old\n\n### Installing\n\ny\n' > docs/release-notes.md
+lay_out_docs "$R4" 3.0.0 "old"
 q git add -A; q git commit -qm base; q git tag v3.0.0
 
 # AN EVIL MERGE: the branch touches docs only, the MERGE COMMIT adds a source
@@ -288,7 +380,7 @@ q git checkout -q xteink
 q git merge -q --no-ff -s ours app/dup -m "Merge pull request #91 from ma-r-s/app/dup"
 DUP="$(git rev-parse HEAD)"
 
-# A third landing that reaches a device and says the SAME thing as #90. Two
+# A third landing that reaches a user and says the SAME thing as #90. Two
 # pull requests can fix one bug from both ends and write one line for it; the
 # notes must carry it once. Nothing else here produces a repeated bullet, and a
 # mutant that removed the de-duplication passed the whole suite.
@@ -318,13 +410,13 @@ echo "$out" | grep -q -- "- One bug, fixed from both ends." \
 [ "$(echo "$out" | grep -c -- "- One bug, fixed from both ends.")" = "1" ] \
   && ok "two landings that say one thing are one line" \
   || bad "a repeated line was printed twice: $out"
-echo "$out" | grep -q "(not a note, reaches no device image) Also landed elsewhere" \
+echo "$out" | grep -q "(not a note, reaches no user) Also landed elsewhere" \
   && ok "a merge that brings in nothing is not a note" \
   || bad "an empty merge became a note: $out"
 # The count is DERIVED, and this is the only place that can say so: the block
-# above always excludes four, so a hardcoded 4 passes it. One here, and
+# above always excludes three, so a hardcoded 3 passes it. One here, and
 # singular.
-echo "$out" | grep -q "Plus 1 change nothing on the device can see" \
+echo "$out" | grep -q "1 landing excluded from the notes, named above." \
   && ok "the excluded count is the number excluded, and reads as one" \
   || bad "the count is not derived from what was excluded: $out"
 # #91 is EXCLUDED from the notes and still carries release:minor. The label is
@@ -338,36 +430,75 @@ echo "$out" | grep -q "NEXT_VERSION=3.1.0" \
 # asked, and the answer must be "print the bullet". Nothing else in this suite
 # exercises it, and a mutant flipping it to False passed everything.
 FS="$WORK/nofilter"; mkdir -p "$FS"
-cp "$HERE/../../scripts_local/release_notes.py" "$FS/release_notes.py"
+cp "$TOOL" "$FS/release_notes.py"
 out="$(python3 "$FS/release_notes.py" --repo-dir "$R2" --pr-json "$WORK/v11217.json" --dry-run 2>&1)"
 echo "$out" | grep -q -- "- The release watcher" \
   && ok "no rule to ask means every merge is a note" \
   || bad "a missing device-build-needed.sh silently filtered: $out"
-echo "$out" | grep -q "Plus " && bad "the fail-safe still counted exclusions" || ok "the fail-safe excludes nothing"
+echo "$out" | grep -q "excluded from the notes" && bad "the fail-safe still counted exclusions" || ok "the fail-safe excludes nothing"
 # AND it must arrive BY the fail-safe, not by the stand-down. Reversing the
 # fail-safe drops every merge, which empties the bullets, which trips the
 # stand-down, which lists every merge again: the same output by the opposite
 # route, and it passed both checks above. The stand-down announces itself on
 # stdout; the fail-safe says nothing. That line is the difference.
-echo "$out" | grep -q "nothing since the tag reaches a device image" \
+echo "$out" | grep -q "nothing since the tag reaches a user" \
   && bad "every merge was dropped and the stand-down covered for it" \
   || ok "the fail-safe included them, rather than the stand-down re-adding them"
 
 # A commit whose parent cannot be resolved. No fixture can put one on a
-# first-parent line after a tag, so this asks reaches_device() directly. The
+# first-parent line after a tag, so this asks reaches_a_user() directly. The
 # repository's root commit touches docs/ and platformio.ini only, so an answer
 # derived from its diff would be "inert"; only the fail-safe says otherwise.
 python3 - "$TOOL" "$R2" "$(git -C "$R2" rev-list --max-parents=0 HEAD)" <<'ROOT'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("rn", sys.argv[1])
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-sys.exit(0 if m.reaches_device(sys.argv[2], sys.argv[3]) else 1)
+sys.exit(0 if m.reaches_a_user(sys.argv[2], sys.argv[3]) else 1)
 ROOT
 [ $? -eq 0 ] && ok "a commit with no parent to diff against is a note" \
              || bad "an unanswerable question was read as 'no'"
 
+# AND THE REFUSAL. A landing that touches a path in no row of the table cannot
+# be classified, and the table REFUSES rather than guessing (exit 2). For the
+# notes the refusal must still print the bullet -- hiding a change is the bug
+# this filter exists to fix -- and must say on stdout that it could not
+# classify it, or a reader cannot tell an included bullet from an unclassified
+# one.
+RU="$WORK/unclassified"; mkdir -p "$RU/docs"; cd "$RU" || exit 1
+q git init -q -b xteink
+q git config user.email t@t; q git config user.name t
+printf '[crossplay]\nversion = 4.0.0\n' > platformio.ini
+lay_out_docs "$RU" 4.0.0 "old"
+q git add -A; q git commit -qm base; q git tag v4.0.0
+q git checkout -qb app/newroot; mkdir -p brandnew; echo x > brandnew/x.c; q git add -A
+q git commit -qm "feat: a directory the table has never heard of"
+q git checkout -q xteink; q git merge -q --no-ff app/newroot -m "Merge pull request #1 from ma-r-s/app/newroot"
+# A SECOND LANDING THAT PLAINLY SHIPS, and it is what makes the three checks
+# below mean anything. With the unclassified merge alone, flipping the refusal
+# to "no" empties the bullets, which trips the stand-down, which lists every
+# merge again -- the same output by the opposite route, and the mutant survived
+# the whole suite. This one keeps `bullets` non-empty whatever the refusal
+# answers, so the stand-down cannot fire and cover for it.
+q git checkout -qb app/realfix; mkdir -p src; echo 'int y;' > src/y.cpp; q git add -A
+q git commit -qm "fix: something a device really does run"
+q git checkout -q xteink; q git merge -q --no-ff app/realfix -m "Merge pull request #2 from ma-r-s/app/realfix"
+echo "[]" > "$WORK/none.json"
+out="$(python3 "$TOOL" --repo-dir "$RU" --pr-json "$WORK/none.json" --dry-run 2>&1)"
+echo "$out" | grep -q -- "- A directory the table has never heard of" \
+  && ok "an unclassified path still gets its bullet" \
+  || bad "a refusal was read as 'no': $out"
+# AND BY THE FAIL-SAFE, not by the stand-down. Same guard the nofilter case
+# above carries, for the same reason, and it was missing here.
+echo "$out" | grep -q "nothing since the tag reaches a user" \
+  && bad "the unclassified merge was dropped and the stand-down covered for it: $out" \
+  || ok "the bullet arrived by the refusal, not by the stand-down"
+echo "$out" | grep -qi "unclassified path" \
+  && ok "and the run says it could not classify it" \
+  || bad "the refusal was swallowed and reads as an ordinary note: $out"
+
 # THE THREE GATES on reading a sync's body, each of which replaces a pull
 # request's own title with lines lifted out of its body.
+cd "$R2" || exit 1
 python3 - "$WORK/gates.json" "$(git -C "$R2" rev-parse HEAD~1)" <<'PY'
 import json, sys
 out, sha = sys.argv[1], sys.argv[2]
@@ -406,43 +537,148 @@ echo "$o" | grep -qi "bump version" && bad "the sync version bump became a note"
 echo "$o" | grep -q "1.5x zoom on the page view" && ok "a subject that starts with a version number survives" || bad "1.5x was read as a version bump: $o"
 echo "$o" | grep -q $'—' && bad "an em-dash reached the release page" || ok "upstream's em-dash becomes a comma"
 
-# Nothing device-reaching at all. release-needed.sh gates the automatic path on
+# Nothing reaching a user at all. release-needed.sh gates the automatic path on
 # exactly this, so only a hand-cut release arrives here -- and an empty "What is
 # new" block would be worse than a noisy one.
-echo "[]" > "$WORK/none.json"
 R3="$WORK/inert"; mkdir -p "$R3/docs"; cd "$R3" || exit 1
 q git init -q -b xteink
 q git config user.email t@t; q git config user.name t
 printf '[crossplay]\nversion = 2.0.0\n' > platformio.ini
-printf 'X\n\n### What is new in 2.0.0\n\n- old\n\n### Installing\n\ny\n' > docs/release-notes.md
+lay_out_docs "$R3" 2.0.0 "old"
 q git add -A; q git commit -qm base; q git tag v2.0.0
 q git checkout -qb app/docsonly; mkdir -p docs; echo w > docs/note.md; q git add -A; q git commit -qm "docs: a note"
 q git checkout -q xteink; q git merge -q --no-ff app/docsonly -m "Merge pull request #1 from ma-r-s/app/docsonly"
 out="$(python3 "$TOOL" --repo-dir "$R3" --pr-json "$WORK/none.json" --write 2>&1)"
-grep -q "A note" docs/release-notes.md && ok "a hand-cut release with nothing device-reaching still says something" || bad "the notes block came out empty: $out"
-# "Plus 0" is unreachable by construction, so asserting its absence asserted
-# nothing. What is worth asserting is that the fallback prints NO count line at
-# all and says on stdout why, since a reader seeing every merge listed has to
-# be able to tell the filter stood down from the filter never running.
-grep -q "Plus " docs/release-notes.md && bad "the fallback still counted exclusions" || ok "the fallback adds no count line"
-echo "$out" | grep -q "nothing since the tag reaches a device image" && ok "the fallback says why it listed everything" || bad "the fallback stood down silently: $out"
-cd "$R" || exit 1
+grep -q "A note" docs/release-body.md && ok "a hand-cut release with nothing device-reaching still says something" || bad "the notes block came out empty: $out"
+# "0 landings excluded" is unreachable by construction, so asserting its absence
+# asserted nothing. What is worth asserting is that the fallback prints NO count
+# line at all and says on stdout why, since a reader seeing every merge listed
+# has to be able to tell the filter stood down from the filter never running.
+echo "$out" | grep -q "excluded from the notes" && bad "the fallback still counted exclusions" || ok "the fallback adds no count line"
+echo "$out" | grep -q "nothing since the tag reaches a user" && ok "the fallback says why it listed everything" || bad "the fallback stood down silently: $out"
+
+# A HALF-WRITE, which the autorelease step cannot see. `python3 ... | tee` puts
+# tee's exit status on the pipeline, so a crash here does not fail the step
+# under GitHub's `bash -e`; the commit is skipped only because NEXT_VERSION is
+# then missing from the output. What must never happen in between is a bumped
+# platformio.ini and a rewritten body beside an untouched history -- a half
+# release for the next run to inherit.
+RH="$WORK/halfwrite"; mkdir -p "$RH/docs"; cd "$RH" || exit 1
+q git init -q -b xteink
+q git config user.email t@t; q git config user.name t
+printf '[crossplay]\nversion = 5.0.0\n' > platformio.ini
+lay_out_docs "$RH" 5.0.0 "old"
+# the history loses its insertion marker
+grep -v 'releases, newest first' docs/release-notes.md > docs/rn.tmp && mv docs/rn.tmp docs/release-notes.md
+q git add -A; q git commit -qm base; q git tag v5.0.0
+q git checkout -qb app/real; mkdir -p src; echo 'int x;' > src/x.cpp; q git add -A; q git commit -qm "fix: something real"
+q git checkout -q xteink; q git merge -q --no-ff app/real -m "Merge pull request #1 from ma-r-s/app/real"
+python3 "$TOOL" --repo-dir "$RH" --pr-json "$WORK/none.json" --write >/dev/null 2>&1
+grep -q "version = 5.0.0" platformio.ini && ok "a history it cannot write leaves the version alone" || bad "platformio.ini was bumped for a release the history never recorded"
+grep -q "### What is new in 5.0.0" docs/release-body.md && ok "and leaves the body alone" || bad "the body was rewritten for a release the history never recorded"
 
 echo
 echo "release-needed.sh"
 mkdir -p "$R/scripts_local"
-cp "$HERE/../../scripts_local/device-build-needed.sh" "$HERE/../../scripts_local/release-needed.sh" "$R/scripts_local/"
+cp "$RULE" "$NEEDED" "$R/scripts_local/"
 chmod +x "$R"/scripts_local/*.sh
 cd "$R" || exit 1
+q git checkout -q xteink
 q git add -A; q git commit -qm "chore: scripts"
 q git tag v1.12.10
 bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 1 ] && ok "nothing merged since the tag: no release" || bad "released with nothing since the tag"
 mkdir -p docs; echo words > docs/note.md; q git add -A; q git commit -qm "docs: a note"
 bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 1 ] && ok "a docs-only merge since the tag is not a release" || bad "a docs-only change would release"
+# THE ONE THAT CUT v1.12.21. `.gitignore` is live for a build -- a --committed
+# gate materialises its trial worktree from git, so what is ignored decides what
+# exists there to compile -- and cannot alter a byte of a published image,
+# because a clean clone checks out every tracked file whatever the ignore rules
+# say. One predicate answered both questions and this released.
+echo "ignored" >> .gitignore; q git add -A; q git commit -qm "chore: ignore a build artefact"
+bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 1 ] && ok ".gitignore builds but does not release" || bad ".gitignore would still cut a release"
+# And the fork's own machinery, which is the other half of the same shape.
+mkdir -p scripts_local; echo "# tweak" >> scripts_local/check.sh; q git add -A; q git commit -qm "gate: a tweak"
+bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 1 ] && ok "scripts_local/ builds but does not release" || bad "the gate's own machinery would cut a release"
+# CARD #190's half, on the release decision rather than the notes: a fix to what
+# gets published must cut a release, even though no local device build can see it.
+mkdir -p .github/workflows; echo "# fix" >> .github/workflows/crossplay-release.yml
+q git add -A; q git commit -qm "ci: publish the merged image, not the app image"
+pkg="$(bash scripts_local/release-needed.sh 2>&1)"; pkg_rc=$?
+[ "$pkg_rc" -eq 0 ] && ok "a fix to what the release publishes releases" || bad "a packaging fix is still invisible to the release decision (exit $pkg_rc)"
+# `quiet` and `yes` are one answer HERE and two answers in the notes. This is
+# the half that must not drift: whatever release_notes.py does with it, the
+# release itself is cut.
+echo "$pkg" | grep -qi "packaged" \
+  && ok "and it says the reason was packaging, not the firmware" \
+  || bad "the packaging release did not distinguish itself from a firmware one: $pkg"
+q git reset -q --hard HEAD~1
+# ...and a CI tweak, in the same directory, does not.
+mkdir -p .github/workflows; echo "# ci" >> .github/workflows/crossplay-ci.yml
+q git add -A; q git commit -qm "ci: a job tweak"
+git diff --quiet HEAD~1 HEAD -- .github/workflows/crossplay-ci.yml && bad "the CI-tweak fixture committed nothing, so the check below proves nothing" || ok "the CI-tweak fixture really changed a workflow file"
+bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 1 ] && ok "a CI tweak in the same directory does not release" || bad ".github was added wholesale; every CI tweak now cuts a release"
 mkdir -p src; echo 'int x;' > src/x.cpp; q git add -A; q git commit -qm "fix: something a device can see"
 bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 0 ] && ok "a src change since the tag releases" || bad "a src change did not release"
+# AND IT NAMES THE PATH. The autorelease job log is the only place anybody can
+# later ask "why did this one release?", and --quiet was silencing the one line
+# that answers it -- while check.sh, asking the other column, deliberately
+# prints the path that caused a build. The harder question was the silent one.
+named="$(bash scripts_local/release-needed.sh 2>&1)"
+echo "$named" | grep -q "src/x.cpp" \
+  && ok "and the log names the path that caused it" \
+  || bad "the release was cut without saying which path did it: $named"
+# THE REFUSAL, which is the property that stops the next unrecognised path
+# doing what .gitignore did. Neither answer is safe, so it declines and names
+# the path; the autorelease job turns exit 2 into a red run.
+q git reset -q --hard v1.12.10
+mkdir -p brandnew; echo x > brandnew/x.c; q git add -A; q git commit -qm "feat: a new top-level directory"
+refusal="$(bash scripts_local/release-needed.sh 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && ok "an unclassified path refuses, rather than guessing (exit 2)" || bad "an unclassified path was answered with a guess (exit $rc)"
+echo "$refusal" | grep -q "brandnew/x.c" && ok "and the refusal names the path" || bad "the refusal did not say which path: $refusal"
+q git reset -q --hard v1.12.10
 q git tag -d v1.12.10; q git tag -d v1.12.9
 bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 0 ] && ok "no tag at all means release" || bad "no tag refused to release"
+
+echo
+echo "v1.12.21, from the real repository"
+# THE RELEASE THAT SHOULD NOT HAVE HAPPENED. Every device was offered an update
+# whose only device-reaching change was the version number the release itself
+# wrote. This is the real range, in the real repository, asked as the gate would
+# have asked it: BEFORE the bump, since the autorelease decides and then writes.
+#
+# Skipped rather than failed when the tags are missing, because a shallow clone
+# legitimately lacks them -- but the skip says so, so a suite that quietly never
+# ran this is visible.
+if git -C "$REPO_ROOT" rev-parse -q --verify v1.12.20 >/dev/null 2>&1 &&
+   git -C "$REPO_ROOT" rev-parse -q --verify v1.12.21 >/dev/null 2>&1; then
+  PRE="$(git -C "$REPO_ROOT" rev-parse 'v1.12.21^')"
+  if ( cd "$REPO_ROOT" && bash "$RULE" --range "v1.12.20..$PRE" --ships --quiet ); then
+    bad "v1.12.20..v1.12.21 still warrants a release"
+  else
+    ok "v1.12.20..v1.12.21 does not warrant a release"
+  fi
+  # And the same range on the OTHER column still says build, because that
+  # answer was never wrong -- .gitignore really can change what a --committed
+  # worktree compiles. If this ever flips, the build axis was loosened by a
+  # change that was only supposed to add the second one.
+  if ( cd "$REPO_ROOT" && bash "$RULE" --range "v1.12.20..$PRE" --quiet ); then
+    ok "the same range still needs its device builds: two answers, not one"
+  else
+    bad "the build column changed too; this was meant to add an axis, not move one"
+  fi
+  # v1.12.18 was a real release for a real reason. A rule that answers 'no' to
+  # everything would pass both checks above.
+  if git -C "$REPO_ROOT" rev-parse -q --verify v1.12.17 >/dev/null 2>&1; then
+    PRE18="$(git -C "$REPO_ROOT" rev-parse 'v1.12.18^')"
+    if ( cd "$REPO_ROOT" && bash "$RULE" --range "v1.12.17..$PRE18" --ships --quiet ); then
+      ok "v1.12.17..v1.12.18 does warrant one"
+    else
+      bad "a release that was right is now refused; the ships column says no to everything"
+    fi
+  fi
+else
+  echo "  SKIP v1.12.20/v1.12.21 not in this clone; the real-range checks did not run"
+fi
 
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

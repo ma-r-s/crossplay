@@ -17,19 +17,46 @@ buttons (`buttons.md`), what scale does to games (`games-at-scale.md`), how to
 reflash and inspect a device over Wi-Fi with no cable
 (`developer-mode.md`), and what is knowingly unfinished (`open-items.md`).
 
-`release-notes.md` is not written by hand. `scripts_local/release_notes.py`
-rewrites its `### What is new in <version>` block from the merged pull
-requests, the autorelease workflow commits it, and `crossplay-release.yml`
-passes it as the release body. Edit the tooling, not the file.
+**Two files, and only one of them is published.** `release-body.md` is what a
+tag publishes: this release's `### What is new in <version>` block, how to
+install, and a link back here. `release-notes.md` is the history, newest first,
+and nothing publishes it. They were one file until 2026-09-04, which is why
+v1.12.21's release page ran to 20,402 characters and carried six earlier
+releases under "What WAS new in ...".
 
-Only landings that can change a byte a device runs become notes, and the
-question is put to `scripts_local/device-build-needed.sh` -- the same rule
-`release-needed.sh` uses to decide whether to release at all, asked rather than
-copied. v1.12.17 announced seven changes of which four were a board watcher, a
-server-side bridge and two release-pipeline fixes; the excluded ones are
-counted in one trailing line and named in the autorelease job's log. A sync's
-notes come from its body, which lists the upstream commit subjects, rather than
-from a title that only counts them.
+Neither is written by hand. `scripts_local/release_notes.py` rewrites the block
+in the body and prepends the same block to the history; the autorelease
+workflow commits both. Edit the tooling, not the files -- except the standing
+sections of `release-body.md` (how to install, which file to download), which
+are prose and are left alone by the generator.
+
+Only landings a person could receive something different from become notes, and
+the question is put to `scripts_local/device-build-needed.sh --ships` -- the
+same column of the same table `release-needed.sh` uses to decide whether to
+release at all, asked rather than copied. That table carries two independent
+attributes per path prefix, `builds` and `ships`, because the two questions have
+opposite risk profiles: a wrong "build" costs runner minutes, a wrong "release"
+puts an update prompt on every device in the field. While one predicate answered
+both, `.gitignore` cut v1.12.21 (live for a build, invisible to a release) and a
+fix to `crossplay-release.yml` was invisible to both (card #190). A path in no
+row of the table is not guessed at: the build runs and says so, and the release
+question REFUSES, naming the path.
+
+`ships` has three values, not two, because "cut a release" and "put a line on
+the page" are two more questions that were sharing one answer. `yes` is a change
+in the thing a person uses. `quiet` is a change only in how the release was
+packaged -- `.github/workflows/crossplay-release.yml`, the one workflow that
+uploads what anybody downloads. A `quiet` landing cuts a release exactly like a
+`yes` one, and it earns a bullet only if its pull request wrote a `What is new:`
+line, because a build workflow's title is developer prose and the page is read
+by players. `crossplay-ci.yml` asks for that line at pull-request time, so a
+packaging fix is never silently missing from the page it belongs on.
+
+The excluded landings are named in the autorelease job's log and nowhere else.
+They used to be a trailing bullet -- "Plus 4 changes nothing on the device can
+see." -- which is itself a line a player cannot act on, on a page written for
+players. A sync's notes come from its body, which lists the upstream commit
+subjects, rather than from a title that only counts them.
 
 This text is read on the GitHub release page. The device never shows it: it
 parses `tag_name` and the asset's name, url and size, and the update screen

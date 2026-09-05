@@ -247,6 +247,17 @@ clobbers identical bytes built from the same commit, so "did a run fail" and
 there is, and after the dispatch was made conditional on `RELEASE_TOKEN` a
 second run means that guard regressed.
 
+**One red autorelease run is not a failure, and this is the one.** Since
+2026-09-04 the gate has three answers, not two: `scripts_local/release-needed.sh`
+exits 2 when a changed path is in no row of the classification table in
+`device-build-needed.sh`, and the job goes red rather than guess whether it
+reaches a user. Releasing for nothing and silently withholding a real fix are
+both bad answers to a question nobody has answered, so it declines to pick one.
+The job log names the path; the fix is one row in that table saying whether the
+path builds and whether it ships, and then re-running. The watcher will raise
+its usual card, which is correct: no release was started, and somebody has to
+say why the path exists.
+
 The clocks are measured, not chosen: the 53 runs of `crossplay-release.yml`
 published 48 releases, the slowest 19.9 minutes after its run was created, and
 the longest any run ever occupied -- including a 16.9-minute wait for a runner

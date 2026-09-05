@@ -1,24 +1,128 @@
-Games and small tools for the **Xteink X4 Pro** and the **Seeed
-reTerminal Sticky**, on top of
-[CrossPoint](https://crosspointreader.com/). Nineteen games --
-Chess, Checkers, Connect Four, Yahtzee, Knucklebones, Minesweeper,
-Sudoku, Toy Battle, Forehead, Battleship, Connections, Solitaire,
-D&Diagrams, Insider, Jaipur, Murdle, Sea Salt & Paper, Trivia and
-Wavelength -- plus spaced-repetition flashcards, Hacker News, the
-xkcd archive, a read-later queue and a catalog browser for
-downloading books. Nine of them play over
-**PLAY NEARBY**: Chess, Checkers, Connect Four, Yahtzee,
-Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Two
-devices next to each other find one another with nothing to type --
-and they do not have to be the same device.
+What was new in every tagged release from 1.12.1 onward, newest first.
+Anything older is on the GitHub releases page and was never in this file.
 
-### What is new in 1.12.22
+**1.12.14 and 1.12.15 are absent because their tags are.** They are the two
+releases that published a `-full.bin` with `bootloader.bin`, `firmware.bin` and
+`partitions.bin` missing; no `v1.12.14` or `v1.12.15` ref exists in this
+repository or on the remote, so there is nothing here to quote them from.
+
+This file is NOT the release page: `docs/release-body.md` is what a tag
+publishes, and it carries this release only plus a link back here. They were
+one file until 2026-09-04, which is why v1.12.21's release page was 20,402
+characters and opened with six previous releases.
+
+Entries from 1.12.13 down to 1.12.16 were backfilled out of the tags
+themselves, verbatim, including the "Plus N changes nothing on the device can
+see." lines those releases actually published. A history that edits the past to
+match today's rules stops being one.
+
+`scripts_local/release_notes.py --write` prepends a block below the marker.
+Everything above the marker is written by hand.
+
+<!-- releases, newest first -->
+
+### 1.12.22
 
 - Wt: prune must not delete a tree somebody is working in
 - Count a link match, and show the board that ended it (#35, #36)
 - Plus 2 changes nothing on the device can see.
 
-### What WAS new in 1.12.12
+### 1.12.21
+
+- Trivia: a blind panel drawn from the local rater, and what it found
+- Plus 1 change nothing on the device can see.
+
+### 1.12.20
+
+- Check: --committed works in any argument position
+- Trivia: the parts of the difficulty work that outlived the ratings
+- Plus 2 changes nothing on the device can see.
+
+### 1.12.19
+
+- The notes list only what a device can see
+- Plus 3 changes nothing on the device can see.
+
+### 1.12.18
+
+- Ci: group the pio run invocations, so the stack checks stop depending on order
+- Ci: let postgres take longer than 60s, and say why when it does not
+- Trivia: a pack the rating run can actually produce
+- Forehead: PLACES is geography again
+- Instapaper: a fileless row deadlocked its own download
+- Marginguard: a folded margin handed to plain setContentMargin() fails a suite
+- Review means merge on green; a hold is a card state, not a message
+- Board: a sync run that opened a pull request is a card in review
+- Autorelease: the token and trigger relationship at the top, and the publish step run under test
+- Two firmware builds in the committed gate, in one pio invocation
+
+### 1.12.17
+
+- Ci: clang-format, unit tests and cppcheck run in the fork's own workflow
+- The release watcher: the thing that would have noticed
+- Readbridge: the running service can be asked which commit it is
+- Ci: one release build per tag, and assert both halves of why
+- Guard: quotes are stripped before the command is split
+- Sync CrossPoint develop (6 commits) and FreeInk SDK
+- Build both devices in one pio run, and stop misdescribing why
+
+### 1.12.16
+
+- Capture each device's artefacts before the next build removes them
+- Trivia: rate the pack locally, on a scale that means something
+- Make the repo presentable: front page, dead links, stale facts
+- The release takes the bootloader from the framework package
+- Release: the notes live in docs/release-notes.md, so the bump touches no workflow file
+- Reading: wrap an article once, not on every page turn
+- Autorelease: an emulator rebuild does not count as the tip moving
+- Finish the upstream sync: adopt upstream's margin API, merge the SDK fork with Free-Ink main
+- The black header band reaches the panel's top row
+- Instapaper: parse the article list the API actually sends
+- Ci: xteink queues its runs instead of cancelling them, so releases fire
+- The device never makes a request of its own to report
+- Guard: a write verb counts only as a command word, outside quotes
+- The Anki and Instapaper sign-in pages look like CrossPlay, and say what to do
+- The upstream sync carries the FreeInk SDK and tells the board when it stops
+- Inbox: a desktop layout from 900px, and a fixture to look at it without a passphrase
+- Autorelease: a merge that cannot reach a device is not a release
+- Board: a re-registration keeps the claim's app id
+- Site: the report box is a dialog behind a corner button, not a page
+- Devices report on the requests they already make; services post the events
+- Heartbeat: the device makes no request of its own for reporting
+- The pulse runs on the board, not on GitHub's cron
+- Board: a nightly check opens a card if no device heartbeat ever arrives
+- Daily heartbeat and crash report to the board (cards 18, 103)
+- Assemble the Sticky Playground submission
+- A plural and an -ism are the same option twice
+- Wt.sh prune drops every merged, clean, idle tree at once
+
+### 1.12.13
+
+**The box around the books icon is gone.** 1.12.12 gave real buttons
+an outline so they would look like buttons, and that outline reached
+one icon that is not a button.
+
+**BACK works while a book cover is loading**, once the connection is
+made. The cover was fetched in a way that read no input at all, so
+the screen could not be left. A cover left over from a previously
+opened book could also be shown for the wrong one; that is fixed.
+
+**INSTAPAPER works now, from the device, with nothing to set up
+first.** Open it, press SYNC, and the screen tells you where to sign
+in and shows a code to scan. It could not work before: the address on
+that screen pointed at a host that did not exist, and could never
+have existed -- it was one level too deep for the certificate the
+domain carries, so it would have failed even once created. The
+service is live at the corrected address.
+
+**GET BOOKS says when a download finished.** It shows SAVED, the
+filename actually written to the card, and which folder it went to.
+Before, a finished download looked exactly like one that gave up:
+the screen simply vanished. The message waits for five seconds you
+could actually have seen it -- the clock does not start until the
+page has drawn, and stops while a finger is on the glass.
+
+### 1.12.12
 
 **GET BOOKS: BACK no longer downloads the book.** Pressing back on a
 book's page started the download instead of leaving it.
@@ -27,7 +131,7 @@ book's page started the download instead of leaving it.
 cover before drawing anything, so a tap seemed to do nothing until
 the picture arrived. It draws first and fills the cover in after.
 
-### What WAS new in 1.12.11
+### 1.12.11
 
 **SUDOKU no longer throws away your saved puzzle.** Opening the
 difficulty menu, looking through the levels and coming back to your
@@ -70,7 +174,7 @@ which is what made Hacker News exit when you cancelled. Nine screens
 handed control back that way and fifty-five could receive the stray
 press.
 
-### What WAS new in 1.12.10
+### 1.12.10
 
 **A tap can no longer land on a screen you have not seen yet.** The
 panel takes up to two seconds to redraw, and until now the new
@@ -96,7 +200,7 @@ press.** On a two-player game it sat exactly where PLAY AGAIN sits,
 so the thumb already resting there after the last move would kill the
 connection instead of starting the next game.
 
-### What WAS new in 1.12.9
+### 1.12.9
 
 **WAVELENGTH's lock is an ordinary button now.** It used to ask you
 to HOLD, without ever saying for how long, and the lock fired while
@@ -109,7 +213,7 @@ moving the button instead of timing it: the lock now occupies only
 the number column, and the strip below the board is dead space
 rather than a smaller target.
 
-### What WAS new in 1.12.8
+### 1.12.8
 
 **WAVELENGTH's result screen no longer disappears behind the thumb
 that earned it.** Locking a guess fired while your finger was still
@@ -135,7 +239,7 @@ All four were fixed once already and lost when two versions of the
 game were reconciled. They are verified by name on the shipped
 build this time, rather than assumed to have survived.
 
-### What WAS new in 1.12.7
+### 1.12.7
 
 **WAVELENGTH no longer asks a question nobody can answer.** It used
 to ask whether the number was nearer one end or the other, after the
@@ -169,7 +273,7 @@ rivers. **This changes nothing until the question pack itself is
 republished** -- the questions live on the SD card, not in the
 firmware.
 
-### What was new in 1.12.6
+### 1.12.6
 
 **CHESS no longer flashes a wrong board while the computer is
 thinking.** After you moved, the board showed a position that was
@@ -194,7 +298,7 @@ from the score sheet. The save file keeps the position and the
 written moves but not what is needed to unwind them, so take-back
 now stops at the point you resumed from instead of guessing.
 
-### What was new in 1.12.5
+### 1.12.5
 
 **Trivia's wrong answers no longer give the game away**, its em
 dashes render as hyphens instead of vanishing mid-word, the front
@@ -233,7 +337,7 @@ and going away to read no longer drops you somewhere else. And no row
 is highlighted any more: nothing on this device can move or open a
 highlight, so it was a cursor for something that does not exist.
 
-### What was new in 1.12.4
+### 1.12.4
 
 **The games list comes back to the page you left it on.** It used to
 reopen on whichever page held the game you last played, which is a
@@ -269,7 +373,7 @@ saved. It now says SAVE and SAVED in words, a story whose page will
 not load can be kept by its discussion instead, and a swipe pages
 the list.
 
-### What was new in 1.12.3
+### 1.12.3
 
 **The games list stopped opening the wrong game.** Reaching page 2
 or 3 was unreliable and about two attempts in three landed in a game
@@ -317,7 +421,7 @@ that the sixteen are comparable.
 showing a still screen that was indistinguishable from a hang, and
 it no longer loses a book's title when saving it to the card.
 
-### What was new in 1.12.2
+### 1.12.2
 
 **Trivia asks whether there is room before it downloads.** The
 question pack is about 6 MB, and until now the app wrote it without
@@ -334,7 +438,7 @@ to know.
 before, which is most of why 1.11.1 and 1.12.0 shipped with a light
 that would not turn on: the firmware reported success either way.
 
-### From 1.12.1
+### 1.12.1
 
 **The front light works again on the X4 Pro.** If you installed
 1.11.1 or 1.12.0, the light stopped turning on: the panel opened,
@@ -346,92 +450,3 @@ raise the brightness.** Those two settings live on the SD card, not
 in the firmware, so if you spent a while trying to get the light to
 respond, the card may have kept the switch off and the slider near
 the bottom from those attempts.
-
-### If you have not plugged your X4 Pro into a computer since August
-
-**This update will refuse to install over the air, and one USB flash
-fixes it permanently.**
-
-Devices flashed before v1.5.3 have a 6.25MB app slot. This release
-is about 45KB over it. The device checks the size before downloading
-and refuses cleanly -- nothing is damaged, and it now tells you the
-remedy rather than only the problem.
-
-<!-- Approximate on purpose. The exact byte count is a property of
-the CI build, not of any local one: v1.11.1 came out 506 bytes above
-the local measurement and v1.12.0 502 bytes above, same tree,
-different toolchain instance. A precise figure written here from a
-local gate is wrong by the time anyone reads it. Quote the ceiling,
-which is fixed, not the image, which is not. -->
-
-The fix is a one-time flash of the `-full.bin` below, which carries
-the partition table that the over-the-air updater never writes.
-After it, updates work from the device forever. Sticky owners are
-unaffected.
-
-### The short way: press Install
-
-**[crossplay.ma-r-s.com/#get](https://crossplay.ma-r-s.com/#get)**
-installs this release for you. Open it in Chrome or Edge on a
-computer, plug the device in, wake it, and press Install: the page
-downloads the right image and writes it over USB itself, with
-nothing to install first and no command to type. Safari, Firefox and
-every phone have no Web Serial, and the page says so rather than
-failing when pressed.
-
-The files below are for doing it by hand, and for the on-device
-updater.
-
-### Which file to download
-
-Each device has its own pair of images; the board name is in the
-filename, and the firmware refuses an image built for the other
-board.
-
-**`crossplay-<version>-x4pro-full.bin`** /
-**`crossplay-<version>-sticky-full.bin`** are the ones to flash
-over USB. Each is the whole firmware -- bootloader, partition table
-and application in one image -- so it installs on a device that has
-never run CrossPoint.
-
-**`firmware.bin`** (X4 Pro) and **`firmware-sticky.bin`** (Sticky)
-are the application alone, for a device that is already running
-this. Settings -> Check for updates fetches the right one over
-Wi-Fi, or you can copy it to the SD card and pick it there. Keep
-the filenames: each updater matches its own name exactly.
-
-v1.0.0 and v1.0.1 published only the application image and told you
-to write it to `0x0`, which on an ESP32-S3 is where the bootloader
-lives. Do not follow the install steps from those two releases.
-
-Try the whole thing in a browser first, without owning either:
-**[crossplay.ma-r-s.com](https://crossplay.ma-r-s.com)** runs this
-same firmware compiled to WebAssembly.
-
-### Before you flash this
-
-Releases are flashed and booted on the author's own X4 Pro and
-Sticky before they ship. PLAY NEARBY between two Stickys is
-untested -- one Sticky exists here, and two-device play needs two.
-
-**The X4 and X3 are ESP32-C3**; these images are S3. Flashing them
-there is a cross-chip flash. Install
-[CrossPoint](https://crosspointreader.com/) on those instead.
-
-**Flashing replaces the firmware, not the SD card.** Your library,
-your reading positions and your fonts are files on that card and are
-left alone. Installing stock CrossPoint over the top puts the device
-back where it was, which is what makes this cheap to try. If a flash
-goes wrong,
-[docs/fix-bricked-xteink.md](https://github.com/ma-r-s/crossplay/blob/xteink/docs/fix-bricked-xteink.md)
-is the way back.
-
-Full install steps are in the
-[README](https://github.com/ma-r-s/crossplay#install-it). The short
-version, once `pip install esptool` has run -- pick your device's
-file:
-
-```
-esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-x4pro-full.bin
-esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-sticky-full.bin
-```
