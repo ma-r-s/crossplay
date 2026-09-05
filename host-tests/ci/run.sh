@@ -174,6 +174,161 @@ publish "a tag pushed with RELEASE_TOKEN is not dispatched again"      true  0
 publish "a tag pushed with the workflow token is dispatched once"      false 1
 publish "no flag at all (no secret, older text) still dispatches once" ""    1
 
+# -- the tip check must ask what MOVED, not what the commit called itself -----
+#
+# The gate refuses to release when xteink has moved past the commit CI
+# verified, and it has to: releasing a tip nothing verified is exactly the
+# thing it exists to stop. But this workflow carries
+# `paths-ignore: site/emulator/**` (above), so the emulator rebuild that
+# crossplay-emulator.yml commits after every merge gets NO CI run and never
+# will. If the gate refuses on that commit, the tip is stuck behind a run that
+# cannot exist, and the only thing that ever releases anything again is an
+# unrelated push -- which is why the stall heals itself often enough to read as
+# weather rather than as a deadlock.
+#
+# It was excused by `git log --format=%s | grep -vq '^chore: emulator rebuilt'`:
+# a copy of a string that lives in another workflow file, deciding a question
+# about content by reading a subject line. Both halves are asserted here, and
+# each one is a different way for that to be wrong:
+#
+#   a gap that reaches nothing releases WHATEVER its commits are titled, so
+#   renaming the emulator commit cannot silently stop every release;
+#   a gap that reaches something refuses WHATEVER it titles itself, so a commit
+#   claiming to be an emulator rebuild cannot carry src/ past the gate.
+#
+# EXECUTED, against real repositories and the real classification table, for
+# the reason at the top of this file.
+#
+# THE EXTRACTOR BELOW IS A COPY, and it should not survive contact with the
+# branch that collapses the other three into a `lift_step` helper (board #235,
+# wt/cigaps). The two changes do not overlap textually, so git will merge them
+# without a word and leave this here as a fourth copy. Whoever lands second:
+# delete the heredoc and write
+#   lift_step "$AYML" 'Decide whether to release' >"$WORK/gate.sh"
+python3 - "$AYML" 'Decide whether to release' >"$WORK/gate.sh" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+i = next(i for i, l in enumerate(lines) if l.strip() == '- name: ' + sys.argv[2])
+j = next(j for j in range(i, len(lines)) if lines[j].strip() == 'run: |')
+body, indent = [], None
+for l in lines[j + 1:]:
+    if not l.strip():
+        body.append('')
+        continue
+    cur = len(l) - len(l.lstrip())
+    if indent is None:
+        indent = cur
+    if cur < indent:
+        break
+    body.append(l[indent:])
+print('\n'.join(body))
+PY
+[ -s "$WORK/gate.sh" ] || { echo "FAIL could not extract the gate step from crossplay-autorelease.yml"; exit 1; }
+
+# One fixture repository, rebuilt per case. The classification table is the
+# REAL one -- the whole point is that the gate reads it rather than restating
+# it -- and release-needed.sh is a stub that always says yes, so what this
+# measures is the tip check alone. Whether a range warrants a release at all is
+# host-tests/autorelease's subject and is answered by the same table.
+gate_repo() {  # <path>  -> a repo whose HEAD is the base, with the table in it
+  rm -rf "$1"; mkdir -p "$1/scripts_local"
+  cp "$HERE/../../scripts_local/device-build-needed.sh" "$1/scripts_local/"
+  printf '#!/bin/sh\necho "reaches a user: yes (stubbed)"\nexit 0\n' >"$1/scripts_local/release-needed.sh"
+  mkdir -p "$1/src"; echo 'int base;' >"$1/src/base.cpp"
+  ( cd "$1" && git init -q -b xteink && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -qm "base" ) >/dev/null 2>&1
+}
+gate_commit() {  # <repo> <path> <subject>
+  mkdir -p "$(dirname "$1/$2")"; echo "$(date +%s%N)" >>"$1/$2"
+  ( cd "$1" && git add -A && git commit -qm "$3" ) >/dev/null 2>&1
+}
+gate_expect() {  # <label> <repo> <VERIFIED> <true|false wanted go> <substring wanted in the log>
+  local label="$1" repo="$2" verified="$3" want="$4" msg="$5" got
+  : >"$WORK/gh_output"
+  ( cd "$repo" && GITHUB_OUTPUT="$WORK/gh_output" VERIFIED="$verified" HOLD="" \
+      bash -eo pipefail "$WORK/gate.sh" ) >"$WORK/out" 2>&1
+  got="$(grep -o 'go=[a-z]*' "$WORK/gh_output" | tail -1 | cut -d= -f2)"
+  checks=$((checks + 1))
+  if [ "$got" != "$want" ]; then
+    failed=$((failed + 1))
+    echo "FAIL ci-autorelease  $label: gate said go=${got:-<nothing>}, wanted go=$want"
+    sed 's/^/       /' "$WORK/out"
+    return
+  fi
+  checks=$((checks + 1))
+  if ! grep -q "$msg" "$WORK/out"; then
+    failed=$((failed + 1))
+    echo "FAIL ci-autorelease  $label: right answer, wrong reason -- the log never says '$msg'"
+    sed 's/^/       /' "$WORK/out"
+  fi
+}
+
+G="$WORK/gate-repo"
+
+# (1) The tip has not moved. Nothing to excuse; the gate never reaches the
+#     comparison at all.
+gate_repo "$G"
+gate_expect "an unmoved tip releases" "$G" "$(git -C "$G" rev-parse HEAD)" true "reaches a user"
+
+# (2) The tip moved by an emulator rebuild and nothing else. This is the case
+#     no CI run can ever arrive for.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" site/emulator/crossplay.wasm "chore: emulator rebuilt for $V"
+gate_expect "a tip that moved only by an emulator rebuild releases" "$G" "$V" true \
+  "only by commits no device build and no release can see"
+
+# (3) The tip moved by real firmware. The protection, unchanged: nothing
+#     verified src/ at this tip, so nothing releases it.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
+gate_expect "a tip that moved by firmware refuses" "$G" "$V" false \
+  "moved past the commit CI verified"
+
+# (4) The same firmware change, TITLED as an emulator rebuild. The subject grep
+#     released this; the table cannot be talked to.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" src/apps_local/Sudoku.cpp "chore: emulator rebuilt for $V"
+gate_expect "a firmware commit calling itself an emulator rebuild still refuses" "$G" "$V" false \
+  "moved past the commit CI verified"
+
+# (5) The same emulator rebuild under any other name. The subject grep refused
+#     this forever, silently, from the first time somebody reworded the commit
+#     crossplay-emulator.yml writes.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" site/emulator/crossplay.wasm "build(site): wasm refreshed"
+gate_expect "an emulator rebuild under another name still releases" "$G" "$V" true \
+  "only by commits no device build and no release can see"
+
+# (6) The gap builds but does not ship, and the gap ships but does not build.
+#     One column would answer no to each of these; the gate asks both.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" scripts_local/check.sh "gate: trim the cache harder"
+gate_expect "a gap that breaks a build but ships nothing refuses" "$G" "$V" false \
+  "moved past the commit CI verified"
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" .github/workflows/crossplay-release.yml "ci: publish the merged image"
+gate_expect "a gap that changes what the release publishes refuses" "$G" "$V" false \
+  "moved past the commit CI verified"
+
+# (7) A path in no row of the table. The tool refuses to classify it and the
+#     gate must inherit that refusal rather than reading it as "inert".
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+gate_commit "$G" brandnew/thing.c "feat: a directory nobody has classified"
+gate_expect "an unclassified path in the gap refuses" "$G" "$V" false \
+  "moved past the commit CI verified"
+
+# (8) A verified commit that is not in the tip's history at all. --range diffs
+#     from the merge base, so without the ancestry check this could answer
+#     "nothing changed" about a history CI never saw.
+gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
+( cd "$G" && git checkout -q -b sideline && mkdir -p src && echo 'int side;' >src/side.cpp \
+  && git add -A && git commit -qm "feat: on a branch of its own" ) >/dev/null 2>&1
+SIDE="$(git -C "$G" rev-parse HEAD)"
+( cd "$G" && git checkout -q xteink ) >/dev/null 2>&1
+gate_commit "$G" site/emulator/crossplay.wasm "chore: emulator rebuilt for $V"
+gate_expect "a verified commit outside the tip's history refuses" "$G" "$SIDE" false \
+  "is not in the history of"
+
 # The two stack-checked device envs build in ONE pio run invocation.
 #
 # pio run wipes the whole .pio/build root on every invocation

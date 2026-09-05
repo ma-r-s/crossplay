@@ -12,7 +12,13 @@
 set -uo pipefail
 
 SOURCES=(src lib assets_local tools_local/wasm platformio.sim.ini freeink-sdk)
-ARTEFACT=site/emulator
+# Two paths, because the artefact stopped being one thing. The bytes in
+# site/emulator/ are frozen at the last revision that was ever committed and no
+# longer move; what a rebuild now commits is the pointer beside them,
+# site/emulator-manifest.json (see tools_local/site/publish_emulator.py). Miss
+# it and every rebuild reads as stale forever, which is the failure this test
+# exists to report.
+ARTEFACTS=(site/emulator site/emulator-manifest.json)
 
 # --paths: print the source list, one per line, for callers that want to name
 # what moved (check.sh's message) without spelling the list a second time.
@@ -23,7 +29,7 @@ fi
 cd "${1:-$(dirname "$0")/..}" || exit 2
 
 src_ts="$(git log -1 --format=%ct -- "${SOURCES[@]}" 2>/dev/null || echo 0)"
-art_ts="$(git log -1 --format=%ct -- "$ARTEFACT" 2>/dev/null || echo 0)"
+art_ts="$(git log -1 --format=%ct -- "${ARTEFACTS[@]}" 2>/dev/null || echo 0)"
 if [ "${src_ts:-0}" -gt "${art_ts:-0}" ]; then
   echo "stale (sources $(date -u -r "$src_ts" +%FT%TZ 2>/dev/null || echo "$src_ts"), emulator $(date -u -r "$art_ts" +%FT%TZ 2>/dev/null || echo "$art_ts"))"
   exit 0

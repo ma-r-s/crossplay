@@ -143,7 +143,8 @@ Never invoke or probe `clang-format` directly. The repository wrapper is the onl
 
    - **Verify**: `which pio` (Git Bash) or `where.exe pio` (cmd)
 
-   - **Usage**: `pio run`, `pio run -t upload`, etc.
+   - **Usage**: `pio run -e x4pro`, `pio run -e x4pro -t upload`, etc. Always
+     with an environment; see Build Commands below for why.
 
 **Configuration Files**:
 
@@ -633,20 +634,31 @@ renderer.drawText(FONT_UI_MEDIUM, x, y, "Hello", true);
 
 ### Build Commands
 
+> **These are upstream's commands and every one of them targets the wrong
+> chip here.** `default`, `gh_release` and a bare `pio run` all set
+> `FREEINK_DEVICE_X4` / `FREEINK_DEVICE_X3`, which are ESP32-C3. Build
+> `-e x4pro`, `-e sticky` or `-e simulator_x4_pro` instead (upstream ships an
+> `x4pro` and a `sticky` env too; what differs here is the release envs and the
+> default). Go through
+> `./scripts_local/check.sh` from your own worktree rather than running
+> PlatformIO by hand: it takes the workspace build lock, and concurrent builds
+> race the shared `~/.platformio` and fail on framework headers that have
+> nothing to do with your diff.
+
 **Via CLI**:
 
 ```bash
-# Build firmware (default environment)
-pio run
+# Everything that can be verified without a device (preferred)
+./scripts_local/check.sh
+
+# One environment, when you need just that
+pio run -e x4pro                 # or -e sticky, -e simulator_x4_pro
 
 # Build and upload to device
-pio run -t upload
-
-# Build specific environment
-pio run -e gh_release
+pio run -e x4pro -t upload
 
 # Clean build artifacts
-pio run -t clean
+pio run -e x4pro -t clean
 ```
 
 **Via VS Code**:
@@ -771,9 +783,13 @@ upstream    https://github.com/crosspoint-reader/crosspoint-reader.git (fetch/pu
 
 ### Git Operation Rules
 
-1. Integration branches and PR comparisons target `develop`, not `master` or the remote's symbolic HEAD.
+1. Integration branches and PR comparisons target **`xteink`**, this fork's
+   default branch, and the remote is `origin` (`ma-r-s/crossplay`). `develop`
+   is upstream's branch, not this one's, and the example remotes above are
+   upstream's too: here `origin` is the fork and `crosspoint` is upstream.
 2. Never push to any remote or open/close a PR without explicit user approval. Complete local work and any requested local commit, then stop.
-3. If the user explicitly approves a push, inspect remotes again and use `fork` for the feature branch unless the user specifies otherwise.
+3. If the user explicitly approves a push, inspect remotes again and push the
+   feature branch to `origin` unless the user specifies otherwise.
 4. Never add Claude, Codex, or assistant self-attribution as a commit co-author or generated-by trailer.
 5. When a change supersedes or adapts another person's PR, verify the original human author from Git/GitHub and add that person as `Co-Authored-By`; skip bot authors.
 
@@ -825,7 +841,9 @@ Tested in all 4 orientations with 5MB+ files.
 - Feature is complete and tested on device
 - Bug fix is verified working
 - Refactoring preserves all functionality
-- All tests pass (`pio run` succeeds)
+- All tests pass (`./scripts_local/check.sh --committed` reaches a green verdict
+  on its last line -- it has four verdicts and one non-zero exit code, so `$?`
+  is not the answer)
 
 **DO NOT commit when**:
 
@@ -880,7 +898,7 @@ Tested in all 4 orientations with 5MB+ files.
 **To change HTML pages**:
 
 1. Edit source: `data/html/<pagename>.html`
-2. Build: `pio run` (auto-triggers `scripts/build_html.py`)
+2. Build: `pio run -e x4pro` (auto-triggers `scripts/build_html.py`)
 3. Generated headers update: `src/network/html/<pagename>Html.generated.h`
 4. **Commit ONLY** source HTML, NOT generated `.generated.h` files
 
