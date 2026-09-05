@@ -3215,6 +3215,37 @@ void testHnReaderShowsWhereYouAre() {
   CHECK(!drewText(out, "ARTICLE"));
 }
 
+// A card that would not take a save says so OVER the reader, not by replacing
+// it. Card #40: a failed save called showNotice(), which switched the Activity
+// to its full-screen Notice phase and threw the reader out of the page it was
+// on -- for the one failure that leaves what you were reading perfectly intact.
+// buildReader now draws the refusal from the model as a transient toast, so the
+// reader's own chrome is still there beneath it and nothing navigated away.
+void testHnReaderSaveFailedToastStaysOnTheReader() {
+  Rendered out;
+  hnui::ReaderModel model = articleModel();
+  model.canSave = true;
+  model.saveNotice = "Not saved: the card is full.";
+  buildHnReader(out, model);
+
+  // The refusal is on the page.
+  CHECK(drewText(out, "card is full"));
+  // And the reader is STILL the reader underneath it: the swap control, the
+  // page label and the save mark are all drawn, which a full-screen notice
+  // would not carry. That is the whole of #40 -- an overlay, not a new screen.
+  CHECK(drewText(out, "COMMENTS"));
+  CHECK(drewText(out, "1/3"));
+  CHECK(saveMarkIn(out) != nullptr);
+
+  // The ordinary paint, with nothing refused, is clean: the toast is drawn only
+  // when the model carries a reason.
+  Rendered clean;
+  hnui::ReaderModel plain = articleModel();
+  plain.canSave = true;
+  buildHnReader(clean, plain);
+  CHECK(!drewText(clean, "card is full"));
+}
+
 void testHnFitLines() {
   // The fake target bills every character at 10px, so the arithmetic here is
   // exact: a 200px line holds 20 characters.
@@ -8964,6 +8995,7 @@ int main() {
   testHnEmptyStateStacksWithoutOverlap();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
+  testHnReaderSaveFailedToastStaysOnTheReader();
   testHnSaveMarkIsLoudestWhenSaved();
   testHnAThreadCanBeKept();
   testTheColumnYouTapIsTheColumnTheRulesGet();
