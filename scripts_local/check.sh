@@ -441,7 +441,16 @@ since() { echo "$(( $(date +%s) - $1 ))s"; }
 infra_fault_note() {  # label, T0, logfile
   _ifn_secs=$(( $(date +%s) - $2 ))
   [ "$_ifn_secs" -le 1 ] || return 0
-  [ -s "$3" ] && grep -qiE "fail|error|fatal" "$3" 2>/dev/null && return 0
+  #
+  # The question is NOT "does this log contain the word error". It is "did the
+  # reader SEE anything", so the pattern here is the one the CALLERS print
+  # with. The reported failure had a log full of cmake's own text -- "CMake
+  # Error: The current CMakeCache.txt directory ... is different than the
+  # directory ... where CMakeCache.txt was created" -- and printed nothing,
+  # because that matches neither `FAIL` nor `error:` nor `Failed`. A note keyed
+  # on any WIDER pattern (`-i error`, say) would stay silent on precisely the
+  # case it exists for. host-tests/checksh drives it with that exact text.
+  [ -s "$3" ] && grep -qE "FAIL|error:|Failed" "$3" 2>/dev/null && return 0
   echo "      NOTHING RAN. $1 failed in ${_ifn_secs}s with an empty log, which is an"
   echo "      INFRASTRUCTURE FAULT, not your diff -- a step that fails instantly never"
   echo "      started. Usual cause: another run of THIS tree pulled a shared directory"

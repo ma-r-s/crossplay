@@ -1761,6 +1761,21 @@ else
             "silent whenever the log has something to say" ;;
     *) : ;;
   esac
+  # THE PROBE MUST BE ABLE TO FAIL. The reported ctest failure did NOT have an
+  # empty log -- it had a full one that check.sh printed nothing from, because
+  # cmake's own wording matches none of the patterns check.sh greps for. A note
+  # that suppresses itself on any occurrence of the word "error" is silent on
+  # exactly the case it was written for, which is how the first draft of this
+  # was wrong.
+  checks=$((checks + 1))
+  case "$(infra 'CMake Error: The current CMakeCache.txt directory /tmp/xteink-committed-ab-123/test is different than the directory /tmp/xteink-committed-ab-456/test where CMakeCache.txt was created.' 0)" in
+    *"INFRASTRUCTURE FAULT"*) : ;;
+    *) failed=$((failed + 1))
+       echo "FAIL checksh  the (0s) note stayed silent on the stale-cmake-cache text that IS the" \
+            "reported failure: check.sh prints nothing from that log, so the reader sees a bare" \
+            "'ctest FAILED (0s)' and reads it as their own diff" ;;
+  esac
+
   checks=$((checks + 1))
   case "$(infra '' 30)" in
     *"INFRASTRUCTURE FAULT"*) failed=$((failed + 1))
