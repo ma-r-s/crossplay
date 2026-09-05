@@ -11,7 +11,7 @@
 //
 // Operations:
 //   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card],
-//                triage: {waiting, oldest_h, last_triaged_at, since_triage_h} or null}
+//                triage: {waiting, claimed, for_mario, oldest_h, last_triaged_at, since_triage_h} or null}
 //   numbers  -> {byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
 //   answer   -> closes one blocker: {card_id, n, choice, note}
 

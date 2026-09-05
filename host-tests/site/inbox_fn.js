@@ -58,7 +58,7 @@ global.fetch = async function (url, opts) {
     );
   if (u.includes("/rest/v1/triage_backlog"))
     return new Response(
-      JSON.stringify([{ waiting: 2, oldest_h: 30, last_triaged_at: null, since_triage_h: null }]),
+      JSON.stringify([{ waiting: 2, claimed: 0, for_mario: 1, oldest_h: 30, last_triaged_at: null, since_triage_h: null }]),
       { status: 200 },
     );
   if (u.includes("/rest/v1/blockers") && opts.method === "PATCH")

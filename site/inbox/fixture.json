@@ -368,7 +368,9 @@
       }
     ],
     "triage": {
-      "waiting": 37,
+      "waiting": 36,
+      "claimed": 1,
+      "for_mario": 2,
       "oldest_h": 47,
       "last_triaged_at": "2026-09-04T05:04:11+00:00",
       "since_triage_h": 25

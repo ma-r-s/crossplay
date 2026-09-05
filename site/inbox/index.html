@@ -199,15 +199,19 @@
     });
   }
 
-  // One line on how far behind triage is: what waits in `reported`, the oldest
-  // of it, and when anything was last triaged. Bold once the oldest has waited
-  // a day; the question "is triage up to date?" once took a database query.
+  // One line on how far behind triage is: what waits in `reported` with no
+  // session bound, the oldest of it, how many of those are Mario's own
+  // decisions, what is claimed but never moved, and when anything was last
+  // triaged. Bold once the oldest has waited a day; the question "is triage
+  // up to date?" once took a database query.
   function hours(h) { return h >= 48 ? Math.round(h / 24) + " days" : h + " h"; }
   function triage(t) {
     var el = $("inbox-triage");
     if (!t || typeof t.waiting !== "number") { el.hidden = true; return; }
     var s = !t.waiting ? "Triage: nothing waiting."
       : "Triage: " + t.waiting + (t.waiting === 1 ? " card" : " cards") + " waiting, oldest " + hours(t.oldest_h) +
+        (t.for_mario ? ", " + t.for_mario + " of them for you" : "") +
+        (t.claimed ? "; " + t.claimed + " claimed but never moved" : "") +
         (t.since_triage_h != null ? "; last triage " + hours(t.since_triage_h) + " ago" : "") + ".";
     el.innerHTML = (t.waiting && t.oldest_h >= 24) ? "<b>" + esc(s) + "</b>" : esc(s);
     el.hidden = false;
