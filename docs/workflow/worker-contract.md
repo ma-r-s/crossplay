@@ -63,6 +63,13 @@ are enforced by hooks and will refuse rather than remind.
   host suites green in your tree, pushed, a pull request open, and
   `board state <id> review`. Say in the PR what was not verified. Hardware
   always counts as not verified.
+- **Your diff is the three-dot one.** `git diff origin/xteink...HEAD
+  --name-only` (the merge base) is what your branch changes; the two-dot
+  `git diff origin/xteink` lists everything trunk did since you branched and
+  cried wolf twice in one night. `check.sh --committed` refuses a branch
+  whose commits undo lines trunk landed just before it branched, the shape
+  of a stale tree committed after `git reset --soft`; `CHECK_ALLOW_UNDO=1`
+  only if you mean to revert.
 - **Review means merge on green.** To stop a merge, move the card first
   (`board state <id> working`, or a blocker) and only then say why: the
   orchestrator merges from cards, and a message reaches it after its
