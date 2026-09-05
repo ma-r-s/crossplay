@@ -499,6 +499,23 @@ void buildReasons(toybox::Screen& screen, const ReasonModel& model) {
   list.count = static_cast<uint16_t>(count);
   list.selectedIndex = -1;
   list.action = ActionReasonRow;
+  // SET EXPLICITLY, and this is the row count's whole margin.
+  //
+  // The list is virtualised: list.h says only rows that fully fit are "laid
+  // out, drawn, and registered for interaction" -- so a row past the bottom is
+  // not clipped, it does not exist. No hit region, nothing on screen, and a
+  // reason a player can never choose.
+  //
+  // At the theme's 62px row and a 4px gap this band takes NINE rows, and the
+  // list is TEN in solo with US questions off (both conditional rows show at
+  // once). Exactly one reason -- TOO EASY, the last -- would have vanished, in
+  // one combination, silently. That is the screens-overflow-silently failure
+  // with a one-row margin, which is the hardest size to notice.
+  //
+  // 52 is right on its own terms rather than as a squeeze: these rows carry a
+  // label and nothing else -- no subtitle, no value, no icon -- and the theme's
+  // 62 is sized for rows that do. Ten rows then need 556px of the 603 available.
+  list.rowHeight = 52;
   screen.list(list);
 }
 

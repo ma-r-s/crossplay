@@ -109,5 +109,21 @@ if wire_by_value != reports.REASONS:
     print(f"      Python: {reports.REASONS}")
     sys.exit(1)
 
-print(f"parity ok: {len(reports.REASONS)} reason codes and wire names agree")
+# The reason SCREEN has to be able to show every reason at once. Its list is
+# virtualised -- a row that does not fit is not drawn and not registered for
+# interaction -- so an eleventh reason would silently become unreachable in the
+# one combination that shows them all (solo, US questions off). ReasonModel::kMax
+# is the buffer, and buildReasons' rowHeight comment carries the arithmetic; this
+# only makes adding a reason a deliberate act rather than a quiet overflow.
+screens = open(f"{src}/TriviaScreens.h", encoding="utf-8").read()
+kmax = int(re.search(r"kMax\s*=\s*(\d+)", screens).group(1))
+selectable = len(reports.REASONS) - 1  # every code except `none`, which is not a row
+if kmax < selectable:
+    print(f"FAIL trivia  {selectable} selectable reasons but ReasonModel::kMax is {kmax}")
+    print("              The extra rows would not be drawn and could not be tapped.")
+    print("              Raise kMax AND re-check the fit in buildReasons.")
+    sys.exit(1)
+
+print(f"parity ok: {len(reports.REASONS)} reason codes and wire names agree; "
+      f"{selectable} selectable rows fit kMax {kmax}")
 PARITY
