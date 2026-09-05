@@ -437,12 +437,12 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   // A total and a way back. HIDE was permanent and silent before this: a
   // mis-tap could not be undone and nothing anywhere said how many had gone.
   if (model.hidden == 0) {
-    std::snprintf(hiddenSub, sizeof(hiddenSub), "%s", "NOTHING IS HIDDEN ON THIS CARD");
+    std::snprintf(hiddenSub, sizeof(hiddenSub), "NOTHING IS HIDDEN ON THIS CARD");
   } else if (model.pending > 0) {
     std::snprintf(hiddenSub, sizeof(hiddenSub), "TAP TO SHOW THEM ALL AGAIN. %u NOT YET SENT",
                   static_cast<unsigned>(model.pending));
   } else {
-    std::snprintf(hiddenSub, sizeof(hiddenSub), "%s", "TAP TO SHOW THEM ALL AGAIN");
+    std::snprintf(hiddenSub, sizeof(hiddenSub), "TAP TO SHOW THEM ALL AGAIN");
   }
   rows[static_cast<int>(SettingRow::Hidden)].subtitle = hiddenSub;
 

@@ -630,8 +630,16 @@ void TriviaActivity::runSync() {
   char body[192];
   switch (trivia::compare(meta_, published)) {
     case trivia::Freshness::Current:
-      std::snprintf(body, sizeof(body), "You have the newest questions. %u report%s sent.",
-                    static_cast<unsigned>(delivered), delivered == 1 ? "" : "s");
+      // Spelled out per branch rather than with a %s plural: a %s is an
+      // unbounded argument into a fixed buffer as far as host-tests/fmtwidth is
+      // concerned, and it is right that it cannot tell "" from a runaway
+      // pointer. Two literals cost nothing and make the width readable.
+      if (delivered == 1) {
+        std::snprintf(body, sizeof(body), "You have the newest questions. 1 report sent.");
+      } else {
+        std::snprintf(body, sizeof(body), "You have the newest questions. %u reports sent.",
+                      static_cast<unsigned>(delivered));
+      }
       showNotice("UP TO DATE", body, "BACK", triviaui::ActionCloseSettings);
       break;
     case trivia::Freshness::Newer:
@@ -644,8 +652,12 @@ void TriviaActivity::runSync() {
       showNotice("NEWER PACK", body, "GET IT", triviaui::ActionGetPack);
       break;
     case trivia::Freshness::NoManifest:
-      std::snprintf(body, sizeof(body), "Could not check for a newer pack. %u report%s sent.",
-                    static_cast<unsigned>(delivered), delivered == 1 ? "" : "s");
+      if (delivered == 1) {
+        std::snprintf(body, sizeof(body), "Could not check for a newer pack. 1 report sent.");
+      } else {
+        std::snprintf(body, sizeof(body), "Could not check for a newer pack. %u reports sent.",
+                      static_cast<unsigned>(delivered));
+      }
       showNotice("NOT CHECKED", body, "BACK", triviaui::ActionCloseSettings);
       break;
   }
