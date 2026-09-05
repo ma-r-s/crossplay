@@ -1081,6 +1081,50 @@ else
   echo "FAIL release  the release must build both devices in ONE pio run invocation (found $runs); a second invocation wipes the first one's .pio/build"
 fi
 
+# ...and a step that checks the build outputs are actually on disk.
+#
+# The check above reads the workflow TEXT, and its scope was chosen by an
+# assumption: that a second pio run is the only way .pio/build empties. That is
+# the cause we know about, not the condition we care about. Anything else that
+# loses those files -- a cache step restoring over the directory, an env
+# dropping an output, clean_build_dir() changing semantics under us -- keeps
+# the text assertion green and breaks the release identically.
+#
+# So the workflow must also assert the condition, on the runner, where the
+# files either exist or do not. That is the only probe in this pipeline that
+# can fail on the real thing rather than on a description of it.
+#
+# The file list is derived from what the workflow later READS out of .pio/build,
+# never written out here: a guard that names three of the four files clears a
+# build it did not look at, and would have passed v1.12.15 unchanged.
+guard=$(grep -n '\[ -f "\.pio/build' "$WF" | head -1 | cut -d: -f1)
+if [ -z "$guard" ]; then
+  bad "no step checks that .pio/build still holds the build outputs before the merge steps read them; both builds report SUCCESS when it is empty (v1.12.14, v1.12.15)"
+else
+  # What the guard covers: its env loop crossed with its filename loop.
+  # The loops that enclose the test are the nearest ones ABOVE it.
+  guard_envs=$(sed -n "1,${guard}p" "$WF" | grep -oE 'for env_name in [a-z0-9_ ]+' | tail -1 | sed 's/for env_name in //')
+  guard_files=$(sed -n "1,${guard}p" "$WF" | grep -oE 'for f in [a-zA-Z0-9._ ]+' | tail -1 | sed 's/for f in //')
+  covered=""
+  for e in $guard_envs; do
+    for f in $guard_files; do covered="$covered .pio/build/$e/$f"; done
+  done
+
+  # What the workflow reads, from the workflow itself.
+  for path in $(grep -oE '\.pio/build/gh_release_[a-z0-9]+/[a-zA-Z0-9._]+' "$WF" | sort -u); do
+    # Real reads only: the comments above the build step quote these paths too,
+    # and a comment is not a step that can run before the guard.
+    consumer=$(grep -n "$path" "$WF" | grep -vE ':[[:space:]]*#' | grep -v '\[ -f' | head -1 | cut -d: -f1)
+    if ! echo " $covered " | grep -q " $path "; then
+      bad "the on-disk check does not cover $path, which the workflow reads; a guard that misses a file clears a build it never looked at"
+    elif [ -n "$consumer" ] && [ "$guard" -gt "$consumer" ]; then
+      bad "the on-disk check (line $guard) runs after $path is read (line $consumer)"
+    else
+      ok
+    fi
+  done
+fi
+
 # The release must not be started twice for one tag.
 #
 # crossplay-release.yml triggers on a tag push AND on workflow_dispatch. A tag
