@@ -25,7 +25,7 @@ The **Xteink X4 Pro** and the **Seeed reTerminal Sticky** are cheap e-ink
 devices with an 800x480 panel, capacitive touch and two physical buttons, and
 [CrossPoint](https://crosspointreader.com/) already makes them good at reading.
 CrossPlay is firmware that keeps all of that and adds the other things a screen
-that holds still is good at: **20 games and 5 apps**,
+that holds still is good at: **20 games and 6 apps**,
 spaced-repetition flashcards, comics, a read-later queue, and two devices that
 play together with nothing to set up.
 
@@ -78,6 +78,7 @@ the browser: it fetches the day's board and nothing can be canned for it.
 | **xkcd**        | The archive, packed for the card and drawn one to one.                   |
 | **Get Books**   | Browse any OPDS catalog and download straight to the card, no computer.  |
 | **Instapaper**  | Your read-later queue, synced both ways: reading position and archiving. |
+| **Wallpapers**  | Pick an image on the card as the sleep screen, one tap to set it.        |
 
 And the reader is still CrossPoint's reader: the EPUB engine, sync and the file
 browser are theirs and stay theirs.

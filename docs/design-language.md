@@ -167,7 +167,17 @@ two disagreed on 48 boards of the published archive, every one of them a tile
 showing a phrase the player could not know was shortened. Break the text with
 the same function that decides the cut, and check the emitted line, not the
 input string. `host-tests/tilefit` walks all 1143 published puzzles and fails on
-one shortened line.
+one shortened line. `host-tests/wallcaption` does the same for the wallpaper
+picker, walking every built-in name through the real toybox cut and failing on
+one elided caption; both link `lib/EpdFont` because the ui suite's target
+answers ten pixels a character and cannot see a real overflow.
+
+**A selection marks the cell, it does not move it.** The wallpaper picker's
+brackets sit in the cell's padding, clear of the image rect and clear of the
+caption's line box, and the caption's box is reserved whether or not the tile is
+selected. A selection that re-flows what is under it makes the layout jump as
+the cursor moves, and it puts the mark on the artwork, where several plates
+carry borders of their own and the mark stops reading as the app talking.
 
 **Shrink to fit; never break a word.** `EpdFont` is a bitmap format, one
 pre-rasterised set per size, so there is no scaling to be had at draw time. "Fit
