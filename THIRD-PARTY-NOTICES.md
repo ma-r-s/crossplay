@@ -29,6 +29,12 @@ device.
 are drawn from it. Full text at `src/apps_local/solitaire/art/OFL.txt`, with the
 derivation documented in `src/apps_local/solitaire/art/README.md`.
 
+**"celtic" chess pieces**, MIT, Copyright (c) Maurizio Monge, from
+[maurimo/chess-art](https://github.com/maurimo/chess-art). Chess's board art is
+rasterised from them into `src/apps_local/chess/ChessPieces.h` at authoring
+time. Full text and the source SVGs at `assets_local/pieces/celtic/`, with the
+choice documented in `docs/design-language.md`.
+
 **Libraries linked into the build**, each under its own licence as published:
 
 | Library               | Author          |
