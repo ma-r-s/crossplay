@@ -36,13 +36,23 @@ exist. A newly registered application is in **owner only** mode -- the keys
 work immediately for the account that registered them, and for nobody else
 until a separate "Submit for review" is approved.
 
-That distinction decides the deployment order, so it is worth stating as a
-rule rather than a fact: **`READ_ALLOWLIST` must stay the owner's address
-until the review is approved.** Opening it to `*` beforehand lets strangers
-reach the sign-in endpoint with credentials that CANNOT succeed -- Instapaper
-will refuse every one of them -- so it buys nothing and exposes the one
-endpoint that is a credential-stuffing oracle by construction. All risk, no
-capability. Open it when the review lands, and not before.
+**The review was approved (Mario, reported 2026-09-05).** So the rule this
+section used to carry -- keep `READ_ALLOWLIST` at the owner's address until it
+lands -- has been met and is now history rather than instruction. It is left
+here because the reasoning still explains the shape: before approval, opening
+to `*` let strangers reach the sign-in endpoint with credentials Instapaper
+would refuse anyway, which was all risk and no capability.
+
+What has NOT been met is the other precondition, and it is the one that
+matters now. Rate limiting still lives in `bridge/ratelimit.py`, in-process,
+and its own docstring says a distributed attacker defeats it. Behind an
+allowlist that hardly mattered; open to the world it is the whole exposure,
+because sign-in is a credential-stuffing oracle by construction. **Edge rate
+limiting is the gate on opening it now, not the review.**
+
+One thing to do rather than assume when it opens: watch a NON-OWNER sign-in
+actually succeed. That is the only evidence the approval is live, and it costs
+one attempt.
 
 ## Suites
 
