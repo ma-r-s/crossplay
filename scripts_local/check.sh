@@ -476,7 +476,7 @@ else
   T0=$(date +%s)
   say_stage "gcc"
   gcc_failed=0
-  for gcc_suite in ui tilefit; do
+  for gcc_suite in ui tilefit wallcaption; do
     if ! CXX="$GCC" "host-tests/$gcc_suite/run.sh" > "$LOGS/gcc-$gcc_suite.log" 2>&1; then
       gcc_failed=1
       printf "  %-12s FAILED under %s in host-tests/%s (%s)\n" "gcc" "$GCC" "$gcc_suite" "$(since $T0)"
