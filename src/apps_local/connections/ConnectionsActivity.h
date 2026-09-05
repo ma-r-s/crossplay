@@ -48,7 +48,6 @@ class ConnectionsActivity final : public Activity {
   void saveProgress() const;
   bool loadProgress();
   void routeAction(const freeink::ui::ActionEvent& event);
-  connections::Record readResult(uint32_t date) const;
 
   // Fills the menu's played/perfect/streak counters from one pass over the
   // results file. Reading the file whole (~1.2KB) rather than seeking per day
