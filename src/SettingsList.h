@@ -350,15 +350,24 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
         // whose owner turned that off must not come back on under a new key.
         SettingInfo::Toggle(StrId::STR_DEVICE_REPORT, &CrossPointSettings::deviceReport, "heartbeat",
                             StrId::STR_CAT_SYSTEM),
-        // Trivia ships international by default; this opts a US player back into
-        // the US-centric questions. A CrossPlay setting, held back by
-        // SettingsActivity so it renders below every CrossPoint one.
-        SettingInfo::Toggle(StrId::STR_TRIVIA_US_CENTRIC, &CrossPointSettings::triviaShowUsCentric,
-                            "triviaShowUsCentric", StrId::STR_CAT_SYSTEM),
         // Placed last by SettingsActivity, after the action rows, not by this
         // declaration order: it is the one setting that opens the device to
         // the network, so it should not sit next to a reading preference.
         SettingInfo::Toggle(StrId::STR_DEV_MODE, &CrossPointSettings::devMode, "devMode", StrId::STR_CAT_SYSTEM),
+
+        // Trivia ships international by default; this opts a US player back into
+        // the US-centric questions. Persisted + web-exposed, but CATEGORY-LESS
+        // so it does not render in the device's Settings screen: it is one
+        // app's option, and it now lives on TRIVIA's own SETTINGS screen
+        // (triviaui::buildSettings). CrossPoint owns the reader, the keyboard
+        // and the system; a CrossPlay app's options belong inside that app.
+        //
+        // The key stays "triviaShowUsCentric" and the value stays in
+        // CrossPointSettings on purpose. Both shipped in v1.12.29 and are
+        // already saved on devices, so moving either would silently discard a
+        // preference somebody had chosen. Only the surface moved.
+        SettingInfo::Toggle(StrId::STR_TRIVIA_US_CENTRIC, &CrossPointSettings::triviaShowUsCentric,
+                            "triviaShowUsCentric"),
 
         // OPDS download folder: persisted + web-exposed, but category-less so it
         // is hidden from the on-device Settings screen (edited via OPDS UI).

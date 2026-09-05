@@ -79,12 +79,42 @@ question count no longer matches it.
 ## International by default
 
 The pack ships every question, but US-centric ones are marked and the chooser
-hides them unless Settings > System > "Show US-centric trivia" is on (off by
-default). The difficulty levels are calibrated for an international table, where
-the US-centric questions are the hardest, so turning the toggle on adds them
-mostly to level 5. The flag rides bit 7 of each question's difficulty byte; see
+hides them unless TRIVIA > SETTINGS > US QUESTIONS is on (off by default). The
+difficulty levels are calibrated for an international table, where the
+US-centric questions are the hardest, so turning the toggle on adds them mostly
+to level 5. The flag rides bit 7 of each question's difficulty byte; see
 [trivia-pack-format.md](trivia-pack-format.md) and board #191/#223. Nothing is
 deleted from the data, so the toggle needs no re-download and no re-rating.
+
+## The app owns its own settings
+
+TRIVIA has a SETTINGS screen, reached from the last row of its front door. It
+holds US QUESTIONS, which shipped in v1.12.29 in the DEVICE's Settings > System
+list instead, one row below Developer Mode. That was wrong and card #311 moved
+it: CrossPoint owns the reader, the keyboard and the system, and a CrossPlay
+app's own options belong inside that app.
+
+**DIFFICULTY stays on the front door, and that is not an oversight.** The two
+options are different kinds. Difficulty is a per-session mood -- easy tonight,
+hard tomorrow, changed about as often as the mode is -- so it sits beside
+QUIZMASTER and SOLO where it costs no taps and reads without opening anything.
+US QUESTIONS is a persistent preference about which questions exist for you at
+all: set once, near enough to never changed again. One surface each is not two
+option surfaces. Chess's LEVEL is set-and-forget, which is why chess keeps its
+on the settings screen and Trivia does not.
+
+**What did not move is the storage.** The value is still
+`CrossPointSettings::triviaShowUsCentric` under the key `"triviaShowUsCentric"`,
+which is what devices updating from v1.12.29 already have saved, so nobody's
+choice was reset. The `SettingInfo` entry is still in `SettingsList.h` too --
+without a category, the shape `SettingsList.h` already used for the OPDS and
+frontlight values, which persists it and keeps it in the web settings API while
+keeping it off the device's Settings screen. `host-tests/appsettings` is the
+guard: it traces who reads each categorised setting and fails if every reader
+lives in one app.
+
+DIFFICULTY is untouched by all of this: still the byte in `/trivia/prefs`, still
+set from the front door.
 
 ## What the device never does
 

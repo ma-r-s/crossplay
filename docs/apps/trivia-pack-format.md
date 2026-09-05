@@ -65,7 +65,8 @@ Each record:
 second byte or a version bump an old reader would refuse. `Pack::read` masks it
 off (`difficulty()` is always the level, `usCentric()` is the flag) and the
 chooser skips the marked questions unless the `triviaShowUsCentric` setting is
-on. The pack ships international by default; the toggle opts a US player back in.
+on (TRIVIA > SETTINGS > US QUESTIONS since card #311; the stored key is
+unchanged). The pack ships international by default; the toggle opts a US player back in.
 A pack built without ratings (`build_pack.py`) never sets the bit, which reads
 back as `us=false` everywhere -- the honest answer for a pack with no US signal.
 See board #191/#223 and `assemble_pack.py` rule 4.
