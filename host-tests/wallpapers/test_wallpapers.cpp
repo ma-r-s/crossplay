@@ -124,12 +124,184 @@ void testDisplayNames() {
   CHECK(displayName("noextension").full == "noextension");
 }
 
+// ---------------------------------------------------------------------------
+// Card #354: a wallpaper the picker marked never reached the glass.
+//
+// The picker writes /sleep.bmp and then draws a confident marker, but TWO
+// settings decide whether SleepActivity ever draws that file, and the app was
+// leaving them in a combination that guaranteed it would not -- on the IDLE
+// TIMEOUT sleep, which is the ordinary way this device sleeps. The tests below
+// are about that path specifically: a button-held sleep already worked and
+// proves nothing.
+
+// The mirror of SleepActivity::onEnter. If this drifts from upstream the picker
+// starts lying again, so the shape of the rule is asserted, not just one case.
+void testDrawsPinnedSleep() {
+  using namespace wallpapers;
+
+  // The whole bug in one line: mode is CUSTOM, the file is there, the user
+  // chose it -- and the idle sleep shows something else.
+  CHECK(!drawsPinnedSleep(kSleepCustom, /*qr=*/true, /*fromTimeout=*/true, /*fromReader=*/false));
+  // Same settings, a button-held sleep. This is why a screenshot of a manual
+  // sleep was never evidence.
+  CHECK(drawsPinnedSleep(kSleepCustom, /*qr=*/true, /*fromTimeout=*/false, /*fromReader=*/false));
+
+  // With the timeout flag off, CUSTOM shows on every sleep.
+  CHECK(drawsPinnedSleep(kSleepCustom, false, true, false));
+  CHECK(drawsPinnedSleep(kSleepCustom, false, false, false));
+  CHECK(drawsPinnedSleep(kSleepCustom, false, true, true));
+
+  // COVER_CUSTOM shows it outside the reader only.
+  CHECK(drawsPinnedSleep(kSleepCoverCustom, false, true, false));
+  CHECK(!drawsPinnedSleep(kSleepCoverCustom, false, true, true));
+
+  // Exactly two of the eight modes ever put this file on the glass. The count
+  // is walked rather than asserted mode by mode, so a ninth mode arriving from
+  // upstream cannot slip past a hand-written list.
+  int everDraws = 0;
+  for (uint8_t mode = 0; mode < kSleepModeCount; ++mode) {
+    bool any = false;
+    for (int qr = 0; qr < 2; ++qr) {
+      for (int t = 0; t < 2; ++t) {
+        for (int r = 0; r < 2; ++r) {
+          if (drawsPinnedSleep(mode, qr != 0, t != 0, r != 0)) any = true;
+        }
+      }
+    }
+    if (any) ++everDraws;
+  }
+  CHECK(everDraws == 2);
+
+  // Quick Resume as the MODE beats the file on every path, timeout or not.
+  for (int t = 0; t < 2; ++t) {
+    for (int r = 0; r < 2; ++r) {
+      CHECK(!drawsPinnedSleep(kSleepQuickResume, false, t != 0, r != 0));
+    }
+  }
+  // And the transparent mode has its own art, so a wallpaper is ignored there.
+  CHECK(!drawsPinnedSleep(kSleepTransparentCustom, false, false, false));
+}
+
+// Reach is what the picker SAYS. Blocked must be distinguishable from "shows,
+// but not inside a book": one is a settings problem the user can fix, the other
+// is normal.
+void testReach() {
+  using namespace wallpapers;
+
+  CHECK(reachOfPinnedSleep(kSleepCustom, false) == Reach::Always);
+  CHECK(reachOfPinnedSleep(kSleepCustom, true) == Reach::BlockedByQuickResume);
+  CHECK(reachOfPinnedSleep(kSleepCoverCustom, false) == Reach::OutsideReaderOnly);
+  CHECK(reachOfPinnedSleep(kSleepCoverCustom, true) == Reach::BlockedByQuickResume);
+  CHECK(reachOfPinnedSleep(kSleepQuickResume, false) == Reach::BlockedByMode);
+  CHECK(reachOfPinnedSleep(kSleepQuickResume, true) == Reach::BlockedByMode);
+  CHECK(reachOfPinnedSleep(kSleepDark, false) == Reach::BlockedByMode);
+  CHECK(reachOfPinnedSleep(kSleepLight, false) == Reach::BlockedByMode);
+  CHECK(reachOfPinnedSleep(kSleepCover, false) == Reach::BlockedByMode);
+  CHECK(reachOfPinnedSleep(kSleepBlank, false) == Reach::BlockedByMode);
+  CHECK(reachOfPinnedSleep(kSleepTransparentCustom, false) == Reach::BlockedByMode);
+
+  // Every blocked state must produce a sentence, and Always must produce none:
+  // a hint strip that stays blank while the marker lies is the whole defect.
+  for (uint8_t mode = 0; mode < kSleepModeCount; ++mode) {
+    for (int qr = 0; qr < 2; ++qr) {
+      const Reach reach = reachOfPinnedSleep(mode, qr != 0);
+      const char* hint = reachHint(reach);
+      if (reach == Reach::Always) {
+        CHECK(hint == nullptr);
+      } else {
+        CHECK(hint != nullptr && hint[0] != '\0');
+      }
+    }
+  }
+}
+
+// The acceptance criterion, as arithmetic: after tapping a wallpaper, from ANY
+// starting combination of the two settings, the wallpaper shows on an IDLE
+// TIMEOUT sleep.
+//
+// This is the test that goes red on the shipped rule. Shipped, setWallpaper
+// turned the timeout quick-resume flag ON whenever the previous mode was Quick
+// Resume, to keep wake fast -- which made the timeout sleep, the ordinary one,
+// the single path the chosen wallpaper could never appear on.
+void testChoiceReachesTheGlassOnTimeout() {
+  using namespace wallpapers;
+
+  for (uint8_t mode = 0; mode < kSleepModeCount; ++mode) {
+    for (int qr = 0; qr < 2; ++qr) {
+      const SleepChoice choice = choiceForSetWallpaper(mode, qr != 0);
+      check(drawsPinnedSleep(choice.sleepScreenMode, choice.quickResumeAfterTimeout, /*fromTimeout=*/true,
+                             /*fromReader=*/false),
+            "after selecting a wallpaper the idle-timeout sleep must show it", __LINE__);
+      // And it must not merely work by accident on the manual path.
+      check(drawsPinnedSleep(choice.sleepScreenMode, choice.quickResumeAfterTimeout, /*fromTimeout=*/false,
+                             /*fromReader=*/false),
+            "after selecting a wallpaper a button-held sleep must show it too", __LINE__);
+      check(
+          reachOfPinnedSleep(choice.sleepScreenMode, choice.quickResumeAfterTimeout) != Reach::BlockedByMode &&
+              reachOfPinnedSleep(choice.sleepScreenMode, choice.quickResumeAfterTimeout) != Reach::BlockedByQuickResume,
+          "selecting a wallpaper must not leave the picker in a blocked state", __LINE__);
+    }
+  }
+}
+
+// A deliberate choice made in Settings is either kept or reported. Never
+// overwritten in silence.
+void testChoiceKeepsWhatItCan() {
+  using namespace wallpapers;
+
+  // COVER_CUSTOM already draws /sleep.bmp outside the reader. Handing it a new
+  // wallpaper must leave the mode alone -- the user asked for book covers in
+  // books and this picture everywhere else, and both still happen.
+  const SleepChoice cover = choiceForSetWallpaper(kSleepCoverCustom, false);
+  CHECK(cover.sleepScreenMode == kSleepCoverCustom);
+  CHECK(!cover.tookOverMode);
+  CHECK(takeoverNote(cover) == nullptr);
+
+  // Already Custom with nothing in the way: nothing changes, nothing is said.
+  const SleepChoice plain = choiceForSetWallpaper(kSleepCustom, false);
+  CHECK(plain.sleepScreenMode == kSleepCustom);
+  CHECK(!plain.tookOverMode);
+  CHECK(!plain.clearedQuickResume);
+  CHECK(takeoverNote(plain) == nullptr);
+
+  // Every combination that DOES change a setting the user chose elsewhere has
+  // to hand the picker a sentence. This is criterion 3, stated as a loop rather
+  // than as three examples, so a new mode cannot be added silently.
+  for (uint8_t mode = 0; mode < kSleepModeCount; ++mode) {
+    for (int qr = 0; qr < 2; ++qr) {
+      const SleepChoice choice = choiceForSetWallpaper(mode, qr != 0);
+      const bool changedSomething = choice.tookOverMode || choice.clearedQuickResume;
+      const char* note = takeoverNote(choice);
+      if (changedSomething) {
+        check(note != nullptr && note[0] != '\0', "a selection that changed a Settings choice must say so", __LINE__);
+      } else {
+        check(note == nullptr, "a selection that changed nothing must not invent a notice", __LINE__);
+      }
+      // Whatever it did, it must have preserved the previous mode for the
+      // sentence -- a note that cannot name what it replaced is not a report.
+      check(choice.previousMode == mode, "the choice lost the mode it replaced", __LINE__);
+    }
+  }
+
+  // Quick Resume as the mode cannot survive: it is the one mode that means "do
+  // not show a sleep image at all". So it is replaced, and reported.
+  const SleepChoice fromQuickResume = choiceForSetWallpaper(kSleepQuickResume, true);
+  CHECK(fromQuickResume.sleepScreenMode == kSleepCustom);
+  CHECK(fromQuickResume.tookOverMode);
+  CHECK(fromQuickResume.clearedQuickResume);
+  CHECK(takeoverNote(fromQuickResume) != nullptr);
+}
+
 }  // namespace
 
 int main() {
   testFileNameFilter();
   testDisplayNames();
   testRoomFor();
+  testDrawsPinnedSleep();
+  testReach();
+  testChoiceReachesTheGlassOnTimeout();
+  testChoiceKeepsWhatItCan();
 
   // Uploads first, then built-ins, each alphabetical. Mario's ask, and the
   // ordering the picker's captions are indexed by -- get it wrong and every

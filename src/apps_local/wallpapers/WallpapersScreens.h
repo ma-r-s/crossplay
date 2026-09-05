@@ -136,9 +136,21 @@ struct GridChromeModel {
   const char* rightLabel = nullptr;
   const char* warning = nullptr;  // free-space advisory, null when there is room
   bool hasActive = false;         // false -> draw the "tap one to set it" hint
+  // The sleep-screen note (#354): either the selected wallpaper cannot reach the
+  // glass under the current settings, or the last selection changed a setting
+  // the user had chosen in Settings. Wins the strip -- see buildGridChrome.
+  const char* note = nullptr;
 };
 
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model);
+
+// How wide the hint strip's sentence may be inside a given safe rect. Exposed
+// so the strip's fixed sentences can be MEASURED in the real face
+// (host-tests/wallcaption) rather than assumed to fit: the strip is one fixed
+// line at FONT_SLOT_SMALL, which is the smallest rung fittedTitle has, so its
+// only remaining move is to cut the sentence -- and a cut sentence is the
+// defect the strip exists to avoid.
+int16_t hintTextWidth(const freeink::ui::Rect& safe);
 
 // The empty state: no wallpapers on the card at all. Names the gap and how to
 // fill it, so a fresh device does not look broken.

@@ -231,6 +231,8 @@ int cellAt(const GridGeom& g, int x, int y) {
   return -1;
 }
 
+int16_t hintTextWidth(const fui::Rect& safe) { return static_cast<int16_t>(safe.width - toybox::kMargin * 2); }
+
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
   chrome(screen, model.title, model.rightLabel);
 
@@ -241,7 +243,14 @@ void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
   const fui::Rect safe = screen.frame().safeRect();
   const int16_t hintY = static_cast<int16_t>(safe.y + kBodyTop);
   const char* line = nullptr;
-  if (model.warning != nullptr && model.warning[0] != '\0') {
+  // The sleep-screen note wins the strip, ahead of the free-space advisory.
+  // Who pays decides it: a card that is filling up already refuses loudly on
+  // the write that fails, and reports itself again the moment the note clears,
+  // while a wallpaper that cannot reach the glass has NO other voice -- the
+  // marker beside it says the opposite, which is card #354 exactly.
+  if (model.note != nullptr && model.note[0] != '\0') {
+    line = model.note;
+  } else if (model.warning != nullptr && model.warning[0] != '\0') {
     line = model.warning;
   } else if (!model.hasActive) {
     // Short enough to fit the hint strip at the grid's cut. The longer form
@@ -249,8 +258,8 @@ void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
     line = "Tap one to set your sleep screen.";
   }
   if (line != nullptr) {
-    const fui::Rect rect = fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), hintY,
-                                         static_cast<int16_t>(safe.width - toybox::kMargin * 2), kHintH);
+    const fui::Rect rect =
+        fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), hintY, hintTextWidth(safe), kHintH);
     fui::TextStyle style = onPaper(screen.theme().smallText, fui::TextAlign::Left);
     std::string fitted = toybox::fittedTitle(screen.target(), line, rect.width, style);
     screen.target().text(rect, fitted.c_str(), style);

@@ -261,6 +261,63 @@ int main() {
     }
   }
 
+  // 5. The hint strip's sentences, measured in the real face (#354).
+  //
+  //    The strip is ONE fixed 30px line drawn at FONT_SLOT_SMALL. fittedTitle
+  //    steps DOWN through the font slots and small is the bottom rung, so the
+  //    only move left to it is an ellipsis -- and a cut sentence in the strip
+  //    that exists to explain why a wallpaper is not showing is worse than no
+  //    sentence at all. Every string that can land there is measured here.
+  //
+  //    Measured against the panel inset by the X4 Pro's bezel (T10 R1 B0 L1,
+  //    the bezel-insets memory), which is narrower than a bare 480 -- so the
+  //    number here is the device's, not the emulator's.
+  {
+    const fui::Rect bezelSafe = fui::makeRect(1, 10, 478, 790);
+    const int16_t stripWidth = wallpapersui::hintTextWidth(bezelSafe);
+    fui::TextStyle hintStyle;
+    hintStyle.font = fui::FONT_SLOT_SMALL;
+    hintStyle.align = fui::TextAlign::Left;
+    hintStyle.maxLines = 1;
+
+    std::vector<std::string> lines;
+    // Every reachHint sentence, walked off the enum rather than typed out.
+    for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+      for (int qr = 0; qr < 2; ++qr) {
+        const char* hint = wallpapers::reachHint(wallpapers::reachOfPinnedSleep(mode, qr != 0));
+        if (hint != nullptr) lines.emplace_back(hint);
+      }
+    }
+    // Every takeoverNote sentence, the same way.
+    for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+      for (int qr = 0; qr < 2; ++qr) {
+        const char* note = wallpapers::takeoverNote(wallpapers::choiceForSetWallpaper(mode, qr != 0));
+        if (note != nullptr) lines.emplace_back(note);
+      }
+    }
+    // And the two the strip already carried, so this check covers the strip
+    // rather than only the new arrivals.
+    lines.emplace_back("Tap one to set your sleep screen.");
+    lines.emplace_back("Card is low on space. Saves may fail.");
+    lines.emplace_back("Could not check card space.");
+
+    int widestHint = 0;
+    std::string widestHintText;
+    for (const std::string& line : lines) {
+      fui::TextStyle style = hintStyle;
+      const std::string fitted = toybox::fittedTitle(target, line.c_str(), stripWidth, style);
+      const int w = target.widthOf(fui::FONT_SLOT_SMALL, line);
+      if (w > widestHint) {
+        widestHint = w;
+        widestHintText = line;
+      }
+      check(fitted == line, "hint strip sentence was cut: \"" + line + "\" -> \"" + fitted + "\"");
+      check(line.find('\n') == std::string::npos, "hint strip sentence carries a newline: \"" + line + "\"");
+    }
+    std::printf("wallcaption: widest hint \"%s\" = %dpx in a %dpx strip (%dpx spare)\n", widestHintText.c_str(),
+                widestHint, stripWidth, stripWidth - widestHint);
+  }
+
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,
               wallpapersui::captionRect(g, 0).width, wallpapersui::captionRect(g, 0).width - widest);
   std::printf("wallcaption: %d checks, %d failed\n", checks, failed);

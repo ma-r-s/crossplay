@@ -19,6 +19,7 @@
 
 #include "../../activities/Activity.h"
 #include "../ui/ToyboxScreen.h"
+#include "WallpapersCore.h"
 #include "WallpapersScreens.h"
 
 class WallpapersActivity final : public Activity {
@@ -64,6 +65,13 @@ class WallpapersActivity final : public Activity {
   void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
   void loadActive();
   void computeWarning();
+  // Whether the pinned wallpaper can reach the sleep screen under the settings
+  // as they are RIGHT NOW, and the one line that says so. Both read SETTINGS
+  // live, because the two settings involved are changed elsewhere (Settings,
+  // and the web settings page) while this app is not looking. See #354.
+  wallpapers::Reach sleepReach() const;
+  bool sleepBlocked() const;
+  std::string currentSleepNote() const;
   bool setWallpaper(int index);  // copy /wallpapers/<index> -> /sleep.bmp
   int pageCount() const;         // over the whole library
   void clampPage();
@@ -95,6 +103,12 @@ class WallpapersActivity final : public Activity {
   freeink::ui::ActionId noticeActionId_ = 0;
   std::string rightLabel_;
   std::string warning_;
+  // What the last selection changed behind the user's back, if anything: a
+  // sleep-screen mode or the quick-resume-on-timeout flag they had chosen in
+  // Settings. Held until the app is left, so the change is reported rather than
+  // made in silence.
+  std::string takeover_;
+  std::string sleepNote_;  // the hint strip's line, rebuilt every paint
 
   // The current page's thumbnails, one per on-page slot (perPage entries;
   // trailing empty slots have ok = false).
