@@ -57,6 +57,12 @@ env:
 jobs:
   rebuild:
     runs-on: ubuntu-latest
+    # This job shallow-clones emsdk from GitHub, installs an emscripten
+    # toolchain, runs pio and builds wasm -- four places a network step can hang
+    # with nothing to show for it. Without a cap it inherits GitHub's SIX HOUR
+    # default. 60 matches the other two capped jobs; a rebuild that has been
+    # going an hour is stuck, not slow.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,14 +71,26 @@ jobs:
           submodules: recursive
           token: ${{ secrets.RELEASE_TOKEN || github.token }}
 
+      # emulator-stale.sh answers THREE ways: 0 stale, 1 fresh, 2 it could not
+      # look (its cd failed). An `if` keeps only "was it zero", so 2 landed in
+      # the else branch and was recorded as stale=false. Every later step is
+      # gated on `stale == 'true'`, so all of them were skipped and the job
+      # reported success having rebuilt nothing -- the one outcome that looks
+      # exactly like "the emulator was already fresh". Capture the code and
+      # fail on anything that is not one of the two real answers.
       - name: Is the emulator behind its sources?
         id: stale
         run: |
-          if bash scripts_local/emulator-stale.sh .; then
-            echo "stale=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "stale=false" >> "$GITHUB_OUTPUT"
-          fi
+          set +e
+          bash scripts_local/emulator-stale.sh .
+          rc=$?
+          set -e
+          case "$rc" in
+            0) echo "stale=true"  >> "$GITHUB_OUTPUT" ;;
+            1) echo "stale=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::emulator-stale.sh could not answer (exit $rc); the emulator was not checked, so it was not rebuilt"
+               exit 1 ;;
+          esac
 
       - uses: actions/setup-python@v5
         if: steps.stale.outputs.stale == 'true'

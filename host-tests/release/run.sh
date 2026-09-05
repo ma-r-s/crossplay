@@ -1206,5 +1206,105 @@ else
   ok
 fi
 
+# -- the workflow that PUBLISHES must serialise against itself ----------------
+#
+# A concurrency group does not span workflows. crossplay-autorelease.yml carries
+# `group: crossplay-release`, which reads like the release is serialised and
+# serialises only the autorelease; this file -- the one that builds the images
+# and uploads them to the release -- had no `concurrency:` at all.
+#
+# It has already gone wrong. v1.12.16 was built and published TWICE, one second
+# apart: run 33884760714 on the tag push and 33884760111 on the dispatch, same
+# tag, twelve minutes each, both racing to upload the same assets, and both
+# exiting 0. The dispatch condition asserted above closes the
+# path that caused THAT one, but it makes the collision avoidable rather than
+# impossible: a hand dispatch during a tag build still overlaps, and the guard
+# lives in a different file from the workflow it protects.
+#
+# Read out of the workflow's own top-level block, not out of any job's.
+CONC="$(awk '/^concurrency:/{f=1;next} /^[a-z]/{f=0} f' "$WF")"
+checks=$((checks + 1))
+GROUP="$(printf '%s\n' "$CONC" | sed -n 's/^ *group: *//p')"
+if [ -z "$GROUP" ]; then
+  failed=$((failed + 1))
+  echo "FAIL release  crossplay-release.yml has no top-level concurrency group, so two starts on one tag build and publish the same release side by side -- which is what v1.12.16 did"
+else
+  ok
+fi
+
+# Grouped by the ref. A single fixed group would serialise two DIFFERENT tags
+# against each other, which is not the problem being solved and would leave a
+# release waiting on an unrelated one.
+checks=$((checks + 1))
+case "$GROUP" in
+  "") : ;;  # already failed above
+  *'github.ref'*) ok ;;
+  *)
+    failed=$((failed + 1))
+    echo "FAIL release  crossplay-release.yml's concurrency group ('$GROUP') is not keyed by the ref, so two different tags queue behind each other instead of two runs of the same one"
+    ;;
+esac
+
+# And it must not cancel. A publish killed half way leaves a GitHub release
+# carrying some of its assets, and the fleet's updater matches asset names: a
+# release with firmware.bin and no firmware-sticky.bin is not a smaller
+# release, it is a broken one for every Sticky in the field.
+checks=$((checks + 1))
+case "$(printf '%s\n' "$CONC" | sed -n 's/^ *cancel-in-progress: *//p')" in
+  false) ok ;;
+  "")
+    failed=$((failed + 1))
+    echo "FAIL release  crossplay-release.yml does not set cancel-in-progress, and the default cancels: a superseded publish can leave a release with only some of its assets"
+    ;;
+  *)
+    failed=$((failed + 1))
+    echo "FAIL release  crossplay-release.yml cancels its own in-progress publish; a half-uploaded release is worse than a duplicated one"
+    ;;
+esac
+
+# -- the shipping binary is built by the toolchain everything else is built by -
+#
+# This workflow installed `platformio` from PyPI, unpinned: a different
+# distribution from the pioarduino fork every other build workflow in this
+# repository pins, and free to change between two tags with no commit of ours.
+# The one binary that reaches devices was the one binary nothing had verified
+# the toolchain of.
+#
+# The expected pin is DISCOVERED from the other workflows rather than written
+# here, so a deliberate bump moves this file's answer with them instead of
+# turning a version upgrade into a failing test that names the old number.
+#
+# Read the INSTALL COMMANDS, never the file. A whole-file grep for the pin is
+# satisfied by a comment mentioning it -- and this file now carries a comment
+# that explains the pin, so the check would have been one reword away from
+# passing over `pip install platformio`. Strip comments first, then look only
+# at lines that install something.
+INSTALLS="$(sed 's/#.*//' "$WF" | grep -E 'pip +install')"
+ALL_INSTALLS="$(sed 's/#.*//' "$ROOT"/.github/workflows/*.yml | grep -E 'pip +install')"
+
+checks=$((checks + 1))
+WANT="$(printf '%s\n' "$ALL_INSTALLS" | grep -o 'platformio-core/archive/refs/tags/[^ ]*\.zip' | sort | uniq -c | sort -rn | head -1 | sed 's/^ *[0-9]* *//')"
+if [ -z "$WANT" ]; then
+  failed=$((failed + 1))
+  echo "FAIL release  no workflow in this repository pins platformio-core by tag on an install line, so there is nothing to hold the release build against"
+elif printf '%s\n' "$INSTALLS" | grep -qF "$WANT"; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL release  crossplay-release.yml does not install $WANT, the pinned PlatformIO every other build workflow uses: the image that ships to devices is built by a toolchain nothing else in this repository has verified"
+fi
+
+# And the other direction, because the check above only asks whether the right
+# pin appears SOMEWHERE among the installs. An install of bare `platformio`
+# beside it is still an unpinned toolchain, in whatever spelling: with a flag,
+# without one, quoted, or version-pinned to something else on PyPI.
+checks=$((checks + 1))
+if printf '%s\n' "$INSTALLS" | grep -qE 'pip +install +([^|&;]*[[:space:]])?("|'"'"')?platformio("|'"'"')?([=<>!~][^[:space:]]*)?[[:space:]]*$'; then
+  failed=$((failed + 1))
+  echo "FAIL release  crossplay-release.yml installs PyPI 'platformio' rather than the pioarduino archive; whatever PyPI published most recently would build the release"
+else
+  ok
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
