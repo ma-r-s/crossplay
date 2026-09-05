@@ -33,7 +33,12 @@ local rating run was 3.39 MB at 25,866 questions.
 ```
 /trivia/pack.dat     immutable questions, written by the converter
 /trivia/pack.state   one byte per question, written by the device
+/trivia/pack.meta    which BUILD this card holds, written by the device
+/trivia/reports.dat  the outbound report queue, written by the device
 ```
+
+`pack.meta` and `reports.dat` are new with board #257 and are described under
+"Which build is this" below; the two original files are unchanged.
 
 ### pack.dat
 
@@ -105,6 +110,32 @@ hides it from every draw with nothing on screen and no way to clear it.
 fetches a state file, so crossing a pack rebuild is entirely that comparison's
 job. Copying a pack to a card by hand is the other case, and there both files
 are copied together; see ../trivia-curation.md.
+
+## Which build is this, and why the answer can be "I do not know"
+
+`pack.meta` is three lines of text written beside the pack, recording the `id`,
+`count` and `bytes` of the build the card holds. The id is
+`sha256(pack.dat)[:12]` -- **derived from the pack rather than declared beside
+it**, so the two cannot disagree. `tools_local/trivia/manifest.py` is the
+writer, the reader and the definition.
+
+It carries `count` and `bytes` as well as the id because a record of what you
+hold is only worth having if it can be caught lying. **Copying a pack to a card
+by hand is a documented case** (see below), and a hand-copy that replaces
+`pack.dat` and leaves `pack.meta` behind describes a build the card no longer
+holds. Both extra fields are free to check: a stat, and the count already in the
+header.
+
+**A meta that fails either check is DISCARDED, never repaired.** The honest
+state is then "I hold a pack and do not know which build", which suppresses
+reporting until the next sync re-establishes it. That matters because a report
+names a question by `(pack id, index)`: an id that is confidently wrong resolves
+those indices through another build's index map and deletes questions nobody
+reported, silently. Having no id costs one sync. Guessing one costs the corpus.
+
+`reports.dat` is the outbound queue, format in `tools_local/trivia/reports.py`.
+Its header carries the pack id and count too, for the same reason and with the
+same refusal.
 
 **The residual: length is a proxy, not an identity.** A pack replaced by one
 with the SAME question count keeps its state file, and every byte then describes

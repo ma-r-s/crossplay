@@ -40,6 +40,7 @@ in test_assemble.py exist to make undoing one loud.
 import argparse
 import collections
 import hashlib
+import datetime as _dt
 import json
 import os
 import random
@@ -432,6 +433,16 @@ def main():
         n = pack_format.write(pack, a.dat)
         pack_format.write_state(pack_format.state_path(a.dat), len(pack))
         print(f"  on-card pack    : {a.dat} ({n / 1e6:.2f} MB)")
+        # The manifest and the index map, written in the SAME step as the pack
+        # so they cannot drift from it. A manifest published separately from the
+        # asset it describes is the failure mode board #257 calls out: nothing
+        # keeps them in step and each is defensible alone.
+        import manifest as _manifest
+        man, man_path = _manifest.write(a.dat, built=_dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"))
+        idx_path = _manifest.write_index_map(pack, os.path.splitext(a.dat)[0] + ".idx.tsv")
+        print(f"  manifest        : {man_path} (id {man['id']}, {man['count']:,} questions)")
+        print(f"  index map       : {idx_path}")
+
 
 
 if __name__ == "__main__":

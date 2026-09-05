@@ -542,6 +542,21 @@ else
   FAILED=1
 fi
 
+# The pack id, its manifest, and pack.meta. The guard that matters here reads
+# as a no-op when it breaks: read_meta() returning a STALE id instead of None
+# means the device reports (pack id, index) against a pack it no longer holds,
+# and the service resolves those indices through the wrong build's index map.
+# Questions nobody reported are then deleted and the pack just comes out
+# smaller, which is why every case below is constructed rather than sampled.
+if (cd "$REPO" && python3 tools_local/trivia/test_manifest.py) \
+    > "$LOGS/trivia-manifest.log" 2>&1; then
+  printf "  %-12s ok\n" "manifest"
+else
+  printf "  %-12s FAILED\n" "manifest"
+  tail -12 "$LOGS/trivia-manifest.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
 # Reading flags back off a card. Every check in this tool is a REFUSAL, and a
 # refusal that stops refusing looks exactly like a tool that found nothing to
 # do: the run prints "0 flagged" and exits 0. The damage is downstream and
