@@ -42,7 +42,12 @@
 #    handlers the bigger games split their screens into; that list is a
 #    WHITELIST, so an app whose handler is named something new fails this suite
 #    rather than slipping past it, and the fix is one line here plus a look at
-#    whether the new name should exist.
+#    whether the new name should exist. POSITION counts as well as presence: a
+#    read below the function's "nothing to do unless a tap arrived" return is on
+#    the frame path in name only, because a swipe returns before reaching it.
+#    That is Trivia's bug moved one level in, and a check that merely counted
+#    frame-path functions would call it clean. Zero hits today -- no app reads
+#    Back below its tap gate -- so it fires only on something newly written.
 #
 # 2. No app may build a back gesture out of a raw horizontal wasSwipe(). One
 #    app doing that is a second, competing definition of Back that the release
@@ -52,9 +57,10 @@
 #
 # THE SCANNER RUNS ON FIXTURES FIRST, for the reason marginguard does it: a
 # scanner that has quietly stopped matching anything is indistinguishable from a
-# tree with nothing to match. The fixtures are the two shapes that matter -- an
-# activity shaped like Minesweeper (Back in loop, must pass) and one shaped like
-# Trivia before the fix (Back only in a download worker, must be caught).
+# tree with nothing to match. Four shapes: an activity shaped like Minesweeper
+# (Back in loop, must pass), one shaped like Trivia before the fix (Back only in
+# a download worker), one with the read below the tap gate, and one rolling its
+# own back out of a horizontal swipe. The last three must all be caught.
 #
 # What this suite CANNOT do, said plainly: it reads source. It cannot tell you
 # the swipe works on the panel -- nothing on the host can, because the simulator
@@ -122,6 +128,13 @@ def on_frame_path(name):
 BACK_READ = re.compile(r'Button::Back')
 # A horizontal wasSwipe() comparison -- a hand-rolled second Back.
 SIDEWAYS = re.compile(r'SwipeDir::(Left|Right)')
+# "Nothing to do unless a tap arrived", the early return that made Trivia's
+# frame path unreachable to a swipe. A Back read BELOW one of these is on the
+# frame path in name only.
+TAP_GATE = re.compile(
+    r'if\s*\(\s*!\s*\w*[Ii]nput\.touchReleased'
+    r'|if\s*\(\s*!\s*\w*[Ii]nteractionsReady\w*\s*\)\s*return'
+    r'|touchReleased\s*\|\|\s*!')
 
 
 def functions(text):
@@ -146,8 +159,23 @@ def functions(text):
         yield name, text[open_brace:i + 1]
 
 
+def reachable_back(body):
+    """A Button::Back read that a SWIPE can actually reach.
+
+    Not merely present in a frame-path function: above that function's
+    "nothing to do unless a tap arrived" return. Below it the read is dead to
+    every gesture, which is Trivia's bug moved one level in and is exactly what
+    a check counting frame-path functions would report clean.
+    """
+    m = BACK_READ.search(body)
+    if not m:
+        return False
+    gate = TAP_GATE.search(body[:m.start()])
+    return gate is None
+
+
 def offenders(tree):
-    """Activities under `tree` with no Button::Back read on the frame path."""
+    """Activities under `tree` with no Button::Back read a swipe can reach."""
     missing, sideways = [], []
     for dirpath, _dirs, files in os.walk(tree):
         if os.sep + 'ui' in dirpath:
@@ -158,7 +186,7 @@ def offenders(tree):
             path = os.path.join(dirpath, f)
             text = open(path, encoding='utf-8').read()
             rel = os.path.relpath(path, tree)
-            if not any(on_frame_path(n) and BACK_READ.search(b)
+            if not any(on_frame_path(n) and reachable_back(b)
                        for n, b in functions(text)):
                 missing.append(rel)
             for n, b in functions(text):
@@ -202,6 +230,20 @@ void ParallelActivity::loop() {
 }
 '''
 
+# Trivia's bug moved one level in: the read IS in loop(), and it is below the
+# tap gate, so a swipe returns before ever reaching it. This shape is why the
+# suite looks at position and not just presence -- counting frame-path
+# functions calls this file clean.
+BELOW_GATE = '''
+void BelowGateActivity::loop() {
+  if (!input.touchReleased || !interactionsReady) return;
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    shelf::leave(renderer, mappedInput);
+    return;
+  }
+}
+'''
+
 with tempfile.TemporaryDirectory() as tmp:
     apps = os.path.join(tmp, 'apps_local', 'sample')
     os.makedirs(apps)
@@ -219,6 +261,13 @@ with tempfile.TemporaryDirectory() as tmp:
           'fixture: the good activity was caught alongside the bad one')
 
     os.remove(os.path.join(apps, 'BadActivity.cpp'))
+    open(os.path.join(apps, 'BelowGateActivity.cpp'), 'w').write(BELOW_GATE)
+    missing, _ = offenders(tmp)
+    check(any('BelowGateActivity' in m for m in missing),
+          'fixture: a Back read sitting BELOW the tap gate was NOT caught -- '
+          'a swipe returns before reaching it, so the app has no back gesture')
+
+    os.remove(os.path.join(apps, 'BelowGateActivity.cpp'))
     open(os.path.join(apps, 'ParallelActivity.cpp'), 'w').write(PARALLEL)
     _missing, sideways = offenders(tmp)
     check(any('ParallelActivity' in s for s in sideways),
@@ -235,8 +284,9 @@ with tempfile.TemporaryDirectory() as tmp:
 missing, sideways = offenders(os.path.join(root, 'src', 'apps_local'))
 
 check(missing == [],
-      'these activities never read Button::Back on the per-frame input path, so '
-      'a back swipe reaches nothing in them: %s' % ', '.join(missing))
+      'these activities have no Button::Back read that a swipe can reach -- '
+      'either none on the per-frame input path, or one sitting below the tap '
+      'gate, which a swipe returns before: %s' % ', '.join(missing))
 check(sideways == [],
       'these build a back gesture out of a horizontal wasSwipe() instead of '
       'Button::Back, which is a second definition of Back: %s' % ', '.join(sideways))
