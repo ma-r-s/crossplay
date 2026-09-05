@@ -56,6 +56,19 @@ down() {
   for f in bridge.pid fake.pid; do
     [ -f "$STATE/$f" ] && { kill "$(cat "$STATE/$f")" 2>/dev/null || true; rm -f "$STATE/$f"; }
   done
+  # WAIT for the ports, do not just signal. kill returns the instant the signal
+  # is queued; uvicorn is still listening for another ~150ms. A `down && up`
+  # typed in one breath -- or scripted, which is how this was found -- then hits
+  # up's port guard and aborts before pairing is even attempted, and the message
+  # blames "another qa_stack" that does not exist.
+  for _ in $(seq 1 100); do
+    nc -z 127.0.0.1 "$FAKE_PORT" 2>/dev/null || nc -z 127.0.0.1 "$BRIDGE_PORT" 2>/dev/null || break
+    sleep 0.1
+  done
+  if nc -z 127.0.0.1 "$FAKE_PORT" 2>/dev/null || nc -z 127.0.0.1 "$BRIDGE_PORT" 2>/dev/null; then
+    echo "WARNING: $FAKE_PORT/$BRIDGE_PORT still answer after 10s. Something else"
+    echo "is on them -- an orphan from a killed shell, or another tree. 'up' will refuse."
+  fi
   echo "stopped. The card keeps its pairing, which is now useless -- the bridge"
   echo "that issued the token is gone, so 'up' pairs again from scratch."
 }

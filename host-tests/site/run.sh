@@ -374,6 +374,18 @@ else
 fi
 if [ -f "$FIXTURE" ]; then
   ok
+  # the list answer too: what load() reads off `res.` must be in fixture.list,
+  # or the local page silently drops a line the real one shows
+  list_keys="$(grep -oE '\bres\.[A-Za-z]+' "$INBOX_HTML" | sed 's/^res\.//' | sort -u)"
+  if list_bad="$(python3 - "$FIXTURE" $list_keys <<'PY' 2>&1
+import json, sys
+fx = json.load(open(sys.argv[1]))
+missing = [k for k in sys.argv[2:] if k not in fx.get("list", {})]
+if missing:
+    print("fixture.json list lacks " + ", ".join(missing))
+    sys.exit(1)
+PY
+  )"; then ok; else bad "inbox fixture: $list_bad"; fi
   num_keys="$(grep -oE '\bn\.[A-Za-z]+' "$INBOX_HTML" | sed 's/^n\.//' | sort -u)"
   if fixture_bad="$(python3 - "$FIXTURE" $num_keys <<'PY' 2>&1
 import json, sys

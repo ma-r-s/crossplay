@@ -56,6 +56,11 @@ global.fetch = async function (url, opts) {
       ]),
       { status: 200 },
     );
+  if (u.includes("/rest/v1/triage_backlog"))
+    return new Response(
+      JSON.stringify([{ waiting: 2, claimed: 0, for_mario: 1, oldest_h: 30, last_triaged_at: null, since_triage_h: null }]),
+      { status: 200 },
+    );
   if (u.includes("/rest/v1/blockers") && opts.method === "PATCH")
     return new Response(null, { status: 204 });
   if (u.includes("/rest/v1/history"))
@@ -217,6 +222,15 @@ const expect = (label, got, want) =>
     Array.isArray(r.json && r.json.battery),
     true,
   );
+
+  calls = [];
+  r = await call({ pass: "open sesame", op: "list" });
+  expect(
+    "the list reads the triage backlog",
+    calls.some(function (c) { return c.url.includes("/rest/v1/triage_backlog"); }),
+    true,
+  );
+  expect("and carries it", r.json && r.json.triage && r.json.triage.waiting, 2);
 
   console.log(`${pass + fail} checks, ${fail} failed`);
   process.exit(fail ? 1 : 0);
