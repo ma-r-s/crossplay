@@ -66,3 +66,46 @@ alter table trivia_rate enable row level security;
 -- No policies: both tables are reachable only with the service key, which the
 -- site function holds and no browser ever sees. The public anon key can insert
 -- into `events` and must not reach these.
+
+-- Counting a request, atomically.
+--
+-- The endpoint did this as SELECT-then-PATCH, which is not a limiter: N
+-- concurrent requests all read the same count and all write count+1, so a burst
+-- of any size advances the counter by one. A burst is exactly the traffic a
+-- rate limit exists to stop.
+--
+-- One statement instead. The insert claims the row when it is absent; the
+-- conflict branch either starts a fresh window (when the stored one has aged
+-- out) or increments within it, and RETURNING hands back the count this caller
+-- actually took. The caller compares that to its own ceiling, so the limit
+-- lives in one place rather than being duplicated in SQL.
+create or replace function trivia_rate_take(p_ip_hash text, p_window interval)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  taken integer;
+begin
+  insert into trivia_rate (ip_hash, window_start, count)
+  values (p_ip_hash, now(), 1)
+  on conflict (ip_hash) do update
+    set window_start = case
+          when trivia_rate.window_start < now() - p_window then now()
+          else trivia_rate.window_start
+        end,
+        count = case
+          when trivia_rate.window_start < now() - p_window then 1
+          else trivia_rate.count + 1
+        end
+  returning count into taken;
+  return taken;
+end;
+$$;
+
+-- Rows for addresses nobody has used in a day are counting nothing. Without
+-- this the table grows one row per distinct address forever.
+create or replace function trivia_rate_sweep()
+returns integer language sql security definer set search_path = public as $$
+  with gone as (
+    delete from trivia_rate where window_start < now() - interval '1 day' returning 1
+  )
+  select coalesce(count(*), 0)::integer from gone;
+$$;

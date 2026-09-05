@@ -19,18 +19,17 @@ process.env.TRIVIA_REPORT_SECRET = "test-secret";
 const handler = require(path.join(root, "site", "api", "trivia.js"));
 
 let calls = [];
-let rateRow = null;
+// What trivia_rate_take returns: the count THIS caller took. rateOk false makes
+// the RPC itself fail, which must fail open.
+let rateTaken = 1;
+let rateOk = true;
 global.fetch = async function (url, opts) {
   opts = opts || {};
   const u = String(url);
   calls.push({ url: u, method: opts.method || "GET", body: opts.body });
-  if (
-    u.includes("trivia_rate?ip_hash=eq.") &&
-    (opts.method || "GET") === "GET"
-  ) {
-    return new Response(JSON.stringify(rateRow ? [rateRow] : []), {
-      status: 200,
-    });
+  if (u.includes("/rpc/trivia_rate_take")) {
+    if (!rateOk) return new Response("boom", { status: 500 });
+    return new Response(JSON.stringify(rateTaken), { status: 200 });
   }
   return new Response("", { status: 201 });
 };
@@ -253,21 +252,31 @@ const DEVICE = "9f2c" + "a".repeat(60);
   check("the FIRST reason in a batch wins", rows[0].reason === "wrong");
 
   // --- rate limiting --------------------------------------------------------
-  rateRow = { window_start: new Date().toISOString(), count: 20 };
+  //
+  // The count is taken INSIDE Postgres now, so the stub returns what this
+  // caller took rather than a row to be read and rewritten. The old
+  // SELECT-then-PATCH advanced by one under any amount of concurrency, which
+  // is not a limiter.
+  rateTaken = 21;
   res = await post({ pack: "abc123", count: 10, reports: [{ i: 1 }] });
-  check("a caller over the window limit gets 429", res.statusCode === 429);
+  check("a caller past the window limit gets 429", res.statusCode === 429, `got ${res.statusCode}`);
   check("nothing is stored for a rate-limited caller", inserted() === null);
 
-  rateRow = {
-    window_start: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
-    count: 999,
-  };
+  rateTaken = 20;
   res = await post({ pack: "abc123", count: 10, reports: [{ i: 1 }] });
-  check(
-    "a stale window resets rather than blocking forever",
-    res.statusCode === 202,
-  );
-  rateRow = null;
+  check("the last request inside the window is allowed", res.statusCode === 202, `got ${res.statusCode}`);
+
+  rateTaken = 1;
+  res = await post({ pack: "abc123", count: 10, reports: [{ i: 1 }] });
+  check("a fresh window is allowed", res.statusCode === 202);
+  check("the count is taken in ONE call, not a read plus a write",
+    calls.filter((c) => String(c.url).includes("trivia_rate")).length === 1);
+
+  // A counter that is unreachable must not cost a reader their reports.
+  rateOk = false;
+  res = await post({ pack: "abc123", count: 10, reports: [{ i: 1 }] });
+  check("a broken rate counter fails OPEN", res.statusCode === 202, `got ${res.statusCode}`);
+  rateOk = true;
 
   // --- method and configuration --------------------------------------------
   const g = sink();
@@ -314,8 +323,8 @@ const DEVICE = "9f2c" + "a".repeat(60);
         { pack: "abc123", count: 10, reports: [{ i: 1 }] },
         { "x-forwarded-for": xff },
       ), r);
-      const c = calls.find((x) => x.url.includes("trivia_rate?ip_hash=eq."));
-      return c ? c.url.split("ip_hash=eq.")[1].split("&")[0] : null;
+      const c = calls.find((x) => x.url.includes("/rpc/trivia_rate_take"));
+      return c ? JSON.parse(c.body).p_ip_hash : null;
     };
     const honest = await bucket("203.0.113.7");
     const spoofed = await bucket("1.2.3.4, 203.0.113.7");

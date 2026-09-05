@@ -151,38 +151,37 @@ async function rest(path, init) {
   );
 }
 
-// One row per address hash, in its own table with no report content in it.
-// A rate-table failure must NOT refuse the batch: losing a reader's reports
-// because the counter hiccupped is a worse outcome than one extra batch.
+// One counter per address hash, taken atomically.
+//
+// This was SELECT-then-PATCH, which is not a limiter at all: N concurrent
+// requests read the same count and all write count+1, so a burst of any size
+// advanced it by one -- and a burst is precisely what a rate limit is for. The
+// increment now happens inside Postgres (trivia_rate_take), which returns the
+// count THIS caller took.
+//
+// It still fails open, deliberately: losing a reader's reports because the
+// counter table hiccupped is a worse outcome than one extra batch. But it no
+// longer fails open on a REST error being mistaken for "no row yet", which is
+// how the old version reset the window on any transient failure.
 async function allow(ipHash) {
   try {
-    const r = await rest(
-      `trivia_rate?ip_hash=eq.${ipHash}&select=window_start,count`,
-    );
-    const rows = r.ok ? await r.json() : [];
-    const row = rows && rows[0];
-    const now = Date.now();
-    if (!row || now - Date.parse(row.window_start) > WINDOW_MS) {
-      await rest("trivia_rate?on_conflict=ip_hash", {
-        method: "POST",
-        headers: {
-          Prefer: "resolution=merge-duplicates,return=minimal",
-        },
-        body: JSON.stringify({
-          ip_hash: ipHash,
-          window_start: new Date(now).toISOString(),
-          count: 1,
-        }),
-      });
-      return true;
-    }
-    if (row.count >= BATCHES_PER_WINDOW) return false;
-    await rest(`trivia_rate?ip_hash=eq.${ipHash}`, {
-      method: "PATCH",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ count: row.count + 1 }),
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/trivia_rate_take`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        p_ip_hash: ipHash,
+        p_window: `${Math.round(WINDOW_MS / 1000)} seconds`,
+      }),
     });
-    return true;
+    if (!r.ok) return true;
+    const taken = await r.json();
+    if (!Number.isFinite(taken)) return true;
+    return taken <= BATCHES_PER_WINDOW;
   } catch (err) {
     return true;
   }
