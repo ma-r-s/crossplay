@@ -105,6 +105,17 @@ expect "orchestrator to anyone allowed"         0 pretool "{\"session_id\":\"$OR
 expect "worker asking Mario refused"            2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board ask 3 --ask 'ship?' --default hold\"}}"
 expect "orchestrator asking Mario allowed"      0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board ask 3 --ask 'ship?' --default hold\"}}"
 
+echo "two open pull requests that touch one file"
+OVERLAP="$ROOT/tools_local/board/overlap.py"
+[ -f "$OVERLAP" ] || OVERLAP="$(dirname "$BOARD")/overlap.py"
+python3 "$OVERLAP" --from-json "$HERE/fixtures/prs.json" >"$WORK/overlap.out" 2>&1
+grep -q "#10 (app/render) and #11 (app/browser) both touch:" "$WORK/overlap.out" && ok "the overlapping pair is named with its branches" || bad "overlap: pair not named: $(cat "$WORK/overlap.out")"
+grep -q "    src/apps_local/link/LinkPlay.cpp" "$WORK/overlap.out" && ok "and the shared file" || bad "overlap: shared file missing"
+grep -q "crossplay.wasm" "$WORK/overlap.out" && bad "overlap: CI's emulator artefact counted as a shared file" || ok "the emulator artefact both carry is not an overlap"
+grep -q "#12" "$WORK/overlap.out" && bad "overlap: a pull request sharing nothing was named" || ok "a pull request sharing nothing is not named"
+grep -q "1 overlapping pair(s) among 3 open" "$WORK/overlap.out" && ok "the count is right" || bad "overlap: count line wrong: $(tail -1 "$WORK/overlap.out")"
+printf '[]' >"$WORK/none.json"; python3 "$OVERLAP" --from-json "$WORK/none.json" | grep -q "no two touch the same file" && ok "no pull requests is said plainly" || bad "overlap: empty input not handled"
+
 echo "ending a turn"
 T="$WORK/transcript.jsonl"
 mk_transcript() { # mk_transcript "<last assistant text>"
