@@ -9428,6 +9428,29 @@ void testWallpapersChromeWarningVerbatim() {
   CHECK(!drewText(out, "Tap a wallpaper"));
 }
 
+// The selection marker lives in the padding, and the caption's line box is
+// reserved for EVERY cell whether or not it is selected. A cell whose contents
+// move when it becomes selected is the same defect class as a marker that reads
+// as image content: selecting should ADD A MARK, never re-flow the cell.
+void testWallpapersCaptionNeverCollidesWithArtwork() {
+  const wallpapersui::GridGeom g = wallpapersui::gridGeom(device());
+  // The marker is drawn kMarkerGap (5) outside the thumbnail and is
+  // kMarkerWeight (4) thick, so it reaches 9px below the artwork.
+  const int markerReach = 5 + 4;
+  CHECK(g.markerRoom > markerReach);  // clearance, not a collision
+  for (int slot = 0; slot < g.perPage; ++slot) {
+    const fui::Rect th = wallpapersui::thumbRect(g, slot);
+    const fui::Rect cap = wallpapersui::captionRect(g, slot);
+    // The caption starts below the artwork AND below the marker's reach.
+    CHECK(cap.y >= th.bottom() + g.markerRoom);
+    CHECK(cap.y > th.bottom() + markerReach);
+    // It is inside the cell, so a caption cannot spill onto the row below.
+    const fui::Rect cell = wallpapersui::cellRect(g, slot);
+    CHECK(cap.bottom() <= cell.bottom());
+    CHECK(cap.y >= cell.y);
+  }
+}
+
 // The empty state names the gap and how to fix it.
 void testWallpapersEmptyStateSaysSomething() {
   Rendered out;
@@ -9695,6 +9718,7 @@ int main() {
   testWallpapersChromeShowsThePage();
   testWallpapersChromeWarningVerbatim();
   testWallpapersEmptyStateSaysSomething();
+  testWallpapersCaptionNeverCollidesWithArtwork();
   testWallpapersHelpCardPointsAtTheUploader();
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();

@@ -30,6 +30,12 @@ constexpr int16_t kCaptionH = 22;
 // Clearance under the thumbnail so the selection marker, which lives in the
 // padding, cannot land on the caption.
 constexpr int16_t kMarkerRoom = 12;
+// The bracket marker's own dimensions. kMarkerRoom must exceed
+// kMarkerGap + kMarkerWeight or the brackets reach into the caption's line box;
+// host-tests/wallcaption asserts exactly that, for every name and every slot.
+constexpr int16_t kMarkerGap = 5;
+constexpr int16_t kMarkerWeight = 4;
+constexpr int16_t kBracketArm = 30;
 
 // The wallpaper's own shape. Sleep wallpapers are portrait 480x800 on this
 // device (verified: a 480x800 image fills the sleep screen), so the cells are
@@ -189,6 +195,34 @@ void buildHelp(toybox::Screen& screen) {
   detail.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
   detail.showCaret = false;
   screen.textArea(detail, static_cast<int16_t>(screen.body().height - toybox::kGutter));
+}
+
+MarkerRects markerRects(const fui::Rect& thumb) {
+  const int o = kMarkerGap + kMarkerWeight;
+  const int x = thumb.x - o, y = thumb.y - o;
+  const int w = thumb.width + o * 2, h = thumb.height + o * 2;
+  const int a = kBracketArm, t = kMarkerWeight;
+  const auto R = [](int rx, int ry, int rw, int rh) {
+    return fui::makeRect(static_cast<int16_t>(rx), static_cast<int16_t>(ry), static_cast<int16_t>(rw),
+                         static_cast<int16_t>(rh));
+  };
+  MarkerRects m{};
+  m.r[0] = R(x, y, a, t);          // top-left, horizontal arm
+  m.r[1] = R(x, y, t, a);          // top-left, vertical arm
+  m.r[2] = R(x + w - a, y, a, t);  // top-right
+  m.r[3] = R(x + w - t, y, t, a);
+  m.r[4] = R(x, y + h - t, a, t);  // bottom-left
+  m.r[5] = R(x, y + h - a, t, a);
+  m.r[6] = R(x + w - a, y + h - t, a, t);  // bottom-right
+  m.r[7] = R(x + w - t, y + h - a, t, a);
+  return m;
+}
+
+int markerBottomExtent(const fui::Rect& thumb) {
+  const MarkerRects m = markerRects(thumb);
+  int lowest = thumb.y + thumb.height;
+  for (const fui::Rect& r : m.r) lowest = std::max(lowest, static_cast<int>(r.y + r.height));
+  return lowest;
 }
 
 }  // namespace wallpapersui

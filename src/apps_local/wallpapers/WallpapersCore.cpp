@@ -50,6 +50,13 @@ constexpr Entry kBuiltIns[] = {
 };
 }  // namespace
 
+size_t builtInCount() { return sizeof(kBuiltIns) / sizeof(kBuiltIns[0]); }
+
+const char* builtInStem(const size_t index) {
+  if (index >= builtInCount()) return "";
+  return kBuiltIns[index].stem;
+}
+
 DisplayName displayName(std::string_view fileName) {
   // Strip the extension: nobody wants ".bmp" under a picture.
   std::string_view stem = fileName;

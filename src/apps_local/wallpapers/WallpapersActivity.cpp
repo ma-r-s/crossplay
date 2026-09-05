@@ -23,12 +23,8 @@ namespace {
 constexpr int kMaxLibrary = 256;
 constexpr size_t kNameMax = 128;
 constexpr size_t kCopyChunk = 4096;
-// The selection marker sits in the padding around a cell: kMarkerGap of clear
-// white between the artwork and the marker, then kMarkerWeight of ink. Both fit
-// inside half the cell gap, so a marker never touches a neighbouring cell.
-constexpr int16_t kMarkerGap = 5;
-constexpr int16_t kMarkerWeight = 4;
-constexpr int16_t kBracketArm = 30;
+// The selection marker's dimensions live in WallpapersScreens.cpp beside
+// kMarkerRoom, the clearance they have to fit inside.
 
 // A page dot: a small square, filled for the current page.
 constexpr int16_t kDotSize = 12;
@@ -353,24 +349,14 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
 }
 
 void WallpapersActivity::drawMarker(const fui::Rect& th) const {
-  // The marker never touches the artwork: it is drawn kMarkerGap outside the
-  // thumbnail, so the white gap says "this frame is the app talking, not part
-  // of the picture".
-  const int o = kMarkerGap + kMarkerWeight;
-  const int x = th.x - o, y = th.y - o;
-  const int w = th.width + o * 2, h = th.height + o * 2;
-  const int a = kBracketArm, t = kMarkerWeight;
-  // Four corner brackets. Nothing inside a picture looks like this, which is
-  // exactly why the marker cannot be mistaken for the artwork's own frame --
-  // several of these plates carry real borders of their own.
-  renderer.fillRect(x, y, a, t, true);  // top-left
-  renderer.fillRect(x, y, t, a, true);
-  renderer.fillRect(x + w - a, y, a, t, true);  // top-right
-  renderer.fillRect(x + w - t, y, t, a, true);
-  renderer.fillRect(x, y + h - t, a, t, true);  // bottom-left
-  renderer.fillRect(x, y + h - a, t, a, true);
-  renderer.fillRect(x + w - a, y + h - t, a, t, true);  // bottom-right
-  renderer.fillRect(x + w - t, y + h - a, t, a, true);
+  // Four corner brackets in the cell's padding. The rectangles come from
+  // wallpapersui::markerRects so the shape the panel draws is the same shape
+  // host-tests/wallcaption proves clear of the artwork and of every caption:
+  // a marker whose geometry lived only here could drift from its own proof.
+  // Nothing inside a picture looks like this, which is why the mark cannot be
+  // mistaken for the artwork's own frame -- several plates carry real borders.
+  const wallpapersui::MarkerRects m = wallpapersui::markerRects(th);
+  for (const fui::Rect& r : m.r) renderer.fillRect(r.x, r.y, r.width, r.height, true);
 }
 
 void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const fui::Rect& th) {

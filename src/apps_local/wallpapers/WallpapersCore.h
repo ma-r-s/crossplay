@@ -55,6 +55,12 @@ struct DisplayName {
 };
 DisplayName displayName(std::string_view fileName);
 
+// The built-in library, walkable. A proof that "no caption collides" has to
+// visit EVERY name, and a test that hand-copies the list stops covering the
+// one that gets added next. host-tests/wallcaption iterates these.
+size_t builtInCount();
+const char* builtInStem(size_t index);
+
 enum class Room : uint8_t { Ok, TooFull, Unknown };
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes);
 

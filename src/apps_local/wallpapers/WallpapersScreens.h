@@ -50,6 +50,22 @@ fui::Rect captionRect(const GridGeom& g, int slot);
 // Activity draws into.
 int cellAt(const GridGeom& g, int x, int y);
 
+// The selection marker: four corner brackets drawn in the cell's PADDING, so
+// they touch neither the artwork nor the caption. It lives here rather than in
+// the Activity because "does the mark collide with the label" is a question
+// about rectangles, and a question about rectangles must be answerable without
+// a panel. host-tests/wallcaption walks every built-in name through it.
+struct MarkerRects {
+  static constexpr int kCount = 8;  // four corners, two arms each
+  fui::Rect r[kCount];
+};
+MarkerRects markerRects(const fui::Rect& thumb);
+
+// The band the brackets occupy BELOW the artwork. The caption's line box must
+// start after this, and the gap is what makes the assertion in wallcaption a
+// property of the layout rather than of any one string.
+int markerBottomExtent(const fui::Rect& thumb);
+
 // The chrome above and around the grid. rightLabel carries the count or the
 // page ("PAGE 2 / 3"); when nothing is set yet the hint says so, because a grid
 // with no border and no words is indistinguishable from one whose selection
