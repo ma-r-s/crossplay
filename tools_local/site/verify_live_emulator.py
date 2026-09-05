@@ -73,9 +73,16 @@ def canonical_host():
 
 
 def get(url, method="GET", timeout=60):
+    """status, headers, body, and the URL it ENDED at.
+
+    The last one matters: urllib follows redirects silently, and a preview
+    deployment redirects every path to a login page. Without the final URL the
+    only evidence of that is a body that hashes wrong.
+    """
     req = urllib.request.Request(url, method=method, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=timeout) as res:
-        return res.status, dict(res.headers), (res.read() if method == "GET" else b"")
+        body = res.read() if method == "GET" else b""
+        return res.status, dict(res.headers), body, res.url
 
 
 def looks_deployed(url, entry):
@@ -87,7 +94,7 @@ def looks_deployed(url, entry):
     must not become the answer.
     """
     try:
-        status, headers, _ = get(url, method="HEAD", timeout=30)
+        status, headers, _, _ = get(url, method="HEAD", timeout=30)
     except (urllib.error.URLError, OSError):
         return False
     if status != 200:
@@ -101,7 +108,7 @@ def looks_deployed(url, entry):
 def verify(url, entry):
     """Download it and hash it. Returns None on success, else why not."""
     try:
-        status, headers, body = get(url)
+        status, headers, body, final = get(url)
     except urllib.error.HTTPError as err:
         return f"HTTP {err.code}"
     except (urllib.error.URLError, OSError) as err:
@@ -110,6 +117,20 @@ def verify(url, entry):
         return f"HTTP {status}"
     if not body:
         return "empty body"
+
+    # A protected preview answers every path with a login page, 200 and all.
+    # Reported as a hash mismatch that reads exactly like a broken emulator --
+    # which is what it did the first time this was pointed at one, over four
+    # files, convincingly. Name the real cause instead: this is not a verdict
+    # about the artefact and must not be mistaken for one.
+    ctype = headers.get("Content-Type", "").lower()
+    if ctype.startswith("text/html"):
+        via = f" (ended at {final})" if final and final != url else ""
+        return (
+            f"an HTML page came back instead of the file{via}. This origin is "
+            "behind Vercel's deployment protection, so nothing here can read it; "
+            "point this at production, or check the deployment's build log instead."
+        )
 
     got = hashlib.sha256(body).hexdigest()
     if got == entry["sha256"]:
