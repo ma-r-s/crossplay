@@ -8,6 +8,20 @@ AnkiWeb with the `anki` library, converts it with the shared converter from
 (Fernet-encrypted at rest) and user collections, and only usernames in
 `BRIDGE_ALLOWLIST` are served, so the hardening bar is Getbooks' or higher.
 
+## Attacking it
+
+The service is open to the world and this repository is public, so nothing here
+may depend on any of its numbers being secret. `docs/bridge-security.md` is the
+threat model, the rate limits and their reasoning, and the Cloudflare rules that
+only Mario can add.
+
+`server/attacks.py` is the executable half: one shared checklist run against
+both bridges (credential stuffing, pairing-code brute force, replay, cross-user
+files and jobs, forged tokens, oversized and malformed bodies), and
+`scripts/deploy.sh` runs it BEFORE it ships anything, so a vulnerable build
+never reaches the pi. `server/verify_attacks.sh` breaks the service on purpose,
+one property at a time, and proves every check can still go red.
+
 ## Isolation
 
 The box also runs Immich, Jellyfin and the *arr stack, so this container is

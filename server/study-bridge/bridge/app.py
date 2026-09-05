@@ -20,6 +20,7 @@ import json
 import html
 import logging
 import pathlib
+import re
 import secrets
 import struct
 import time
@@ -28,7 +29,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from . import accounts, chrome, decks, engine, events, jobs, pairing, store, wire
-from .ratelimit import Window
+from .ratelimit import Lockout, Window
 from .journal import Journal
 
 log = logging.getLogger("bridge.app")
@@ -38,14 +39,53 @@ MAX_CHOSEN_DECKS = 8
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 MAX_SYNC_BODY = 8 * 1024 * 1024  # revlog tails + cards.dat; a 5k-card deck is ~320KB
+# Eight deck names. Anki's own deck-name limit is far under this; the cap is
+# here to bound a hostile client, not to constrain a real one.
+MAX_CHOOSE_BODY = 64 * 1024
+MAX_DECK_NAME = 512
 
 
 # ---------------------------------------------------------------- rate limits
+# The shape here is read-bridge's, arrived at there and ported on 2026-09-05
+# because this service had a weaker one and nobody could say why. See
+# server/attacks.py for the run that found the difference.
 LOGIN_IP = Window(5, 300)  # 5 attempts / 5 min / IP
-LOGIN_USER = Window(3, 900)  # 3 attempts / 15 min / username
+# There is deliberately NO flat per-username Window beside LOGIN_LOCKOUT. There
+# was, and it shadowed nothing here only because there was no lockout to
+# shadow; a flat cap on ATTEMPTS also refuses the legitimate person who mistypes
+# twice and then gets it right. Exponential backoff on FAILURES dominates it:
+# an unlimited number of SUCCESSFUL sign-ins is harmless, because you already
+# have the password.
+LOGIN_LOCKOUT = Lockout()
+# The ceiling with only ONE of it. Per-IP and per-username counters are both
+# defeated by having many of each -- which is precisely what a credential
+# stuffing run has -- and this one is not. Set well above any plausible real
+# rate, so it is a backstop rather than a throttle: a person signs in once and
+# then their reader syncs on a token forever after.
+GLOBAL_LOGIN = Window(30, 60)
 PAIR_IP = Window(10, 300)
+# Guessing a pairing code. Eight characters from a 32-glyph alphabet is not
+# guessable inside its five minutes; guessing it FOR FREE is the problem, and
+# until 2026-09-05 the claim endpoint answered an unlimited number of wrong
+# codes to anyone holding an account of their own. Per-IP and per-account,
+# because either one alone is trivially sidestepped by varying the other.
+CLAIM_IP = Window(20, 300)
+CLAIM_USER = Window(20, 300)
+# Device reports ride any response under 400, including /healthz, which takes
+# no token at all. Each one costs a thread and a row on the board. These are
+# generous for a real reader (it reports on the handful of requests a sync
+# makes) and ruinous for a flood.
+REPORT_IP = Window(30, 300)
+GLOBAL_REPORT = Window(240, 60)
 SYNC_USER = Window(6, 300)
 GLOBAL_SYNC = Window(60, 60)
+
+# A deck slug is what decks.slugify() produces and a build id is
+# f"{int(time.time())}". Anything else was not made by this service, and both
+# reach the filesystem, so they are matched against the shapes their own
+# generators can emit rather than merely inspected for dots.
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+_BUILD_RE = re.compile(r"^[0-9]{1,20}$")
 
 
 def client_ip(request: Request) -> str:
@@ -115,8 +155,21 @@ async def device_reports(request: Request, call_next):
     device will count as delivered, so a request it retries does not post
     the same crash twice. events.Client.report never raises."""
     response = await call_next(request)
+    # Capped, because this runs on endpoints that need no token: without a
+    # limit an unauthenticated stranger writes to the board as fast as they
+    # can open sockets, and each report costs a thread against pids_limit.
+    # Dropping under flood is the right failure: a report is best-effort by
+    # design and no sync waits on one.
     if response.status_code < 400:
-        events.client_for(request).report(via="anki")
+        client = events.client_for(request)
+        # The limiter is consulted only when there is actually something to
+        # relay. Counting REQUESTS instead cost a real device its crash report
+        # in the middle of an ordinary sync: every article download carries the
+        # header, so a 21-article sync spent the whole budget on requests that
+        # were reporting nothing. tests/test_api.py caught it.
+        if client.crash is not None or client.ota is not None:
+            if REPORT_IP.allow(client_ip(request)) and GLOBAL_REPORT.allow("all"):
+                client.report(via="anki")
     return response
 
 
@@ -183,15 +236,30 @@ async def login(request: Request):
     username = str(form.get("username", "")).strip()
     password = str(form.get("password", ""))
     ip = client_ip(request)
-    if not LOGIN_IP.allow(ip) or not LOGIN_USER.allow(username.lower()):
+    key = username.lower()
+    if not LOGIN_IP.allow(ip) or not GLOBAL_LOGIN.allow("all"):
         return page(
             "Slow down",
             chrome.mark(False) + "<h1>Slow down</h1>"
             "<p class=lede>Too many attempts. Wait a few minutes.</p>",
         )
+    # Checked BEFORE the exchange, so a locked-out username costs AnkiWeb
+    # nothing: the whole point is not to relay the attempt at all.
+    waiting = LOGIN_LOCKOUT.locked_for(key)
+    if waiting > 0:
+        return page(
+            "Slow down",
+            chrome.mark(False) + "<h1>Slow down</h1>"
+            f"<p class=lede>Too many failed sign-ins for that account. Try again in"
+            f" {int(waiting // 60) + 1} minute(s).</p>",
+        )
     try:
         st = await asyncio.to_thread(accounts.login, username, password)
     except ValueError as e:
+        # A refusal is what an attacker is fishing for, so it is what the
+        # backoff counts. A bridge fault below is not the user's doing and
+        # does not penalise them.
+        LOGIN_LOCKOUT.record_failure(key)
         return page(
             "Sign in failed",
             chrome.mark(False) + "<h1>Sign in failed</h1>"
@@ -210,6 +278,7 @@ async def login(request: Request):
             "<p class=lede>The bridge hit a problem on its side; nothing about"
             " your account was stored. Try again in a minute.</p>",
         )
+    LOGIN_LOCKOUT.record_success(key)
     resp = RedirectResponse("/devices", status_code=303)
     resp.set_cookie(
         "bridge_session",
@@ -338,6 +407,16 @@ async def pair_claim(request: Request):
     form = await request.form()
     if form.get("csrf") != s["csrf"]:
         raise Unauthorized("stale form; reload the page")
+    # After the session and the CSRF token, so a wrong code costs an account
+    # rather than an anonymous request, and before the guess is answered.
+    if not CLAIM_IP.allow(client_ip(request)) or not CLAIM_USER.allow(s["uid"]):
+        return page(
+            "Slow down",
+            chrome.mark(False) + "<h1>Slow down</h1>"
+            "<p class=lede>Too many codes tried. Wait a few minutes, then ask"
+            " the reader for a fresh one.</p>",
+            step=2,
+        )
     okay = pairing.PAIRINGS.claim(str(form.get("code", "")), s["uid"], s["username"])
     if not okay:
         return page(
@@ -461,11 +540,26 @@ async def list_decks(dev=Depends(require_device)):
 @app.post("/api/decks/choose")
 async def choose_decks(request: Request, dev=Depends(require_device)):
     uid, _ = dev
-    body = await request.json()
+    # Every endpoint that takes a body needs a ceiling on it. This one had
+    # none: eight deck names of any length each went straight into state.json,
+    # so a 12MB post was a 12MB write to the card, repeatable, by anyone
+    # holding a token for their own account.
+    raw = await request.body()
+    if len(raw) > MAX_CHOOSE_BODY:
+        return JSONResponse({"error": "That deck list is too large."}, 413)
+    try:
+        body = json.loads(raw or b"{}")
+    except ValueError:
+        return JSONResponse({"error": "Malformed deck list."}, 400)
+    # Malformed rather than merely unexpected: json.loads happily returns a
+    # list, a string or a number, and .get() on any of them was a 500.
+    if not isinstance(body, dict) or not isinstance(body.get("decks", []), list):
+        return JSONResponse({"error": "Malformed deck list."}, 400)
     # Must equal StudySync::kMaxChosenDecks on the device. The picker enforces
     # the same number, so this truncation should never fire; it is the backstop
-    # for a client that does not.
-    names = [str(n) for n in body.get("decks", [])][:MAX_CHOSEN_DECKS]
+    # for a client that does not. Each name is capped at the longest an Anki
+    # deck path can sensibly be, for the same reason.
+    names = [str(n)[:MAX_DECK_NAME] for n in body.get("decks", [])][:MAX_CHOSEN_DECKS]
     st, state = _user_bits(uid)
     state["chosen_decks"] = names
     st.save_state(state)
@@ -610,9 +704,24 @@ async def sync_status(job: str, dev=Depends(require_device)):
 async def deck_file(slug: str, build: str, path: str, dev=Depends(require_device)):
     uid, _ = dev
     st = store.UserStore(uid)
+    # slug and build are VALIDATED before they become a path, not merely
+    # compared against afterwards. They used to go straight into base, and
+    # the containment check below was then true by construction: dot segments
+    # in them moved the base as well as the target, so ".." twice landed base
+    # on <data>/users/ and every other account's state.json -- their encrypted
+    # AnkiWeb hostKey and their device token hashes -- was one segment away.
+    # The twin never had this because it strips its filename down to
+    # alphanumerics, so the escape cannot be spelled there at all.
+    if not _SLUG_RE.match(slug) or not _BUILD_RE.match(build):
+        return JSONResponse({"error": "No such file."}, 404)
     base = (st.root / "decks" / slug / build).resolve()
     target = (base / path).resolve()
-    if not str(target).startswith(str(base)) or not target.is_file():
+    # Still here, and now it means what it says: base is a directory this
+    # service could itself have created, so containment is a real question.
+    # is_relative_to, not str.startswith: the string form also accepts a
+    # SIBLING whose name merely begins with base's ("decks/a/1" against
+    # "decks/a/12"), which is a different bug wearing the same clothes.
+    if not target.is_relative_to(base) or not target.is_file():
         return JSONResponse({"error": "No such file."}, 404)
     return FileResponse(target)
 

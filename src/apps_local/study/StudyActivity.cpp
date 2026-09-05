@@ -17,6 +17,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxMetrics.h"
 #include "../ui/ToyboxTheme.h"
 #include "StudyStats.h"
@@ -2378,7 +2379,17 @@ void StudyActivity::runSyncFlow() {
     }
     if (!status.empty()) transportBlips = 0;
     const uint32_t elapsed = (millis() - started) / 1000;
-    char clock[16];
+    // "%um%02us". Sized for what the format can PRINT, not for the range the
+    // arguments happen to have: "%02u" is a minimum width of two, not a
+    // maximum, and an argument range argued in a comment is not a bound. The
+    // first attempt made this 15 on exactly that reasoning and host-tests/
+    // fmtwidth rejected it -- correctly. The field it is copied into is what
+    // moved instead.
+    constexpr int kClockChars =
+        toybox::kUIntChars + toybox::literalChars("m") + toybox::kUIntChars + toybox::literalChars("s") + 1;
+    static_assert(kClockChars <= studyui::SyncFlowModel::kFactChars,
+                  "the clock has to fit the stage fact it is copied into");
+    char clock[kClockChars];
     if (elapsed < 60) {
       std::snprintf(clock, sizeof(clock), "%us", static_cast<unsigned>(elapsed / 5 * 5));
     } else {

@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "../../activities/Activity.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxScreen.h"
 #include "../ui/ToyboxWrappedText.h"
 #include "HackerNewsCore.h"
@@ -133,12 +134,22 @@ class HackerNewsActivity final : public Activity {
   // Whether the reader was opened out of the library rather than off the front
   // page. Back honours it: a saved article returns to the shelf it came from.
   bool readingSaved_ = false;
+  // The last save in the reader was refused (a full card). Draws a transient
+  // toast over the reader instead of ejecting to a full-screen notice (card
+  // #40). Set by saveCurrentArticle on failure, and cleared by the reader's
+  // next input -- a page turn, an unsave, or leaving -- so it acknowledges the
+  // failure once and gets out of the way.
+  bool saveFailedNotice_ = false;
   hn::Library library_;
   bool articleAvailable_ = false;
   uint32_t topLine_ = 0;
   uint32_t lineCount_ = 0;
   uint16_t visibleLines_ = 0;
-  char pageLabel_[16] = "";
+  // "%lu/%lu", sized from that format. unsigned long is ten digits on the
+  // device, and a page count is nowhere near that -- but a buffer sized for
+  // the count you expect is how card 256 happened seventeen times.
+  static constexpr int kPageLabelCap = 2 * toybox::kULongChars + toybox::literalChars("/") + 1;
+  char pageLabel_[kPageLabelCap] = "";
 
   std::string noticeHeadline_;
   std::string noticeMessage_;

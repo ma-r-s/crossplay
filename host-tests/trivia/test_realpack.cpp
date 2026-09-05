@@ -8,7 +8,7 @@
 // to be edited to make this pass.
 //
 // argv[1] is the pack, argv[2] the manifest: id-free TSV of
-//   difficulty <TAB> year <TAB> nalt <TAB> nwrong <TAB> clue <TAB> answer
+//   difficulty <TAB> year <TAB> nalt <TAB> nwrong <TAB> us <TAB> clue <TAB> answer
 
 #include <cstdio>
 #include <cstdlib>
@@ -59,7 +59,7 @@ class FileSource final : public ByteSource {
 };
 
 struct Row {
-  int difficulty, year, nalt, nwrong;
+  int difficulty, year, nalt, nwrong, us;
   std::string clue, answer;
 };
 
@@ -78,17 +78,19 @@ int main(int argc, char** argv) {
     while (std::getline(in, line)) {
       std::istringstream ls(line);
       Row r;
-      std::string d, y, na, nw;
+      std::string d, y, na, nw, us;
       if (!std::getline(ls, d, '\t')) continue;
       std::getline(ls, y, '\t');
       std::getline(ls, na, '\t');
       std::getline(ls, nw, '\t');
+      std::getline(ls, us, '\t');
       std::getline(ls, r.clue, '\t');
       std::getline(ls, r.answer, '\t');
       r.difficulty = std::atoi(d.c_str());
       r.year = std::atoi(y.c_str());
       r.nalt = std::atoi(na.c_str());
       r.nwrong = std::atoi(nw.c_str());
+      r.us = std::atoi(us.c_str());
       rows.push_back(r);
     }
   }
@@ -111,6 +113,7 @@ int main(int argc, char** argv) {
     CHECK(std::strcmp(q.clue(), rows[i].clue.c_str()) == 0);
     CHECK(std::strcmp(q.answer(), rows[i].answer.c_str()) == 0);
     CHECK(q.difficulty() == rows[i].difficulty);
+    CHECK(q.usCentric() == (rows[i].us != 0));
     CHECK(q.year() == rows[i].year);
     CHECK(q.alternateCount() == rows[i].nalt);
     CHECK(q.distractorCount() == rows[i].nwrong);

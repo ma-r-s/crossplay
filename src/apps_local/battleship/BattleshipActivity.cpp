@@ -11,6 +11,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxTheme.h"
 
@@ -353,8 +354,8 @@ void BattleshipActivity::drawMiniGrid(const Rect& slot) const {
   // How the game stands, in the marks the board itself uses. A ring is a shot
   // and a solid block is a ship gone down, which is what they mean two inches
   // above, so the legend needs no key and the row below needs no receipt.
-  char shots[8];
-  char sunk[8];
+  char shots[toybox::kIntTextChars];
+  char sunk[toybox::kIntTextChars];
   std::snprintf(shots, sizeof(shots), "%d", bship::shotsTaken(theirs));
   std::snprintf(sunk, sizeof(sunk), "%d", bship::sunkCount(theirs));
 
@@ -1147,7 +1148,10 @@ bool BattleshipActivity::loadGame() {
 }
 
 void BattleshipActivity::saveStats() const {
-  char line[48];
+  // "%d %d %d %d\n"
+  constexpr int kLineChars =
+      toybox::kIntChars + toybox::kIntChars + toybox::kIntChars + toybox::kIntChars + toybox::literalChars("   \n") + 1;
+  char line[kLineChars];
   std::snprintf(line, sizeof(line), "%d %d %d %d\n", kSaveVersion, played, won, streak);
   Storage.writeFile(kStatsPath, String(line));
 }

@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 #include "../link/LinkScreens.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxIcons.h"
 
 namespace yzui {
@@ -50,8 +51,27 @@ constexpr int16_t kDiceBandHeight = kDieSize;
 // neither. Thirty-six spends forty-five of it, which also takes the row from
 // 3.8mm to 4.15mm at 220ppi -- and this row is the only irreversible tap in the
 // game, so it should not have been the smallest target on the screen.
+// 36 and not 35, which was tried: the score boxes are sized off this, and at
+// 35 the digits' ink met the box's bottom border and read as a smudge rather
+// than a number. The fifteen pixels the top gutter needs are NOT available
+// here.
 constexpr int16_t kLineHeight = 36;
 constexpr int16_t kColumnHeaderHeight = 22;
+// The air below the dice, and the whole of this screen's remaining slack.
+//
+// tableTop must stay at 180: the table is fifteen 36px lines laid out from an
+// absolute top, the ROLL capsule comes off takeBottom, and 180 is the value
+// that leaves TOTAL clear of the capsule. From the chrome's bottom at 83 that
+// leaves exactly thirteen pixels to divide between the air ABOVE the dice and
+// the air below them -- 83 + above + 62 + below + 22 = 180. There is no
+// fourteenth pixel anywhere on this screen: kLineHeight already spent 45 of
+// the 46 that once went unassigned, and at 35 the digits meet their box.
+//
+// Twelve of the thirteen go above, because that is the gap Mario has now
+// called too tight twice. One goes below, which costs nothing visible: the
+// column header is a 22px box holding a small label, so its own padding is the
+// air between the dice and the word YOU.
+constexpr int16_t kDiceToTable = 1;
 // Where the two score columns end. The name has everything to the left of them.
 constexpr int16_t kYourRight = 336;
 constexpr int16_t kTheirRight = 464;
@@ -64,14 +84,27 @@ constexpr int kBonusLine = yz::kUpperEnd;
 constexpr int kTotalLine = yz::kCategories + 1;
 constexpr int kLines = yz::kCategories + 2;
 
-// Four pixels shaved off each of the two gaps above the table, spent below
-// it: the TOTAL row ended eight pixels from the ROLL capsule and read as
-// touching it. The whole card lifts, so the row grid keeps its rhythm and
-// dieAt / categoryAt stay in step with the drawing by construction.
-int16_t contentTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter - 4); }
-int16_t tableTop() {
-  return static_cast<int16_t>(contentTop() + kDiceBandHeight + toybox::kGutter - 4 + kColumnHeaderHeight);
-}
+// The gap above the dice is NOT shaved; the one below them is.
+//
+// Both were, once, to buy eight pixels for the bottom: the TOTAL row ended
+// eight pixels from the ROLL capsule and read as touching it. That fixed the
+// bottom by taking from the top, and the top could not afford it. Measured
+// against the chrome the dice actually sit under -- band 0..76, headerRule
+// 76..79 -- a contentTop of 84 left FIVE pixels of clearance, and Mario read
+// exactly what the comment above predicted at eight: touching.
+//
+// Only the second shave is kept, so the dice get their four back and
+// everything below the dice keeps the lift. The bottom pays four of the
+// sixteen it gained, which still leaves twice the eight that was the
+// complaint. The row grid keeps its rhythm and dieAt / categoryAt stay in
+// step with the drawing by construction, because both derive from these.
+//
+// Note what does NOT fix this, since it was tried: making the header shorter.
+// The band and the dice move together, so the clearance changes by nothing.
+// The clearance is the difference between this constant and the rule's
+// bottom, and only this constant can change it.
+int16_t contentTop() { return static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter); }
+int16_t tableTop() { return static_cast<int16_t>(contentTop() + kDiceBandHeight + kDiceToTable + kColumnHeaderHeight); }
 
 // A category's line in the table: itself, or one lower once the bonus line has
 // been passed.
@@ -147,7 +180,7 @@ const char* categoryName(const int index) {
 
 // A number right-aligned at `right`, on its line.
 void drawNumber(toybox::Screen& screen, const int16_t right, const int16_t y, const int value, const bool bold) {
-  char text[8];
+  char text[toybox::kIntTextChars];
   std::snprintf(text, sizeof(text), "%d", value);
   fui::TextStyle style;
   style.font = bold ? toybox::kBodyFont : toybox::kSmallFont;
@@ -175,7 +208,7 @@ void drawEmptyBox(toybox::Screen& screen, const int16_t right, const int16_t y) 
 // has no outline, so committed and pencilled never look alike.
 void drawPreview(toybox::Screen& screen, const int16_t right, const int16_t y, const int value) {
   drawEmptyBox(screen, right, y);
-  char text[8];
+  char text[toybox::kIntTextChars];
   std::snprintf(text, sizeof(text), "%d", value);
   // Right-aligned INSIDE the box, matching drawNumber, so a column of thirteen
   // rows has one edge. Centring the previews and right-aligning the committed
@@ -298,7 +331,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   label.align = fui::TextAlign::Center;
   screen.target().text(fui::makeRect(content.x, blockTop, content.width, 24), "PERSONAL BEST", label);
 
-  char bestText[8];
+  char bestText[toybox::kIntTextChars];
   std::snprintf(bestText, sizeof(bestText), "%d", model.best);
   fui::TextStyle big;
   big.font = toybox::kDisplayFont;
@@ -380,7 +413,7 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
 
   // The page counter lives in the black band, jaipur's way, so it costs no
   // body space; the diagram centres in the room that frees.
-  char progress[16];
+  char progress[toybox::kOfCounterChars];
   std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, howToPages());
   toyboxChrome(screen, "HOW TO PLAY", progress);
 
@@ -409,6 +442,12 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
   header.title = "YAHTZEE";
   header.borderEdges = fui::EdgesNone;
   toybox::headerBand(screen, header);
+  // The menu face draws this and the card face did not, which is the
+  // inconsistency #248 counts across the fork: 28 files draw a band, 27 draw a
+  // rule, and nine disagree with themselves. Yahtzee was one of the nine, and
+  // it shows -- the dice sat under a bare black edge on one screen and under a
+  // ruled one on the other.
+  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   const fui::DeviceContext device = screen.device();
@@ -524,7 +563,9 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
   for (int column = 0; column < 2; ++column) {
     const yz::Card& card = column == 0 ? yours : theirs;
     const int16_t right = column == 0 ? kYourRight : kTheirRight;
-    char cell[16];
+    // "%d MORE"
+    constexpr int kCellChars = toybox::kIntChars + toybox::literalChars(" MORE") + 1;
+    char cell[kCellChars];
     if (yz::bonusEarned(card) > 0) {
       std::snprintf(cell, sizeof(cell), "+%d", yz::kUpperBonus);
     } else if (yz::upperBonusStillPossible(card)) {
@@ -630,7 +671,9 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
     if (bestIndex < 0 || bestGap == 0) break;
     used[bestIndex] = true;
     screen.target().text(fui::makeRect(area.x, y, 260, kLineHeight), categoryName(bestIndex), small);
-    char scores[24];
+    // "%d - %d"
+    constexpr int kScoresChars = toybox::kIntChars + toybox::kIntChars + toybox::literalChars(" - ") + 1;
+    char scores[kScoresChars];
     std::snprintf(scores, sizeof(scores), "%d - %d", model.yours.box[bestIndex], model.theirs.box[bestIndex]);
     screen.target().text(fui::makeRect(static_cast<int16_t>(area.x + area.width - 140), y, 140, kLineHeight), scores,
                          right);
@@ -639,7 +682,9 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
 
   // And the bonus, which is a 35-point swing that appears in no box at all.
   if (yahtzee::bonusEarned(model.yours) != yahtzee::bonusEarned(model.theirs)) {
-    char bonus[40];
+    // "TOP HALF BONUS  %d - %d"
+    constexpr int kBonusChars = toybox::kIntChars + toybox::kIntChars + toybox::literalChars("TOP HALF BONUS   - ") + 1;
+    char bonus[kBonusChars];
     std::snprintf(bonus, sizeof(bonus), "TOP HALF BONUS  %d - %d", yahtzee::bonusEarned(model.yours),
                   yahtzee::bonusEarned(model.theirs));
     screen.target().text(fui::makeRect(area.x, y, area.width, kLineHeight), bonus, small);

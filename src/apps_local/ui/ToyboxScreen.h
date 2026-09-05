@@ -226,6 +226,18 @@ inline int16_t headerTitleWidth(Screen& screen, const freeink::ui::Rect& band, c
 // twenty-fifth copy will not have.
 inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   namespace fui = freeink::ui;
+  // Absolute chrome, done HERE so no screen can forget it. It was an opt-in
+  // call placed before this one, and screens forgot it exactly the way they
+  // forgot the rule: Yahtzee called it on its menu and not on its card or its
+  // result, so the card's band began at the bezel's safe top instead of row 0
+  // and painted 85 rows where the menu painted 76. Mario saw the two screens
+  // side by side and asked why one header was taller, which is the only way
+  // this was ever going to be found -- every band looks right alone.
+  //
+  // Safe to do unconditionally: it is idempotent for the 25 screens that
+  // already call it, and no screen in the fork insets its content before its
+  // band, so there is no inset here to clobber.
+  absoluteChrome(screen);
   const fui::Rect band = screen.takeTop(screen.theme().headerHeight);
   const int16_t safeTop = screen.frame().safeRect().y;
   const int16_t inkTop = band.y > safeTop ? band.y : safeTop;
@@ -236,6 +248,21 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   // top-bordered band would need its corners and its rule carried up here too.
   screen.target().fill(fui::makeRect(0, 0, screen.device().screen().width, band.bottom()),
                        styles.resolve(fui::StateNormal).background);
+  // The rule, drawn HERE rather than by each screen. It was a separate opt-in
+  // call: of the fork's 41 band sites, 26 called headerRule(), Solitaire drew
+  // its own by hand at 3, and the remaining 12 had no rule at all -- including
+  // the Yahtzee card, which is how a decoration nobody ever decided to omit
+  // went missing until Mario opened that screen and asked.
+  //
+  // It paints below the band and reserves nothing, exactly as the old
+  // per-screen call did, so the 27 screens that already drew it see no change
+  // at all and the other 17 gain the line without their content moving. It is
+  // deliberately NOT carved out of kHeaderHeight: a shorter band trips the
+  // vertical clamp on the title's line box and stops the header looking
+  // centred behind the bezel. See kBandRuleGap.
+  screen.target().fill(
+      fui::makeRect(0, static_cast<int16_t>(band.bottom() + kBandRuleGap), screen.device().screen().width, kRule),
+      fui::Paint::solid(fui::Color::Black));
 
   // The rect the component is really handed, which is the band CLIPPED to the
   // visible rows: the bezel hides the top ten, and the ink stays below them.
@@ -302,10 +329,13 @@ inline int16_t bandCenterY(Screen& screen, const int16_t elementH) {
 // puts it. Call immediately after screen.header(...): the band was just
 // taken from the content top, so body().y is the band's bottom edge.
 inline void headerRule(Screen& screen) {
-  namespace fui = freeink::ui;
-  screen.target().fill(
-      fui::makeRect(0, static_cast<int16_t>(screen.body().y + 4), screen.device().screen().width, toybox::kRule),
-      fui::Paint::solid(fui::Color::Black));
+  // Nothing: headerBand() draws the rule now, inside its own height. Kept as a
+  // no-op rather than deleted on purpose -- 27 call sites across eight apps
+  // still name it, and other sessions have branches in flight that add more.
+  // A no-op merges clean and renders correctly; deleting the symbol would turn
+  // every one of those into a build break for someone else. The dead calls go
+  // in a follow-up once those branches land.
+  (void)screen;
 }
 
 // Every icon this fork draws, at the one size ToyboxIcons.h generates.

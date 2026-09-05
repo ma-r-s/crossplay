@@ -24,6 +24,7 @@
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/instapaper/InstapaperScreens.h"
+#include "../../src/apps_local/jaipur/JaipurScreens.h"
 #include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
@@ -37,11 +38,13 @@
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
 #include "../../src/apps_local/trivia/TriviaScreens.h"
+#include "../../src/apps_local/ui/ToyboxFormat.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/ToyboxWrappedText.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
+#include "../../src/apps_local/yahtzee/YahtzeeScreens.h"
 
 namespace fui = freeink::ui;
 
@@ -723,6 +726,89 @@ void testSettingsRouting() {
   CHECK(screen.tap(240, closeY).action == chessui::ActionCloseSettings);
   CHECK(screen.tap(toybox::kMargin + 4, closeY).action == chessui::ActionCloseSettings);
   CHECK(screen.tap(480 - toybox::kMargin - 4, closeY).action == chessui::ActionCloseSettings);
+}
+
+// --- the dice clear the chrome ---------------------------------------------
+//
+// Mario: "Yahtzee dices touch the top header after rolled." They did, by five
+// pixels: the band owns 0..kHeaderHeight, headerRule paints kRule below it,
+// and contentTop() shaved four more off the gutter that was supposed to
+// separate them.
+//
+// Asked of dieRect() rather than of the constant, so this measures where the
+// die is DRAWN. A test that re-derived contentTop() from kHeaderHeight would
+// agree with the bug.
+//
+// And note what this does NOT test, because it was the fix that was tried and
+// did not work: making the header shorter moves the band and the dice
+// together and changes the clearance by nothing.
+// Mario asked for the decorative line on EVERY screen, and for no screen's
+// content to move to buy it. Both halves are asserted here, against
+// headerBand() itself rather than against any one app's screen: a per-app
+// assertion is precisely what let 12 of the fork's 41 band sites ship with no
+// rule at all, the Yahtzee card among them.
+void everyBandCarriesItsRule() {
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  fui::HeaderProps props;
+  props.title = "TITLE";
+  toybox::headerBand(screen, props);
+
+  // Half one, and the constraint that shaped the whole fix: the header still
+  // reserves exactly kHeaderHeight, so not one pixel of content anywhere in
+  // the fork moves. Adding the rule BELOW the band would have pushed every
+  // board, table and card down by six.
+  CHECK(screen.body().y == toybox::kHeaderHeight);
+
+  // Half two: a black, full-bleed rule, kBandRuleGap below the band.
+  bool ruled = false;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    const fui::Paint& paint = out.target.fillPaints[i];
+    if (paint.kind != fui::PaintKind::Solid || paint.color != fui::Color::Black) continue;
+    if (r.y != toybox::kHeaderHeight + toybox::kBandRuleGap || r.height != toybox::kRule) continue;
+    if (r.x == 0 && r.width == ctx.screen().width) ruled = true;
+  }
+  CHECK(ruled);
+
+  // The band's own black must still reach kHeaderHeight, or the rule is not a
+  // rule under a band -- it is a stripe in a gap. This is the assertion that
+  // fails on the arrangement tried first, which carved the gap and rule out of
+  // the header's height: that shortened the band to 70, tripped the vertical
+  // clamp on the title's line box, and stopped the header looking centred
+  // behind the X4 Pro's bezel.
+  bool bandFull = false;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    if (r.y == 0 && r.height == toybox::kHeaderHeight && r.width == ctx.screen().width) bandFull = true;
+  }
+  CHECK(bandFull);
+
+  // headerRule() is a no-op now. 27 call sites still name it, and if it drew
+  // anything they would each paint a SECOND line down in the body.
+  const size_t before = out.target.fills.size();
+  toybox::headerRule(screen);
+  CHECK(out.target.fills.size() == before);
+}
+
+void yahtzeeDiceClearTheHeader() {
+  const fui::DeviceContext ctx = device();
+  const fui::Rect die = yzui::dieRect(ctx, 0);
+
+  // A full gutter below the whole chrome -- band, gap AND rule -- which is
+  // what kChromeHeight names. Measuring it from kHeaderHeight instead is the
+  // bug: it counts the band and forgets the line drawn under it, which is how
+  // the dice came to sit five pixels beneath a rule nobody had counted. The
+  // value this replaced was `kHeaderHeight + kGutter - 4`, a fudge that
+  // borrowed four pixels from above the table to spend below it.
+  CHECK(die.y == toybox::kChromeHeight + toybox::kGutter);
+  CHECK(die.y - (toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule) == toybox::kGutter);
+
+  // Every die shares the row, so none of them can be the exception.
+  for (int i = 1; i < 5; ++i) CHECK(yzui::dieRect(ctx, i).y == die.y);
 }
 
 // --- the board's chrome ----------------------------------------------------
@@ -1765,6 +1851,46 @@ void testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo() {
   }
 }
 
+// #243: the waiting capsule ("TAP A TARGET") must not draw the disabled-button
+// dither. That style knocks white text out of a DarkGray dither, and on the
+// panel a dither is a sparse pattern of black pixels: low-contrast to read and,
+// being sparse, exactly what a partial refresh leaves residue from -- so the one
+// control on the opening screen you most need to read was the one that ghosted.
+// It is a status line, not a disabled control, so it keeps the solid capsule
+// chess's inert status already uses, told apart from the armed FIRE by its label
+// alone. The ghosting itself is analog and no host test can see it; the dither
+// that causes it is what this pins, and it goes red on the borrowed style.
+void testBattleshipWaitingCapsuleIsNotDithered() {
+  Rendered out;
+  bshipui::BoardModel waiting;  // not gameOver, not canFire: only reporting
+  waiting.status = "TAP A TARGET";
+  buildBattleshipBoard(out, waiting);
+
+  const FakeTarget::TextRun* label = out.target.find("TAP A TARGET");
+  CHECK(label != nullptr);
+  if (label == nullptr) return;
+
+  // The ground the label sits on, found by the label rather than by arithmetic
+  // on the band. Later fills draw over earlier ones, so the last fill covering
+  // the label's centre is the capsule's own ground.
+  const int16_t cx = static_cast<int16_t>(label->rect.x + label->rect.width / 2);
+  const int16_t cy = static_cast<int16_t>(label->rect.y + label->rect.height / 2);
+  bool found = false;
+  fui::Paint ground{};
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect r = out.target.fills[i];
+    if (cx < r.x || cx >= r.right() || cy < r.y || cy >= r.bottom()) continue;
+    ground = out.target.fillPaints[i];
+    found = true;
+  }
+  CHECK(found);
+  // Names the bug (the borrowed disabled dither) rather than the fix.
+  CHECK(!(ground.kind == fui::PaintKind::Dither && ground.color == fui::Color::DarkGray));
+  // And positively: the capsule draws solid, like FIRE and like chess's inert
+  // status. Reinstate disabledButtonStyles() here and both checks go red.
+  CHECK(ground.kind == fui::PaintKind::Solid);
+}
+
 void testBattleshipPlacementControls() {
   Rendered out;
   bshipui::PlaceModel model;
@@ -2377,7 +2503,7 @@ void testThePageMarksReadAsAControl() {
     // marks changed: the folder resumes on the page it was left on, so the row
     // in position two is a different game on each visit, and "which page is
     // this" has to be answerable before any tap is safe.
-    char number[8];
+    char number[toybox::kIntTextChars];
     std::snprintf(number, sizeof(number), "%d", p + 1);
     CHECK(menu.target.drew(number));
   }
@@ -3299,6 +3425,37 @@ void testHnReaderShowsWhereYouAre() {
   CHECK(!drewText(out, "ARTICLE"));
 }
 
+// A card that would not take a save says so OVER the reader, not by replacing
+// it. Card #40: a failed save called showNotice(), which switched the Activity
+// to its full-screen Notice phase and threw the reader out of the page it was
+// on -- for the one failure that leaves what you were reading perfectly intact.
+// buildReader now draws the refusal from the model as a transient toast, so the
+// reader's own chrome is still there beneath it and nothing navigated away.
+void testHnReaderSaveFailedToastStaysOnTheReader() {
+  Rendered out;
+  hnui::ReaderModel model = articleModel();
+  model.canSave = true;
+  model.saveNotice = "Not saved: the card is full.";
+  buildHnReader(out, model);
+
+  // The refusal is on the page.
+  CHECK(drewText(out, "card is full"));
+  // And the reader is STILL the reader underneath it: the swap control, the
+  // page label and the save mark are all drawn, which a full-screen notice
+  // would not carry. That is the whole of #40 -- an overlay, not a new screen.
+  CHECK(drewText(out, "COMMENTS"));
+  CHECK(drewText(out, "1/3"));
+  CHECK(saveMarkIn(out) != nullptr);
+
+  // The ordinary paint, with nothing refused, is clean: the toast is drawn only
+  // when the model carries a reason.
+  Rendered clean;
+  hnui::ReaderModel plain = articleModel();
+  plain.canSave = true;
+  buildHnReader(clean, plain);
+  CHECK(!drewText(clean, "card is full"));
+}
+
 void testHnFitLines() {
   // The fake target bills every character at 10px, so the arithmetic here is
   // exact: a 200px line holds 20 characters.
@@ -4184,6 +4341,13 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
   // AND its cell was re-measured against a shorter area. On this panel that is
   // a full refresh of the one surface being read by position.
   //
+  // Mario, 2026-09-05: the fixed band was in the wrong place -- "on top of the
+  // screen" -- and he wants it "between the board and between the bottom names
+  // of the objects, people, places, and motives". So the band now sits BETWEEN
+  // the grid and the key, and this test pins all three facts that made the move
+  // safe: the grid does not move whether or not a notice shows (no-jump), the
+  // band draws below the grid and above the key, and the key does not move.
+  //
   // Every tier, because the cell size is the min of a width fit and a height
   // fit and only the height fit moves: a tier that happened to be height-bound
   // would shrink where the others do not.
@@ -4215,27 +4379,37 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
     CHECK(after.gutter == before.gutter);
     CHECK(after.headerH == before.headerH);
 
+    // The bottom edge of the last grid cell, and the top of the first key row.
+    // The band has to fall strictly between them: below the grid, above the
+    // key. Reserving the band off the bottom of the grid's room puts it there.
+    const int16_t gridCellsBottom = static_cast<int16_t>(after.originY + after.groups * after.items * after.cell);
+    const int16_t lineH = with.target.lineHeight(toybox::kTileFont);
+    int16_t firstKeyRowY = 0x7fff;
+    for (const auto& run : with.target.texts) {
+      if (run.text.find('=') != std::string::npos && run.rect.y < firstKeyRowY) firstKeyRowY = run.rect.y;
+    }
+    CHECK(firstKeyRowY != 0x7fff);  // the key really drew
+
     // The notice really drew, or every check above is satisfied by a screen
     // that simply threw the message away.
-    const fui::Rect grid = fui::makeRect(after.originX, static_cast<int16_t>(after.originY - after.headerH), 1, 1);
     int noticeRuns = 0;
     for (const auto& run : with.target.texts) {
       if (run.text.find(murdletext::kBlockedNotice) == std::string::npos) continue;
       ++noticeRuns;
-      // And it drew ABOVE the grid rather than over the column labels, which is
-      // the way a reserved band goes wrong that a moved origin does not.
-      CHECK(run.rect.y + run.rect.height <= grid.y);
+      // BETWEEN THE GRID AND THE KEY. The band starts 8px under the last grid
+      // cell -- the reserved gap it has always carried -- and its foot clears
+      // the top of the first key row. Above the grid (the old placement) or
+      // over the key both fail here.
+      CHECK(run.rect.y == gridCellsBottom + 8);
+      CHECK(run.rect.y >= gridCellsBottom);
+      CHECK(run.rect.y + run.rect.height <= firstKeyRowY);
       // The box the wrap sees, tied to the number host-tests/murdle measures
       // the worst-case notice against rather than written down twice. This IS
       // the body width: paragraph() draws each line into the rect it was given.
       CHECK(run.rect.width == 448);
-      // THE BAND IS ONE LINE, and this is the assertion that says so. Mario,
-      // 2026-09-05: the two-line band "moved [the board] down which now looks
-      // awful, specially when no message is showing" -- it is reserved on every
-      // frame, so a second line is a line of dead space on every frame of the
-      // face. The gap from the top of the notice to the top of the grid IS the
-      // band, plus the 8px it has always carried.
-      CHECK(grid.y - run.rect.y == with.target.lineHeight(toybox::kTileFont) + 8);
+      // THE BAND IS ONE LINE. Reserved on every frame, so a second line is a
+      // line of dead space on every frame of the face.
+      CHECK(run.rect.height == lineH);
     }
     // One run, because the message is one line. Two runs is the wording that
     // wrapped, which is the other half of what made the band cost two lines.
@@ -4244,6 +4418,27 @@ void testMurdleRefusalDoesNotMoveTheGrid() {
     // The quiet render says nothing in the band it reserved.
     for (const auto& run : without.target.texts) {
       CHECK(run.text.find(murdletext::kBlockedNotice) == std::string::npos);
+    }
+
+    // NO JUMP, proved on the drawn rects and not just the layout struct: the
+    // only difference between the quiet render and the one carrying a notice is
+    // the single notice run inserted between the grid and the key. Every other
+    // run -- every grid label AND every key row -- is at a byte-identical rect,
+    // so neither the grid nor the key moves when a tap is refused or cleared.
+    std::vector<const FakeTarget::TextRun*> quietRuns;
+    for (const auto& run : without.target.texts) quietRuns.push_back(&run);
+    std::vector<const FakeTarget::TextRun*> loudRuns;
+    for (const auto& run : with.target.texts) {
+      if (run.text.find(murdletext::kBlockedNotice) != std::string::npos) continue;
+      loudRuns.push_back(&run);
+    }
+    CHECK(loudRuns.size() == quietRuns.size());
+    for (size_t i = 0; i < loudRuns.size() && i < quietRuns.size(); ++i) {
+      CHECK(loudRuns[i]->text == quietRuns[i]->text);
+      CHECK(loudRuns[i]->rect.x == quietRuns[i]->rect.x);
+      CHECK(loudRuns[i]->rect.y == quietRuns[i]->rect.y);
+      CHECK(loudRuns[i]->rect.width == quietRuns[i]->rect.width);
+      CHECK(loudRuns[i]->rect.height == quietRuns[i]->rect.height);
     }
 
     // The key still gets room under the grid. The band is paid for out of that
@@ -4894,7 +5089,7 @@ void testTheHowToEndsOnGotIt() {
     CHECK(out.target.drew("HOW TO PLAY"));
     // Where you are in the sequence. Without it the only cue is NEXT becoming
     // GOT IT, which arrives too late to be one.
-    char progress[8];
+    char progress[toybox::kSlashCounterChars];
     std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, knuckleui::howToPages());
     CHECK(out.target.drew(progress));
     // The last page says so, or a player pages forever looking for the end.
@@ -5711,6 +5906,22 @@ void testToyBattleShell() {
     CHECK(out.target.drew("HOW TO PLAY"));
     // A save that is offered has to say what it is offering.
     CHECK(out.target.drew("CONTINUE") == (save != 0));
+    // The record line carries the tally it is handed. It read a permanent
+    // "0 PLAYED 0 WON" for the app's whole life because the counters were never
+    // persisted (#195): here the model has them, and they have to reach ink.
+    CHECK(out.target.drew("3 PLAYED   2 WON"));
+  }
+
+  {
+    // A player who has never finished a game gets a sentence, not three noughts.
+    tbui::MenuModel model;
+    model.preview = &preview;
+    model.played = 0;
+    model.won = 0;
+    Rendered out;
+    buildTbMenu(out, model);
+    CHECK(out.target.drew("NO BATTLES YET"));
+    CHECK(!out.target.drew("0 PLAYED   0 WON"));
   }
 
   for (int link = 0; link < 2; ++link) {
@@ -5976,7 +6187,102 @@ void testTheFinishedBoardCarriesItsOwnEnding() {
     CHECK(!out.target.drew("DRAW 2"));
     CHECK(!out.target.drew("SKIP"));
     CHECK(!out.target.drew("WAIT"));
+
+    // The way on has to ANSWER, not just draw (#197): a tap where HOW IT ENDED
+    // sits routes to ActionResult, and the ? beside it to ActionBrief. Drawn
+    // and dead is this fork's "a silent screen reads as a crash". The Activity's
+    // gameLoop() no longer returns before this route on a finished board.
+    const FakeTarget::TextRun* how = out.target.find("HOW IT ENDED");
+    CHECK(how != nullptr);
+    if (how != nullptr) {
+      const fui::ActionEvent hit = out.tap(how->rect.x + how->rect.width / 2, how->rect.y + how->rect.height / 2);
+      CHECK(hit.action == tbui::ActionResult);
+    }
+    const FakeTarget::TextRun* brief = out.target.find("?");
+    CHECK(brief != nullptr);
+    if (brief != nullptr) {
+      const fui::ActionEvent hit =
+          out.tap(brief->rect.x + brief->rect.width / 2, brief->rect.y + brief->rect.height / 2);
+      CHECK(hit.action == tbui::ActionBrief);
+    }
   }
+}
+
+void buildTbResult(Rendered& out, const tbui::ResultModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildResult(screen, model);
+}
+
+// HOW IT ENDED opens the Result screen, which was unreachable dead code until
+// #197 routed its button -- so buildResult() had never drawn and nothing tested
+// it. It names which of the three endings happened, and its two buttons answer.
+void testTheResultScreenReads() {
+  toybattle::Game game;
+  game.newGame(11u, static_cast<int>(toybattle::TerrainId::CastleField), 0, true);
+  // Seat 0 captures an H.Q., the same construction the finished-board test uses.
+  const toybattle::Terrain& b = game.board();
+  int hq = -1;
+  for (int s = b.baseCount; s < b.slotCount(); ++s) {
+    if (b.hqOwner(s) == 1) hq = s;
+  }
+  CHECK(hq >= 0);
+  game.placeSlot[game.placementCount] = static_cast<uint8_t>(hq);
+  game.placeTile[game.placementCount] = static_cast<uint8_t>((0 << 3) | static_cast<int>(toybattle::Troop::Roxy));
+  ++game.placementCount;
+  game.winner = 0;
+  game.ending = static_cast<uint8_t>(toybattle::Ending::HqCaptured);
+  game.phase = static_cast<uint8_t>(toybattle::Phase::GameOver);
+
+  tbui::ResultModel model;
+  model.game = game;
+  model.seat = 0;
+  Rendered out;
+  buildTbResult(out, model);
+
+  CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+  CHECK(out.target.drew("YOU WIN"));
+  CHECK(out.target.drew("YOU TOOK THEIR H.Q."));
+  CHECK(out.target.drew("DONE"));
+  CHECK(out.target.drew("PLAY AGAIN"));
+
+  const FakeTarget::TextRun* done = out.target.find("DONE");
+  CHECK(done != nullptr);
+  if (done != nullptr) {
+    const fui::ActionEvent hit = out.tap(done->rect.x + done->rect.width / 2, done->rect.y + done->rect.height / 2);
+    CHECK(hit.action == tbui::ActionDone);
+  }
+  const FakeTarget::TextRun* again = out.target.find("PLAY AGAIN");
+  CHECK(again != nullptr);
+  if (again != nullptr) {
+    const fui::ActionEvent hit = out.tap(again->rect.x + again->rect.width / 2, again->rect.y + again->rect.height / 2);
+    CHECK(hit.action == tbui::ActionAgain);
+  }
+}
+
+void buildJaipurStart(Rendered& out, const jaipurui::StartModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  jaipurui::buildStartMenu(screen, model);
+}
+
+// Jaipur's front door drew "0 PLAYED 0 WON" for the app's whole life because
+// startModel() never set the counters and the activity kept no tally (#196).
+// With a real tally on the model, the record line has to print it.
+void testJaipurRecordLine() {
+  jaipurui::StartModel model;
+  model.played = 12;
+  model.won = 5;
+  Rendered out;
+  buildJaipurStart(out, model);
+  CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+  CHECK(out.interactions.count() > 0);
+  CHECK(out.target.drew("12 PLAYED   5 WON"));
+  CHECK(!out.target.drew("0 PLAYED   0 WON"));
 }
 
 // Playing the other side has to be the same game seen from the other chair, not
@@ -7820,6 +8126,106 @@ void testTheQueueOffersUndoOnlyAfterAnArchive() {
   CHECK(!offered.interactions.overflowed());
 }
 
+// When paired, the queue grows an account control at the FAR RIGHT of the
+// footer and SYNC gives up exactly that width -- but SYNC keeps its left edge,
+// the primary-action home a thumb learns, so the tap a reader makes without
+// looking still syncs. An unpaired reader sees no account control and no change
+// to SYNC. The control opens the disconnect flow; it destroys nothing itself.
+void testPairedQueueOffersAccountBesideSync() {
+  fui::ListItem row{};
+  row.label = "Something to read";
+  row.subtitle = "6 min . example.com";
+  row.value = "";
+  row.actionValue = 0;
+
+  const fui::DeviceContext ctx = device();
+  const int16_t footerY = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+
+  // Unpaired: no account control anywhere on the footer.
+  Rendered unpaired;
+  instapaperui::QueueModel plain;
+  plain.items = &row;
+  plain.count = 1;
+  buildInstaQueue(unpaired, plain);
+  for (int x = toybox::kMargin; x < ctx.width - toybox::kMargin; ++x) {
+    CHECK(unpaired.tap(x, footerY).action != instapaperui::ActionAccount);
+  }
+
+  // Paired: the account control answers at the right end, and SYNC still answers
+  // on the left where it has always been.
+  Rendered paired;
+  instapaperui::QueueModel model = plain;
+  model.accountIcon = &icon_account_32;
+  buildInstaQueue(paired, model);
+  CHECK(!paired.interactions.overflowed());
+
+  const fui::ActionEvent right =
+      paired.tap(static_cast<int>(ctx.width - toybox::kMargin - toybox::kPillHeight / 2), footerY);
+  CHECK(right.action == instapaperui::ActionAccount);
+
+  const fui::ActionEvent left = paired.tap(toybox::kMargin + 8, footerY);
+  CHECK(left.action == instapaperui::ActionSync);
+}
+
+// The disconnect confirm is the whole safety of a destructive wipe, so it makes
+// the SAFE answer the prominent one: KEEP IT takes the primary action band at
+// the bottom, where a thumb -- and any tap carried across the phase change from
+// the queue's account icon -- lands. DISCONNECT is a smaller control set apart
+// above it, on pixels no queue control ever occupied. Both answer; the
+// destructive one is nowhere the primary band is; and the count is on screen
+// before the tap, so a reader knows what they are agreeing to lose.
+void testDisconnectConfirmMakesKeepThePrimaryAnswer() {
+  Rendered out;
+  instapaperui::DisconnectModel model;
+  model.account = "reader@example.com";
+  model.articleCount = 4;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    instapaperui::buildDisconnectConfirm(screen, model);
+  }
+  CHECK(!out.interactions.overflowed());
+  CHECK(drewText(out, "DISCONNECT?"));
+
+  const fui::DeviceContext ctx = device();
+  // The primary band -- the full-width bottom pill -- is the SAFE answer.
+  const int16_t primaryY = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+  const int16_t primaryTop = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight);
+  CHECK(out.tap(ctx.width / 2, primaryY).action == instapaperui::ActionDisconnectCancel);
+
+  bool sawDisconnect = false;
+  bool sawKeep = false;
+  bool disconnectOnPrimaryBand = false;
+  for (int y = toybox::kMargin; y < ctx.height - toybox::kMargin; y += 4) {
+    for (int x = toybox::kMargin; x < ctx.width - toybox::kMargin; x += 8) {
+      const fui::ActionId action = out.tap(x, y).action;
+      if (action == instapaperui::ActionDisconnect) {
+        sawDisconnect = true;
+        if (y >= primaryTop) disconnectOnPrimaryBand = true;
+      }
+      if (action == instapaperui::ActionDisconnectCancel) sawKeep = true;
+    }
+  }
+  CHECK(sawDisconnect);
+  CHECK(sawKeep);
+  // The destructive control never sits where the safe primary button is, so no
+  // remembered tap can reach it.
+  CHECK(!disconnectOnPrimaryBand);
+
+  // The count is on the screen. Joined across runs, because the sentence wraps
+  // and a line break can fall anywhere in it.
+  std::string joined;
+  for (const auto& run : out.target.texts) {
+    joined += run.text;
+    joined += ' ';
+  }
+  CHECK(joined.find("4 article") != std::string::npos);
+  // And whose account it is, drawn whole (an email is one unbreakable token).
+  CHECK(drewText(out, "reader@example.com"));
+}
+
 // A title wider than the band must be cut on a word and marked, never clipped
 // mid-word: a word broken in half reads as a rendering fault.
 void testALongTitleIsEllipsisedRatherThanClipped() {
@@ -8900,6 +9306,46 @@ void testTheHeaderTitleStaysOutOfTheCoveredRows() {
 // And the third: the band's BOTTOM edge is what every layout below it is tuned
 // against, so widening the paint upward must not move it. Under absolute chrome
 // that edge is kHeaderHeight, with or without the glass.
+// And the band is absolute WITHOUT the screen asking, which is the half that
+// was missing. absoluteChrome() used to be an opt-in call placed before
+// headerBand(), and screens forgot it the same way they forgot the rule:
+// Yahtzee called it on its menu and not on its card, so the card's band began
+// at the bezel's safe top and painted 85 rows where the menu painted 76. Two
+// headers, two heights, in one game. This drives headerBand() directly on a
+// bezelled frame with no absoluteChrome() call of its own, which is exactly
+// what those screens did.
+void testTheBandIsAbsoluteWithoutBeingAsked() {
+  Rendered out;
+  const fui::DeviceContext ctx = bezelDevice();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  fui::HeaderProps props;
+  props.title = "TITLE";
+  toybox::headerBand(screen, props);
+
+  // The bezel must not push the band down. Both numbers matter: a band that
+  // starts at the safe top AND keeps its height ends kHeaderHeight + 10 down
+  // the panel, which is the 85px band Mario saw.
+  CHECK(screen.body().y == toybox::kHeaderHeight);
+
+  bool paintedFromRowZero = false;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    if (r.y == 0 && r.height == toybox::kHeaderHeight && r.width == ctx.screen().width) paintedFromRowZero = true;
+  }
+  CHECK(paintedFromRowZero);
+
+  // And the rule tracks it, rather than sitting 10px lower on this screen than
+  // on its sibling.
+  bool ruled = false;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    if (r.y == toybox::kHeaderHeight + toybox::kBandRuleGap && r.height == toybox::kRule) ruled = true;
+  }
+  CHECK(ruled);
+}
+
 void testTheHeaderBandBottomIgnoresTheBezel() {
   fui::ListItem items[1] = {};
   items[0].label = "CHESS";
@@ -8958,11 +9404,247 @@ void testAHandDrawnRightLabelSitsOnTheTitlesLine() {
   }
 }
 
+// The layout is DERIVED now (positions hang off screen.body().y and off each
+// other) rather than written as ~100 absolute panel literals. This pins the
+// result of that derivation to the exact coordinates the literals used to
+// produce, so a cursor-arithmetic slip is a red suite rather than a screen that
+// looks nearly right; and it checks the one property the derivation buys that
+// the old literals could not -- the front door rect tracks the content top.
+void testWavelengthLayoutIsDerivedNotAbsolute() {
+  const auto hasFill = [](const Rendered& r, int16_t x, int16_t y, int16_t w, int16_t h) {
+    for (const fui::Rect& f : r.target.fills)
+      if (f.x == x && f.y == y && f.width == w && f.height == h) return true;
+    return false;
+  };
+  const int16_t R = toybox::kRule;
+
+  // The front door button derives from the content top: at top 0 it is where the
+  // literal put it, and shifting the content top shifts it by the same amount.
+  // This is what lets a later contentTop sweep move the whole screen without
+  // touching this rect by hand.
+  const fui::Rect fd0 = wavelengthui::frontDoorPlayRect(480, 0);
+  CHECK(fd0.x == 16 && fd0.y == 530 && fd0.width == 448 && fd0.height == 66);
+  const fui::Rect fd30 = wavelengthui::frontDoorPlayRect(480, 30);
+  CHECK(fd30.y == 560 && fd30.height == 66);
+
+  {  // Menu, session running: rule, ornament frame, and the three stacked buttons.
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::MenuModel m;
+    m.sessionInProgress = true;
+    m.sessionRound = 7;
+    m.sessionTotal = 8;
+    m.sessionScored = 5;
+    wavelengthui::renderMenu(screen, m);
+    CHECK(hasFill(out, 16, 190, 448, R));                               // the rule under the session line
+    CHECK(hasFill(out, 16, 296, 14, 4));                                // the ornament's top-left bracket arm
+    CHECK(out.tap(240, 563).action == wavelengthui::ActionStartRound);  // PLAY, y 530..596
+    CHECK(out.tap(240, 639).action == wavelengthui::ActionHowTo);       // HOW TO PLAY, y 612..666
+    CHECK(out.tap(240, 701).action == wavelengthui::ActionEndSession);  // score sheet, y 674..728
+  }
+  {  // Resume: two rules, the shared CARRY ON rect, and START A NEW GAME below all.
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::ResumeModel m;
+    m.roundNumber = 3;
+    m.total = 8;
+    m.scored = 5;
+    m.roundInFlight = true;
+    m.minutesAgo = 12;
+    wavelengthui::renderResume(screen, m);
+    CHECK(hasFill(out, 16, 126, 448, R));
+    CHECK(hasFill(out, 16, 246, 448, R));
+    CHECK(out.tap(240, 563).action == wavelengthui::ActionCarryOn);     // shares the front door rect
+    CHECK(out.tap(240, 763).action == wavelengthui::ActionStartFresh);  // y 736..790
+  }
+  {  // Summary: the divider rule, the play button and the ending button.
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::SummaryModel m;
+    m.rounds = 7;
+    m.total = 19;
+    m.averageTenths = 27;
+    m.abandoned = 2;
+    m.nextRound = 8;
+    wavelengthui::renderSummary(screen, m);
+    CHECK(hasFill(out, 16, 252, 448, R));
+    CHECK(hasFill(out, 16, 434, 14, 4));                                 // ornament frame at its floor height
+    CHECK(out.tap(240, 641).action == wavelengthui::ActionKeepPlaying);  // y 612..670
+    CHECK(out.tap(240, 763).action == wavelengthui::ActionNewSession);   // y 736..790
+  }
+  {  // Pause: the two rules and RESUME between them, the grid unchanged.
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::PauseModel m;
+    m.roundNumber = 4;
+    m.total = 11;
+    m.abandoned = 2;
+    wavelengthui::renderPause(screen, m);
+    CHECK(hasFill(out, 16, 126, 448, R));
+    CHECK(hasFill(out, 16, 440, 448, R));
+    CHECK(out.tap(240, 376).action == wavelengthui::ActionResume);  // y 340..412
+  }
+}
+
+// The front door's dimmed score button used to promise "SEE THE SCORE SO FAR"
+// even with no session, so the dimming read as a broken button rather than an
+// unavailable one -- it named a score that did not exist. The label is honest in
+// both states now, at the same rect so the layout still does not jump.
+void testWavelengthNoSessionScoreButtonIsHonest() {
+  const auto build = [](Rendered& out, bool sessionInProgress) {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::MenuModel m;
+    m.sessionInProgress = sessionInProgress;
+    m.sessionRound = 7;
+    m.sessionTotal = 8;
+    m.sessionScored = 5;
+    wavelengthui::renderMenu(screen, m);
+  };
+
+  Rendered none;
+  build(none, false);
+  // No score exists, so the button must not claim to show one, and pressing it
+  // does nothing.
+  CHECK(!none.target.drew("SEE THE SCORE SO FAR"));
+  CHECK(none.target.drew("NO SCORE YET"));
+  CHECK(none.tap(240, 701).action == fui::NO_ACTION);
+
+  Rendered live;
+  build(live, true);
+  // With a session the label is true again and the button acts.
+  CHECK(live.target.drew("SEE THE SCORE SO FAR"));
+  CHECK(!live.target.drew("NO SCORE YET"));
+  CHECK(live.tap(240, 701).action == wavelengthui::ActionEndSession);
+
+  // Same rect in both states: the dimmed control holds its place, no jump.
+  const FakeTarget::TextRun* off = none.target.find("NO SCORE YET");
+  const FakeTarget::TextRun* on = live.target.find("SEE THE SCORE SO FAR");
+  CHECK(off != nullptr && on != nullptr);
+  if (off && on) CHECK(off->rect.y == on->rect.y && off->rect.height == on->rect.height);
+}
+
+// Icons earn their place only if they cost no text. Every mark this game draws
+// sits in an empty margin; this renders the icon-bearing screens (at whatever
+// WL_ICONS level is compiled) and asserts no icon bitmap lands on a text run's
+// ink. It fails loudly on the exact mistake a first megaphone made -- an icon in
+// the margin left of a centred title, merged into its first letters.
+void testWavelengthIconsClearOfText() {
+  const auto inkOf = [](const FakeTarget::TextRun& run) {
+    const int16_t measured = static_cast<int16_t>(run.text.size() * 10);
+    const int16_t w = measured < run.rect.width ? measured : run.rect.width;
+    int16_t x = run.rect.x;
+    if (run.style.align == fui::TextAlign::Right)
+      x = static_cast<int16_t>(run.rect.x + run.rect.width - w);
+    else if (run.style.align == fui::TextAlign::Center)
+      x = static_cast<int16_t>(run.rect.x + (run.rect.width - w) / 2);
+    return fui::Rect{x, run.rect.y, w, run.rect.height};
+  };
+  const auto overlaps = [](const fui::Rect& a, const fui::Rect& b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  };
+  struct Case {
+    const char* name;
+    void (*build)(Rendered&);
+  };
+  static const Case kCases[] = {
+      {"menu, session",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::MenuModel m;
+         m.sessionInProgress = true;
+         m.sessionRound = 7;
+         m.sessionTotal = 8;
+         m.sessionScored = 5;
+         wavelengthui::renderMenu(screen, m);
+       }},
+      {"pass",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PassModel m;
+         m.roundNumber = 3;
+         m.total = 8;
+         wavelengthui::renderPassLeft(screen, m);
+       }},
+      {"peek, not revealed",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PeekModel m;
+         m.spectrum = wavelengthui::Spectrum{"FLEXIBLE", "INFLEXIBLE"};
+         m.target = 12;
+         wavelengthui::renderPeek(screen, m);
+       }},
+      {"reveal, wide verdict",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 1;
+         m.target = 18;  // miss 17 -> "SEVENTEEN OFF", the deck's widest verdict
+         m.roundNumber = 5;
+         m.total = 12;
+         wavelengthui::renderReveal(screen, m);
+       }},
+      {"summary",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::SummaryModel m;
+         m.rounds = 7;
+         m.total = 19;
+         m.averageTenths = 27;
+         m.nextRound = 8;
+         wavelengthui::renderSummary(screen, m);
+       }},
+  };
+  for (const Case& c : kCases) {
+    Rendered out;
+    c.build(out);
+    for (const FakeTarget::Blit& b : out.target.blits) {
+      for (const FakeTarget::TextRun& t : out.target.texts) {
+        if (!overlaps(b.rect, inkOf(t))) continue;
+        std::printf("  %s: an icon at (%d,%d %dx%d) lands on \"%s\"\n", c.name, b.rect.x, b.rect.y, b.rect.width,
+                    b.rect.height, t.text.c_str());
+        CHECK(false);
+      }
+    }
+  }
+}
+
 int main() {
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();
   testTheHeaderBandBottomIgnoresTheBezel();
+  testTheBandIsAbsoluteWithoutBeingAsked();
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
   testTriviaDrawsNoOptionsWithoutAQuestion();
@@ -8975,6 +9657,8 @@ int main() {
   testTheSeaSaltTutorialPagesAndEnds();
   testEitherSideSeesItsOwnHqAtTheBottom();
   testTheFinishedBoardCarriesItsOwnEnding();
+  testTheResultScreenReads();
+  testJaipurRecordLine();
   testEveryRulesPositionCouldExist();
   testTheTerrainCardNeverTruncatesWhatItDraws();
   testNoRulesPageDrawsOverItsOwnButtons();
@@ -9037,6 +9721,7 @@ int main() {
   testConnectionsImportSaysSomethingIsHappening();
   testBattleshipStartMenu();
   testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo();
+  testBattleshipWaitingCapsuleIsNotDithered();
   testBattleshipPlacementControls();
   testHnReaderFooter();
   testHnReaderDisabledControls();
@@ -9049,6 +9734,7 @@ int main() {
   testHnEmptyStateStacksWithoutOverlap();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
+  testHnReaderSaveFailedToastStaysOnTheReader();
   testHnSaveMarkIsLoudestWhenSaved();
   testHnAThreadCanBeKept();
   testTheColumnYouTapIsTheColumnTheRulesGet();
@@ -9137,6 +9823,8 @@ int main() {
   testArchiveIsLiveOnTheLastPage();
   testArchiveIsNotBetweenThePageControls();
   testTheQueueOffersUndoOnlyAfterAnArchive();
+  testPairedQueueOffersAccountBesideSync();
+  testDisconnectConfirmMakesKeepThePrimaryAnswer();
   testALongTitleIsEllipsisedRatherThanClipped();
   testTheReaderTextGoesInTheReaderBody();
   testWavelengthSpectrumEndsShareOneSize();
@@ -9146,12 +9834,17 @@ int main() {
   testWavelengthTheLockIsAnOrdinaryButton();
   testWavelengthAStaleGameIsOfferedNotTaken();
   testWavelengthEverySlotIsTappable();
+  testWavelengthLayoutIsDerivedNotAbsolute();
+  testWavelengthNoSessionScoreButtonIsHonest();
+  testWavelengthIconsClearOfText();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 
   testInkCentredPutsTheInkInTheMiddleOfAnyBox();
   testAShortBoxIsWhatMakesTheCorrectionNecessary();
   testAMinesweeperDigitIsCentredInItsCell();
   testAKnucklebonesColumnTotalClearsItsBand();
+  everyBandCarriesItsRule();
+  yahtzeeDiceClearTheHeader();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

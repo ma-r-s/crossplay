@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxIcons.h"
 #include "MurdleCast.h"
 #include "MurdleText.h"
@@ -440,7 +441,19 @@ void drawCastBlocks(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rec
 
     for (int i = 0; i < puzzle.shape.items; ++i) {
       {
-        char line[160];
+        // "%c  %s  (%s%s)", sized from that format rather than from the
+        // sixty-odd characters the current cast happens to produce. `detail`
+        // is whatever murdletext wrote into a kLineMax buffer, so it gets a
+        // whole one; a line cut here would be a shortened fact on the case
+        // file, which is the one page a player reads to solve the thing.
+        constexpr int kCastLineChars = 1                                // %c, the axis letter
+                                       + murdletext::kLabelMax          // %s, the label
+                                       + toybox::literalChars("with ")  // %s, the preposition or ""
+                                       + (murdletext::kLineMax - 1)     // %s, the detail
+                                       + toybox::literalChars("  ") + toybox::literalChars("  (") +
+                                       toybox::literalChars(")")  // the format's own characters
+                                       + 1;                       // the terminator
+        char line[kCastLineChars];
         // A SUSPECT IS ONE LINE, THE SAME SHAPE AS EVERY OTHER FIXTURE, and
         // that is what makes the whole cast fit one page at every tier. It used
         // to be two -- a name in the UI face, then an indented dossier line --
@@ -505,7 +518,7 @@ void drawCluePage(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect&
       // doing both jobs, and it survives a wrapped clue -- a line struck
       // through three ragged lines of text does not.
       const fui::Rect tick = fui::makeRect(area.x, y, 24, static_cast<int16_t>(lh + 2));
-      char num[8];
+      char num[toybox::kIntTextChars];
       std::snprintf(num, sizeof(num), "%d", i + 1);
       if (done) {
         target.fill(tick, fui::Paint::solid(fui::Color::Black), 5);
@@ -665,18 +678,28 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
 
   if (model.face == Face::Grid) {
     // The notice band is reserved on EVERY render of this face, empty or not,
-    // for the same reason the pager strip below is. Taking it only when there
-    // is something to say moved the grid down the moment a tap was refused and
-    // back up when the next tap cleared it, which on this panel is a full
-    // refresh of the one surface the player is reading by position. It also
-    // re-measured the cell against a shorter area, which every tier survived
-    // only because every tier is width-bound today.
+    // for the same reason the pager strip is. Taking it only when there is
+    // something to say moved the grid the moment a tap was refused and back
+    // when the next tap cleared it, which on this panel is a full refresh of
+    // the one surface the player is reading by position. It also re-measured
+    // the cell against a shorter area, which every tier survived only because
+    // every tier is width-bound today.
     //
     // The band comes out of the grid's own room rather than the key's. The key
-    // is what the message's names have to be looked up in, so squeezing it to
-    // make space for the message would take away the thing the message sends
-    // you to -- and the grid is width-bound at every tier, so it loses no cell
-    // size to this, only the slack the key was spreading into.
+    // is what a refusal sends the player to check, so squeezing it to make
+    // space for the message would take away the thing the message points at --
+    // and the grid is width-bound at every tier, so it loses no cell size to
+    // this, only the slack the key was spreading into.
+    //
+    // It sits BETWEEN the grid and the key, not above the grid: the band is
+    // reserved off the BOTTOM of the grid's room rather than the top, so the
+    // grid draws at the top of the face and the reserved height falls in the
+    // gap above the key. The grid is top-anchored and width-bound, so shrinking
+    // its area from the bottom leaves originY -- and every cell -- exactly
+    // where it was whether or not a notice is showing, which is the no-jump
+    // property the reservation exists for. The key keeps the same top and
+    // height it had when the band lived up top, because the band is the same
+    // size and now sits directly above the key instead of above the grid.
     //
     // ONE LINE, measured rather than chosen, and the reason the band is cheap
     // enough to keep. blockedLine says murdletext::kBlockedNotice and nothing
@@ -689,14 +712,11 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
     // room on every frame to say something on a handful of them.
     constexpr int kNoticeLines = 1;
     const int16_t noticeH = static_cast<int16_t>(screen.target().lineHeight(toybox::kTileFont) * kNoticeLines + 8);
-    // Top of the band rather than centred in it, so the message starts on the
-    // row the band starts on however tall the band is sized.
-    if (model.notice != nullptr && model.notice[0] != '\0') {
-      paragraph(screen, styled(toybox::kTileFont, fui::TextAlign::Center), model.notice,
-                fui::makeRect(body.x, body.y, body.width, noticeH), true);
-    }
-    body = fui::makeRect(body.x, static_cast<int16_t>(body.y + noticeH), body.width,
-                         static_cast<int16_t>(body.height - noticeH));
+    // The full body bottom, kept before the grid's room is shortened: the key
+    // still reaches it, so it keeps the room it had and the band is paid for
+    // out of the grid's slack, not the key's.
+    const int16_t bodyBottom = body.bottom();
+    body = fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(body.height - noticeH));
     layout = layoutGrid(screen, puzzle, body);
     drawGrid(screen, puzzle, *model.marks, layout);
     screen.frame().hit(fui::makeRect(static_cast<int16_t>(layout.originX - layout.gutter),
@@ -705,8 +725,15 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
                                      static_cast<int16_t>(layout.headerH + layout.groups * layout.items * layout.cell)),
                        ActionGrid, 0);
     const int16_t gridBottom = static_cast<int16_t>(layout.originY + layout.groups * layout.items * layout.cell + 8);
-    drawLegend(screen, puzzle,
-               fui::makeRect(body.x, gridBottom, body.width, static_cast<int16_t>(body.bottom() - gridBottom)));
+    // The refusal band, in the gap the grid gave up. Top of the band rather
+    // than centred in it, so the message starts on the row the band starts on
+    // however tall the band is sized.
+    if (model.notice != nullptr && model.notice[0] != '\0') {
+      paragraph(screen, styled(toybox::kTileFont, fui::TextAlign::Center), model.notice,
+                fui::makeRect(body.x, gridBottom, body.width, noticeH), true);
+    }
+    const int16_t keyTop = static_cast<int16_t>(gridBottom + noticeH);
+    drawLegend(screen, puzzle, fui::makeRect(body.x, keyTop, body.width, static_cast<int16_t>(bodyBottom - keyTop)));
   } else {
     // The pager strip always comes out of the text area, even on a face that
     // turns out to be one page. Reserving it only when pages > 1 would need the
@@ -778,7 +805,10 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
     for (int i = 0; i < puzzle.clueCount; ++i) {
       if (model.struck & (1u << i)) ++done;
     }
-    char count[48];
+    // "%d / %d      %d OF %d DONE"
+    constexpr int kCountChars = toybox::kIntChars + toybox::kIntChars + toybox::kIntChars + toybox::kIntChars +
+                                toybox::literalChars(" /        OF  DONE") + 1;
+    char count[kCountChars];
     std::snprintf(count, sizeof(count), "%d / %d      %d OF %d DONE", report.page + 1, report.pages, done,
                   puzzle.clueCount);
     screen.target().text(

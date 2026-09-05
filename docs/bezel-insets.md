@@ -156,10 +156,23 @@ traps were found:
    `safeRect()`. So this is a capability the fork needs, not a style
    preference -- but it is now confined to fork-only screens, and no screen
    shared with upstream diverges.
-2. **The divider rule** under header bands is `toybox::headerRule(screen)`
-   (ToyboxScreen.h), derived from `screen.body().y` right after
-   `toybox::headerBand(...)`. The old idiom (a fill at absolute
-   `kHeaderHeight + 4`) would sit inside the shifted band and vanish.
+2. **The divider rule** under header bands is drawn by `toybox::headerBand()`
+   itself (ToyboxScreen.h), `kBandRuleGap` below the band it just painted.
+   It used to be a separate opt-in `headerRule(screen)` call, and 12 of the
+   fork's 41 band sites never made it -- the Yahtzee card among them, which is
+   how Mario came to open a screen with no line under its header. `headerRule`
+   survives as a no-op so the call sites that still name it keep compiling.
+   The old idiom (a hand-rolled fill at absolute `kHeaderHeight + 4`, which
+   Solitaire still uses at three sites) would sit inside the shifted band and
+   vanish.
+
+   The rule is deliberately NOT carved out of `kHeaderHeight`: shortening the
+   band to make room was tried and fails on this very page's subject. The
+   title cut's line box is about 64px, so a band shorter than that trips the
+   vertical clamp in the text layout, the title stops being centred and pins
+   to the top -- which behind the X4 Pro's glass, already eating the top ten
+   rows, reads as a header sitting visibly low. Screens must therefore clear
+   `kChromeHeight` (band + gap + rule), not `kHeaderHeight`.
 3. **Decorations riding the header band** (the shelf's folder mark, toy
    battle's medal tally, murdle's face doors, connections' and murdle's
    header-door hit rects) position from the band's real top

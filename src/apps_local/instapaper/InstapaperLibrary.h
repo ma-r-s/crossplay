@@ -27,6 +27,11 @@ struct BridgeState {
   bool paired = false;
   std::string token;
   int64_t lastSyncAt = 0;
+  // The Instapaper username this reader paired as. Kept so the account screen
+  // can name whose reading list is on the card before it is wiped -- the device
+  // learns it once, at pair-confirm, and otherwise never shows it. Empty on a
+  // device paired before this column existed, which the screen tolerates.
+  std::string user;
 };
 
 class Library {
@@ -62,6 +67,14 @@ class Library {
   bool loadBridgeState(BridgeState& out) const;
   bool saveBridgeState(const BridgeState& state) const;
   void clearBridgeState() const;
+
+  // Disconnecting the account: erase everything a sync ever put on the card --
+  // the pairing token, the index, and every downloaded article -- so the app is
+  // left exactly as a reader that never paired. Persisted immediately (files are
+  // removed from the card here, not just from RAM), so a wipe survives the chip
+  // reset that a wake is. Clears the in-memory queue too and leaves the library
+  // loaded-and-empty, so no later read re-reads a file this just deleted.
+  void wipeAccount();
 
   static const char* directory();
 

@@ -102,6 +102,12 @@ class ToyBattleActivity final : public linkplay::LinkActivity {
   void requestNewGame();
   void saveGame();
   bool loadGame();
+  // Played/won live in their own file, not in toybattle.sav: the save is
+  // deleted the instant a game finishes (recordResult()), which is the same
+  // moment the counters change, so a counter folded into it would be erased by
+  // the write that incremented it. Same shape as battleship's bship.cfg.
+  void saveStats() const;
+  void loadStats();
 
   // The shared state is `Game` itself, which is already the wire format: 148
   // bytes, trivially copyable, with an exact-size assert. Nothing is serialised

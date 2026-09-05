@@ -44,6 +44,13 @@ enum : fui::ActionId {
   ActionNotice = 325,
   ActionPairConfirm = 326,
   ActionUndoArchive = 327,
+  // The account icon on the queue footer, and the two answers to the confirm it
+  // opens. ActionDisconnect is the only one that destroys anything; it is
+  // deliberately not the confirm screen's prominent button, and its pixels sit
+  // nowhere a queue control did, so no remembered tap can reach it.
+  ActionAccount = 328,
+  ActionDisconnect = 329,
+  ActionDisconnectCancel = 330,
 };
 
 // --- The queue -----------------------------------------------------------
@@ -62,6 +69,12 @@ struct QueueModel {
   // An archive is on the card and has not gone up yet, so it can still be
   // taken back. The footer splits to offer it; see buildQueue.
   bool canUndoArchive = false;
+  // The account control, shown only when there is an account to manage. Set to
+  // the icon (by the Activity, which owns which glyph) whenever this reader is
+  // paired: SYNC then gives up a little width and this square button appears at
+  // the right end of the footer, opening the disconnect confirm. Left null on
+  // an unpaired reader, whose footer is exactly what it always was.
+  const freeink::Icon* accountIcon = nullptr;
 };
 
 void buildQueue(toybox::Screen& screen, const QueueModel& model);
@@ -137,6 +150,28 @@ struct NoticeModel {
 };
 
 void buildNotice(toybox::Screen& screen, const NoticeModel& model);
+
+// --- Disconnect confirm --------------------------------------------------
+
+// The gate in front of a wipe. Disconnecting an account here is destructive by
+// Mario's decision -- it deletes the reading list off the card, not just the
+// pairing -- so it can never be a single tap. This screen states in words
+// exactly what is about to be destroyed, with the real article count, and it
+// makes the SAFE answer the prominent one: KEEP IT sits on the primary action
+// band where a reader's thumb expects "the button", and DISCONNECT is a smaller
+// outlined control set apart from it. So a stray or remembered tap keeps the
+// data; only a deliberate press on the marked control destroys it.
+struct DisconnectModel {
+  // The paired username, or "" on a reader paired before it was persisted. When
+  // present it names whose list is being erased; when absent the screen still
+  // says plainly what happens.
+  const char* account = "";
+  // How many articles the wipe deletes. Drawn into the sentence so the number a
+  // reader is agreeing to lose is on the screen before the tap, not after it.
+  int articleCount = 0;
+};
+
+void buildDisconnectConfirm(toybox::Screen& screen, const DisconnectModel& model);
 
 // --- Pairing -------------------------------------------------------------
 

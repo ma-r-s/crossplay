@@ -135,6 +135,7 @@ bool Library::loadBridgeState(BridgeState& out) const {
   if (deserializeJson(doc, raw) != DeserializationError::Ok) return false;
   out.token = doc["token"] | "";
   out.lastSyncAt = doc["lastSyncAt"] | static_cast<int64_t>(0);
+  out.user = doc["user"] | "";
   out.paired = !out.token.empty();
   return out.paired;
 }
@@ -144,11 +145,29 @@ bool Library::saveBridgeState(const BridgeState& state) const {
   JsonDocument doc;
   doc["token"] = state.token;
   if (state.lastSyncAt > 0) doc["lastSyncAt"] = state.lastSyncAt;
+  if (!state.user.empty()) doc["user"] = state.user;
   std::string raw;
   serializeJson(doc, raw);
   return writeAtomically(kBridge, raw);
 }
 
 void Library::clearBridgeState() const { Storage.remove(kBridge); }
+
+void Library::wipeAccount() {
+  load();  // populate articles_ so every downloaded file can be named and removed
+  for (const Article& a : articles_) {
+    Storage.remove(pathFor(a.id).c_str());
+    Storage.remove(partPathFor(a.id).c_str());
+  }
+  Storage.remove(kIndex);
+  Storage.remove(kBridge);
+  // Sweep the directory itself last, taking any orphaned .part a cancelled
+  // download left behind, so the card carries no trace of the account.
+  Storage.removeDir(kDir);
+  articles_.clear();
+  // Authoritative-empty: the files are gone, so a later load() must not try to
+  // read them back. loaded_ stays true precisely so it does not.
+  loaded_ = true;
+}
 
 }  // namespace instapaper

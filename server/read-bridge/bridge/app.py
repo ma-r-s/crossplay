@@ -62,6 +62,19 @@ GLOBAL_LOGIN = Window(30, 60)
 # for opening registration. Counts failures, not attempts.
 LOGIN_LOCKOUT = Lockout()
 PAIR_IP = Window(10, 300)
+# Guessing a pairing code. Eight characters from a 32-glyph alphabet is not
+# guessable inside its five minutes; guessing it FOR FREE is the problem, and
+# until 2026-09-05 the claim endpoint answered an unlimited number of wrong
+# codes to anyone holding an account of their own. Per-IP and per-account,
+# because either one alone is trivially sidestepped by varying the other.
+CLAIM_IP = Window(20, 300)
+CLAIM_USER = Window(20, 300)
+# Device reports ride any response under 400, including /healthz, which takes
+# no token at all. Each one costs a thread and a row on the board. These are
+# generous for a real reader (it reports on the handful of requests a sync
+# makes) and ruinous for a flood.
+REPORT_IP = Window(30, 300)
+GLOBAL_REPORT = Window(240, 60)
 # 6, matching the study bridge rather than the 8 that was here. There is an
 # argument that this service could allow more -- an Instapaper sync is a
 # handful of small calls where an Anki sync can move a collection and rebuild
@@ -134,8 +147,21 @@ async def device_reports(request: Request, call_next):
     device will count as delivered, so a request it retries does not post
     the same crash twice. events.Client.report never raises."""
     response = await call_next(request)
+    # Capped, because this runs on endpoints that need no token: without a
+    # limit an unauthenticated stranger writes to the board as fast as they
+    # can open sockets, and each report costs a thread against pids_limit.
+    # Dropping under flood is the right failure: a report is best-effort by
+    # design and no sync waits on one.
     if response.status_code < 400:
-        events.client_for(request).report(via="instapaper")
+        client = events.client_for(request)
+        # The limiter is consulted only when there is actually something to
+        # relay. Counting REQUESTS instead cost a real device its crash report
+        # in the middle of an ordinary sync: every article download carries the
+        # header, so a 21-article sync spent the whole budget on requests that
+        # were reporting nothing. tests/test_api.py caught it.
+        if client.crash is not None or client.ota is not None:
+            if REPORT_IP.allow(client_ip(request)) and GLOBAL_REPORT.allow("all"):
+                client.report(via="instapaper")
     return response
 
 
@@ -397,6 +423,16 @@ async def pair_claim(request: Request):
     form = await request.form()
     if form.get("csrf") != s["csrf"]:
         raise Unauthorized("stale form; reload the page")
+    # After the session and the CSRF token, so a wrong code costs an account
+    # rather than an anonymous request, and before the guess is answered.
+    if not CLAIM_IP.allow(client_ip(request)) or not CLAIM_USER.allow(s["uid"]):
+        return page(
+            "Slow down",
+            chrome.mark(False) + "<h1>Slow down</h1>"
+            "<p class=lede>Too many codes tried. Wait a few minutes, then ask"
+            " the reader for a fresh one.</p>",
+            step=2,
+        )
     okay = pairing.PAIRINGS.claim(str(form.get("code", "")), s["uid"], s["username"])
     if not okay:
         return page(
@@ -475,6 +511,11 @@ async def start_sync(request: Request, dev=Depends(require_device)):
     try:
         body = json.loads(raw or b"{}")
     except ValueError:
+        return JSONResponse({"error": "Malformed sync payload."}, 400)
+    # json.loads happily returns a list, a string or a number, and .get() on
+    # any of them was an unhandled AttributeError -- a 500 and a stack trace
+    # for a body of "[]".
+    if not isinstance(body, dict):
         return JSONResponse({"error": "Malformed sync payload."}, 400)
 
     have = body.get("have") or []
@@ -559,7 +600,11 @@ async def article_file(bookmark_id: int, bookmark_hash: str, dev=Depends(require
     # on the same door.
     target = st.article_path(bookmark_id, bookmark_hash).resolve()
     base = (st.root / "articles").resolve()
-    if not str(target).startswith(str(base)) or not target.is_file():
+    # is_relative_to, not str.startswith: the string form also accepts a
+    # SIBLING whose name merely begins with base's. Nothing can spell one here
+    # (bookmark_id is an int and the hash is stripped to alphanumerics), so
+    # this is the twin of the study bridge's fix rather than a bug of its own.
+    if not target.is_relative_to(base) or not target.is_file():
         return JSONResponse({"error": "That article is not on the bridge."}, 404)
     return FileResponse(target, media_type="text/plain; charset=utf-8")
 

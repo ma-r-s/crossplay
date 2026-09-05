@@ -25,6 +25,23 @@ DEPLOY_BRANCH="${DEPLOY_BRANCH:-xteink}"
 TAG="$(printf '%s' "$REPO" | shasum | cut -c1-8)"
 LOGS="${TMPDIR:-/tmp}/xteink-check-$TAG"
 mkdir -p "$LOGS"
+
+# Card #144 (corrected by #210): $LOGS is one directory per tree path, reused
+# forever, and until now nothing removed it -- 503 dirs / 5.1GB had piled up in
+# TMPDIR, one per worktree that ever ran the gate, the oldest from a tree
+# deleted a week earlier. Sweep siblings that no running gate could still own
+# (subtree untouched for far longer than any run) BEFORE this run adds its own;
+# this run's own dir is dropped on a green verdict at the foot of the file. The
+# sweep reads subtree mtimes, never a dir's own mtime, so a mid-build gate is
+# never mistaken for stale. Sourced, not shelled, so its functions are testable
+# in isolation (host-tests/logsweep). Never fatal.
+_sweep="$REPO/scripts_local/log-sweep.sh"
+if [ -r "$_sweep" ]; then
+  # shellcheck source=scripts_local/log-sweep.sh
+  . "$_sweep"
+  log_sweep_prune_stale "${TMPDIR:-/tmp}" "$LOGS" || true
+fi
+
 FAILED=0
 SUBMODULE_DRIFT=""
 TREE_STALE=""
@@ -1115,7 +1132,7 @@ if [ "$FAILED" -eq 0 ]; then
     # OPEN. A qualified verdict that contains its own unqualified form is
     # matched by all of them. Old patterns must find nothing here and fail
     # closed, so this line says "suites passed" instead.
-    echo "VERDICT WITHHELD ($QUALIFIER) -- suites passed, but not on the code that ships.${SCOPE_NOTE} logs in $LOGS"
+    echo "VERDICT WITHHELD ($QUALIFIER) -- suites passed, but not on the code that ships.${SCOPE_NOTE}"
   elif [ -n "${DEVICE_BUILDS_SKIPPED:-}" ]; then
     # A THIRD verdict, not a footnote under the second. This run is not
     # withheld -- it is honestly green for everything it covered -- but it did
@@ -1126,10 +1143,18 @@ if [ "$FAILED" -eq 0 ]; then
     # above: every grep written before this line existed matches that phrase
     # and would fail OPEN on a run that skipped the device builds. Anything looking
     # for the unqualified form finds nothing here and has to read the line.
-    echo "HOST GREEN, DEVICE BUILDS SKIPPED ($DEVICE_BUILDS_SKIPPED) -- nothing in this diff reaches a device image, so none was built. logs in $LOGS"
+    echo "HOST GREEN, DEVICE BUILDS SKIPPED ($DEVICE_BUILDS_SKIPPED) -- nothing in this diff reaches a device image, so none was built."
   else
-    echo "all green. logs in $LOGS"
+    echo "all green."
   fi
+  # Card #144: on a green verdict, drop THIS run's own log dir. A run in which
+  # nothing failed left only the logs of passing suites, and keeping them is the
+  # unbounded growth this card is about (the sweep at the top of the file mops
+  # up siblings; this line is why a healthy tree stops leaving its own behind).
+  # Placed AFTER the inner `fi` on purpose: host-tests/checksh lifts the verdict
+  # block by walking from `if [ -n "$QUALIFIER" ]` to its matching `fi`, so this
+  # rm stays out of the lift and the suite never deletes its own fixture path.
+  rm -rf "$LOGS" 2>/dev/null || true
 else
   echo "SOMETHING FAILED. logs in $LOGS"
 fi

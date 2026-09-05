@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "../../activities/Activity.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxScreen.h"
 #include "../ui/ToyboxWrappedText.h"
 #include "InstapaperIndex.h"
@@ -53,12 +54,13 @@ class InstapaperActivity final : public Activity {
  private:
   // What is on the screen right now.
   enum class Phase : uint8_t {
-    Queue,        // the reading list
-    Reading,      // one article
-    Busy,         // a network step is about to happen or is happening
-    Notice,       // a verdict, an error, or an article this reader cannot show
-    Pairing,      // the QR and the code
-    PairConfirm,  // "is this you?", before anything is stored
+    Queue,             // the reading list
+    Reading,           // one article
+    Busy,              // a network step is about to happen or is happening
+    Notice,            // a verdict, an error, or an article this reader cannot show
+    Pairing,           // the QR and the code
+    PairConfirm,       // "is this you?", before anything is stored
+    DisconnectConfirm  // "disconnect?", before the account and its articles are wiped
   };
 
   // The next thing the loop should do. One step per pass; see decision 2.
@@ -90,6 +92,11 @@ class InstapaperActivity final : public Activity {
   void turnPage(int delta);
   void showNotice(const char* headline, std::string message, bool unreadable = false);
   void showQueue();
+  // The account icon opens this; it destroys nothing on its own. The wipe
+  // happens only in performDisconnect(), reached by a deliberate press on the
+  // confirm's marked control.
+  void showDisconnectConfirm();
+  void performDisconnect();
 
   // Epoch seconds, or 0 when the clock has never been set. A progress stamp
   // from an unset clock is worse than none: the bridge would either drop it or
@@ -137,7 +144,10 @@ class InstapaperActivity final : public Activity {
   uint32_t topLine_ = 0;
   uint32_t lineCount_ = 0;
   uint16_t visibleLines_ = 0;
-  char pageLabel_[16] = "";
+  // "%lu / %lu", sized from that format rather than from the page counts a
+  // reasonable article produces.
+  static constexpr int kPageLabelCap = 2 * toybox::kULongChars + toybox::literalChars(" / ") + 1;
+  char pageLabel_[kPageLabelCap] = "";
 
   // The article ARCHIVE was last pressed on, while it can still be taken back:
   // until the next sync carries the intent up, until another article is

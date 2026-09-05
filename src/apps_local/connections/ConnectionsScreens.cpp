@@ -5,6 +5,8 @@
 #include <limits>
 #include <string>
 
+#include "../ui/ToyboxFormat.h"
+
 namespace connectionsui {
 
 namespace {
@@ -1039,7 +1041,7 @@ CalendarLayout buildCalendar(toybox::Screen& screen, const CalendarModel& model)
       screen.target().stroke(box, fui::Paint::solid(ink), toybox::kFrame);
     }
 
-    char label[4];
+    char label[toybox::kIntTextChars];
     std::snprintf(label, sizeof(label), "%d", day.day);
     fui::TextStyle number;
     number.font = toybox::kTileFont;

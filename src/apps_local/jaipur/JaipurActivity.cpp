@@ -11,6 +11,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxTheme.h"
@@ -137,6 +138,11 @@ constexpr char kSavePath[] = "/.crosspoint/jaipur.sav";
 // correct v2 one. Version 3: Game grew a record of the last move.
 constexpr int kSaveVersion = 3;
 
+// The record line's own file, kept apart from kSavePath because that one is
+// removed at GameOver. Text and versioned, the way battleship writes bship.cfg.
+constexpr char kStatsPath[] = "/.crosspoint/jaipur.stats";
+constexpr int kStatsVersion = 1;
+
 char hexDigit(const int value) { return static_cast<char>(value < 10 ? '0' + value : 'A' + value - 10); }
 
 int hexValue(const char c) {
@@ -197,6 +203,7 @@ void JaipurActivity::onEnter() {
   // Mixed from the clock, so two games in a row are not the same game.
   seed = toybox::seed();
 
+  loadStats();
   hasSavedGame = loadGame();
   goToMenu();
 }
@@ -253,6 +260,7 @@ void JaipurActivity::onMatchStart(const bool goesFirst) {
   game.newGame(nextSeed(), 0);
   if (goesFirst) link.play(game);
   clearSelection();
+  recorded = false;
   view = View::Board;
   requestUpdate();
 }
@@ -592,7 +600,7 @@ void JaipurActivity::drawHandCounter(const Rect& box, const int good, const int 
   inner.x += 4;
   inner.width -= 8;
 
-  char count[12];
+  char count[toybox::kSlashCounterChars];
   if (picked > 0) {
     std::snprintf(count, sizeof(count), "%d/%d", picked, held);
   } else {
@@ -621,7 +629,7 @@ void JaipurActivity::drawPile(const Rect& box, const int good) const {
   inner.width -= 6;
 
   const int valueBand = 30;
-  char value[8];
+  char value[toybox::kIntTextChars];
   std::snprintf(value, sizeof(value), "%d", game.nextTokenValue(static_cast<Good>(good), depth));
   drawCentered(renderer, inner, box.y + 4, valueBand, left > 0 ? value : "-", true);
 
@@ -665,7 +673,9 @@ void JaipurActivity::drawBonusStack(const Rect& box, const int stack) const {
   renderer.fillRoundedRect(box.x, box.y, box.width, box.height, 6, White);
   renderer.drawRect(box.x, box.y, box.width, box.height, toybox::kHairline, true);
 
-  char label[24];
+  // "%d+ x%d"
+  constexpr int kLabelChars = toybox::kIntChars + toybox::kIntChars + toybox::literalChars("+ x") + 1;
+  char label[kLabelChars];
   std::snprintf(label, sizeof(label), "%d+ x%d", stack + 3, left);
   Rect inner = box;
   inner.x += 4;
@@ -678,7 +688,9 @@ void JaipurActivity::drawHerdBox(const Rect& box, const int camels, const int pi
   if (!tappable) renderer.fillRectDither(box.x + 3, box.y + 3, box.width - 6, box.height - 6, LightGray);
   renderer.drawRect(box.x, box.y, box.width, box.height, picked > 0 ? toybox::kFrame : toybox::kHairline, true);
 
-  char label[32];
+  // "YOUR CAMELS %d/%d"
+  constexpr int kCamelLabelChars = toybox::kIntChars + toybox::kIntChars + toybox::literalChars("YOUR CAMELS /") + 1;
+  char label[kCamelLabelChars];
   if (picked > 0) {
     std::snprintf(label, sizeof(label), "YOUR CAMELS %d/%d", picked, camels);
   } else {
@@ -714,7 +726,10 @@ void JaipurActivity::drawScoreStrip(const Rect& box) const {
   // is face up plus a count of what is not, because a bonus token's value is
   // printed on the back. Camels are face up for both, so the 5 rupee token
   // counts wherever the herds say it sits.
-  char line[80];
+  // Sized for the WIDER of the two formats below, the one with the bonus-token
+  // count in it: "SEALS %d-%d   YOU %d   THEM %d+%d?   DECK %d".
+  constexpr int kLineChars = 6 * toybox::kIntChars + toybox::literalChars("SEALS -   YOU    THEM +?   DECK ") + 1;
+  char line[kLineChars];
   const int yours = game.visibleScore(seat, seat);
   const int theirs = game.visibleScore(seat, them);
   const int theirBonusCount = game.bonusTokenCount(them);
@@ -928,7 +943,7 @@ void JaipurActivity::drawPriceList(const Rect& slot) const {
     blitIcon(renderer, mark, slot.x + (markW - mark.w) / 2, y + (rowH - mark.h) / 2);
 
     for (int i = 0; i < jaipur::kPileDepth[g]; ++i) {
-      char value[8];
+      char value[toybox::kIntTextChars];
       std::snprintf(value, sizeof(value), "%d", jaipur::kGoodsTokens[g][i]);
       const Rect at{slot.x + markW + i * cell, y, cell, rowH};
       drawCentered(renderer, at, y, rowH, value, true);
@@ -1095,7 +1110,42 @@ jaipurui::StartModel JaipurActivity::startModel() const {
   model.hasSavedGame = hasSavedGame;
   model.continueDetail = continueDetail;
   model.selected = menuSelected;
+  model.played = played;
+  model.won = won;
   return model;
+}
+
+void JaipurActivity::recordResult() {
+  if (recorded) return;
+  recorded = true;
+  ++played;
+  // matchWinner() is -1 until a seat holds two seals, and exactly one does at
+  // GameOver, so this is "did the human win the match".
+  if (game.matchWinner() == seat) ++won;
+  // Straight to the card, at the finish: a wake is a chip reset, so anything
+  // not written before the player looks away can be lost.
+  saveStats();
+}
+
+void JaipurActivity::saveStats() const {
+  char line[48];
+  std::snprintf(line, sizeof(line), "%d %d %d\n", kStatsVersion, played, won);
+  Storage.writeFile(kStatsPath, String(line));
+}
+
+void JaipurActivity::loadStats() {
+  // Absent on every device that ran an earlier build: that is zero games, not
+  // an error, and jaipur.sav (a different file) still loads on its own.
+  if (!Storage.exists(kStatsPath)) return;
+  char buffer[48] = {};
+  if (Storage.readFileToBuffer(kStatsPath, buffer, sizeof(buffer)) == 0) return;
+  int version = 0;
+  int storedPlayed = 0;
+  int storedWon = 0;
+  if (std::sscanf(buffer, "%d %d %d", &version, &storedPlayed, &storedWon) < 3) return;
+  if (version != kStatsVersion) return;
+  played = storedPlayed;
+  won = storedWon;
 }
 
 jaipurui::BoardModel JaipurActivity::boardModel() {
@@ -1253,6 +1303,7 @@ void JaipurActivity::startNewGame() {
   game.newGame(nextSeed(), 0);
   clearSelection();
   hasSavedGame = true;
+  recorded = false;
   report[0] = '\0';
 
   view = View::Board;
@@ -1469,6 +1520,14 @@ void JaipurActivity::gameLoop() {
     playOpponentTurn();
     return;
   }
+
+  // A solo match that has just ended: count it while it is still in RAM, since
+  // saveGame() removes a GameOver save so it is never reloaded. recordResult
+  // latches, and a link match is counted through onMatchEnded() instead (the
+  // link layer stops calling this once the game is over). Runs regardless of
+  // view: the finished game sits on View::RoundOver, but Back to the menu keeps
+  // it in RAM, and this must not depend on which screen is up.
+  if (!inMatch() && game.currentPhase() == jaipur::Phase::GameOver) recordResult();
 
   switch (view) {
     case View::Menu:
