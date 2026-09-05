@@ -6,7 +6,19 @@ the shape, the ranked alternatives, and what each one costs.
 Mario's words on the card are the spec. Where this document departs from them
 it says so and why.
 
-## What Mario is being asked to confirm
+## What Mario decided
+
+**Ruled 2026-09-05: build the whole thing now** -- service, endpoint, reporting
+UI and sync -- having been shown the finding below and wanting it anyway. The
+questions this section originally posed are answered; they are kept because the
+reasoning behind each is still what the code does, and because the one he
+overruled is the one most worth being able to find later.
+
+The reordering survived as sequence rather than as a gate: the extraction tool
+went first, since everything downstream is easier to trust once reports can be
+read off a card at all.
+
+## What he was asked, and how each was answered
 
 Five things. Everything else here is a code-level call and does not need him.
 
@@ -31,8 +43,10 @@ Two things are cut that he asked about, both because the data does not exist:
 (Spanish barely exists in the corpus). Region-locked filtering beyond US-centric
 needs a format change and is deferred rather than cut.
 
-**And one thing he should probably push back on, which a cold reviewer raised
-and I did not cut on my own authority.** The evidence says the service is
+**OVERRULED, and recorded because the evidence has not changed.** A cold
+reviewer wanted the service cut from the first cut; Mario heard this and chose
+to build it anyway, which is his call and not the reviewer's. The finding stands
+as a prediction worth checking later: The evidence says the service is
 premature: `tools_local/trivia/verdicts.tsv` holds **one verdict in its entire
 life**, `flags.txt` (which `docs/trivia-curation.md:165` says the device writes)
 **does not exist anywhere in the tree**, and there is no tool that reads flags off
@@ -40,10 +54,13 @@ a card at all. So the curation loop this card wants to put on the internet has
 never once run locally. A public, rate-limited, de-duplicating endpoint is
 machinery for a volume of reports that has never existed.
 
-The counter-argument is that CrossPlay is published and the loop has never run
-*because* it needs a card reader and a person. Both are true. It is his call,
-and it is only about **when**, not whether — nothing else in this design depends
-on the service.
+The counter-argument, and the reason this was a product call rather than an
+engineering one, is that CrossPlay is published and the loop has never run
+*because* it needed a card reader and a person. Both are true, and only one of
+them can be settled by shipping. **What to watch:** if `trivia_reports` is still
+empty months after this reaches devices, the reviewer was right about the timing
+and the endpoint was machinery ahead of its users. If it fills, the loop was
+blocked on exactly what this removed.
 
 One thing needs doing whether or not any of this ships: **card #326**, the rated
 corpus lives in one gitignored scratch directory that `wt.sh prune` will delete.
