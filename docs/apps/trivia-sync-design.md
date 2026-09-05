@@ -368,7 +368,7 @@ reason a player can file:
 | Hide questions I reported | nothing — already true   | all           | `FLAGGED` already does this. Say so on the screen; do not build it twice.                                                                                           |
 | Region-locked generally   | SETTINGS                 | `regional`    | **needs a pack flag that does not exist.** The difficulty byte's bit 7 is spent on US-centric; there is no second free bit. Costs a format bump. Defer, and say so. |
 | Difficulty                | front door (**shipped**) | `hard`/`easy` | done                                                                                                                                                                |
-| Category on/off           | —                        | nothing       | **the pack throws the category away** (`trivia-pack-format.md`). Not a filter that can exist. Cut.                                                                  |
+| Category on/off           | —                        | nothing       | **the record has no category field.** `build_pack.py:300-316` reads the category to drop wordplay and category-dependent clues, then does not store it. Not a filter that can exist without a format change. Cut.                                                                  |
 | Language                  | —                        | nothing       | `trivia-sources` records Spanish barely exists. One honest setting is not a filter. Cut.                                                                            |
 
 So the honest answer to "what does filtering mean beyond the toggle that
