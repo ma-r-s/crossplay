@@ -1,8 +1,9 @@
 #include "ConnectionsScreens.h"
 
-#include <climits>
 #include <cstdio>
 #include <cstring>
+#include <limits>
+#include <string>
 
 namespace connectionsui {
 
@@ -93,6 +94,25 @@ constexpr int kMaxLineChars = connections::kMaxWordLen * 4 + 8;
 // rather than failing to build.
 static_assert(connections::kMaxGroupLen < kMaxLineChars, "a group name must fit the line buffers");
 static_assert(kMaxLineChars <= 255, "LineBreaks offsets are uint8_t");
+
+// What an int can print, sign included: "-2147483648" is eleven characters.
+// Every buffer below is sized as (ints * this) + the format's own literal
+// characters + the terminator, rather than as a number that looked roomy.
+//
+// A buffer sized by eye is the derived-facts-written-as-literals bug, and this
+// file shipped one: "%d-%d OF %d" needs 39 bytes and had 24. Nothing local saw
+// it -- clang has no -Wformat-truncation at all, and the one suite check.sh
+// compiles with GCC passes -Wno-format-truncation -- so CI found it, which is
+// fifteen minutes a head instead of one second.
+constexpr int kIntChars = 11;
+static_assert(kIntChars >= std::numeric_limits<int>::digits10 + 2, "an int must fit kIntChars with its sign");
+
+// "%d-%d OF %d"
+constexpr int kArchiveCountChars = 3 * kIntChars + std::char_traits<char>::length("- OF ") + 1;
+// "%d PLAYED"
+constexpr int kPlayedChars = kIntChars + std::char_traits<char>::length(" PLAYED") + 1;
+// "%d"
+constexpr int kYearChars = kIntChars + 1;
 
 // One string, cut into lines that each MEASURE inside their box.
 //
@@ -661,7 +681,7 @@ void buildBoardStatus(toybox::Screen& screen, const BoardModel& model, const fui
 void buildArchive(toybox::Screen& screen, const ArchiveModel& model) {
   // "17-32 OF 1141" rather than a bare total: with sixteen rows on screen out of
   // eleven hundred, the useful fact is where you are, not how many there are.
-  char count[24];
+  char count[kArchiveCountChars];
   if (model.count > 0) {
     std::snprintf(count, sizeof(count), "%d-%d OF %d", model.topIndex + 1, model.topIndex + model.count, model.total);
   } else {
@@ -880,7 +900,7 @@ CalendarLayout buildCalendar(toybox::Screen& screen, const CalendarModel& model)
   static const char* kMonthNames[12] = {"JANUARY", "FEBRUARY", "MARCH",     "APRIL",   "MAY",      "JUNE",
                                         "JULY",    "AUGUST",   "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"};
   const int m = model.month >= 1 && model.month <= 12 ? model.month : 1;
-  char played[16];
+  char played[kPlayedChars];
   std::snprintf(played, sizeof(played), "%d PLAYED", model.playedThisMonth);
   toyboxChrome(screen, "ARCHIVE", played);
   screen.insetContent(fui::Insets{toybox::kGutter, kGridMargin, toybox::kMargin, kGridMargin});
@@ -897,7 +917,7 @@ CalendarLayout buildCalendar(toybox::Screen& screen, const CalendarModel& model)
   // stepperRow is the SDK's own control for this, so the arrows register their
   // own hit rects and the value slot is sized to its widest string rather than
   // shifting as the number changes.
-  char yearText[8];
+  char yearText[kYearChars];
   std::snprintf(yearText, sizeof(yearText), "%d", model.year);
   const char* monthText = kMonthNames[m - 1];
 

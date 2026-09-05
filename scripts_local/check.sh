@@ -400,9 +400,20 @@ done
 # FIRST one and takes about fifteen minutes to do it, so two errors meant two
 # rounds. One local GCC pass finds them all.
 #
-# The ui suite alone, because it compiles every app's Screens.cpp with -Werror
-# and is where this class has bitten twice. Skipped LOUDLY: a check that did not
-# run must not scroll past looking like one that passed.
+# Every suite that compiles app sources with -Werror, not just the ui one. That
+# used to say "the ui suite alone", and the day a second such suite existed
+# (host-tests/tilefit) it went red on CI while this step reported ok -- because
+# the step never ran it. A list of one is a list that stops being right without
+# anyone editing it.
+#
+# Note what this still cannot see: ui, dungeon and revealsweep each pass
+# -Wno-format-truncation, so the whole truncation class is invisible in them
+# under GCC as well as clang. Removing that flag today surfaces 19 real
+# too-small buffers across eleven apps; card #256 carries them. tilefit does not
+# suppress it, which is why CI caught a 24-byte buffer that needed 39.
+#
+# Skipped LOUDLY: a check that did not run must not scroll past looking like one
+# that passed.
 echo "cross-compiler"
 GCC=""
 for candidate in g++-16 g++-15 g++-14 g++-13; do
@@ -414,11 +425,17 @@ if [ -z "$GCC" ]; then
 else
   T0=$(date +%s)
   say_stage "gcc"
-  if CXX="$GCC" host-tests/ui/run.sh > "$LOGS/gcc-ui.log" 2>&1; then
+  gcc_failed=0
+  for gcc_suite in ui tilefit; do
+    if ! CXX="$GCC" "host-tests/$gcc_suite/run.sh" > "$LOGS/gcc-$gcc_suite.log" 2>&1; then
+      gcc_failed=1
+      printf "  %-12s FAILED under %s in host-tests/%s (%s)\n" "gcc" "$GCC" "$gcc_suite" "$(since $T0)"
+      grep -E "error:|internal compiler" "$LOGS/gcc-$gcc_suite.log" | head -5 | sed 's/^/      /'
+    fi
+  done
+  if [ "$gcc_failed" -eq 0 ]; then
     printf "  %-12s ok (%s, %s)\n" "gcc" "$GCC" "$(since $T0)"
   else
-    printf "  %-12s FAILED under %s (%s)\n" "gcc" "$GCC" "$(since $T0)"
-    grep -E "error:|internal compiler" "$LOGS/gcc-ui.log" | head -5 | sed 's/^/      /'
     FAILED=1
   fi
 fi
