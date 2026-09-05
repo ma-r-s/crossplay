@@ -903,6 +903,55 @@ Two things deliberately not done, because neither is ours to do unilaterally:
 the migration is **not applied** to Mario's Supabase, and the function is **not
 deployed** -- it goes live on a site deploy. D3b's overlay is still phase two.
 
+## The second critic round, on the code
+
+A cold reviewer read the implementation. The headline finding is the one worth
+carrying out of this whole card:
+
+**It shipped switched off, and 367 host checks could not see it.** Nothing
+anywhere wrote `pack.meta`. `formatMeta()` was defined, tested, documented in
+three files as "written by the device", and called by nothing. So the card never
+learned its build id, `openReports` always took the unknown branch, no report was
+ever queued, and `compare()` always returned `Unknown` -- which shared an arm
+with `Newer`, so SYNC permanently offered a download that changed nothing and
+left the build unknown afterwards. Every unit test passed because every unit
+worked. The wiring between them did not exist.
+
+That is `nothing-calls-it`, and the reason it survived a first critic round is
+that the first round reviewed a **design**, where "the device writes pack.meta"
+is a sentence and not a call site. A design review cannot find an absent caller.
+
+Five more, each a real failure rather than a style note:
+
+- **The 64-report cap was a lifetime cap per card.** `count_` derives from the
+  file's size and the file never shrinks, so once `reports.dat` reached 564
+  bytes that card could never queue another report again -- any pack, forever,
+  with `add()` still returning success. Neither delivering nor withdrawing frees
+  a slot; only dropping the file does.
+- **Three of the four queue writers skipped the pack-id guard.** `fileReport`
+  checked it; UNDO, the reason picker and SHOW THEM ALL AGAIN did not. With a
+  foreign queue, UNDO tombstoned a stranger's report and one tap on SHOW ALL
+  wiped every colliding entry -- the exact data loss the class exists to prevent,
+  reached through the doors that skipped its lock.
+- **`QueueOpen::Unusable` left the queue open** on three paths, so `isOpen()`
+  reported true against a half-written file.
+- **The anonymity secret had a public default.** It fell back to the first 32
+  characters of the Supabase service key, which are the base64url of the
+  standard HS256 JWT header and are *identical on every Supabase project*. Every
+  privacy claim in this document was false unless an undocumented environment
+  variable happened to be set -- and the test could not catch it, because the
+  test set the variable.
+- **Every reason was emitted as a deletion.** `collect_flags` wrote verdict
+  `bad` for all ten, and `bad` deletes the row, so a player tapping TOO EASY
+  would have deleted the question they wanted re-levelled.
+
+**What generalises.** Four of these six are the same shape: a fact stated in a
+document and not enforced anywhere. The pack-id check was described in
+`collect_flags.py`'s own docstring and compared nothing. The secret's promise was
+written into the migration's comments. `pack.meta` was described in three files.
+`BIT_REPAIRS` documented that `us` repairs a bit and was referenced by no code.
+Prose is where this design kept its invariants, and prose does not run.
+
 ## Order of work, and where it actually got to
 
 | | Step | State |
