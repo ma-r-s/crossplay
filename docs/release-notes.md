@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.33
+
+- Wallpapers: a sleep-screen picker on the device, and a browser to make wallpapers
+
 ### 1.12.32
 
 - Move the US-centric toggle out of the device's Settings (#311)
