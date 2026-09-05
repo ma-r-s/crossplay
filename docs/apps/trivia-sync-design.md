@@ -972,7 +972,14 @@ test still passed.
 
 **The screens.** All ten reason rows drawn and none truncated; `NEXT QUESTION`
 identical with and without the second row; settings on a card with no
-`pack.meta` reading "1 QUESTION. BUILD UNKNOWN UNTIL YOU SYNC".
+`pack.meta` reading "1 QUESTION. BUILD UNKNOWN UNTIL YOU SYNC"; and, with the
+US toggle turned ON through the settings screen, the same list rendering **nine**
+rows with THIS IS A US QUESTION correctly absent -- the conditional row proved
+by rendering both states rather than by reading the branch.
+
+Two defects were found only by looking, and neither would have failed a test:
+two reason labels cut mid-word, and a "1 QUESTIONS" plural two directories from
+the helper that already solves exactly that case for the front door.
 
 **The C++ writer read by the Python reader**, in `host-tests/trivia`, including a
 withdrawn entry the reader must skip and a cursor it must honour.
