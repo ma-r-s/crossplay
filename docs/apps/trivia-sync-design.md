@@ -6,6 +6,34 @@ the shape, the ranked alternatives, and what each one costs.
 Mario's words on the card are the spec. Where this document departs from them
 it says so and why.
 
+## What Mario is being asked to confirm
+
+Five things. Everything else here is a code-level call and does not need him.
+
+1. **Reports go to one endpoint on the existing site, not a fourth service on
+   the pi.** He guessed a new service; the answer is yes, but the smallest
+   possible one, and the site already has four functions of exactly this shape.
+2. **A report carries no free text.** One tap files it, an optional second tap
+   picks a reason from a list. Nothing typed, because there is no keyboard and
+   no way to review what was sent.
+3. **The existing pseudonymous device header rides along**, as it does on every
+   other request to his hosts, and the service uses it only to tell "one person
+   reported this forty times" from "forty people reported it once", then throws
+   it away. The alternative is losing that distinction.
+4. **"Wrong difficulty" becomes two buttons, TOO HARD and TOO EASY.** Unsplit it
+   is not actionable.
+5. **The first cut makes updating possible, not fast.** Today a device that has
+   a pack can never receive a new one. Fixing that comes before making it
+   incremental, and incremental is a second piece of work.
+
+Two things are cut that he asked about, both because the data does not exist:
+**category filtering** (the record has no category field) and **language**
+(Spanish barely exists in the corpus). Region-locked filtering beyond US-centric
+needs a format change and is deferred rather than cut.
+
+One thing needs doing whether or not any of this ships: **card #326**, the rated
+corpus lives in one gitignored scratch directory that `wt.sh prune` will delete.
+
 ## What already exists, so this is not re-derived
 
 Five things are already in the tree and the design leans on all of them.
