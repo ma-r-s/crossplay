@@ -505,7 +505,9 @@ fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model) {
     drawCardTile(screen, cardCellRect(grid, i, model.tileCount), model.tiles[i]);
   }
   if (model.pages > 1) {
-    char pager[16];
+    // "%d / %d"
+    constexpr int kPagerChars = 2 * toybox::kIntChars + toybox::literalChars(" / ") + 1;
+    char pager[kPagerChars];
     std::snprintf(pager, sizeof(pager), "%d / %d", model.page + 1, model.pages);
     screen.target().text(
         toybox::inkCentred(fui::makeRect(grid.x, grid.y + grid.height - 16, grid.width, 14), toybox::kTileCut), pager,

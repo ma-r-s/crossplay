@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../ui/ToyboxFormat.h"
+
 namespace murdletext {
 
 using murdle::Anchor;
@@ -289,14 +291,27 @@ bool suspectSidePhrase(const Puzzle& p, const Clue& clue, char* out, const int c
     return true;
   }
   if (set == 2) {
-    char pair[64];
+    // "%s or %s", two names.
+    constexpr int kPairChars = 2 * kLabelMax + toybox::literalChars(" or ") + 1;
+    char pair[kPairChars];
     std::snprintf(pair, sizeof(pair), "%s or %s", suspectOf(p, lowestBit(clue.targetMask)).name,
                   suspectOf(p, highestBit(clue.targetMask)).name);
     append(out, cap, did, pair, what);
     // "Either X or Y carried the pan" reads better than "X or Y carried".
-    char tmp[kLineMax];
-    std::snprintf(tmp, sizeof(tmp), "Either %s", out);
-    std::snprintf(out, static_cast<size_t>(cap), "%s", tmp);
+    //
+    // Prepended in place rather than composed into a second buffer and copied
+    // back. That round trip could not be sized: a buffer wide enough to hold
+    // "Either " plus a full-length sentence is by definition wider than `out`,
+    // so the copy back cut the tail off the longest clue in the game -- and a
+    // clue missing its last words is a clue that cannot be solved. Moving the
+    // sentence along instead means the only thing that can be dropped is the
+    // word "Either", and "X or Y carried the pan." is still true English.
+    const int len = static_cast<int>(std::strlen(out));
+    constexpr int kEitherChars = toybox::literalChars("Either ");
+    if (len + kEitherChars < cap) {
+      std::memmove(out + kEitherChars, out, static_cast<size_t>(len) + 1);
+      std::memcpy(out, "Either ", static_cast<size_t>(kEitherChars));
+    }
     return true;
   }
   return false;
