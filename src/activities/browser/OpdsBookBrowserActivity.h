@@ -78,6 +78,11 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   // screen tree, which would otherwise paint over the bitmap.
   freeink::ui::Rect prepCoverRect{};
   void paintPrepareCover();
+  // The download-failure screen. Split out because it is the only status the
+  // browser draws that has content of its own rather than one centred line.
+  void buildErrorScreen(UiScreen& screen, const freeink::ui::TextStyle& centered);
+  // The rule between the book and what happened to it.
+  static constexpr int16_t kErrorRuleH = 3;
   static std::string cachedCoverPath();
 
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
