@@ -1682,6 +1682,46 @@ void testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo() {
   }
 }
 
+// #243: the waiting capsule ("TAP A TARGET") must not draw the disabled-button
+// dither. That style knocks white text out of a DarkGray dither, and on the
+// panel a dither is a sparse pattern of black pixels: low-contrast to read and,
+// being sparse, exactly what a partial refresh leaves residue from -- so the one
+// control on the opening screen you most need to read was the one that ghosted.
+// It is a status line, not a disabled control, so it keeps the solid capsule
+// chess's inert status already uses, told apart from the armed FIRE by its label
+// alone. The ghosting itself is analog and no host test can see it; the dither
+// that causes it is what this pins, and it goes red on the borrowed style.
+void testBattleshipWaitingCapsuleIsNotDithered() {
+  Rendered out;
+  bshipui::BoardModel waiting;  // not gameOver, not canFire: only reporting
+  waiting.status = "TAP A TARGET";
+  buildBattleshipBoard(out, waiting);
+
+  const FakeTarget::TextRun* label = out.target.find("TAP A TARGET");
+  CHECK(label != nullptr);
+  if (label == nullptr) return;
+
+  // The ground the label sits on, found by the label rather than by arithmetic
+  // on the band. Later fills draw over earlier ones, so the last fill covering
+  // the label's centre is the capsule's own ground.
+  const int16_t cx = static_cast<int16_t>(label->rect.x + label->rect.width / 2);
+  const int16_t cy = static_cast<int16_t>(label->rect.y + label->rect.height / 2);
+  bool found = false;
+  fui::Paint ground{};
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect r = out.target.fills[i];
+    if (cx < r.x || cx >= r.right() || cy < r.y || cy >= r.bottom()) continue;
+    ground = out.target.fillPaints[i];
+    found = true;
+  }
+  CHECK(found);
+  // Names the bug (the borrowed disabled dither) rather than the fix.
+  CHECK(!(ground.kind == fui::PaintKind::Dither && ground.color == fui::Color::DarkGray));
+  // And positively: the capsule draws solid, like FIRE and like chess's inert
+  // status. Reinstate disabledButtonStyles() here and both checks go red.
+  CHECK(ground.kind == fui::PaintKind::Solid);
+}
+
 void testBattleshipPlacementControls() {
   Rendered out;
   bshipui::PlaceModel model;
@@ -9204,6 +9244,7 @@ int main() {
   testConnectionsHowToFitsOnePage();
   testBattleshipStartMenu();
   testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo();
+  testBattleshipWaitingCapsuleIsNotDithered();
   testBattleshipPlacementControls();
   testHnReaderFooter();
   testHnReaderDisabledControls();
