@@ -899,6 +899,12 @@ void WallpapersActivity::loop() {
     return;
   }
   const int idx = combined - specials;
+  // A hold the classifier missed arrives here as a tap, and a tap on this grid
+  // SETS the sleep screen with no confirmation -- so a user reaching for the
+  // hold sheet would get the one thing they were reaching past. Doing nothing
+  // is the right failure: the hold is repeatable, an unasked-for sleep screen
+  // is not. (Once the sheet exists this routes to it instead of returning.)
+  if (mappedInput.tapWasHeldLong()) return;
   if (idx == activeIndex_) return;  // already the sleep screen
   if (setWallpaper(idx)) requestUpdate();
 }

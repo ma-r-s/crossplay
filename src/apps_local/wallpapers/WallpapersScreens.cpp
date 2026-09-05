@@ -342,6 +342,7 @@ void drawHeadline(toybox::Screen& screen, const fui::Rect& box, const char* text
   screen.target().text(box, toybox::fittedTitle(screen.target(), text, box.width, style).c_str(), style);
 }
 
+#if WALLADD_VARIANT == 2
 // A numbered step: a filled square holding the numeral, the words beside it.
 // The site's three-step rail says the same thing with circles and a connector;
 // neither survives at this size in one bit, so the number carries the order.
@@ -349,7 +350,7 @@ void drawStep(toybox::Screen& screen, const fui::Rect& row, const int n, const c
   constexpr int16_t kDot = 34;
   const fui::Rect dot = fui::makeRect(row.x, static_cast<int16_t>(row.y + (row.height - kDot) / 2), kDot, kDot);
   screen.target().fill(dot, fui::Paint::solid(fui::Color::Black));
-  char numeral[4];
+  char numeral[12];
   std::snprintf(numeral, sizeof(numeral), "%d", n);
   // The body cut, not the small one: at the UI cut the numeral was a speck near
   // the top of the fill rather than a number in a box. Centred by the line box,
@@ -369,6 +370,7 @@ void drawStep(toybox::Screen& screen, const fui::Rect& row, const int n, const c
   const std::string fitted = toybox::fittedTitle(screen.target(), text, box.width, style);
   screen.target().text(box, fitted.c_str(), style);
 }
+#endif  // WALLADD_VARIANT == 2
 
 }  // namespace
 

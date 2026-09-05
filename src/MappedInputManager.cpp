@@ -176,6 +176,10 @@ bool MappedInputManager::wasScreenTouchDown(int& x, int& y) const {
 
 void MappedInputManager::swallowCurrentTouch() const { gpio.suppressTouchContact(); }
 
+bool MappedInputManager::tapWasHeldLong() const {
+  return touchHeldOverrideValid && touchHeldOverrideMs >= SCREEN_HOLD_MS;
+}
+
 bool MappedInputManager::wasScreenLongPress(int& x, int& y) const {
   float nx = 0.0f;
   float ny = 0.0f;
