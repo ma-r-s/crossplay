@@ -72,8 +72,25 @@ jobs:
                --manifest "$RUNNER_TEMP/expected.json" --timeout 720; then
             exit 0
           fi
-          git fetch --quiet --depth 1 origin xteink
-          if ! git diff --quiet FETCH_HEAD -- site/emulator-manifest.json; then
+          # The one way out of a failure that is not a failure: a newer emulator
+          # landed while this was polling, so it waited for a deploy that had
+          # already been replaced.
+          #
+          # WRITTEN TO FAIL CLOSED, because it is an excuse and excuses are
+          # where a check quietly stops checking. `! git diff --quiet` would
+          # have taken this branch on a fetch that never ran and on a bad ref --
+          # git diff answers >1 for an error and `!` reads that as "differs" --
+          # so a network blip would have turned a dead front page into a green
+          # run. Only an exit of exactly 1, after a fetch that succeeded, means
+          # the manifest really moved.
+          superseded=no
+          if git fetch --quiet --depth 1 origin xteink; then
+            git diff --quiet FETCH_HEAD -- site/emulator-manifest.json
+            [ $? -eq 1 ] && superseded=yes
+          else
+            echo "could not fetch origin/xteink to check for a newer emulator; treating the failure above as real."
+          fi
+          if [ "$superseded" = yes ]; then
             echo "::warning::A newer emulator was published while this check was waiting, so the deploy it was watching for was superseded. That rebuild's own run checks it, and the daily run checks it regardless."
             exit 0
           fi
