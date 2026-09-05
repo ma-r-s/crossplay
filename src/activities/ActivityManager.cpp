@@ -116,6 +116,7 @@ void ActivityManager::renderTaskLoop() {
     const unsigned long repaintStartMs = millis();
     const uint32_t requestedAtMs = updateRequestedAtMs.exchange(0);
     RenderLock lock;
+    const bool hadActivity = currentActivity != nullptr;
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
       // Night mode is a global output polarity applied to every activity.
@@ -135,7 +136,19 @@ void ActivityManager::renderTaskLoop() {
     // render() ends in displayBuffer(), which returns only after the waveform
     // -- so the task blocked in requestUpdateAndWait() can go on to block on
     // its socket.
+    //
+    // The waiter is released even when there was no activity to draw, because
+    // the alternative is a caller blocked forever on a frame that is never
+    // coming. But then the wait returned with NOTHING painted and the caller
+    // cannot tell, so it says so: this is the one path where
+    // requestUpdateAndWait() keeps its promise to return and breaks its promise
+    // to have painted. It is reachable only between an activity being torn down
+    // and its replacement being installed. See verify-the-thing-not-its-silence:
+    // the case that degrades silently is the one nobody ever diagnoses.
     if (waiter) {
+      if (!hadActivity) {
+        LOG_ERR("ACT", "requestUpdateAndWait() released with no activity to render -- no frame was painted");
+      }
       xTaskNotify(waiter, 1, eIncrement);
     }
   }

@@ -51,7 +51,30 @@ need_file() {
 # Comment-only lines, gone. Nothing below can be satisfied by prose: a critic
 # made the first version of this suite green by writing the call it was looking
 # for into a comment.
-nocomment() { grep -vE '^[[:space:]]*(//|\*|/\*)' || true; }
+# Comments AND string literals, gone -- properly. The previous version dropped
+# lines whose FIRST non-space characters were // or /* , so the INTERIOR of a
+# /* ... */ block survived: commenting out requestUpdateAndWait() left every
+# statement-anchored check green with no paint before the fetch at all. It also
+# left string literals intact, so LOG_DBG("... RenderLock ...") counted as a
+# lock. This tracks block state across lines and blanks quoted text, so nothing
+# below can be satisfied by prose OR by a message. (Known limit: a /* or a quote
+# inside another quote is not parsed; this is a scanner, not a lexer.)
+nocomment() {
+  awk '
+    {
+      line = $0; out = ""; i = 1; n = length(line)
+      while (i <= n) {
+        c = substr(line, i, 1); d = substr(line, i, 2)
+        if (inblock) { if (d == "*/") { inblock = 0; i += 2 } else i++ }
+        else if (instr) { if (c == "\\") { i += 2 } else { if (c == "\"") instr = 0; out = out " "; i++ } }
+        else if (d == "/*") { inblock = 1; i += 2 }
+        else if (d == "//") break
+        else if (c == "\"") { instr = 1; out = out " "; i++ }
+        else { out = out c; i++ }
+      }
+      print out
+    }'
+}
 
 # Body of the function whose signature matches $2, in file $1, comments
 # stripped. Functions start at column 0 and close on a bare `}` at column 0.
@@ -101,7 +124,11 @@ reached() {
 # straight past the check that exists to prevent a deadlock, and so would
 # `RenderLock* p = new RenderLock(...)`. Comments are already stripped, so any
 # mention at body indent is a construction.
-holds_lock_at_body() { printf '%s\n' "$1" | grep -E '^  [^ ]' | grep -q 'RenderLock'; }
+# A RenderLock DECLARATION -- `RenderLock lock(...)`, `auto x = RenderLock(...)`,
+# `new RenderLock(...)` -- not merely the word, which also occurs in log messages
+# and in prose. Strings and comments are already stripped by nocomment().
+LOCKDECL='(RenderLock[[:space:]]+[A-Za-z_]|=[[:space:]]*RenderLock[(]|new[[:space:]]+RenderLock)'
+holds_lock_at_body() { printf '%s\n' "$1" | grep -E '^  [^ ]' | grep -qE "$LOCKDECL"; }
 
 # Is the statement matching $1 executed while a RenderLock declared in an
 # ENCLOSING scope is still alive? Brace depth, not proximity: fetchFeed() has
@@ -111,11 +138,11 @@ holds_lock_at_body() { printf '%s\n' "$1" | grep -E '^  [^ ]' | grep -q 'RenderL
 # to model the scope or it is checking nothing. The lock declared at depth D
 # lives until depth falls below D.
 locked_at() {
-  printf '%s\n' "$2" | awk -v target="$1" '
+  printf '%s\n' "$2" | awk -v target="$1" -v lockdecl="$LOCKDECL" '
     function cnt(s, ch,   n, i) { n = 0; for (i = 1; i <= length(s); i++) if (substr(s, i, 1) == ch) n++; return n }
     {
       if ($0 ~ target && lockdepth > 0 && depth >= lockdepth) found = 1
-      if ($0 ~ /RenderLock/) lockdepth = (depth > 0 ? depth : 1)
+      if ($0 ~ lockdecl) lockdepth = (depth > 0 ? depth : 1)
       depth += cnt($0, "{") - cnt($0, "}")
       if (lockdepth > 0 && depth < lockdepth) lockdepth = 0
     }
@@ -133,10 +160,16 @@ BLOCKING='HttpDownloader::|ensureConnected|KOReaderSyncClient::|sync_\.|download
 # lines. Catches the site added tomorrow, which is how the twin was missed.
 preceded_within() {
   awk -v guard="$1" -v danger="$2" -v span="$3" '
-    # Indented only: `void X::paintBusyNow(...)` starts at column 0 and is the
-    # definition, not a call in front of anything.
-    /^[ ]/ && $0 ~ guard { last = NR }
-    $0 ~ danger { if (last == 0 || NR - last > span) { bad = 1 } }
+    # Blank lines do not count toward the span: nocomment() blanks comments in
+    # place to keep line numbers honest, and counting those made a guard look
+    # near when it was far (performDisconnect passed on that alone).
+    /^[[:space:]]*$/ { next }
+    { code++ }
+    # The guard must be a BARE statement at its own indent. `void
+    # X::paintBusyNow(...)` is the definition, and `if (kNeverTrue)
+    # paintBusyNow(...)` is dead code -- neither guards anything.
+    /^[ ]+[A-Za-z_]/ && $0 ~ guard { last = code }
+    $0 ~ danger { if (last == 0 || code - last > span) { bad = 1 } }
     END { exit bad ? 1 : 0 }
   '
 }
@@ -167,6 +200,13 @@ else bad "renderTaskLoop() claims waitingTaskHandle AFTER render() (or not at al
 if printf '%s\n' "$rtl" | ahead_re "$(stmt "$I4" 'waitingTaskHandle = nullptr')" '^ +currentActivity->render\('; then ok
 else bad "renderTaskLoop() does not clear waitingTaskHandle before rendering; a second claim could pair one waiter with two frames"; fi
 
+# ...and the waiter is WOKEN after the frame, not before it. Claiming early and
+# notifying early is the same bug wearing the fix's clothes: requestUpdateAndWait()
+# would return before any frame existed. The claim and the notify are two facts
+# and each needs its own check.
+if printf '%s\n' "$rtl" | ahead_re '^ +currentActivity->render\(' 'xTaskNotify[(]waiter'; then ok
+else bad "renderTaskLoop() notifies the waiter BEFORE currentActivity->render(); requestUpdateAndWait() then returns with no frame on the panel, which is the entire guarantee"; fi
+
 # ...and requestUpdateAndWait() blocks only if it actually claimed the wait.
 ruaw=$(body "$AM" '^void ActivityManager::requestUpdateAndWait[(]')
 if printf '%s\n' "$ruaw" | ahead_re '^  if \(!claimed\) \{' "$(stmt "$I2" 'ulTaskNotifyTake\(pdTRUE, portMAX_DELAY\)')"; then ok
@@ -179,12 +219,25 @@ else bad "requestUpdateAndWait() blocks in ulTaskNotifyTake without first checki
 OPDS=src/activities/browser/OpdsBookBrowserActivity.cpp
 need_file "$OPDS"
 fetch=$(body "$OPDS" '^void OpdsBookBrowserActivity::beginFetch[(]')
+dl=$(body "$OPDS" '^void OpdsBookBrowserActivity::downloadBook[(]')
 
 if [ -n "$fetch" ]; then ok
 else bad "OpdsBookBrowserActivity has no beginFetch(): every path into a feed sets its own busy state again, which is how all six got it wrong"; fi
 
-if has_re "$(stmt "$I2" 'state = BrowserState::LOADING')" "$fetch"; then ok
-else bad "beginFetch() does not set BrowserState::LOADING at function-body level -- there is no busy frame to paint"; fi
+if has_re "$(stmt "$I4" 'state = BrowserState::LOADING')" "$fetch"; then ok
+else bad "beginFetch() does not set BrowserState::LOADING inside its lock scope -- there is no busy frame to paint"; fi
+
+# POSITIVE lock checks. The two holds_lock_at_body checks below are ANTI-checks
+# (no lock held ACROSS the wait); without a positive counterpart, deleting a
+# lock outright stays green. statusMessage is a std::string the render task
+# reads through .c_str(), so writing it unlocked is the same use-after-free
+# class as the entries swap -- in the TAKE/CLAIM window this branch admits it
+# cannot close.
+if locked_at 'statusMessage = ' "$fetch"; then ok
+else bad "beginFetch() writes statusMessage with no RenderLock; the render task reads it through .c_str() and a reallocating operator= frees the buffer under it"; fi
+
+if locked_at 'downloadAuthor = ' "$dl"; then ok
+else bad "downloadBook() writes downloadAuthor with no RenderLock; same use-after-free class, same window"; fi
 
 if printf '%s\n' "$fetch" | ahead_re "$(stmt "$I2" 'requestUpdateAndWait\(\)')" "$(stmt "$I2" 'fetchFeed\(path\)')"; then ok
 else bad "beginFetch() does not requestUpdateAndWait() before fetchFeed() as an unconditional statement; the LOADING frame races the socket instead of preceding it"; fi
@@ -221,7 +274,11 @@ else bad "releaseEntries() frees entries with no RenderLock alive; four navigati
 
 # Every path into a feed goes through the helper, or the next one written will
 # not. See the memory bounding-one-of-two-input-paths.
-calls=$(grep -cE '^ +fetchFeed\(' "$OPDS" || true)
+# Any spelling of the call, not just an unqualified one at an indent:
+# `this->fetchFeed(...)` walked past the check written to stop exactly this --
+# which is bounding-one-of-two-input-paths reproduced by its own guard. The
+# definition line starts at column 0 and is excluded.
+calls=$(nocomment < "$OPDS" | grep -E 'fetchFeed[(]' | grep -vE '^[A-Za-z].*::fetchFeed[(]' | grep -c . || true)
 if [ "$calls" = "1" ]; then ok
 else bad "fetchFeed() is called from $calls places in $OPDS; every one that is not beginFetch() is a blocking fetch with no busy frame in front of it"; fi
 
@@ -233,7 +290,6 @@ if grep -A3 -nE '^ +requestUpdate\((true)?\);' "$OPDS" | grep -qE '^[0-9]+.[ ]+(
 else ok; fi
 
 # The twin in the same file: the download's own connect window.
-dl=$(body "$OPDS" '^void OpdsBookBrowserActivity::downloadBook[(]')
 if printf '%s\n' "$dl" | ahead_re "$(stmt "$I2" 'requestUpdateAndWait\(\)')" '^ +.*HttpDownloader::downloadToFile\('; then ok
 else bad "downloadBook() does not requestUpdateAndWait() before downloadToFile(); the whole TCP+TLS connect window runs before the first progress callback can repaint anything"; fi
 
@@ -251,8 +307,13 @@ else bad "downloadBook() does not resetUi() before its paint; the download scree
 if printf '%s\n' "$dl" | ahead_re "$(stmt "$I2" 'mappedInput\.swallowCurrentTouch\(\)')" '^ +const auto result = HttpDownloader::downloadToFile'; then ok
 else bad "downloadBook() does not swallowCurrentTouch() after its paint; the DOWNLOAD tap's own release routes against the download screen's live Cancel target"; fi
 
-if printf '%s\n' "$dl" | grep -qE '^ +if \(routingReady\(\)\) routeTouch\(mappedInput\);'; then ok
-else bad "the download progress callback routes touches without a routingReady() gate; it is the only place input is read during a download and it routes against an unannounced table"; fi
+# EVERY routeTouch, not "a guarded one exists". A dead-code copy beside a live
+# unguarded call satisfies an existence check while the unguarded call is what
+# runs -- the same shape as bounding-one-of-two-input-paths. Requiring the guard
+# on the same line as the call means an unguarded second copy cannot hide.
+unguarded=$(printf '%s\n' "$dl" | grep -E 'routeTouch[(]' | grep -vc 'routingReady[(][)]' || true)
+if [ "$unguarded" = "0" ]; then ok
+else bad "$unguarded routeTouch() call(s) in downloadBook() carry no routingReady() gate on the same line; the only place input is read during a download routes against an unannounced table"; fi
 
 # The render that has to publish the frame the wait is waiting for -- at
 # function-body level, so a conditional displayBuffer() is not mistaken for a
@@ -305,6 +366,12 @@ if holds_lock_at_body "$paint"; then
   bad "paintBusyNow() declares a RenderLock at function-body level; it is still held at requestUpdateAndWait(), which asserts and would deadlock with asserts off"
 else ok; fi
 
+# ...and it must hold one SOMEWHERE. The check above is an ANTI-check; on its
+# own, deleting the lock outright satisfies it. phase_ and busyMessage_ are read
+# by the render task, so that write needs the lock exactly like the OPDS sites.
+if locked_at 'phase_ = Phase::Busy' "$paint"; then ok
+else bad "paintBusyNow() writes phase_ with no RenderLock alive; the render task reads it, and the anti-check above is satisfied by having no lock at all"; fi
+
 if printf '%s\n' "$paint" | grep -nE -- "$BLOCKING" | head -1 | cut -d: -f1 | {
      read -r first || first=""
      w=$(printf '%s\n' "$paint" | grep -nE -- "$(stmt "$I2" 'requestUpdateAndWait\(\)')" | head -1 | cut -d: -f1)
@@ -315,7 +382,7 @@ else bad "paintBusyNow() runs a blocking call BEFORE requestUpdateAndWait()"; fi
 # EVERY pairAbandon, not the one in front of me. The first fix landed on
 # performDisconnect() and left the identical call in the Back handler alone;
 # see the memory fix-the-twin-too.
-if nocomment < "$INS" | preceded_within 'paintBusyNow[(]' 'sync_[.]pairAbandon[(]' 8; then ok
+if nocomment < "$INS" | preceded_within '^[[:space:]]+paintBusyNow[(]' 'sync_[.]pairAbandon[(]' 8; then ok
 else bad "a sync_.pairAbandon() in $INS is not preceded by paintBusyNow(); that is a blocking TLS revoke with whatever screen the reader was on left frozen behind it"; fi
 
 if reached "$(stmt "$I2" 'renderer\.displayBuffer\(\)')" "$(body "$INS" '^void InstapaperActivity::render[(]')"; then ok

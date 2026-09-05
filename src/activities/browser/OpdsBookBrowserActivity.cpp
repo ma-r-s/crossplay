@@ -82,8 +82,13 @@ void OpdsBookBrowserActivity::onEnter() {
   searchTemplate = "";
   currentPath = "";
   selectorIndex = 0;
-  errorMessage.clear();
-  statusMessage = tr(STR_CHECKING_WIFI);
+  {
+    // setCurrentActivity() installs this activity BEFORE onEnter() runs, so the
+    // render task can already be painting it while these run.
+    RenderLock lock(*this);
+    errorMessage.clear();
+    statusMessage = tr(STR_CHECKING_WIFI);
+  }
 
   listNav.reset();
   resetUi();
@@ -182,9 +187,14 @@ void OpdsBookBrowserActivity::onSavedDoneEvent(const fui::ActionEvent&, void* us
 }
 
 void OpdsBookBrowserActivity::leaveSavedScreen() {
-  state = BrowserState::BROWSING;
-  savedName.clear();
-  savedFolder.clear();
+  // clear() frees the buffer buildSavedScreen() reads through .c_str(), so it
+  // is a write like any other.
+  {
+    RenderLock lock(*this);
+    state = BrowserState::BROWSING;
+    savedName.clear();
+    savedFolder.clear();
+  }
   savedDwell.arm();
   // The list's first rows land on the pixels the verdict just occupied, so
   // shut routing until the panel has SHOWN the list. Same gate the rest of
@@ -809,9 +819,11 @@ void OpdsBookBrowserActivity::rebuildRowItems() {
 
 void OpdsBookBrowserActivity::releaseEntries() {
   // Same containers, same render task, same reason as the swap in fetchFeed():
-  // this frees every string rowItems points into. Four callers reach it
-  // (navigateToEntry, navigateBack, performSearch, and the search arrival), all
-  // on the main task while the render task may be mid-frame.
+  // this frees every string rowItems points into. THREE callers reach it
+  // (navigateToEntry, navigateBack, performSearch), all on the main task while
+  // the render task may be mid-frame. (An earlier draft of this comment said
+  // four and listed a "search arrival" that does not call it -- a count written
+  // as a literal instead of derived; see derived-facts-written-as-literals.)
   RenderLock lock(*this);
   // The app's interaction table holds row indices (and hit rects) for the old
   // entries; stop routing touches against it until the next render.
@@ -873,13 +885,23 @@ void OpdsBookBrowserActivity::paintPrepareCover() {
 }
 
 void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
-  state = BrowserState::DOWNLOADING;
-  statusMessage = book.title;
-  downloadAuthor = book.author;
-  downloadCoverPath = cachedCoverPath();
-  downloadProgress = downloadTotal = 0;
-  cancelDownload = false;
-  goHomeAfterCancel = false;
+  // Probed BEFORE the lock: cachedCoverPath() stats the SD card, and holding
+  // the render lock across storage I/O would stall the panel rather than
+  // protect it.
+  const std::string coverPath = cachedCoverPath();
+  // Three std::strings the render task reads through .c_str()
+  // (buildDownloadScreen, paintPrepareCover), written immediately before a
+  // wait. Same reason as beginFetch above.
+  {
+    RenderLock lock(*this);
+    state = BrowserState::DOWNLOADING;
+    statusMessage = book.title;
+    downloadAuthor = book.author;
+    downloadCoverPath = coverPath;
+    downloadProgress = downloadTotal = 0;
+    cancelDownload = false;
+    goHomeAfterCancel = false;
+  }
   // Screen ENTRY, so the reveal gate is armed for it like every other entry in
   // this file. Without this the download screen was the one state that
   // published an interaction table nothing had announced.
@@ -968,9 +990,12 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
     // holds -- not the catalog's title, which opdsBookFilename() routinely
     // rewrites (one author out of a ';'-joined list, two separate byte
     // budgets, illegal characters replaced).
-    savedName = opdsPathBasename(filename);
-    savedFolder = opdsPathFolder(filename);
-    state = BrowserState::SAVED;
+    {
+      RenderLock lock(*this);
+      savedName = opdsPathBasename(filename);
+      savedFolder = opdsPathFolder(filename);
+      state = BrowserState::SAVED;
+    }
     savedDwell.arm();
     // Arms the reveal gate: the download screen's Cancel button was live under
     // whatever finger is on the glass, and this screen must not answer that
@@ -987,6 +1012,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
     state = BrowserState::BROWSING;
   } else {
     LOG_ERR("OPDS", "Download failed: %d", static_cast<int>(result));
+    RenderLock lock(*this);
     state = BrowserState::ERROR;
     errorMessage = tr(STR_DOWNLOAD_FAILED);
   }
@@ -1137,8 +1163,18 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
 // call sites are what failed: see bounding-one-of-two-input-paths. Every path
 // into a feed goes through here, so a seventh cannot be written without one.
 void OpdsBookBrowserActivity::beginFetch(const std::string& path) {
-  state = BrowserState::LOADING;
-  statusMessage = tr(STR_LOADING);
+  // Under the lock, and scoped shut before the wait. statusMessage is a
+  // std::string the render task reads through .c_str() (buildStatusScreen), so
+  // a reallocating operator= frees the buffer it is holding -- the same
+  // use-after-free class as the entries swap, in the very TAKE/CLAIM window
+  // this branch admits still exists. KOReaderAuthActivity and
+  // InstapaperActivity::paintBusyNow already write their busy state this way;
+  // these two OPDS sites were the inconsistent ones.
+  {
+    RenderLock lock(*this);
+    state = BrowserState::LOADING;
+    statusMessage = tr(STR_LOADING);
+  }
   requestUpdateAndWait();
   fetchFeed(path);
 }
@@ -1164,8 +1200,11 @@ void OpdsBookBrowserActivity::onWifiSelectionComplete(const bool connected) {
     beginFetch(currentPath);
   } else {
     // Leave WiFi up; onExit's silent reboot handles teardown without fragmenting.
-    state = BrowserState::ERROR;
-    errorMessage = tr(STR_WIFI_CONN_FAILED);
+    {
+      RenderLock lock(*this);
+      state = BrowserState::ERROR;
+      errorMessage = tr(STR_WIFI_CONN_FAILED);
+    }
     requestUpdate();
   }
 }
