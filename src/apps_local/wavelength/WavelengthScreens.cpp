@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "../ui/ToyboxFormat.h"
+#include "../ui/ToyboxIcons.h"
 
 namespace wavelengthui {
 namespace {
@@ -72,6 +73,15 @@ fui::FontId pairSlot(toybox::Screen& screen, const int16_t width, const char* a,
 
 void fill(toybox::Screen& screen, const fui::Rect& box, const fui::Color colour = fui::Color::Black) {
   screen.target().fill(box, fui::Paint::solid(colour));
+}
+
+// A 1-bpp mark scaled to fit its box. Placed in the panel's empty margins, never
+// over a text run: drawCenteredText does not wrap and 25 of 32 languages already
+// overflow somewhere, so an icon that ate a string's width would push it off the
+// panel. Every call site here draws into space no caps() line occupies.
+void icon(toybox::Screen& screen, const fui::Rect& box, const freeink::Icon& mark,
+          const fui::Color colour = fui::Color::Black) {
+  screen.target().bitmap(box, fui::bitmapFromIcon(mark), fui::BitmapMode::Contain, fui::Paint::solid(colour));
 }
 
 // An outline drawn as four fills. The renderer has no stroke, and an inset
@@ -544,6 +554,14 @@ void renderPassLeft(toybox::Screen& screen, const PassModel& model) {
   const int16_t leftY = static_cast<int16_t>(passY + titleH + 12);
   caps(screen, fui::makeRect(toybox::kMargin, leftY, inner, toybox::kHugeCut.lineHeight), "LEFT", toybox::kDisplayFont,
        fui::TextAlign::Center);
+  // The pass direction, in the empty margin left of the centred word: "<- LEFT"
+  // is the whole instruction, read before the caps are. Sized to about 87% of
+  // the LEFT cap height, which a style pass judged right; do not grow it.
+  const int16_t arrowSz = 92;
+  icon(screen,
+       fui::makeRect(static_cast<int16_t>(toybox::kMargin + 20),
+                     static_cast<int16_t>(leftY + (toybox::kHugeCut.lineHeight - arrowSz) / 2), arrowSz, arrowSz),
+       icon_wl_pass_96);
   const int16_t ruleY = static_cast<int16_t>(leftY + toybox::kHugeCut.lineHeight + 22);
   const int16_t ruleW = static_cast<int16_t>(w - 180);
   fill(screen, fui::makeRect(static_cast<int16_t>((w - ruleW) / 2), ruleY, ruleW, toybox::kRule));
@@ -710,6 +728,20 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
     caps(screen, fui::makeRect(g.right.x, g.right.y, g.right.width, toybox::kHugeCut.lineHeight), buf,
          toybox::kDisplayFont, fui::TextAlign::Center);
   }
+  // Before the hold reveals it, a large eye is the hero of this screen: it is
+  // the one place you are about to SEE the secret. At the 120px cut the eyelid
+  // arcs read as an eye rather than a bullseye, and it fills the right column
+  // instead of floating in it. Centred in the band between the pole rule and the
+  // advice text, and gone once the hold puts the numeral up higher, so the two
+  // never share the space.
+  else {
+    const int16_t eyeSz = 120;
+    const int16_t eyeCy = static_cast<int16_t>(screen.body().y + 218);
+    icon(screen,
+         fui::makeRect(static_cast<int16_t>(g.right.x + (g.right.width - eyeSz) / 2),
+                       static_cast<int16_t>(eyeCy - eyeSz / 2), eyeSz, eyeSz),
+         icon_wl_look_120);
+  }
 
   // The number is LABELLED, because its twin on the guess screen is and this
   // one was not: a bare numeral beside a strip is read as a score by anyone who
@@ -771,6 +803,8 @@ void renderClue(toybox::Screen& screen, const ClueModel& model) {
   int16_t y = static_cast<int16_t>(screen.body().y + kEdgeTop);
   caps(screen, fui::makeRect(toybox::kMargin, y, inner, titleH), "SAY IT OUT LOUD", toybox::kBodyFont,
        fui::TextAlign::Center);
+  // No mark on this title: it is centred and nearly full width, so any icon in
+  // the margin lands on its first letters. The screen is clear without one.
   // The all-clear, said as one: TARGET HIDDEN read as a warning that something
   // was wrong, on the one screen whose job is to tell the table it may look.
   y = static_cast<int16_t>(y + titleH + 1);
@@ -905,6 +939,8 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
   const fui::Rect capsule = fui::makeRect(toybox::kMargin, static_cast<int16_t>(screen.body().y + 16), inner, capsuleH);
   fill(screen, capsule);
   caps(screen, capsule, verdict, toybox::kBodyFont, fui::TextAlign::Center, fui::Color::White);
+  // No mark on the verdict banner: the word carries the payoff, and a fixed
+  // symbol would contradict a distance verdict (SIX OFF) on every miss.
 
   caps(screen,
        fui::makeRect(g.topWord.x, static_cast<int16_t>(capsule.y + capsuleH + 10), g.topWord.width,
