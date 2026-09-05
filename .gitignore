@@ -42,6 +42,11 @@ sdkconfig.x4pro
 
 # fork-local: simulator screenshots and logs (scripts_local/)
 qa-artifacts/
+# A screenshot dropped at the tree ROOT, which is what sim-shot.sh does when it
+# is given a bare filename instead of a path under qa-artifacts/. Anchored with
+# a leading slash so the 24 real .bmp files under site/wallpapers/starter stay
+# tracked. A 6MB why.bmp reached a commit this way.
+/*.bmp
 
 # The browser build's output is no longer committed on every rebuild, and the
 # history size is why: 111 revisions of site/emulator/crossplay.wasm, ~357MB of
