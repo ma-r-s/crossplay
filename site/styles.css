@@ -294,9 +294,19 @@ section.tight {
   text-decoration: none;
   padding-block: 0.4rem;
   border-bottom: 1px solid transparent;
-  /* A bar is one line high. A label that wraps inside it is 49px of text in a
-     50px box, which is what ANKI DECKS did at 320, 390 and 414, and INSTALL THE
-     FIRMWARE did on /study/ at the same widths. */
+}
+/* A bar is one line high. A label that wraps inside it is 49px of text in a
+ * 50px box, which is what ANKI DECKS did at 320, 390 and 414, and INSTALL THE
+ * FIRMWARE did on /study/ at the same widths.
+ *
+ * Scoped to .has-menu, and that scope is the point. Unscoped, this rule made
+ * the no-script bar WORSE rather than leaving it alone: with the links still
+ * inline and no longer allowed to wrap, at 320px the last one ran to x=339 past
+ * a 320px viewport, and .topbar is position:fixed, so there is no scrollbar to
+ * reach it with -- the GitHub link simply could not be got at. Wrapping is ugly
+ * and reachable; overflowing a fixed bar is neither. Where the panel exists,
+ * nothing needs to wrap. */
+.topbar.has-menu .topnav a {
   white-space: nowrap;
 }
 .topnav a:hover,

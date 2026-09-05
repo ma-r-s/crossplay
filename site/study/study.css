@@ -13,7 +13,31 @@
 
 .study-body {
   min-height: 100vh;
-  --preview-chrome: 14rem;
+  /* Everything the wizard puts above and below the emulator: the top bar, the
+     title block, the stepper, the step's own padding and the foot. It is NOT a
+     constant -- the foot's one sentence wraps to two lines on a narrower
+     window -- so this is the worst case, not the typical one.
+
+     Measured at step 3 across 721x600 .. 1920x1080: the chrome is 274px where
+     the foot fits on one line and 285px at 1100x700 where it does not, which
+     needs 14.71rem. 12.5rem was the number before, and it was wrong at every
+     one of those sizes; nobody could tell, because the step box was
+     position:absolute and cropped the panel before the cap ever applied. 14rem
+     was the wide-window truth only, and left step 3 overflowing by 4 to 11px
+     between 721 and 1100. 15rem takes step 3's overflow to zero from 900x650
+     up, and costs the panel 16px of height at 1440x900.
+
+     BELOW 650px TALL IT STILL SCROLLS, AND NO VALUE HERE CAN STOP IT: at
+     721x600 the side column's own paragraph, buttons and status line come to
+     330px against a 310px panel, so the text is what exceeds the window. That
+     is the page doing exactly what this file was changed to let it do. Do not
+     shrink this token chasing those three sizes -- it will not move them, and
+     it will shrink the panel on every screen that was already fine.
+
+     If the foot's wording changes, re-run the sweep. Too large costs a
+     slightly smaller panel; too small puts a scrollbar on a step that did not
+     need one. Neither crops anything any more. */
+  --preview-chrome: 15rem;
 }
 
 .wizard {

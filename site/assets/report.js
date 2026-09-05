@@ -22,9 +22,6 @@
 (function () {
   "use strict";
 
-  // Same repository the Install button reads its release from.
-  var REPO = "ma-r-s/crossplay";
-
   var TEMPLATE = `
 <form class="report-form" id="report-form" novalidate>
   <div class="report-row report-choices">
@@ -142,15 +139,11 @@
   // an empty placeholder is better than a confidently wrong one.
   function fillVersionPlaceholder(version) {
     if (version.value) return; // ?v= already said which
-    fetch("https://api.github.com/repos/" + REPO + "/releases/latest")
-      .then(function (r) {
-        return r.ok ? r.json() : null;
-      })
-      .then(function (data) {
-        if (!data || !data.tag_name || version.value) return;
-        version.placeholder = String(data.tag_name).replace(/^v/, "");
-      })
-      .catch(function () {});
+    if (!window.crossplayLatestRelease) return;
+    window.crossplayLatestRelease().then(function (data) {
+      if (!data || !data.tag_name || version.value) return;
+      version.placeholder = String(data.tag_name).replace(/^v/, "");
+    });
   }
 
   // Draws the form into `root` and wires it. Returns the handful of things a

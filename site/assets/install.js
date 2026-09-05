@@ -29,7 +29,6 @@
 (function () {
   "use strict";
 
-  var REPO = "ma-r-s/crossplay";
 
   // Both boards are ESP32-S3. The check is not X4-Pro-vs-Sticky (nothing on
   // the wire tells those apart); it is "this is not one of the ESP32-C3
@@ -110,12 +109,13 @@
   // Asked from the visitor's browser rather than from /api/firmware, which is
   // the whole reason that endpoint takes a tag instead of looking one up: the
   // GitHub API's unauthenticated rate limit is per IP, and one shared server
-  // address would run out of them long before any one visitor did.
+  // address would run out of them long before any one visitor did. That same
+  // limit is why the request itself lives in assets/release.js: the report form
+  // wants the version too, and one page load must not spend two of the sixty.
   function loadRelease() {
-    return fetch("https://api.github.com/repos/" + REPO + "/releases/latest")
-      .then(function (r) {
-        return r.ok ? r.json() : null;
-      })
+    if (!window.crossplayLatestRelease) return Promise.resolve();
+    return window
+      .crossplayLatestRelease()
       .then(function (data) {
         if (!data || !data.tag_name) return;
         state.tag = data.tag_name;

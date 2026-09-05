@@ -22,27 +22,41 @@
 
   bar.classList.add("has-menu");
 
-  function set(open) {
+  function isOpen() {
+    return btn.getAttribute("aria-expanded") === "true";
+  }
+
+  // returnFocus matters only when the panel is being closed from the keyboard.
+  // display:none on the nav destroys whatever focus was inside it, dropping the
+  // caret on BODY so the next Tab restarts at the top of the document -- so
+  // Escape hands focus back to the button it came from. A close caused by a
+  // click or a jump must NOT do that: the person is already somewhere else, and
+  // pulling focus back to the bar would undo the move they just made.
+  function set(open, returnFocus) {
+    var was = isOpen();
     btn.setAttribute("aria-expanded", open ? "true" : "false");
     nav.classList.toggle("is-open", open);
+    if (!open && was && returnFocus) btn.focus();
   }
 
   btn.addEventListener("click", function () {
-    set(btn.getAttribute("aria-expanded") !== "true");
+    set(!isOpen());
   });
 
-  // A jump inside the page would otherwise leave the panel covering the very
-  // heading it jumped to.
-  nav.addEventListener("click", function (ev) {
-    if (ev.target.closest("a")) set(false);
+  // Any link in the BAR, not just in the panel: the wordmark is an anchor to
+  // the top of the page and it sits outside .topnav, so a listener on the panel
+  // alone let it jump the page and leave the panel covering the heading it had
+  // jumped to. The toggle is a <button>, so it never matches this.
+  bar.addEventListener("click", function (ev) {
+    if (ev.target.closest && ev.target.closest("a")) set(false);
   });
 
   document.addEventListener("keydown", function (ev) {
-    if (ev.key === "Escape") set(false);
+    if (ev.key === "Escape") set(false, true);
   });
 
   document.addEventListener("click", function (ev) {
-    if (!ev.target.closest(".topbar")) set(false);
+    if (!ev.target.closest || !ev.target.closest(".topbar")) set(false);
   });
 
   // Asked of the button rather than of a width: the breakpoint is the
