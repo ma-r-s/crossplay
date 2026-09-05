@@ -184,6 +184,23 @@ JSON
 board issues --from-json "$WORK/issues.json" | grep -q "2 new card" && ok "open issues become cards" || bad "issues did not become cards"
 board issues --from-json "$WORK/issues.json" | grep -q "0 new card" && ok "a second sweep makes no duplicates" || bad "issues sweep duplicated cards"
 board list | grep -q "reader .*Slow Reader" && ok "an issue about page turns lands on the reader" || bad "reader issue not routed to reader"
+
+echo "what agents learn stays on the card"
+board note "$CID" "repro: open the menu, press back, open it again" | grep -q "#$CID noted" && ok "a note is accepted" || bad "note refused"
+board show "$CID" | grep -q "note: repro: open the menu" && ok "the note is a history line on the card" || bad "note missing from show"
+board note "$CID" "Seen on unit B as well." --body >/dev/null
+board show "$CID" | grep -q "Seen on unit B as well" && ok "--body appends the note to the card body" || bad "--body did not append"
+board list --state review | grep -q "#$CID" && ok "list --state filters to the state" || bad "list --state missed the card"
+board list --state parked | grep -q "no cards" && ok "list --state on an empty state says so" || bad "list --state parked printed cards"
+if board new "Sudoku: the puzzle is lost from the difficulty menu" --from sudoku --kind bug >"$WORK/dup.out" 2>&1; then bad "a reworded duplicate was filed"; else grep -q "looks like an open card" "$WORK/dup.out" && grep -q "#$CID" "$WORK/dup.out" && ok "a reworded duplicate is stopped and the open card named" || bad "duplicate refusal lacks the card: $(cat "$WORK/dup.out")"; fi
+grep -q "board note $CID" "$WORK/dup.out" && ok "the refusal says how to add to the existing card" || bad "refusal lacks the note remedy"
+board new "Sudoku: the puzzle is lost from the difficulty menu" --from sudoku --kind bug --anyway | grep -q "^#" && ok "--anyway files it regardless" || bad "--anyway did not file"
+board new "Chess clock drifts by a second every minute" --from chess --kind bug | grep -q "^#" && ok "a different title is filed without ceremony" || bad "an unrelated title was stopped"
+board block "$CID" --session "$WORKER" --need desk --ask "Does the fix hold on unit B?" --default "ships unverified on B" >/dev/null
+if board state "$CID" released >"$WORK/rel.out" 2>&1; then bad "a card with an open desk blocker was released"; else grep -q "open blocker" "$WORK/rel.out" && grep -q "Does the fix hold on unit B" "$WORK/rel.out" && ok "settling a card with an open desk blocker is refused and the blocker named" || bad "refusal lacks the blocker: $(cat "$WORK/rel.out")"; fi
+board show "$CID" | grep -q "^#$CID *review" && ok "the card stayed in review" || bad "the card moved anyway"
+board state "$CID" released --with-blockers | grep -q "#$CID released" && ok "--with-blockers settles it on purpose" || bad "--with-blockers refused"
+board state "$CID" review >/dev/null
 board list | grep -q "sudoku .*Sudoku loses my puzzle" && ok "an issue names its app from the owners" || bad "sudoku issue not routed to sudoku"
 
 # Every assertion above hands the sweep a file, so the branch that actually

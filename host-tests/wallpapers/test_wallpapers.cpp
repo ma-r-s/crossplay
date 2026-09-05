@@ -3,10 +3,12 @@
 // the app warns before the card fills. Both are freestanding, so a laptop
 // proves them with no device and no SD card.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
 
@@ -128,6 +130,29 @@ int main() {
   testFileNameFilter();
   testDisplayNames();
   testRoomFor();
+
+  // Uploads first, then built-ins, each alphabetical. Mario's ask, and the
+  // ordering the picker's captions are indexed by -- get it wrong and every
+  // caption names someone else's picture.
+  {
+    CHECK(wallpapers::isBuiltInFile("bauhaus.bmp"));
+    CHECK(wallpapers::isBuiltInFile("durer-horsemen.bmp"));
+    CHECK(!wallpapers::isBuiltInFile("holiday.bmp"));
+    CHECK(!wallpapers::isBuiltInFile("bauhaus-of-mine.bmp"));  // not the same stem
+
+    std::vector<std::string> names = {"waves.bmp", "holiday.bmp", "bauhaus.bmp", "zebra.bmp", "celestial.bmp"};
+    std::sort(names.begin(), names.end(),
+              [](const std::string& a, const std::string& b) { return wallpapers::sortsBefore(a, b); });
+    const std::vector<std::string> want = {"holiday.bmp", "zebra.bmp", "bauhaus.bmp", "celestial.bmp", "waves.bmp"};
+    CHECK(names == want);
+    // The comparator must be a strict weak ordering or std::sort is UB.
+    for (const std::string& a : want) {
+      CHECK(!wallpapers::sortsBefore(a, a));
+      for (const std::string& b : want) {
+        if (wallpapers::sortsBefore(a, b)) CHECK(!wallpapers::sortsBefore(b, a));
+      }
+    }
+  }
 
   std::printf("wallpapers: %d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
