@@ -38,6 +38,12 @@ env:
 jobs:
   rebuild:
     runs-on: ubuntu-latest
+    # This job shallow-clones emsdk from GitHub, installs an emscripten
+    # toolchain, runs pio and builds wasm -- four places a network step can hang
+    # with nothing to show for it. Without a cap it inherits GitHub's SIX HOUR
+    # default. 60 matches the other two capped jobs; a rebuild that has been
+    # going an hour is stuck, not slow.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:

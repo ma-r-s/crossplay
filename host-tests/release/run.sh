@@ -1273,23 +1273,35 @@ esac
 # The expected pin is DISCOVERED from the other workflows rather than written
 # here, so a deliberate bump moves this file's answer with them instead of
 # turning a version upgrade into a failing test that names the old number.
+#
+# Read the INSTALL COMMANDS, never the file. A whole-file grep for the pin is
+# satisfied by a comment mentioning it -- and this file now carries a comment
+# that explains the pin, so the check would have been one reword away from
+# passing over `pip install platformio`. Strip comments first, then look only
+# at lines that install something.
+INSTALLS="$(sed 's/#.*//' "$WF" | grep -E 'pip +install')"
+ALL_INSTALLS="$(sed 's/#.*//' "$ROOT"/.github/workflows/*.yml | grep -E 'pip +install')"
+
 checks=$((checks + 1))
-WANT="$(grep -ho 'platformio-core/archive/refs/tags/[^ ]*\.zip' "$ROOT"/.github/workflows/*.yml | sort | uniq -c | sort -rn | head -1 | sed 's/^ *[0-9]* *//')"
+WANT="$(printf '%s\n' "$ALL_INSTALLS" | grep -o 'platformio-core/archive/refs/tags/[^ ]*\.zip' | sort | uniq -c | sort -rn | head -1 | sed 's/^ *[0-9]* *//')"
 if [ -z "$WANT" ]; then
   failed=$((failed + 1))
-  echo "FAIL release  no workflow in this repository pins platformio-core by tag, so there is nothing to hold the release build against"
-elif grep -q "$WANT" "$WF"; then
+  echo "FAIL release  no workflow in this repository pins platformio-core by tag on an install line, so there is nothing to hold the release build against"
+elif printf '%s\n' "$INSTALLS" | grep -qF "$WANT"; then
   ok
 else
   failed=$((failed + 1))
   echo "FAIL release  crossplay-release.yml does not install $WANT, the pinned PlatformIO every other build workflow uses: the image that ships to devices is built by a toolchain nothing else in this repository has verified"
 fi
 
-# Belt and braces: whatever it installs, it must not be an unpinned one.
+# And the other direction, because the check above only asks whether the right
+# pin appears SOMEWHERE among the installs. An install of bare `platformio`
+# beside it is still an unpinned toolchain, in whatever spelling: with a flag,
+# without one, quoted, or version-pinned to something else on PyPI.
 checks=$((checks + 1))
-if grep -qE 'pip install +(--upgrade|-U) +platformio *$' "$WF"; then
+if printf '%s\n' "$INSTALLS" | grep -qE 'pip +install +([^|&;]*[[:space:]])?("|'"'"')?platformio("|'"'"')?([=<>!~][^[:space:]]*)?[[:space:]]*$'; then
   failed=$((failed + 1))
-  echo "FAIL release  crossplay-release.yml installs 'platformio' unpinned; whatever PyPI published most recently builds the release"
+  echo "FAIL release  crossplay-release.yml installs PyPI 'platformio' rather than the pioarduino archive; whatever PyPI published most recently would build the release"
 else
   ok
 fi

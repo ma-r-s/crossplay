@@ -968,18 +968,26 @@ build_flags =
 
 ### CI/CD Pipeline Awareness
 
-> **In CrossPlay, not one of the four workflows in this table runs.** `ci.yml`
-> and `pr-formatting-check.yml` are disabled on GitHub; `release.yml` and
-> `release_candidate.yml` are dispatch-only, and the latter is also gated on a
-> `release/` ref this fork's `app/*` branches never match. All four are kept
-> rather than deleted so upstream syncs stay clean, and each carries a
-> `FORK CHANGE:` note saying so.
+> **In CrossPlay, none of the four workflows in this table runs on a pull
+> request.** `ci.yml` and `pr-formatting-check.yml` are disabled on GitHub;
+> `release.yml` and `release_candidate.yml` are dispatch-only, and the latter is
+> additionally gated on a `release/` ref, which the fork's `app/*` work branches
+> never match -- dispatching it from one gives a green run with zero jobs. All
+> four are kept rather than deleted so upstream syncs stay clean, and each
+> carries a `FORK CHANGE:` note saying so.
 >
-> What actually runs here is `crossplay-ci.yml` (build, clang-format, unit
-> tests, cppcheck, host suites) on every pull request and every push to
-> `xteink`, `crossplay-release.yml` on a `v*` tag, and `crossplay-autorelease.yml`
-> and `crossplay-emulator.yml` after a green run on `xteink`. The table below is
-> upstream's.
+> What actually runs here:
+>
+> - `crossplay-ci.yml` on every pull request and every push to `xteink`: jobs
+>   `build` (four device envs, the simulator and every host suite), `relwatch`,
+>   `release-notes-line`, `clang-format`, `unit-tests` and `cppcheck`.
+> - `crossplay-emulator.yml` on a push to `xteink` touching the emulator's
+>   sources -- concurrently with CI, not after it.
+> - `crossplay-autorelease.yml` after a CI run on `xteink` **concludes
+>   successfully**; it is the only one keyed to a green run.
+> - `crossplay-release.yml` on a `v*` tag.
+>
+> The table below is upstream's.
 
 **GitHub Actions** run automatically on pull requests:
 

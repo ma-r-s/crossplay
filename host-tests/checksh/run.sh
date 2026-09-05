@@ -1337,11 +1337,28 @@ anchor = m.group(1)
 pattern = re.compile(anchor)
 print("ok    check.sh surfaces skips with %s" % anchor)
 
-# What a suite can print as a skip: the text of an echo whose message begins
-# with SKIP. That deliberately does not match "FAIL ... SKIPPED ..." messages,
-# which are failures already, or the word inside a grep.
-echoed = re.compile(r'echo\s+"([^"]*)"')
+# What a suite can print as a skip: the message an echo or printf emits that
+# begins with SKIP, in either quoting style. Matching only `echo "..."` left
+# three silent escapes -- printf, single quotes, and flags before the message.
+# None of them merely passed: each removed the suite from this scan entirely,
+# dropping its check count with no failure, which is the same "counts nothing,
+# reads as green" shape this section exists to refuse.
+#
+# It deliberately does not match "FAIL ... SKIPPED ..." messages, which are
+# failures already, or the word inside a grep pattern.
+emitted = re.compile(r"""(?:echo|printf)\s+(?:-[A-Za-z]+\s+)*(?:"([^"]*)"|'([^']*)')""")
 is_skip = re.compile(r'\s*SKIP\b')
+# "This suite prints a skip somewhere" -- asked WITHOUT assuming the order the
+# two words appear in. The first version of this was `echo ... SKIP`, which a
+# skip assembled into a variable first (`m="SKIP ..."; echo "$m"`) walks
+# straight past, and the suite vanishes from the scan exactly as before.
+# Comments are stripped so prose about skips does not count as printing one.
+def names_skip(src):
+    for line in src.splitlines():
+        bare = line.split('#', 1)[0]
+        if re.search(r'\bSKIP\b', bare) and re.search(r'\b(?:echo|printf)\b', bare):
+            return True
+    return False
 
 found = False
 for name in sorted(os.listdir(suites)):
@@ -1349,8 +1366,14 @@ for name in sorted(os.listdir(suites)):
     if not os.path.isfile(run):
         continue
     src = open(run).read()
-    msgs = [t for t in echoed.findall(src) if is_skip.match(t)]
+    msgs = [(d or q) for d, q in emitted.findall(src) if is_skip.match(d or q)]
     if not msgs:
+        # It prints no skip, or it prints one this scan cannot read. Those are
+        # different answers, and only one of them is fine.
+        if names_skip(src):
+            print("FAIL checksh  host-tests/%s emits SKIP in a form this scan cannot read, so "
+                  "nothing checks that its skip is visible; spell it as a plain echo or printf "
+                  "whose message starts with SKIP" % name)
         continue
     found = True
     for t in msgs:

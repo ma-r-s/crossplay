@@ -23,10 +23,13 @@ trap 'rm -rf "$WORK"' EXIT
 [ -f "$YML" ] || { echo "FAIL cannot find $YML"; exit 1; }
 
 # Lift a named step's shell body out of a workflow and dedent it, so these
-# tests cannot drift from the text the runner actually executes. ONE extractor
-# for every caller below: this python was copied three times in this file, and a
-# step whose name stops matching is a "could not extract" rather than a silent
-# pass in each copy separately.
+# tests cannot drift from the text the runner actually executes.
+#
+# This python was copied three times in this file. Two of the three were
+# identical and now call this; the third (the packaging-step check further down,
+# heredoc LIFT) is deliberately left alone -- it dedents by a hardcoded ten
+# spaces and exits 0 rather than raising when its step is absent, so folding it
+# in here would change its behaviour rather than tidy it.
 lift_step() {  # <workflow.yml> <step name>  -> that step's run: block, dedented
   python3 - "$1" "$2" <<'PY'
 import sys
@@ -98,8 +101,12 @@ expect "a non-ui suite failing still fails the build" fail
 # So it passes every local build and breaks CI alone, which is the one failure
 # mode nothing else here can see. It cost a red xteink that was blamed on
 # upstream for hours.
+# Same floor as everywhere else in this file: no .ini files found means this
+# loop asserted nothing, and said so by staying silent.
+inis=0
 for ini in "$HERE/../.."/platformio*.ini; do
   [ -f "$ini" ] || continue
+  inis=$((inis + 1))
   while IFS= read -r pin; do
     checks=$((checks + 1))
     if [ "${#pin}" -eq 40 ]; then
@@ -110,6 +117,11 @@ for ini in "$HERE/../.."/platformio*.ini; do
     fi
   done < <(grep -oE '^[^;#]*=(https?|git)://[^ ]*#[0-9a-f]+' "$ini" | sed 's/.*#//')
 done
+checks=$((checks + 1))
+if [ "$inis" -eq 0 ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  no platformio*.ini found, so the git-pin check examined nothing"
+fi
 
 # The release trigger, which is a concurrency setting three files away.
 #
@@ -339,6 +351,54 @@ stale_says "2 is the script telling us it could not look" 2 fail ""
 # answers either, and it used to be filed as 'fresh' by the same else branch.
 stale_says "a missing script is not an answer" gone fail ""
 
+# -- and the gate the staleness answer feeds --------------------------------
+#
+# Everything above proves the step ANSWERS correctly. It says nothing about
+# whether the answer is read correctly, and the rebuild is skipped by an `if:`
+# on every later step. Change one of those to `== 'True'` and the job goes back
+# to doing nothing on every push, silently, with all four assertions above
+# still green -- the same failure one step downstream.
+#
+# So: derive the values the step can WRITE, derive the values the later steps
+# COMPARE against, and insist the second set is contained in the first. Neither
+# side is named here, because naming either is how this check would come to
+# agree with a typo.
+python3 - "$EYML" <<'GATE' >"$WORK/gate.out"
+import re, sys
+src = open(sys.argv[1]).read()
+i = src.index("- name: Is the emulator behind its sources?")
+j = src.index("- uses:", i)
+written = set(re.findall(r'stale=([A-Za-z]+)', src[i:j]))
+compared = set(re.findall(r"steps\.stale\.outputs\.stale\s*==\s*'([^']*)'", src))
+print("WRITTEN " + " ".join(sorted(written)))
+print("COMPARED " + " ".join(sorted(compared)))
+print("NGATED %d" % len(re.findall(r"steps\.stale\.outputs\.stale", src[j:])))
+GATE
+w=$(sed -n 's/^WRITTEN //p' "$WORK/gate.out")
+c=$(sed -n 's/^COMPARED //p' "$WORK/gate.out")
+n=$(sed -n 's/^NGATED //p' "$WORK/gate.out")
+
+checks=$((checks + 1))
+if [ -z "$w" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci-emulator  the staleness step writes no stale=<value> at all; this check has nothing to compare against"
+fi
+checks=$((checks + 1))
+if [ "${n:-0}" -lt 1 ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci-emulator  no later step in crossplay-emulator.yml is gated on steps.stale.outputs.stale; either the gating was removed (every push now rebuilds) or it was renamed and the rebuild never runs"
+fi
+for v in $c; do
+  checks=$((checks + 1))
+  case " $w " in
+    *" $v "*) : ;;
+    *)
+      failed=$((failed + 1))
+      echo "FAIL ci-emulator  crossplay-emulator.yml gates a step on stale == '$v', but the staleness step only ever writes: $w. That comparison is never true, so the step it guards never runs and the job still reports success"
+      ;;
+  esac
+done
+
 # -- the long jobs have a cap on being stuck ---------------------------------
 #
 # No job in any workflow here had timeout-minutes, so every one of them
@@ -351,6 +411,12 @@ stale_says "a missing script is not an answer" gone fail ""
 # that "slow" and "stuck" look alike, and a blanket rule over every job would be
 # a number to maintain in six places for jobs that finish in one minute.
 job_timeout() {  # <workflow.yml> <job name>
+  # Read the JOB's own key, at the job's own indent. Walking the whole block
+  # and matching any timeout-minutes at any depth was wrong in the one
+  # direction that matters: every step is indented deeper, so a step-level
+  # `timeout-minutes: 5` satisfied a check about the job and the job still
+  # inherited the six-hour default. Anchored to the exact indent, so a key
+  # under `steps:` cannot answer for the job above it.
   python3 - "$1" "$2" <<'TMO'
 import re, sys
 lines = open(sys.argv[1]).read().splitlines()
@@ -359,15 +425,26 @@ try:
 except StopIteration:
     print('NOJOB'); raise SystemExit(0)
 for l in lines[i + 1:]:
-    if l.strip() and not l.startswith('    '):
+    if not l.strip():
+        continue
+    indent = len(l) - len(l.lstrip())
+    if indent <= 2:          # the next job, or a top-level key: block over
         break
-    m = re.match(r'\s*timeout-minutes:\s*(\d+)', l)
+    if indent != 4:          # deeper than the job's own keys -- a step, not the job
+        continue
+    m = re.match(r'timeout-minutes:\s*(\d+)\s*$', l.strip())
     if m:
         print(m.group(1)); raise SystemExit(0)
 print('NONE')
 TMO
 }
-for pair in "$YML:build" "$HERE/../../.github/workflows/crossplay-release.yml:release"; do
+# crossplay-emulator.yml's rebuild job belongs here for exactly the reason the
+# other two do, and more so: it shallow-clones emsdk from GitHub, installs a
+# toolchain, runs pio and builds wasm. It was the job that best fit the argument
+# and the one job the first version of this left out.
+for pair in "$YML:build" \
+            "$HERE/../../.github/workflows/crossplay-release.yml:release" \
+            "$HERE/../../.github/workflows/crossplay-emulator.yml:rebuild"; do
   f="${pair%:*}"; j="${pair##*:}"
   checks=$((checks + 1))
   t="$(job_timeout "$f" "$j")"
@@ -381,7 +458,16 @@ for pair in "$YML:build" "$HERE/../../.github/workflows/crossplay-release.yml:re
     "")
       failed=$((failed + 1))
       echo "FAIL ci  could not read a timeout out of $(basename "$f") at all; this check answered nothing rather than answering no" ;;
-    *) : ;;
+    *)
+      # A number, but it also has to be a STUCK cap rather than a budget. Both
+      # of these jobs are measured at 19-20 minutes; a cap at or below that
+      # kills honest builds, and the comments beside them argue for headroom
+      # that nothing was holding them to.
+      if [ "$t" -lt 30 ]; then
+        failed=$((failed + 1))
+        echo "FAIL ci  $(basename "$f")'s '$j' job caps at ${t}m, and that job is measured at 19-20 minutes; a cap this tight fails honest builds instead of catching stuck ones"
+      fi
+      ;;
   esac
 done
 
@@ -401,16 +487,28 @@ done
 # Written over "every workflow that is not this fork's own" rather than over a
 # list of the four, so the NEXT upstream workflow a sync brings in arrives red
 # until somebody says whether it runs here.
-for wf in "$HERE/../.."/.github/workflows/*.yml; do
+# BOTH extensions. GitHub runs .yaml as readily as .yml, so a rule written over
+# *.yml alone lets in half of what a sync could bring. And the marker asked for
+# is the one the message names, colon included: `grep -q "FORK CHANGE"` was
+# satisfied by prose merely mentioning the convention.
+seen=0
+for wf in "$HERE/../.."/.github/workflows/*.yml "$HERE/../.."/.github/workflows/*.yaml; do
+  [ -f "$wf" ] || continue
+  seen=$((seen + 1))
   case "$(basename "$wf")" in crossplay-*) continue ;; esac
   checks=$((checks + 1))
-  if grep -q "FORK CHANGE" "$wf"; then
+  if grep -q "FORK CHANGE:" "$wf"; then
     :
   else
     failed=$((failed + 1))
     echo "FAIL ci  $(basename "$wf") is inherited from upstream and carries no 'FORK CHANGE:' note saying whether it runs in this fork; a disabled or unreachable workflow reads exactly like a live one"
   fi
 done
+checks=$((checks + 1))
+if [ "$seen" -eq 0 ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  found no workflow files at all; the fork-marker rule just checked nothing"
+fi
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
