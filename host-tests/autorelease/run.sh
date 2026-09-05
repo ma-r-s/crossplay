@@ -56,19 +56,23 @@ q()   { "$@" >/dev/null 2>&1; }
 
 # Both files, in the shape release_notes.py writes them. Used by every fixture
 # so the layout is stated once.
+#
+# THE BODY'S SHAPE IS PRODUCTION'S, and that matters more than it looks. It
+# used to carry an "### Installing / Flash it." section BELOW the block, and
+# "the rest of the body is intact" was checked against that -- which only ever
+# exercised the branch where a second `###` stops the scan. The real body has
+# one heading and nothing after it, so the scan runs to the end of the file
+# every time, and the branch the fixture tested is one production never takes.
+# Standing text goes ABOVE the heading, here as there.
 lay_out_docs() {  # <repo dir> <version> <one old bullet>
   mkdir -p "$1/docs"
   cat > "$1/docs/release-body.md" <<MD
-Games and small tools for the device.
+[Install it](https://example.invalid/#get) - [earlier releases](docs/release-notes.md)
 
 ### What is new in $2
 
 - $3
 - Another old note
-
-### Installing
-
-Flash it.
 MD
   cat > "$1/docs/release-notes.md" <<MD
 # CrossPlay release history
@@ -123,8 +127,15 @@ H=docs/release-notes.md
 grep -q "### What is new in 1.12.10" "$Y" && ok "the body's heading names the new version" || bad "heading not rewritten"
 git diff --quiet --exit-code -- .github/ && ok "no workflow file is touched by the bump" || bad "the bump touched a workflow file, which the default token may not push"
 grep -q "The old note" "$Y" && bad "the old notes survived in the body" || ok "the body carries this release only"
-grep -q "### Installing" "$Y" && grep -q "Flash it." "$Y" && ok "the rest of the body is intact" || bad "the body lost text outside the block"
-grep -q "Games and small tools" "$Y" && ok "the preamble is intact" || bad "preamble lost"
+grep -q "Install it" "$Y" && grep -q "earlier releases" "$Y" && ok "the standing line of links survived the rewrite" || bad "the body lost the standing text above the block"
+# And the block is still the LAST thing in the file. The rewrite replaces from
+# the heading to the end, so anything it leaves below is either text it did not
+# eat this time or text the next release will -- neither is a body anyone can
+# add a line to safely. host-tests/release asserts the same thing about the
+# real file; this is the generator's half of it.
+[ "$(sed -n '/^### What is new in /,$p' "$Y" | grep -cv '^\(- \|### What is new in \|[[:space:]]*$\)')" = "0" ] \
+  && ok "the rewritten block is the end of the body" \
+  || bad "the rewrite left non-bullet text below the block, which the next release deletes silently"
 # THE HISTORY, which is the half that stops a release page growing. The new
 # release goes on top and the previous one is still there -- a prepend that
 # quietly replaced would look identical on the release page and lose the archive.

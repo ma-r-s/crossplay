@@ -15,8 +15,12 @@ the `release:minor` label), and TWO files are written:
 
     docs/release-body.md    the page this release publishes. Its
                             `### What is new in <version>` block is replaced;
-                            everything else in it (how to install, which file
-                            to download) is left exactly as written.
+                            the one line of links above it is left exactly as
+                            written. That line is the whole of the page's
+                            standing text -- the install steps, the asset
+                            explanations and the project description that used
+                            to sit here are in README.md and docs/install.md,
+                            which is where they were the entire time.
     docs/release-notes.md   the history. The same block is PREPENDED, so every
                             release is kept and no release page carries anybody
                             else's.
@@ -347,7 +351,18 @@ def current_version(ini_text):
 
 
 def rewrite_notes(text, version, bullets):
-    """Replace the `### What is new in X` block (to the next ### or the end) in the published body."""
+    """Replace the `### What is new in X` block (to the next ### or the end) in the published body.
+
+    "To the next ### or the end" is literal, and it is why the body's standing
+    line of links sits ABOVE the heading rather than below it. `indent` is ""
+    for an unindented body, and every string starts with "", so the
+    not-startswith(indent) arm can never fire: the only thing that stops the
+    scan is another `###`. A line added after the block, with no heading
+    between, is therefore eaten by the next release -- silently, in a commit
+    the autorelease pushes by itself, leaving a body that is still valid and
+    still passes every check that reads the block. Put standing text before
+    the heading.
+    """
     lines = text.splitlines(keepends=True)
     start = next(
         (i for i, l in enumerate(lines) if re.match(r"^\s*### What is new in ", l)),
