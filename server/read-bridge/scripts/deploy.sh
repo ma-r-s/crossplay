@@ -22,6 +22,36 @@ fi
 printf '%s\n' "$BUILD_ID" > "$SRC/bridge/BUILD"
 echo "shipping build $BUILD_ID"
 
+# ---------------------------------------------------------------------------
+# THE ATTACK SUITE RUNS BEFORE ANYTHING SHIPS.
+#
+# Same precedent as the isolation test below/beside this: a claim about safety
+# that nothing runs is not a claim. The difference is WHEN -- isolation is a
+# property of the deployed box and is checked after, this is a property of the
+# code and is checked before, because a service that fails it must never reach
+# the pi in the first place.
+#
+# Hermetic: its own throwaway data directory and its own fake upstream. It
+# touches nothing live and needs no network.
+# ---------------------------------------------------------------------------
+PY_LOCAL="$SRC/.venv/bin/python"
+if [ ! -x "$PY_LOCAL" ]; then
+  echo "FAILED: no venv at $SRC/.venv, so the attack suite cannot run and this"
+  echo "deploy cannot say whether the service is safe to publish. Create it:"
+  echo "  cd $SRC && uv venv .venv && uv pip install -r requirements.txt"
+  exit 1
+fi
+echo "attacking the build before shipping it ..."
+if ! "$PY_LOCAL" "$SRC/tests/attack_test.py"; then
+  echo
+  echo "FAILED: the attack suite is red. NOTHING WAS DEPLOYED."
+  echo "Each FAIL line above names what an outsider can do to this build."
+  echo "See docs/bridge-security.md; server/verify_attacks.sh proves the"
+  echo "checks themselves still work."
+  exit 1
+fi
+echo
+
 rsync -a --delete \
   --exclude .venv --exclude data/ --exclude .env --exclude __pycache__ \
   --exclude tests \
