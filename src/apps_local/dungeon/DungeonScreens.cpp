@@ -1,8 +1,10 @@
 #include "DungeonScreens.h"
 
 #include <cstdio>
+#include <string>
 
 #include "../ui/ToyboxFormat.h"
+#include "../ui/ToyboxText.h"
 #include "DungeonArt.h"
 
 namespace dungeonui {
@@ -179,13 +181,12 @@ void drawArt(toybox::Screen& screen, const fui::Rect& cell, const freeink::Icon&
 // "THE GRAVEYARD OF THE VE" with no mark at all to say it had been cut, and the
 // only sign anything was wrong was `No glyph for codepoint 8230` in the log.
 // Setting the name smaller is not a lie about it; truncating silently is.
+// The ladder is toybox::fittedTitle's; the caller says where it starts, which
+// is the UI cut, and fitting only ever goes down from there.
 fui::FontId fitLabel(toybox::Screen& screen, const char* text, const int width, fui::TextStyle& style) {
-  const fui::FontId cuts[2] = {toybox::kUiFont, toybox::kSmallFont};
-  for (const fui::FontId cut : cuts) {
-    style.font = cut;
-    if (screen.target().measureText(cut, text, style).width <= width) return cut;
-  }
-  return cuts[1];
+  style.font = toybox::kUiFont;
+  toybox::fittedTitle(screen.target(), text, static_cast<int16_t>(width), style);
+  return style.font;
 }
 
 void drawClue(toybox::Screen& screen, const fui::Rect& box, const fui::Rect& chip, const int value, const int placed) {
@@ -783,12 +784,19 @@ void buildWin(toybox::Screen& screen, const WinModel& model) {
   const fui::Rect actions = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
   const fui::Rect body = screen.body();
 
+  // Two centred lines, in the largest cut the whole name lays out in. Seven of
+  // the sixty-five names are longer than two lines of the display cut, and
+  // without the ladder each of those reached this screen with its tail replaced
+  // by an ellipsis -- on the screen whose entire job is to name what you just
+  // finished. Stepping down also buys the height back: two display lines are
+  // 126px in a 90px box and two UI lines are 84.
   fui::TextStyle name;
   name.font = toybox::kDisplayFont;
   name.align = fui::TextAlign::Center;
   name.maxLines = 2;
-  screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + 40), body.width, 90), model.dungeonName,
-                       name);
+  const fui::Rect nameBox = fui::makeRect(body.x, static_cast<int16_t>(body.y + 40), body.width, 90);
+  const std::string fittedName = toybox::fittedTitle(screen.target(), model.dungeonName, nameBox.width, name);
+  screen.target().text(nameBox, fittedName.c_str(), name);
 
   // The map they have just finished. Nothing else on this screen is worth
   // looking at, and this is the one thing on it they made.

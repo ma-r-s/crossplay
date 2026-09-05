@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "../ui/ToyboxFormat.h"
+#include "../ui/ToyboxText.h"
 #include "InsiderArt.h"
 
 namespace insiderui {
@@ -43,15 +44,16 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
 // loses its tail to a glyph that draws as *nothing*: "WE SAID THE WORD" became
 // "WE SAID THE WOR" with an [ERR] line nobody was reading. Every label built
 // from a value goes through here.
+//
+// The ladder itself is toybox::fittedTitle's now. This kept its own for a
+// while and its own had the bug every hand-rolled copy has: the cuts were
+// walked by slot NAME, which only descends while an app binds descending cuts.
+// Only the string is dropped here -- these two labels are a player count and a
+// word from a list, and neither has ever needed the ellipsis half.
 fui::FontId fitted(toybox::Screen& screen, const char* text, const int16_t width, const fui::TextStyle& probe) {
-  const fui::FontId cuts[3] = {toybox::kDisplayFont, toybox::kUiFont, toybox::kTileFont};
-  fui::TextStyle measure = probe;
-  for (const fui::FontId cut : cuts) {
-    if (cut == toybox::kDisplayFont && probe.font != toybox::kDisplayFont) continue;
-    measure.font = cut;
-    if (screen.target().measureText(cut, text, measure).width <= width) return cut;
-  }
-  return toybox::kTileFont;
+  fui::TextStyle style = probe;
+  toybox::fittedTitle(screen.target(), text, width, style);
+  return style.font;
 }
 
 // Lays `text` out at `width` by greedy break-at-spaces, and draws each line as

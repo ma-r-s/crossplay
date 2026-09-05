@@ -360,6 +360,37 @@ straight through the subtitle underneath it. The component supports a wrapping
 label _or_ a subtitle, never both; put the secondary value in the `value` slot
 instead, which sits in the band beside the label.
 
+**A title too wide for its box gets a smaller cut, not an ellipsis.** The rule
+is `ToyboxFonts.h`'s: pick the largest cut it fits in, walk the available cuts
+down, and only break a word when the smallest still overflows. Call
+`toybox::fittedTitle(target, text, width, style)` (`ui/ToyboxText.h`) -- it
+rewrites `style.font` to the cut it chose and hands back the string to draw,
+which is your string whenever a cut fitted.
+
+Header bands need no call at all: `toybox::headerBand()` fits the title for
+every one of them, against the width the header component really gives it
+rather than the page margins. What you must not do is write your own ladder.
+Six apps did, and all six walked the cuts by slot NAME -- TITLE, BODY, SMALL --
+which only descends while an app binds descending cuts. `bigNumberFaces()` puts
+the 64px cut in BODY and `cardFaces()` puts 64 in TITLE and 44 in SMALL, so on
+those screens a hand-rolled "step down" steps up. `fittedTitle` orders its rungs
+by what `lineHeight()` answers, so it cannot.
+
+`host-tests/fittedtitle/` walks the real strings of EIGHT screens -- the
+dungeon's guide and its 65 names, Forehead's categories, the linkplay games, Toy
+Battle's maps and how-to, every date the Connections header can format, the
+Hacker News reader's headlines and every comic title in the pack -- through the
+real builders, with a target that measures in the real cuts. It fails on any
+string cut short while a cut that screen bound would have shown it whole.
+
+Eight screens, not all of them: about twenty files call `headerBand` and this
+compiles seven of them. Adding yours is a line in its `run.sh` and a loop.
+
+It also prints, per screen, what no bound cut could have saved, and pins the one
+band that keeps a known exception. Those numbers are output rather than
+assertions on purpose: a gap published as a count is a gap somebody can act on,
+and a gap folded into a pass is one nobody sees.
+
 **A glyph the font does not have draws as nothing.** No box, no fallback.
 `EpdFont::getGlyph` answers nullptr and the pen does not advance, so the
 character is not merely wrong, it is absent. A real Hacker News comment

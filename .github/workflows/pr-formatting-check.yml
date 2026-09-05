@@ -1,5 +1,16 @@
 name: "PR Formatting"
 
+# FORK CHANGE: DISABLED ON GITHUB (disabled_manually), and nothing in the file
+# said so. The trigger below is `pull_request_target`, so it reads as running on
+# every pull request in this repository; it does not run at all.
+#
+# It enforces upstream's semantic pull request titles. This fork's pull requests
+# are opened by sessions from a board card and titled after the card, so the
+# check was red on the fork's own pull requests rather than on anything wrong.
+#
+# Kept rather than deleted because deleting it conflicts on every sync from
+# upstream. Re-enable it in the Actions tab if the fork ever adopts the title
+# convention; the trigger is untouched on purpose.
 on:
   pull_request_target:
     types:

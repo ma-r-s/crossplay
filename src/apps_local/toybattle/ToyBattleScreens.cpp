@@ -569,24 +569,6 @@ const char* refusalBlurb(const tb::Refusal why) {
   return "";
 }
 
-// The largest cut a header title fits in, walking down rather than truncating.
-// "CURSED CEMETERY" came out of the display cut as "CURSED CEMETER" -- not a
-// wrapped line and not an ellipsis, just a name with its last letter gone, which
-// reads as a misspelling rather than as an overflow. The map names are data and
-// the longest one is fifteen characters today; shrinking is the fix that cannot
-// regress the next time somebody traces a board with a long name.
-fui::TextStyle fittedHeaderTitle(toybox::Screen& screen, const char* title, const int16_t reserved) {
-  fui::TextStyle style;
-  style.color = fui::Color::White;
-  const int16_t room = static_cast<int16_t>(screen.device().width - toybox::kMargin * 2 - reserved);
-  const fui::FontId cuts[] = {toybox::kDisplayFont, toybox::kUiFont, toybox::kSmallFont};
-  for (const fui::FontId cut : cuts) {
-    style.font = cut;
-    if (screen.target().measureText(cut, title, style).width <= room) return style;
-  }
-  return style;
-}
-
 // THE TROOP REFERENCE. Every card, its real face, and what it does.
 //
 // One page rather than a footer under the map's special bases: crammed under
@@ -638,9 +620,14 @@ void troopReference(toybox::Screen& screen, const fui::Rect& box, const int colu
 // what doubled.
 void buildBrief(toybox::Screen& screen, const BriefModel& model) {
   const char* title = model.board ? model.board->name : "TERRAIN";
+  // "CURSED CEMETERY" came out of the display cut as "CURSED CEMETER" -- not a
+  // wrapped line and not an ellipsis, just a name with its last letter gone,
+  // which reads as a misspelling rather than as an overflow. The map names are
+  // data and the longest is fifteen characters today. The ladder that fixes it
+  // is toybox::headerBand's now, so every band in the fork has it and this
+  // screen carries no copy: host-tests/fittedtitle walks all ten maps.
   fui::HeaderProps header;
   header.title = title;
-  header.titleText = fittedHeaderTitle(screen, title);
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);

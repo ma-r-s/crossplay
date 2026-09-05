@@ -42,17 +42,10 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "apps_local"
 
-# The only sites allowed to be short, and only because somebody else is already
-# fixing them: ConnectionsScreens.cpp is card 236, fixed on app/tilesize, and
-# this branch must not touch that file. Each entry must STILL BE FAILING -- if
-# one starts passing the gate says so and fails, so this list cannot quietly
-# outlive the work it is waiting on.
-KNOWN = {
-    "src/apps_local/connections/ConnectionsScreens.cpp:380": "card 236, app/tilesize",
-    "src/apps_local/connections/ConnectionsScreens.cpp:598": "card 236, app/tilesize",
-    "src/apps_local/connections/ConnectionsScreens.cpp:615": "card 236, app/tilesize",
-    "src/apps_local/connections/ConnectionsScreens.cpp:720": "card 236, app/tilesize",
-}
+# Nothing is waived. There was a four-site waiver for ConnectionsScreens.cpp
+# while card 236 was in flight on app/tilesize; that branch landed, the gate
+# said "not short any more -- delete the entry", and this is that deletion.
+KNOWN: dict[str, str] = {}
 FORMAT_H = ROOT / "ui" / "ToyboxFormat.h"
 
 # The widest text each conversion can produce ON THE TARGET, which is a 32-bit
@@ -190,6 +183,14 @@ def main():
             buf, fmt = m.group(1), m.group(3)
             decls = [d for d in sizes.get(buf, []) if d[0] < m.start()]
             if not decls:
+                # A destination this cannot size: a char* into somebody else's
+                # array, a struct member, a parameter. It USED to skip these in
+                # silence, and that silence hid a real one -- StudyActivity
+                # copying a widened clock into flow_.facts[0] through a char*,
+                # which only the device build caught. Say so instead.
+                unchecked.append(f"{path.relative_to(ROOT.parents[1])}:"
+                                 f"{src[:m.start()].count(chr(10)) + 1}  {buf} -> \"{fmt}\"  "
+                                 f"(destination is not a fixed buffer declared here)")
                 continue
             size = decls[-1][1]
             tail = src[m.end():m.end() + 400]
@@ -217,7 +218,7 @@ def main():
         print(f"FAIL  {f}")
     print(f"\n{checked} snprintf-into-fixed-buffer sites checked, {len(failures)} too small, "
           f"{len(collisions)} unresolvable, {len(waived)} waived to another branch")
-    print(f"{len(unchecked)} not checkable from the source (a %s or %f whose width is a runtime fact):")
+    print(f"{len(unchecked)} not checkable from the source (an unbounded %s or %f, or a\n    destination this cannot size). NOT passes -- absences, listed so they are visible:")
     for u in unchecked:
         print(f"  {u}")
     return 1 if (failures or collisions) else 0

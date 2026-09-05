@@ -111,8 +111,12 @@ struct SyncFlowModel {
   // Busy face (verdict == None).
   SyncStageState stages[kSyncStageCount] = {SyncStageState::Pending, SyncStageState::Pending, SyncStageState::Pending,
                                             SyncStageState::Pending};
-  char facts[kSyncStageCount][20] = {"", "", "", ""};  // per-stage fact, right slot
-  char caption[120] = "";                              // under the active stage
+  // Wide enough for the widest fact written into it, which is the build
+  // clock: "%um%02us" over a uint32 second count. StudyActivity
+  // static_asserts its own buffer against this rather than trusting it.
+  static constexpr int kFactChars = 24;
+  char facts[kSyncStageCount][kFactChars] = {"", "", "", ""};  // per-stage fact, right slot
+  char caption[120] = "";                                      // under the active stage
   // Terminal face.
   SyncVerdictKind verdict = SyncVerdictKind::None;
   char title[24] = "";
