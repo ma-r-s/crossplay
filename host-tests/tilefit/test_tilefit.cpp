@@ -26,13 +26,13 @@
 // chooseTileCut to the shipped one-line test fails on 3 boards, and to the
 // laid-out-at-all test fails on 48.
 
+#include <EpdFontFamily.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
-
-#include <EpdFontFamily.h>
 
 #include "../../src/apps_local/connections/ConnectionsPack.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
@@ -109,8 +109,8 @@ class FontTarget final : public fui::DrawTarget {
   void triangle(fui::Point, fui::Point, fui::Point, fui::Paint) override {}
   void text(const fui::Rect rect, const char* text, const fui::TextStyle style) override {
     if (text == nullptr) return;
-    texts.push_back(Run{rect, text, widthOf(style.font, text), style.maxLines == 0 ? uint8_t{1} : style.maxLines,
-                        style.font});
+    texts.push_back(
+        Run{rect, text, widthOf(style.font, text), style.maxLines == 0 ? uint8_t{1} : style.maxLines, style.font});
   }
   void bitmap(fui::Rect, fui::BitmapRef, fui::BitmapMode, fui::Paint = {},
               fui::Rotation = fui::Rotation::None) override {}
