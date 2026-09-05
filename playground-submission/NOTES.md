@@ -1,28 +1,38 @@
 # CrossPlay -> reTerminal Sticky Playground submission
 
-**SENT 2026-09-03:
-[Seeed-Projects/reterminal-sticky-playground-registry#37](https://github.com/Seeed-Projects/reterminal-sticky-playground-registry/pull/37)**,
-"Add CrossPlay 1.12.11", open, 6 files, +205. `submitted-pr-37.png` is the page
-as it stood a minute after opening.
+**MERGED: [Seeed-Projects/reterminal-sticky-playground-registry#37](https://github.com/Seeed-Projects/reterminal-sticky-playground-registry/pull/37)**,
+"Add CrossPlay 1.12.11", sent 2026-09-03, 6 files, +205. `submitted-pr-37.png`
+is the page as it stood a minute after opening, before the same-day correction
+that added the 1.12.11 hardware test.
 
-Updated the same day with the 1.12.11 hardware test (see below); the pull
-request now carries two commits and `submitted-pr-37.png` is the page after
-that correction.
+That merge is why CrossPlay is on the playground page at all -- and why Mario
+saw the preview there on 2026-09-05 and said it was wrong.
 
-CI reported `action_required` rather than running: GitHub holds workflows on a
-first-time contributor's pull request until a maintainer approves them. The
-other open outside contributions on that repository show the same state, so it
-is the gate and not this entry.
+CI reported `action_required` rather than running on #37: GitHub holds
+workflows on a first-time contributor's pull request until a maintainer
+approves them. Expect the same on any follow-up; it is the gate, not the entry.
 
-The submitted entry. `firmwares/crossplay/` was a byte-for-byte copy of what
-went into the pull request against
-`Seeed-Projects/reterminal-sticky-playground-registry`, minus the firmware
-binary (see `.gitignore` for how to fetch it back).
+**FOLLOW-UP OPEN:
+[#45](https://github.com/Seeed-Projects/reterminal-sticky-playground-registry/pull/45)**,
+"crossplay: replace the preview with the CrossPlay lockup", opened 2026-09-05
+on Mario's explicit approval (card 240). Two files and nothing else:
+`assets/preview.png` (39,173 -> 12,646 bytes, the mark and wordmark instead of
+a shrunk screenshot of our own web page) and `firmware.json`'s `previewAlt`.
 
-**IT IS NOW ONE COMMIT AHEAD OF PR #37**, since 2026-09-05 (card 240):
-`assets/preview.png` was replaced and `previewAlt` reworded. Nothing has been
-pushed to Seeed. Landing this is a second push to that pull request, which is a
-message to a third party under Mario's name and is his call, not a session's.
+A NEW pull request rather than a second push, because #37 had already merged.
+This file previously said #37 was open and that landing the change meant
+pushing to it -- both false, and the second one costs whoever believes it a
+re-derivation of the route.
+
+`firmwares/crossplay/` here is a byte-for-byte copy of what went to Seeed,
+minus the firmware binary (see `.gitignore` for how to fetch it back).
+
+## The route, which is the expensive part to rediscover
+
+- Fork: `ma-r-s/reterminal-sticky-playground-registry`.
+- Branch from **upstream main**, not the fork's default, which lags.
+- The entry lives at `firmwares/<id>/` with `firmware.json`.
+- Their CI is `validate-registry.yml` and `review-card.yml`.
 
 ## What the earlier draft got wrong
 
