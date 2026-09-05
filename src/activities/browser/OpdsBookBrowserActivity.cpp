@@ -216,7 +216,10 @@ void OpdsBookBrowserActivity::loop() {
       if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
         state = BrowserState::LOADING;
         statusMessage = tr(STR_LOADING);
-        requestUpdate();
+        // immediate: fetchFeed() blocks this task, and a deferred update is a
+        // flag ActivityManager::loop() consumes at its tail -- a tail it cannot
+        // reach until the fetch returns, so nothing would repaint at all. #306.
+        requestUpdate(true);
         fetchFeed(currentPath);
       } else {
         launchWifiSelection();
@@ -704,49 +707,71 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   const auto& nextUrl = parser.getNextPageUrl();
   const auto& prevUrl = parser.getPrevPageUrl();
   const bool feedTruncated = parser.truncated();
-  // Reset the selection before the swap: the render task reads
-  // entries[selectorIndex] under only an empty() guard, and the new feed can
-  // be shorter than the old selection.
-  selectorIndex = 0;
-  listNav.reset();
-  entries = std::move(parser).getEntries();
+  // THE NARROW LOCK, and the only one this branch adds. Read this before
+  // deleting it as redundant.
+  //
+  // requestUpdate(true) above wakes the render task IMMEDIATELY: it paints on
+  // core 1 while this task continues on core 0 into the fetch, so a render is
+  // concurrent with the block below BY CONSTRUCTION. That is WIDER than the
+  // deferred requestUpdate() it replaced, which could not run during a blocking
+  // call at all -- which is exactly why these writes were safe for years and
+  // stopped being safe here. The paint is not the simplification it looks like.
+  //
+  // What it costs: this replaces `entries` and rebuilds `rowItems` from it, and
+  // rowItems' ListItems hold const char* INTO entries[i].title, which
+  // buildBrowsingScreen() reads on the render task. An overlapping render is a
+  // use-after-free, not a torn frame. And not argued away by timing:
+  // displayBuffer() blocks 0.3-2s (HALF_REFRESH is 1720ms), so a small feed can
+  // return inside one refresh.
+  //
+  // Released before the tail reaches launchSearch(); the mutex is non-recursive
+  // and nothing inside re-enters it.
+  {
+    RenderLock lock(*this);
+    // Reset the selection before the swap: the render task reads
+    // entries[selectorIndex] under only an empty() guard, and the new feed can
+    // be shorter than the old selection.
+    selectorIndex = 0;
+    listNav.reset();
+    entries = std::move(parser).getEntries();
 
-  // Language filter. Navigation rows are never dropped -- hiding the way into a
-  // folder because the folder itself carries a language tag would strand the
-  // user -- and neither are books the feed did not tag. See opdsLanguageAllowed.
-  const uint32_t languageMask = opdsLanguageMaskFromCodes(SETTINGS.opdsLanguages);
-  if (languageMask != 0 && languageMask != opdsAllLanguagesMask()) {
-    const size_t before = entries.size();
-    entries.erase(std::remove_if(entries.begin(), entries.end(),
-                                 [languageMask](const OpdsEntry& entry) {
-                                   return entry.type == OpdsEntryType::BOOK &&
-                                          !opdsLanguageAllowed(entry.language, languageMask);
-                                 }),
-                  entries.end());
-    if (before != entries.size()) {
-      LOG_DBG("OPDS", "Language filter hid %zu of %zu entries", before - entries.size(), before);
+    // Language filter. Navigation rows are never dropped -- hiding the way into a
+    // folder because the folder itself carries a language tag would strand the
+    // user -- and neither are books the feed did not tag. See opdsLanguageAllowed.
+    const uint32_t languageMask = opdsLanguageMaskFromCodes(SETTINGS.opdsLanguages);
+    if (languageMask != 0 && languageMask != opdsAllLanguagesMask()) {
+      const size_t before = entries.size();
+      entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                   [languageMask](const OpdsEntry& entry) {
+                                     return entry.type == OpdsEntryType::BOOK &&
+                                            !opdsLanguageAllowed(entry.language, languageMask);
+                                   }),
+                    entries.end());
+      if (before != entries.size()) {
+        LOG_DBG("OPDS", "Language filter hid %zu of %zu entries", before - entries.size(), before);
+      }
     }
-  }
 
-  entries.reserve(entries.size() + (prevUrl.empty() ? 0 : 1) + (nextUrl.empty() ? 0 : 1));
-  if (!prevUrl.empty()) {
-    entries.insert(entries.begin(), OpdsEntry{OpdsEntryType::NAVIGATION, tr(STR_PREV_PAGE), "", prevUrl, ""});
-  }
-  if (!nextUrl.empty()) {
-    entries.push_back(OpdsEntry{OpdsEntryType::NAVIGATION, tr(STR_NEXT_PAGE), "", nextUrl, ""});
-  }
-  if (feedTruncated) {
-    LOG_INF("OPDS", "Feed truncated to fit memory");
-  }
+    entries.reserve(entries.size() + (prevUrl.empty() ? 0 : 1) + (nextUrl.empty() ? 0 : 1));
+    if (!prevUrl.empty()) {
+      entries.insert(entries.begin(), OpdsEntry{OpdsEntryType::NAVIGATION, tr(STR_PREV_PAGE), "", prevUrl, ""});
+    }
+    if (!nextUrl.empty()) {
+      entries.push_back(OpdsEntry{OpdsEntryType::NAVIGATION, tr(STR_NEXT_PAGE), "", nextUrl, ""});
+    }
+    if (feedTruncated) {
+      LOG_INF("OPDS", "Feed truncated to fit memory");
+    }
 
-  // A catalog with nothing to browse but a search link is not broken -- that is
-  // what a lookup-only catalog looks like, and LibGen is one. The feed itself
-  // tells us which shape it is, so no per-catalog setting is needed.
-  searchOnlyCatalog = entries.empty() && !searchTemplate.empty();
+    // A catalog with nothing to browse but a search link is not broken -- that is
+    // what a lookup-only catalog looks like, and LibGen is one. The feed itself
+    // tells us which shape it is, so no per-catalog setting is needed.
+    searchOnlyCatalog = entries.empty() && !searchTemplate.empty();
 
-  state = (entries.empty() && !searchOnlyCatalog) ? BrowserState::ERROR : BrowserState::BROWSING;
-  if (entries.empty() && !searchOnlyCatalog) errorMessage = tr(STR_NO_ENTRIES);
-  rebuildRowItems();
+    state = (entries.empty() && !searchOnlyCatalog) ? BrowserState::ERROR : BrowserState::BROWSING;
+    if (entries.empty() && !searchOnlyCatalog) errorMessage = tr(STR_NO_ENTRIES);
+    rebuildRowItems();
+  }
   requestUpdate();
 
   // Where the reader lands depends on the catalog's shape, not on a
@@ -780,6 +805,10 @@ void OpdsBookBrowserActivity::rebuildRowItems() {
 }
 
 void OpdsBookBrowserActivity::releaseEntries() {
+  // Same container, same reason as the swap in fetchFeed(): this frees every
+  // string rowItems points into, and a render woken by an earlier
+  // requestUpdate(true) may still be reading them.
+  RenderLock lock(*this);
   // The app's interaction table holds row indices (and hit rects) for the old
   // entries; stop routing touches against it until the next render.
   closeRouting();
@@ -823,7 +852,8 @@ void OpdsBookBrowserActivity::navigateBack() {
     statusMessage = tr(STR_LOADING);
     releaseEntries();
     selectorIndex = 0;
-    requestUpdate();
+    // immediate, like the other five paths into a feed. See #306.
+    requestUpdate(true);
     fetchFeed(currentPath);
   }
 }
@@ -1060,7 +1090,10 @@ void OpdsBookBrowserActivity::checkAndConnectWifi() {
   if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
     state = BrowserState::LOADING;
     statusMessage = tr(STR_LOADING);
-    requestUpdate();
+    // immediate. This is the COLD START: onEnter() -> checkAndConnectWifi(),
+    // so the screen left on the panel by a deferred update is the shelf, for
+    // the length of a catalog fetch. #306.
+    requestUpdate(true);
     fetchFeed(currentPath);
     return;
   }
