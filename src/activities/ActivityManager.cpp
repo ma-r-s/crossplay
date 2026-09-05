@@ -85,6 +85,29 @@ void ActivityManager::reportRepaint(const char* activityName, const uint32_t req
 void ActivityManager::renderTaskLoop() {
   while (true) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+    // The waiter is claimed HERE, before the frame is built, and not at the
+    // bottom after it. Card #306: claiming it at the bottom meant a waiter that
+    // registered while this task was ALREADY inside render() was woken by the
+    // frame that began before it asked -- so requestUpdateAndWait() returned
+    // with the PREVIOUS screen on the panel, which is the exact guarantee it
+    // exists to give. It is reachable on Get Books' cold start: loop() drops
+    // the render lock before onEnter(), so a notification left pending from
+    // before the activity swap can have this task painting while
+    // onEnter() -> checkAndConnectWifi() -> beginFetch() registers its wait.
+    //
+    // Worse than a missed frame: that leftover notification made the NEXT
+    // render run concurrently with the fetch the caller went on to start, and
+    // a fetch mutates the entry list an activity's render() is reading with no
+    // RenderLock between them. Claiming at the top cannot mis-pair a waiter
+    // with an older frame -- every waiter notifies after registering, so the
+    // iteration that claims it is always one that starts afterwards.
+    TaskHandle_t waiter = nullptr;
+    taskENTER_CRITICAL(&activityManagerSpinlock);
+    waiter = waitingTaskHandle;
+    waitingTaskHandle = nullptr;
+    taskEXIT_CRITICAL(&activityManagerSpinlock);
+
     // Acquire the lock before reading currentActivity to avoid a TOCTOU race
     // where the main task deletes the activity between the null-check and render().
     // Stamped before RenderLock, not after: a background build or an idle task
@@ -108,12 +131,10 @@ void ActivityManager::renderTaskLoop() {
       currentActivity->render(std::move(lock));
       reportRepaint(currentActivity->name.c_str(), requestedAtMs, repaintStartMs);
     }
-    // Notify any task blocked in requestUpdateAndWait() that the render is done.
-    TaskHandle_t waiter = nullptr;
-    taskENTER_CRITICAL(&activityManagerSpinlock);
-    waiter = waitingTaskHandle;
-    waitingTaskHandle = nullptr;
-    taskEXIT_CRITICAL(&activityManagerSpinlock);
+    // The frame claimed at the top of this iteration is now on the panel --
+    // render() ends in displayBuffer(), which returns only after the waveform
+    // -- so the task blocked in requestUpdateAndWait() can go on to block on
+    // its socket.
     if (waiter) {
       xTaskNotify(waiter, 1, eIncrement);
     }
@@ -465,7 +486,12 @@ void ActivityManager::requestUpdateAndWait() {
   bool isRenderTask = (currTaskHandler == renderTaskHandle);
   bool alreadyWaiting = (waitingTaskHandle != nullptr);
   bool holdingRenderLock = (mutexHolder == currTaskHandler);
-  if (!alreadyWaiting && !isRenderTask && !holdingRenderLock) {
+  // Recorded inside the critical section, not re-derived from
+  // waitingTaskHandle afterwards: the render task claims that field the moment
+  // it takes a notification, so a later read of it says nothing about whether
+  // THIS call was the one that registered.
+  const bool claimed = (!alreadyWaiting && !isRenderTask && !holdingRenderLock);
+  if (claimed) {
     waitingTaskHandle = currTaskHandler;
   }
   taskEXIT_CRITICAL(&activityManagerSpinlock);
@@ -478,6 +504,22 @@ void ActivityManager::requestUpdateAndWait() {
 
   // Cannot call while holding RenderLock or it will cause a deadlock
   assert(!holdingRenderLock && "Cannot call requestUpdateAndWait() while holding RenderLock");
+
+  // Only the caller that actually CLAIMED the wait may block on it. This used
+  // to notify and then ulTaskNotifyTake(portMAX_DELAY) whatever the guards
+  // said, so with asserts compiled out a caller the guards rejected -- a second
+  // waiter, or one holding the RenderLock -- blocked forever on a notification
+  // nobody would ever send, with no timeout and no log line. Asserts are live
+  // in every env in platformio.ini today, so it panics rather than hangs; this
+  // is what happens on the day one is not. Degrading to "no wait" leaves a
+  // busy frame racing its socket, which is the bug this file is fixing rather
+  // than a dead device.
+  if (!claimed) {
+    LOG_ERR("ACT", "requestUpdateAndWait() refused (render task: %d, already waiting: %d, holds lock: %d)",
+            static_cast<int>(isRenderTask), static_cast<int>(alreadyWaiting), static_cast<int>(holdingRenderLock));
+    xTaskNotify(renderTaskHandle, 1, eIncrement);
+    return;
+  }
 
   xTaskNotify(renderTaskHandle, 1, eIncrement);
   ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
