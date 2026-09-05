@@ -618,6 +618,10 @@ int main() {
   testRevealedHandCannotBeStolenFrom();
   testFourMermaidsWinsOnArrival();
   soak();
-  std::printf("seasalt: %d checks passed\n", checks);
+  // "0 failed" is not a literal standing in for a count: CHECK() calls
+  // std::exit(1) on the first failure, so this line is only ever
+  // reached with none. The wording is what check.sh counts sub-suites
+  // by, and "N checks passed" made this suite report 0 of them.
+  std::printf("seasalt: %d checks, 0 failed\n", checks);
   return 0;
 }

@@ -1,16 +1,35 @@
-# Rebuild the browser emulator after a merge, and commit it.
+# Rebuild the browser emulator after a merge, and publish it.
 #
-# site/emulator/ is a committed build artefact, and both sides of every merge
-# used to conflict on it, which is the whole reason the integration tree
-# needed a single occupant. This job does that rebuild on GitHub after every
-# push to xteink whose sources are newer than the artefact
-# (scripts_local/emulator-stale.sh, the same test check.sh applies), and
-# commits the result as "chore: emulator rebuilt for <sha>".
+# site/emulator/ is a build artefact, and both sides of every merge used to
+# conflict on it, which is the whole reason the integration tree needed a
+# single occupant. This job does that rebuild on GitHub after every push to
+# xteink whose sources are newer than the artefact
+# (scripts_local/emulator-stale.sh, the same test check.sh applies).
+#
+# IT NO LONGER COMMITS THE BYTES. It used to, and that cost 111 revisions of
+# crossplay.wasm, ~357MB of history and about 20MB a day forever -- paid for by
+# every clone and every CI checkout in the fork, for a ~104MB working tree in a
+# ~497MB repository. The wasm now goes to the `emulator` GitHub release under a
+# content-addressed name, and the only thing committed is the ~1KB pointer
+# site/emulator-manifest.json. site/fetch-emulator.mjs is site/vercel.json's
+# buildCommand and puts the files back during Vercel's build; a fetch that
+# fails or arrives with the wrong bytes fails that build, so the previous
+# deployment keeps serving rather than a broken one replacing it.
+# tools_local/site/publish_emulator.py owns both halves and explains the shape.
+#
+# The commit is still called "chore: emulator rebuilt for <sha>". Do not
+# reword that: crossplay-autorelease.yml matches the subject to tell an
+# emulator rebuild from a real merge that moved the tip past what CI verified,
+# and a rename there silently stops every release.
 #
 # The commit is pushed with the workflow's own token, so it starts no CI run
 # of its own: it changes nothing a device build sees, and the next real merge's
 # CI covers it. One at a time, rebased before push, so two quick merges make
 # two commits in order rather than a conflict.
+#
+# What this job CANNOT see is whether the live site ends up serving what it
+# published. crossplay-site-live.yml asks the origin that, after this finishes
+# and again once a day.
 name: CrossPlay emulator
 
 on:
@@ -97,16 +116,39 @@ jobs:
           python3 tools_local/wasm/build.py
           git status --short site/emulator
 
-      - name: Commit and push the artefact
+      # Upload BEFORE committing, and never the other way round. A manifest on
+      # xteink naming assets that were never uploaded is a Vercel build that
+      # fails on every deploy until someone notices; assets uploaded with no
+      # manifest pointing at them are four unreferenced files on a release.
+      - name: Publish the artefact to the emulator release
+        if: steps.stale.outputs.stale == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools_local/site/publish_emulator.py
+
+      - name: Commit and push the manifest
         if: steps.stale.outputs.stale == 'true'
         run: |
           git config user.name "crossplay-release[bot]"
           git config user.email "crossplay-release@users.noreply.github.com"
-          git add site/emulator
+          # The pointer, and only the pointer. site/emulator/ itself is still
+          # tracked at the revision it was frozen at (the fallback described in
+          # site/README.md), and the rebuild has just rewritten those files in
+          # this runner's tree -- so they are restored, both to keep them out of
+          # the commit and because `git pull --rebase` below refuses to run with
+          # unstaged changes in the tree.
+          git add site/emulator-manifest.json
+          git checkout -- site/emulator
           if git diff --cached --quiet; then
-            echo "The rebuild produced identical bytes; nothing to commit."
-            exit 0
+            # The manifest carries built_from, which build.py stamps with the
+            # revision it compiled -- a different commit every time this job
+            # runs. So an unchanged manifest cannot mean "a rebuild produced
+            # identical bytes"; it means the rebuild or the publish did not
+            # happen. Committing nothing would leave the artefact reading stale
+            # forever and check.sh red on the deploy branch, so this is loud.
+            echo "::error::the manifest did not change, so nothing was published."
+            exit 1
           fi
-          git commit -m "chore: emulator rebuilt for $(git rev-parse --short HEAD)" -m "Rebuilt by crossplay-emulator.yml after a push to xteink."
+          git commit -m "chore: emulator rebuilt for $(git rev-parse --short HEAD)" -m "Rebuilt by crossplay-emulator.yml after a push to xteink. The bytes are on the emulator release; this is the pointer to them."
           git pull --rebase origin xteink
           git push origin HEAD:xteink

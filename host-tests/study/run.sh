@@ -6,8 +6,14 @@
 #   host-tests/study/run.sh [path/to/converted/deck]
 #
 # The deck tests parse a deck produced by tools_local/study/anki_to_deck.py, so
-# what the converter writes is checked against what the firmware reads. They
-# skip with a note if no deck has been converted yet.
+# what the converter writes is checked against what the firmware reads.
+#
+# With no argument they used to SKIP, and nothing in check.sh or in CI has ever
+# passed one, so two of the five binaries below printed
+# "PASS (0 checks, 0 failures)" on every run this repo has had. They now get a
+# fixture built here: make_fixture.py writes a synthetic Anki collection and
+# runs the REAL converter over it, so the round trip happens rather than being
+# waited for. Pass a directory to point them at a real converted deck instead.
 set -e
 cd "$(dirname "$0")"
 # Keyed to this checkout, not just the suite name -- two worktrees sharing one
@@ -30,8 +36,19 @@ SRC=../../src/apps_local/study
   "$SRC/StudyImages.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_images.cpp \
   -o "$BUILD_DIR/test_images"
 
+# The deck under test. An argument wins; otherwise build one. A failure here
+# is a failure of the suite: the tests below now REFUSE a missing deck rather
+# than skipping past it, so a fixture that cannot be built must be loud at the
+# point it cannot be built.
+DECK="${1:-}"
+if [ -z "$DECK" ]; then
+  DECK="$BUILD_DIR/fixture"
+  rm -rf "$DECK"
+  python3 make_fixture.py --out "$DECK"
+fi
+
 "$BUILD_DIR/test_fsrs"
-"$BUILD_DIR/test_deck" "$@"
+"$BUILD_DIR/test_deck" "$DECK"
 "$BUILD_DIR/test_scheduler"
 "$BUILD_DIR/test_stats"
-"$BUILD_DIR/test_images" "$@"
+"$BUILD_DIR/test_images" "$DECK"

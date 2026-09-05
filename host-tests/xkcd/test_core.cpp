@@ -878,6 +878,6 @@ int main() {
   testCoverage();
   testGapWindowFitsTheDevice();
 
-  std::printf("%s  xkcd core: %d checks, %d failures\n", failures ? "FAIL" : "ok  ", checks, failures);
+  std::printf("%s  xkcd core: %d checks, %d failed\n", failures ? "FAIL" : "ok  ", checks, failures);
   return failures ? 1 : 0;
 }
