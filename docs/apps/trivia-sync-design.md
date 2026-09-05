@@ -215,20 +215,44 @@ host, by the card #125 convention, unless the owner turned the headers off. So
 a report _is_ associated with a pseudonymous device id at the moment it
 arrives, whatever the body says.
 
-That is not an accident to route around, and there are two honest positions:
+This matters because de-duplication is the whole value of the queue: forty
+reports of one question from one annoyed player must not read as forty players
+agreeing, and only a stable id can tell those apart.
 
-- **Keep it** (recommended). Without it, forty reports of one question from one
-  annoyed player is indistinguishable from forty players agreeing, and telling
-  those apart is the entire value of the queue. The id is already documented,
-  already pseudonymous, already toggleable, and the alternative is inventing a
-  _second_ identifier, which is strictly worse. The service should use it **only**
-  to de-duplicate — count distinct devices per question, store the count, and
-  never store the id on the report row itself.
-- **Suppress it** on the report path specifically. Cheap to do; costs the
-  de-duplication and buys nothing the existing toggle does not already buy.
+**But "use the id only to count distinct devices" does not survive being written
+down.** To know whether this device already reported this question, something has
+to remember that it did — and a table of (device, question) IS a device history,
+whatever the column is called. Saying "we only use it for counting" is the kind
+of rule that holds until someone writes a useful query.
 
-Recommend keep-and-discard-after-counting, and write that rule into the service's
-README so it cannot quietly become a device history later.
+So the id is never stored, and never even reaches the row. What is stored is
+
+```
+report_key = sha256(server_secret || device_id || pack_id || index)
+```
+
+...used as a uniqueness constraint and nothing else. This keeps exactly the
+property wanted and loses exactly the one not wanted:
+
+- A second report of the **same question** from the same device collides, so it
+  is idempotent and the count stays honest.
+- Two reports of **different questions** from the same device share nothing. The
+  key is per-question, so the rows cannot be joined into a history.
+- The secret is server-side, so the keys cannot be probed offline by anyone who
+  guesses a device id — which, since the id is `sha256(MAC + a device secret)`,
+  is already infeasible, but the salt means it does not have to be relied on.
+- `site/api/report.js` already does this shape with `reporterHash`, a salted
+  hash of the address kept "so the address itself is never stored". Same trick,
+  same reason.
+
+The alternative — **suppress the header on this path** — stays available and
+costs only the de-duplication. It is worth doing if the hashing above is judged
+not worth the complexity, but it should be a decision, not a default: with no
+de-duplication at all, one determined player can drown the queue by tapping
+`HIDE` repeatedly, and nothing downstream can tell.
+
+Write the rule into the service's README beside the code, because this is
+precisely the constraint that erodes quietly.
 
 ## D3. Freshness, versioning, and whose problem it is
 
