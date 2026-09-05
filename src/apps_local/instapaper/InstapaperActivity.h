@@ -96,6 +96,9 @@ class InstapaperActivity final : public Activity {
   // happens only in performDisconnect(), reached by a deliberate press on the
   // confirm's marked control.
   void showDisconnectConfirm();
+  // Busy screen painted immediately, for callers that then BLOCK inline.
+  // request() above defers to the next loop pass instead. Card #306.
+  void paintBusyNow(const char* headline);
   void performDisconnect();
 
   // Epoch seconds, or 0 when the clock has never been set. A progress stamp
