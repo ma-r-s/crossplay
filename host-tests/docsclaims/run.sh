@@ -169,24 +169,52 @@ if m:
 # No reader must be able to reach a build or an upload that names no
 # environment. `default_envs = default` is upstream's ESP32-C3 target.
 # ---------------------------------------------------------------------------
+# Every markdown file in the repository, not a chosen few: scoping this to the
+# files that were known to be wrong is how the twin in the next directory
+# survives. One file is exempt, by name and with a reason.
+EXEMPT = {
+    # Upstream's README, preserved as a record when the fork took the README.md
+    # filename. Rewriting its commands would falsify the record, so it carries a
+    # blockquote at the top saying it is upstream's and that its upload flashes
+    # a C3 image. That note is asserted below.
+    "docs/crosspoint-readme.md",
+}
+SKIP_DIRS = {".git", ".pio", "freeink-sdk", "node_modules", "fs_agent",
+             "fs_mario", "qa-artifacts", "emulator", ".cache", "archive"}
 env_less = []
-scan = ["README.md", "AGENTS.md"]
-contrib = os.path.join(root, "docs/contributing")
-scan += [f"docs/contributing/{f}" for f in sorted(os.listdir(contrib)) if f.endswith(".md")]
-for rel in scan:
-    fenced = False
-    for n, line in enumerate(read(rel).splitlines(), 1):
-        if line.lstrip().startswith("```"):
-            fenced = not fenced
+scanned = 0
+for dp, dns, fns in os.walk(root):
+    dns[:] = [d for d in dns if d not in SKIP_DIRS]
+    for fn in sorted(fns):
+        if not fn.endswith(".md"):
             continue
-        if not fenced:
+        rel = os.path.relpath(os.path.join(dp, fn), root)
+        if rel in EXEMPT:
             continue
-        cmd = line.strip().lstrip("$").strip()
-        if cmd.startswith("pio run") and " -e " not in cmd:
-            env_less.append(f"{rel}:{n}  {cmd}")
+        scanned += 1
+        fenced = False
+        for n, line in enumerate(read(rel).splitlines(), 1):
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+                continue
+            if not fenced:
+                continue
+            cmd = line.strip().lstrip("$").strip()
+            if cmd.startswith("pio run") and " -e " not in cmd:
+                env_less.append(f"{rel}:{n}  {cmd}")
+check(scanned > 50, "the env-less build scan reached almost nothing",
+      f"only {scanned} markdown files; a scan that finds no files reports clean")
 check(not env_less,
       "a firmware build or upload that names no environment builds [env:default], which is ESP32-C3",
       "; ".join(env_less))
+
+# The exemption is only honest while the file says so itself.
+cpr = read("docs/crosspoint-readme.md")
+check("upstream's README" in cpr and "ESP32-C3" in cpr and "x4pro" in cpr,
+      "docs/crosspoint-readme.md is exempt from the env-less scan but no longer says why",
+      "it must state that it is upstream's record and that its commands target C3")
+
+contrib = os.path.join(root, "docs/contributing")
 
 # The two lines that make a stranger's first build work at all.
 check("git submodule update --init" in readme,
