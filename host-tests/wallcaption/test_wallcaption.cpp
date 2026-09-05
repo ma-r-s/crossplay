@@ -141,6 +141,24 @@ int main() {
           "caption row is shorter than the real line height" + at);
   }
 
+  // 1b. A bracket must not reach into a NEIGHBOURING cell. It extends 9px
+  //     outside the artwork into a 24px gap, so the clearance is real but thin,
+  //     and a bracket bleeding sideways would read as the wrong tile being
+  //     selected -- the picker's one job is saying which wallpaper is chosen.
+  for (int slot = 0; slot < g.perPage; ++slot) {
+    const wallpapersui::MarkerRects m = wallpapersui::markerRects(wallpapersui::thumbRect(g, slot));
+    for (int other = 0; other < g.perPage; ++other) {
+      if (other == slot) continue;
+      const fui::Rect theirThumb = wallpapersui::thumbRect(g, other);
+      const fui::Rect theirCap = wallpapersui::captionRect(g, other);
+      const std::string at = " (slot " + std::to_string(slot) + " into slot " + std::to_string(other) + ")";
+      for (int i = 0; i < wallpapersui::MarkerRects::kCount; ++i) {
+        check(!overlaps(m.r[i], theirThumb), "bracket reaches a neighbour's artwork" + at);
+        check(!overlaps(m.r[i], theirCap), "bracket reaches a neighbour's caption" + at);
+      }
+    }
+  }
+
   // 2. Every built-in name, measured in the face the panel uses, in every slot.
   int widest = 0;
   std::string widestName;
