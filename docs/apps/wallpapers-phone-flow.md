@@ -483,7 +483,7 @@ Four pull requests, in this order. The first is a prerequisite for the third.
 | 0   | **The tap/hold gate.** Refuse a tap held longer than the long-press threshold, with a host test that fails when the bound is reverted.                                                                                            | nothing    |
 | 1   | **QR + upload.** The new screen, `wallpapersOnly` server mode, the devmode latch, a real bind-failure path, `roomFor` on upload, `.davtmp` sweeping, collision naming, the Wi-Fi short-circuit. Grid stays tap-only.              | nothing    |
 | 2   | **Hold sheet: preview, delete, confirm.** Including the honest "getting it back means the whole pack again" wording and the `specialTiles()` renumbering.                                                                         | PR 0       |
-| 3   | **Shuffle (#305).** Selection mode, the `.placed` manifest, the sleep-mode honesty line. Needs a written audit of `/sleep`, `/.sleep` and every `SLEEP_SCREEN_MODE` first -- the marker's promise cannot be kept until it exists. | PR 0, PR 2 |
+| 3   | **Shuffle (#305).** Selection mode, the `.placed` manifest, the sleep-mode honesty line. Its prerequisite audit is DONE (Part 2), and #354 should land first or the honesty line is telling half the truth. | PR 0, PR 2 |
 
 PR 1 is the whole of Mario's first ask and the only piece with a security
 surface. It is also the only one that needs his eyes on a screen before it is
