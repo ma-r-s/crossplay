@@ -11,6 +11,14 @@ namespace devicehost {
 
 namespace {
 
+// The fork's name, and the only place it now appears in a hostname: the two
+// activities that advertise it used to hold a copy each. Spelled as a named
+// HOSTNAME constant because host-tests/brand greps for exactly this shape and
+// asserts it is PRESENT as well as not saying CrossPoint -- an allowlist alone
+// would let a tidy-up rename ship a device that answers to nothing. The
+// per-unit suffix is appended below; this is the branded half.
+constexpr const char* HOSTNAME = "crossplay";
+
 // FNV-1a over all six MAC bytes, rather than "take the low three".
 //
 // That shortcut is a coin flip on byte order, and losing it is catastrophic
@@ -41,12 +49,12 @@ const char* mdnsName() {
   // esp_read_mac fills mac[0..5] in the printed order, and reads eFuse rather
   // than the radio, so it works before WiFi starts.
   if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
-    std::snprintf(buf, sizeof(buf), "crossplay-%06x", hashMac(mac) & 0xFFFFFFu);
+    std::snprintf(buf, sizeof(buf), "%s-%06x", HOSTNAME, hashMac(mac) & 0xFFFFFFu);
   } else {
     // Losing the MAC is not a reason to have no name: fall back to the old
     // fixed one, which is exactly as collision-prone as it always was and no
     // worse than refusing to advertise at all.
-    std::snprintf(buf, sizeof(buf), "crossplay");
+    std::snprintf(buf, sizeof(buf), "%s", HOSTNAME);
   }
   name = buf;
 #else
@@ -54,7 +62,7 @@ const char* mdnsName() {
   // rendered screenshots deterministic AND shows the real SHAPE of the name --
   // a bare "crossplay" here would have hidden the extra seven characters from
   // every render and every host test that measures one.
-  name = "crossplay-a1b2c3";
+  name = std::string(HOSTNAME) + "-a1b2c3";
 #endif
   return name.c_str();
 }
