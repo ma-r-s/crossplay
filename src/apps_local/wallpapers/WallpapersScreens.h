@@ -22,7 +22,7 @@
 //   2  DENSE    -- 2x3 smaller thumbnails with a file-name caption, thinner border
 //   3  CAPTIONED -- 2x2 big thumbnails WITH a caption, the heaviest border
 #ifndef WALLPAPERS_VARIANT
-#define WALLPAPERS_VARIANT 1
+#define WALLPAPERS_VARIANT 2
 #endif
 
 namespace wallpapersui {

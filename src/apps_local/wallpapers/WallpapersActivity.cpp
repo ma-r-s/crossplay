@@ -363,7 +363,13 @@ void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const f
   style.color = fui::Color::Black;
   const fui::Rect label = fui::makeRect(th.x, static_cast<int16_t>(th.y + th.height * 3 / 5), th.width,
                                         static_cast<int16_t>(th.height / 3));
-  std::string fitted = toybox::fitLines(target, "Add a wallpaper", label.width, 1, style);
+  // The dense grid's cell is too narrow for the long label, and a truncated
+  // "Add..." reads as a bug rather than a control. Take the long form when it
+  // fits whole, the short one when it does not; the plus carries the meaning
+  // either way.
+  static constexpr const char* kLong = "Add wallpaper";
+  std::string fitted = toybox::fitLines(target, kLong, label.width, 1, style);
+  if (fitted != kLong) fitted = "Add";
   target.text(label, fitted.c_str(), style);
   (void)geom;
 }
