@@ -381,3 +381,86 @@ select t('collect on an unanswered young request posts nothing',
          (select count(*)::text from events), '0');
 select t('and does not move the last-seen clock',
          (select last_ok_at::text from release_state), '2026-09-04 17:00:00+00');
+
+-- 15. A card addressed to Mario is an item in his inbox, by construction
+-- (card #209). The inbox view is the open `mario` blockers and nothing else,
+-- and a card is not a blocker, so a card filed on app `mario` -- the app that
+-- already means "only Mario can decide this" -- used to reach him only if
+-- somebody also remembered to block on it. Cards 75 and 84 aged a day in
+-- `reported` because nobody did. The rule is here as well as in the board CLI
+-- because the CLI is not the only writer: the site's report function, the
+-- inbox page and a hand-typed UPDATE all reach `cards` directly.
+insert into cards (title, app, kind, state) values
+  ('Retire Main and open a fresh orchestrator', 'mario', 'task', 'reported'),
+  ('Sudoku keeps its own puzzle', 'sudoku', 'bug', 'reported');
+select t('a card filed on app mario opens a mario blocker asking its title',
+         (select b.ask from blockers b join cards c on c.id = b.card_id
+          where c.title = 'Retire Main and open a fresh orchestrator' and b.open and b.need = 'mario'),
+         'Retire Main and open a fresh orchestrator');
+select t('and it says what happens if he never answers',
+         (select b."default" from blockers b join cards c on c.id = b.card_id
+          where c.title = 'Retire Main and open a fresh orchestrator' and b.open and b.need = 'mario'),
+         'nothing happens until he answers');
+select t('so it is in the inbox view, which is the only thing he reads',
+         (select count(*)::text from inbox where title = 'Retire Main and open a fresh orchestrator'), '1');
+select t('and the card says it was blocked',
+         (select count(*)::text from history h join cards c on c.id = h.card_id
+          where c.title = 'Retire Main and open a fresh orchestrator'
+            and h.what = 'blocked (mario): Retire Main and open a fresh orchestrator'), '1');
+select t('a card on any other app opens nothing',
+         (select count(*)::text from blockers b join cards c on c.id = b.card_id
+          where c.title = 'Sudoku keeps its own puzzle'), '0');
+
+-- A decision already taken is not one to ask again, and the trigger has to
+-- agree with the backfill in the same file about that: a board restored by
+-- INSERTing a dump would otherwise open one blocker per settled decision.
+insert into cards (title, app, kind, state) values
+  ('A decision taken long ago', 'mario', 'task', 'done'),
+  ('A decision parked on purpose', 'mario', 'task', 'parked');
+select t('a settled card filed on app mario opens nothing',
+         (select count(*)::text from blockers b join cards c on c.id = b.card_id
+          where c.title in ('A decision taken long ago', 'A decision parked on purpose')), '0');
+update cards set app = 'sudoku' where title = 'A decision taken long ago';
+update cards set app = 'mario' where title = 'A decision taken long ago';
+select t('and moving a settled card there opens nothing either',
+         (select count(*)::text from inbox where title = 'A decision taken long ago'), '0');
+
+-- Moved there, not only filed there: a decision that becomes his on Tuesday is
+-- as invisible as one that was his on Monday.
+update cards set app = 'mario' where title = 'Sudoku keeps its own puzzle';
+select t('moving a card to app mario opens one too',
+         (select count(*)::text from inbox where title = 'Sudoku keeps its own puzzle'), '1');
+update cards set app = 'mario' where title = 'Sudoku keeps its own puzzle';
+update cards set state = 'triaged' where title = 'Sudoku keeps its own puzzle';
+update cards set title = 'Sudoku keeps its own puzzle' where title = 'Sudoku keeps its own puzzle';
+select t('moving it there again, or editing it in place, opens no second one',
+         (select count(*)::text from blockers b join cards c on c.id = b.card_id
+          where c.title = 'Sudoku keeps its own puzzle' and b.need = 'mario'), '1');
+update cards set app = 'sudoku' where title = 'Sudoku keeps its own puzzle';
+update cards set app = 'mario' where title = 'Sudoku keeps its own puzzle';
+select t('a round trip through another app while the blocker is open opens no second one',
+         (select count(*)::text from blockers b join cards c on c.id = b.card_id
+          where c.title = 'Sudoku keeps its own puzzle' and b.need = 'mario'), '1');
+
+-- Answered and moved back is a new question, not the old one: the numbering
+-- has to survive it, because (card_id, n) is unique.
+update blockers set open = false, answer_choice = 'keep it', answered_at = now()
+  where need = 'mario' and card_id = (select id from cards where title = 'Sudoku keeps its own puzzle');
+update cards set app = 'sudoku' where title = 'Sudoku keeps its own puzzle';
+update cards set app = 'mario' where title = 'Sudoku keeps its own puzzle';
+select t('once answered, moving it back asks again',
+         (select count(*)::text from blockers b join cards c on c.id = b.card_id
+          where c.title = 'Sudoku keeps its own puzzle' and b.need = 'mario'), '2');
+select t('and the second blocker took the next number',
+         (select string_agg(b.n::text, ',' order by b.n) from blockers b join cards c on c.id = b.card_id
+          where c.title = 'Sudoku keeps its own puzzle'), '1,2');
+
+-- The other half of that migration: the cards already dropped before the rule
+-- existed. Seeded behind the trigger's back, because the point is a card that
+-- never met it; run.sh re-applies the migration file after this, and the two
+-- checks it runs are the ones that see the repair.
+alter table cards disable trigger cards_mario_inbox_ins;
+insert into cards (title, app, kind, state) values
+  ('A decision that aged in reported', 'mario', 'task', 'reported'),
+  ('A decision he already took', 'mario', 'task', 'done');
+alter table cards enable trigger cards_mario_inbox_ins;
