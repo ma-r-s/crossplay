@@ -49,7 +49,7 @@ class WallpapersActivity final : public Activity {
   // remembered "have I offered already" flag: a stored value that decides what
   // you see turns a reproducible screen into a nondeterministic one
   // (invisible-saved-state-reads-as-nondeterminism).
-  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Help };
+  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Help, Add };
   View view_ = View::Grid;
 
   void scanLibrary();
@@ -61,6 +61,7 @@ class WallpapersActivity final : public Activity {
   void runSetDownload();  // blocking: fetch the pack, then unpack it
   bool unpackSet();       // pack -> individual .bmp files, resumable
   void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
+  void openAdd();  // build the address and show the QR screen
   void loadActive();
   void computeWarning();
   bool setWallpaper(int index);  // copy /wallpapers/<index> -> /sleep.bmp
@@ -86,6 +87,7 @@ class WallpapersActivity final : public Activity {
   std::string noticeBody_;
   const char* noticeAction_ = nullptr;
   freeink::ui::ActionId noticeActionId_ = 0;
+  std::string addUrl_;  // http://<ip>/w -- encoded in the QR and printed under it
   std::string rightLabel_;
   std::string warning_;
 

@@ -49,9 +49,10 @@ fui::TextStyle owned(fui::TextStyle style, fui::TextAlign align) {
   return style;
 }
 
-fui::TextStyle onPaper(fui::TextStyle style, fui::TextAlign align) {
+fui::TextStyle onPaper(fui::TextStyle style, fui::TextAlign align, uint8_t maxLines = 0) {
   style.align = align;
   style.color = fui::Color::Black;
+  if (maxLines > 0) style.maxLines = maxLines;
   return style;
 }
 
@@ -285,6 +286,170 @@ void buildHelp(toybox::Screen& screen) {
   detail.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
   detail.showCaret = false;
   screen.textArea(detail, static_cast<int16_t>(screen.body().height - toybox::kGutter));
+}
+
+// ---------------------------------------------------------------------------
+// ADD FROM A PHONE. Three arrangements; the winner survives and this macro goes
+// in the same commit.
+//
+//   1  the pairing twin      -- Instapaper's screen, which Mario named as the
+//                               precedent, with the address where its code sits
+//   2  the three steps       -- the site's numbered rail, on the panel
+//   3  the code, mostly      -- the largest QR the body will take, two lines
+//
+// All three carry the same two facts, because both are load-bearing: the
+// address in words (a QR tells a person nothing, and the one failure this
+// screen has is a phone on the wrong network) and that Back stops it.
+#ifndef WALLADD_VARIANT
+#define WALLADD_VARIANT 1
+#endif
+
+namespace {
+
+// The address, at the largest cut that holds it. NEVER handed straight to
+// text(): it is one unbreakable token, and an overflowing token in these cuts
+// does not arrive clipped or ellipsised -- the faces above toybox_10 carry no
+// U+2026 glyph, so it simply stops at a plausible place. That is how a pairing
+// screen once printed "read.crossplay.ma-r-s.com/pai" and nobody could see why
+// the address did not work.
+void drawAddress(toybox::Screen& screen, const fui::Rect& box, const char* url) {
+  fui::TextStyle style = onPaper(screen.theme().titleText, fui::TextAlign::Center);
+  const std::string fitted = toybox::fittedTitle(screen.target(), url, box.width, style);
+  screen.target().text(box, fitted.c_str(), style);
+}
+
+// The same-WiFi requirement is this screen's ENTIRE error handling, so it lives
+// in the prose rather than the footer: nothing on the device can detect that the
+// phone went out over cellular instead, and the browser's own message ("cannot
+// reach this site") names no cause. It was in the footer for one render and came
+// out as "PHONE MUST BE ON THE SAM..." -- the failure explanation, truncated.
+constexpr const char* kProse = "Pick a photo and it lands here. Your phone has to be on this same WiFi.";
+constexpr const char* kFoot = "BACK STOPS";
+
+void drawFoot(toybox::Screen& screen, const fui::Rect& body) {
+  fui::TextStyle style = onPaper(screen.theme().smallText, fui::TextAlign::Center, 1);
+  const fui::Rect box = fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - 26), body.width, 24);
+  screen.target().text(box, toybox::fittedTitle(screen.target(), kFoot, box.width, style).c_str(), style);
+}
+
+// Every headline on this screen goes through the ladder. "SCAN WITH YOUR PHONE"
+// at the title cut is four pixels too wide for the body and rendered as
+// "SCAN WITH YOUR..." -- and it only showed the ellipsis at all because the
+// reading faces happen to carry U+2026. At the menu cuts it would simply have
+// stopped after "YOUR".
+void drawHeadline(toybox::Screen& screen, const fui::Rect& box, const char* text) {
+  fui::TextStyle style = onPaper(screen.theme().titleText, fui::TextAlign::Center, 1);
+  screen.target().text(box, toybox::fittedTitle(screen.target(), text, box.width, style).c_str(), style);
+}
+
+// A numbered step: a filled square holding the numeral, the words beside it.
+// The site's three-step rail says the same thing with circles and a connector;
+// neither survives at this size in one bit, so the number carries the order.
+void drawStep(toybox::Screen& screen, const fui::Rect& row, const int n, const char* text) {
+  constexpr int16_t kDot = 34;
+  const fui::Rect dot = fui::makeRect(row.x, static_cast<int16_t>(row.y + (row.height - kDot) / 2), kDot, kDot);
+  screen.target().fill(dot, fui::Paint::solid(fui::Color::Black));
+  char numeral[4];
+  std::snprintf(numeral, sizeof(numeral), "%d", n);
+  // The body cut, not the small one: at the UI cut the numeral was a speck near
+  // the top of the fill rather than a number in a box. Centred by the line box,
+  // which is the vertical clamp these faces actually obey.
+  fui::TextStyle num = screen.theme().bodyText;
+  num.align = fui::TextAlign::Center;
+  num.color = fui::Color::White;
+  num.maxLines = 1;
+  const int16_t lineH = screen.target().lineHeight(num.font);
+  screen.target().text(fui::makeRect(dot.x, static_cast<int16_t>(dot.y + (kDot - lineH) / 2), dot.width, lineH),
+                       numeral, num);
+
+  const int16_t textX = static_cast<int16_t>(dot.right() + 12);
+  fui::TextStyle style = onPaper(screen.theme().bodyText, fui::TextAlign::Left);
+  style.maxLines = 1;
+  const fui::Rect box = fui::makeRect(textX, row.y, static_cast<int16_t>(row.right() - textX), row.height);
+  const std::string fitted = toybox::fittedTitle(screen.target(), text, box.width, style);
+  screen.target().text(box, fitted.c_str(), style);
+}
+
+}  // namespace
+
+fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
+  chrome(screen, "ADD A WALLPAPER", model.added > 0 ? "1 ADDED" : nullptr);
+  const fui::Rect body = screen.body();
+
+#if WALLADD_VARIANT == 1
+  // The pairing twin. Same skeleton as InstapaperScreens::buildPairQr, with the
+  // address occupying the line its 8-character code does.
+  constexpr int16_t kQrSide = 232;
+  constexpr int16_t kHead = 48;
+  constexpr int16_t kAddr = 46;
+  constexpr int16_t kProseH = 108;
+  // The stack centred in the body rather than hung from its top: at 232 the
+  // four pieces leave 180px over, and all of it used to pool above the footer.
+  const int16_t stack =
+      static_cast<int16_t>(kHead + toybox::kMargin * 2 + kQrSide + toybox::kMargin + kAddr + toybox::kGutter + kProseH);
+  int16_t y = static_cast<int16_t>(body.y + (body.height - 26 - stack) / 2);
+  if (y < body.y) y = body.y;
+
+  drawHeadline(screen, fui::makeRect(body.x, y, body.width, kHead), "SCAN WITH YOUR PHONE");
+  const fui::Rect qr = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
+                                     static_cast<int16_t>(y + kHead + toybox::kMargin * 2), kQrSide, kQrSide);
+
+  drawAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kMargin), body.width, kAddr),
+              model.url);
+
+  // FULL body width, not inset: the address is the longest unbreakable token on
+  // this screen, and an inset that costs it two characters costs it silently.
+  screen.target().text(
+      fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kMargin + kAddr + toybox::kGutter), body.width,
+                    kProseH),
+      model.status != nullptr ? model.status : kProse, onPaper(screen.theme().bodyText, fui::TextAlign::Center, 3));
+  drawFoot(screen, body);
+  return qr;
+
+#elif WALLADD_VARIANT == 2
+  // The three steps. The panel's version of the site's numbered rail: what will
+  // happen, before it happens, so the QR is not the only thing on screen that
+  // has to be understood.
+  constexpr int16_t kQrSide = 200;
+  const fui::Rect qr =
+      fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2), body.y, kQrSide, kQrSide);
+
+  drawAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kGutter), body.width, 40),
+              model.url);
+
+  int16_t y = static_cast<int16_t>(qr.bottom() + toybox::kGutter + 40 + toybox::kGutter);
+  constexpr int16_t kRow = 46;
+  const fui::Rect rowBox =
+      fui::makeRect(static_cast<int16_t>(body.x + 24), y, static_cast<int16_t>(body.width - 48), kRow);
+  drawStep(screen, rowBox, 1, "Scan it with your camera");
+  y = static_cast<int16_t>(y + kRow);
+  drawStep(screen, fui::makeRect(rowBox.x, y, rowBox.width, kRow), 2, "Pick a photo");
+  y = static_cast<int16_t>(y + kRow);
+  drawStep(screen, fui::makeRect(rowBox.x, y, rowBox.width, kRow), 3, "It appears here");
+  y = static_cast<int16_t>(y + kRow + toybox::kGutter * 2);
+  screen.target().text(fui::makeRect(body.x, y, body.width, 76),
+                       model.status != nullptr ? model.status : "Your phone has to be on this same WiFi.",
+                       onPaper(screen.theme().bodyText, fui::TextAlign::Center, 2));
+  drawFoot(screen, body);
+  return qr;
+
+#else
+  // The code, mostly. The largest square the body will take under a single
+  // line, on the theory that the only thing a phone has to do is see it.
+  constexpr int16_t kQrSide = 300;
+  const fui::Rect qr = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
+                                     static_cast<int16_t>(body.y + toybox::kGutter), kQrSide, kQrSide);
+
+  drawAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kGutter * 2), body.width, 44),
+              model.url);
+
+  screen.target().text(
+      fui::makeRect(body.x, static_cast<int16_t>(qr.bottom() + toybox::kGutter * 2 + 44 + toybox::kGutter), body.width,
+                    72),
+      model.status != nullptr ? model.status : kProse, onPaper(screen.theme().bodyText, fui::TextAlign::Center, 3));
+  drawFoot(screen, body);
+  return qr;
+#endif
 }
 
 MarkerRects markerRects(const fui::Rect& thumb) {

@@ -12,6 +12,7 @@
 #include "../../CrossPointSettings.h"
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../network/HttpDownloader.h"
+#include "../../util/QrUtils.h"
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -559,6 +560,22 @@ int WallpapersActivity::builtInsPresent() const {
 // flag to go stale or to make two identical cards show different things.
 void WallpapersActivity::pickView() { view_ = names_.empty() ? View::Offer : View::Grid; }
 
+// The address the phone opens. Station mode only: the hotspot has no NAT and a
+// captive-portal DNS that answers every name with this device, so a phone joined
+// to it has no internet and both iOS and Android offer to drop back to cellular
+// -- mid-upload, on the one screen that cannot survive it.
+void WallpapersActivity::openAdd() {
+  IPAddress ip = WiFi.localIP();
+  const std::string dotted = std::string(ip.toString().c_str());
+  // SCAFFOLDING for the three-variant render, removed with WALLADD_VARIANT:
+  // the real screen is reached only after WifiSelectionActivity has an address.
+  const bool haveIp = !dotted.empty() && dotted != "0.0.0.0";
+  addUrl_ = haveIp ? "http://" + dotted + "/w" : std::string("http://192.168.1.42/w");
+  view_ = View::Add;
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
 void WallpapersActivity::startSetDownload() {
   // The radio first: entering the TLS stack with WiFi never started fails in a
   // way whose message says nothing about WiFi.
@@ -787,7 +804,7 @@ void WallpapersActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (view_ == View::Help || view_ == View::Notice) {
+    if (view_ == View::Help || view_ == View::Notice || view_ == View::Add) {
       pickView();
       requestUpdate();
       return;
@@ -812,8 +829,7 @@ void WallpapersActivity::loop() {
         startSetDownload();
         return;
       case wallpapersui::ActionAddOwn:
-        view_ = View::Help;
-        requestUpdate();
+        openAdd();
         return;
       case wallpapersui::ActionDismiss:
         pickView();
@@ -875,8 +891,7 @@ void WallpapersActivity::loop() {
   const int total = specials + static_cast<int>(names_.size());
   if (combined >= total) return;
   if (combined == 0) {
-    view_ = View::Help;
-    requestUpdate();
+    openAdd();
     return;
   }
   if (specials > 1 && combined == 1) {
@@ -895,7 +910,8 @@ void WallpapersActivity::render(RenderLock&&) {
   // shares with the shelf; the offer, the progress and the notices are
   // SENTENCES, and at the 20px UI cut a sentence runs off the panel and is cut
   // with an ellipsis. Trivia carries the same split for the same reason.
-  const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Help;
+  const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Help ||
+                     view_ == View::Add;
   fui::GfxRendererTarget target =
       toybox::makeTarget(renderer, prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces());
   const fui::DeviceContext device = target.deviceContext();
@@ -904,7 +920,12 @@ void WallpapersActivity::render(RenderLock&&) {
   toybox::Frame frame(target, device, noInput, interactions_);
   toybox::Screen surface(frame);
 
-  if (view_ == View::Help) {
+  if (view_ == View::Add) {
+    wallpapersui::AddModel model;
+    model.url = addUrl_.c_str();
+    const fui::Rect qr = wallpapersui::buildAdd(surface, model);
+    QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addUrl_);
+  } else if (view_ == View::Help) {
     wallpapersui::buildHelp(surface);
   } else if (view_ == View::Fetching) {
     wallpapersui::FetchingModel model;
