@@ -106,21 +106,21 @@ grep -rl "Button::Up\|Button::Down" src/apps_local/*/ | cut -d/ -f3 | sort -u
 
 | Button       | Apps that read it | Exists on X4 Pro |
 | ------------ | ----------------- | ---------------- |
-| Back         | 23                | as a swipe       |
+| Back         | 24                | as a swipe       |
 | Confirm      | 2                 | **no**           |
 | Left / Right | 1                 | **no**           |
-| Up / Down    | 10                | **yes**          |
+| Up / Down    | 11                | **yes**          |
 
-Twelve of the twenty-three directories use Back and nothing else.
+Twelve of the twenty-four directories use Back and nothing else.
 
 > **The finding below was true when it was written, in August 2026, and it is
 > not true any more.** It said the two real keys were unused by every game we
 > had built, and that the only apps touching them were the reader-shaped ones.
-> Ten apps read Up/Down today and seven of them are games: Checkers, Connect
+> Eleven apps read Up/Down today and seven of them are games: Checkers, Connect
 > Four, Forehead, Sea Salt, Toy Battle, Wavelength and Yahtzee, alongside Hacker
-> News, Instapaper and xkcd. The rule in section 4 is what survived and is still
-> the thing to apply; the census that motivated it has been overtaken, which is
-> the outcome it was arguing for.
+> News, Instapaper, xkcd and Wallpapers. The rule in section 4 is what survived
+> and is still the thing to apply; the census that motivated it has been
+> overtaken, which is the outcome it was arguing for.
 
 That was the whole finding. Not "we should use the buttons more" as a matter of
 taste -- the device shipped with two physical keys, they were page keys, and our

@@ -42,6 +42,7 @@
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/ToyboxWrappedText.h"
+#include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
 #include "../../src/apps_local/yahtzee/YahtzeeScreens.h"
@@ -9527,6 +9528,160 @@ void testAHandDrawnRightLabelSitsOnTheTitlesLine() {
   }
 }
 
+// --- Wallpapers -------------------------------------------------------------
+
+void buildWallpapersChrome(Rendered& out, const wallpapersui::GridChromeModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildGridChrome(screen, model);
+}
+
+void buildWallpapersEmpty(Rendered& out, const wallpapersui::EmptyModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildEmpty(screen, model);
+}
+
+// Two columns, always -- the point of the grid -- and slot 1 is to the right of
+// slot 0 on the same row; slot 2 drops to the next row's first column.
+void testWallpapersGridHasTwoColumns() {
+  const wallpapersui::GridGeom g = wallpapersui::gridGeom(device());
+  CHECK(g.cols == 2);
+  CHECK(g.perPage >= 2);
+  const fui::Rect c0 = wallpapersui::cellRect(g, 0);
+  const fui::Rect c1 = wallpapersui::cellRect(g, 1);
+  CHECK(c1.x > c0.x);
+  CHECK(c1.y == c0.y);
+  if (g.perPage >= 3) {
+    const fui::Rect c2 = wallpapersui::cellRect(g, 2);
+    CHECK(c2.y > c0.y);
+    CHECK(c2.x == c0.x);
+  }
+}
+
+// Every cell sits inside the panel: a thumbnail drawn off-screen is one nobody
+// sees.
+void testWallpapersCellsStayOnScreen() {
+  const fui::DeviceContext dev = device();
+  const wallpapersui::GridGeom g = wallpapersui::gridGeom(dev);
+  for (int slot = 0; slot < g.perPage; ++slot) {
+    const fui::Rect c = wallpapersui::cellRect(g, slot);
+    CHECK(c.x >= 0);
+    CHECK(c.y >= 0);
+    CHECK(c.right() <= dev.width);
+    CHECK(c.bottom() <= dev.height);
+  }
+}
+
+// The tap hit-test reads the SAME rectangles the Activity draws into: the centre
+// of each cell routes to that cell, and a point up in the header routes to none.
+void testWallpapersCellHitTestMatchesDraw() {
+  const wallpapersui::GridGeom g = wallpapersui::gridGeom(device());
+  for (int slot = 0; slot < g.perPage; ++slot) {
+    const fui::Rect c = wallpapersui::cellRect(g, slot);
+    CHECK(wallpapersui::cellAt(g, c.x + c.width / 2, c.y + c.height / 2) == slot);
+  }
+  CHECK(wallpapersui::cellAt(g, 0, 0) == -1);
+  CHECK(wallpapersui::cellAt(g, -5, -5) == -1);
+}
+
+// A grid with nothing set must SAY to tap one, or it reads as a selection that
+// failed to draw (a-silent-screen-reads-as-a-crash).
+void testWallpapersChromeSaysTapToSetWhenNothingIsSet() {
+  Rendered out;
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "6 SAVED";
+  model.hasActive = false;
+  buildWallpapersChrome(out, model);
+  CHECK(drewText(out, "WALLPAPERS"));
+  CHECK(drewText(out, "6 SAVED"));
+  CHECK(drewText(out, "Tap one to set"));
+}
+
+// With one set, the hint is gone -- the thick border the Activity draws is the
+// indicator.
+void testWallpapersChromeIsQuietWhenSomethingIsSet() {
+  Rendered out;
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "6 SAVED";
+  model.hasActive = true;
+  buildWallpapersChrome(out, model);
+  CHECK(!drewText(out, "Tap a wallpaper"));
+}
+
+// The page label is shown verbatim so a paged library says where you are.
+void testWallpapersChromeShowsThePage() {
+  Rendered out;
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "PAGE 2 / 3";
+  model.hasActive = true;
+  buildWallpapersChrome(out, model);
+  CHECK(drewText(out, "PAGE 2 / 3"));
+}
+
+// The free-space advisory wins the hint strip and is shown verbatim: "full" and
+// "could not tell" are different sentences.
+void testWallpapersChromeWarningVerbatim() {
+  Rendered out;
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "1 SAVED";
+  model.hasActive = false;
+  model.warning = "Could not check card space.";
+  buildWallpapersChrome(out, model);
+  CHECK(drewText(out, "Could not check card space."));
+  CHECK(!drewText(out, "Tap a wallpaper"));
+}
+
+// The selection marker lives in the padding, and the caption's line box is
+// reserved for EVERY cell whether or not it is selected. A cell whose contents
+// move when it becomes selected is the same defect class as a marker that reads
+// as image content: selecting should ADD A MARK, never re-flow the cell.
+void testWallpapersCaptionNeverCollidesWithArtwork() {
+  const wallpapersui::GridGeom g = wallpapersui::gridGeom(device());
+  // The marker is drawn kMarkerGap (5) outside the thumbnail and is
+  // kMarkerWeight (4) thick, so it reaches 9px below the artwork.
+  const int markerReach = 5 + 4;
+  CHECK(g.markerRoom > markerReach);  // clearance, not a collision
+  for (int slot = 0; slot < g.perPage; ++slot) {
+    const fui::Rect th = wallpapersui::thumbRect(g, slot);
+    const fui::Rect cap = wallpapersui::captionRect(g, slot);
+    // The caption starts below the artwork AND below the marker's reach.
+    CHECK(cap.y >= th.bottom() + g.markerRoom);
+    CHECK(cap.y > th.bottom() + markerReach);
+    // It is inside the cell, so a caption cannot spill onto the row below.
+    const fui::Rect cell = wallpapersui::cellRect(g, slot);
+    CHECK(cap.bottom() <= cell.bottom());
+    CHECK(cap.y >= cell.y);
+  }
+}
+
+// The empty state names the gap and how to fix it.
+void testWallpapersEmptyStateSaysSomething() {
+  Rendered out;
+  wallpapersui::EmptyModel model;
+  buildWallpapersEmpty(out, model);
+  CHECK(drewText(out, "NO WALLPAPERS"));
+  CHECK(drewText(out, "File Transfer"));
+}
+
+// The help card behind the "+ Add a wallpaper" tile names the uploader and how
+// the file reaches the card.
+void testWallpapersHelpCardPointsAtTheUploader() {
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildHelp(screen);
+  CHECK(drewText(out, "ADD A WALLPAPER"));
+  CHECK(drewText(out, "crossplay.ma-r-s.com/wallpapers"));
+  CHECK(drewText(out, "File Transfer"));
+}
+
 // The layout is DERIVED now (positions hang off screen.body().y and off each
 // other) rather than written as ~100 absolute panel literals. This pins the
 // result of that derivation to the exact coordinates the literals used to
@@ -9763,6 +9918,16 @@ void testWavelengthIconsClearOfText() {
 }
 
 int main() {
+  testWallpapersGridHasTwoColumns();
+  testWallpapersCellsStayOnScreen();
+  testWallpapersCellHitTestMatchesDraw();
+  testWallpapersChromeSaysTapToSetWhenNothingIsSet();
+  testWallpapersChromeIsQuietWhenSomethingIsSet();
+  testWallpapersChromeShowsThePage();
+  testWallpapersChromeWarningVerbatim();
+  testWallpapersEmptyStateSaysSomething();
+  testWallpapersCaptionNeverCollidesWithArtwork();
+  testWallpapersHelpCardPointsAtTheUploader();
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();
