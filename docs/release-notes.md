@@ -21,6 +21,12 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.29
+
+- Make the header band absolute in headerBand, so every screen's is 76
+- Trivia: a settings toggle for US-centric questions (#191/#223)
+- Draw battleship's waiting capsule solid, not dithered (#243)
+
 ### 1.12.28
 
 - Draw the header rule in headerBand, and clear it in Yahtzee
