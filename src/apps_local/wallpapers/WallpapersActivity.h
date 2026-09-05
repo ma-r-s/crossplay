@@ -55,6 +55,7 @@ class WallpapersActivity final : public Activity {
   Thumb decodeThumb(const std::string& path, int16_t cellW, int16_t cellH) const;
   void drawGrid(const wallpapersui::GridGeom& geom);
   void drawAddTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th);
+  void drawMarker(const freeink::ui::Rect& th) const;
 
   std::vector<std::string> names_;  // library file names, sorted
   int activeIndex_ = -1;            // which name is pinned, or -1

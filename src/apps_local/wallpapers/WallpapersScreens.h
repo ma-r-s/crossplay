@@ -16,15 +16,6 @@
 
 #include "../ui/ToyboxScreen.h"
 
-// Three grid stylings, chosen at build time, rendered side by side, the winner
-// kept and this macro deleted in the same commit (docs/building-apps.md):
-//   1  BIG      -- 2x2 big thumbnails with a caption, a heavy border
-//   2  DENSE    -- 2x3 smaller thumbnails with a file-name caption, thinner border
-//   3  CAPTIONED -- 2x2 big thumbnails WITH a caption, the heaviest border
-#ifndef WALLPAPERS_VARIANT
-#define WALLPAPERS_VARIANT 1
-#endif
-
 namespace wallpapersui {
 
 namespace fui = freeink::ui;
@@ -33,14 +24,14 @@ namespace fui = freeink::ui;
 // than guessed, so the drawing, the captions and the hit-test all read one set
 // of rectangles.
 struct GridGeom {
-  int cols = 2;     // two columns, always (the whole point of the redesign)
+  int cols = 2;     // two columns, always
   int rows = 2;     // rows per page
   int perPage = 4;  // cols * rows
   int16_t cellW = 0;
-  int16_t cellH = 0;     // the thumbnail area only (caption sits below it)
-  int16_t captionH = 0;  // 0 in variants without a caption
-  int16_t borderW = 6;   // the thick border on the set wallpaper
-  int16_t originX = 0;   // top-left of slot 0
+  int16_t cellH = 0;       // the thumbnail area only
+  int16_t markerRoom = 0;  // clearance under the thumbnail for the selection marker
+  int16_t captionH = 0;    // the name, below the marker's clearance
+  int16_t originX = 0;     // top-left of slot 0
   int16_t originY = 0;
   int16_t gapX = 0;
   int16_t gapY = 0;

@@ -27,7 +27,6 @@ struct Entry {
 };
 constexpr Entry kBuiltIns[] = {
     {"bauhaus", "Bauhaus", "Bauhaus"},
-    {"blake-door", "Blake: Death's Door", "Death's Door"},
     {"bulge", "Bulge", "Bulge"},
     {"celestial", "Celestial Chart", "Celestial"},
     {"checker", "Checker", "Checker"},
@@ -39,10 +38,8 @@ constexpr Entry kBuiltIns[] = {
     {"hatch", "Hatch", "Hatch"},
     {"herringbone", "Herringbone", "Herringbone"},
     {"houndstooth", "Houndstooth", "Houndstooth"},
-    {"map-greece", "Map of Greece", "Greece"},
     {"orb", "Orb", "Orb"},
     {"ornament", "Ornament", "Ornament"},
-    {"owl", "Owl", "Owl"},
     {"penrose", "Penrose", "Penrose"},
     {"rings", "Rings", "Rings"},
     {"sunburst", "Sunburst", "Sunburst"},

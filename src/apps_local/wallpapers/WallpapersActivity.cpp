@@ -23,9 +23,12 @@ namespace {
 constexpr int kMaxLibrary = 256;
 constexpr size_t kNameMax = 128;
 constexpr size_t kCopyChunk = 4096;
-// The border frames the thumbnail with a small gap, well inside the 14px cell
-// gap so it never touches a neighbour.
-constexpr int16_t kBorderInset = 3;
+// The selection marker sits in the padding around a cell: kMarkerGap of clear
+// white between the artwork and the marker, then kMarkerWeight of ink. Both fit
+// inside half the cell gap, so a marker never touches a neighbouring cell.
+constexpr int16_t kMarkerGap = 5;
+constexpr int16_t kMarkerWeight = 4;
+constexpr int16_t kBracketArm = 30;
 
 // A page dot: a small square, filled for the current page.
 constexpr int16_t kDotSize = 12;
@@ -299,14 +302,10 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
       renderer.drawLine(th.x, th.bottom() - 1, th.right() - 1, th.y, true);
     }
 
-    // Every cell gets a hairline so a white wallpaper is still a visible frame,
-    // and the pinned one gets the thick border Mario asked for.
+    // A hairline on every cell so a mostly-white wallpaper still reads as a
+    // framed tile. This is not the selection signal: it is on every cell.
     renderer.drawRect(th.x, th.y, th.width, th.height, 1, true);
-    if (idx == activeIndex_) {
-      renderer.drawRect(static_cast<int>(th.x - kBorderInset), static_cast<int>(th.y - kBorderInset),
-                        static_cast<int>(th.width + kBorderInset * 2), static_cast<int>(th.height + kBorderInset * 2),
-                        geom.borderW, true);
-    }
+    if (idx == activeIndex_) drawMarker(th);
 
     // Caption (variants with one): the file name, fitted so it never truncates
     // into a missing glyph.
@@ -351,6 +350,27 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
       x = static_cast<int16_t>(x + kDotSize + kDotGap);
     }
   }
+}
+
+void WallpapersActivity::drawMarker(const fui::Rect& th) const {
+  // The marker never touches the artwork: it is drawn kMarkerGap outside the
+  // thumbnail, so the white gap says "this frame is the app talking, not part
+  // of the picture".
+  const int o = kMarkerGap + kMarkerWeight;
+  const int x = th.x - o, y = th.y - o;
+  const int w = th.width + o * 2, h = th.height + o * 2;
+  const int a = kBracketArm, t = kMarkerWeight;
+  // Four corner brackets. Nothing inside a picture looks like this, which is
+  // exactly why the marker cannot be mistaken for the artwork's own frame --
+  // several of these plates carry real borders of their own.
+  renderer.fillRect(x, y, a, t, true);  // top-left
+  renderer.fillRect(x, y, t, a, true);
+  renderer.fillRect(x + w - a, y, a, t, true);  // top-right
+  renderer.fillRect(x + w - t, y, t, a, true);
+  renderer.fillRect(x, y + h - t, a, t, true);  // bottom-left
+  renderer.fillRect(x, y + h - a, t, a, true);
+  renderer.fillRect(x + w - a, y + h - t, a, t, true);  // bottom-right
+  renderer.fillRect(x + w - t, y + h - a, t, a, true);
 }
 
 void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const fui::Rect& th) {

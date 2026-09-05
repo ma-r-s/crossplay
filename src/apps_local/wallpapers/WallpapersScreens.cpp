@@ -20,30 +20,21 @@ constexpr int16_t kHintH = 30;
 // the grid height is the same on a one-page library as on a ten-page one.
 constexpr int16_t kPageStripH = 28;
 constexpr int16_t kBottomMargin = 12;
-constexpr int16_t kGap = 14;
+// Wide enough to hold the selection marker in the padding with white space
+// on both sides of it, which is what keeps the marker off the artwork.
+constexpr int16_t kGap = 24;
+// The grid: two columns, two rows a page. Decided from rendered candidates --
+// at three rows a page the fine-line engravings turn to grey mush.
+constexpr int kRows = 2;
+constexpr int16_t kCaptionH = 22;
+// Clearance under the thumbnail so the selection marker, which lives in the
+// padding, cannot land on the caption.
+constexpr int16_t kMarkerRoom = 12;
 
 // The wallpaper's own shape. Sleep wallpapers are portrait 480x800 on this
 // device (verified: a 480x800 image fills the sleep screen), so the cells are
 // too and a thumbnail of a matching wallpaper fills its cell with no letterbox.
 constexpr float kCellAspectWoverH = 480.0f / 800.0f;
-
-struct VariantSpec {
-  int rows;
-  int16_t captionH;
-  int16_t borderW;
-};
-
-constexpr VariantSpec variantSpec() {
-#if WALLPAPERS_VARIANT == 1
-  return {2, 22, 6};
-#elif WALLPAPERS_VARIANT == 2
-  return {3, 22, 4};
-#elif WALLPAPERS_VARIANT == 3
-  return {2, 22, 9};
-#else
-#error "WALLPAPERS_VARIANT must be 1, 2 or 3"
-#endif
-}
 
 fui::TextStyle owned(fui::TextStyle style, fui::TextAlign align) {
   style.align = align;
@@ -74,14 +65,12 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
 
 GridGeom gridGeom(const fui::DeviceContext& device) {
   const fui::Rect safe = device.safeRect();
-  const VariantSpec spec = variantSpec();
-
   GridGeom g;
   g.cols = 2;
-  g.rows = spec.rows;
+  g.rows = kRows;
   g.perPage = g.cols * g.rows;
-  g.captionH = spec.captionH;
-  g.borderW = spec.borderW;
+  g.captionH = kCaptionH;
+  g.markerRoom = kMarkerRoom;
   g.gapX = kGap;
   g.gapY = kGap;
 
@@ -94,7 +83,8 @@ GridGeom gridGeom(const fui::DeviceContext& device) {
   // The largest a cell may be in each axis, then the wallpaper's aspect fitted
   // inside that box so the thumbnail is never stretched.
   const int16_t maxCellW = static_cast<int16_t>((gridW - g.gapX * (g.cols - 1)) / g.cols);
-  const int16_t maxCellH = static_cast<int16_t>((gridH - g.gapY * (g.rows - 1) - g.captionH * g.rows) / g.rows);
+  const int16_t maxCellH =
+      static_cast<int16_t>((gridH - g.gapY * (g.rows - 1) - (g.captionH + g.markerRoom) * g.rows) / g.rows);
   int16_t cellW = std::min<int16_t>(maxCellW, static_cast<int16_t>(maxCellH * kCellAspectWoverH));
   if (cellW < 1) cellW = 1;
   int16_t cellH = static_cast<int16_t>(cellW / kCellAspectWoverH);
@@ -117,19 +107,19 @@ fui::Rect thumbRect(const GridGeom& g, int slot) {
   const int col = slot % g.cols;
   const int row = slot / g.cols;
   const int16_t x = static_cast<int16_t>(g.originX + col * (g.cellW + g.gapX));
-  const int16_t y = static_cast<int16_t>(g.originY + row * (g.cellH + g.captionH + g.gapY));
+  const int16_t y = static_cast<int16_t>(g.originY + row * (g.cellH + g.markerRoom + g.captionH + g.gapY));
   return fui::makeRect(x, y, g.cellW, g.cellH);
 }
 
 fui::Rect cellRect(const GridGeom& g, int slot) {
   const fui::Rect t = thumbRect(g, slot);
-  return fui::makeRect(t.x, t.y, t.width, static_cast<int16_t>(t.height + g.captionH));
+  return fui::makeRect(t.x, t.y, t.width, static_cast<int16_t>(t.height + g.markerRoom + g.captionH));
 }
 
 fui::Rect captionRect(const GridGeom& g, int slot) {
   if (g.captionH <= 0) return fui::makeRect(0, 0, 0, 0);
   const fui::Rect t = thumbRect(g, slot);
-  return fui::makeRect(t.x, static_cast<int16_t>(t.y + t.height), t.width, g.captionH);
+  return fui::makeRect(t.x, static_cast<int16_t>(t.y + t.height + g.markerRoom), t.width, g.captionH);
 }
 
 int cellAt(const GridGeom& g, int x, int y) {

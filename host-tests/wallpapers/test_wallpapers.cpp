@@ -89,16 +89,13 @@ void testDisplayNames() {
   // Built-ins get a real name, never the file name.
   CHECK(displayName("bauhaus.bmp").full == "Bauhaus");
   CHECK(displayName("checker.bmp").full == "Checker");
-  CHECK(displayName("map-greece.bmp").full == "Map of Greece");
   CHECK(displayName("celestial.bmp").full == "Celestial Chart");
-  CHECK(displayName("owl.bmp").full == "Owl");
   CHECK(displayName("dragonflies.bmp").full == "Dragonflies");
   CHECK(displayName("ornament.bmp").full == "Ornament");
 
   // The engravings credit their maker, briefly.
   CHECK(displayName("durer-eden.bmp").full == "Durer: Adam and Eve");
   CHECK(displayName("durer-horsemen.bmp").full == "Durer: Four Horsemen");
-  CHECK(displayName("blake-door.bmp").full == "Blake: Death's Door");
 
   // The brief form is a shorter NAME, never an ellipsis, and never longer than
   // the full form.

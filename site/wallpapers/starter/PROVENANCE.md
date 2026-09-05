@@ -24,17 +24,6 @@ follow: fill the panel by scaling to the HEIGHT and cropping the WIDTH, never by
 zooming in past what filling requires, because that is how a figure loses its
 head. Verified by measuring the white band at each edge.
 
-### owl.bmp
-- **Title:** Monedula, Chouëtte (The Owl), from "Livre d'Oyseaux" (Book of Birds)
-- **Artist:** Albert Flamen
-- **Date:** 1655-60
-- **Medium:** Etching
-- **Accession:** 2011.467.12 (Met object 751141)
-- **Source:** https://www.metmuseum.org/art/collection/search/751141
-- **Image:** https://images.metmuseum.org/CRDImages/dp/original/DP857003.jpg
-- **Licence:** CC0 (Public Domain), The Metropolitan Museum of Art, Open Access
-- **Conversion:** Letterpress caption, signature line and border rule removed; paper tone remapped to white before thresholding.
-
 ### dragonflies.bmp
 - **Title:** Dragonflies and a bumble bee
 - **Artist:** Wenceslaus Hollar
@@ -56,17 +45,6 @@ head. Verified by measuring the white band at each edge.
 - **Image:** https://images.metmuseum.org/CRDImages/dp/original/DP102235.jpg
 - **Licence:** CC0 (Public Domain), The Metropolitan Museum of Art, Open Access
 - **Conversion:** Letterpress title band, border rule and the four corner astronomer portraits removed.
-
-### map-greece.bmp
-- **Title:** Map of Greece, from "Speculum Romanae Magnificentiae"
-- **Artist:** Sebastiano di Re
-- **Date:** mid-16th century
-- **Medium:** Engraving
-- **Accession:** 41.72(1.3) (Met object 403169)
-- **Source:** https://www.metmuseum.org/art/collection/search/403169
-- **Image:** https://images.metmuseum.org/CRDImages/dp/original/DP870391.jpg
-- **Licence:** CC0 (Public Domain), The Metropolitan Museum of Art, Open Access
-- **Conversion:** Cropped to the Aegean at 3:5, inset off the faint sea edge so no white band survives at top or bottom.
 
 ### ornament.bmp
 - **Title:** Grotesque Panel
@@ -101,13 +79,3 @@ head. Verified by measuring the white band at each edge.
 - **Licence:** CC0 (Public Domain), The Metropolitan Museum of Art, Open Access
 - **Conversion:** Full plate height kept and the width cropped to 3:5, so all four riders stay in frame. Autocontrast before thresholding opens the clouds and separates the figures.
 
-### blake-door.bmp
-- **Title:** Death's Door, from "The Grave," a Poem by Robert Blair
-- **Artist:** William Blake
-- **Date:** March 1, 1813
-- **Medium:** (see Met record)
-- **Accession:** 17.3.2600 (Met object 383680)
-- **Source:** https://www.metmuseum.org/art/collection/search/383680
-- **Image:** https://images.metmuseum.org/CRDImages/dp/original/DP816716.jpg
-- **Licence:** CC0 (Public Domain), The Metropolitan Museum of Art, Open Access
-- **Conversion:** Cropped inside the plate mark (page margin, plate number, printed caption and verse removed), then autocontrast before thresholding.
