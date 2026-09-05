@@ -1,0 +1,258 @@
+/* The class display rules below beat the UA [hidden] rule on equal
+   specificity, so hidden toggles need this to actually hide. */
+[hidden] { display: none !important; }
+
+/* The wallpaper uploader, page-scoped. Leans on styles.css for the palette,
+   the type and the topbar; only what is particular to converting a picture
+   lives here. Paper and ink, 3px controls, Jersey 25 and Instrument Serif,
+   the same as the two bridge sign-in pages. */
+
+.wp-main {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 3rem) var(--gutter) 5rem;
+}
+
+.wp-head {
+  margin-bottom: 2rem;
+}
+.wp-title {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(2.2rem, 6vw, 3.6rem);
+  line-height: 1.02;
+  margin: 0.2rem 0 0.6rem;
+}
+.wp-lede {
+  font-size: 1.05rem;
+  color: var(--muted);
+  max-width: 42rem;
+  margin: 0;
+}
+
+/* The two-column working area: controls and preview on wide screens, stacked
+   on a phone. */
+.wp-work {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: clamp(1.25rem, 3vw, 2.5rem);
+  align-items: start;
+}
+@media (min-width: 820px) {
+  .wp-work {
+    grid-template-columns: 1fr auto;
+  }
+}
+
+.wp-drop {
+  border: 3px solid var(--ink);
+  background: var(--paper-2);
+  border-radius: 4px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.wp-drop:hover,
+.wp-drop:focus-visible {
+  background: var(--paper);
+  outline: none;
+}
+.wp-drop.is-over {
+  background: var(--ink);
+  color: var(--paper);
+}
+.wp-drop-big {
+  font-family: var(--display);
+  font-size: 1.6rem;
+  letter-spacing: 0.02em;
+  margin: 0 0 0.4rem;
+}
+.wp-drop-small {
+  color: var(--muted);
+  font-size: 0.92rem;
+  margin: 0;
+}
+.wp-drop.is-over .wp-drop-small {
+  color: var(--paper);
+}
+
+.wp-controls {
+  margin-top: 1.5rem;
+  display: grid;
+  gap: 1.1rem;
+}
+.wp-ctl-title {
+  font-family: var(--display);
+  font-size: 1.05rem;
+  letter-spacing: 0.03em;
+  margin: 0 0 0.5rem;
+  text-transform: uppercase;
+}
+.wp-seg {
+  display: inline-flex;
+  border: 3px solid var(--ink);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.wp-seg button {
+  appearance: none;
+  border: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+.wp-seg button + button {
+  border-left: 3px solid var(--ink);
+}
+.wp-seg button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.wp-check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.98rem;
+  cursor: pointer;
+}
+.wp-check input {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.wp-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.wp-btn {
+  appearance: none;
+  font: inherit;
+  font-family: var(--display);
+  letter-spacing: 0.03em;
+  font-size: 1.05rem;
+  padding: 0.7rem 1.4rem;
+  border: 3px solid var(--ink);
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+}
+.wp-btn.is-secondary {
+  background: var(--paper);
+  color: var(--ink);
+}
+.wp-btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* The preview: the actual 1-bit result the device will show, drawn at the
+   panel's own pixels and scaled down to fit. A checkered mat around it so a
+   white wallpaper still reads as an image and not as empty space. */
+.wp-preview {
+  justify-self: center;
+}
+.wp-frame {
+  border: 3px solid var(--ink);
+  border-radius: 6px;
+  background: var(--paper-2);
+  padding: 0.9rem;
+  display: inline-block;
+  line-height: 0;
+}
+.wp-canvas {
+  width: 210px;
+  height: 350px;
+  image-rendering: pixelated;
+  background: #fff;
+  display: block;
+}
+.wp-canvas.is-empty {
+  display: flex;
+}
+.wp-preview-cap {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.6rem 0 0;
+}
+.wp-empty-note {
+  width: 210px;
+  height: 350px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.wp-error {
+  color: #a11;
+  font-weight: 600;
+  margin: 1rem 0 0;
+}
+:root[data-theme="dark"] .wp-error,
+:root:not([data-theme="light"]) .wp-error {
+  color: #f2a; /* readable on the dark paper */
+}
+
+/* The transfer steps: how the BMP gets from this page onto the card. A numbered
+   rail, the same shape the bridge pages use for anything with stages. */
+.wp-steps {
+  margin-top: 3rem;
+  border-top: 3px solid var(--ink);
+  padding-top: 1.75rem;
+}
+.wp-steps h2 {
+  font-family: var(--display);
+  letter-spacing: 0.03em;
+  font-size: 1.3rem;
+  margin: 0 0 1rem;
+}
+.wp-rail {
+  list-style: none;
+  counter-reset: step;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+.wp-rail li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2.2rem 1fr;
+  gap: 0.9rem;
+  align-items: start;
+}
+.wp-rail li::before {
+  content: counter(step);
+  font-family: var(--display);
+  font-size: 1.1rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  display: grid;
+  place-items: center;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+}
+.wp-rail p {
+  margin: 0;
+  padding-top: 0.2rem;
+}
+.wp-rail code {
+  font-family: var(--mono);
+  background: var(--paper-2);
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+}
