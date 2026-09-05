@@ -54,10 +54,12 @@ class WallpapersActivity final : public Activity {
   void ensureThumbsForPage();  // decode this page's cells if not cached
   Thumb decodeThumb(const std::string& path, int16_t cellW, int16_t cellH) const;
   void drawGrid(const wallpapersui::GridGeom& geom);
+  void drawAddTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th);
 
   std::vector<std::string> names_;  // library file names, sorted
   int activeIndex_ = -1;            // which name is pinned, or -1
   int page_ = 0;
+  bool showingHelp_ = false;  // the help card reached from the + Add tile
   std::string rightLabel_;
   std::string warning_;
 

@@ -112,7 +112,8 @@ void WallpapersActivity::computeWarning() {
 int WallpapersActivity::pageCount() const {
   const int per = wallpapersui::gridGeom(toybox::makeTarget(renderer).deviceContext()).perPage;
   if (names_.empty() || per <= 0) return 1;
-  return (static_cast<int>(names_.size()) + per - 1) / per;
+  const int total = 1 + static_cast<int>(names_.size());  // the + Add tile plus the wallpapers
+  return (total + per - 1) / per;
 }
 
 void WallpapersActivity::clampPage() {
@@ -243,7 +244,9 @@ void WallpapersActivity::ensureThumbsForPage() {
   thumbs_.assign(static_cast<size_t>(geom.perPage), Thumb{});
   const int base = page_ * geom.perPage;
   for (int slot = 0; slot < geom.perPage; ++slot) {
-    const int idx = base + slot;
+    const int combined = base + slot;
+    if (combined == 0) continue;  // the + Add tile has no thumbnail
+    const int idx = combined - 1;
     if (idx >= static_cast<int>(names_.size())) break;
     std::string path = std::string(wallpapers::kLibraryDir) + "/" + names_[static_cast<size_t>(idx)];
     thumbs_[static_cast<size_t>(slot)] = decodeThumb(path, geom.cellW, geom.cellH);
@@ -254,11 +257,17 @@ void WallpapersActivity::ensureThumbsForPage() {
 
 void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
   const int base = page_ * geom.perPage;
+  const int total = 1 + static_cast<int>(names_.size());
 
   for (int slot = 0; slot < geom.perPage; ++slot) {
-    const int idx = base + slot;
-    if (idx >= static_cast<int>(names_.size())) break;
+    const int combined = base + slot;
+    if (combined >= total) break;
     const fui::Rect th = wallpapersui::thumbRect(geom, slot);
+    if (combined == 0) {
+      drawAddTile(geom, th);  // the first cell is + Add a wallpaper
+      continue;
+    }
+    const int idx = combined - 1;
     const Thumb& t = thumbs_[static_cast<size_t>(slot)];
 
     // The thumbnail. A set bit is ink.
@@ -320,12 +329,42 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
   }
 }
 
+void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const fui::Rect& th) {
+  // A 2px frame so the add tile reads as a control distinct from a wallpaper.
+  renderer.drawRect(th.x, th.y, th.width, th.height, 2, true);
+
+  // A big plus in the upper part of the tile.
+  const int cx = th.x + th.width / 2;
+  const int cy = th.y + th.height * 2 / 5;
+  const int len = th.width * 2 / 5;
+  const int wgt = std::max(6, th.width / 12);
+  renderer.fillRect(cx - len / 2, cy - wgt / 2, len, wgt, true);
+  renderer.fillRect(cx - wgt / 2, cy - len / 2, wgt, len, true);
+
+  // The label, inside the tile below the plus, at the actual small cut.
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+  fui::TextStyle style = toybox::themeTokens().smallText;
+  style.font = fui::FONT_SLOT_SMALL;
+  style.align = fui::TextAlign::Center;
+  style.color = fui::Color::Black;
+  const fui::Rect label = fui::makeRect(th.x, static_cast<int16_t>(th.y + th.height * 3 / 5), th.width,
+                                        static_cast<int16_t>(th.height / 3));
+  std::string fitted = toybox::fitLines(target, "Add a wallpaper", label.width, 1, style);
+  target.text(label, fitted.c_str(), style);
+  (void)geom;
+}
+
 void WallpapersActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (showingHelp_) {
+      showingHelp_ = false;
+      requestUpdate();
+      return;
+    }
     shelf::leave(renderer, mappedInput);
     return;
   }
-  if (names_.empty()) return;
+  if (showingHelp_ || names_.empty()) return;
 
   const int pages = pageCount();
   if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
@@ -368,12 +407,19 @@ void WallpapersActivity::loop() {
     }
   }
 
-  // A thumbnail cell?
+  // A grid cell? The first cell of page 0 is the + Add a wallpaper tile.
   const int slot = wallpapersui::cellAt(geom, tapX, tapY);
   if (slot < 0) return;
   if (!surfaceRevealed()) return;  // ignore a tap on a surface not yet seen
-  const int idx = page_ * geom.perPage + slot;
-  if (idx >= static_cast<int>(names_.size())) return;
+  const int combined = page_ * geom.perPage + slot;
+  const int total = 1 + static_cast<int>(names_.size());
+  if (combined >= total) return;
+  if (combined == 0) {
+    showingHelp_ = true;
+    requestUpdate();
+    return;
+  }
+  const int idx = combined - 1;
   if (idx == activeIndex_) return;  // already the sleep screen
   if (setWallpaper(idx)) requestUpdate();
 }
@@ -388,7 +434,9 @@ void WallpapersActivity::render(RenderLock&&) {
   toybox::Frame frame(target, device, noInput, interactions_);
   toybox::Screen surface(frame);
 
-  if (names_.empty()) {
+  if (showingHelp_) {
+    wallpapersui::buildHelp(surface);
+  } else if (names_.empty()) {
     wallpapersui::EmptyModel model;
     model.warning = warning_.empty() ? nullptr : warning_.c_str();
     wallpapersui::buildEmpty(surface, model);
@@ -427,5 +475,6 @@ void WallpapersActivity::render(RenderLock&&) {
 uint32_t WallpapersActivity::surfaceMeaning() const {
   uint32_t m = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(page_));
   m = paintclock::mixMeaning(m, static_cast<uint32_t>(activeIndex_ + 1));
+  m = paintclock::mixMeaning(m, showingHelp_ ? 1u : 0u);
   return paintclock::mixMeaning(m, static_cast<uint32_t>(names_.size()));
 }

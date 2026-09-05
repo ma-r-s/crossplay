@@ -12,7 +12,7 @@ namespace {
 
 // The top of the body: below the header band and the rule Toybox draws under
 // it, matching the other apps so the grid lines up with the shelf it came from.
-constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter * 3);
+constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter);
 // A fixed strip under the chrome for the free-space advisory or the "nothing is
 // set yet" hint. Fixed so the grid's top does not jump when a hint appears.
 constexpr int16_t kHintH = 30;
@@ -180,6 +180,21 @@ void buildEmpty(toybox::Screen& screen, const EmptyModel& model) {
   detail.text =
       "Add wallpapers from crossplay.ma-r-s.com/wallpapers, then copy them into the "
       "wallpapers folder on the card using File Transfer. They will show up here.\n\n"
+      "Press Back to return.";
+  detail.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
+  detail.showCaret = false;
+  screen.textArea(detail, static_cast<int16_t>(screen.body().height - toybox::kGutter));
+}
+
+void buildHelp(toybox::Screen& screen) {
+  chrome(screen, "ADD A WALLPAPER", nullptr);
+
+  fui::TextAreaProps detail;
+  detail.text =
+      "Make a wallpaper from any picture in your browser at "
+      "crossplay.ma-r-s.com/wallpapers (nothing is uploaded), then copy the file into "
+      "the wallpapers folder on the card using File Transfer. It will appear here "
+      "beside the built-in ones.\n\n"
       "Press Back to return.";
   detail.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
   detail.showCaret = false;

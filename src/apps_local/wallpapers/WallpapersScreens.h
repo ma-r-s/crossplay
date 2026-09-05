@@ -81,4 +81,8 @@ struct EmptyModel {
 
 void buildEmpty(toybox::Screen& screen, const EmptyModel& model);
 
+// The help card reached from the "+ Add a wallpaper" tile: how to get your own
+// wallpapers onto the card. A screen, so it is testable.
+void buildHelp(toybox::Screen& screen);
+
 }  // namespace wallpapersui

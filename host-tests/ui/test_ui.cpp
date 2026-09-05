@@ -9437,6 +9437,20 @@ void testWallpapersEmptyStateSaysSomething() {
   CHECK(drewText(out, "File Transfer"));
 }
 
+// The help card behind the "+ Add a wallpaper" tile names the uploader and how
+// the file reaches the card.
+void testWallpapersHelpCardPointsAtTheUploader() {
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildHelp(screen);
+  CHECK(drewText(out, "ADD A WALLPAPER"));
+  CHECK(drewText(out, "crossplay.ma-r-s.com/wallpapers"));
+  CHECK(drewText(out, "File Transfer"));
+}
+
 int main() {
   testWallpapersGridHasTwoColumns();
   testWallpapersCellsStayOnScreen();
@@ -9446,6 +9460,7 @@ int main() {
   testWallpapersChromeShowsThePage();
   testWallpapersChromeWarningVerbatim();
   testWallpapersEmptyStateSaysSomething();
+  testWallpapersHelpCardPointsAtTheUploader();
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();
