@@ -32,7 +32,15 @@ import struct
 MAGIC = b"XTRIVRPT"
 VERSION = 1
 
-HEADER = struct.Struct("<8sHHI32s")  # magic, version, reserved, count, pack id
+# magic, version, reserved, count, sent, pack id. 52 bytes.
+#
+# `sent` is how many LEADING entries a sync has already delivered, and it exists
+# instead of truncating the file. Truncating on a 2xx destroys any report the
+# player filed between the request being built and the response arriving, and
+# WritableByteSource has no truncate anyway -- so the device advances a cursor
+# instead. Entries before it are delivered; entries after it are not; nothing is
+# ever lost in the gap.
+HEADER = struct.Struct("<8sHHII32s")
 ENTRY = struct.Struct("<IBBH")  # index, reason, reserved, reserved
 PACK_ID_BYTES = 32
 
@@ -74,10 +82,10 @@ def encode_pack_id(pack_id):
     return raw.ljust(PACK_ID_BYTES, b"\0")
 
 
-def write(path, pack_id, count, entries=()):
+def write(path, pack_id, count, entries=(), sent=0):
     """Create a queue. `entries` is (index, reason_code) pairs."""
     with open(path, "wb") as f:
-        f.write(HEADER.pack(MAGIC, VERSION, 0, count, encode_pack_id(pack_id)))
+        f.write(HEADER.pack(MAGIC, VERSION, 0, count, sent, encode_pack_id(pack_id)))
         for index, reason in entries:
             f.write(ENTRY.pack(index, reason, 0, 0))
 
@@ -89,12 +97,16 @@ def append(path, index, reason=NONE):
 
 
 def read(path):
-    """Return (pack_id, count, [(index, reason_name)]). Raises Refused on anything torn."""
+    """Return (pack_id, count, [(index, reason_name)]). Raises Refused on anything torn.
+
+    Every entry comes back, delivered or not: a card being read by hand wants
+    the whole history, and `sent` only tells a SYNC where to resume.
+    """
     with open(path, "rb") as f:
         blob = f.read()
     if len(blob) < HEADER.size:
         raise Refused(f"{path}: shorter than a header ({len(blob)} bytes)")
-    magic, version, _resv, count, pack_raw = HEADER.unpack_from(blob, 0)
+    magic, version, _resv, count, sent, pack_raw = HEADER.unpack_from(blob, 0)
     if magic != MAGIC:
         raise Refused(f"{path}: not a report queue (magic {magic!r})")
     if version != VERSION:
@@ -105,6 +117,8 @@ def read(path):
     # something other than the device wrote this file.
     if body % ENTRY.size:
         raise Refused(f"{path}: {body} bytes of entries is not a multiple of {ENTRY.size}")
+    if sent > body // ENTRY.size:
+        raise Refused(f"{path}: says {sent} entries were sent but holds {body // ENTRY.size}")
     pack_id = pack_raw.rstrip(b"\0").decode("utf-8", "replace")
     out = []
     for off in range(HEADER.size, len(blob), ENTRY.size):
