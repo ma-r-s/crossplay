@@ -660,6 +660,15 @@ void WallpapersActivity::runSetDownload() {
     } else if (err == HttpDownloader::FILE_ERROR) {
       showNotice("CARD TROUBLE", "The card would not take the file. Nothing was kept.", "TRY AGAIN",
                  wallpapersui::ActionRetry);
+    } else if (HttpDownloader::lastStatus() == 404) {
+      // A 404 is not a network problem, and saying "did not answer" for one
+      // sends people to check their WiFi for a fault that is ours: the asset is
+      // not published. lastStatus() exists precisely because "failed to fetch"
+      // reads the same for a dead server and for a server that answered.
+      showNotice("NOT THERE YET",
+                 "The wallpapers are not on the server yet. That is a problem at our end, not with your "
+                 "WiFi or your card. Nothing was written.",
+                 "TRY AGAIN", wallpapersui::ActionRetry);
     } else {
       showNotice("NO ANSWER", "The download did not answer. The card is unchanged.", "TRY AGAIN",
                  wallpapersui::ActionRetry);
