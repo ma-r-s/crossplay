@@ -1374,6 +1374,14 @@ if not found:
     print("FAIL checksh  no suite prints a SKIP at all; this just checked nothing")
 SKIPS
 
+# The python above producing nothing -- a syntax error, a missing suites dir --
+# would add zero checks and pass, which is the exact shape this whole section
+# exists to refuse.
+checks=$((checks + 1))
+if [ ! -s "$WORK/skips" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the skip-visibility scan produced no output at all, so it asserted nothing"
+fi
 while IFS= read -r line; do
   checks=$((checks + 1))
   case "$line" in FAIL*) failed=$((failed + 1)); echo "$line" ;; esac

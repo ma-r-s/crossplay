@@ -378,6 +378,9 @@ for pair in "$YML:build" "$HERE/../../.github/workflows/crossplay-release.yml:re
     NONE)
       failed=$((failed + 1))
       echo "FAIL ci  $(basename "$f")'s '$j' job has no timeout-minutes, so a hung step holds a runner for GitHub's default six hours and reads as a slow build the whole time" ;;
+    "")
+      failed=$((failed + 1))
+      echo "FAIL ci  could not read a timeout out of $(basename "$f") at all; this check answered nothing rather than answering no" ;;
     *) : ;;
   esac
 done
