@@ -371,6 +371,22 @@ void buildBoard(Rendered& out, const chessui::BoardModel& model) {
   chessui::buildBoardChrome(screen, model);
 }
 
+void buildTriviaMenu(Rendered& out, const triviaui::MenuModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  triviaui::buildMenu(screen, model);
+}
+
+void buildTriviaSettings(Rendered& out, const triviaui::SettingsModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  triviaui::buildSettings(screen, model);
+}
+
 void buildChoice(Rendered& out, const triviaui::ChoiceModel& model) {
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
@@ -9147,6 +9163,113 @@ void testTriviaAlwaysOffersAWayOut() {
   }
 }
 
+// --- trivia settings (card #311) ---------------------------------------------
+//
+// The US-centric toggle shipped in v1.12.29 as a row in the DEVICE's Settings >
+// System list, beside sleep timeout and Developer Mode, and only TriviaActivity
+// ever read it. CrossPoint owns the reader, the keyboard and the system; a
+// CrossPlay app's own options belong inside that app. host-tests/appsettings
+// guards the settings list; these guard the screen it moved to.
+
+// Both rows draw, and the toggle says which way it is set IN WORDS. Chess and
+// toybattle both spell a boolean as ON or OFF rather than drawing the SDK's
+// switch glyph: at arm's length on e-ink a knob's position is a guess and a
+// word is not.
+void testTriviaSettingsShowsTheToggleAndItsState() {
+  triviaui::SettingsModel model;
+  model.usCentric = false;
+
+  {
+    Rendered out;
+    buildTriviaSettings(out, model);
+    CHECK(out.target.drew("US QUESTIONS"));
+    CHECK(out.target.drew("OFF"));
+    // The VALUE column says one thing. drew() is exact string equality, so this
+    // is about the value cell, not the screen: the subtitle legitimately starts
+    // with the word OFF in both states, and asserting no substring "ON"
+    // anywhere would fail on "WOULD KNOW".
+    CHECK(!out.target.drew("ON"));
+    CHECK(out.target.drew("BACK TO MENU"));
+    // DIFFICULTY is a per-session mood and stays on the front door; this
+    // screen is for the app's persistent preference. Carrying it here as well
+    // would be a second place to set one thing.
+    CHECK(!out.target.drew("DIFFICULTY"));
+  }
+
+  model.usCentric = true;
+  {
+    Rendered out;
+    buildTriviaSettings(out, model);
+    CHECK(out.target.drew("ON"));
+    CHECK(!out.target.drew("OFF"));
+  }
+}
+
+// Each row answers for ITSELF. Frame::hit's value parameter defaults to 0, so a
+// row that forgets it reports as the first one -- which is exactly how solo's
+// four options all scored as option 1 in v1.12.0. A settings list has the same
+// failure mode and it is quieter: tapping US QUESTIONS would cycle DIFFICULTY.
+void testTriviaSettingsRowsCarryTheirIndex() {
+  triviaui::SettingsModel model;
+  Rendered out;
+  buildTriviaSettings(out, model);
+
+  const FakeTarget::TextRun* run = out.target.find("US QUESTIONS");
+  CHECK(run != nullptr);
+  if (run != nullptr) {
+    const fui::ActionEvent event = out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+    CHECK(event.action == triviaui::ActionSettingsRow);
+    CHECK(event.value == static_cast<int>(triviaui::SettingRow::UsCentric));
+  }
+
+  // And the way out is a different action, not a third row.
+  const FakeTarget::TextRun* back = out.target.find("BACK TO MENU");
+  CHECK(back != nullptr);
+  if (back != nullptr) {
+    const fui::ActionEvent event = out.tap(back->rect.x + back->rect.width / 2, back->rect.y + back->rect.height / 2);
+    CHECK(event.action == triviaui::ActionCloseSettings);
+  }
+}
+
+// The front door gained a row without either of the two below it moving to the
+// wrong action. The activity used to route "0, 1, or anything else", where
+// anything else cycled the difficulty -- so the SETTINGS row added beside
+// DIFFICULTY would silently have been a second difficulty control. Each row
+// must report its OWN MenuRow, and DIFFICULTY must still be here: it is a
+// per-session mood, not a preference, and burying it taxes the common path.
+void testTriviaMenuRowsCarryTheirOwnAction() {
+  triviaui::MenuModel model;
+  model.difficulty = 0;
+  model.packCount = 50000;
+  model.seenCount = 12;
+
+  Rendered out;
+  buildTriviaMenu(out, model);
+
+  struct Case {
+    const char* label;
+    triviaui::MenuRow row;
+  };
+  const Case cases[] = {
+      {"QUIZMASTER", triviaui::MenuRow::Quizmaster},
+      {"SOLO", triviaui::MenuRow::Solo},
+      {"DIFFICULTY", triviaui::MenuRow::Difficulty},
+      {"SETTINGS", triviaui::MenuRow::Settings},
+  };
+  for (const Case& c : cases) {
+    const FakeTarget::TextRun* run = out.target.find(c.label);
+    CHECK(run != nullptr);
+    if (run == nullptr) continue;
+    const fui::ActionEvent event = out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+    CHECK(event.action == triviaui::ActionMenuRow);
+    CHECK(event.value == static_cast<int>(c.row));
+  }
+
+  // The difficulty VALUE is on the front door too, not just its label -- the
+  // whole point of leaving it here is that it reads without opening anything.
+  CHECK(out.target.drew("Any difficulty"));
+}
+
 // --- the header band under the bezel ---------------------------------------
 //
 // Every other test in this file builds against device(), whose safeArea is
@@ -9813,6 +9936,9 @@ int main() {
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
   testTriviaDrawsNoOptionsWithoutAQuestion();
+  testTriviaSettingsShowsTheToggleAndItsState();
+  testTriviaSettingsRowsCarryTheirIndex();
+  testTriviaMenuRowsCarryTheirOwnAction();
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
   testTheSeaSaltCallChoiceSaysWhatEachWordCosts();

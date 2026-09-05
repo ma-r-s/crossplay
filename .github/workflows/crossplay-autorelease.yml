@@ -64,6 +64,14 @@ jobs:
         env:
           VERIFIED: ${{ github.event.workflow_run.head_sha }}
           HOLD: ${{ vars.RELEASE_HOLD }}
+          # Both taken from the event rather than written down, because both
+          # are things that live in another file. The workflow ID is a number
+          # GitHub assigns; it survives renaming "CrossPlay", which the name in
+          # `workflows:` above does not. The branch is whatever ran, and the
+          # job's own `if:` has already established it is xteink.
+          CI_WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          CI_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$HOLD" = "1" ]; then
             echo "RELEASE_HOLD is set: not releasing. Clear the repository variable to resume."
@@ -123,10 +131,89 @@ jobs:
             bash scripts_local/device-build-needed.sh --range "$VERIFIED..$tip" --ships; gap_ships=$?
             set -e
             if [ "$gap_builds" -ne 1 ] || [ "$gap_ships" -ne 1 ]; then
-              echo "xteink moved past the commit CI verified ($VERIFIED -> $tip) by something a device build or a release can see (builds=$gap_builds, ships=$gap_ships); the run for the new tip releases it."
-              echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+              # The gap carries something CI's verdict on $VERIFIED does not
+              # cover. That is a reason to refuse only if nothing ELSE verified
+              # the tip, and until 2026-09-05 this line ended "the run for the
+              # new tip releases it" and stopped there.
+              #
+              # That sentence was an assumption about GitHub's concurrency, not
+              # a fact. A concurrency group holds one run in progress and one
+              # run pending, and a third arrival cancels the pending one --
+              # `cancel-in-progress: false` does not govern that half. So the
+              # run for the new tip is a run that may never exist. It happened
+              # to 41 runs of crossplay-ci.yml in 36 hours (see the concurrency
+              # comment there, now fixed), and the same shape reaches this
+              # workflow through its own `crossplay-release` group, which is
+              # kept deliberately: two publishers at once built v1.12.16 twice.
+              #
+              # So ask the question the gate actually means. Not "is the tip the
+              # commit that triggered me", which depends on which run survived,
+              # but "did anything green verify the tip" -- one query, about the
+              # same workflow that triggered this run, on the tip's own sha.
+              # A tip with its own successful run is verified by definition;
+              # releasing it is what the gate exists to allow.
+              #
+              # WHICH COMMIT TO ASK ABOUT IS NOT THE TIP. crossplay-ci.yml
+              # carries `paths-ignore: site/emulator/**` and
+              # `site/emulator-manifest.json`, so the rebuild crossplay-emulator.yml
+              # pushes after every merge gets NO run and never will -- and after
+              # most merges that rebuild IS the tip. Asking about the tip would
+              # therefore answer 0 forever for the commonest shape on this branch,
+              # and the rescue below would never fire for it.
+              #
+              # So walk back over commits nothing can see first, using the same
+              # table, and ask about the commit the walk stops on. Everything
+              # between it and the tip is invisible to a device build and to a
+              # release by construction, so a green verdict there is a green
+              # verdict on the tip. The walk stops at the first commit that is
+              # NOT invisible, which is any real merge, so it is one or two steps
+              # in practice; the cap is there because an unbounded walk over a
+              # long run of docs commits is a loop in a publisher.
+              probe="$tip"
+              for _ in 1 2 3 4 5 6 7 8 9 10; do
+                parent="$(git rev-parse -q --verify "$probe^" 2>/dev/null)" || break
+                [ -n "$parent" ] || break
+                set +e
+                bash scripts_local/device-build-needed.sh --range "$parent..$probe" >/dev/null 2>&1; step_builds=$?
+                bash scripts_local/device-build-needed.sh --range "$parent..$probe" --ships >/dev/null 2>&1; step_ships=$?
+                set -e
+                [ "$step_builds" -eq 1 ] && [ "$step_ships" -eq 1 ] || break
+                probe="$parent"
+              done
+              [ "$probe" = "$tip" ] || echo "$tip is $probe plus only commits no device build and no release can see; asking about $probe."
+
+              # FAIL CLOSED. Anything but a number, including a query that
+              # errors, a token without actions:read and an empty workflow id,
+              # refuses exactly as before. The failure mode of this check is
+              # silence, so it must not be able to answer "yes" by accident.
+              green=""
+              if [ -n "$CI_WORKFLOW_ID" ]; then
+                # `| tail -1`, because a warning on stdout or stderr in front of
+                # the count would make an otherwise good answer non-numeric and
+                # refuse a release for nothing. `|| true` on the pipeline keeps
+                # a failed query's own words as the value, which is the only
+                # diagnostic the log will get.
+                green="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$CI_WORKFLOW_ID/runs?head_sha=$probe&branch=$CI_BRANCH&status=success&per_page=1" --jq '.total_count' 2>&1 | tail -1)" || true
+              fi
+              case "$green" in
+                ''|*[!0-9]*)
+                  echo "xteink moved past the commit CI verified ($VERIFIED -> $tip) by something a device build or a release can see (builds=$gap_builds, ships=$gap_ships), and GitHub could not be asked whether $probe has a run of its own (answer: '${green:-<none>}'). Not releasing."
+                  echo "go=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+                0)
+                  echo "xteink moved past the commit CI verified ($VERIFIED -> $tip) by something a device build or a release can see (builds=$gap_builds, ships=$gap_ships), and nothing green has verified $probe either. Not releasing."
+                  echo "go=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+                *)
+                  echo "xteink moved past $VERIFIED by something a build or a release can see, but $probe has $green successful run(s) of its own and nothing since it is visible; releasing the tip." ;;
+              esac
+            else
+              # `else`, not a line after the `fi`. Written as a trailing echo it
+              # ran on BOTH paths, so a tip released on its own green run said
+              # "moved only by commits no device build and no release can see"
+              # immediately after saying the opposite. Two contradictory
+              # sentences in one log, and the one that is wrong is the one that
+              # reads like the explanation.
+              echo "xteink moved past $VERIFIED only by commits no device build and no release can see; releasing from $tip."
             fi
-            echo "xteink moved past $VERIFIED only by commits no device build and no release can see; releasing from $tip."
           fi
           # A merge nobody can receive anything different from (docs, site,
           # tooling, the workspace's own machinery) is not a release: no bump,

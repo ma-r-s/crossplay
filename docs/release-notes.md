@@ -21,6 +21,15 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.32
+
+- Move the US-centric toggle out of the device's Settings (#311)
+
+### 1.12.31
+
+- Connections' GET PUZZLES says it is working before it blocks (#244)
+- Bound the two wire tokens where the index row is written
+
 ### 1.12.30
 
 - Two glance-read icons -- pass arrow + peek eye (#261)

@@ -399,18 +399,56 @@ void TriviaActivity::routeAction(const int action, const int value) {
         break;
       }
       selected_ = value;
-      if (value == 0) {
-        go(View::Quizmaster);
-        deal();
-      } else if (value == 1) {
-        score_.reset();
-        go(View::Solo);
-        deal();
-      } else {
-        difficulty_ = (difficulty_ + 1) % (trivia::kDifficulties + 1);
-        saveDifficulty(difficulty_);
-        requestUpdate();
+      // Switched on the row rather than on "0, 1, or anything else". The old
+      // trailing else cycled the difficulty for every value that was not 0 or
+      // 1, so the SETTINGS row added beside DIFFICULTY would silently have been
+      // a second difficulty control.
+      //
+      // And NO `default:`. A default that breaks is the same silence in a new
+      // coat: the next row added to MenuRow would compile and do nothing. With
+      // every enumerator listed, -Wswitch makes it a build failure instead, and
+      // this tree is built -Wall -Wextra -Werror. Count is named for that
+      // reason alone; it is not a row.
+      switch (static_cast<triviaui::MenuRow>(value)) {
+        case triviaui::MenuRow::Quizmaster:
+          go(View::Quizmaster);
+          deal();
+          break;
+        case triviaui::MenuRow::Solo:
+          score_.reset();
+          go(View::Solo);
+          deal();
+          break;
+        case triviaui::MenuRow::Difficulty:
+          // Stays on the front door: a per-session mood, not a preference.
+          difficulty_ = (difficulty_ + 1) % (trivia::kDifficulties + 1);
+          saveDifficulty(difficulty_);
+          requestUpdate();
+          break;
+        case triviaui::MenuRow::Settings:
+          go(View::Settings);
+          break;
+        case triviaui::MenuRow::Count:
+          break;
       }
+      break;
+    case triviaui::ActionSettingsRow:
+      switch (static_cast<triviaui::SettingRow>(value)) {
+        case triviaui::SettingRow::UsCentric:
+          // Written straight back through the settings object that owns it.
+          // The value and its stored key "triviaShowUsCentric" did not move
+          // when the UI did (card #311): a device that already has this saved
+          // keeps what its owner chose, and the web settings API keeps working.
+          SETTINGS.triviaShowUsCentric = SETTINGS.triviaShowUsCentric ? 0 : 1;
+          SETTINGS.saveToFile();
+          break;
+        case triviaui::SettingRow::Count:
+          break;
+      }
+      requestUpdate();
+      break;
+    case triviaui::ActionCloseSettings:
+      go(View::Menu);
       break;
     case triviaui::ActionQuit: {
       // Quizmaster keeps no score -- it is a person reading to a room, and
@@ -557,6 +595,18 @@ void TriviaActivity::render(RenderLock&&) {
       model.packCount = pack_.count();
       model.seenCount = state_.seenCount();
       triviaui::buildMenu(screen, model);
+      break;
+    }
+    case View::Settings: {
+      triviaui::SettingsModel model;
+      // Read straight from the settings object rather than mirrored into a
+      // member, so there is one copy of this fact and no second one to drift.
+      // It is NOT a defence against a concurrent web write: rendering here is
+      // notification-driven and a write from the browser raises no
+      // requestUpdate(), so this screen would show the old value until the next
+      // tap either way.
+      model.usCentric = SETTINGS.triviaShowUsCentric != 0;
+      triviaui::buildSettings(screen, model);
       break;
     }
     case View::Quizmaster: {
