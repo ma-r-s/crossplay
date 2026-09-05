@@ -311,6 +311,59 @@ by `tools_local/site/build_esptool.sh`. Edit the script, never the file. At
 presses Install; it sits under the ~1MB line where `precompress.py` starts
 mattering, and does not want a `Content-Encoding` of its own.
 
+## The top bar on a phone
+
+Five labels do not share one line at 320px, and the bar is one line high. Until
+2026-09-05 the stylesheet answered that below 720px by hiding `THE SHELF` and
+`PLAY NEARBY` -- the two links that lead to what the site is for -- and keeping
+`ANKI DECKS`, which then wrapped to two 49px lines inside a 50px bar at 320,
+390 and 414 anyway. `/study/` did the same with `INSTALL THE FIRMWARE`.
+
+So below 720px the bar carries the wordmark and a `Menu` button, and every link
+moves into a panel under it with a line each. Three files have to agree and
+none of them imports another:
+
+- `index.html` and `study/index.html` carry the `.topnav-toggle` button, give
+  the `<nav>` the id its `aria-controls` names, and load the script;
+- `assets/topnav.js` adds `.has-menu` to the bar and toggles `.is-open` on the
+  nav;
+- `styles.css` decides what those two classes mean.
+
+`.has-menu` comes from the script rather than the markup on purpose: a page
+whose scripts did not run keeps the plain inline bar instead of a button that
+opens nothing. `host-tests/site/run.sh` checks every class the script writes
+against the stylesheet, both pages against the script, and `aria-controls`
+against the element it names.
+
+The breakpoint lives only in `styles.css`. The script closes the panel by
+asking whether the button still has an `offsetParent`, not by comparing a width
+it would have to keep in step.
+
+## The study wizard is one step at a time, not one screen
+
+`study/study.css` sizes the wizard to the window when the step fits and lets
+the page scroll when it does not. It used to clamp to `100vh` and clip:
+`.wiz-step` was `position: absolute` inside a `min-height: 0` row, so a step
+taller than the window was cropped by the row rather than growing the page.
+At 1440x900 the step-2 `Next` button hung 29 of its 45 pixels below the cut --
+`document.elementFromPoint` at the button's own centre returned `.wiz-foot` --
+and at 1280x720 none of it was on screen while `scrollHeight` equalled
+`innerHeight`, so the page reported nothing more to see and looked finished
+with the form cut mid-select.
+
+The steps stack in one grid cell now and stay in flow. Two consequences worth
+knowing before editing:
+
+- The emulator panel's height is capped by `--preview-chrome`, not by the box
+  around it. That cap used to be irrelevant, because the box cropped the panel
+  first; it is now the only thing sizing it, which is why the number moved from
+  12.5rem to the 14rem the chrome actually measures. Too large costs a short
+  page scroll rather than silently trimming the device.
+- Reachability is a browser question. The suite checks the mechanism -- that
+  the step is in flow and the page may grow -- and cannot see whether a control
+  can be clicked. That is measured with `elementFromPoint` and a real click at
+  the widths in question, the way the bug was found.
+
 ## The rules this page follows
 
 `docs/identity.md` governs the copy and the look, and it is worth reading before

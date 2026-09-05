@@ -410,5 +410,149 @@ else
   bad "site/inbox/fixture.json is missing, so the inbox cannot be looked at without a passphrase"
 fi
 
+# -- the top bar's narrow-screen menu -----------------------------------------
+#
+# Below 720px five labels do not share a line. The stylesheet used to answer
+# that by hiding THE SHELF and PLAY NEARBY -- the two links that lead to what
+# the site is for -- and keeping ANKI DECKS, which then wrapped to two 49px
+# lines inside a 50px bar at 320, 390 and 414; /study/ did the same with
+# INSTALL THE FIRMWARE. The links live in a panel now, opened by a button that
+# assets/topnav.js wires and styles.css positions.
+#
+# Same failure shape as the orientation attribute at the top of this file: the
+# script writes classes the stylesheet has to know, and neither file imports
+# the other. A rename on either side is a bar with a button that opens nothing
+# on the width where the button is the only navigation there is.
+TOPNAV="$ROOT/site/assets/topnav.js"
+SP_HTML="$ROOT/site/study/index.html"
+[ -f "$TOPNAV" ] || { echo "FAIL site  missing $TOPNAV"; exit 1; }
+
+# Every class the script writes must mean something to the stylesheet.
+nav_classes="$(grep -oE 'classList\.(add|toggle)\("[a-z-]+"' "$TOPNAV" | grep -oE '"[a-z-]+"' | tr -d '"' | sort -u)"
+if [ -z "$nav_classes" ]; then
+  bad "topnav.js writes no classes at all, so the bar can never open"
+else
+  ok
+  for c in $nav_classes; do
+    grep -q "\.$c" "$CSS" && ok || bad "topnav.js writes .$c and styles.css has no rule for it"
+  done
+fi
+# ...and the control it looks for must be one the stylesheet can show and both
+# pages actually carry.
+for sel in topnav-toggle topnav; do
+  grep -q "\.$sel" "$TOPNAV" && ok || bad "topnav.js never looks for .$sel"
+  grep -q "\.$sel" "$CSS" && ok || bad "styles.css has no .$sel rule"
+done
+for p in "$HTML" "$SP_HTML"; do
+  rel="${p#"$ROOT"/}"
+  grep -q 'class="topnav-toggle"' "$p" && ok || bad "$rel has no .topnav-toggle button, so its narrow bar has no navigation"
+  grep -qE 'src="/?assets/topnav\.js"' "$p" && ok || bad "$rel does not load assets/topnav.js, so its menu button opens nothing"
+  # aria-controls has to name something on the page, or the button announces a
+  # relationship to an element that is not there.
+  ctl="$(grep -oE 'aria-controls="[A-Za-z0-9_-]+"' "$p" | head -1 | sed -E 's/.*="//; s/"//')"
+  if [ -z "$ctl" ]; then
+    bad "$rel's menu button has no aria-controls"
+  else
+    ok
+    grep -q "id=\"$ctl\"" "$p" && ok || bad "$rel's menu button controls #$ctl and no such element exists"
+  fi
+done
+# A bar is one line high. Without this the label wraps inside it and the fix is
+# only half applied: the panel is right and the wide bar is still two lines at
+# any width where a label is long enough.
+awk '/^\.topnav a \{/,/^}/' "$CSS" | grep -q 'white-space: *nowrap' \
+  && ok || bad ".topnav a does not set white-space: nowrap, so a long label wraps inside the bar again"
+# The old rule hid the two product links outright. It may only survive as the
+# no-script fallback, which is what :not(.has-menu) scopes it to.
+if grep -q 'a\[href="#shelf"\]' "$CSS"; then
+  grep -q 'topbar:not(\.has-menu) .topnav a\[href="#shelf"\]' "$CSS" \
+    && ok || bad "styles.css hides the #shelf link without scoping it to :not(.has-menu), so it is gone from the menu too"
+else
+  ok
+fi
+
+# -- the study page's own account of where Pyodide comes from ------------------
+#
+# study/worker.js loads the runtime from the first base that answers, and the
+# page's footer tells the reader where that is. The footer said "served from
+# this site" while the worker had asked jsDelivr first since 2026-08-25 --
+# nothing renders wrong, the page is simply not true. Read the host out of the
+# worker so the claim cannot drift from the code again.
+WORKER="$ROOT/site/study/worker.js"
+[ -f "$WORKER" ] || { echo "FAIL site  missing $WORKER"; exit 1; }
+first_base="$(awk '/PYODIDE_BASES = \[/,/\]/' "$WORKER" | grep -oE '"[^"]+"' | head -1 | tr -d '"')"
+if [ -z "$first_base" ]; then
+  bad "study/worker.js lists no Pyodide base at all"
+else
+  ok
+  case "$first_base" in
+    http*)
+      # Remote first: the page must name that host and must not claim otherwise.
+      host="$(printf '%s' "$first_base" | sed -E 's|https?://||; s|/.*||')"
+      label="$(printf '%s' "$host" | awk -F. '{print $(NF-1)}')"
+      grep -qi "$label" "$SP_HTML" \
+        && ok || bad "worker.js loads Pyodide from $host first and study/index.html never says so"
+      grep -qi "served from this site" "$SP_HTML" \
+        && bad "study/index.html still says Pyodide is served from this site, and worker.js asks $host first" || ok
+      ;;
+    *)
+      # Same-origin first: then "served from this site" is the true claim.
+      grep -qi "served from this site" "$SP_HTML" \
+        && ok || bad "worker.js loads Pyodide from this site first and study/index.html does not say so"
+      ;;
+  esac
+fi
+
+# -- the report form's version placeholder ------------------------------------
+#
+# It read 1.12.9 while the site was shipping 1.12.23: a number typed into the
+# file, right the day it was written and eleven releases stale by the time
+# anyone looked. It is asked for now, from the same release the Install button
+# reads. Nothing here can check the answer -- that needs the network -- but it
+# can check that no literal has been typed back in, and that the field is
+# still filled from somewhere.
+ver_ph="$(grep -oE 'id="report-version"[^>]*placeholder="[^"]*"' "$REPORTJS" | grep -oE 'placeholder="[^"]*"' | sed -E 's/placeholder="//; s/"//')"
+if printf '%s' "$ver_ph" | grep -qE '[0-9]+\.[0-9]+'; then
+  bad "report.js hardcodes a firmware version ($ver_ph) as the placeholder again; it is asked for, not typed"
+else
+  ok
+fi
+grep -q 'releases/latest' "$REPORTJS" \
+  && ok || bad "report.js no longer asks for the latest release, so the version field has no placeholder at all"
+grep -q 'REPO' "$REPORTJS" \
+  && ok || bad "report.js has no repository to ask"
+
+# -- the study wizard's steps stay in normal flow ------------------------------
+#
+# .wiz-step was position:absolute inside a min-height:0 row, so a step taller
+# than the window was cropped by it rather than growing the page. At 1440x900
+# the step-2 "Next" button hung 29 of its 45 pixels below the cut and
+# document.elementFromPoint at the button's own centre returned the footer; at
+# 1280x720 none of it was on screen and scrollHeight equalled innerHeight, so
+# the page reported nothing more to see.
+#
+# THIS CHECK CANNOT SEE THAT. Whether a control is reachable is a browser
+# question and it was answered in one: elementFromPoint at the centre, then a
+# real click, at 1440x900 and 1280x720, before and after. What it can see is
+# the mechanism -- that the step is in flow and the page is allowed to grow --
+# and that is the thing whose quiet return would bring the rest back with it.
+SCSS="$ROOT/site/study/study.css"
+[ -f "$SCSS" ] || { echo "FAIL site  missing $SCSS"; exit 1; }
+awk '/^\.wiz-step \{/,/^}/' "$SCSS" | grep -qE 'position: *absolute' \
+  && bad ".wiz-step is position:absolute again; a step taller than the window is cropped by the row instead of growing the page" || ok
+awk '/^\.study-body \{/,/^}/' "$SCSS" | grep -qE 'overflow: *hidden' \
+  && bad ".study-body clips again, so a step that does not fit reports no scrollable height and the page looks finished" || ok
+awk '/^\.study-body \{/,/^}/' "$SCSS" | grep -qE '^ *height: *100vh' \
+  && bad ".study-body is height:100vh again; it has to be a minimum or a tall step cannot push the page" || ok
+awk '/^\.wizard \{/,/^}/' "$SCSS" | grep -qE 'min-height: *calc' \
+  && ok || bad ".wizard no longer sets a min-height, so a short step stops filling the window"
+# The emulator's cap is the only thing left sizing the panel now that the box
+# does not crop it, so it has to be a token rather than a number buried in a
+# calc that nobody can check against anything.
+grep -q -- '--preview-chrome:' "$SCSS" \
+  && ok || bad "study.css has no --preview-chrome token; the preview's cap is a bare number again"
+awk '/^\.study-preview-frame \{/,/^}/' "$SCSS" | grep -q -- 'var(--preview-chrome)' \
+  && ok || bad ".study-preview-frame does not use --preview-chrome, so the token and the cap have drifted"
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
