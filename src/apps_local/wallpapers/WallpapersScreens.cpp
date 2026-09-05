@@ -35,7 +35,7 @@ struct VariantSpec {
 
 constexpr VariantSpec variantSpec() {
 #if WALLPAPERS_VARIANT == 1
-  return {2, 0, 6};
+  return {2, 22, 6};
 #elif WALLPAPERS_VARIANT == 2
   return {3, 22, 4};
 #elif WALLPAPERS_VARIANT == 3

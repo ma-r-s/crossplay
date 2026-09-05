@@ -1,6 +1,7 @@
 #include "WallpapersCore.h"
 
 #include <cctype>
+#include <cstring>
 
 namespace wallpapers {
 
@@ -15,6 +16,55 @@ bool isSupportedWallpaper(std::string_view name) {
     if (std::tolower(static_cast<unsigned char>(tail[i])) != kExt[i]) return false;
   }
   return true;
+}
+
+namespace {
+// filename stem (no extension, no path) -> the name people read.
+struct Entry {
+  const char* stem;
+  const char* full;
+  const char* brief;  // used when the cell is too narrow for `full`
+};
+constexpr Entry kBuiltIns[] = {
+    {"bauhaus", "Bauhaus", "Bauhaus"},
+    {"blake-door", "Blake: Death's Door", "Death's Door"},
+    {"bulge", "Bulge", "Bulge"},
+    {"celestial", "Celestial Chart", "Celestial"},
+    {"checker", "Checker", "Checker"},
+    {"cubes", "Cubes", "Cubes"},
+    {"dragonflies", "Dragonflies", "Dragonflies"},
+    {"durer-eden", "Durer: Adam and Eve", "Adam and Eve"},
+    {"durer-horsemen", "Durer: Four Horsemen", "Four Horsemen"},
+    {"halftone", "Halftone", "Halftone"},
+    {"hatch", "Hatch", "Hatch"},
+    {"herringbone", "Herringbone", "Herringbone"},
+    {"houndstooth", "Houndstooth", "Houndstooth"},
+    {"map-greece", "Map of Greece", "Greece"},
+    {"orb", "Orb", "Orb"},
+    {"ornament", "Ornament", "Ornament"},
+    {"owl", "Owl", "Owl"},
+    {"penrose", "Penrose", "Penrose"},
+    {"rings", "Rings", "Rings"},
+    {"sunburst", "Sunburst", "Sunburst"},
+    {"topography", "Topography", "Topography"},
+    {"truchet", "Truchet", "Truchet"},
+    {"vortex", "Vortex", "Vortex"},
+    {"waves", "Waves", "Waves"},
+};
+}  // namespace
+
+DisplayName displayName(std::string_view fileName) {
+  // Strip the extension: nobody wants ".bmp" under a picture.
+  std::string_view stem = fileName;
+  const size_t dot = stem.rfind('.');
+  if (dot != std::string_view::npos && dot > 0) stem = stem.substr(0, dot);
+  for (const Entry& e : kBuiltIns) {
+    if (stem.size() == std::strlen(e.stem) && stem.compare(e.stem) == 0) {
+      return DisplayName{e.full, e.brief};
+    }
+  }
+  std::string own(stem);
+  return DisplayName{own, own};
 }
 
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes) {

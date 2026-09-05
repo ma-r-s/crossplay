@@ -6,6 +6,7 @@
 // lives in WallpapersActivity; everything a test could get wrong lives here.
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace wallpapers {
@@ -42,6 +43,18 @@ bool isSupportedWallpaper(std::string_view name);
 // "the card is empty". So there are three outcomes and Unknown refuses --
 // refusing costs a retry, while proceeding on Unknown costs the one user whose
 // card was already in trouble.
+// The name drawn under a thumbnail. A picker that shows "blake-door.bmp" and
+// cuts it mid-name looks unfinished, so every built-in carries a real name held
+// apart from its file name. `brief` is a SHORTER NAME for a narrow cell, never
+// an ellipsis: the Toybox faces cannot draw U+2026 anyway, and a cut name is the
+// defect this exists to avoid. A wallpaper the user added has no entry, so it
+// falls back to its file name with the extension stripped.
+struct DisplayName {
+  std::string full;
+  std::string brief;
+};
+DisplayName displayName(std::string_view fileName);
+
 enum class Room : uint8_t { Ok, TooFull, Unknown };
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes);
 

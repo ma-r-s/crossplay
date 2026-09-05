@@ -5,6 +5,8 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <string>
 
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
 
@@ -78,10 +80,56 @@ void testRoomFor() {
   CHECK(wallpapers::kCardFloorBytes >= 8ull * 1024 * 1024);
 }
 
+// A picker that shows file names with extensions, cut mid-word, looks
+// unfinished. Every built-in carries a real name; anything the user added falls
+// back to its own file name with the extension stripped.
+void testDisplayNames() {
+  using wallpapers::displayName;
+
+  // Built-ins get a real name, never the file name.
+  CHECK(displayName("bauhaus.bmp").full == "Bauhaus");
+  CHECK(displayName("checker.bmp").full == "Checker");
+  CHECK(displayName("map-greece.bmp").full == "Map of Greece");
+  CHECK(displayName("celestial.bmp").full == "Celestial Chart");
+  CHECK(displayName("owl.bmp").full == "Owl");
+  CHECK(displayName("dragonflies.bmp").full == "Dragonflies");
+  CHECK(displayName("ornament.bmp").full == "Ornament");
+
+  // The engravings credit their maker, briefly.
+  CHECK(displayName("durer-eden.bmp").full == "Durer: Adam and Eve");
+  CHECK(displayName("durer-horsemen.bmp").full == "Durer: Four Horsemen");
+  CHECK(displayName("blake-door.bmp").full == "Blake: Death's Door");
+
+  // The brief form is a shorter NAME, never an ellipsis, and never longer than
+  // the full form.
+  const char* stems[] = {"bauhaus.bmp",    "blake-door.bmp",  "celestial.bmp",  "checker.bmp",
+                         "cubes.bmp",      "dragonflies.bmp", "durer-eden.bmp", "durer-horsemen.bmp",
+                         "map-greece.bmp", "orb.bmp",         "ornament.bmp",   "owl.bmp"};
+  for (const char* f : stems) {
+    const wallpapers::DisplayName n = displayName(f);
+    CHECK(!n.full.empty());
+    CHECK(!n.brief.empty());
+    CHECK(n.brief.size() <= n.full.size());
+    CHECK(n.full.find("...") == std::string::npos);
+    CHECK(n.brief.find("...") == std::string::npos);
+    CHECK(n.full.find(".bmp") == std::string::npos);
+    // The Toybox faces are subset to ASCII; a name outside it draws as nothing.
+    for (unsigned char c : n.full) CHECK(c >= 0x20 && c < 0x7f);
+    for (unsigned char c : n.brief) CHECK(c >= 0x20 && c < 0x7f);
+  }
+
+  // A wallpaper the user added keeps its own name, minus the extension.
+  CHECK(displayName("my vacation.bmp").full == "my vacation");
+  CHECK(displayName("my vacation.bmp").brief == "my vacation");
+  CHECK(displayName("holiday.BMP").full == "holiday");
+  CHECK(displayName("noextension").full == "noextension");
+}
+
 }  // namespace
 
 int main() {
   testFileNameFilter();
+  testDisplayNames();
   testRoomFor();
 
   std::printf("wallpapers: %d checks, %d failed\n", checksRun, checksFailed);

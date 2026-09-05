@@ -18,11 +18,11 @@
 
 // Three grid stylings, chosen at build time, rendered side by side, the winner
 // kept and this macro deleted in the same commit (docs/building-apps.md):
-//   1  BIG      -- 2x2 big thumbnails, no caption, a heavy border
+//   1  BIG      -- 2x2 big thumbnails with a caption, a heavy border
 //   2  DENSE    -- 2x3 smaller thumbnails with a file-name caption, thinner border
 //   3  CAPTIONED -- 2x2 big thumbnails WITH a caption, the heaviest border
 #ifndef WALLPAPERS_VARIANT
-#define WALLPAPERS_VARIANT 2
+#define WALLPAPERS_VARIANT 1
 #endif
 
 namespace wallpapersui {

@@ -319,9 +319,19 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
       style.font = fui::FONT_SLOT_SMALL;
       style.align = fui::TextAlign::Center;
       style.color = fui::Color::Black;
-      // fitLines keeps the SMALL cut and truncates with an ASCII ellipsis;
-      // fittedTitle would up-size a short name to a huge font in a wide cell.
-      std::string fitted = toybox::fitLines(target, names_[static_cast<size_t>(idx)].c_str(), cap.width, 1, style);
+      // A real name, not the file name: a picker showing "blake-door.bmp" cut
+      // mid-word looks unfinished. When the long form does not fit the cell we
+      // fall back to a shorter NAME rather than an ellipsis, and log which was
+      // used so the fit is measured rather than eyeballed.
+      const wallpapers::DisplayName name = wallpapers::displayName(names_[static_cast<size_t>(idx)]);
+      std::string fitted = toybox::fitLines(target, name.full.c_str(), cap.width, 1, style);
+      if (fitted != name.full) {
+        fitted = toybox::fitLines(target, name.brief.c_str(), cap.width, 1, style);
+        LOG_DBG("WALL", "caption fell back to brief: %s -> %s", name.full.c_str(), fitted.c_str());
+      }
+      if (fitted != name.full && fitted != name.brief) {
+        LOG_ERR("WALL", "caption STILL cut: %s", fitted.c_str());
+      }
       target.text(cap, fitted.c_str(), style);
     }
   }
