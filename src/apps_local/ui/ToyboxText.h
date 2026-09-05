@@ -122,4 +122,96 @@ inline std::string fitLines(const freeink::ui::DrawTarget& target, const char* t
   return kept + kEllipsis;
 }
 
+// The fork's own type ladder, in one place at last.
+//
+// ToyboxFonts.h has stated the rule in prose since the reading cuts were added:
+// "pick the largest cut it fits in, walking the available cuts down, and only
+// break a word when the smallest still overflows." There was no function that
+// did it. SIX apps wrote their own -- toybattle's fittedHeaderTitle, insider's
+// fitted, the dungeon's fitLabel, connections' chooseTileCut, forehead's
+// layOutCard and the xkcd bar's fitLabel -- and every screen that wrote none
+// handed its title straight to a component that cuts rather than shrinks. That
+// is how "CURSED CEMETERY" reached a panel as "CURSED CEMETER": not a wrapped
+// line and not an ellipsis, a name with its last letter gone.
+//
+// THE RUNGS ARE ORDERED BY WHAT THE FACE MEASURES, never by what the slot is
+// called, and that is the bug all six hand-rolled ladders share. Each of them
+// walks TITLE, then BODY, then SMALL, which is only descending while an app
+// binds descending cuts. bigNumberFaces() puts the 64px cut in BODY and the
+// 30px one in TITLE; cardFaces() puts 44 in SMALL, 30 in BODY and 64 in TITLE.
+// Walked by name on either of those, the "step down" steps UP into a face twice
+// the size of the one it was asked to shrink. Asked of lineHeight() it cannot:
+// the ladder is whatever this screen really bound, sorted.
+//
+// Never above the cut the caller already chose, either. A title asked for at
+// the UI cut must not come back at the display cut because the display cut
+// happens to fit too -- fitting is a licence to get SMALLER and nothing else.
+//
+// Rewrites `style.font` to the chosen cut and returns the string to draw, which
+// is `text` itself whenever a rung fitted. Only when the smallest still
+// overflows does it fall through to fitLines() above: a word boundary and an
+// ellipsis the cut can really draw, never a silent cut mid-word.
+inline std::string fittedTitle(const freeink::ui::DrawTarget& target, const char* text, const int16_t width,
+                               freeink::ui::TextStyle& style) {
+  namespace fui = freeink::ui;
+  if (text == nullptr || *text == '\0' || width <= 0) return std::string(text == nullptr ? "" : text);
+
+  // The three slots a GfxRendererTarget binds, plus whatever the caller asked
+  // for. Three because three is all there are: the fui components resolve only
+  // these and fall back to BODY for anything else, so a fourth id would name a
+  // face no component could ever draw in.
+  const fui::FontId slots[4] = {style.font, fui::FONT_SLOT_TITLE, fui::FONT_SLOT_BODY, fui::FONT_SLOT_SMALL};
+  fui::FontId rungs[4] = {};
+  int16_t heights[4] = {};
+  int count = 0;
+  const int16_t ceiling = target.lineHeight(style.font);
+  for (const fui::FontId slot : slots) {
+    const int16_t height = target.lineHeight(slot);
+    if (height > ceiling) continue;  // fitting only ever goes down
+    bool seen = false;
+    for (int i = 0; i < count; ++i) seen = seen || rungs[i] == slot;
+    if (seen) continue;
+    rungs[count] = slot;
+    heights[count] = height;
+    ++count;
+  }
+  // Largest first. An insertion sort over at most four rungs, so the order is
+  // the measurement rather than an assumption about the slots.
+  for (int i = 1; i < count; ++i) {
+    for (int j = i; j > 0 && heights[j] > heights[j - 1]; --j) {
+      const fui::FontId font = rungs[j];
+      const int16_t height = heights[j];
+      rungs[j] = rungs[j - 1];
+      heights[j] = heights[j - 1];
+      rungs[j - 1] = font;
+      heights[j - 1] = height;
+    }
+  }
+
+  // A rung fits when the WHOLE string lays out in it, which for a style that
+  // may wrap is not the same question as "is it narrower than the box". The
+  // measured width answers the one-line case directly and cheaply; anything
+  // wider is put through the same wrap that will draw it, and fits only if the
+  // wrap gave everything back. The fit test IS the layout, which is the rule
+  // the Connections tiles arrived at independently.
+  const int lines = style.maxLines > 0 ? style.maxLines : 1;
+  fui::TextStyle probe = style;
+  for (int i = 0; i < count; ++i) {
+    probe.font = rungs[i];
+    if (target.measureText(rungs[i], text, probe).width <= width) {
+      style.font = rungs[i];
+      return std::string(text);
+    }
+    if (lines > 1 && fitLines(target, text, width, lines, probe) == text) {
+      style.font = rungs[i];
+      return std::string(text);
+    }
+  }
+
+  // Even the smallest cut this screen bound will not take it. Wrap and mark,
+  // which is the rule's own last clause and what fitLines has always done.
+  if (count > 0) style.font = rungs[count - 1];
+  return fitLines(target, text, width, lines, style);
+}
+
 }  // namespace toybox

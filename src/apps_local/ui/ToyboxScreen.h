@@ -31,6 +31,7 @@
 #include <Icon.h>
 
 #include "../../../lib/GfxRenderer/RevealedInteractions.h"
+#include "ToyboxText.h"
 #include "ToyboxTokens.h"
 
 namespace toybox {
@@ -147,6 +148,55 @@ class Screen : public freeink::ui::Screen<kMaxInteractions> {
 // safe rect through its own path and does not use this.
 inline void absoluteChrome(Screen& screen) { screen.setContentMarginAbsolute(freeink::ui::Insets{}); }
 
+// The width the header component will really give the title, computed with the
+// component's own arithmetic (components/controls/header.h) rather than from
+// the page margins.
+//
+// Guessing it is not a smaller version of this; it is a different number. The
+// two readers fit their headline to `width - 2 * kMargin - pageLabel`, and the
+// band also carries a SAVE button whose width is in neither term -- so a
+// headline is trimmed to a room it does not get and then trimmed AGAIN by the
+// component, twice-elided, on the one screen in this fork whose title is always
+// somebody else's sentence. Every term the component subtracts is subtracted
+// here, in the same order, so the fit and the draw cannot drift.
+//
+// `props` must already carry the theme substitutions Screen::header() makes,
+// because the padding and the right label's style are two of the terms.
+inline int16_t headerTitleWidth(Screen& screen, const freeink::ui::Rect& band, const freeink::ui::HeaderProps& props) {
+  namespace fui = freeink::ui;
+  const int16_t sidePad = props.sidePadding < 0 ? 6 : props.sidePadding;
+  int16_t width = static_cast<int16_t>(band.width - sidePad * 2);
+  if (props.leftReserve > 0) width = static_cast<int16_t>(width - props.leftReserve);
+  if (props.rightReserve > 0) width = static_cast<int16_t>(width - props.rightReserve);
+
+  const fui::BitmapRef leading =
+      props.leadingIcon ? props.leadingIcon : fui::resolveBitmap(screen.frame().assets(), props.leadingIconAsset);
+  if (leading && props.leadingAction != fui::NO_ACTION && !props.centered) {
+    width = static_cast<int16_t>(width - (band.height - 8) - 8);
+  }
+
+  const fui::BitmapRef trailing =
+      props.trailingIcon ? props.trailingIcon : fui::resolveBitmap(screen.frame().assets(), props.trailingIconAsset);
+  if ((props.trailingLabel != nullptr || trailing) && props.trailingAction != fui::NO_ACTION) {
+    int16_t buttonW = static_cast<int16_t>(band.height - 8);
+    if (props.trailingLabel != nullptr) {
+      const fui::Size label =
+          screen.target().measureText(props.trailingText.font, props.trailingLabel, props.trailingText);
+      buttonW = static_cast<int16_t>(label.width + 20 + (trailing ? trailing.width + 4 : 0));
+    }
+    if (!props.centered) width = static_cast<int16_t>(width - buttonW - 8);
+  }
+
+  if (props.rightLabel != nullptr) {
+    const fui::Size label = screen.target().measureText(props.subtitleText.font, props.rightLabel, props.subtitleText);
+    const int16_t used = static_cast<int16_t>(label.width + 6);
+    // A centred title gives up the same width on BOTH sides so it stays centred
+    // on the band, which is the component's rule and not a doubling by mistake.
+    width = static_cast<int16_t>(width - (props.centered ? used * 2 : used));
+  }
+  return width > 0 ? width : 0;
+}
+
 // The header band. Paint and ink are placed by different rules, and the split
 // is the whole point.
 //
@@ -166,6 +216,14 @@ inline void absoluteChrome(Screen& screen) { screen.setContentMarginAbsolute(fre
 // rect exactly as screen.header(props) would take it, so nothing below moves --
 // under absolute chrome (bottom at the tuned kHeaderHeight) or under the safe
 // area alike. Call in place of screen.header(props).
+//
+// The TITLE is fitted before it is drawn, which is the one thing this wrapper
+// adds beyond placement. See headerTitleWidth() below for why the width is
+// computed rather than guessed, and ToyboxText.h's fittedTitle() for the rule.
+// Doing it here rather than at the call sites is deliberate: there are
+// twenty-four copies of this chrome across the apps, every one of them ends in
+// this function, and a rule added to one copy at a time is a rule the
+// twenty-fifth copy will not have.
 inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   namespace fui = freeink::ui;
   const fui::Rect band = screen.takeTop(screen.theme().headerHeight);
@@ -178,7 +236,55 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   // top-bordered band would need its corners and its rule carried up here too.
   screen.target().fill(fui::makeRect(0, 0, screen.device().screen().width, band.bottom()),
                        styles.resolve(fui::StateNormal).background);
-  screen.header(props, fui::makeRect(band.x, inkTop, band.width, static_cast<int16_t>(band.bottom() - inkTop)));
+
+  // The rect the component is really handed, which is the band CLIPPED to the
+  // visible rows: the bezel hides the top ten, and the ink stays below them.
+  // The fitting is done against this one and not against the band, because the
+  // component sizes its leading and trailing buttons from `rect.height - 8` --
+  // measuring those against the taller band reserved ten pixels the title was
+  // then never given back.
+  const fui::Rect ink = fui::makeRect(band.x, inkTop, band.width, static_cast<int16_t>(band.bottom() - inkTop));
+
+  fui::HeaderProps fitted = props;
+  // The theme substitutions Screen::header() is about to make, made here first
+  // because the fitting needs the real style and the real padding. Taking the
+  // theme's title style whole -- rather than building one -- is what keeps the
+  // band's ink WHITE: titleText.color is White in the tokens precisely because
+  // this band is always solid black, and a style assembled field by field here
+  // would paint every title in the fork black on black.
+  if (fui::textStyleUnset(fitted.titleText)) {
+    fitted.titleText = screen.theme().titleText;
+    fitted.titleText.align = screen.theme().headerTitleAlign;
+  }
+  if (fui::textStyleUnset(fitted.subtitleText)) fitted.subtitleText = screen.theme().smallText;
+  // trailingText too, and it is not a tidy-up: headerTitleWidth measures the
+  // trailing button's LABEL to know how much of the band it takes, and an
+  // unset style measures it at font 0 -- the SMALL slot -- while the component
+  // draws it at BODY. On the Hacker News band those are toybox_10 and
+  // reading_serif_14, so "SAVED" measured 51px against the 91px it really
+  // occupies and the fit believed it had 40px it did not have. The error
+  // points the wrong way: the ladder declines to step down and the renderer
+  // cuts instead.
+  if (fui::textStyleUnset(fitted.trailingText)) fitted.trailingText = screen.theme().bodyText;
+  if (fitted.sidePadding < 0) fitted.sidePadding = screen.theme().headerSidePadding;
+  const fui::TextStyle asked = fitted.titleText;
+  std::string title =
+      fittedTitle(screen.target(), fitted.title, headerTitleWidth(screen, ink, fitted), fitted.titleText);
+  // A fitted style that reads as DEFAULT would be replaced by the theme's own
+  // inside Screen::header(), putting the cut we just chose back to the display
+  // one -- silently, and only on the longest strings. FONT_SLOT_SMALL is 0, so
+  // a title stepped all the way down with every other field left alone is one
+  // field away from that. Toybox's own titleText is White and cannot reach it;
+  // a caller supplying a black, left-aligned title style could. Rather than
+  // emit a style that will be undone, keep the cut that caller asked for and
+  // let fitLines mark the overflow instead.
+  if (fui::textStyleUnset(fitted.titleText) && !fui::textStyleUnset(asked)) {
+    fitted.titleText = asked;
+    title = fitLines(screen.target(), props.title, headerTitleWidth(screen, ink, fitted), 1, fitted.titleText);
+  }
+  if (fitted.title != nullptr) fitted.title = title.c_str();
+
+  screen.header(fitted, ink);
 }
 
 // Vertical top for an element of height h centred in the VISIBLE part of the
