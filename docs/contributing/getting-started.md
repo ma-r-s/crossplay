@@ -32,8 +32,8 @@ them, you do not need to.
 - Python 3.8+
 - `clang-format` **21**, on your `PATH` as `clang-format-21`.
   `bin/clang-format-fix` prefers that exact name and falls back to plain
-  `clang-format`, which on a current machine is 22 -- and 22 reformats 44 files
-  that CI's 21 leaves alone, so the fallback shows churn you did not write.
+  `clang-format`, which on a current machine is 22. 22 reformats files 21 leaves
+  alone, so the fallback shows churn you did not write and CI then rejects.
 - SDL2, for the simulator env only (`brew install sdl2`, or your distribution's
   `libsdl2-dev`)
 - A USB-C cable and an X4 Pro or a Sticky, **only** for on-device testing. The
@@ -69,7 +69,10 @@ Then verify:
 clang-format-21 --version
 ```
 
-The reported major version must be 21.
+It must report 21. `bin/clang-format-fix` itself only refuses versions **below**
+21, so a newer one runs happily and quietly reformats files CI would leave
+alone; the wrapper cannot tell you that, which is why the version is pinned
+here.
 
 ## Clone and initialize
 
@@ -80,7 +83,9 @@ git submodule update --init --recursive
 ```
 
 **The submodule step is not optional.** `.gitmodules` pins `freeink-sdk`, which
-is the platform layer every build compiles against. Without it the first build
+is the platform layer every build compiles against. It tracks a branch rather
+than upstream's default, so take the commit the superproject records and do not
+update it casually. Without it the first build
 fails on missing headers rather than on anything you did. `git clone
 --recursive` does the same thing in one step; the two-step form is here because
 it is also the fix for a clone you already made.
@@ -137,7 +142,11 @@ work masks a broken commit, which is how three apps once shipped against
 symbols that were never committed while every check ran green.
 
 Pull requests go into **`xteink`**, this fork's default branch, not `develop`.
-CI builds both device environments on a runner, so you do not have to.
+CI compiles `gh_release_x4pro`, `gh_release_sticky` and `simulator_x4_pro` on a
+runner, so you do not have to build for a device to land. Note what that does
+**not** cover: `x4pro` and `sticky`, the dev envs in the table above, carry
+`CROSSPOINT_DEV_SERIAL_BRIDGE` and CI never compiles them. Only your local
+`check.sh` does.
 [Landing and integration](./landing-and-integration.md) covers which gate a
 branch actually needs and what to do when integration goes red.
 

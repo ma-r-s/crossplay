@@ -65,8 +65,15 @@ nothing depended on it.
 ## 3. What we actually use
 
 Counted across `src/apps_local/`, excluding the shared modules that are not apps
-(`link`, `player`, `sample`, `ui`, `bridge`). Re-derive it rather than trusting
-the table; `host-tests/docsclaims/` does exactly that and fails when it drifts:
+(`link`, `player`, `sample`, `ui`, `bridge`). **That scope is not the shelf.**
+GET BOOKS is on the shelf and its activity is upstream's
+`src/activities/browser/OpdsBookBrowserActivity.cpp`, outside `apps_local`
+entirely; it reads Back, Confirm and Left, so the shelf's real Confirm and
+Left/Right figures are each one higher than the table below. The table counts
+the directories this fork owns, which is the question this section asks.
+
+`host-tests/docsclaims/` walks the same directories and fails when these numbers
+drift. To see it by hand:
 
 ```bash
 grep -rl "Button::Up\|Button::Down" src/apps_local/*/ | cut -d/ -f3 | sort -u
@@ -79,7 +86,7 @@ grep -rl "Button::Up\|Button::Down" src/apps_local/*/ | cut -d/ -f3 | sort -u
 | Left / Right | 1                 | **no**           |
 | Up / Down    | 10                | **yes**          |
 
-Twelve of the twenty-three use Back and nothing else.
+Twelve of the twenty-three directories use Back and nothing else.
 
 > **The finding below was true when it was written, in August 2026, and it is
 > not true any more.** It said the two real keys were unused by every game we

@@ -154,6 +154,21 @@ jobs:
       # repo already got burned by. A forgiven suite that no longer fails is a
       # door held open for the next regression.
       #
+      # host-tests/docsclaims asks who wrote each file in docs/ by comparing it
+      # against upstream, and actions/checkout gives the runner only `origin`.
+      # Without this the whole ownership half of that suite SKIPPED here while
+      # docs/README.md told readers it was enforced -- most of its checks
+      # running nowhere that blocks a merge. A shallow fetch is enough: the
+      # suite only reads blobs at the tip. Deliberately not `|| true`; a silent
+      # skip is the exact failure being fixed, and docsclaims fails outright in
+      # CI when the ref is missing.
+      - name: Fetch upstream's tip, for the docs ownership checks
+        run: |
+          git fetch --no-tags --depth=1 \
+            https://github.com/crosspoint-reader/crosspoint-reader.git \
+            develop:refs/remotes/crosspoint/develop
+          git rev-parse --verify crosspoint/develop
+
       # host-tests/ci/run.sh executes this step's actual text (extracted from
       # this yaml, not copied) and asserts the no-forgiveness shape, so drift
       # here fails a suite there.

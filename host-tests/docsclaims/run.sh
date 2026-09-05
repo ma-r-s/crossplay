@@ -133,6 +133,12 @@ for heading, table, label in (("Games", games, "kGames"), ("Apps", apps, "kApps"
           ", ".join(missing))
     check(not extra, f"README.md '### {heading}' table lists rows {label} does not",
           ", ".join(extra))
+    # Length as well as membership. Set comparison alone passes a table that
+    # lists one game twice, which is a table with the wrong number of rows
+    # sitting under a headline count this same suite checks.
+    check(len(listed) == len(want),
+          f"README.md '### {heading}' table has the wrong number of rows",
+          f"{len(listed)} rows, {label} has {len(want)}")
 
 # ---------------------------------------------------------------------------
 # PLAY NEARBY. An app plays nearby exactly when it includes the link activity,
@@ -181,6 +187,12 @@ EXEMPT = {
 }
 SKIP_DIRS = {".git", ".pio", "freeink-sdk", "node_modules", "fs_agent",
              "fs_mario", "qa-artifacts", "emulator", ".cache", "archive"}
+# Deliberately NOT fence-aware. Fence tracking was a toggle that a nested or
+# `~~~` block desynced silently, and it made a four-space indented code block
+# invisible. The whole tree has exactly one env-less invocation outside a fence
+# and it is the exempt file, so requiring a fence bought nothing and hid two
+# shapes. Both binary names, because `platformio run` is the same command.
+BUILD_CMD = re.compile(r"^(?:\$\s*)?(?:pio|platformio)\s+run\b")
 env_less = []
 scanned = 0
 for dp, dns, fns in os.walk(root):
@@ -192,15 +204,11 @@ for dp, dns, fns in os.walk(root):
         if rel in EXEMPT:
             continue
         scanned += 1
-        fenced = False
         for n, line in enumerate(read(rel).splitlines(), 1):
-            if line.lstrip().startswith("```"):
-                fenced = not fenced
+            cmd = line.strip()
+            if cmd.startswith("```") or cmd.startswith("~~~"):
                 continue
-            if not fenced:
-                continue
-            cmd = line.strip().lstrip("$").strip()
-            if cmd.startswith("pio run") and " -e " not in cmd:
+            if BUILD_CMD.match(cmd) and " -e " not in cmd and "--environment" not in cmd:
                 env_less.append(f"{rel}:{n}  {cmd}")
 check(scanned > 50, "the env-less build scan reached almost nothing",
       f"only {scanned} markdown files; a scan that finds no files reports clean")
@@ -216,19 +224,56 @@ check("upstream's README" in cpr and "ESP32-C3" in cpr and "x4pro" in cpr,
 
 contrib = os.path.join(root, "docs/contributing")
 
-# The two lines that make a stranger's first build work at all.
-check("git submodule update --init" in readme,
-      "README.md does not tell a stranger to initialise the submodule",
-      ".gitmodules pins freeink-sdk and nothing builds without it")
+# The two lines that make a stranger's first build work at all. Asserted as
+# COMMANDS on a line of their own, not as substrings: a bare `in` test is
+# satisfied by any mention anywhere, including a sentence telling you not to.
+SUBMODULE_CMD = re.compile(r"^(?:\$\s*)?git\s+submodule\s+update\s+--init\b", re.M)
+CLONE_UPSTREAM = re.compile(
+    r"^(?:\$\s*)?git\s+clone\b.*crosspoint-reader/crosspoint-reader", re.M)
+for rel, label in (("README.md", "README.md"),
+                   ("docs/contributing/getting-started.md", "getting-started.md")):
+    body = "\n".join(l.strip() for l in read(rel).splitlines())
+    check(bool(SUBMODULE_CMD.search(body)),
+          f"{label} does not carry `git submodule update --init` as a command",
+          ".gitmodules pins freeink-sdk and nothing builds without it")
 check("docs/contributing" in readme,
       "README.md never links docs/contributing/",
       "the correct setup path is unreachable from the front door")
-gs = read("docs/contributing/getting-started.md")
-check("git submodule update --init" in gs,
-      "docs/contributing/getting-started.md is missing the submodule step")
-check("crosspoint-reader/crosspoint-reader\n" not in gs
-      and "clone https://github.com/crosspoint-reader" not in gs,
-      "docs/contributing/getting-started.md still clones upstream's repository")
+# Every doc a contributor follows, not only the one that was wrong. The regex
+# catches the SSH form too: `git@github.com:crosspoint-reader/...` matched
+# neither of the https-only substring tests this replaces.
+for rel in ["README.md", "AGENTS.md"] + [
+        f"docs/contributing/{f}" for f in sorted(os.listdir(contrib)) if f.endswith(".md")]:
+    body = "\n".join(l.strip() for l in read(rel).splitlines())
+    m = CLONE_UPSTREAM.search(body)
+    check(m is None, f"{rel} tells the reader to clone upstream's repository",
+          m.group(0) if m else "")
+
+# ---------------------------------------------------------------------------
+# Which branch a contributor is told to branch from and target. `develop` is
+# upstream's; this repository's is `xteink`, and nothing checked that at all --
+# a doc could say "Branch from `develop`" and every suite stayed green.
+#
+# The branch is DISCOVERED, from the remote HEAD git already records, so this
+# check does not become the literal it is guarding.
+# ---------------------------------------------------------------------------
+_r = subprocess.run(["git", "-C", root, "symbolic-ref", "--short",
+                     "refs/remotes/origin/HEAD"], capture_output=True, text=True)
+default_branch = _r.stdout.strip().split("/")[-1] if _r.returncode == 0 else ""
+check(bool(default_branch),
+      "cannot read origin/HEAD, so the branch a contributor is sent at is unchecked",
+      "git remote set-head origin -a")
+if default_branch:
+    BRANCH_INSTRUCTION = re.compile(
+        r"^[-*\d.)\s]*(?:Branch from|Target)\s+`([A-Za-z0-9._/-]+)`", re.M | re.I)
+    for fn in sorted(os.listdir(contrib)):
+        if not fn.endswith(".md"):
+            continue
+        rel = f"docs/contributing/{fn}"
+        for _m2 in BRANCH_INSTRUCTION.finditer(read(rel)):
+            check(_m2.group(1) == default_branch,
+                  f"{rel} sends a contributor at the wrong branch",
+                  f"says `{_m2.group(1)}`, origin's default is `{default_branch}`")
 
 # ---------------------------------------------------------------------------
 # docs/buttons.md counts which apps read which logical button. It sat at
@@ -236,7 +281,14 @@ check("crosspoint-reader/crosspoint-reader\n" not in gs
 # had grown to read the two real keys, which inverted the finding the document
 # exists to record.
 # ---------------------------------------------------------------------------
-SHARED = {"link", "player", "sample", "ui", "bridge"}
+# Read out of docs/buttons.md rather than written twice. This file's header
+# says every expected value is discovered; a hand-kept copy of the doc's own
+# exclusion list would be the one literal able to disagree with it.
+_m = re.search(r"excluding the shared modules that are not apps\s*\n?\(([^)]*)\)",
+               read("docs/buttons.md"))
+SHARED = set(re.findall(r"`([a-z]+)`", _m.group(1))) if _m else set()
+check(bool(SHARED), "docs/buttons.md no longer names the directories its census excludes",
+      "the census scope is what makes its numbers mean anything")
 button_use = {}
 for entry in sorted(os.listdir(apps_local)):
     d = os.path.join(apps_local, entry)
@@ -320,9 +372,19 @@ def upstream_ref():
 
 ref = upstream_ref()
 if ref is None:
-    print("SKIP docsclaims  no crosspoint/develop or upstream/develop ref; "
-          "docs/README.md's ownership claims were NOT verified "
-          "(git fetch crosspoint develop)")
+    # In CI this is a FAILURE, not a skip. The workflow fetches the ref in a
+    # step of its own precisely so these checks run where a merge is blocked;
+    # if that step is dropped, the suite must say so rather than pass with most
+    # of itself switched off. Locally it stays a loud skip, so a fresh clone
+    # with no upstream remote is not bricked by it.
+    if os.environ.get("CI"):
+        check(False, "no crosspoint/develop ref in CI",
+              "the 'Fetch upstream's tip' step in crossplay-ci.yml is gone, and "
+              "docs/README.md's ownership claims are checked nowhere")
+    else:
+        print("SKIP docsclaims  no crosspoint/develop or upstream/develop ref; "
+              "docs/README.md's ownership claims were NOT verified "
+              "(git fetch crosspoint develop)")
 else:
     def upstream_blob(path):
         r = subprocess.run(["git", "-C", root, "rev-parse", f"{ref}:{path}"],
@@ -380,7 +442,15 @@ else:
         ("index extended", "edited"),
         ("re-pointed", "edited"),
     )
-    rows = re.findall(r"^\|\s*`([A-Za-z0-9._\-]+\.md)`\s*\|(.+?)\|\s*$", docs_readme, re.M)
+    # Scoped to the paragraph that introduces the table, so a future table
+    # elsewhere in this file whose first cell is a backticked filename is not
+    # silently checked as though it named a file in contributing/.
+    tbl = re.search(r"`contributing/` is worth naming file by file(.*?)\n\n(?=[^|])",
+                    docs_readme, re.S)
+    check(bool(tbl),
+          "docs/README.md: the contributing table's introduction was reworded past this check")
+    region = tbl.group(1) if tbl else ""
+    rows = re.findall(r"^\|\s*`([A-Za-z0-9._\-]+\.md)`\s*\|(.+?)\|\s*$", region, re.M)
     check(len(rows) >= 5, "docs/README.md contributing table not found or truncated",
           f"{len(rows)} rows")
     for fn, desc in rows:

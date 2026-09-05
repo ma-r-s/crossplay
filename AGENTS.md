@@ -143,7 +143,8 @@ Never invoke or probe `clang-format` directly. The repository wrapper is the onl
 
    - **Verify**: `which pio` (Git Bash) or `where.exe pio` (cmd)
 
-   - **Usage**: `pio run`, `pio run -t upload`, etc.
+   - **Usage**: `pio run -e x4pro`, `pio run -e x4pro -t upload`, etc. Always
+     with an environment; see Build Commands below for why.
 
 **Configuration Files**:
 
@@ -635,8 +636,10 @@ renderer.drawText(FONT_UI_MEDIUM, x, y, "Hello", true);
 
 > **These are upstream's commands and every one of them targets the wrong
 > chip here.** `default`, `gh_release` and a bare `pio run` all set
-> `FREEINK_DEVICE_X4` / `FREEINK_DEVICE_X3`, which are ESP32-C3. This fork's
-> envs are `x4pro`, `sticky` and `simulator_x4_pro`. Go through
+> `FREEINK_DEVICE_X4` / `FREEINK_DEVICE_X3`, which are ESP32-C3. Build
+> `-e x4pro`, `-e sticky` or `-e simulator_x4_pro` instead (upstream ships an
+> `x4pro` and a `sticky` env too; what differs here is the release envs and the
+> default). Go through
 > `./scripts_local/check.sh` from your own worktree rather than running
 > PlatformIO by hand: it takes the workspace build lock, and concurrent builds
 > race the shared `~/.platformio` and fail on framework headers that have
