@@ -72,6 +72,23 @@ const char* builtInStem(const size_t index) {
   return kBuiltIns[index].stem;
 }
 
+bool isBuiltInFile(const std::string_view fileName) {
+  std::string_view stem = fileName;
+  const size_t dot = stem.rfind('.');
+  if (dot != std::string_view::npos) stem = stem.substr(0, dot);
+  for (const Entry& e : kBuiltIns) {
+    if (stem == e.stem) return true;
+  }
+  return false;
+}
+
+bool sortsBefore(const std::string_view a, const std::string_view b) {
+  const bool ab = isBuiltInFile(a);
+  const bool bb = isBuiltInFile(b);
+  if (ab != bb) return !ab;  // a user's own wallpaper comes first
+  return a < b;
+}
+
 DisplayName displayName(std::string_view fileName) {
   // Strip the extension: nobody wants ".bmp" under a picture.
   std::string_view stem = fileName;
