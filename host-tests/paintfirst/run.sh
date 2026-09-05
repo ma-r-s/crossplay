@@ -77,11 +77,65 @@ ahead_re() {
 
 has_re() { printf '%s\n' "$2" | grep -qE -- "$1"; }
 
+# REACHABILITY, not presence. `$2` (a render body, comments stripped) must
+# contain the statement `$1` with NO `return` of any kind before it -- an early
+# return above displayBuffer() leaves the string present at the right indent
+# and the frame unreachable, which is how a critic made the previous version of
+# this suite green while the busy frame never painted. None of the three
+# render()s here has an early return today, so this is strict without being
+# brittle; a render that grows one has to say so by failing.
+reached() {
+  printf '%s\n' "$2" | awk -v want="$1" '
+    $0 ~ want { found = NR; exit }
+    /(^|[^A-Za-z_])return([; ]|$)/ { ret = NR }
+    END { }
+  ' > /dev/null
+  line=$(printf '%s\n' "$2" | grep -nE -- "$1" | head -1 | cut -d: -f1)
+  [ -n "$line" ] || return 1
+  before=$(printf '%s\n' "$2" | sed -n "1,$((line - 1))p" | grep -cE '(^|[^A-Za-z_])return([; ]|$)')
+  [ "$before" -eq 0 ]
+}
+
+# A RenderLock held at function-body level, however it is SPELLED. The previous
+# version grepped `^  RenderLock `, so `auto lock = RenderLock(*this);` walked
+# straight past the check that exists to prevent a deadlock, and so would
+# `RenderLock* p = new RenderLock(...)`. Comments are already stripped, so any
+# mention at body indent is a construction.
+holds_lock_at_body() { printf '%s\n' "$1" | grep -E '^  [^ ]' | grep -q 'RenderLock'; }
+
+# Is the statement matching $1 executed while a RenderLock declared in an
+# ENCLOSING scope is still alive? Brace depth, not proximity: fetchFeed() has
+# three error-path locks that textually precede the container swap, and an
+# "is there a RenderLock somewhere above" check is satisfied by any of them
+# while the swap itself runs unlocked. A lock protects a SCOPE; the check has
+# to model the scope or it is checking nothing. The lock declared at depth D
+# lives until depth falls below D.
+locked_at() {
+  printf '%s\n' "$2" | awk -v target="$1" '
+    function cnt(s, ch,   n, i) { n = 0; for (i = 1; i <= length(s); i++) if (substr(s, i, 1) == ch) n++; return n }
+    {
+      if ($0 ~ target && lockdepth > 0 && depth >= lockdepth) found = 1
+      if ($0 ~ /RenderLock/) lockdepth = (depth > 0 ? depth : 1)
+      depth += cnt($0, "{") - cnt($0, "}")
+      if (lockdepth > 0 && depth < lockdepth) lockdepth = 0
+    }
+    END { exit found ? 0 : 1 }
+  '
+}
+
+# Nothing that blocks may run BEFORE the wait: the frame is only a guarantee
+# for what comes after it. A denylist, and therefore incomplete by
+# construction -- it names the blocking calls this fork actually has rather
+# than proving the absence of all of them.
+BLOCKING='HttpDownloader::|ensureConnected|KOReaderSyncClient::|sync_\.|downloadToFile|WiFi\.begin|\.pairAbandon'
+
 # Every call matching $2 must have a call matching $1 within the preceding $3
 # lines. Catches the site added tomorrow, which is how the twin was missed.
 preceded_within() {
   awk -v guard="$1" -v danger="$2" -v span="$3" '
-    $0 ~ guard { last = NR }
+    # Indented only: `void X::paintBusyNow(...)` starts at column 0 and is the
+    # definition, not a call in front of anything.
+    /^[ ]/ && $0 ~ guard { last = NR }
     $0 ~ danger { if (last == 0 || NR - last > span) { bad = 1 } }
     END { exit bad ? 1 : 0 }
   '
@@ -135,6 +189,36 @@ else bad "beginFetch() does not set BrowserState::LOADING at function-body level
 if printf '%s\n' "$fetch" | ahead_re "$(stmt "$I2" 'requestUpdateAndWait\(\)')" "$(stmt "$I2" 'fetchFeed\(path\)')"; then ok
 else bad "beginFetch() does not requestUpdateAndWait() before fetchFeed() as an unconditional statement; the LOADING frame races the socket instead of preceding it"; fi
 
+# Nothing blocking may run BEFORE the wait, or the frame guarantees the wrong
+# half of the function.
+if printf '%s\n' "$fetch" | grep -nE -- "$BLOCKING" | head -1 | cut -d: -f1 | {
+     read -r first || first=""
+     w=$(printf '%s\n' "$fetch" | grep -nE -- "$(stmt "$I2" 'requestUpdateAndWait\(\)')" | head -1 | cut -d: -f1)
+     [ -z "$first" ] || { [ -n "$w" ] && [ "$w" -lt "$first" ]; }
+   }; then ok
+else bad "beginFetch() runs a blocking call BEFORE requestUpdateAndWait(); the busy frame then guarantees nothing about the part that blocks"; fi
+
+# THE LOCK, not the notification ordering. fetchFeed() replaces `entries` and
+# rebuilds `rowItems` from it while the render task may read rowItems -- whose
+# ListItems hold const char* into entries[i].title. The handshake fix in
+# ActivityManager narrows when a render can overlap this; it cannot eliminate
+# it, because the render task is pinned to the OTHER core and a waiter that
+# registers between its take and its claim leaves one notification unconsumed.
+# A timing argument does not survive a second core. See the memory
+# a-rect-whose-meaning-changes for the general shape: only the lock is the
+# invariant.
+ff=$(body "$OPDS" '^void OpdsBookBrowserActivity::fetchFeed[(]')
+if locked_at 'entries = std::move' "$ff"; then ok
+else bad "fetchFeed() replaces entries with no RenderLock alive in an enclosing scope; a render overlapping that swap reads freed strings through rowItems -- a use-after-free, not a torn frame"; fi
+
+if locked_at 'rebuildRowItems[(][)];' "$ff"; then ok
+else bad "fetchFeed() rebuilds rowItems with no RenderLock alive in an enclosing scope"; fi
+
+# The same containers, freed from four other callers.
+re=$(body "$OPDS" '^void OpdsBookBrowserActivity::releaseEntries[(]')
+if locked_at 'swap[(]entries[)]' "$re"; then ok
+else bad "releaseEntries() frees entries with no RenderLock alive; four navigation paths reach it while the render task may be mid-frame"; fi
+
 # Every path into a feed goes through the helper, or the next one written will
 # not. See the memory bounding-one-of-two-input-paths.
 calls=$(grep -cE '^ +fetchFeed\(' "$OPDS" || true)
@@ -144,7 +228,7 @@ else bad "fetchFeed() is called from $calls places in $OPDS; every one that is n
 # Both defective idioms, spelled out. requestUpdate(true) is included because
 # it notifies and returns -- it races the socket rather than preceding it, and
 # on three of these paths it was what shipped.
-if grep -A1 -nE '^ +requestUpdate\((true)?\);' "$OPDS" | grep -qE 'fetchFeed\(|downloadToFile\('; then
+if grep -A3 -nE '^ +requestUpdate\((true)?\);' "$OPDS" | grep -qE '^[0-9]+.[ ]+(fetchFeed\(|.*HttpDownloader::downloadToFile\()'; then
   bad "$OPDS still asks for an update and then blocks in the same call stack (requestUpdate() never notifies at all; requestUpdate(true) only races)"
 else ok; fi
 
@@ -153,11 +237,22 @@ dl=$(body "$OPDS" '^void OpdsBookBrowserActivity::downloadBook[(]')
 if printf '%s\n' "$dl" | ahead_re "$(stmt "$I2" 'requestUpdateAndWait\(\)')" '^ +.*HttpDownloader::downloadToFile\('; then ok
 else bad "downloadBook() does not requestUpdateAndWait() before downloadToFile(); the whole TCP+TLS connect window runs before the first progress callback can repaint anything"; fi
 
+# The download screen is a screen ENTRY, so it announces itself like one, and
+# the one place a touch is routed during a download is gated on that
+# announcement. Painting synchronously (above) means the panel has finished
+# refreshing before the first progress callback, so Cancel is reliably live by
+# the time a finger that tapped DOWNLOAD lifts -- a-tap-is-a-touch-down.
+if printf '%s\n' "$dl" | ahead_re "$(stmt "$I2" 'resetUi\(\)')" "$(stmt "$I2" 'requestUpdateAndWait\(\)')"; then ok
+else bad "downloadBook() does not resetUi() before its paint; the download screen publishes an interaction table no screen entry announced, and the reveal gate is never armed for it"; fi
+
+if printf '%s\n' "$dl" | grep -qE '^ +if \(routingReady\(\)\) routeTouch\(mappedInput\);'; then ok
+else bad "the download progress callback routes touches without a routingReady() gate; it is the only place input is read during a download and it routes against an unannounced table"; fi
+
 # The render that has to publish the frame the wait is waiting for -- at
 # function-body level, so a conditional displayBuffer() is not mistaken for a
 # reachable one. See the memory activity-render-contract.
-if has_re "$(stmt "$I2" 'renderer\.displayBuffer\(\)')" "$(body "$OPDS" '^void OpdsBookBrowserActivity::render[(]')"; then ok
-else bad "OpdsBookBrowserActivity::render() has no unconditional displayBuffer() at function-body level; the wait would return with nothing on the panel"; fi
+if reached "$(stmt "$I2" 'renderer\.displayBuffer\(\)')" "$(body "$OPDS" '^void OpdsBookBrowserActivity::render[(]')"; then ok
+else bad "OpdsBookBrowserActivity::render() has no REACHABLE displayBuffer() at function-body level (absent, nested, or behind an early return); the wait would return with nothing on the panel"; fi
 
 # ---------------------------------------------------------------------------
 # CASE 2: KOReader authentication, over TLS, reachable straight from onEnter().
@@ -175,7 +270,7 @@ else bad "performAuthentication() is not preceded by an unconditional requestUpd
 # The wait must not sit inside the RenderLock scope above it. Checked by
 # looking at the LOCK -- a RenderLock at function-body indent is one that is
 # still held at the wait. A brace preceding the wait proves nothing.
-if has_re '^  RenderLock ' "$auth"; then
+if holds_lock_at_body "$auth"; then
   bad "onWifiSelectionComplete() declares a RenderLock at function-body level; it is still held at requestUpdateAndWait(), which asserts and would deadlock with asserts off"
 else ok; fi
 
@@ -183,8 +278,8 @@ sites=$(grep -cE '^ +performAuthentication\(\);' "$KOA" || true)
 if [ "$sites" = "1" ]; then ok
 else bad "performAuthentication() is called $sites times; each extra site is an unpainted handshake"; fi
 
-if has_re "$(stmt "$I2" 'renderer\.displayBuffer\(\)')" "$(body "$KOA" '^void KOReaderAuthActivity::render[(]')"; then ok
-else bad "KOReaderAuthActivity::render() has no unconditional displayBuffer() at function-body level; the wait would return with nothing on the panel"; fi
+if reached "$(stmt "$I2" 'renderer\.displayBuffer\(\)')" "$(body "$KOA" '^void KOReaderAuthActivity::render[(]')"; then ok
+else bad "KOReaderAuthActivity::render() has no REACHABLE displayBuffer() at function-body level (absent, nested, or behind an early return); the wait would return with nothing on the panel"; fi
 
 # ---------------------------------------------------------------------------
 # CASE 3: Instapaper. Not a mis-ordered busy state -- there was none at all, on
@@ -200,9 +295,16 @@ else bad "paintBusyNow() sets no busy phase; there is nothing for the wait to pu
 if has_re "$(stmt "$I2" 'requestUpdateAndWait\(\)')" "$paint"; then ok
 else bad "paintBusyNow() does not requestUpdateAndWait() at function-body level; the busy frame is never on the glass before the caller's TLS call blocks"; fi
 
-if has_re '^  RenderLock ' "$paint"; then
+if holds_lock_at_body "$paint"; then
   bad "paintBusyNow() declares a RenderLock at function-body level; it is still held at requestUpdateAndWait(), which asserts and would deadlock with asserts off"
 else ok; fi
+
+if printf '%s\n' "$paint" | grep -nE -- "$BLOCKING" | head -1 | cut -d: -f1 | {
+     read -r first || first=""
+     w=$(printf '%s\n' "$paint" | grep -nE -- "$(stmt "$I2" 'requestUpdateAndWait\(\)')" | head -1 | cut -d: -f1)
+     [ -z "$first" ] || { [ -n "$w" ] && [ "$w" -lt "$first" ]; }
+   }; then ok
+else bad "paintBusyNow() runs a blocking call BEFORE requestUpdateAndWait()"; fi
 
 # EVERY pairAbandon, not the one in front of me. The first fix landed on
 # performDisconnect() and left the identical call in the Back handler alone;
@@ -210,8 +312,8 @@ else ok; fi
 if nocomment < "$INS" | preceded_within 'paintBusyNow[(]' 'sync_[.]pairAbandon[(]' 8; then ok
 else bad "a sync_.pairAbandon() in $INS is not preceded by paintBusyNow(); that is a blocking TLS revoke with whatever screen the reader was on left frozen behind it"; fi
 
-if has_re "$(stmt "$I2" 'renderer\.displayBuffer\(\)')" "$(body "$INS" '^void InstapaperActivity::render[(]')"; then ok
-else bad "InstapaperActivity::render() has no unconditional displayBuffer() at function-body level; the wait would return with nothing on the panel"; fi
+if reached "$(stmt "$I2" 'renderer\.displayBuffer\(\)')" "$(body "$INS" '^void InstapaperActivity::render[(]')"; then ok
+else bad "InstapaperActivity::render() has no REACHABLE displayBuffer() at function-body level (absent, nested, or behind an early return); the wait would return with nothing on the panel"; fi
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
