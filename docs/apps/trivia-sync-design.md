@@ -86,6 +86,30 @@ Three consequences worth stating plainly:
   the id and the device stores it beside the pack, so **no format bump is needed
   for this either.**
 
+### The precondition, and it is not safe today
+
+D1 resolves reports server-side against the corpus. **So the corpus has to
+exist.** Checked rather than assumed, and the answer is uncomfortable:
+
+- `docs/apps/trivia-pack-format.md` says the season TSVs `build_pack.py --src`
+  wants "are not in this repo and not on this machine", and that a published
+  `pack.dat` is "the only surviving copy of its corpus". Card #225 says the same.
+- The rated corpus **does** exist — `wt/localrate/.rate/corpus_repaired.jsonl`,
+  50,000 rows, each carrying the `id` this design wants to join on.
+- It lives in **one gitignored scratch directory inside one worktree**
+  (`.rate/` is ignored at `.gitignore:78`), and `./scripts/wt.sh prune` drops
+  every merged, clean, idle tree.
+
+So the single copy of the join table this feature depends on is one prune away
+from being gone, and nothing would report an error — the reports would simply
+stop resolving, months later, with no way to reconstruct why.
+
+**This is a blocker on collecting reports at all, and it is cheap to clear:**
+publish the `index -> corpus_id` map for each pack as a release asset beside
+`pack.dat` at build time. That asset is small, is versioned by the release it
+sits in, and moves the dependency from a scratch directory to the same place the
+pack itself already lives. Do it before the first report is accepted, not after.
+
 ### What happens to a report for a question that no longer exists
 
 Four cases, all resolved server-side, none of them an error the player sees:
