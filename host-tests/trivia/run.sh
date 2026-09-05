@@ -36,6 +36,11 @@ items = []
 for i in range(300):
     it = {'q': f'Clue {i} — about this thing with a café and a naïve rôle',
           'a': f'Answer {i}', 'd': 1 + i % 5, 'y': 1984 + i % 42}
+    # ~20% are US-centric. The flag rides bit 7 of the difficulty byte through
+    # the real writer, so this checks the writer packs it exactly where the C++
+    # reader unpacks it -- and that the difficulty still reads back as 1..5.
+    if i % 5 == 4:
+        it['us'] = True
     if i % 3 == 0:
         it['alt'] = [f'The Answer {i}']
     # Three shapes must round-trip through the real writer: 6 distractors (the
@@ -49,6 +54,7 @@ for i in range(300):
 pack_format.write(items, os.path.join(build, 'real.dat'))
 with open(os.path.join(build, 'real.tsv'), 'w', encoding='utf-8') as f:
     for it in items:
-        f.write(f"{it['d']}\t{it['y']}\t{len(it.get('alt',[]))}\t{len(it.get('w',[]))}\t{it['q']}\t{it['a']}\n")
+        us = 1 if it.get('us') else 0
+        f.write(f"{it['d']}\t{it['y']}\t{len(it.get('alt',[]))}\t{len(it.get('w',[]))}\t{us}\t{it['q']}\t{it['a']}\n")
 PY
 "$BUILD_DIR/test_realpack" "$BUILD_DIR/real.dat" "$BUILD_DIR/real.tsv"

@@ -160,9 +160,15 @@ fui::Rect buildBoardChrome(toybox::Screen& screen, const BoardModel& model) {
   status.action = model.gameOver ? static_cast<fui::ActionId>(ActionPlayAgain)
                                  : (model.canFire ? static_cast<fui::ActionId>(ActionFire) : fui::NO_ACTION);
   status.borderEdges = fui::EdgesNone;
-  // Present but not pressable: dithered rather than absent, so the trigger does
-  // not appear and disappear as you aim.
-  if (!model.gameOver && !model.canFire) status.styles = toybox::disabledButtonStyles();
+  // While it is only reporting (TAP A TARGET) it is a status line, not a
+  // disabled control, so it keeps the solid capsule -- the same treatment
+  // chess's inert mid-game status takes from the default button style. It must
+  // NOT borrow disabledButtonStyles() here: that dither is a sparse pattern of
+  // black pixels, low-contrast to read and, being sparse, exactly what a
+  // partial refresh leaves residue from, which ghosted the one control on the
+  // opening screen you most need to read. NO_ACTION, not the style, is what
+  // keeps it inert; the label alone carries the state, TAP A TARGET vs FIRE AT
+  // C4, which is what a two-state control on this panel needs anyway.
   screen.button(status, linkui::withOpponentFace(screen, screen.takeBottom(toybox::kPillHeight), model.theirName));
 
   return screen.body();

@@ -1767,6 +1767,46 @@ void testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo() {
   }
 }
 
+// #243: the waiting capsule ("TAP A TARGET") must not draw the disabled-button
+// dither. That style knocks white text out of a DarkGray dither, and on the
+// panel a dither is a sparse pattern of black pixels: low-contrast to read and,
+// being sparse, exactly what a partial refresh leaves residue from -- so the one
+// control on the opening screen you most need to read was the one that ghosted.
+// It is a status line, not a disabled control, so it keeps the solid capsule
+// chess's inert status already uses, told apart from the armed FIRE by its label
+// alone. The ghosting itself is analog and no host test can see it; the dither
+// that causes it is what this pins, and it goes red on the borrowed style.
+void testBattleshipWaitingCapsuleIsNotDithered() {
+  Rendered out;
+  bshipui::BoardModel waiting;  // not gameOver, not canFire: only reporting
+  waiting.status = "TAP A TARGET";
+  buildBattleshipBoard(out, waiting);
+
+  const FakeTarget::TextRun* label = out.target.find("TAP A TARGET");
+  CHECK(label != nullptr);
+  if (label == nullptr) return;
+
+  // The ground the label sits on, found by the label rather than by arithmetic
+  // on the band. Later fills draw over earlier ones, so the last fill covering
+  // the label's centre is the capsule's own ground.
+  const int16_t cx = static_cast<int16_t>(label->rect.x + label->rect.width / 2);
+  const int16_t cy = static_cast<int16_t>(label->rect.y + label->rect.height / 2);
+  bool found = false;
+  fui::Paint ground{};
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect r = out.target.fills[i];
+    if (cx < r.x || cx >= r.right() || cy < r.y || cy >= r.bottom()) continue;
+    ground = out.target.fillPaints[i];
+    found = true;
+  }
+  CHECK(found);
+  // Names the bug (the borrowed disabled dither) rather than the fix.
+  CHECK(!(ground.kind == fui::PaintKind::Dither && ground.color == fui::Color::DarkGray));
+  // And positively: the capsule draws solid, like FIRE and like chess's inert
+  // status. Reinstate disabledButtonStyles() here and both checks go red.
+  CHECK(ground.kind == fui::PaintKind::Solid);
+}
+
 void testBattleshipPlacementControls() {
   Rendered out;
   bshipui::PlaceModel model;
@@ -9182,6 +9222,46 @@ void testTheHeaderTitleStaysOutOfTheCoveredRows() {
 // And the third: the band's BOTTOM edge is what every layout below it is tuned
 // against, so widening the paint upward must not move it. Under absolute chrome
 // that edge is kHeaderHeight, with or without the glass.
+// And the band is absolute WITHOUT the screen asking, which is the half that
+// was missing. absoluteChrome() used to be an opt-in call placed before
+// headerBand(), and screens forgot it the same way they forgot the rule:
+// Yahtzee called it on its menu and not on its card, so the card's band began
+// at the bezel's safe top and painted 85 rows where the menu painted 76. Two
+// headers, two heights, in one game. This drives headerBand() directly on a
+// bezelled frame with no absoluteChrome() call of its own, which is exactly
+// what those screens did.
+void testTheBandIsAbsoluteWithoutBeingAsked() {
+  Rendered out;
+  const fui::DeviceContext ctx = bezelDevice();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  fui::HeaderProps props;
+  props.title = "TITLE";
+  toybox::headerBand(screen, props);
+
+  // The bezel must not push the band down. Both numbers matter: a band that
+  // starts at the safe top AND keeps its height ends kHeaderHeight + 10 down
+  // the panel, which is the 85px band Mario saw.
+  CHECK(screen.body().y == toybox::kHeaderHeight);
+
+  bool paintedFromRowZero = false;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    if (r.y == 0 && r.height == toybox::kHeaderHeight && r.width == ctx.screen().width) paintedFromRowZero = true;
+  }
+  CHECK(paintedFromRowZero);
+
+  // And the rule tracks it, rather than sitting 10px lower on this screen than
+  // on its sibling.
+  bool ruled = false;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    if (r.y == toybox::kHeaderHeight + toybox::kBandRuleGap && r.height == toybox::kRule) ruled = true;
+  }
+  CHECK(ruled);
+}
+
 void testTheHeaderBandBottomIgnoresTheBezel() {
   fui::ListItem items[1] = {};
   items[0].label = "CHESS";
@@ -9370,6 +9450,7 @@ int main() {
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();
   testTheHeaderBandBottomIgnoresTheBezel();
+  testTheBandIsAbsoluteWithoutBeingAsked();
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
   testTriviaDrawsNoOptionsWithoutAQuestion();
@@ -9445,6 +9526,7 @@ int main() {
   testConnectionsHowToFitsOnePage();
   testBattleshipStartMenu();
   testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo();
+  testBattleshipWaitingCapsuleIsNotDithered();
   testBattleshipPlacementControls();
   testHnReaderFooter();
   testHnReaderDisabledControls();
