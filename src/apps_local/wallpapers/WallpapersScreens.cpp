@@ -365,7 +365,7 @@ void buildOffer(toybox::Screen& screen, const OfferModel& model) {
 
   // What is actually IN the pack. The cover shows one motif, and without this
   // line it undersells twenty-one: a band of curves says nothing about the
-  // Durer woodcut or the star chart, which are the strongest things here.
+  // Duerer woodcut or the star chart, which are the strongest things here.
   // Names come from displayName() so they match the captions in the picker.
   char blurb[192];
   std::snprintf(blurb, sizeof(blurb), "%s, %s, %s and %d more. About %s over WiFi.",

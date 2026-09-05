@@ -20,6 +20,16 @@ bool isSupportedWallpaper(std::string_view name) {
 
 namespace {
 // filename stem (no extension, no path) -> the name people read.
+//
+// "Duerer", not "Durer" and not "Dürer". EVERY Toybox cut lacks U+00FC (checked:
+// toybox_10/14/20/30), and these strings are drawn in toybox_10 as the picker's
+// captions -- where a missing glyph is a HOLE, not a box, so "Dürer" would read
+// as "D rer" on the panel (typography-fold). "Duerer" is the accepted ASCII
+// transliteration; "Durer" is simply a misspelling of an artist's name on a
+// screen selling his work. The file STEMS stay `durer-*`: they are identifiers,
+// not display text, and renaming them would repack and invalidate the published
+// release asset. PROVENANCE.md keeps the real "Dürer" -- it is a citation read
+// in a browser, not on a panel with no umlaut.
 struct Entry {
   const char* stem;
   const char* full;
@@ -32,8 +42,8 @@ constexpr Entry kBuiltIns[] = {
     {"checker", "Checker", "Checker"},
     {"cubes", "Cubes", "Cubes"},
     {"dragonflies", "Dragonflies", "Dragonflies"},
-    {"durer-eden", "Durer: Adam and Eve", "Adam and Eve"},
-    {"durer-horsemen", "Durer: Four Horsemen", "Four Horsemen"},
+    {"durer-eden", "Duerer: Adam and Eve", "Adam and Eve"},
+    {"durer-horsemen", "Duerer: Four Horsemen", "Four Horsemen"},
     {"halftone", "Halftone", "Halftone"},
     {"hatch", "Hatch", "Hatch"},
     {"herringbone", "Herringbone", "Herringbone"},

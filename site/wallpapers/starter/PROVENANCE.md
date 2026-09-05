@@ -24,6 +24,15 @@ follow: fill the panel by scaling to the HEIGHT and cropping the WIDTH, never by
 zooming in past what filling requires, because that is how a figure loses its
 head. Verified by measuring the white band at each edge.
 
+
+> **On the spelling of Dürer.** This file keeps the real name, with the umlaut:
+> it is a citation, read in a browser. The DEVICE spells him **Duerer**, because
+> every Toybox cut on the panel lacks U+00FC and a missing glyph there is a hole
+> rather than a box, so "Dürer" would render as "D rer". The two differ on
+> purpose. The file stems stay `durer-*`: they are identifiers, not display
+> text, and renaming them would repack and invalidate the published release
+> asset. "Durer" -- no umlaut, no fold -- is a misspelling and appears nowhere.
+
 ### dragonflies.bmp
 - **Title:** Dragonflies and a bumble bee
 - **Artist:** Wenceslaus Hollar

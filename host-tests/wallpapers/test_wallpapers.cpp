@@ -94,8 +94,8 @@ void testDisplayNames() {
   CHECK(displayName("ornament.bmp").full == "Ornament");
 
   // The engravings credit their maker, briefly.
-  CHECK(displayName("durer-eden.bmp").full == "Durer: Adam and Eve");
-  CHECK(displayName("durer-horsemen.bmp").full == "Durer: Four Horsemen");
+  CHECK(displayName("durer-eden.bmp").full == "Duerer: Adam and Eve");
+  CHECK(displayName("durer-horsemen.bmp").full == "Duerer: Four Horsemen");
 
   // The brief form is a shorter NAME, never an ellipsis, and never longer than
   // the full form.
