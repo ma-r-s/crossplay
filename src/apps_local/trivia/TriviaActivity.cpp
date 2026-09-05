@@ -13,6 +13,7 @@
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
 #include "../../network/HttpDownloader.h"
+#include "../Shelf.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxTheme.h"
 
@@ -477,6 +478,29 @@ void TriviaActivity::loop() {
   if (downloadQueued_) {
     downloadQueued_ = false;
     runPackDownload();
+    return;
+  }
+
+  // Back, which on this board is the left-edge swipe: wasBackGesture() is
+  // folded into Button::Back, so this one read serves both the gesture and the
+  // key on boards that have one. It has to be read HERE, before the early
+  // return below -- the whole of card #250 is that this loop() returned on
+  // "no tap" and a swipe is not a tap, so the gesture reached nothing and
+  // Trivia was the one app in apps_local with no way back out of its front
+  // door. The target per screen is trivia::backFrom(); see TriviaCore.h.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    switch (trivia::backFrom(view_, pack_.isOpen())) {
+      case trivia::Back::LeaveApp:
+        shelf::leave(renderer, mappedInput);
+        return;
+      case trivia::Back::EndRound:
+        // The END button's own handler, not a copy of it.
+        routeAction(triviaui::ActionQuit, 0);
+        return;
+      case trivia::Back::ToMenu:
+        go(View::Menu);
+        return;
+    }
     return;
   }
 

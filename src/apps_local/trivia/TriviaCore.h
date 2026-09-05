@@ -213,4 +213,54 @@ constexpr Room roomFor(const bool queryOk, const uint64_t freeBytes, const uint6
   return freeBytes < floorBytes ? Room::TooSmall : Room::Ok;
 }
 
+// Which of the app's four screens is on the panel. Here rather than in the
+// activity for the same reason Room is: TriviaActivity includes WiFi.h and
+// cannot be built on the host, so a decision left inside it cannot be tested.
+// The activity keeps `using View = trivia::View`, so its call sites are
+// unchanged.
+enum class View : uint8_t { Menu, Quizmaster, Solo, Notice };
+
+// What the Back gesture does on each screen.
+//
+// Back on the X4 Pro is a left-edge swipe, folded into Button::Back by
+// MappedInputManager::wasBackGesture(), so an app that never reads that button
+// has no back gesture at all. Trivia was the one app in apps_local that never
+// read it: its loop() returns early unless a tap arrived, so a swipe reached
+// nothing and the front door had no way out. That is card #250.
+//
+// The mapping deliberately invents no new navigation. Each screen already
+// offers exactly one way out, and Back is routed to that same one:
+//
+//   Menu        the front door, so Back leaves the app (shelf::leave)
+//   Quizmaster  the END button, i.e. ActionQuit -- which on Quizmaster returns
+//   Solo        to the menu, and on Solo shows ROUND OVER first. Routing
+//               through it rather than jumping to the menu is what keeps the
+//               final score: "cannot leave the quiz" and "no final score" were
+//               one omission, and a Back that skipped the summary would put
+//               half of it back.
+//   Notice      a notice is a message with one button; Back dismisses it to
+//               the menu, the same place its own BACK TO MENU / PLAY goes.
+//
+// `packOpen` is the one thing that is not just "what does this screen offer",
+// and it exists because Back would otherwise open a screen nothing else can
+// reach. With no pack on the card, onEnter() shows the NO QUESTIONS notice and
+// its only button is GET THE QUESTIONS; the menu is unreachable by design,
+// because a menu built from a pack that is not there offers QUIZMASTER and SOLO
+// that cannot deal a question and has no route back to the download. So on that
+// notice Back leaves the app rather than dismissing to a dead end.
+enum class Back : uint8_t { LeaveApp, EndRound, ToMenu };
+
+constexpr Back backFrom(const View view, const bool packOpen) {
+  switch (view) {
+    case View::Menu:
+      return Back::LeaveApp;
+    case View::Quizmaster:
+    case View::Solo:
+      return Back::EndRound;
+    case View::Notice:
+      return packOpen ? Back::ToMenu : Back::LeaveApp;
+  }
+  return Back::ToMenu;
+}
+
 }  // namespace trivia
