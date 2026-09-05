@@ -1432,5 +1432,382 @@ while IFS= read -r line; do
   case "$line" in FAIL*) failed=$((failed + 1)); echo "$line" ;; esac
 done < "$WORK/ciguard"
 
+# ---------------------------------------------------------------------------
+# THE VERDICT MUST SURVIVE A WRAPPER, AND THE EXIT CODE MUST MEAN SOMETHING.
+#
+# Card #317. Three ways of reading this gate were wrong at once on 2026-09-05
+# and two agents nearly shipped on a false green:
+#
+#   $?         A run that printed SOMETHING FAILED was observed exiting 0, and
+#              `check.sh | tee out` exits with tee's status anyway.
+#   tail -1    A background-task wrapper prints "[exited with code 0]" AFTER
+#              this script's last line. The zero a reader acted on was the
+#              WRAPPER's status. Every document in this repo said to read the
+#              last line; all of them were wrong in the most common way the
+#              gate is actually run.
+#   tail -45   The cause had scrolled off the top while a screenful of `ok`
+#              lines remained, so a red run LOOKED healthy.
+#
+# So the foot of check.sh is driven here exactly as an agent drives it: run it,
+# capture the stream, append a wrapper line after the process is gone, and then
+# ask both readings what happened. The token must survive; `tail -1` must not.
+# The assertion that tail -1 fails is not decoration -- it is the proof that
+# this suite is testing the thing that actually broke, and it goes red the day
+# somebody "simplifies" the token away and relies on position again.
+python3 - "$CHECK" >"$WORK/foot.sh" <<'PY_FOOT'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+start = next(i for i, l in enumerate(lines) if l.startswith('if [ "$FAILED" -eq 0 ]'))
+end = next(i for i in range(start, len(lines)) if lines[i].startswith('exit "$STATUS"'))
+print('\n'.join(lines[start:end + 1]))
+PY_FOOT
+lift_fn qualifier_text >"$WORK/qual.sh" 2>/dev/null
+
+checks=$((checks + 1))
+if [ ! -s "$WORK/foot.sh" ] || [ ! -s "$WORK/qual.sh" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  could not lift check.sh's verdict foot. It must end in a machine-readable"
+  echo "              token line and an exit whose code is chosen per verdict; if either the"
+  echo "              'if [ \"\$FAILED\" -eq 0 ]' anchor or 'exit \"\$STATUS\"' is gone, so is card #317's fix"
+else
+  GATE_EXIT=0
+  mkgate() {  # FAILED, SUBMODULE_DRIFT, TREE_STALE, DEVICE_BUILDS_SKIPPED
+    rm -rf "$WORK/gatelogs"; mkdir -p "$WORK/gatelogs"
+    { echo '#!/bin/bash'
+      echo 'set -uo pipefail'
+      cat "$WORK/qual.sh"
+      echo "LOGS=\"$WORK/gatelogs\""
+      echo "CHECK_RUNLOG=\"$WORK/gatelogs/run.tok\""
+      # The transcript and a suite log, so the green branch's cleanup is
+      # exercised on a directory that actually has something in it.
+      echo 'echo transcript > "$CHECK_RUNLOG"'
+      echo 'echo suite > "$LOGS/ui.log"'
+      echo "FAILED=$1"
+      echo "SUBMODULE_DRIFT='$2'"
+      echo "TREE_STALE='$3'"
+      echo "DEVICE_BUILDS_SKIPPED='$4'"
+      cat "$WORK/foot.sh"
+    } > "$WORK/gate-run.sh"
+  }
+  # Exactly how an agent runs it: the stream is captured, and the wrapper's own
+  # line lands after the gate's last one.
+  run_gate() {  # same four arguments
+    mkgate "$1" "$2" "$3" "$4"
+    bash "$WORK/gate-run.sh" > "$WORK/gate-out" 2>&1
+    GATE_EXIT=$?
+    echo "[exited with code 0]" >> "$WORK/gate-out"
+  }
+  token() { grep -o 'CHECKSH-VERDICT: [a-z-]*' "$WORK/gate-out" | head -1 | sed 's/^CHECKSH-VERDICT: //'; }
+
+  # want_verdict <label> <FAILED> <drift> <stale> <skipped> <token> <exit>
+  want_verdict() {
+    run_gate "$2" "$3" "$4" "$5"
+    checks=$((checks + 1))
+    got="$(token)"
+    if [ "$got" != "$6" ]; then
+      failed=$((failed + 1))
+      echo "FAIL checksh  $1: the verdict token is '$got', wanted '$6'. An agent greps"
+      echo "              CHECKSH-VERDICT because no other reading of this output survives a"
+      echo "              wrapper; a missing or wrong token is a run nobody can classify."
+    fi
+    checks=$((checks + 1))
+    if [ "$GATE_EXIT" != "$7" ]; then
+      failed=$((failed + 1))
+      echo "FAIL checksh  $1: exited $GATE_EXIT, wanted $7"
+    fi
+  }
+
+  want_verdict "a clean run"        0 ''  ''              ''              green                     0
+  want_verdict "a red run"          1 ''  ''              ''              failed                    1
+  want_verdict "a withheld run"     0 '1' 'behind origin' ''              withheld                  3
+  want_verdict "a scoped run"       0 ''  ''              'x4pro sticky'  host-green-device-skipped 0
+  # Withheld beats scoped, and both are qualified: the token must say withheld,
+  # because that is the one that means "not on the code that ships".
+  want_verdict "withheld and scoped" 0 '1' ''             'x4pro sticky'  withheld                  3
+
+  # A red run exits non-zero. This is the assertion that was believed and never
+  # tested: SOMETHING FAILED with a zero status is how the whole card started.
+  run_gate 1 '' '' ''
+  checks=$((checks + 1))
+  if [ "$GATE_EXIT" = "0" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  a run that printed SOMETHING FAILED exited 0"
+  fi
+
+  # A withheld run must NOT exit 0. It is not a pass, and a status of 0 is the
+  # reason four documents had to carry a warning instead of a rule.
+  run_gate 0 '' 'behind origin' ''
+  checks=$((checks + 1))
+  if [ "$GATE_EXIT" = "0" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  a withheld verdict exited 0, so '&& git push' would push unverified code"
+  fi
+
+  # THE WRAPPER. tail -1 must be the wrapper's line, not ours -- that is the
+  # world as it is -- and the token must still be recoverable from the same
+  # stream. Both halves, or this proves nothing.
+  run_gate 1 '' '' ''
+  checks=$((checks + 1))
+  case "$(tail -1 "$WORK/gate-out")" in
+    *"exited with code"*) : ;;
+    *) failed=$((failed + 1))
+       echo "FAIL checksh  the wrapper fixture did not append its line, so the test that a"
+       echo "              wrapper defeats tail -1 asserted nothing" ;;
+  esac
+  checks=$((checks + 1))
+  case "$(tail -1 "$WORK/gate-out")" in
+    *CHECKSH-VERDICT*) failed=$((failed + 1))
+       echo "FAIL checksh  the fixture put the verdict on the last line, so this never" \
+            "reproduced the wrapper case at all" ;;
+    *) : ;;
+  esac
+  checks=$((checks + 1))
+  if [ "$(token)" != "failed" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  a red gate under a wrapper cannot be recovered by grepping the token:"
+    echo "              tail -1 gives the wrapper's zero and the token gives '$(token)'."
+    echo "              This is the exact shape that nearly shipped twice on 2026-09-05."
+  fi
+
+  # Exactly ONE token line per run. Two would let a reader take the first and be
+  # wrong, which is the failure mode this replaces rather than a fix for it.
+  checks=$((checks + 1))
+  ntok=$(grep -c 'CHECKSH-VERDICT:' "$WORK/gate-out")
+  if [ "$ntok" != "1" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the run printed $ntok verdict tokens; a reader grepping for one must find one"
+  fi
+
+  # No two verdicts may share a token, or the grep classifies nothing.
+  checks=$((checks + 1))
+  seen=""
+  for spec in "0:::" "1:::" "0:1:behind origin:" "0:::x4pro"; do
+    f="${spec%%:*}"; rest="${spec#*:}"
+    d="${rest%%:*}"; rest="${rest#*:}"
+    s="${rest%%:*}"; k="${rest#*:}"
+    run_gate "$f" "$d" "$s" "$k"
+    seen="$seen $(token)"
+  done
+  uniq_n=$(printf '%s\n' $seen | sort -u | wc -l | tr -d ' ')
+  if [ "$uniq_n" != "4" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the four verdicts produced $uniq_n distinct tokens:$seen"
+  fi
+
+  # THE TRANSCRIPT SURVIVES A GREEN RUN (card #314). check.sh prints its path on
+  # the first line so a backgrounded run can be followed there instead of into a
+  # name somebody invented in the shared scratchpad. Deleting the file you told a
+  # reader to poll is the same silent lie as another session overwriting it.
+  run_gate 0 '' '' ''
+  checks=$((checks + 1))
+  if [ ! -f "$WORK/gatelogs/run.tok" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  a green run deleted its own transcript, the one path it published"
+  fi
+  # ...and it still collects everything else, which is what card #144 bought.
+  checks=$((checks + 1))
+  if [ -f "$WORK/gatelogs/ui.log" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  a green run kept its suite logs; card #144's cleanup is gone"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# THE TRANSCRIPT'S NAME IS UNREPEATABLE (card #314).
+#
+# The whole fix rests on one mktemp template. On BSD the X's must be the LAST
+# characters: `mktemp "$LOGS/run-XXXXXXXX.log"` creates a file called literally
+# "run-XXXXXXXX.log" -- a SHARED name wearing a unique one's costume, which is
+# precisely the bug, silently reintroduced and impossible to see by reading. So
+# the template is lifted out of check.sh and actually run, twice.
+checks=$((checks + 1))
+TMPL="$(grep -o 'mktemp "\$LOGS/[^"]*"' "$CHECK" | head -1 | sed 's/.*\$LOGS\///; s/"$//')"
+if [ -z "$TMPL" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  check.sh no longer names its transcript with mktemp, so two runs of one"
+  echo "              tree can choose the same path again (card #314)"
+else
+  mkdir -p "$WORK/tmpl"
+  t1="$(mktemp "$WORK/tmpl/$TMPL" 2>/dev/null)"
+  t2="$(mktemp "$WORK/tmpl/$TMPL" 2>/dev/null)"
+  checks=$((checks + 1))
+  # t2 must be non-empty too. A template with no trailing X's makes the FIRST
+  # mktemp create the literal name and the SECOND fail, so "$t1" != "$t2" is
+  # satisfied by a failure and the assertion passes on the broken template.
+  if [ -z "$t1" ] || [ -z "$t2" ] || [ "$t1" = "$t2" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the transcript template '$TMPL' does not produce distinct names on this"
+    echo "              platform (got '$t1' and '$t2'). On BSD mktemp the X's must be the LAST"
+    echo "              characters of the template, or it creates the literal name."
+  fi
+  checks=$((checks + 1))
+  case "$t1" in
+    *XXXX*) failed=$((failed + 1))
+      echo "FAIL checksh  mktemp returned '$t1' with the X's unsubstituted: every run of every" \
+           "tree would share that one path" ;;
+    *) : ;;
+  esac
+fi
+
+checks=$((checks + 1))
+if ! grep -q '^  echo "transcript: \$CHECK_RUNLOG"' "$CHECK"; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  check.sh does not print its transcript path. An unprinted unique path is"
+  echo "              no better than a shared one: the reader invents a name instead."
+fi
+
+# ---------------------------------------------------------------------------
+# THE CMAKE BUILD DIRECTORY IS PER RUN, AND ITS SWEEP CANNOT TAKE A LIVE ONE.
+#
+# Card #320. $LOGS became one directory per TREE, reused (PR #116, deliberately
+# -- it is why a failed run's logs sit at a predictable path). cmake-build lived
+# inside it, so two runs of one tree shared the BUILD directory, and killing a
+# gate then starting another printed `ctest FAILED (0s)` with no error lines,
+# because the grep found nothing in a log the other run had truncated. Running
+# ctest by hand in the same tree passed all 197 tests. Silent, and misattributed
+# to the agent's own diff.
+#
+# Isolation rather than a lock, same shape as the --committed trial worktree
+# (app/checkrace): a per-pid path plus a startup sweep of orphans whose owner is
+# gone. The dangerous half is the sweep, so that is what is driven here.
+checks=$((checks + 1))
+if ! grep -q 'CMB="\$LOGS/cmake-build\.\$\$"' "$CHECK"; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the cmake build directory is not per-run. Two runs of one tree share it"
+  echo "              again, and the second dies as 'ctest FAILED (0s)' blaming your diff (#320)."
+fi
+
+python3 - "$CHECK" >"$WORK/cmsweep.sh" <<'PY_SWEEP'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+start = next(i for i, l in enumerate(lines) if l.strip().startswith('for stale in "$LOGS"/cmake-build.'))
+end = next(i for i in range(start, len(lines)) if lines[i].strip() == 'done')
+print('\n'.join(l[2:] if l.startswith('  ') else l for l in lines[start:end + 1]))
+PY_SWEEP
+
+checks=$((checks + 1))
+if [ ! -s "$WORK/cmsweep.sh" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  could not lift the cmake-build sweep out of check.sh"
+else
+  # A live owner, a dead owner, and this run's own. Only the dead one may go.
+  sleep 30 &
+  LIVE=$!
+  DEAD=$(bash -c 'echo $$')          # a pid that has certainly exited
+  rm -rf "$WORK/sweeplogs"; mkdir -p "$WORK/sweeplogs"
+  mkdir -p "$WORK/sweeplogs/cmake-build.$LIVE" "$WORK/sweeplogs/cmake-build.$DEAD" \
+           "$WORK/sweeplogs/cmake-build.$$"
+  : > "$WORK/sweeplogs/cmake.$DEAD.log"
+  ( LOGS="$WORK/sweeplogs"; CMB="$WORK/sweeplogs/cmake-build.$$"
+    . "$WORK/cmsweep.sh" ) >/dev/null 2>&1
+
+  checks=$((checks + 1))
+  if [ -d "$WORK/sweeplogs/cmake-build.$DEAD" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the sweep left a killed run's build directory behind; the next run of"
+    echo "              this tree inherits a cache pointing at a deleted worktree"
+  fi
+  checks=$((checks + 1))
+  if [ -f "$WORK/sweeplogs/cmake.$DEAD.log" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the sweep took the orphan's build dir but left its log"
+  fi
+  checks=$((checks + 1))
+  if [ ! -d "$WORK/sweeplogs/cmake-build.$LIVE" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the sweep deleted a LIVE run's build directory. That is the bug it was"
+    echo "              written to prevent, pointed the other way: a healthy gate dies mid-build"
+    echo "              with an error naming no file of anyone's."
+  fi
+  checks=$((checks + 1))
+  if [ ! -d "$WORK/sweeplogs/cmake-build.$$" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the sweep deleted THIS run's own build directory"
+  fi
+  kill "$LIVE" 2>/dev/null
+  wait "$LIVE" 2>/dev/null
+fi
+
+# ---------------------------------------------------------------------------
+# A STEP THAT FAILS IN ZERO SECONDS DID NOT RUN, AND MUST SAY SO.
+#
+# The `(0s)` tell (card #320). `ctest FAILED (0s)` with no error lines under it
+# was read twice in one evening as "my diff broke the unit tests"; a real ctest
+# failure spends seconds configuring and compiling first. The note has to be
+# conservative in one direction only: silent when it is not sure, never blaming
+# the machine for a real break.
+lift_fn infra_fault_note >"$WORK/infra.sh" 2>/dev/null
+checks=$((checks + 1))
+if [ ! -s "$WORK/infra.sh" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  check.sh has no infra_fault_note; a 0s failure with an empty log goes back"
+  echo "              to reading as the agent's own diff (card #320)"
+else
+  infra() {  # logfile-contents, age-seconds -> the note, if any
+    printf '%s' "$1" > "$WORK/infra.log"
+    ( . "$WORK/infra.sh"; infra_fault_note ctest "$(( $(date +%s) - $2 ))" "$WORK/infra.log" )
+  }
+  checks=$((checks + 1))
+  case "$(infra '' 0)" in
+    *"INFRASTRUCTURE FAULT"*) : ;;
+    *) failed=$((failed + 1))
+       echo "FAIL checksh  an instant failure with an empty log said nothing, which is exactly" \
+            "how it reads as your own diff" ;;
+  esac
+  checks=$((checks + 1))
+  case "$(infra 'test_foo ... error: expected ;' 0)" in
+    *"INFRASTRUCTURE FAULT"*) failed=$((failed + 1))
+       echo "FAIL checksh  a real, fast failure was blamed on the machine; the note must stay" \
+            "silent whenever the log has something to say" ;;
+    *) : ;;
+  esac
+  checks=$((checks + 1))
+  case "$(infra '' 30)" in
+    *"INFRASTRUCTURE FAULT"*) failed=$((failed + 1))
+       echo "FAIL checksh  a 30s failure was called instant; the duration is the whole signal" ;;
+    *) : ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------
+# WHOSE GATE IS THAT (card #314).
+#
+# "Kill by PID, never by pattern" was not enough on 2026-09-05: an agent ran
+# `pgrep -f "check.sh --committed"`, got four pids across three worktrees --
+# every session runs an identically named script from an identically named
+# relative path -- and nearly killed two siblings' builds. Only each pid's
+# WORKING DIRECTORY distinguished them, so that is what whose-gate.sh resolves.
+WG="$HERE/../../scripts_local/whose-gate.sh"
+checks=$((checks + 1))
+if [ ! -x "$WG" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  scripts_local/whose-gate.sh is missing or not executable"
+else
+  mkdir -p "$WORK/faketree/scripts_local" "$WORK/othertree/scripts_local"
+  ( cd "$WORK/faketree" && exec sleep 25 ) &
+  WGPID=$!
+  # Give the child time to be exec'd into the fixture directory.
+  n=0
+  while [ $n -lt 40 ] && ! ps -p "$WGPID" >/dev/null 2>&1; do n=$((n + 1)); done
+  out="$(cd "$WORK/faketree" && GATE_PATTERN='[s]leep 25' "$WG" 2>/dev/null)"
+  checks=$((checks + 1))
+  case "$out" in
+    *"$WORK/faketree"*) : ;;
+    *) failed=$((failed + 1))
+       echo "FAIL checksh  whose-gate.sh did not resolve a running process to the tree it is"
+       echo "              working in; that resolution is the entire point of the script: $out" ;;
+  esac
+  checks=$((checks + 1))
+  mine="$(cd "$WORK/othertree" && GATE_PATTERN='[s]leep 25' "$WG" --mine 2>/dev/null)"
+  case "$mine" in
+    *"$WORK/faketree"*) failed=$((failed + 1))
+       echo "FAIL checksh  --mine listed another tree's build. An agent acts on this list with" \
+            "kill; naming a sibling's pid is the near-miss it exists to prevent." ;;
+    *) : ;;
+  esac
+  kill "$WGPID" 2>/dev/null
+  wait "$WGPID" 2>/dev/null
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

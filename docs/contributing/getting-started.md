@@ -107,8 +107,22 @@ chmod +x .githooks/pre-commit
 `check.sh` is the entry point rather than a convenience wrapper: it takes a
 workspace-wide build lock, and concurrent PlatformIO builds race the shared
 `~/.platformio` and fail on framework headers that have nothing to do with your
-diff. **It has four verdicts and one non-zero exit code, so read its last
-line** rather than `$?` -- "VERDICT WITHHELD" exits 0 and is not a pass.
+diff.
+
+**Read its verdict by grepping for the token, never by tailing the output:**
+
+```sh
+./scripts_local/check.sh --committed 2>&1 | tee "$out"
+grep -o 'CHECKSH-VERDICT: [a-z-]*' "$out"
+```
+
+`green` and `host-green-device-skipped` pass. `withheld` (behind origin, or a
+drifted submodule) and `failed` do not, and NOTHING AT ALL means the run never
+reached its verdict -- also not a pass. `tail -1` returns a background wrapper's
+`[exited with code 0]` rather than the gate's line, and `$?` is whatever your
+own pipeline ended with; the token cannot be defeated by either. The exit code
+is real too (0 pass, 1 failed, 3 withheld) but only when nothing wraps the
+call.
 
 To build one environment directly:
 

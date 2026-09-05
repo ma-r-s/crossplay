@@ -5,6 +5,30 @@
 #   ./scripts_local/check.sh --tests      # host tests only (fast)
 #   ./scripts_local/check.sh --committed  # verify HEAD, not your working tree
 #
+# HOW TO READ THE RESULT -- grep the token, never tail the output:
+#
+#     ./scripts_local/check.sh --committed 2>&1 | tee "$out"
+#     grep -o 'CHECKSH-VERDICT: [a-z-]*' "$out"
+#
+#   green                       passed, everything ran
+#   host-green-device-skipped   passed; nothing in the diff reaches a device
+#   withheld                    the suites passed, but not on the code that
+#                               ships (behind origin, drifted submodule) -- NOT
+#                               a pass
+#   failed                      red
+#   nothing at all              the run never reached its verdict: killed,
+#                               crashed, or still going. Also not a pass.
+#
+# `tail -1` is wrong: a background-task wrapper prints "[exited with code 0]"
+# AFTER this script's last line, and that zero is the wrapper's. `$?` is real
+# again (0/1/3, see the foot of this file) but any pipeline replaces it with
+# the last command's, so the token is the answer and the exit code is a
+# convenience. See card #317.
+#
+# The first line printed is `transcript: <path>`, a file named with mktemp that
+# no other process can choose. Follow a backgrounded run there rather than
+# inventing a name in the shared scratchpad -- see card #314.
+#
 # Exits non-zero if anything fails. Prints every suite's own exit code rather
 # than only its last line: a suite that fails to compile still prints "0 failed"
 # for the sub-suites that ran before it, and reading only that is how a green
@@ -44,6 +68,39 @@ TAG="$(printf '%s' "$REPO" | shasum | cut -c1-8)"
 # the plain (non-committed) mode has always done for two runs of one tree.
 LOGS="${CHECK_OUTER_LOGS:-${TMPDIR:-/tmp}/xteink-check-$TAG}"
 mkdir -p "$LOGS"
+
+# THE TRANSCRIPT: this run's whole output, at a name no other process can pick.
+#
+# Card #314. $LOGS above is per TREE and reused, which is right for the suite
+# logs and wrong for the one file somebody reads to find out what happened. The
+# thing that actually broke three runs on 2026-09-05 was not this directory at
+# all: it was agents inventing their own name for the output, all of them
+# reaching for `<scratchpad>/gate.log`, in a scratchpad that is shared between
+# every agent under one session id. One run truncated and rewrote another's log
+# mid-build, and the reader saw "all green." while its own gate was still
+# compiling. A truncated-then-rewritten log reads as a legitimate result.
+#
+# So the gate names the file, and names it with mktemp: unrepeatable by
+# construction, not merely unlikely, and printed on the FIRST line so a
+# backgrounded run can be followed without anyone inventing a path. Nothing
+# else in this workspace can choose this name, so nothing else can overwrite it.
+#
+# mktemp's X's must be the LAST characters of the template on BSD -- with
+# `run-XXXXXXXX.log` macOS mktemp creates a file called literally
+# "run-XXXXXXXX.log", which is a shared name wearing a unique one's costume,
+# i.e. exactly the bug this exists to close. Hence run.XXXXXXXX.
+#
+# Exported, so the trial run a --committed invocation spawns inherits it and
+# does not open a second one: one transcript per run the user asked for.
+if [ -z "${CHECK_RUNLOG:-}" ]; then
+  CHECK_RUNLOG="$(mktemp "$LOGS/run.XXXXXXXX" 2>/dev/null)" || CHECK_RUNLOG="$LOGS/run.$$"
+  export CHECK_RUNLOG
+  # tee, not a plain redirect: the terminal must still see the run. Everything
+  # below this line -- including the sweep's own output and the --committed
+  # preamble -- lands in both.
+  exec > >(tee -a "$CHECK_RUNLOG") 2>&1
+  echo "transcript: $CHECK_RUNLOG"
+fi
 
 # Card #144 (corrected by #210): $LOGS is one directory per tree path, reused
 # forever, and until now nothing removed it -- 503 dirs / 5.1GB had piled up in
@@ -366,6 +423,32 @@ qualifier_text() {
 say_stage() { printf "  %-12s %s ...\n" "$1" "$(date +%H:%M:%S)"; }
 since() { echo "$(( $(date +%s) - $1 ))s"; }
 
+# THE (0s) TELL (card #320): a step that fails instantly and prints nothing did
+# not run. Say so, in those words, on the line under the failure.
+#
+# `ctest FAILED (0s)` with no error lines beneath it was read twice in one
+# evening as "my diff broke the unit tests" -- a real ctest failure spends
+# seconds configuring and compiling first, so zero seconds means nothing was
+# ever built. The natural reading of a red step is that your own change caused
+# it, and an infrastructure fault that names no file of ours is indistinguishable
+# from one until somebody notices the duration. Nobody notices the duration.
+#
+# Deliberately conservative: it fires only when BOTH the step was instant AND
+# its log has nothing worth printing. A genuine failure that happens to be fast
+# still has output, and a slow infrastructure fault still names something. So
+# this can be wrong only by staying quiet, never by blaming the machine for a
+# real break.
+infra_fault_note() {  # label, T0, logfile
+  _ifn_secs=$(( $(date +%s) - $2 ))
+  [ "$_ifn_secs" -le 1 ] || return 0
+  [ -s "$3" ] && grep -qiE "fail|error|fatal" "$3" 2>/dev/null && return 0
+  echo "      NOTHING RAN. $1 failed in ${_ifn_secs}s with an empty log, which is an"
+  echo "      INFRASTRUCTURE FAULT, not your diff -- a step that fails instantly never"
+  echo "      started. Usual cause: another run of THIS tree pulled a shared directory"
+  echo "      out from under it, or a killed gate left one behind. Re-run alone before"
+  echo "      reading a line of your own code. Log: $3"
+}
+
 # --- formatting, over the WHOLE tree ---------------------------------------
 # CI formats every tracked file and fails on the diff. Everyone here runs
 # `./bin/clang-format-fix -g`, which only touches what they modified, so a file
@@ -393,16 +476,56 @@ echo
 if command -v cmake > /dev/null 2>&1 && command -v ninja > /dev/null 2>&1; then
   echo "unit tests (cmake)"
   T0=$(date +%s)
-  CMB="$LOGS/cmake-build"
-  if cmake -S test -B "$CMB" -G Ninja > "$LOGS/cmake.log" 2>&1 \
-      && cmake --build "$CMB" >> "$LOGS/cmake.log" 2>&1 \
-      && (cd "$CMB" && ctest --output-on-failure) >> "$LOGS/cmake.log" 2>&1; then
+  # ONE BUILD DIRECTORY PER RUN, and one cmake log per run (card #320).
+  #
+  # $LOGS is per TREE and reused -- that is PR #116's deliberate property and
+  # the reason a failed run's logs sit at a predictable path. What nobody
+  # weighed is that the cmake BUILD directory lived inside it. Two runs of one
+  # tree then shared it, and killing a gate and starting another seconds later
+  # printed
+  #
+  #     ctest        FAILED (0s)
+  #
+  # with no error lines under it, because the grep below finds nothing in a log
+  # the other run truncated. Running ctest by hand in the same tree passes all
+  # 197 tests. The failure is silent AND it misattributes itself to your diff,
+  # which is worse than a loud one: an agent goes hunting through clean code.
+  # Twice on 2026-09-05.
+  #
+  # Isolation, not a lock: the machine already queues seven gates behind one
+  # build lock and serialising a three-second cmake behind it buys nothing.
+  # This is the same shape as the --committed TRIAL worktree above, from the
+  # same class of bug (app/checkrace, f1fb3a17) -- a per-pid path plus a
+  # startup sweep of orphans whose owning process is gone, because kill -9
+  # skips every cleanup. $LOGS itself is untouched, so #116's fix stands.
+  CMB="$LOGS/cmake-build.$$"
+  CMLOG="$LOGS/cmake.$$.log"
+  for stale in "$LOGS"/cmake-build.*; do
+    [ -d "$stale" ] || continue
+    [ "$stale" = "$CMB" ] && continue
+    if ! kill -0 "${stale##*.}" 2>/dev/null; then
+      rm -rf "$stale" "$LOGS/cmake.${stale##*.}.log"
+    fi
+  done
+  # PID reuse can hand this run a dead predecessor's exact path, carrying a
+  # CMakeCache.txt that names a source directory (a deleted trial worktree)
+  # which no longer exists. It cannot be a live run's, so clearing it is safe.
+  rm -rf "$CMB"
+  if cmake -S test -B "$CMB" -G Ninja > "$CMLOG" 2>&1 \
+      && cmake --build "$CMB" >> "$CMLOG" 2>&1 \
+      && (cd "$CMB" && ctest --output-on-failure) >> "$CMLOG" 2>&1; then
     printf "  %-12s ok (%s)\n" "ctest" "$(since $T0)"
   else
     printf "  %-12s FAILED (%s)\n" "ctest" "$(since $T0)"
-    grep -E "FAILED|error:|Failed" "$LOGS/cmake.log" | head -6 | sed 's/^/      /'
+    grep -E "FAILED|error:|Failed" "$CMLOG" | head -6 | sed 's/^/      /'
+    infra_fault_note "ctest" "$T0" "$CMLOG"
     FAILED=1
   fi
+  # The build tree is disposable and it is the big thing in here (~900 files).
+  # Dropped on every outcome, so nothing accumulates from a run that finished;
+  # the sweep above is only for runs that were killed. The LOG stays: it is
+  # what "logs in <path>" is pointing at.
+  rm -rf "$CMB"
   echo
 else
   echo "unit tests (cmake)"
@@ -422,6 +545,12 @@ for suite in host-tests/*/; do
   if [ "$code" -ne 0 ]; then
     printf "  %-12s FAILED (exit %d, %s)\n" "$name" "$code" "$(since $T0)"
     grep -E "FAIL|error:" "$LOGS/$name.log" | head -5 | sed 's/^/      /'
+    # These per-suite logs are still ONE PATH PER TREE, so two runs of one tree
+    # overwrite each other's here exactly as they used to in cmake-build. No
+    # such failure has been observed yet -- unlike ctest, which was reported
+    # twice -- so the fix is the tell rather than a second isolation scheme:
+    # an empty log under an instant failure now says out loud that nothing ran.
+    infra_fault_note "$name" "$T0" "$LOGS/$name.log"
     FAILED=1
   else
     printf "  %-12s ok (%s sub-suite(s), %s)\n" "$name" "$passed" "$(since $T0)"
@@ -1150,6 +1279,8 @@ if [ "$FAILED" -eq 0 ]; then
   QUALIFIER="$(qualifier_text)"
   SCOPE_NOTE="${DEVICE_BUILDS_SKIPPED:+ DEVICE BUILDS ALSO SKIPPED ($DEVICE_BUILDS_SKIPPED).}"
   if [ -n "$QUALIFIER" ]; then
+    # withheld is NOT a pass, and since card #317 it does not exit 0 either.
+    VERDICT=withheld; STATUS=3
     # The qualifier leads AND the clean phrase is absent. Both halves were paid
     # for: trailing it ("all green -- BUT ...") lost to a reader who greps
     # `all green|SOMETHING FAILED` and acted on the first three words, and
@@ -1160,6 +1291,7 @@ if [ "$FAILED" -eq 0 ]; then
     # closed, so this line says "suites passed" instead.
     echo "VERDICT WITHHELD ($QUALIFIER) -- suites passed, but not on the code that ships.${SCOPE_NOTE}"
   elif [ -n "${DEVICE_BUILDS_SKIPPED:-}" ]; then
+    VERDICT=host-green-device-skipped; STATUS=0
     # A THIRD verdict, not a footnote under the second. This run is not
     # withheld -- it is honestly green for everything it covered -- but it did
     # not cover the same ground a full run covers, and a reader must be able to
@@ -1171,6 +1303,7 @@ if [ "$FAILED" -eq 0 ]; then
     # for the unqualified form finds nothing here and has to read the line.
     echo "HOST GREEN, DEVICE BUILDS SKIPPED ($DEVICE_BUILDS_SKIPPED) -- nothing in this diff reaches a device image, so none was built."
   else
+    VERDICT=green; STATUS=0
     echo "all green."
   fi
   # Card #144: on a green verdict, drop THIS run's own log dir. A run in which
@@ -1180,8 +1313,50 @@ if [ "$FAILED" -eq 0 ]; then
   # Placed AFTER the inner `fi` on purpose: host-tests/checksh lifts the verdict
   # block by walking from `if [ -n "$QUALIFIER" ]` to its matching `fi`, so this
   # rm stays out of the lift and the suite never deletes its own fixture path.
-  rm -rf "$LOGS" 2>/dev/null || true
+  #
+  # Card #314 keeps ONE file back: this run's transcript. Its path was printed
+  # for somebody else to read, and deleting the file you just told a reader to
+  # poll is the same silent lie as overwriting it. It is kilobytes of text, not
+  # the ~900-file cmake-build tree the line above exists to collect, and the
+  # 24h prune below plus log-sweep.sh's sibling sweep still bound the total.
+  _keep="$(basename "${CHECK_RUNLOG:-.}")"
+  find "$LOGS" -mindepth 1 -maxdepth 1 ! -name "$_keep" -exec rm -rf {} + 2>/dev/null || true
+  find "$LOGS" -maxdepth 1 -name 'run.*' -mmin +1440 -delete 2>/dev/null || true
 else
+  VERDICT=failed; STATUS=1
   echo "SOMETHING FAILED. logs in $LOGS"
 fi
-exit "$FAILED"
+
+# THE MACHINE-READABLE VERDICT (card #317).
+#
+# Three ways of reading this gate were all wrong at once on 2026-09-05, and two
+# agents nearly shipped on a false green:
+#
+#   $?        distinguished nothing. A run that printed SOMETHING FAILED was
+#             observed exiting 0, and `check.sh | tee something` exits with
+#             tee's status anyway, so the caller's own pipeline can erase it.
+#             It is fixed below -- 0/1/3 now mean something -- but a value that
+#             any wrapper can replace cannot be the primary answer.
+#   tail -1   returns the WRAPPER's line, not ours. A background-task runner
+#             appends "[exited with code 0]" after this script's last line, so
+#             the zero a reader acted on was the wrapper's status. Every doc in
+#             this repo said to read the last line; all of them were wrong in
+#             the most common way the gate is actually run.
+#   tail -45  showed a screenful of `ok` with the cause scrolled off the top.
+#
+# A TOKEN cannot be defeated by anything appended after it. `grep -o
+# 'CHECKSH-VERDICT: [a-z-]*'` finds exactly one line wherever it sits in the
+# stream, and finds NOTHING at all if the run died before reaching here -- which
+# is the honest answer to "did it pass", and the one all three readings above
+# got wrong in the direction of "yes".
+#
+# Printed unconditionally, after the fi, so no branch can be added later that
+# forgets it: a verdict this file can reach without emitting a token is the
+# defect coming back.
+echo "CHECKSH-VERDICT: $VERDICT exit=$STATUS transcript=${CHECK_RUNLOG:-none}"
+# 0 green (and host-green-device-skipped), 1 failed, 3 withheld. Withheld used
+# to exit 0, which is why "$? is meaningless here" had to be written into four
+# documents; it is a real verdict and now has a real code. Nothing in CI or the
+# git hooks reads this script's status, so the change can only turn a silent
+# false pass into a loud stop.
+exit "$STATUS"

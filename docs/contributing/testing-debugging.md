@@ -14,8 +14,12 @@ pio check --fail-on-defect high
 ```
 
 `check.sh` runs the host suites and both builds behind the workspace build
-lock. It has four verdicts and one non-zero exit code, so read its **last
-line**, never `$?`.
+lock. It has four verdicts. Read them by grepping the token it prints --
+`grep -o 'CHECKSH-VERDICT: [a-z-]*'` -- and never by `tail -1` or `$?`: a
+background wrapper appends `[exited with code 0]` after the gate's last line,
+and a pipeline replaces its status. An empty grep is a run that never finished,
+which is not a pass either. The first line printed is `transcript: <path>`, a
+file no other process can name; follow a backgrounded run there.
 
 ## Flash and monitor
 
