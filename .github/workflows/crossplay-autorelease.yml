@@ -12,8 +12,11 @@
 #
 # One at a time: the concurrency group queues a second green run behind a
 # release in progress instead of cancelling either, so merges that land while
-# one release builds collapse into the next. A tip that moved since CI ran is
-# left alone; the CI run for the new tip will bring its own release.
+# one release builds collapse into the next. A tip that moved since CI ran by
+# anything a build or a release can see is left alone; the CI run for the new
+# tip will bring its own release. A tip that moved only by commits neither can
+# see -- CI's own emulator rebuild, which CI is configured never to run for --
+# releases from the tip, because otherwise nothing ever would.
 #
 # The brake is the repository variable RELEASE_HOLD=1. While it is set this
 # job says so and does nothing.
@@ -68,16 +71,62 @@ jobs:
           fi
           tip="$(git rev-parse HEAD)"
           if [ "$tip" != "$VERIFIED" ]; then
-            # CI's own emulator rebuild commits to xteink right after a merge and
-            # is pushed with the workflow token, so no CI run ever comes for it.
-            # A tip that moved only by such commits is the verified commit plus
-            # site/ bytes no device sees: release from it. Anything else moved
-            # the tip for real and its own run brings its own release.
-            if git log --format=%s "$VERIFIED..$tip" | grep -vq '^chore: emulator rebuilt'; then
-              echo "xteink moved past the commit CI verified ($VERIFIED -> $tip); the run for the new tip releases it."
+            # THE TIP MOVED, and whether that matters is a question about what
+            # the gap CONTAINS. It was asked about commit SUBJECTS until
+            # 2026-09-05:
+            #
+            #   git log --format=%s "$VERIFIED..$tip" | grep -vq '^chore: emulator rebuilt'
+            #
+            # That string is a copy of the message crossplay-emulator.yml
+            # happens to write. crossplay-ci.yml carries
+            # `paths-ignore: site/emulator/**`, so no CI run ever comes for an
+            # emulator commit and no run ever will -- which made that one grep
+            # the only thing that ever let a release out from a tip whose last
+            # commit is one. Rename the message, or add a second path to
+            # paths-ignore, and every release stops: no error, no red job,
+            # nothing to notice by but the absence of tags. It was wrong in the
+            # other direction too, because it believed a subject about its own
+            # content: a commit SAYING "chore: emulator rebuilt" while carrying
+            # src/ would have been released with nothing having verified it.
+            #
+            # So ask scripts_local/device-build-needed.sh, which is where this
+            # repository writes down what a path can reach, and ask it about
+            # BOTH of its columns -- the gap can be inert on either one alone
+            # and still not be inert:
+            #
+            #   builds  can anything in the gap change what a device build
+            #           produces, or whether it can run? If it can, CI's verdict
+            #           on $VERIFIED is not a verdict on $tip. This is the
+            #           column that catches scripts_local/ and .gitignore, which
+            #           ship nothing and decide whether a build succeeds.
+            #   ships   can anything in the gap change what a release DELIVERS?
+            #           This is the column that catches
+            #           .github/workflows/crossplay-release.yml, which builds and
+            #           uploads the assets a person downloads: `quiet` there,
+            #           never `yes`, so the builds column alone cannot see it.
+            #
+            # Both must answer no, which is exit 1. Every other exit refuses: 0
+            # is yes, 2 is a path in no row of the table, 3 is `quiet`, and the
+            # tool's fail-safes already answer 0 or 2 for a range it cannot
+            # resolve.
+            #
+            # $VERIFIED must be an ANCESTOR of the tip first. --range diffs from
+            # the merge base, so a $VERIFIED that is not in the tip's history
+            # would be compared against some older common ancestor and could
+            # answer "nothing changed" about a history CI never saw.
+            if ! git merge-base --is-ancestor "$VERIFIED" "$tip"; then
+              echo "$VERIFIED is not in the history of $tip: CI verified something this tip does not contain. Not releasing."
               echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
             fi
-            echo "xteink moved past $VERIFIED only by emulator rebuilds; releasing from $tip."
+            set +e
+            bash scripts_local/device-build-needed.sh --range "$VERIFIED..$tip"; gap_builds=$?
+            bash scripts_local/device-build-needed.sh --range "$VERIFIED..$tip" --ships; gap_ships=$?
+            set -e
+            if [ "$gap_builds" -ne 1 ] || [ "$gap_ships" -ne 1 ]; then
+              echo "xteink moved past the commit CI verified ($VERIFIED -> $tip) by something a device build or a release can see (builds=$gap_builds, ships=$gap_ships); the run for the new tip releases it."
+              echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            echo "xteink moved past $VERIFIED only by commits no device build and no release can see; releasing from $tip."
           fi
           # A merge nobody can receive anything different from (docs, site,
           # tooling, the workspace's own machinery) is not a release: no bump,
