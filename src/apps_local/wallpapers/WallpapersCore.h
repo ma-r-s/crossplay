@@ -31,10 +31,31 @@ inline constexpr char kPinnedSleep[] = "/sleep.bmp";
 // trusted when that file exists and the sleep mode is CUSTOM.
 inline constexpr char kActiveMarker[] = "/wallpapers/.active";
 
-// A wallpaper file is a plain `.bmp` whose name does not start with '.'. This
-// matches the sleep system's own findNextValidSleepImage filter exactly, so a
-// file this app offers is a file the sleep screen will accept -- the two
-// filters cannot drift, because they are the same rule.
+// A wallpaper file is a plain `.bmp` whose name does not start with '.'.
+//
+// This used to claim it "matches the sleep system's own findNextValidSleepImage
+// filter exactly ... the two filters cannot drift, because they are the same
+// rule". That was false, and a comment asserting a safety property nothing
+// enforces is worse than no comment. They are two different rules and a
+// 2026-09-05 audit found six ways they disagree:
+//
+//   * this one checks the NAME only; findNextValidSleepImage also requires
+//     Bitmap::parseHeaders() == Ok, so a corrupt file named .bmp is listed here
+//     and skipped there;
+//   * a BMP over 2048x3072, at 16bpp, or RLE-compressed is listed here and
+//     rejected there (Bitmap.cpp:109-131);
+//   * .png is accepted there in overlay mode and never here;
+//   * names of 128..255 bytes are listed there and dropped here (this app's
+//     buffer is 128, and SdFat returns "" rather than truncating);
+//   * the 257th file in a folder is counted there and hidden here (kMaxLibrary);
+//   * a valid BMP whose size is not kWallpaperFileBytes is listed here and
+//     cannot be set at all -- setWallpaper refuses and the caller shows nothing.
+//
+// The two also never read the same directory: this filter walks /wallpapers,
+// and findNextValidSleepImage only ever walks /.sleep, /sleep and the two
+// overlay folders. The only bridge between them is the byte copy to /sleep.bmp.
+// host-tests/wallpapers asserts the name half, which is why the drift was
+// untested rather than caught.
 bool isSupportedWallpaper(std::string_view name);
 
 // The free-space precondition. The device cannot measure free space reliably

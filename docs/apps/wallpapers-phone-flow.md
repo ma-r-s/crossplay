@@ -145,6 +145,39 @@ before a shift, never a screen the user can tap through blind.
 `renderCustomSleepScreen()` checks `/sleep.bmp` **first**, then `/.sleep`, then
 `/sleep`. A pinned single silently shadows any shuffle set.
 
+### The audit, and the thing it found that is not a design question
+
+PR 3's prerequisite -- a written audit of `/sleep`, `/.sleep` and every
+`SLEEP_SCREEN_MODE` -- is done, and it moved two things from "design risk" to
+"already broken".
+
+**A wallpaper reaches the glass in two of eight modes.** `CUSTOM`, and
+`COVER_CUSTOM` (which shows the cover when sleep came from the reader and the
+wallpaper otherwise, and also falls back to the wallpaper whenever cover
+generation fails). In `DARK`, `LIGHT`, `COVER`, `BLANK`, `QUICK_RESUME` and
+`TRANSPARENT_CUSTOM` it is silently ignored -- and `TRANSPARENT_CUSTOM` does not
+read `/sleep.bmp` or `/.sleep` at all, only the four `sleep-overlay` slots.
+
+**And even `CUSTOM` is not sufficient**, which is card #354 and not this card's
+to fix: `quickResumeSleepScreen == QUICK_RESUME_AFTER_TIMEOUT` short-circuits
+*above* the mode switch (`SleepActivity.cpp:500-507`) whenever `fromTimeout`,
+which is the ordinary idle sleep. So the wallpaper is only seen when the device
+is slept by hand. There is a reachable path where that flag sticks on
+permanently, and `setWallpaper` forcing `sleepScreen = CUSTOM` without the sync
+call is part of it.
+
+That is what the hint strip is for, and it is why the strip carries a sentence
+rather than a marker: no per-cell mark can express "your settings mean none of
+these reach the sleep screen".
+
+The audit also disproved a comment in `WallpapersCore.h` claiming this app's
+file filter and `findNextValidSleepImage` "cannot drift, because they are the
+same rule". They are two rules and they disagree six ways; the comment now lists
+them. The one that matters to PR 1: **a valid BMP whose size is not exactly
+48062 bytes is listed in the grid and cannot be set** -- `setWallpaper` refuses
+and the caller shows nothing at all. The browser converter emits exactly that
+size, so the upload path is safe, but any other route in is not.
+
 ### CHANGED: the single-marker promise cannot be kept, so it is not made
 
 The first draft claimed the corner brackets could simply mean "your sleep screen
