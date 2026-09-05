@@ -633,20 +633,29 @@ renderer.drawText(FONT_UI_MEDIUM, x, y, "Hello", true);
 
 ### Build Commands
 
+> **These are upstream's commands and every one of them targets the wrong
+> chip here.** `default`, `gh_release` and a bare `pio run` all set
+> `FREEINK_DEVICE_X4` / `FREEINK_DEVICE_X3`, which are ESP32-C3. This fork's
+> envs are `x4pro`, `sticky` and `simulator_x4_pro`. Go through
+> `./scripts_local/check.sh` from your own worktree rather than running
+> PlatformIO by hand: it takes the workspace build lock, and concurrent builds
+> race the shared `~/.platformio` and fail on framework headers that have
+> nothing to do with your diff.
+
 **Via CLI**:
 
 ```bash
-# Build firmware (default environment)
-pio run
+# Everything that can be verified without a device (preferred)
+./scripts_local/check.sh
+
+# One environment, when you need just that
+pio run -e x4pro                 # or -e sticky, -e simulator_x4_pro
 
 # Build and upload to device
-pio run -t upload
-
-# Build specific environment
-pio run -e gh_release
+pio run -e x4pro -t upload
 
 # Clean build artifacts
-pio run -t clean
+pio run -e x4pro -t clean
 ```
 
 **Via VS Code**:
@@ -825,7 +834,9 @@ Tested in all 4 orientations with 5MB+ files.
 - Feature is complete and tested on device
 - Bug fix is verified working
 - Refactoring preserves all functionality
-- All tests pass (`pio run` succeeds)
+- All tests pass (`./scripts_local/check.sh --committed` reaches a green verdict
+  on its last line -- it has four verdicts and one non-zero exit code, so `$?`
+  is not the answer)
 
 **DO NOT commit when**:
 
@@ -880,7 +891,7 @@ Tested in all 4 orientations with 5MB+ files.
 **To change HTML pages**:
 
 1. Edit source: `data/html/<pagename>.html`
-2. Build: `pio run` (auto-triggers `scripts/build_html.py`)
+2. Build: `pio run -e x4pro` (auto-triggers `scripts/build_html.py`)
 3. Generated headers update: `src/network/html/<pagename>Html.generated.h`
 4. **Commit ONLY** source HTML, NOT generated `.generated.h` files
 

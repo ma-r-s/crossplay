@@ -75,8 +75,8 @@ a finger. A horizontal swipe pages nothing.
 
 This list paged sideways first, and sideways cannot be symmetrical on this
 device. Back is a left-to-right swipe anchored in the left 25% of the panel
-(`EDGE_SWIPE_SIDE_FRAC`, 120px of 480), and it is the only way out of all
-seventeen apps because the X4 Pro has no Back button. So on the horizontal axis
+(`EDGE_SWIPE_SIDE_FRAC`, 120px of 480), and it is the only way out of every app
+here because the X4 Pro has no Back button. So on the horizontal axis
 the backward page turn and the exit are **the same visible gesture separated by
 an invisible line**: past 120px it paged, inside it you were on Home. A gesture
 whose meaning flips on a boundary nothing draws cannot be made discoverable. It

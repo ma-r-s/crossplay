@@ -57,31 +57,44 @@ if (button == Button::Back && wasBackGesture()) return true;
 ```
 
 and `wasBackGesture()` is a left-to-right swipe anchored near the left edge. So
-every `mappedInput.wasReleased(Button::Back)` in `apps_local` -- all seventeen
-apps -- resolves through the gesture on this device, and every game is
-exitable. The physical half of that call has been dead since the X4 Pro was
-targeted and nothing depended on it.
+every `mappedInput.wasReleased(Button::Back)` in `apps_local` -- every app here
+-- resolves through the gesture on this device, and every game is exitable. The
+physical half of that call has been dead since the X4 Pro was targeted and
+nothing depended on it.
 
 ## 3. What we actually use
 
-Counted across `src/apps_local/`:
+Counted across `src/apps_local/`, excluding the shared modules that are not apps
+(`link`, `player`, `sample`, `ui`, `bridge`). Re-derive it rather than trusting
+the table; `host-tests/docsclaims/` does exactly that and fails when it drifts:
+
+```bash
+grep -rl "Button::Up\|Button::Down" src/apps_local/*/ | cut -d/ -f3 | sort -u
+```
 
 | Button       | Apps that read it | Exists on X4 Pro |
 | ------------ | ----------------- | ---------------- |
-| Back         | 17                | as a swipe       |
-| Confirm      | 3                 | **no**           |
+| Back         | 23                | as a swipe       |
+| Confirm      | 2                 | **no**           |
 | Left / Right | 1                 | **no**           |
-| Up / Down    | 3                 | **yes**          |
+| Up / Down    | 10                | **yes**          |
 
-Thirteen of seventeen apps use Back and nothing else. **The two buttons the
-device actually has are unused by every game we have built.** The only apps that
-touch them are the reader-shaped ones: hackernews, xkcd, and chess.
+Twelve of the twenty-three use Back and nothing else.
 
-That is the whole finding. Not "we should use the buttons more" as a matter of
-taste -- the device ships with two physical keys, they are page keys, and our
-games ignore them.
+> **The finding below was true when it was written, in August 2026, and it is
+> not true any more.** It said the two real keys were unused by every game we
+> had built, and that the only apps touching them were the reader-shaped ones.
+> Ten apps read Up/Down today and seven of them are games: Checkers, Connect
+> Four, Forehead, Sea Salt, Toy Battle, Wavelength and Yahtzee, alongside Hacker
+> News, Instapaper and xkcd. The rule in section 4 is what survived and is still
+> the thing to apply; the census that motivated it has been overtaken, which is
+> the outcome it was arguing for.
 
-### One game since then does not, and it is the exception that proves the rule
+That was the whole finding. Not "we should use the buttons more" as a matter of
+taste -- the device shipped with two physical keys, they were page keys, and our
+games ignored them.
+
+### The first game that did not, and the exception that proved the rule
 
 FOREHEAD (2026-08-28) is the first game here where the two keys are the primary
 input rather than a page turn, and it earns that by satisfying section 4 exactly

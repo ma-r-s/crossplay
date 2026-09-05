@@ -2,13 +2,48 @@
 
 Two owners share this directory, and the split is deliberate.
 
-**Upstream's reference docs stay at the root, untouched and unrenamed**, so
-merges from CrossPoint stay cheap: `activity-manager.md`, `comparison.md`,
-`dictionary.md`, `file-formats.md`, `fix-bricked-xteink.md`,
-`focus-reading.md`, `hyphenation-trie-format.md`, `i18n.md`,
-`sd-card-fonts.md`, `translators.md`, `troubleshooting.md`,
-`webserver*.md`, `contributing/`, `images/`, and `crosspoint-readme.md`
-(upstream's README, preserved when the fork took the filename).
+**Upstream's reference docs keep upstream's filenames**, so merges from
+CrossPoint stay cheap: `activity-manager.md`, `comparison.md`, `dictionary.md`,
+`file-formats.md`, `fix-bricked-xteink.md`, `focus-reading.md`,
+`hyphenation-trie-format.md`, `i18n.md`, `sd-card-fonts.md`, `translators.md`,
+`troubleshooting.md`, `webserver*.md`, `contributing/` and `images/`.
+
+`crosspoint-readme.md` is the exception to the naming rule: it is upstream's
+README, moved here when the fork took the `README.md` filename, and its
+internal links were re-based when it moved.
+
+**A shared filename is not a byline, and this paragraph used to claim it was.**
+It said those files were "untouched", and several are not. The fork has edited
+`activity-manager.md`, `i18n.md`, `translators.md`, `troubleshooting.md`,
+`webserver.md` and `webserver-endpoints.md` at the root, plus most of
+`contributing/`. Keeping upstream's name is a merge decision, not an authorship
+claim. Ask git rather than reading a list that goes stale:
+
+```bash
+# verbatim upstream, upstream's file with fork edits, or ours alone?
+f=docs/i18n.md
+git cat-file -e crosspoint/develop:"$f" 2>/dev/null \
+  && { [ "$(git rev-parse crosspoint/develop:"$f")" = "$(git rev-parse HEAD:"$f")" ] \
+       && echo "upstream, verbatim" || echo "upstream's file, edited here"; } \
+  || echo "this fork's"
+```
+
+`contributing/` is worth naming file by file, because it is the directory a
+newcomer opens on instinct and it is no longer upstream's alone:
+
+| File                         | Who wrote it                                                                                         |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `getting-started.md`         | **rewritten for this fork.** Upstream's version cloned the wrong repository and built the wrong chip |
+| `landing-and-integration.md` | **this fork's.** No upstream counterpart                                                             |
+| `development-workflow.md`    | upstream's, with fork edits (branch, checks, where a PR goes)                                        |
+| `testing-debugging.md`       | upstream's filename, almost entirely fork content now                                                |
+| `README.md`                  | upstream's, index extended                                                                           |
+| `architecture.md`            | upstream's, one link re-pointed                                                                      |
+| `touch-and-ui.md`            | upstream's, verbatim                                                                                 |
+
+`host-tests/docsclaims/` holds that table to the repository: every row is
+checked against `crosspoint/develop`, so a row that stops being true is a test
+failure rather than something the next reader has to notice.
 
 **The fork's cross-cutting docs also live at the root**: how to build an app
 (`building-apps.md`), how it should look (`design-language.md`), what the
