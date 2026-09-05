@@ -1305,110 +1305,132 @@ else
   echo "FAIL checksh  could not lift the submodule wiring, freshness wiring, verdict or qualifier out of check.sh"
 fi
 
-# -- a skip must be VISIBLE, and it must be a FAILURE in CI -------------------
+# ---------------------------------------------------------------------------
+# The SKIP surfacing, against every SKIP this tree can actually print.
 #
-# check.sh surfaces a suite's skips with one grep (`grep -E "^SKIP"`), which is
-# the entire mechanism by which a check that did not run is distinguished from
-# one that passed. host-tests/autorelease printed its skip INDENTED, so that
-# anchor never matched it: the suite could skip its only real-repository range
-# and say nothing a human would see. It also had no CI guard, unlike release,
-# relwatch and boardmigrate, so the same skip was silent on the runner too --
-# unguarded and unseen, the two halves that make each other invisible.
+# check.sh's host-tests loop ends with a grep whose comment reads "A check that
+# did not run must not scroll past looking like one that passed." That grep was
+# anchored at column zero for its whole life, and three of the six emitters
+# indent theirs by two spaces -- host-tests/study twice and host-tests/
+# autorelease once -- so the mechanism built to stop a skip hiding could not
+# see half of the skips. Both study ones were checks that had never run once.
 #
-# Written to DISCOVER rather than to assert: it walks every suite, finds every
-# SKIP any of them can print, and holds each against check.sh's own pattern
-# lifted out of check.sh. A copy of the pattern here would drift the moment
-# somebody tightened the real one.
-python3 - "$CHECK" "$HERE/.." <<'SKIPS' >"$WORK/skips"
+# So the test does not assert a pattern. It DISCOVERS the skip lines the tree
+# can print, by reading the string literals out of every suite, and asserts
+# check.sh's own grep -- lifted from the file, not copied -- matches each one.
+# A future SKIP printed with any indentation adds itself to this list.
+SKIPGREP="$(grep -E '^[[:space:]]*grep -E .*SKIP.*LOGS' "$CHECK" | head -1)"
+checks=$((checks + 1))
+if [ -z "$SKIPGREP" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  could not lift the SKIP surfacing out of check.sh"
+else
+  # Just the pattern, as a literal: the line is
+  #   grep -E "<pattern>" "$LOGS/$name.log" | head -5 | sed ...
+  SKIPPAT="$(printf '%s\n' "$SKIPGREP" | sed -E 's/^[[:space:]]*grep -E "([^"]*)".*$/\1/')"
+  python3 - "$HERE/../.." "$SKIPPAT" <<'PY_SKIP'
+import pathlib, re, subprocess, sys
+
+root = pathlib.Path(sys.argv[1]).resolve()
+pattern = sys.argv[2]
+
+# Every string literal in a host suite that a run would print starting with
+# SKIP, with the indentation it would print. Comments are excluded: a line
+# whose first non-space characters are a comment marker prints nothing.
+emit = re.compile(r'(printf|print|echo|puts|cout)', re.I)
+literal = re.compile(r'"((?:[ \t]*)SKIP[^"\\]*)')
+lines = []
+for path in sorted((root / "host-tests").rglob("*")):
+    if not path.is_file() or path.suffix not in (".sh", ".py", ".cpp", ".c", ".h"):
+        continue
+    for raw in path.read_text(errors="replace").splitlines():
+        head = raw.lstrip()
+        if head.startswith(("//", "#", "*")):
+            continue
+        if not emit.search(raw):
+            continue
+        for m in literal.finditer(raw):
+            lines.append((path.relative_to(root), m.group(1)))
+
+if not lines:
+    print("FAIL checksh  found no SKIP emitters at all -- the discovery is broken,")
+    print("              which would make this assertion pass by finding nothing")
+    raise SystemExit(1)
+
+bad = []
+for where, text in lines:
+    # grep -E, exactly as check.sh runs it, against the one line.
+    hit = subprocess.run(["grep", "-E", pattern], input=text + "\n",
+                         text=True, capture_output=True).returncode == 0
+    if not hit:
+        bad.append((where, text))
+
+for where, text in bad:
+    print("FAIL checksh  check.sh's SKIP surfacing cannot see %r from %s" % (text, where))
+print("      (checked %d SKIP literals across the tree)" % len(lines))
+raise SystemExit(1 if bad else 0)
+PY_SKIP
+  if [ $? -ne 0 ]; then
+    failed=$((failed + 1))
+  fi
+fi
+
+# -- and a skip must be a FAILURE in CI --------------------------------------
+#
+# The block above proves a skip is SEEN. This one asks the other half: on the
+# runner, where every input a suite needs is supposed to be present, a check
+# that did not run is a failure, not a line in a log. host-tests/release,
+# relwatch and boardmigrate all turn a skip into a failure under $CI;
+# host-tests/autorelease and host-tests/qastack did not, and CI runs every
+# suite but relwatch, so all three of their skips were live and silent there.
+#
+# Detected loosely on purpose -- a line that names SKIP and an emitter, with
+# comments stripped -- because the strict literal match above is about the
+# text that gets printed, and this is about whether the branch printing it can
+# be reached in CI at all. Quoting style is irrelevant to that question.
+python3 - "$HERE/.." <<'CIGUARD' >"$WORK/ciguard"
 import os, re, sys
 
-check_src = open(sys.argv[1]).read()
-suites = sys.argv[2]
+suites = sys.argv[1]
 
-# The detector itself, lifted. If it ever stops existing, everything below is
-# checking a contract nothing enforces, so that is the first failure.
-m = re.search(r'grep -E "([^"]*SKIP[^"]*)"', check_src)
-if not m:
-    print("FAIL checksh  check.sh no longer greps a suite's log for SKIP, so nothing "
-          "surfaces a check that did not run -- and every assertion below would pass "
-          "by having no contract to test")
-    raise SystemExit(0)
-anchor = m.group(1)
-pattern = re.compile(anchor)
-print("ok    check.sh surfaces skips with %s" % anchor)
-
-# What a suite can print as a skip: the message an echo or printf emits that
-# begins with SKIP, in either quoting style. Matching only `echo "..."` left
-# three silent escapes -- printf, single quotes, and flags before the message.
-# None of them merely passed: each removed the suite from this scan entirely,
-# dropping its check count with no failure, which is the same "counts nothing,
-# reads as green" shape this section exists to refuse.
-#
-# It deliberately does not match "FAIL ... SKIPPED ..." messages, which are
-# failures already, or the word inside a grep pattern.
-emitted = re.compile(r"""(?:echo|printf)\s+(?:-[A-Za-z]+\s+)*(?:"([^"]*)"|'([^']*)')""")
-is_skip = re.compile(r'\s*SKIP\b')
-# "This suite prints a skip somewhere" -- asked WITHOUT assuming the order the
-# two words appear in. The first version of this was `echo ... SKIP`, which a
-# skip assembled into a variable first (`m="SKIP ..."; echo "$m"`) walks
-# straight past, and the suite vanishes from the scan exactly as before.
-# Comments are stripped so prose about skips does not count as printing one.
-def names_skip(src):
+def can_skip(src):
     for line in src.splitlines():
         bare = line.split('#', 1)[0]
         if re.search(r'\bSKIP\b', bare) and re.search(r'\b(?:echo|printf)\b', bare):
             return True
     return False
 
-found = False
+found = 0
 for name in sorted(os.listdir(suites)):
     run = os.path.join(suites, name, "run.sh")
     if not os.path.isfile(run):
         continue
     src = open(run).read()
-    msgs = [(d or q) for d, q in emitted.findall(src) if is_skip.match(d or q)]
-    if not msgs:
-        # It prints no skip, or it prints one this scan cannot read. Those are
-        # different answers, and only one of them is fine.
-        if names_skip(src):
-            print("FAIL checksh  host-tests/%s emits SKIP in a form this scan cannot read, so "
-                  "nothing checks that its skip is visible; spell it as a plain echo or printf "
-                  "whose message starts with SKIP" % name)
+    if not can_skip(src):
         continue
-    found = True
-    for t in msgs:
-        if pattern.search(t):
-            print("ok    %s: %r is visible to check.sh" % (name, t))
-        else:
-            print("FAIL checksh  host-tests/%s prints %r, which check.sh's own %s does "
-                  "not match: that suite can skip and NOTHING says so" % (name, t, anchor))
-    # Crude on purpose -- one mention of ${CI:-} anywhere in the file, rather
-    # than an attempt to decide statically which branch it guards. A suite that
-    # can skip and never mentions CI cannot be turning a skip into a failure
-    # there, which is the shape this is looking for.
+    found += 1
+    # Crude by design: one mention of ${CI:-} anywhere in the file, rather than
+    # an attempt to decide statically which branch it guards. A suite that can
+    # skip and never mentions CI cannot be turning a skip into a failure there.
     if "${CI:-}" in src:
-        print("ok    %s: it knows about CI" % name)
+        print("ok    %s: a skip is a failure in CI" % name)
     else:
         print("FAIL checksh  host-tests/%s can print a SKIP and never mentions ${CI:-}: "
-              "on the runner, where every input is meant to be present, the check does "
+              "on the runner, where every input is meant to be present, that check does "
               "not run and the suite still exits 0" % name)
-
 if not found:
-    print("FAIL checksh  no suite prints a SKIP at all; this just checked nothing")
-SKIPS
+    print("FAIL checksh  no suite was found that can print a SKIP; this just checked nothing")
+CIGUARD
 
-# The python above producing nothing -- a syntax error, a missing suites dir --
-# would add zero checks and pass, which is the exact shape this whole section
-# exists to refuse.
 checks=$((checks + 1))
-if [ ! -s "$WORK/skips" ]; then
+if [ ! -s "$WORK/ciguard" ]; then
   failed=$((failed + 1))
-  echo "FAIL checksh  the skip-visibility scan produced no output at all, so it asserted nothing"
+  echo "FAIL checksh  the CI-guard scan produced no output at all, so it asserted nothing"
 fi
 while IFS= read -r line; do
   checks=$((checks + 1))
   case "$line" in FAIL*) failed=$((failed + 1)); echo "$line" ;; esac
-done < "$WORK/skips"
+done < "$WORK/ciguard"
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

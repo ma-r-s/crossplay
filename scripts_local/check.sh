@@ -384,7 +384,14 @@ for suite in host-tests/*/; do
     printf "  %-12s ok (%s sub-suite(s), %s)\n" "$name" "$passed" "$(since $T0)"
     # A check that did not run must not scroll past looking like one that
     # passed. Suites write SKIP to their own log, which nothing surfaced.
-    grep -E "^SKIP" "$LOGS/$name.log" | head -5 | sed 's/^/      /'
+    #
+    # NOT anchored at column zero. It was until 2026-09-05, and three of the
+    # six emitters indent theirs by two spaces -- so the mechanism built to
+    # stop a skip hiding was itself hiding half of them, in a block whose own
+    # comment is the sentence above. host-tests/checksh discovers every SKIP
+    # literal in the tree and asserts this pattern catches it, so the next
+    # indented one cannot repeat the trick.
+    grep -E "^[[:space:]]*SKIP" "$LOGS/$name.log" | head -5 | sed 's/^[[:space:]]*/      /'
   fi
 done
 

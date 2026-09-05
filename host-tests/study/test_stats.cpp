@@ -193,6 +193,6 @@ int main() {
   testWindowAndEarlyExit();
   testFutureRecordsAreIgnored();
   testGarbageRecordsAreSkipped();
-  std::printf("%s (%d checks, %d failures)\n", failures == 0 ? "PASS" : "FAIL", checks, failures);
+  std::printf("%s %d checks, %d failed\n", failures == 0 ? "PASS" : "FAIL", checks, failures);
   return failures == 0 ? 0 : 1;
 }
