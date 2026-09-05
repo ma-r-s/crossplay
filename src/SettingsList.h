@@ -350,8 +350,9 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
         // whose owner turned that off must not come back on under a new key.
         SettingInfo::Toggle(StrId::STR_DEVICE_REPORT, &CrossPointSettings::deviceReport, "heartbeat",
                             StrId::STR_CAT_SYSTEM),
-        // Last in System on purpose: it is the one setting that opens the device
-        // to the network, so it should not sit next to a reading preference.
+        // Placed last by SettingsActivity, after the action rows, not by this
+        // declaration order: it is the one setting that opens the device to
+        // the network, so it should not sit next to a reading preference.
         SettingInfo::Toggle(StrId::STR_DEV_MODE, &CrossPointSettings::devMode, "devMode", StrId::STR_CAT_SYSTEM),
 
         // OPDS download folder: persisted + web-exposed, but category-less so it

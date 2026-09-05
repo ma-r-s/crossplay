@@ -109,6 +109,24 @@ Three deliberate near-misses, worth knowing so nobody "fixes" them:
   recreating CrossPoint's old Apps menu is how the previous base ended up with a
   junk drawer.
 
+## CrossPlay's settings sort below CrossPoint's
+
+A reader looking for a CrossPoint setting must never scroll past one of ours to
+reach it. Ours go at the bottom of their category, under every upstream row.
+
+Declaration order is not render order, and that is what made this invisible.
+`SettingsList.h` declared the fork's two System rows last, with a comment saying
+so, while `SettingsActivity::rebuildSettingsLists()` appended eight upstream
+ACTION rows (WiFi, KOReader, OPDS, Clear cache, Check for updates, SD update,
+Language, Keyboards) after building that list. Dev Mode rendered 6th of 14,
+above WiFi and Language, for as long as those actions had existed. The comment
+asserting a position the declaration does not decide was the tell.
+
+`host-tests/settingsorder/` holds the line. It reads the append order out of the
+activity rather than the declaration, and decides which rows are ours by asking
+`crosspoint/develop` rather than naming them, so it still means something after
+the third fork setting is added.
+
 ## The shelf
 
 Home gains two rows, **Games** and **Apps**, as siblings. Each opens a folder.
