@@ -46,17 +46,17 @@ and any description that omits them has described a folder of minigames.
 **A shape for still activities.** The apps are not ports that happen to run.
 They share a shelf, a header band, a font, a control vocabulary and an
 interaction model, so a person who learns one has learned all of them. That
-shared surface is what turns eleven programs into one device. See
+shared surface is what turns a shelf of separate programs into one device. See
 [`shelf.md`](shelf.md) and [`LOCAL_SCOPE.md`](../LOCAL_SCOPE.md).
 
 **Multiplayer with nothing to configure.** Two devices on a table find each
 other and play. No pairing screen, no room code, no account, no router, no
-internet. It is on the menu of three games as `PLAY NEARBY` and that is the
+internet. On every game that supports it, it is one `PLAY NEARBY` row and that is the
 entire user-facing surface of it. The north star is the DS: you sat down next to
 someone and it worked, and no part of the experience ever mentioned a network.
 The layer itself is `src/apps_local/link/`, described in
 [`building-apps.md`](building-apps.md) and covered by the `link` host-test suite
-(five sub-suites, real UDP on loopback).
+(real UDP on loopback).
 
 ## What the identity is made of
 
@@ -81,8 +81,8 @@ choice. The device is 1-bit because the hardware is; the page is 1-bit because i
 looks like us. Where the web can do something better (real greys for hierarchy,
 selectable text, a font that stays legible at any size), use it.
 
-**The screenshots are the artwork.** We have eleven apps that each spent real
-effort on one still screen. Nothing drawn for a web page will beat a photograph
+**The screenshots are the artwork.** Every app on the shelf spent real effort
+on one still screen. Nothing drawn for a web page will beat a photograph
 of the thing itself, and anything decorative that is not a screenshot is
 competing with them. This is the same rule as ornament on the device: it has to
 be made of the app's own material.
