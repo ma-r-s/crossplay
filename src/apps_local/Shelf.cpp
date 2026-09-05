@@ -34,6 +34,7 @@
 #include "toybattle/ToyBattleActivity.h"
 #include "trivia/TriviaActivity.h"
 #include "ui/ToyboxIcons.h"
+#include "wallpapers/WallpapersActivity.h"
 #include "wavelength/WavelengthActivity.h"
 #include "xkcd/XkcdActivity.h"
 #include "yahtzee/YahtzeeActivity.h"
@@ -70,6 +71,7 @@ constexpr shelf::Item kApps[] = {
     {"XKCD", &icon_xkcd_32, &XkcdActivity::create},
     {"GET BOOKS", &icon_getbooks_32, &OpdsBookBrowserActivity::create},
     {"INSTAPAPER", &icon_instapaper_32, &InstapaperActivity::create},
+    {"WALLPAPERS", &icon_wallpapers_32, &WallpapersActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because

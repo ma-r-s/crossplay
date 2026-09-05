@@ -319,3 +319,12 @@ saved       = bookmark
 # circle does. Spliced by hand into ToyboxIcons.h, never regenerated (see the
 # warning at the top of this file).
 account     = circle-user-round
+
+# The Wallpapers app. `image` is Lucide's framed picture -- a rounded rectangle
+# with a sun and a mountain line -- which is exactly what this app manages, and
+# nothing else on the shelf is a framed landscape. Rejected: `wallpaper` (not in
+# this lucide pin), `image-plus`/`gallery-thumbnails` (interior detail that
+# blobs at 32px in one bit, the gamepad-2 failure), `panels-top-left` (reads as
+# a UI layout, not a picture). NOTE: spliced into ToyboxIcons.h by hand -- a
+# straight regen still drops icon_yahtzee_32 and icon_connectfour_32 (see top).
+wallpapers  = image

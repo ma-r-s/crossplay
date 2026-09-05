@@ -42,6 +42,7 @@
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/ToyboxWrappedText.h"
+#include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
 
@@ -9124,7 +9125,147 @@ void testAHandDrawnRightLabelSitsOnTheTitlesLine() {
   }
 }
 
+// --- Wallpapers -------------------------------------------------------------
+
+void buildWallpapersPicker(Rendered& out, const wallpapersui::PickerModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildPicker(screen, model);
+}
+
+void buildWallpapersEmpty(Rendered& out, const wallpapersui::EmptyModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildEmpty(screen, model);
+}
+
+// The picker lists every wallpaper on the card and marks the live one. A row
+// that is on but looks like every other row is the a-silent-screen failure in
+// miniature: the user cannot tell which is set.
+void testWallpapersListsAndMarksTheLiveOne() {
+  Rendered out;
+  const wallpapersui::Entry entries[] = {{"aurora.bmp", false}, {"canyon.bmp", true}, {"tide.bmp", false}};
+  wallpapersui::PickerModel model;
+  model.items = entries;
+  model.count = 3;
+  model.selected = 1;
+  model.rightLabel = "3 SAVED";
+  buildWallpapersPicker(out, model);
+
+  CHECK(drewText(out, "WALLPAPERS"));
+  CHECK(drewText(out, "aurora.bmp"));
+  CHECK(drewText(out, "canyon.bmp"));
+  CHECK(drewText(out, "tide.bmp"));
+  CHECK(drewText(out, "3 SAVED"));
+  // The live row wears an ON badge; without a live wallpaper there is no badge.
+  CHECK(drewText(out, "ON"));
+  // ...and the banner names the live wallpaper so it is unmissable even when
+  // it has scrolled off the list.
+  CHECK(drewText(out, "SLEEP SCREEN:"));
+  CHECK(drewText(out, "canyon.bmp"));
+}
+
+// A tap on a row reports WHICH wallpaper it was, not a bare 0 -- the actionValue
+// has to ride on the ListItem, and forgetting it is a silent every-tap-is-row-0
+// bug (the same class as connectfour's index).
+// With nothing set, the banner says so in plain words rather than leaving the
+// user to guess whether a wallpaper is live.
+void testWallpapersBannerSaysNoneWhenNothingIsSet() {
+  Rendered out;
+  const wallpapersui::Entry entries[] = {{"aurora.bmp", false}, {"tide.bmp", false}};
+  wallpapersui::PickerModel model;
+  model.items = entries;
+  model.count = 2;
+  model.rightLabel = "2 SAVED";
+  buildWallpapersPicker(out, model);
+
+  CHECK(drewText(out, "none chosen yet"));
+  CHECK(!drewText(out, "ON"));
+}
+
+void testWallpapersTapCarriesTheRowIndex() {
+  Rendered out;
+  const wallpapersui::Entry entries[] = {{"aurora.bmp", false}, {"canyon.bmp", false}, {"tide.bmp", false}};
+  wallpapersui::PickerModel model;
+  model.items = entries;
+  model.count = 3;
+  model.rightLabel = "3 SAVED";
+  buildWallpapersPicker(out, model);
+
+  // Tap the third row where its name was drawn: the label rect sits inside the
+  // row's interaction rect, so its centre lands on the row.
+  const FakeTarget::TextRun* row = nullptr;
+  for (const auto& run : out.target.texts) {
+    if (run.text == "tide.bmp") row = &run;
+  }
+  CHECK(row != nullptr);
+  if (row != nullptr) {
+    const fui::ActionEvent ev = out.tap(row->rect.x + row->rect.width / 2, row->rect.y + row->rect.height / 2);
+    CHECK(ev.action == wallpapersui::ActionPick);
+    CHECK(ev.value == 2);
+  }
+}
+
+// An empty library must SAY it is empty and say how to fix it. A blank body is
+// indistinguishable from a crashed device (a-silent-screen-reads-as-a-crash).
+void testWallpapersEmptyStateSaysSomething() {
+  Rendered out;
+  wallpapersui::EmptyModel model;
+  buildWallpapersEmpty(out, model);
+
+  CHECK(drewText(out, "NO WALLPAPERS"));
+  CHECK(drewText(out, "File Transfer"));
+}
+
+// A long file name must never be handed to the list long enough for the
+// component to truncate it with U+2026 -- a glyph the Toybox faces lack, which
+// draws as nothing and eats the end of the name silently. fittedTitle cuts with
+// an ASCII ellipsis instead, so every byte the picker draws is ASCII.
+void testWallpapersLongNameStaysAscii() {
+  Rendered out;
+  const wallpapersui::Entry entries[] = {{"an-extremely-long-wallpaper-file-name-that-cannot-possibly-fit.bmp", false}};
+  wallpapersui::PickerModel model;
+  model.items = entries;
+  model.count = 1;
+  model.rightLabel = "1 SAVED";
+  buildWallpapersPicker(out, model);
+
+  bool allAscii = true;
+  for (const auto& run : out.target.texts) {
+    for (const unsigned char c : run.text) {
+      if (c >= 0x80) allAscii = false;
+    }
+  }
+  CHECK(allAscii);
+}
+
+// The free-space advisory says two DIFFERENT sentences for two different facts:
+// "the card is full" and "could not tell" are not the same, and one line for
+// both re-creates the conflation freeBytes() exists to prevent.
+void testWallpapersWarningIsShownVerbatim() {
+  Rendered out;
+  const wallpapersui::Entry entries[] = {{"aurora.bmp", false}};
+  wallpapersui::PickerModel model;
+  model.items = entries;
+  model.count = 1;
+  model.rightLabel = "1 SAVED";
+  model.warning = "Could not check card space.";
+  buildWallpapersPicker(out, model);
+
+  CHECK(drewText(out, "Could not check card space."));
+}
+
 int main() {
+  testWallpapersListsAndMarksTheLiveOne();
+  testWallpapersBannerSaysNoneWhenNothingIsSet();
+  testWallpapersTapCarriesTheRowIndex();
+  testWallpapersEmptyStateSaysSomething();
+  testWallpapersLongNameStaysAscii();
+  testWallpapersWarningIsShownVerbatim();
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();
