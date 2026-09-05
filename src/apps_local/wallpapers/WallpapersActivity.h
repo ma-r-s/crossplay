@@ -60,6 +60,7 @@ class WallpapersActivity final : public Activity {
   void onWifiChosen(bool connected);
   void runSetDownload();  // blocking: fetch the pack, then unpack it
   bool unpackSet();       // pack -> individual .bmp files, resumable
+  void prewarmThumbs();   // build the thumbnail cache while the bar is still up
   void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
   void loadActive();
   void computeWarning();
@@ -68,6 +69,9 @@ class WallpapersActivity final : public Activity {
   void clampPage();
   void ensureThumbsForPage();  // decode this page's cells if not cached
   Thumb decodeThumb(const std::string& path, int16_t cellW, int16_t cellH) const;
+  // Cached decode: reads /wallpapers/.thumbs/<name>.thb when it still matches
+  // the source and the cell size, otherwise decodes and writes it.
+  Thumb thumbFor(const std::string& name, const std::string& path, int16_t cellW, int16_t cellH, int* decoded);
   void drawGrid(const wallpapersui::GridGeom& geom);
   void drawAddTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th);
   void drawGetSetTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th) const;
@@ -83,7 +87,7 @@ class WallpapersActivity final : public Activity {
   int fetchDone_ = 0;
   int fetchTotal_ = 0;
   bool fetchCancel_ = false;
-  bool fetchUnpacking_ = false;  // second phase: the bar's second half
+  int fetchPhase_ = 0;  // 0 fetch, 1 unpack, 2 thumbnails -- thirds of one bar
   bool fetchQueued_ = false;
   std::string noticeHead_;
   std::string noticeBody_;

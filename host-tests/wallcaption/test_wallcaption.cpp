@@ -207,18 +207,19 @@ int main() {
   {
     const int total = static_cast<int>(wallpapers::kBuiltInCount);
     int previous = -1;
-    for (int phase = 0; phase < 2; ++phase) {
+    const int phases = 3;  // fetch, unpack, thumbnails
+    for (int phase = 0; phase < phases; ++phase) {
       for (int done = 0; done <= total; ++done) {
         wallpapersui::FetchingModel m;
         m.total = total;
         m.done = done;
-        m.unpacking = phase == 1;
+        m.phase = phase;
+        m.phaseCount = phases;
         const wallpapersui::BarSpan span = wallpapersui::fetchBarSpan(m);
-        const std::string at =
-            " (" + std::string(m.unpacking ? "unpack" : "download") + " " + std::to_string(done) + ")";
+        const std::string at = " (phase " + std::to_string(phase) + " at " + std::to_string(done) + ")";
         check(span.at >= previous, "the progress bar went BACKWARDS" + at);
         check(span.at <= span.units, "the progress bar overran its track" + at);
-        check(span.units == total * 2, "the bar does not span both phases" + at);
+        check(span.units == total * phases, "the bar does not span every phase" + at);
         previous = span.at;
       }
     }
@@ -226,9 +227,10 @@ int main() {
     wallpapersui::FetchingModel done{};
     done.total = total;
     done.done = total;
-    done.unpacking = true;
+    done.phase = phases - 1;
+    done.phaseCount = phases;
     const wallpapersui::BarSpan end = wallpapersui::fetchBarSpan(done);
-    check(end.at == end.units, "the bar does not reach full when the unpack finishes");
+    check(end.at == end.units, "the bar does not reach full when the last phase finishes");
   }
 
   // The margin left, stated rather than implied: the next name added has this

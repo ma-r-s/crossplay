@@ -394,9 +394,11 @@ void buildOffer(toybox::Screen& screen, const OfferModel& model) {
 // staring at a frozen-looking panel needs (a-silent-screen-reads-as-a-crash).
 BarSpan fetchBarSpan(const FetchingModel& model) {
   BarSpan span;
-  span.units = model.total > 0 ? model.total * 2 : 1;
+  const int phases = model.phaseCount < 1 ? 1 : model.phaseCount;
+  span.units = model.total > 0 ? model.total * phases : 1;
   const int done = model.done < 0 ? 0 : (model.done > model.total ? model.total : model.done);
-  span.at = (model.unpacking ? model.total : 0) + done;
+  const int phase = model.phase < 0 ? 0 : (model.phase >= phases ? phases - 1 : model.phase);
+  span.at = phase * model.total + done;
   if (span.at > span.units) span.at = span.units;
   return span;
 }

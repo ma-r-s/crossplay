@@ -96,12 +96,13 @@ struct FetchingModel {
   int done = 0;
   int total = 0;
   bool cancelling = false;
-  // Fetching and unpacking are two real phases over the same set. They drove one
-  // bar from 0 to 100 EACH, so on hardware it filled, reset and filled again --
-  // which reads as the download restarting. The bar now spans both phases and
-  // the caption names which one is running: a progress bar may never go
-  // backwards without saying why.
-  bool unpacking = false;
+  // Fetching, unpacking and preparing thumbnails are three real phases over the
+  // same set. Each used to drive one bar from 0 to 100, so on hardware it
+  // filled, reset and filled again -- which reads as the download restarting.
+  // One bar now spans all of them and the caption names the running phase: a
+  // progress bar may never go backwards without saying why.
+  int phase = 0;       // 0 fetch, 1 unpack, 2 thumbnails
+  int phaseCount = 3;  // how many such sweeps make one whole bar
 };
 void buildFetching(toybox::Screen& screen, const FetchingModel& model);
 
