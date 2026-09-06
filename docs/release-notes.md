@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.44
+
+- Picross: 10x10 only, asterisk mistakes, auto-marking, key paging
+
 ### 1.12.43
 
 - Wallpapers: choose several wallpapers, and let them take turns
