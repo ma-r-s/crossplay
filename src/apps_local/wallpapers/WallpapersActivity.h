@@ -50,7 +50,10 @@ class WallpapersActivity final : public Activity {
   // remembered "have I offered already" flag: a stored value that decides what
   // you see turns a reproducible screen into a nondeterministic one
   // (invisible-saved-state-reads-as-nondeterminism).
-  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Help, Add };
+  // Sheet, Confirm and Preview are the hold branch. Preview draws NO chrome at
+  // all -- it is what the sleep screen puts on the glass, and a hint band over
+  // it would be a preview of something that never appears.
+  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Help, Add, Sheet, Confirm, Preview };
   View view_ = View::Grid;
 
   void scanLibrary();
@@ -70,6 +73,9 @@ class WallpapersActivity final : public Activity {
   void loadActive();
   void computeWarning();
   bool setWallpaper(int index);  // copy /wallpapers/<index> -> /sleep.bmp
+  void openSheet(int index);     // a hold landed on this library index
+  bool deleteWallpaper();        // remove the sheet's wallpaper from the card
+  void renderPreview();          // the wallpaper at 1:1, nothing else on the panel
   int pageCount() const;         // over the whole library
   void clampPage();
   void ensureThumbsForPage();  // decode this page's cells if not cached
@@ -82,6 +88,16 @@ class WallpapersActivity final : public Activity {
   void drawGetSetTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th) const;
   int specialTiles() const;  // chrome tiles in front of the wallpapers
   void drawMarker(const freeink::ui::Rect& th) const;
+
+  // Which wallpaper the sheet, the confirm and the preview are about. Held as a
+  // NAME as well as an index because the index is a position in a list that
+  // deleting, uploading and page-turning all renumber, and a stale index would
+  // delete the wrong picture. The name is re-resolved to an index at the moment
+  // of the delete and the delete refuses if it no longer resolves.
+  int sheetIndex_ = -1;
+  std::string sheetFile_;    // the file name, the identity that survives a re-sort
+  std::string sheetName_;    // its display name, for the two screens' headline
+  std::string sheetDetail_;  // the confirm's consequence sentence(s)
 
   std::vector<std::string> names_;  // library file names, sorted
   int activeIndex_ = -1;            // which name is pinned, or -1

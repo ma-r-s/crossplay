@@ -297,6 +297,127 @@ int main() {
     }
   }
 
+  // 5. THE HOLD SHEET'S CONTROLS, and the one destructive button behind them.
+  //
+  //    This fork has destroyed user data by putting a new meaning under a pixel
+  //    a finger was already travelling towards (same-pixel-different-action).
+  //    The picker is the worst host for that: a plain tap SETS the sleep screen
+  //    with no confirmation, and a hold arrives as a tap unless
+  //    tapWasHeldLong() says otherwise. So the defence is geometric and it is
+  //    asserted here rather than described in a comment.
+  //
+  //    Walked at BOTH insets: the panel with no bezel, and the X4 Pro's real
+  //    T10 R1 B0 L1 glass. Every rect hangs off safeRect(), so an identity that
+  //    held at one inset and not the other would be a screen that is safe on a
+  //    test target and not on the device.
+  {
+    fui::DeviceContext bezel = device();
+    bezel.safeArea = fui::Insets{10, 1, 0, 1};
+    const fui::DeviceContext panels[] = {device(), bezel};
+    const char* labels[] = {"no bezel", "X4 Pro bezel"};
+    for (int p = 0; p < 2; ++p) {
+      const fui::DeviceContext& dev = panels[p];
+      const std::string at = std::string(" (") + labels[p] + ")";
+      const fui::Rect preview = wallpapersui::sheetPreviewRect(dev);
+      const fui::Rect del = wallpapersui::sheetDeleteRect(dev);
+      const fui::Rect keep = wallpapersui::confirmKeepRect(dev);
+      const fui::Rect kill = wallpapersui::confirmDeleteRect(dev);
+
+      // THE IDENTITY. The confirm's SAFE half occupies exactly the pixels the
+      // sheet's DELETE did, so a repeat of the press that opened the confirm --
+      // a double tap, an impatient repeat during a 0.3-2s e-ink repaint, a
+      // finger that never moved -- cancels. Identical, not merely close: a
+      // "nearly" here is a band of pixels with no owner.
+      check(keep.x == del.x && keep.y == del.y && keep.width == del.width && keep.height == del.height,
+            "the confirm's KEEP is not exactly where the sheet's DELETE was" + at);
+
+      // THE SEPARATION. Reaching the destructive button takes a deliberate move
+      // to somewhere nothing was a moment ago.
+      check(!overlaps(kill, del), "the confirm's DELETE lands on the sheet's DELETE" + at);
+      check(!overlaps(kill, preview), "the confirm's DELETE lands on the sheet's PREVIEW" + at);
+      check(!overlaps(preview, del), "the sheet's two buttons overlap each other" + at);
+
+      // Finger targets, on the panel, and in reading order.
+      const fui::Rect all[] = {preview, del, kill};
+      for (const fui::Rect& r : all) {
+        check(r.height >= 44, "a hold-sheet control is under the finger-target minimum" + at);
+        check(r.x >= dev.safeRect().x, "a hold-sheet control runs off the left of the safe area" + at);
+        check(r.x + r.width <= dev.safeRect().right(), "a hold-sheet control runs off the right" + at);
+        check(r.y >= dev.safeRect().y, "a hold-sheet control runs above the safe area" + at);
+        check(r.y + r.height <= dev.safeRect().bottom(), "a hold-sheet control runs off the bottom" + at);
+      }
+      check(del.y > preview.y, "the sheet draws DELETE above PREVIEW" + at);
+      check(kill.y > keep.y, "the confirm draws its destructive half above its safe one" + at);
+
+      // The labels fit the buttons in the face that draws them. A label that
+      // overflows does not arrive clipped in these cuts -- the faces above
+      // toybox_10 carry no U+2026 -- it simply stops, so "DELETE IT" could read
+      // as "DELETE I" and mean something else entirely.
+      const char* buttonLabels[] = {"PREVIEW", "DELETE", "KEEP IT", "DELETE IT"};
+      for (const char* label : buttonLabels) {
+        check(target.widthOf(fui::FONT_SLOT_SMALL, label) <= preview.width - 8,
+              std::string("button label \"") + label + "\" overflows its button" + at);
+      }
+    }
+  }
+
+  // 6. THE SENTENCE ON THE CONFIRM, measured rather than eyeballed.
+  //
+  //    This one is here because a render caught what nothing else could: at the
+  //    first layout the longest of the four consequences needed six 42px lines
+  //    and had five, so it was cut with an ellipsis at "It stays on your sleep
+  //    scr..." -- dropping the SECOND clause, the one that only appears for the
+  //    wallpaper actually in use, on the screen where it matters most
+  //    (a-warning-that-can-vanish). host-tests/ui cannot see it: its target
+  //    answers ten pixels a character. Here the widths are the panel's own.
+  //
+  //    All four combinations, and BOTH insets, because the bezel shortens the
+  //    box from the bottom.
+  {
+    fui::TextStyle prose;
+    prose.font = fui::FONT_SLOT_BODY;
+    prose.align = fui::TextAlign::Left;
+    fui::DeviceContext bezel = device();
+    bezel.safeArea = fui::Insets{10, 1, 0, 1};
+    const fui::DeviceContext panels[] = {device(), bezel};
+    const char* labels[] = {"no bezel", "X4 Pro bezel"};
+    for (int p = 0; p < 2; ++p) {
+      const fui::Rect box = wallpapersui::confirmProseRect(panels[p]);
+      const int16_t lineH = target.lineHeight(fui::FONT_SLOT_BODY);
+      const int lines = lineH > 0 ? box.height / lineH : 0;
+      check(lines >= 1, std::string("the confirm has no room for its sentence at all (") + labels[p] + ")");
+      for (int builtIn = 0; builtIn <= 1; ++builtIn) {
+        for (int active = 0; active <= 1; ++active) {
+          const std::string said = wallpapers::deleteConsequence(builtIn != 0, active != 0);
+          const std::string drawn = toybox::fitLines(target, said.c_str(), box.width, lines, prose);
+          check(drawn == said, std::string("the delete confirm cuts its own consequence (builtIn=") +
+                                   std::to_string(builtIn) + " active=" + std::to_string(active) + ", " + labels[p] +
+                                   ") -> \"" + drawn + "\"");
+        }
+      }
+
+      // The sheet's own sentence, both forms, in its own (shorter) box.
+      const fui::Rect sheetBox = wallpapersui::sheetProseRect(panels[p]);
+      const int sheetLines = lineH > 0 ? sheetBox.height / lineH : 0;
+      const char* sheetProse[] = {
+          "Preview fills the panel exactly as the sleep screen draws it; tap it to come back.",
+          "This one is on your sleep screen now. Preview fills the panel; tap it to come back.",
+      };
+      for (const char* line : sheetProse) {
+        check(toybox::fitLines(target, line, sheetBox.width, sheetLines, prose) == std::string(line),
+              std::string("the hold sheet cuts its own instruction (") + labels[p] + ")");
+      }
+
+      // And neither box may reach the control under it.
+      check(wallpapersui::confirmProseRect(panels[p]).bottom() <= wallpapersui::confirmKeepRect(panels[p]).y,
+            std::string("the confirm's sentence runs under KEEP IT (") + labels[p] + ")");
+      check(sheetBox.bottom() <= wallpapersui::sheetPreviewRect(panels[p]).y,
+            std::string("the sheet's sentence runs under PREVIEW (") + labels[p] + ")");
+      check(wallpapersui::sheetHeadRect(panels[p]).bottom() <= sheetBox.y,
+            std::string("the name overlaps the sentence under it (") + labels[p] + ")");
+    }
+  }
+
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,
               wallpapersui::captionRect(g, 0).width, wallpapersui::captionRect(g, 0).width - widest);
   std::printf("wallcaption: %d checks, %d failed\n", checks, failed);

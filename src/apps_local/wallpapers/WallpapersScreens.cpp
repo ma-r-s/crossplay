@@ -57,6 +57,27 @@ constexpr int16_t kMarkerGap = 5;
 constexpr int16_t kMarkerWeight = 4;
 constexpr int16_t kBracketArm = 30;
 
+// The hold sheet's button stack, measured DOWN from the body top rather than up
+// from the panel bottom: the confirm screen puts a third button below the
+// sheet's two (see confirmDeleteRect) and anchoring to the bottom would have no
+// room left for it. Panel-absolute at safe.y = 0: 470..534, 554..618, 638..702.
+//
+// 470 rather than the 380 this was first drawn at. At 380 the confirm's prose
+// had five 42px lines for a sentence that needs six, and the clause it dropped
+// was the SECOND one -- "it stays on your sleep screen until you pick another"
+// -- so the confirm for the wallpaper actually in use silently lost the only
+// line that was about it (a-warning-that-can-vanish). Found in a render; no
+// suite could see it, which is why host-tests/wallcaption now measures every
+// combination of that sentence against the box below in the real face.
+constexpr int16_t kSheetStackTop = 470;
+constexpr int16_t kSheetButtonGap = 20;
+
+// The headline the sheet and the confirm both hang their prose off: two lines
+// of the display cut (63px each on this panel) plus slack. Two because a
+// wallpaper the user added is named by its FILE, and file names are the one
+// string on these screens nobody chose for its width.
+constexpr int16_t kSheetHeadH = 132;
+
 // The wallpaper's own shape. Sleep wallpapers are portrait 480x800 on this
 // device (verified: a 480x800 image fills the sleep screen), so the cells are
 // too and a thumbnail of a matching wallpaper fills its cell with no letterbox.
@@ -380,11 +401,11 @@ constexpr const char* kFoot = "BACK STOPS";
 // from the panel edge, eating the whole page margin. The box came across from
 // the twin and the font did not. Sized from the bound face now, so it cannot
 // happen again when the face changes.
-void drawFoot(toybox::Screen& screen, const fui::Rect& body) {
+void drawFoot(toybox::Screen& screen, const fui::Rect& body, const char* label = kFoot) {
   fui::TextStyle style = onPaper(screen.theme().bodyText, fui::TextAlign::Center, 1);
   const int16_t lineH = screen.target().lineHeight(style.font);
   const fui::Rect box = fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - lineH), body.width, lineH);
-  screen.target().text(box, toybox::fittedTitle(screen.target(), kFoot, box.width, style).c_str(), style);
+  screen.target().text(box, toybox::fittedTitle(screen.target(), label, box.width, style).c_str(), style);
 }
 
 // The headline is the only thing on this screen that gets the display cut, and
@@ -620,6 +641,103 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
                fui::makeRect(left, static_cast<int16_t>(body.y + body.height - kButtonH - 44), body.width, kButtonH),
                model.actionLabel, model.action);
   }
+}
+
+// ---------------------------------------------------------------------------
+// THE HOLD SHEET, AND THE ONE DESTRUCTIVE BUTTON IN THIS APP.
+//
+// Reached by holding a cell, never by tapping one. The header says WALLPAPER
+// (singular) so the screen names its own subject: the grid behind it says
+// WALLPAPERS, and two screens with one title is how a user loses track of which
+// one they are on.
+
+namespace {
+// One derivation, four rects. Every one of them hangs off safe.y and off the
+// two constants above, so moving the stack moves the confirm with it and the
+// "keep is where delete was" identity cannot be broken by editing one of them.
+int16_t stackSlot(const fui::DeviceContext& device, const int index) {
+  return static_cast<int16_t>(device.safeRect().y + kSheetStackTop + index * (kSheetButtonH + kSheetButtonGap));
+}
+fui::Rect stackRect(const fui::DeviceContext& device, const int index) {
+  const fui::Rect safe = device.safeRect();
+  return fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), stackSlot(device, index),
+                       static_cast<int16_t>(safe.width - toybox::kMargin * 2), kSheetButtonH);
+}
+}  // namespace
+
+fui::Rect sheetHeadRect(const fui::DeviceContext& device) {
+  const fui::Rect safe = device.safeRect();
+  return fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin),
+                       static_cast<int16_t>(safe.y + kBodyTop + toybox::kGutter),
+                       static_cast<int16_t>(safe.width - toybox::kMargin * 2), kSheetHeadH);
+}
+
+// The prose box on each screen: from under the headline down to the first
+// control. Derived from BOTH ends rather than given a height, so moving the
+// button stack or the headline cannot leave a sentence overlapping a button --
+// it makes the box shorter, and the box is what host-tests/wallcaption measures
+// the sentence against.
+namespace {
+fui::Rect proseTo(const fui::DeviceContext& device, const fui::Rect& firstControl) {
+  const fui::Rect head = sheetHeadRect(device);
+  const int16_t top = static_cast<int16_t>(head.bottom() + toybox::kGutter);
+  const int16_t bottom = static_cast<int16_t>(firstControl.y - toybox::kGutter);
+  return fui::makeRect(head.x, top, head.width, static_cast<int16_t>(bottom > top ? bottom - top : 0));
+}
+}  // namespace
+
+fui::Rect sheetPreviewRect(const fui::DeviceContext& device) { return stackRect(device, 0); }
+fui::Rect sheetDeleteRect(const fui::DeviceContext& device) { return stackRect(device, 1); }
+// Deliberately the SAME rect as the sheet's DELETE. Not a coincidence to be
+// tidied away: it is the whole defence, and host-tests/wallcaption asserts the
+// two are identical rather than merely close.
+fui::Rect confirmKeepRect(const fui::DeviceContext& device) { return sheetDeleteRect(device); }
+fui::Rect confirmDeleteRect(const fui::DeviceContext& device) { return stackRect(device, 2); }
+
+fui::Rect sheetProseRect(const fui::DeviceContext& device) { return proseTo(device, sheetPreviewRect(device)); }
+fui::Rect confirmProseRect(const fui::DeviceContext& device) { return proseTo(device, confirmKeepRect(device)); }
+
+void buildSheet(toybox::Screen& screen, const SheetModel& model) {
+  chrome(screen, "WALLPAPER", nullptr);
+  const fui::DeviceContext device = screen.frame().device();
+
+  // The name, on two lines of the display cut. Everything on these two screens
+  // is laid out against the published rects rather than against screen.body(),
+  // for the same reason the grid is: the safety proof in host-tests/wallcaption
+  // has to read the SAME rectangles the drawing does.
+  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Left, 2);
+  const fui::Rect headBox = sheetHeadRect(device);
+  screen.target().text(headBox, toybox::fitLines(screen.target(), model.name, headBox.width, 2, head).c_str(), head);
+
+  // What each button does, BEFORE it is pressed. Preview leaves no chrome on
+  // the panel on purpose -- it is the sleep screen, and a hint band drawn over
+  // it would be a preview of something the sleep screen never shows -- so the
+  // way back out has to be said here instead, where there is room for it.
+  drawProse(screen, sheetProseRect(device),
+            model.isActive ? "This one is on your sleep screen now. Preview fills the panel; tap it to come back."
+                           : "Preview fills the panel exactly as the sleep screen draws it; tap it to come back.",
+            fui::TextAlign::Left);
+
+  drawButton(screen, sheetPreviewRect(device), "PREVIEW", ActionPreview);
+  drawButton(screen, sheetDeleteRect(device), "DELETE", ActionDelete);
+  drawFoot(screen, screen.body(), "BACK RETURNS");
+}
+
+void buildConfirm(toybox::Screen& screen, const ConfirmModel& model) {
+  chrome(screen, "DELETE WALLPAPER", nullptr);
+  const fui::DeviceContext device = screen.frame().device();
+
+  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Left, 2);
+  const fui::Rect headBox = sheetHeadRect(device);
+  screen.target().text(headBox, toybox::fitLines(screen.target(), model.name, headBox.width, 2, head).c_str(), head);
+
+  drawProse(screen, confirmProseRect(device), model.consequence, fui::TextAlign::Left);
+
+  // KEEP IT first, and on the pixels the sheet's DELETE occupied. A repeat of
+  // the press that got here is a cancel, by construction rather than by luck.
+  drawButton(screen, confirmKeepRect(device), "KEEP IT", ActionKeep);
+  drawButton(screen, confirmDeleteRect(device), "DELETE IT", ActionConfirmDelete);
+  drawFoot(screen, screen.body(), "BACK KEEPS IT");
 }
 
 }  // namespace wallpapersui

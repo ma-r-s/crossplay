@@ -629,7 +629,12 @@ void WallpapersActivity::drawGetSetTile(const wallpapersui::GridGeom& geom, cons
   char label[48];
   // One line of text, wrapped by width. An embedded newline is not a break
   // this renderer honours: it vanished and joined the words into "GET THE21".
-  std::snprintf(label, sizeof(label), "GET THE %d BUILT-INS", builtInsMissing_);
+  //
+  // No plural: fmtwidth cannot bound a "%s" that switches word, and the count
+  // beside a fixed noun says the same thing (the trivia and add-screen
+  // precedent). The one-missing case was unreachable until the hold sheet could
+  // delete a built-in, and it read "GET THE 1 BUILT-INS".
+  std::snprintf(label, sizeof(label), "GET %d MISSING", builtInsMissing_);
   const fui::Rect box =
       fui::makeRect(th.x + 6, static_cast<int16_t>(th.y + th.height / 2 - 30), static_cast<int16_t>(th.width - 12), 60);
   target.text(box, label, style);
@@ -764,6 +769,123 @@ int WallpapersActivity::builtInsPresent() const {
 // The screen is a function of the card, with no remembered "already offered"
 // flag to go stale or to make two identical cards show different things.
 void WallpapersActivity::pickView() { view_ = names_.empty() ? View::Offer : View::Grid; }
+
+// A hold landed on a wallpaper. Everything the three screens behind this need is
+// SNAPSHOT here, in loop(), while the index is still the one the finger meant:
+// render() must not go looking things up in names_, and the delete must not
+// trust an index that uploading, deleting or re-sorting can renumber underneath
+// it. The file name is the identity that survives all three.
+void WallpapersActivity::openSheet(const int index) {
+  if (index < 0 || index >= static_cast<int>(names_.size())) return;
+  sheetIndex_ = index;
+  sheetFile_ = names_[static_cast<size_t>(index)];
+  sheetName_ = wallpapers::displayName(sheetFile_).full;
+  sheetDetail_ = wallpapers::deleteConsequence(wallpapers::isBuiltInFile(sheetFile_), index == activeIndex_);
+  view_ = View::Sheet;
+  interactionsReady_ = false;
+  LOG_INF("WALL", "hold sheet for %s (index %d, active %d)", sheetFile_.c_str(), index, activeIndex_);
+  requestUpdate();
+}
+
+// The one destructive thing this app does.
+//
+// Resolves the NAME rather than reusing sheetIndex_: between the hold and the
+// confirm the library can have been re-sorted by an upload, and an index is a
+// position in that order. A name that no longer resolves means the file is
+// already gone, and doing nothing is right -- deleting "whatever is at slot 4
+// now" is exactly the bug this app is shaped to avoid.
+//
+// /sleep.bmp is NOT touched. It is a self-contained copy, so a deleted
+// wallpaper stays on the sleep screen until another is chosen; the confirm says
+// so (wallpapers::deleteConsequence), because a user who believed otherwise
+// would delete a second time looking for an effect that never comes.
+bool WallpapersActivity::deleteWallpaper() {
+  if (sheetFile_.empty()) return false;
+  const auto found = std::find(names_.begin(), names_.end(), sheetFile_);
+  if (found == names_.end()) {
+    LOG_INF("WALL", "delete: %s is no longer in the library; nothing to do", sheetFile_.c_str());
+    return false;
+  }
+  const std::string path = std::string(wallpapers::kLibraryDir) + "/" + sheetFile_;
+  if (!Storage.remove(path.c_str())) {
+    LOG_ERR("WALL", "Card refused to delete %s", path.c_str());
+    return false;
+  }
+  // The thumbnail cache is keyed on the file name, so a later upload of a file
+  // with the same name would otherwise draw the DELETED picture from cache.
+  // thumbFor's staleness check compares the source's size and mtime, which a
+  // fresh 48062-byte wallpaper can match by construction.
+  const std::string cache = std::string(kThumbDir) + "/" + sheetFile_ + ".thb";
+  Storage.remove(cache.c_str());
+  LOG_INF("WALL", "deleted %s", path.c_str());
+
+  // Re-derive everything from the card. builtInsMissing_ changes here whenever
+  // the deleted file was a built-in, and that flips specialTiles() from 1 to 2
+  // -- every wallpaper shifts one cell along. Nothing may act on the old
+  // numbering, which is why this is a full rescan and not an erase from names_.
+  sheetIndex_ = -1;
+  sheetFile_.clear();
+  scanLibrary();
+  loadActive();
+  clampPage();
+  cachedPage_ = -1;
+  pickView();
+  return true;
+}
+
+// The wallpaper at 1:1, and nothing else. No chrome, no button hints, no border:
+// what is on the panel here is what the sleep screen puts there, which is the
+// whole question Mario asked ("a way to preview the wallpaper without turning
+// off the device"). Anything drawn over it would be answering a different one.
+//
+// The placement arithmetic is SleepActivity's non-oversize branch, reproduced
+// rather than called: calculateBitmapPlacement is file-local to SleepActivity
+// (upstream's file, not ours to widen). It is the identity for every wallpaper
+// this app ships or produces -- kWallpaperFileBytes pins them all at 480x800,
+// exactly the panel -- so the two agree on every file that can be here. A
+// stray hand-copied BMP of another size centres instead of cropping; it is
+// still the picture, and it is not a file any path in this app creates.
+void WallpapersActivity::renderPreview() {
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  renderer.clearScreen();
+
+  const std::string path = std::string(wallpapers::kLibraryDir) + "/" + sheetFile_;
+  HalFile file;
+  bool drawn = false;
+  if (Storage.openFileForRead("WALL", path, file)) {
+    Bitmap bitmap(file, true);
+    if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+      const int w = bitmap.getWidth();
+      const int h = bitmap.getHeight();
+      const int x = w <= pageWidth ? (pageWidth - w) / 2 : 0;
+      const int y = h <= pageHeight ? (pageHeight - h) / 2 : 0;
+      renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0.0f, 0.0f);
+      drawn = true;
+    }
+    file.close();
+  }
+
+  // A Frame with nothing built empties the hit table, so the sheet's DELETE
+  // cannot still be routable while a full-screen picture covers it. It also
+  // gives the one failure path here somewhere to put words: a blank panel reads
+  // as a crash, twice confirmed by cold testers in this fork.
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer, toybox::readingChromeFaces());
+  const fui::DeviceContext device = target.deviceContext();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(target, device, noInput, interactions_);
+  toybox::Screen surface(frame, toybox::themeTokens());
+  if (!drawn) {
+    LOG_ERR("WALL", "preview: cannot draw %s", path.c_str());
+    wallpapersui::NoticeModel model;
+    model.headline = "CANNOT PREVIEW";
+    model.body = "This file could not be opened as a wallpaper. Tap anywhere to go back.";
+    wallpapersui::buildNotice(surface, model);
+  }
+  interactionsReady_ = false;
+  renderer.displayBuffer();
+  painted_ = true;
+}
 
 // The address the phone opens. Station mode only: the hotspot has no NAT and a
 // captive-portal DNS that answers every name with this device, so a phone joined
@@ -1165,6 +1287,23 @@ void WallpapersActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    // Back unwinds the hold branch one step at a time. From the confirm it goes
+    // to the sheet, NOT to the grid: Back on a confirm means "not that", and
+    // dropping the user two screens back would make them start the hold again
+    // to reach the preview they were actually after.
+    if (view_ == View::Confirm || view_ == View::Preview) {
+      view_ = View::Sheet;
+      interactionsReady_ = false;
+      requestUpdate();
+      return;
+    }
+    if (view_ == View::Sheet) {
+      sheetIndex_ = -1;
+      sheetFile_.clear();
+      pickView();
+      requestUpdate();
+      return;
+    }
     if (view_ == View::Help || view_ == View::Notice || view_ == View::Add) {
       stopAddServer();
       pickView();
@@ -1175,9 +1314,25 @@ void WallpapersActivity::loop() {
     shelf::leave(renderer, mappedInput);
     return;
   }
-  // The Offer and Notice screens carry real buttons, so their taps go through
-  // Interactions rather than the grid's geometry hit-test.
-  if (view_ == View::Offer || view_ == View::Notice) {
+
+  // The preview has no controls at all, on purpose: it is the sleep screen, and
+  // the way out is anywhere on it. Said on the sheet before it opens, because
+  // this screen has nowhere to say it.
+  if (view_ == View::Preview) {
+    int px = 0;
+    int py = 0;
+    if (!mappedInput.wasScreenTapped(px, py)) return;
+    view_ = View::Sheet;
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
+  // The Offer, Notice, Sheet and Confirm screens carry real buttons, so their
+  // taps go through Interactions rather than the grid's geometry hit-test.
+  // Interactions::route() refuses a tap routed against a table the panel has
+  // not shown yet, which is what stops a tap aimed at the screen underneath
+  // from landing on the one that replaced it during a 0.3-2s e-ink repaint.
+  if (view_ == View::Offer || view_ == View::Notice || view_ == View::Sheet || view_ == View::Confirm) {
     int ax = 0;
     int ay = 0;
     if (!mappedInput.wasScreenTapped(ax, ay) || !interactionsReady_) return;
@@ -1196,6 +1351,28 @@ void WallpapersActivity::loop() {
         return;
       case wallpapersui::ActionDismiss:
         pickView();
+        requestUpdate();
+        return;
+      case wallpapersui::ActionPreview:
+        view_ = View::Preview;
+        interactionsReady_ = false;
+        requestUpdate();
+        return;
+      case wallpapersui::ActionDelete:
+        // Opens the question. Deletes nothing -- which is what makes this the
+        // safe half of the pair the confirm reuses the pixels of.
+        view_ = View::Confirm;
+        interactionsReady_ = false;
+        requestUpdate();
+        return;
+      case wallpapersui::ActionKeep:
+        view_ = View::Sheet;
+        interactionsReady_ = false;
+        requestUpdate();
+        return;
+      case wallpapersui::ActionConfirmDelete:
+        deleteWallpaper();
+        interactionsReady_ = false;
         requestUpdate();
         return;
       default:
@@ -1269,26 +1446,40 @@ void WallpapersActivity::loop() {
     return;
   }
   const int idx = combined - specials;
-  // A hold the classifier missed arrives here as a tap, and a tap on this grid
-  // SETS the sleep screen with no confirmation -- so a user reaching for the
-  // hold sheet would get the one thing they were reaching past. Doing nothing
-  // is the right failure: the hold is repeatable, an unasked-for sleep screen
-  // is not. (Once the sheet exists this routes to it instead of returning.)
-  if (mappedInput.tapWasHeldLong()) return;
-  if (idx == activeIndex_) return;  // already the sleep screen
-  if (setWallpaper(idx)) requestUpdate();
+  // A hold the SDK's classifier missed arrives here as an ordinary tap --
+  // wasTouchTap has no duration gate -- and a tap on this grid SETS the sleep
+  // screen with no confirmation. tapWasHeldLong() is the only thing that tells
+  // the two apart, and the decision itself lives in WallpapersCore so it can be
+  // asserted: the simulator never compiles lib/hal or runs InputManager, so
+  // host-tests/wallpapers is the only place this is provable at all.
+  switch (wallpapers::cellAction(mappedInput.tapWasHeldLong(), idx, activeIndex_)) {
+    case wallpapers::CellAction::Sheet:
+      openSheet(idx);
+      return;
+    case wallpapers::CellAction::Set:
+      if (setWallpaper(idx)) requestUpdate();
+      return;
+    case wallpapers::CellAction::None:
+      return;
+  }
 }
 
 void WallpapersActivity::render(RenderLock&&) {
   const uint32_t tPaint = millis();
   clampPage();
+  // Before anything toybox: the preview draws no chrome and takes no theme.
+  if (view_ == View::Preview) {
+    renderPreview();
+    LOG_INF("WALL", "render preview took %ums", millis() - tPaint);
+    return;
+  }
   renderer.clearScreen();
   // Faces per view, not per app. The grid is a menu and wants the Jersey cut it
   // shares with the shelf; the offer, the progress and the notices are
   // SENTENCES, and at the 20px UI cut a sentence runs off the panel and is cut
   // with an ellipsis. Trivia carries the same split for the same reason.
   const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Help ||
-                     view_ == View::Add;
+                     view_ == View::Add || view_ == View::Sheet || view_ == View::Confirm;
   // View::Add rebinds the SMALL slot to the bold reading cut so the address has
   // a cut of its own: see readingAddressFaces. Without it the headline, the
   // address, the prose and the footer all land on serif 14 and the one line the
@@ -1317,6 +1508,19 @@ void WallpapersActivity::render(RenderLock&&) {
     }
     const fui::Rect qr = wallpapersui::buildAdd(surface, model);
     QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addUrl_);
+  } else if (view_ == View::Sheet) {
+    wallpapersui::SheetModel model;
+    model.name = sheetName_.c_str();
+    // From the NAME, never from sheetIndex_: an upload arriving while the sheet
+    // is up re-sorts names_ and every index in it means a different picture.
+    model.isActive = activeIndex_ >= 0 && activeIndex_ < static_cast<int>(names_.size()) &&
+                     names_[static_cast<size_t>(activeIndex_)] == sheetFile_;
+    wallpapersui::buildSheet(surface, model);
+  } else if (view_ == View::Confirm) {
+    wallpapersui::ConfirmModel model;
+    model.name = sheetName_.c_str();
+    model.consequence = sheetDetail_.c_str();
+    wallpapersui::buildConfirm(surface, model);
   } else if (view_ == View::Help) {
     wallpapersui::buildHelp(surface);
   } else if (view_ == View::Fetching) {

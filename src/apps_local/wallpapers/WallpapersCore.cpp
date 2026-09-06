@@ -103,6 +103,29 @@ DisplayName displayName(std::string_view fileName) {
   return DisplayName{own, own};
 }
 
+CellAction cellAction(const bool heldLong, const int index, const int activeIndex) {
+  if (index < 0) return CellAction::None;
+  // FIRST, above every other branch. A hold that the SDK classified as a tap is
+  // still a hold, and the thing the user was reaching past is setWallpaper --
+  // which has no confirmation and no undo.
+  if (heldLong) return CellAction::Sheet;
+  if (index == activeIndex) return CellAction::None;
+  return CellAction::Set;
+}
+
+std::string deleteConsequence(const bool builtIn, const bool isActive) {
+  std::string out;
+  if (builtIn) {
+    out += "A built-in wallpaper. Getting it back means downloading the whole set again, not just this one.";
+  } else {
+    out += "Your own wallpaper. The card holds the only copy, so this cannot be undone.";
+  }
+  if (isActive) {
+    out += " It stays on your sleep screen until you pick another.";
+  }
+  return out;
+}
+
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes) {
   if (!queryOk) return Room::Unknown;
   return freeBytes >= floorBytes ? Room::Ok : Room::TooFull;

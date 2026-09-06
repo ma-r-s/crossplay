@@ -43,6 +43,7 @@
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/ToyboxWrappedText.h"
+#include "../../src/apps_local/wallpapers/WallpapersCore.h"
 #include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
@@ -10151,6 +10152,138 @@ void testWallpapersHelpCardPointsAtTheUploader() {
   CHECK(drewText(out, "File Transfer"));
 }
 
+// --- Wallpapers: the hold sheet ---------------------------------------------
+
+void buildWallpapersSheet(Rendered& out, const wallpapersui::SheetModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildSheet(screen, model);
+}
+
+void buildWallpapersConfirm(Rendered& out, const wallpapersui::ConfirmModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildConfirm(screen, model);
+}
+
+bool registered(const Rendered& out, const fui::ActionId action) {
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    if (out.interactions.data()[i].action == action) return true;
+  }
+  return false;
+}
+
+// The sheet a hold opens: it names the wallpaper, offers exactly the two things
+// a tap cannot do, and says how to get out of the preview BEFORE opening it --
+// the preview draws no chrome at all, so this is the only place that can.
+void testWallpapersSheetOffersPreviewAndDelete() {
+  Rendered out;
+  wallpapersui::SheetModel model;
+  model.name = "Duerer: Four Horsemen";
+  buildWallpapersSheet(out, model);
+  CHECK(drewText(out, "WALLPAPER"));
+  CHECK(drewText(out, "Duerer: Four Horsemen"));
+  CHECK(drewText(out, "PREVIEW"));
+  CHECK(drewText(out, "DELETE"));
+  CHECK(drewText(out, "tap it to come back"));
+  CHECK(registered(out, wallpapersui::ActionPreview));
+  CHECK(registered(out, wallpapersui::ActionDelete));
+  // The sheet is the SAFE screen: nothing on it deletes anything. That is what
+  // makes reusing its DELETE pixels for the confirm's KEEP IT sound.
+  CHECK(!registered(out, wallpapersui::ActionConfirmDelete));
+}
+
+// The sheet says so when the wallpaper it is about is the one in use, because
+// the delete's consequence differs for it and the user should learn that before
+// the confirm rather than in it.
+void testWallpapersSheetSaysWhenItIsTheOneInUse() {
+  Rendered active;
+  wallpapersui::SheetModel model;
+  model.name = "Bauhaus";
+  model.isActive = true;
+  buildWallpapersSheet(active, model);
+  CHECK(drewText(active, "on your sleep screen now"));
+
+  Rendered idle;
+  model.isActive = false;
+  buildWallpapersSheet(idle, model);
+  CHECK(!drewText(idle, "on your sleep screen now"));
+}
+
+// The confirm carries BOTH halves and says what deleting costs. The consequence
+// text itself is proved over all four of its combinations in
+// host-tests/wallpapers; this is that it reaches the panel at all.
+void testWallpapersConfirmSaysTheCostAndOffersBoth() {
+  Rendered out;
+  wallpapersui::ConfirmModel model;
+  model.name = "Bauhaus";
+  // Held in a named local: c_str() on the temporary would dangle before the
+  // builder ever read it, and the panel would draw whatever was left on the
+  // stack -- which is exactly the class of bug toybox::detail::OwnedDevice
+  // exists for.
+  const std::string cost = wallpapers::deleteConsequence(true, true);
+  model.consequence = cost.c_str();
+  buildWallpapersConfirm(out, model);
+  CHECK(drewText(out, "DELETE WALLPAPER"));
+  CHECK(drewText(out, "Bauhaus"));
+  CHECK(drewText(out, "whole set again"));
+  CHECK(drewText(out, "KEEP IT"));
+  CHECK(drewText(out, "DELETE IT"));
+  CHECK(registered(out, wallpapersui::ActionKeep));
+  CHECK(registered(out, wallpapersui::ActionConfirmDelete));
+}
+
+// The whole defence against same-pixel-different-action, asserted on the rects
+// the builders actually draw into rather than on the ones they were meant to.
+// wallcaption proves the same identity against the published helpers; this
+// proves the SHEET AND THE CONFIRM USE THEM, which is the half a helper-only
+// test cannot see.
+void testWallpapersConfirmReusesTheSheetsDeletePixelsForItsSafeHalf() {
+  const fui::DeviceContext ctx = device();
+  const fui::Rect sheetDelete = wallpapersui::sheetDeleteRect(ctx);
+  const fui::Rect kill = wallpapersui::confirmDeleteRect(ctx);
+
+  const auto rectOf = [](const Rendered& out, fui::ActionId action, fui::Rect& found) {
+    for (size_t i = 0; i < out.interactions.count(); ++i) {
+      if (out.interactions.data()[i].action != action) continue;
+      found = out.interactions.data()[i].rect;
+      return true;
+    }
+    return false;
+  };
+
+  Rendered sheet;
+  wallpapersui::SheetModel sm;
+  sm.name = "Bauhaus";
+  buildWallpapersSheet(sheet, sm);
+  fui::Rect drawnSheetDelete{};
+  CHECK(rectOf(sheet, wallpapersui::ActionDelete, drawnSheetDelete));
+  CHECK(drawnSheetDelete.x == sheetDelete.x && drawnSheetDelete.y == sheetDelete.y &&
+        drawnSheetDelete.width == sheetDelete.width && drawnSheetDelete.height == sheetDelete.height);
+
+  Rendered confirm;
+  wallpapersui::ConfirmModel cm;
+  cm.name = "Bauhaus";
+  cm.consequence = "x";
+  buildWallpapersConfirm(confirm, cm);
+  fui::Rect drawnKeep{};
+  fui::Rect drawnKill{};
+  CHECK(rectOf(confirm, wallpapersui::ActionKeep, drawnKeep));
+  CHECK(rectOf(confirm, wallpapersui::ActionConfirmDelete, drawnKill));
+
+  // A second press of the pixels that opened this screen CANCELS.
+  CHECK(drawnKeep.x == drawnSheetDelete.x && drawnKeep.y == drawnSheetDelete.y &&
+        drawnKeep.width == drawnSheetDelete.width && drawnKeep.height == drawnSheetDelete.height);
+  // And the destructive button is somewhere else entirely.
+  CHECK(drawnKill.y == kill.y);
+  CHECK(!(drawnKill.y < drawnSheetDelete.y + drawnSheetDelete.height &&
+          drawnSheetDelete.y < drawnKill.y + drawnKill.height));
+}
+
 // The layout is DERIVED now (positions hang off screen.body().y and off each
 // other) rather than written as ~100 absolute panel literals. This pins the
 // result of that derivation to the exact coordinates the literals used to
@@ -10397,6 +10530,10 @@ int main() {
   testWallpapersEmptyStateSaysSomething();
   testWallpapersCaptionNeverCollidesWithArtwork();
   testWallpapersHelpCardPointsAtTheUploader();
+  testWallpapersSheetOffersPreviewAndDelete();
+  testWallpapersSheetSaysWhenItIsTheOneInUse();
+  testWallpapersConfirmSaysTheCostAndOffersBoth();
+  testWallpapersConfirmReusesTheSheetsDeletePixelsForItsSafeHalf();
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();
