@@ -136,10 +136,10 @@ enum class Reach : uint8_t {
 };
 Reach reachOfPinnedSleep(uint8_t sleepScreenMode, bool quickResumeAfterTimeout);
 
-// The sentence for the picker's hint strip, or nullptr when there is nothing to
-// say. Short on purpose: the strip is one fixed 30px line and a cut sentence is
-// the defect it exists to avoid (host-tests/wallcaption measures these in the
-// real face).
+// The sentence for the picker's hint strip when NOTHING was selected this
+// session, or nullptr when there is nothing to say. Short on purpose: the strip
+// is one fixed 30px line and a cut sentence is the defect it exists to avoid
+// (host-tests/wallcaption measures these in the face the strip resolves).
 const char* reachHint(Reach reach);
 
 // The mode's name in a sentence, for saying what a selection replaced.
@@ -164,11 +164,24 @@ struct SleepChoice {
 };
 SleepChoice choiceForSetWallpaper(uint8_t sleepScreenMode, bool quickResumeAfterTimeout);
 
-// The one-line note the picker shows after a selection changed something the
-// user had chosen elsewhere. nullptr when the selection changed nothing but the
-// picture. Criterion: a settings change the user did not ask for is never
-// silent.
-const char* takeoverNote(const SleepChoice& choice);
+// The strip's line after a selection: what the tap changed, PLUS any standing
+// caveat that still applies. One line has to carry both, and the first version
+// of this could not -- it returned the "what changed" note and suppressed the
+// caveat behind it for the rest of the app session, which is the shape of
+// card #354 reappearing inside its own fix ("a warning that can vanish").
+//
+// So the return value is not just a string: it declares which facts the
+// sentence covers, and host-tests/wallpapers asserts that coverage EQUALS the
+// facts present for every combination. That is a construction, not a text
+// match: a sentence cannot pass by mentioning the right word (see the
+// "a detector that matches the description" note).
+struct StripLine {
+  const char* text = nullptr;
+  bool saysModeChanged = false;
+  bool saysQuickResumeCleared = false;
+  bool saysCaveat = false;
+};
+StripLine stripLineAfterSelection(const SleepChoice& choice, Reach reach);
 
 enum class Room : uint8_t { Ok, TooFull, Unknown };
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes);

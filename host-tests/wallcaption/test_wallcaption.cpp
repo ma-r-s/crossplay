@@ -346,11 +346,18 @@ int main() {
 
   // 5. The hint strip's sentences, measured in the real face (#354).
   //
-  //    The strip is ONE fixed 30px line drawn at FONT_SLOT_SMALL. fittedTitle
-  //    steps DOWN through the font slots and small is the bottom rung, so the
-  //    only move left to it is an ellipsis -- and a cut sentence in the strip
-  //    that exists to explain why a wallpaper is not showing is worse than no
-  //    sentence at all. Every string that can land there is measured here.
+  //    The strip is ONE fixed line, kHintH tall, and buildGridChrome pins its
+  //    style to FONT_SLOT_SMALL. In the chrome's face set that is the bottom
+  //    rung, so fittedTitle -- which only steps DOWN -- has nothing left and
+  //    its only move is an ellipsis. A cut sentence in the strip that exists to
+  //    explain why a wallpaper is not showing is worse than no sentence at all,
+  //    so every string that can land there is measured here.
+  //
+  //    The pin matters as much as the width. Without it the style carries
+  //    themeTokens().smallText.font, which is FONT_SLOT_BODY -- toybox_20 here,
+  //    whose line box is TALLER than the strip. fittedTitle would then step a
+  //    long sentence down to 14 and leave a short one at 20, so which sentences
+  //    overflowed the strip vertically depended on how long they were.
   //
   //    Measured against the panel inset by the X4 Pro's bezel (T10 R1 B0 L1,
   //    the bezel-insets memory), which is narrower than a bare 480 -- so the
@@ -359,6 +366,18 @@ int main() {
     const ChromeFontTarget chrome;
     const fui::Rect bezelSafe = fui::makeRect(1, 10, 478, 790);
     const int16_t stripWidth = wallpapersui::hintTextWidth(bezelSafe);
+
+    // The strip's line box has to FIT the strip, which is the half a width
+    // measurement cannot see. buildGridChrome pins the style to
+    // FONT_SLOT_SMALL; the two checks below are why, and they are what a
+    // future session deleting that pin has to argue with.
+    check(chrome.lineHeight(fui::FONT_SLOT_SMALL) <= wallpapersui::hintStripHeight(),
+          "the strip's own face does not fit the strip: lineHeight " +
+              std::to_string(chrome.lineHeight(fui::FONT_SLOT_SMALL)) + " in a " +
+              std::to_string(wallpapersui::hintStripHeight()) + "px box");
+    check(chrome.lineHeight(fui::FONT_SLOT_BODY) > wallpapersui::hintStripHeight(),
+          "FONT_SLOT_BODY now fits the strip, so buildGridChrome's pin to the SMALL slot no longer needs to "
+          "be there -- re-read the comment before deleting it");
     fui::TextStyle hintStyle;
     hintStyle.font = fui::FONT_SLOT_SMALL;
     hintStyle.align = fui::TextAlign::Left;
@@ -372,11 +391,13 @@ int main() {
         if (hint != nullptr) lines.emplace_back(hint);
       }
     }
-    // Every takeoverNote sentence, the same way.
+    // Every post-selection sentence, the same way.
     for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
       for (int qr = 0; qr < 2; ++qr) {
-        const char* note = wallpapers::takeoverNote(wallpapers::choiceForSetWallpaper(mode, qr != 0));
-        if (note != nullptr) lines.emplace_back(note);
+        const wallpapers::SleepChoice choice = wallpapers::choiceForSetWallpaper(mode, qr != 0);
+        const wallpapers::StripLine note = wallpapers::stripLineAfterSelection(
+            choice, wallpapers::reachOfPinnedSleep(choice.sleepScreenMode, choice.quickResumeAfterTimeout));
+        if (note.text != nullptr) lines.emplace_back(note.text);
       }
     }
     // And the two the strip already carried, so this check covers the strip

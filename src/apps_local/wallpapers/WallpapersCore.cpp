@@ -158,7 +158,10 @@ const char* sleepScreenModeName(const uint8_t sleepScreenMode) {
     case kSleepCoverCustom:
       return "Cover + Custom";
     case kSleepBlank:
-      return "Blank";
+      // What Settings calls it: SettingsList.h maps BLANK to STR_NONE_OPT.
+      // Naming it "Blank" would send the user hunting for a value the menu
+      // does not have.
+      return "None";
     case kSleepQuickResume:
       return "Quick Resume";
     case kSleepTransparentCustom:
@@ -194,22 +197,15 @@ SleepChoice choiceForSetWallpaper(const uint8_t sleepScreenMode, const bool quic
   return choice;
 }
 
-const char* takeoverNote(const SleepChoice& choice) {
-  // Both settings can move at once, and a note that reported only one of them
-  // would quietly drop the other ("a warning that can vanish"). So all three
-  // branches exist and every one of them is a sentence.
-  //
-  // Terse on purpose. The strip draws in the CHROME face set (toybox_14 in the
-  // small slot, not the captions' toybox_10), which is ~40% wider per character
-  // and leaves 446px for one line. The longer forms measured 504-519px and the
-  // panel cut them mid-word. host-tests/wallcaption measures every one of these
-  // in that face.
-  if (choice.tookOverMode && choice.clearedQuickResume) {
-    return "Now Custom, Quick Resume off.";
-  }
-  if (choice.clearedQuickResume) return "Quick Resume on Timeout turned off.";
-  if (!choice.tookOverMode) return nullptr;
-  switch (choice.previousMode) {
+namespace {
+// The mode-takeover half of the sentence. File-local: it is one branch of
+// stripLineAfterSelection, not an API.
+//
+// Terse on purpose. The strip resolves to toybox_14 (buildGridChrome pins
+// FONT_SLOT_SMALL) and leaves 446px for one line at the X4 Pro's bezel inset;
+// host-tests/wallcaption measures every sentence here against that.
+const char* modeTakeoverNote(const uint8_t previousMode) {
+  switch (previousMode) {
     case kSleepDark:
       return "Was Dark, now Custom.";
     case kSleepLight:
@@ -217,7 +213,7 @@ const char* takeoverNote(const SleepChoice& choice) {
     case kSleepCover:
       return "Was Cover, now Custom.";
     case kSleepBlank:
-      return "Was Blank, now Custom.";
+      return "Was None, now Custom.";
     case kSleepQuickResume:
       return "Was Quick Resume, now Custom.";
     case kSleepTransparentCustom:
@@ -225,6 +221,55 @@ const char* takeoverNote(const SleepChoice& choice) {
     default:
       return nullptr;
   }
+}
+}  // namespace
+
+StripLine stripLineAfterSelection(const SleepChoice& choice, const Reach reach) {
+  StripLine line;
+  const bool caveat = reach != Reach::Always;
+
+  // The four states a tap can leave behind, each with a sentence that names
+  // EVERY fact present. There is no fall-through: a combination with no
+  // sentence would silently drop one of them, which is the defect this shape
+  // exists to make impossible.
+  //
+  // Taking over the mode always ends at CUSTOM, which has no caveat, so
+  // "mode changed" and "caveat" cannot co-occur; the loop in
+  // host-tests/wallpapers is what establishes that rather than this comment.
+  if (choice.tookOverMode) {
+    if (choice.clearedQuickResume) {
+      line.text = "Now Custom, Quick Resume off.";
+      line.saysModeChanged = true;
+      line.saysQuickResumeCleared = true;
+      return line;
+    }
+    line.text = modeTakeoverNote(choice.previousMode);
+    line.saysModeChanged = line.text != nullptr;
+    return line;
+  }
+
+  if (choice.clearedQuickResume) {
+    if (caveat) {
+      // The case the first version lost: the mode was kept because it already
+      // draws the wallpaper (COVER_CUSTOM), the quick-resume flag came off, and
+      // the caveat that a book cover still wins inside a book STILL APPLIES.
+      // Both go in the line.
+      line.text = "Quick Resume off. Book covers win.";
+      line.saysQuickResumeCleared = true;
+      line.saysCaveat = true;
+      return line;
+    }
+    line.text = "Quick Resume on Timeout turned off.";
+    line.saysQuickResumeCleared = true;
+    return line;
+  }
+
+  if (caveat) {
+    line.text = reachHint(reach);
+    line.saysCaveat = line.text != nullptr;
+    return line;
+  }
+  return line;
 }
 
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes) {

@@ -71,7 +71,7 @@ class WallpapersActivity final : public Activity {
   // and the web settings page) while this app is not looking. See #354.
   wallpapers::Reach sleepReach() const;
   bool sleepBlocked() const;
-  std::string currentSleepNote() const;
+  const char* currentSleepNote() const;
   bool setWallpaper(int index);  // copy /wallpapers/<index> -> /sleep.bmp
   int pageCount() const;         // over the whole library
   void clampPage();
@@ -103,12 +103,13 @@ class WallpapersActivity final : public Activity {
   freeink::ui::ActionId noticeActionId_ = 0;
   std::string rightLabel_;
   std::string warning_;
-  // What the last selection changed behind the user's back, if anything: a
-  // sleep-screen mode or the quick-resume-on-timeout flag they had chosen in
-  // Settings. Held until the app is left, so the change is reported rather than
-  // made in silence.
-  std::string takeover_;
-  std::string sleepNote_;  // the hint strip's line, rebuilt every paint
+  // The last selection's outcome, kept so the strip can report what it changed
+  // behind the user's back. The CHOICE, not a rendered sentence: the sentence
+  // also has to carry any standing caveat, and a caveat is only knowable from
+  // SETTINGS at paint time. Holding a string here is what let the first version
+  // suppress a caveat for a whole app session (#354, twice over).
+  bool selectedThisSession_ = false;
+  wallpapers::SleepChoice lastChoice_;
 
   // The current page's thumbnails, one per on-page slot (perPage entries;
   // trailing empty slots have ok = false).

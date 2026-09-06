@@ -149,21 +149,27 @@ struct GridChromeModel {
   const char* rightLabel = nullptr;
   const char* warning = nullptr;  // free-space advisory, null when there is room
   bool hasActive = false;         // false -> draw the "tap one to set it" hint
-  // The sleep-screen note (#354): either the selected wallpaper cannot reach the
-  // glass under the current settings, or the last selection changed a setting
-  // the user had chosen in Settings. Wins the strip -- see buildGridChrome.
+  // The sleep-screen line (#354). Carries every fact that applies at once: what
+  // the last selection changed behind the user's back, AND any standing caveat
+  // about the wallpaper not reaching the glass. Built by
+  // wallpapers::stripLineAfterSelection / reachHint, which are what guarantee
+  // one cannot hide the other. Wins the strip -- see buildGridChrome.
   const char* note = nullptr;
 };
 
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model);
 
-// How wide the hint strip's sentence may be inside a given safe rect. Exposed
-// so the strip's fixed sentences can be MEASURED in the real face
-// (host-tests/wallcaption) rather than assumed to fit: the strip is one fixed
-// line at FONT_SLOT_SMALL, which is the smallest rung fittedTitle has, so its
-// only remaining move is to cut the sentence -- and a cut sentence is the
-// defect the strip exists to avoid.
+// The hint strip's box: how wide a sentence may be inside a given safe rect,
+// and how tall the strip is. Both exposed so host-tests/wallcaption can measure
+// the sentences in the face the strip really resolves rather than assume they
+// fit. Assuming is how the first version of this shipped four sentences the
+// panel cut, plus a rung whose line box was TALLER than the strip.
+//
+// buildGridChrome pins the style to FONT_SLOT_SMALL, so a sentence too wide has
+// nothing left to step down to and is cut with an ellipsis. A cut sentence is
+// the defect the strip exists to avoid.
 int16_t hintTextWidth(const freeink::ui::Rect& safe);
+int16_t hintStripHeight();
 
 // The empty state: no wallpapers on the card at all. Names the gap and how to
 // fill it, so a fresh device does not look broken.

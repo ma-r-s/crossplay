@@ -255,33 +255,14 @@ void testChoiceKeepsWhatItCan() {
   const SleepChoice cover = choiceForSetWallpaper(kSleepCoverCustom, false);
   CHECK(cover.sleepScreenMode == kSleepCoverCustom);
   CHECK(!cover.tookOverMode);
-  CHECK(takeoverNote(cover) == nullptr);
 
   // Already Custom with nothing in the way: nothing changes, nothing is said.
   const SleepChoice plain = choiceForSetWallpaper(kSleepCustom, false);
   CHECK(plain.sleepScreenMode == kSleepCustom);
   CHECK(!plain.tookOverMode);
   CHECK(!plain.clearedQuickResume);
-  CHECK(takeoverNote(plain) == nullptr);
-
-  // Every combination that DOES change a setting the user chose elsewhere has
-  // to hand the picker a sentence. This is criterion 3, stated as a loop rather
-  // than as three examples, so a new mode cannot be added silently.
-  for (uint8_t mode = 0; mode < kSleepModeCount; ++mode) {
-    for (int qr = 0; qr < 2; ++qr) {
-      const SleepChoice choice = choiceForSetWallpaper(mode, qr != 0);
-      const bool changedSomething = choice.tookOverMode || choice.clearedQuickResume;
-      const char* note = takeoverNote(choice);
-      if (changedSomething) {
-        check(note != nullptr && note[0] != '\0', "a selection that changed a Settings choice must say so", __LINE__);
-      } else {
-        check(note == nullptr, "a selection that changed nothing must not invent a notice", __LINE__);
-      }
-      // Whatever it did, it must have preserved the previous mode for the
-      // sentence -- a note that cannot name what it replaced is not a report.
-      check(choice.previousMode == mode, "the choice lost the mode it replaced", __LINE__);
-    }
-  }
+  CHECK(stripLineAfterSelection(plain, reachOfPinnedSleep(plain.sleepScreenMode, plain.quickResumeAfterTimeout)).text ==
+        nullptr);
 
   // Quick Resume as the mode cannot survive: it is the one mode that means "do
   // not show a sleep image at all". So it is replaced, and reported.
@@ -289,20 +270,66 @@ void testChoiceKeepsWhatItCan() {
   CHECK(fromQuickResume.sleepScreenMode == kSleepCustom);
   CHECK(fromQuickResume.tookOverMode);
   CHECK(fromQuickResume.clearedQuickResume);
-  CHECK(takeoverNote(fromQuickResume) != nullptr);
 
-  // Two settings can move at once, and the three cases must be three different
-  // sentences. A note that read the same whether one or both had changed would
-  // be reporting the branch it happened to check first.
-  const SleepChoice both = choiceForSetWallpaper(kSleepDark, true);  // mode + flag
-  const SleepChoice modeOnly = choiceForSetWallpaper(kSleepDark, false);
-  const SleepChoice flagOnly = choiceForSetWallpaper(kSleepCustom, true);
-  CHECK(both.tookOverMode && both.clearedQuickResume);
-  CHECK(modeOnly.tookOverMode && !modeOnly.clearedQuickResume);
-  CHECK(!flagOnly.tookOverMode && flagOnly.clearedQuickResume);
-  CHECK(std::string(takeoverNote(both)) != std::string(takeoverNote(modeOnly)));
-  CHECK(std::string(takeoverNote(both)) != std::string(takeoverNote(flagOnly)));
-  CHECK(std::string(takeoverNote(modeOnly)) != std::string(takeoverNote(flagOnly)));
+  for (uint8_t mode = 0; mode < kSleepModeCount; ++mode) {
+    for (int qr = 0; qr < 2; ++qr) {
+      const SleepChoice choice = choiceForSetWallpaper(mode, qr != 0);
+      check(choice.previousMode == mode, "the choice lost the mode it replaced", __LINE__);
+    }
+  }
+}
+
+// THE COVERAGE PROOF, and the reason StripLine is a struct rather than a
+// string.
+//
+// The first version of this fix returned the "what your tap changed" sentence
+// and fell through to the standing caveat only when there was none. So a user
+// on Cover + Custom with Quick Resume on Timeout who tapped a wallpaper got
+// "Quick Resume on Timeout turned off." -- and the caveat that a book cover
+// still wins inside a book was suppressed for the rest of the app session.
+// That is card #354's own shape (a confident screen, a silent caveat) recurring
+// inside its fix, and it is "a warning that can vanish".
+//
+// So the assertion is not that a sentence exists, and not that it CONTAINS some
+// word -- a text check is satisfied by a mention (see "a detector that matches
+// the description"). It is that the facts the line declares it covers are
+// exactly the facts present, for every reachable combination.
+void testStripLineCoversEveryFact() {
+  using namespace wallpapers;
+
+  int withCaveat = 0;
+  int withBoth = 0;
+  for (uint8_t mode = 0; mode < kSleepModeCount; ++mode) {
+    for (int qr = 0; qr < 2; ++qr) {
+      const SleepChoice choice = choiceForSetWallpaper(mode, qr != 0);
+      const Reach reach = reachOfPinnedSleep(choice.sleepScreenMode, choice.quickResumeAfterTimeout);
+      const StripLine line = stripLineAfterSelection(choice, reach);
+      const bool caveat = reach != Reach::Always;
+      const std::string at = " (mode " + std::to_string(static_cast<int>(mode)) + ", qr " + std::to_string(qr) + ")";
+
+      check(line.saysModeChanged == choice.tookOverMode, ("the line does not report the mode takeover" + at).c_str(),
+            __LINE__);
+      check(line.saysQuickResumeCleared == choice.clearedQuickResume,
+            ("the line does not report quick resume being cleared" + at).c_str(), __LINE__);
+      check(line.saysCaveat == caveat, ("the line drops a standing caveat" + at).c_str(), __LINE__);
+
+      const bool anything = choice.tookOverMode || choice.clearedQuickResume || caveat;
+      check((line.text != nullptr && line.text[0] != '\0') == anything,
+            ("a line that has something to say must say it, and one that has nothing must stay quiet" + at).c_str(),
+            __LINE__);
+      if (caveat) ++withCaveat;
+      if (caveat && choice.clearedQuickResume) ++withBoth;
+    }
+  }
+  // The loop must actually REACH the case that was broken, or it proves
+  // nothing: a caveat surviving a selection, and one doing so alongside a
+  // cleared quick-resume flag ("a test not seen fail").
+  CHECK(withCaveat > 0);
+  CHECK(withBoth > 0);
+
+  // And with no selection at all the strip still carries the caveat.
+  CHECK(reachHint(reachOfPinnedSleep(kSleepCoverCustom, false)) != nullptr);
+  CHECK(reachHint(reachOfPinnedSleep(kSleepCustom, false)) == nullptr);
 }
 
 }  // namespace
@@ -315,6 +342,7 @@ int main() {
   testReach();
   testChoiceReachesTheGlassOnTimeout();
   testChoiceKeepsWhatItCan();
+  testStripLineCoversEveryFact();
 
   // Uploads first, then built-ins, each alphabetical. Mario's ask, and the
   // ordering the picker's captions are indexed by -- get it wrong and every

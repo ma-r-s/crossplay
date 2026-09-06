@@ -140,7 +140,7 @@ void WallpapersActivity::onEnter() {
   // before-block work, so the screen is painted first and the walk happens
   // after, in loop(), with content already on the glass.
   warning_.clear();
-  takeover_.clear();
+  selectedThisSession_ = false;
   warningPending_ = true;
   LOG_INF("WALL", "onEnter %ums: fonts=%u sweep=%u scan=%u active=%u (free-space deferred)", tActive - tEnter,
           tFonts - tEnter, tSweep - tFonts, tScan - tSweep, tActive - tScan);
@@ -218,16 +218,17 @@ bool WallpapersActivity::sleepBlocked() const {
   return reach == wallpapers::Reach::BlockedByMode || reach == wallpapers::Reach::BlockedByQuickResume;
 }
 
-std::string WallpapersActivity::currentSleepNote() const {
-  // What a selection changed comes first: it reports something that has already
-  // happened to the device, and the user did not ask for it.
-  if (!takeover_.empty()) return takeover_;
-  // Otherwise, only when there is a marker to contradict. With nothing pinned
-  // the strip already carries "Tap one to set your sleep screen.", and telling
-  // someone their non-existent wallpaper is blocked would be noise.
-  if (activeIndex_ < 0) return std::string();
-  const char* hint = wallpapers::reachHint(sleepReach());
-  return hint == nullptr ? std::string() : std::string(hint);
+const char* WallpapersActivity::currentSleepNote() const {
+  // Nothing pinned: the strip already carries "Tap one to set your sleep
+  // screen.", and telling someone their non-existent wallpaper is blocked
+  // would be noise.
+  if (activeIndex_ < 0) return nullptr;
+  const wallpapers::Reach reach = sleepReach();
+  // After a selection the line must carry BOTH what the tap changed and any
+  // caveat that still applies -- one cannot be allowed to hide the other, which
+  // is what stripLineAfterSelection exists to guarantee.
+  if (selectedThisSession_) return wallpapers::stripLineAfterSelection(lastChoice_, reach).text;
+  return wallpapers::reachHint(reach);
 }
 
 void WallpapersActivity::computeWarning() {
@@ -238,10 +239,11 @@ void WallpapersActivity::computeWarning() {
     case wallpapers::Room::Ok:
       break;
     case wallpapers::Room::TooFull:
-      // Short enough to survive the 30px hint strip in the real face. The
-      // longer form ("... New wallpapers or books may not save.") measured
-      // 498px in a 446px strip and was cut mid-phrase on the device -- found by
-      // measuring rather than by looking, see host-tests/wallcaption.
+      // Short enough to survive the hint strip. The longer form
+      // ("... New wallpapers or books may not save.") did not: it overflowed
+      // the 446px line in the face the strip resolves and was cut mid-phrase.
+      // host-tests/wallcaption measures this string with the rest of them --
+      // found by measuring rather than by looking.
       warning_ = "Card is low on space. Saves may fail.";
       break;
     case wallpapers::Room::Unknown:
@@ -353,8 +355,8 @@ bool WallpapersActivity::setWallpaper(int index) {
                                         ? CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT
                                         : CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_NEVER;
   SETTINGS.saveToFile();
-  const char* note = wallpapers::takeoverNote(choice);
-  takeover_ = note == nullptr ? std::string() : std::string(note);
+  lastChoice_ = choice;
+  selectedThisSession_ = true;
   if (choice.tookOverMode || choice.clearedQuickResume) {
     LOG_INF("WALL", "sleep settings changed by a selection: mode %s -> %s, quick resume on timeout %d -> %d",
             wallpapers::sleepScreenModeName(choice.previousMode),
@@ -1156,7 +1158,24 @@ void WallpapersActivity::loop() {
   // exactly what a person does after nothing happened, and it now repairs the
   // settings instead of being swallowed (#354).
   if (idx == activeIndex_ && !sleepBlocked()) return;
-  if (setWallpaper(idx)) requestUpdate();
+  if (setWallpaper(idx)) {
+    requestUpdate();
+    return;
+  }
+  // A failed pin used to do NOTHING: no notice, no repaint, nothing on the
+  // panel at all, while the reasons (card full, unreadable file, a card that
+  // refused the rename) went only to the log. setWallpaper leaves /sleep.bmp
+  // untouched on every one of those paths, so the honest report is that the
+  // sleep screen did not change.
+  //
+  // The free-space walk is re-armed rather than run here: it can take seconds
+  // on a large card and this is the input path (rendering-is-notification-
+  // driven). loop() runs it after the notice is on the glass.
+  warningPending_ = true;
+  showNotice("COULD NOT SET IT",
+             "The wallpaper was not saved and your sleep screen is unchanged. The card may be full, or the file may be "
+             "damaged.",
+             "OK", wallpapersui::ActionDismiss);
 }
 
 void WallpapersActivity::render(RenderLock&&) {
@@ -1213,16 +1232,15 @@ void WallpapersActivity::render(RenderLock&&) {
       snprintf(label, sizeof(label), "%d SAVED", static_cast<int>(names_.size()));
       rightLabel_ = label;
     }
-    sleepNote_ = currentSleepNote();
     wallpapersui::GridChromeModel model;
     model.rightLabel = rightLabel_.c_str();
     model.warning = warning_.empty() ? nullptr : warning_.c_str();
     model.hasActive = activeIndex_ >= 0;
-    // Read from SETTINGS at paint time, not remembered from the selection: the
-    // user can leave for Settings, turn quick resume back on and come back, and
-    // the marker would otherwise go on claiming a wallpaper that no longer
-    // shows.
-    model.note = sleepNote_.empty() ? nullptr : sleepNote_.c_str();
+    // Rebuilt from SETTINGS every paint rather than cached at selection time.
+    // The reach half is only knowable from the live settings, and the pointer
+    // is always a string literal out of WallpapersCore, so nothing here
+    // outlives the paint or allocates on it.
+    model.note = currentSleepNote();
     wallpapersui::buildGridChrome(surface, model);
 
     // The chrome is a screen tree; the grid is the app's own surface, drawn
