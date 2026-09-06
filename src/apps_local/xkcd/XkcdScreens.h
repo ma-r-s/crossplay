@@ -81,11 +81,6 @@ struct MenuModel {
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
 
-// The header band. Named here rather than assumed twice: the builder draws the
-// rule under it and the Activity overrides the theme with it, and when those
-// two disagreed the rule floated twenty pixels below the band.
-inline constexpr int16_t kHeaderBand = toybox::kHeaderHeight;
-
 // The band the mosaic is drawn into, shared with the Activity the way
 // Connections shares its grid band. See docs/design-language.md on ornament:
 // it has to be made of the app's own material and carry the app's own data.

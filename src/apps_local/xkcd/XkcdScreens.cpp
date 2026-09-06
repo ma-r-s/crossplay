@@ -27,9 +27,9 @@ constexpr int16_t kOkWidth = 56;
 // shelf the reader just came from -- which, until card 358, they did not.
 //
 // Two faults, both closed here. The row is measured from the whole chrome (band
-// + gap + rule), which is what toybox::kBodyTop derives from chromeBelow();
-// kHeaderBand is the BAND's height, which is what the theme token wants and not
-// what a body top wants. And every site below used to add safe.y to it as well,
+// + gap + rule), which is what toybox::kBodyTop derives from chromeBelow(),
+// and NOT the band's height on its own, which is a different number and the
+// one this used to use. And every site below used to add safe.y to it as well,
 // which put the whole app ten pixels under the rest of the fork: the chrome is
 // pinned at panel row 0 by absoluteChrome, so it already covers the rows the
 // glass hides. toybox::kBodyTop carries the argument in full.

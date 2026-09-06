@@ -572,9 +572,9 @@ void xkcdReaderBar() {
     // an 800px landscape context -- the obvious guess -- makes the bar 320px
     // wider than it is and hides all but eight of the titles it cuts.
     toybox::Frame frame(paint.target, panel(), fui::InputSnapshot{}, paint.interactions);
-    fui::ThemeTokens tokens = toybox::themeTokens();
-    tokens.headerHeight = xkcdui::kHeaderBand;
-    toybox::Screen screen(frame, tokens);
+    // The shared palette, which is what XkcdActivity::render takes: its old
+    // headerHeight override was assigning the default over itself.
+    toybox::Screen screen(frame);
     xkcdui::ReaderModel model;
     model.num = static_cast<uint32_t>(i + 1);
     model.title = fitted::kXkcdTitles[i];
