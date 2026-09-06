@@ -111,12 +111,20 @@ bool sortsBefore(std::string_view a, std::string_view b);
 // already-set one: holding the wallpaper you are already using is how you reach
 // its preview and its delete, and returning None there would make the sheet
 // unreachable for exactly one wallpaper -- the one most likely to be held.
+//
+// `sleepBlocked` is card #354's rule, folded in here rather than left as an
+// early return beside this call, because the two would otherwise compete for
+// the same tap. "Already the sleep screen" is a reason to do NOTHING only when
+// it can actually BE the sleep screen; when the settings block it, tapping the
+// marked wallpaper again is what a person does after nothing happened, and it
+// must re-pin and repair the settings. Holding it still opens the sheet, which
+// is the ordering the two cards together require.
 enum class CellAction : uint8_t {
   None,   // nothing to do (a plain tap on the wallpaper already in use)
   Set,    // pin it as the sleep screen
   Sheet,  // open the hold sheet for it
 };
-CellAction cellAction(bool heldLong, int index, int activeIndex);
+CellAction cellAction(bool heldLong, int index, int activeIndex, bool sleepBlocked);
 
 // What the delete confirm has to say, before it is asked. Two clauses, each
 // conditional, and a caveat assembled per render is a caveat that can silently
@@ -133,6 +141,111 @@ CellAction cellAction(bool heldLong, int index, int activeIndex);
 // confirm that let the user believe it did would be wrong in the direction that
 // makes them delete twice.
 std::string deleteConsequence(bool builtIn, bool isActive);
+
+// ---------------------------------------------------------------------------
+// Does the pinned wallpaper actually reach the glass?
+//
+// Card #354: the picker marked a wallpaper with full confidence and the device
+// then slept showing something else, with nothing on any screen saying why.
+// Setting a wallpaper writes /sleep.bmp, but TWO settings decide whether
+// SleepActivity ever draws that file, and neither of them lives in this app.
+// The rules are mirrored here, freestanding, so a laptop can prove them and so
+// the picker can say a true sentence instead of drawing a confident marker.
+//
+// The mirror is exact. SleepActivity::onEnter (src/activities/boot_sleep/,
+// UPSTREAM -- not ours to change) decides in this order:
+//
+//   1. quick resume wins outright, either because the mode IS Quick Resume or
+//      because this is a timeout sleep and the timeout flag is on;
+//   2. TRANSPARENT_CUSTOM draws /sleep-overlay.*, never /sleep.bmp;
+//   3. CUSTOM draws /sleep.bmp;
+//   4. COVER_CUSTOM draws /sleep.bmp only when the sleep did not come from the
+//      reader (inside a book the cover wins);
+//   5. DARK, LIGHT, COVER and BLANK never look at it.
+//
+// The eight modes, mirrored from CrossPointSettings::SLEEP_SCREEN_MODE. That
+// header pulls in ArduinoJson and the whole persistence layer, so it cannot be
+// included on a host; WallpapersActivity.cpp static_asserts every value below
+// against the real enum, which is what stops the two from drifting.
+enum SleepScreenMode : uint8_t {
+  kSleepDark = 0,
+  kSleepLight = 1,
+  kSleepCustom = 2,
+  kSleepCover = 3,
+  kSleepCoverCustom = 4,
+  kSleepBlank = 5,
+  kSleepQuickResume = 6,
+  kSleepTransparentCustom = 7,
+  kSleepModeCount = 8,
+};
+
+// True when SleepActivity would draw /sleep.bmp for this combination.
+// `fromTimeout` is the idle auto-sleep (main.cpp's enterDeepSleep(true)) -- the
+// ordinary way this device sleeps; the power-button hold and the Paper Mono
+// short press both pass false. `fromReader` is APP_STATE.lastSleepFromReader.
+//
+// COVER_CUSTOM with fromReader returns false, which is the CONSERVATIVE answer
+// rather than the complete one: upstream falls back to the wallpaper when the
+// book has no usable cover, and this app must not promise a picture on a path
+// whose outcome depends on a cover it cannot inspect.
+bool drawsPinnedSleep(uint8_t sleepScreenMode, bool quickResumeAfterTimeout, bool fromTimeout, bool fromReader);
+
+// What the picker has to tell the user, derived from the predicate above rather
+// than restated -- a second copy of the rules is a second place to be wrong.
+enum class Reach : uint8_t {
+  Always,                // every sleep shows it
+  OutsideReaderOnly,     // COVER_CUSTOM: the book cover wins when you sleep in a book
+  BlockedByQuickResume,  // the mode is right, but quick resume beats it on idle sleep
+  BlockedByMode,         // the sleep screen is set to something that never reads /sleep.bmp
+};
+Reach reachOfPinnedSleep(uint8_t sleepScreenMode, bool quickResumeAfterTimeout);
+
+// The sentence for the picker's hint strip when NOTHING was selected this
+// session, or nullptr when there is nothing to say. Short on purpose: the strip
+// is one fixed 30px line and a cut sentence is the defect it exists to avoid
+// (host-tests/wallcaption measures these in the face the strip resolves).
+const char* reachHint(Reach reach);
+
+// The mode's name in a sentence, for saying what a selection replaced.
+const char* sleepScreenModeName(uint8_t sleepScreenMode);
+
+// What tapping a wallpaper must leave the two settings at.
+//
+// The rule the app had before #354 kept the timeout quick-resume flag ON so
+// wake would stay fast, and traded away the timeout sleep to get it -- which is
+// every ordinary sleep, so the wallpaper the user had just chosen was the one
+// thing it could never show. A picker whose whole purpose is "put this picture
+// on the sleep screen" does not get to lose that argument to a wake time.
+//
+// A mode that ALREADY draws /sleep.bmp is left alone, so a deliberate
+// COVER_CUSTOM survives being handed a new wallpaper.
+struct SleepChoice {
+  uint8_t sleepScreenMode = kSleepCustom;
+  bool quickResumeAfterTimeout = false;
+  bool tookOverMode = false;        // a deliberate mode choice was replaced
+  bool clearedQuickResume = false;  // quick wake on idle sleep was turned off
+  uint8_t previousMode = kSleepCustom;
+};
+SleepChoice choiceForSetWallpaper(uint8_t sleepScreenMode, bool quickResumeAfterTimeout);
+
+// The strip's line after a selection: what the tap changed, PLUS any standing
+// caveat that still applies. One line has to carry both, and the first version
+// of this could not -- it returned the "what changed" note and suppressed the
+// caveat behind it for the rest of the app session, which is the shape of
+// card #354 reappearing inside its own fix ("a warning that can vanish").
+//
+// So the return value is not just a string: it declares which facts the
+// sentence covers, and host-tests/wallpapers asserts that coverage EQUALS the
+// facts present for every combination. That is a construction, not a text
+// match: a sentence cannot pass by mentioning the right word (see the
+// "a detector that matches the description" note).
+struct StripLine {
+  const char* text = nullptr;
+  bool saysModeChanged = false;
+  bool saysQuickResumeCleared = false;
+  bool saysCaveat = false;
+};
+StripLine stripLineAfterSelection(const SleepChoice& choice, Reach reach);
 
 enum class Room : uint8_t { Ok, TooFull, Unknown };
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes);

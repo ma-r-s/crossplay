@@ -28,6 +28,24 @@
 namespace fui = freeink::ui;
 
 namespace {
+// WallpapersCore mirrors CrossPointSettings::SLEEP_SCREEN_MODE so the sleep-
+// reachability rules are freestanding and host-testable. This is the seam where
+// the mirror is checked: a value that moves upstream fails the build here
+// rather than silently teaching the picker to say the wrong sentence.
+static_assert(wallpapers::kSleepDark == CrossPointSettings::SLEEP_SCREEN_MODE::DARK, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepLight == CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepCustom == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepCover == CrossPointSettings::SLEEP_SCREEN_MODE::COVER, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepCoverCustom == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM,
+              "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepBlank == CrossPointSettings::SLEEP_SCREEN_MODE::BLANK, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepQuickResume == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME,
+              "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepTransparentCustom == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM,
+              "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepModeCount == CrossPointSettings::SLEEP_SCREEN_MODE::SLEEP_SCREEN_MODE_COUNT,
+              "a sleep screen mode was added upstream; WallpapersCore's mirror and its rules must be updated");
+
 constexpr int kMaxLibrary = 256;
 constexpr size_t kNameMax = 128;
 constexpr size_t kCopyChunk = 4096;
@@ -127,6 +145,7 @@ void WallpapersActivity::onEnter() {
   // before-block work, so the screen is painted first and the walk happens
   // after, in loop(), with content already on the glass.
   warning_.clear();
+  selectedThisSession_ = false;
   warningPending_ = true;
   LOG_INF("WALL", "onEnter %ums: fonts=%u sweep=%u scan=%u active=%u (free-space deferred)", tActive - tEnter,
           tFonts - tEnter, tSweep - tFonts, tScan - tSweep, tActive - tScan);
@@ -170,7 +189,12 @@ void WallpapersActivity::scanLibrary() {
 
 void WallpapersActivity::loadActive() {
   activeIndex_ = -1;
-  if (SETTINGS.sleepScreen != CrossPointSettings::CUSTOM) return;
+  // Deliberately NOT gated on sleepScreen == CUSTOM any more (#354). That gate
+  // was wrong in both directions: it hid the marker under COVER_CUSTOM, where
+  // the wallpaper genuinely does show, and it drew the marker at full
+  // confidence under CUSTOM-plus-quick-resume, where it never does. What is
+  // pinned is a fact about the card; whether it reaches the glass is a fact
+  // about two settings, and the hint strip says that in words instead.
   if (!Storage.exists(wallpapers::kPinnedSleep)) return;
   char marker[kNameMax] = {};
   if (Storage.readFileToBuffer(wallpapers::kActiveMarker, marker, sizeof(marker)) == 0) return;
@@ -188,6 +212,30 @@ void WallpapersActivity::loadActive() {
   }
 }
 
+wallpapers::Reach WallpapersActivity::sleepReach() const {
+  const bool quickResumeOnTimeout =
+      SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT;
+  return wallpapers::reachOfPinnedSleep(SETTINGS.sleepScreen, quickResumeOnTimeout);
+}
+
+bool WallpapersActivity::sleepBlocked() const {
+  const wallpapers::Reach reach = sleepReach();
+  return reach == wallpapers::Reach::BlockedByMode || reach == wallpapers::Reach::BlockedByQuickResume;
+}
+
+const char* WallpapersActivity::currentSleepNote() const {
+  // Nothing pinned: the strip already carries "Tap one to set your sleep
+  // screen.", and telling someone their non-existent wallpaper is blocked
+  // would be noise.
+  if (activeIndex_ < 0) return nullptr;
+  const wallpapers::Reach reach = sleepReach();
+  // After a selection the line must carry BOTH what the tap changed and any
+  // caveat that still applies -- one cannot be allowed to hide the other, which
+  // is what stripLineAfterSelection exists to guarantee.
+  if (selectedThisSession_) return wallpapers::stripLineAfterSelection(lastChoice_, reach).text;
+  return wallpapers::reachHint(reach);
+}
+
 void WallpapersActivity::computeWarning() {
   warning_.clear();
   uint64_t free = 0;
@@ -196,7 +244,12 @@ void WallpapersActivity::computeWarning() {
     case wallpapers::Room::Ok:
       break;
     case wallpapers::Room::TooFull:
-      warning_ = "Card is low on space. New wallpapers or books may not save.";
+      // Short enough to survive the hint strip. The longer form
+      // ("... New wallpapers or books may not save.") did not: it overflowed
+      // the 446px line in the face the strip resolves and was cut mid-phrase.
+      // host-tests/wallcaption measures this string with the rest of them --
+      // found by measuring rather than by looking.
+      warning_ = "Card is low on space. Saves may fail.";
       break;
     case wallpapers::Room::Unknown:
       warning_ = "Could not check card space.";
@@ -296,30 +349,31 @@ bool WallpapersActivity::setWallpaper(int index) {
     return false;
   }
 
-  // Taking a QUICK_RESUME user off that mode is the ONE thing this app does
-  // that changes the whole device rather than its own screen, and it is the only
-  // wallpaper code anywhere near the boot path -- nothing of ours executes at
-  // wake at all.
+  // The two settings that decide whether /sleep.bmp is ever drawn, set together
+  // (#354). Keeping the timeout quick-resume flag ON used to be this app's way
+  // of not making wake slower, and the price was the whole feature: while that
+  // flag is on, the IDLE sleep -- the ordinary one -- short-circuits above the
+  // sleep-screen switch and no wallpaper can appear. The user tapped a picture;
+  // the picture wins, and the picker says what that cost.
   //
-  // main.cpp::enterDeepSleep saves a retained frame ONLY when the sleep is a
-  // quick-resume sleep, and the wake branch that restores it is also the branch
-  // that draws the LoadingIcon. Flipping the mode to CUSTOM therefore cost two
-  // things at once: the fast frame restore, and the only sign of life the user
-  // gets while the device boots (wake is a chip reset). A decorative feature
-  // must not buy itself a slower wake for the whole device.
-  //
-  // quickResumeSleepScreen is left ON so timeout sleeps -- the common case, and
-  // the one Mario was waiting on -- keep the fast path and the icon. The
-  // combination is supported: SettingsActivity::syncQuickResumeTimeoutForSleepScreen
-  // preserves an explicitly-enabled timeout flag across a sleep-screen change.
-  // The trade is that the wallpaper then shows on manual sleeps rather than on
-  // timeout ones.
-  if (SETTINGS.sleepScreen == CrossPointSettings::QUICK_RESUME) {
-    SETTINGS.quickResumeSleepScreen = CrossPointSettings::QUICK_RESUME_AFTER_TIMEOUT;
-    LOG_INF("WALL", "was QUICK_RESUME; keeping quick wake on timeout sleeps so wake does not get slower");
-  }
-  SETTINGS.sleepScreen = CrossPointSettings::CUSTOM;
+  // The rule and its consequences are proved in host-tests/wallpapers, which is
+  // where they can be walked over all eight modes rather than reasoned about.
+  const bool quickResumeOnTimeout =
+      SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT;
+  const wallpapers::SleepChoice choice = wallpapers::choiceForSetWallpaper(SETTINGS.sleepScreen, quickResumeOnTimeout);
+  SETTINGS.sleepScreen = choice.sleepScreenMode;
+  SETTINGS.quickResumeSleepScreen = choice.quickResumeAfterTimeout
+                                        ? CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT
+                                        : CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_NEVER;
   SETTINGS.saveToFile();
+  lastChoice_ = choice;
+  selectedThisSession_ = true;
+  if (choice.tookOverMode || choice.clearedQuickResume) {
+    LOG_INF("WALL", "sleep settings changed by a selection: mode %s -> %s, quick resume on timeout %d -> %d",
+            wallpapers::sleepScreenModeName(choice.previousMode),
+            wallpapers::sleepScreenModeName(choice.sleepScreenMode), quickResumeOnTimeout ? 1 : 0,
+            choice.quickResumeAfterTimeout ? 1 : 0);
+  }
 
   HalFile marker;
   if (Storage.openFileForWrite("WALL", wallpapers::kActiveMarker, marker)) {
@@ -1520,22 +1574,50 @@ void WallpapersActivity::loop() {
     return;
   }
   const int idx = combined - specials;
-  // A hold the SDK's classifier missed arrives here as an ordinary tap --
-  // wasTouchTap has no duration gate -- and a tap on this grid SETS the sleep
-  // screen with no confirmation. tapWasHeldLong() is the only thing that tells
-  // the two apart, and the decision itself lives in WallpapersCore so it can be
-  // asserted: the simulator never compiles lib/hal or runs InputManager, so
-  // host-tests/wallpapers is the only place this is provable at all.
-  switch (wallpapers::cellAction(held, idx, activeIndex_)) {
+  // THREE RULES MEET HERE, from two cards, and the order is the whole point.
+  // They compose; neither side is dropped.
+  //
+  // 1. #365: a hold the SDK's classifier missed arrives as an ORDINARY TAP --
+  //    wasTouchTap has no duration gate -- and a tap on this grid sets the
+  //    sleep screen. tapWasHeldLong() is the only discriminator and it must be
+  //    asked before any branch that can act.
+  // 2. #354: "already the sleep screen" is only a reason to do nothing when it
+  //    can actually BE the sleep screen. When the settings block it, tapping
+  //    the marked wallpaper again is exactly what a person does after nothing
+  //    happened, and it must repair the settings rather than be swallowed.
+  // 3. #354: a failed pin says so, instead of doing nothing at all.
+  //
+  // 1 and 2 would compete if either were expressed as "return early". They are
+  // both in cellAction instead, which takes the blocked flag: a HOLD on a
+  // blocked-and-marked wallpaper still opens the sheet, and a TAP on it still
+  // repairs the settings.
+  switch (wallpapers::cellAction(held, idx, activeIndex_, sleepBlocked())) {
     case wallpapers::CellAction::Sheet:
       openSheet(idx);
       return;
-    case wallpapers::CellAction::Set:
-      if (setWallpaper(idx)) requestUpdate();
-      return;
     case wallpapers::CellAction::None:
       return;
+    case wallpapers::CellAction::Set:
+      break;
   }
+  if (setWallpaper(idx)) {
+    requestUpdate();
+    return;
+  }
+  // A failed pin used to do NOTHING: no notice, no repaint, nothing on the
+  // panel at all, while the reasons (card full, unreadable file, a card that
+  // refused the rename) went only to the log. setWallpaper leaves /sleep.bmp
+  // untouched on every one of those paths, so the honest report is that the
+  // sleep screen did not change.
+  //
+  // The free-space walk is re-armed rather than run here: it can take seconds
+  // on a large card and this is the input path (rendering-is-notification-
+  // driven). loop() runs it after the notice is on the glass.
+  warningPending_ = true;
+  showNotice("COULD NOT SET IT",
+             "The wallpaper was not saved and your sleep screen is unchanged. The card may be full, or the file may be "
+             "damaged.",
+             "OK", wallpapersui::ActionDismiss);
 }
 
 void WallpapersActivity::render(RenderLock&&) {
@@ -1638,6 +1720,11 @@ void WallpapersActivity::render(RenderLock&&) {
     model.rightLabel = rightLabel_.c_str();
     model.warning = warning_.empty() ? nullptr : warning_.c_str();
     model.hasActive = activeIndex_ >= 0;
+    // Rebuilt from SETTINGS every paint rather than cached at selection time.
+    // The reach half is only knowable from the live settings, and the pointer
+    // is always a string literal out of WallpapersCore, so nothing here
+    // outlives the paint or allocates on it.
+    model.note = currentSleepNote();
     wallpapersui::buildGridChrome(surface, model);
 
     // The chrome is a screen tree; the grid is the app's own surface, drawn

@@ -140,6 +140,30 @@ die() {  # message...
 }
 TREE_STALE=""
 
+# --- one gate per tree begin ---
+# Two gates on one tree verify nothing. Two sessions once shared wt/gcclist
+# for an hour and two --committed runs (pids 61511 and 44575) were live
+# against it at once, each verifying a tree the other was still changing;
+# neither said so, and any verdict from that window was meaningless
+# (2026-09-05). One run per tree at a time: a pid file, refused while its
+# holder is a living check.sh, taken over when it is not. The --committed
+# trial run is the outer run's own (CHECK_OUTER_LOGS is set) and is not a
+# second gate. Later `trap ... EXIT` lines in this file replace the cleanup,
+# so a finished run may leave its pid behind; a dead or reused pid that is
+# not a check.sh is taken over, never refused.
+RUNLOCK="${TMPDIR:-/tmp}/xteink-check-$TAG.running"
+if [ -z "${CHECK_OUTER_LOGS:-}" ]; then
+  holder="$(cat "$RUNLOCK" 2>/dev/null || true)"
+  if [ -n "$holder" ] && [ "$holder" != "$$" ] && kill -0 "$holder" 2>/dev/null \
+     && ps -o command= -p "$holder" 2>/dev/null | grep -q 'check\.sh'; then
+    die "another check.sh (pid $holder) is already verifying this tree; two gates on one tree verify nothing." \
+        " Wait for it (ps -p $holder -o etime,command), and if that run is not yours, the tree is not either."
+  fi
+  echo "$$" > "$RUNLOCK"
+  trap 'rm -f "$RUNLOCK"' EXIT
+fi
+# --- one gate per tree end ---
+
 # --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
 # freeink-sdk, which is untracked content in a submodule and not your work.
 dirty_count() {

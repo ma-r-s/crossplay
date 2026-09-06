@@ -44,8 +44,12 @@ files, and the app's first run offers to download them itself -- GET THE
 COMICS, one confirm, a few minutes on WiFi. The files land as `.part` names
 and are renamed only when all three are complete, so a torn download leaves
 the card exactly as it was. After that, UPDATE fetches anything newer than
-the pack on-device, so the hosted pack only needs replacing when the gap
-grows large enough to be worth the refresh: build with
+the pack on-device, one comic at a time, naming each one on the panel as it
+goes and stopping on Back; whatever arrived is kept, and the header's
+"highest comic number present" is the last one that really did, so the next
+UPDATE resumes from there rather than believing the gap was filled. The
+hosted pack only needs replacing when the gap grows large enough to be worth
+the refresh: build with
 `tools_local/xkcd/build_pack.py`, upload with `gh release upload xkcd-pack
 --clobber`, and never attach `read.bin` (it is a reader's personal state).
 
@@ -146,11 +150,11 @@ settles that first. The device offers `SHORT = 480` and `LONG = 756`, and
 turning it swaps which one runs across. Each of `W` and `H` therefore lands in
 one of three bands, so there are **nine cases and no others**:
 
-|                  | W &le; 480          | 480 &lt; W &le; 756  | W &gt; 756           |
-| ---------------- | ------------------- | -------------------- | -------------------- |
-| **H &le; 480**   | portrait, whole     | turned, whole        | **turned, across**   |
-| **480 &lt; H &le; 756** | portrait, whole | portrait, across | portrait, across     |
-| **H &gt; 756**   | portrait, down      | **turned, down**     | fewest taps, both    |
+|                         | W &le; 480      | 480 &lt; W &le; 756 | W &gt; 756         |
+| ----------------------- | --------------- | ------------------- | ------------------ |
+| **H &le; 480**          | portrait, whole | turned, whole       | **turned, across** |
+| **480 &lt; H &le; 756** | portrait, whole | portrait, across    | portrait, across   |
+| **H &gt; 756**          | portrait, down  | **turned, down**    | fewest taps, both  |
 
 Read one out loud: bottom-left is a comic narrow enough for the short side but
 too tall for the long one, so it goes portrait and pans down only. Top-right is
@@ -161,7 +165,7 @@ Three rules produce that table:
 
 1. **Fewest panning axes wins.** `portrait axes = (W > 480) + (H > 756)`,
    `turned axes = (W > 756) + (H > 480)`. Six of the nine cells end here.
-2. **On a tie where the same axis pans either way, the axis that does *not* pan
+2. **On a tie where the same axis pans either way, the axis that does _not_ pan
    goes on the smallest side that contains it.** That leaves the longer side for
    the one that does, so it reads in fewer taps and wastes no space. Deciding
    this by counting taps instead ties far too often: 334 wide-and-short comics
@@ -177,7 +181,7 @@ archive from 68% to **85% needing no panning at all**, and cuts two-axis comics
 to 2.8%.
 
 **Rotation** is what the table calls "turned": the comic is stored a quarter
-turn, and the reader turns the *device*. The panel itself never rotates, so the
+turn, and the reader turns the _device_. The panel itself never rotates, so the
 bar and the controls never move. `--rotate-cw` flips which way; that is a
 rebuild, not a code change.
 
@@ -187,7 +191,7 @@ COLUMN_OVERLAP`, so every column reveals a full 432px and the last ends flush.
 The snap has one invariant and it has been broken three times: **it never
 increases the number of panning axes.** `N = 1` is a legal answer, and forcing
 a minimum of two blew a comic that came out 481px wide up to 912, where it
-started panning (2.8% -> 8.9%). Snapping also moves the *scale*, so it moves
+started panning (2.8% -> 8.9%). Snapping also moves the _scale_, so it moves
 the height, which pushed across-only comics past the viewport (8.9% -> 6.6%).
 And rounding can put a fitting width one pixel over, after which the snap sent
 pan-down-only comics to the next grid stop (6.6% -> 4.1%).
@@ -251,7 +255,6 @@ Add `--closer` to render the second rendition instead. Red lines are where the
 reader stops; what you are checking is that none of them cuts through a line of
 lettering.
 
-
 ## How the reader walks a comic
 
 Two rules, both of which came from Mario looking at the result rather than the
@@ -266,7 +269,7 @@ the last exactly flush with the bottom. Gap snapping still nudges the interior
 panels onto a gutter, but never the two ends and never past a fifth of a
 screen, so the steps stay visibly equal.
 
-A useful side effect: a position is now a *panel index* rather than a pixel
+A useful side effect: a position is now a _panel index_ rather than a pixel
 offset, and the offset is a pure function of it. Stepping forward and back is
 therefore an exact inverse, where before each snap re-derived itself from
 wherever the reader happened to be and the position drifted.

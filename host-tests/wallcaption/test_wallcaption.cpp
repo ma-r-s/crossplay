@@ -25,6 +25,7 @@
 
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/fonts/toybox_10.h"
+#include "../../src/apps_local/ui/fonts/toybox_14.h"
 #include "../../src/apps_local/ui/fonts/toybox_20.h"
 #include "../../src/apps_local/ui/fonts/toybox_30.h"
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
@@ -47,9 +48,11 @@ void check(const bool ok, const std::string& what) {
 // The faces the picker really binds: the caption asks for FONT_SLOT_SMALL and
 // the Toybox theme answers with toybox_10 (WallpapersActivity::drawGrid).
 EpdFont small10(&toybox_10);
+EpdFont button14(&toybox_14);
 EpdFont ui20(&toybox_20);
 EpdFont display30(&toybox_30);
 EpdFontFamily smallFamily(&small10);
+EpdFontFamily buttonFamily(&button14);
 EpdFontFamily uiFamily(&ui20);
 EpdFontFamily displayFamily(&display30);
 
@@ -57,6 +60,50 @@ class FontTarget final : public fui::DrawTarget {
  public:
   const EpdFontFamily* familyFor(const fui::FontId font) const {
     if (font == fui::FONT_SLOT_SMALL) return &smallFamily;
+    if (font == fui::FONT_SLOT_BODY) return &uiFamily;
+    return &displayFamily;
+  }
+  int widthOf(const fui::FontId font, const std::string& text) const {
+    if (text.empty()) return 0;
+    int w = 0;
+    int h = 0;
+    familyFor(font)->getTextDimensions(text.c_str(), &w, &h);
+    return w;
+  }
+  fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle) const override {
+    return fui::Size{static_cast<int16_t>(widthOf(font, text == nullptr ? "" : text)), lineHeight(font)};
+  }
+  int16_t lineHeight(const fui::FontId font) const override {
+    return static_cast<int16_t>(familyFor(font)->getData(EpdFontFamily::REGULAR)->advanceY);
+  }
+  void fill(fui::Rect, fui::Paint, uint8_t = 0, uint8_t = 0xFF) override {}
+  void stroke(fui::Rect, fui::Paint, uint8_t, uint8_t = 0, uint8_t = 0xFF) override {}
+  void line(fui::Point, fui::Point, uint8_t, fui::Paint) override {}
+  void triangle(fui::Point, fui::Point, fui::Point, fui::Paint) override {}
+  void text(fui::Rect, const char*, const fui::TextStyle) override {}
+  void bitmap(fui::Rect, fui::BitmapRef, fui::BitmapMode, fui::Paint = {},
+              fui::Rotation = fui::Rotation::None) override {}
+};
+
+// The grid CHROME is a different face set from the grid's captions, and the
+// difference is the whole reason this block exists.
+//
+// drawGrid() builds its caption target with toybox::makeTarget(renderer) and
+// the DEFAULT Faces, so FONT_SLOT_SMALL is kTileFontId = toybox_10 -- what
+// FontTarget above models. render() builds the CHROME's target with
+// toybox::proseMenuFaces(), where the same slot is kButtonFontId = toybox_14.
+// So the hint strip draws ~40% wider than the captions do, and measuring it in
+// toybox_10 said every sentence fitted while the panel cut one mid-word. The
+// simulator screenshot is what caught it; this target is what stops it coming
+// back ("drawn size is a claim").
+//
+// fittedTitle can rescue nothing here: it steps DOWN through the bound slots,
+// and in this face set TITLE (30) and BODY (20) are both taller than SMALL
+// (14), so there is no rung below and the only move left is the ellipsis.
+class ChromeFontTarget final : public fui::DrawTarget {
+ public:
+  const EpdFontFamily* familyFor(const fui::FontId font) const {
+    if (font == fui::FONT_SLOT_SMALL) return &buttonFamily;
     if (font == fui::FONT_SLOT_BODY) return &uiFamily;
     return &displayFamily;
   }
@@ -297,7 +344,85 @@ int main() {
     }
   }
 
-  // 5. THE HOLD SHEET'S CONTROLS, and the one destructive button behind them.
+  // 5. The hint strip's sentences, measured in the real face (#354).
+  //
+  //    The strip is ONE fixed line, kHintH tall, and buildGridChrome pins its
+  //    style to FONT_SLOT_SMALL. In the chrome's face set that is the bottom
+  //    rung, so fittedTitle -- which only steps DOWN -- has nothing left and
+  //    its only move is an ellipsis. A cut sentence in the strip that exists to
+  //    explain why a wallpaper is not showing is worse than no sentence at all,
+  //    so every string that can land there is measured here.
+  //
+  //    The pin matters as much as the width. Without it the style carries
+  //    themeTokens().smallText.font, which is FONT_SLOT_BODY -- toybox_20 here,
+  //    whose line box is TALLER than the strip. fittedTitle would then step a
+  //    long sentence down to 14 and leave a short one at 20, so which sentences
+  //    overflowed the strip vertically depended on how long they were.
+  //
+  //    Measured against the panel inset by the X4 Pro's bezel (T10 R1 B0 L1,
+  //    the bezel-insets memory), which is narrower than a bare 480 -- so the
+  //    number here is the device's, not the emulator's.
+  {
+    const ChromeFontTarget chrome;
+    const fui::Rect bezelSafe = fui::makeRect(1, 10, 478, 790);
+    const int16_t stripWidth = wallpapersui::hintTextWidth(bezelSafe);
+
+    // The strip's line box has to FIT the strip, which is the half a width
+    // measurement cannot see. buildGridChrome pins the style to
+    // FONT_SLOT_SMALL; the two checks below are why, and they are what a
+    // future session deleting that pin has to argue with.
+    check(chrome.lineHeight(fui::FONT_SLOT_SMALL) <= wallpapersui::hintStripHeight(),
+          "the strip's own face does not fit the strip: lineHeight " +
+              std::to_string(chrome.lineHeight(fui::FONT_SLOT_SMALL)) + " in a " +
+              std::to_string(wallpapersui::hintStripHeight()) + "px box");
+    check(chrome.lineHeight(fui::FONT_SLOT_BODY) > wallpapersui::hintStripHeight(),
+          "FONT_SLOT_BODY now fits the strip, so buildGridChrome's pin to the SMALL slot no longer needs to "
+          "be there -- re-read the comment before deleting it");
+    fui::TextStyle hintStyle;
+    hintStyle.font = fui::FONT_SLOT_SMALL;
+    hintStyle.align = fui::TextAlign::Left;
+    hintStyle.maxLines = 1;
+
+    std::vector<std::string> lines;
+    // Every reachHint sentence, walked off the enum rather than typed out.
+    for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+      for (int qr = 0; qr < 2; ++qr) {
+        const char* hint = wallpapers::reachHint(wallpapers::reachOfPinnedSleep(mode, qr != 0));
+        if (hint != nullptr) lines.emplace_back(hint);
+      }
+    }
+    // Every post-selection sentence, the same way.
+    for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+      for (int qr = 0; qr < 2; ++qr) {
+        const wallpapers::SleepChoice choice = wallpapers::choiceForSetWallpaper(mode, qr != 0);
+        const wallpapers::StripLine note = wallpapers::stripLineAfterSelection(
+            choice, wallpapers::reachOfPinnedSleep(choice.sleepScreenMode, choice.quickResumeAfterTimeout));
+        if (note.text != nullptr) lines.emplace_back(note.text);
+      }
+    }
+    // And the two the strip already carried, so this check covers the strip
+    // rather than only the new arrivals.
+    lines.emplace_back("Tap one to set your sleep screen.");
+    lines.emplace_back("Card is low on space. Saves may fail.");
+    lines.emplace_back("Could not check card space.");
+
+    int widestHint = 0;
+    std::string widestHintText;
+    for (const std::string& line : lines) {
+      fui::TextStyle style = hintStyle;
+      const std::string fitted = toybox::fittedTitle(chrome, line.c_str(), stripWidth, style);
+      const int w = chrome.widthOf(fui::FONT_SLOT_SMALL, line);
+      if (w > widestHint) {
+        widestHint = w;
+        widestHintText = line;
+      }
+      check(fitted == line, "hint strip sentence was cut: \"" + line + "\" -> \"" + fitted + "\"");
+      check(line.find('\n') == std::string::npos, "hint strip sentence carries a newline: \"" + line + "\"");
+    }
+    std::printf("wallcaption: widest hint \"%s\" = %dpx in a %dpx strip (%dpx spare)\n", widestHintText.c_str(),
+                widestHint, stripWidth, stripWidth - widestHint);
+
+  // 6. THE HOLD SHEET'S CONTROLS, and the one destructive button behind them.
   //
   //    This fork has destroyed user data by putting a new meaning under a pixel
   //    a finger was already travelling towards (same-pixel-different-action).
@@ -361,7 +486,7 @@ int main() {
     }
   }
 
-  // 6. THE SENTENCE ON THE CONFIRM, measured rather than eyeballed.
+  // 7. THE SENTENCE ON THE CONFIRM, measured rather than eyeballed.
   //
   //    This one is here because a render caught what nothing else could: at the
   //    first layout the longest of the four consequences needed six 42px lines
@@ -484,6 +609,7 @@ int main() {
       check(wallpapersui::sheetHeadRect(panels[p]).bottom() <= sheetBox.y,
             std::string("the name overlaps the sentence under it (") + labels[p] + ")");
     }
+  }
   }
 
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,
