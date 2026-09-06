@@ -3,9 +3,16 @@
 Where the puzzles in Picross came from, why they can be trusted, and the one
 rule decision that shapes every screen.
 
-The short version: 68 original nonograms (22 at 5x5, 28 at 10x10, 18 at 15x15),
-every one proved to have exactly one solution and to be reachable by single-line
+The short version: 239 nonograms (22 at 5x5, 108 at 10x10, 109 at 15x15), every
+one proved to have exactly one solution and to be reachable by single-line
 reasoning, by a generator that refuses to emit any that are not.
+
+**They have two origins and two sets of rights.** 68 are original artwork drawn
+for this fork and placed in the public domain. The other 171 were designed by
+six named people, published on janko.at, and are used here BY PERMISSION -- a
+permission granted to this project, not a licence, and one a fork does not
+inherit. [`assets_local/picross/PROVENANCE.md`](../../assets_local/picross/PROVENANCE.md)
+is the record; read it before copying puzzles out of this repository.
 
 ## What the game is
 
@@ -43,20 +50,38 @@ off the count-based check -- the dependency is written at `Board::rowSatisfied`.
 
 ## Provenance and licence
 
-The pictures are **original artwork authored for this fork** and are placed in
-the public domain (CC0) by the author. They live as ASCII grids in
-[`assets_local/picross/pictures.txt`](../../assets_local/picross/pictures.txt),
-one `#`/`.` grid per name, and the origin is recorded in
-[`assets_local/picross/PROVENANCE.md`](../../assets_local/picross/PROVENANCE.md).
-Author a batch of candidates and triage them with `gen_picross.py --curate`
-(PASS/FAIL per picture, no emit); only the passers go into `pictures.txt`.
+The bank is built from **one file per origin**, and the generator reads them in
+order (`gen_picross.SOURCES`):
 
-No third-party set **ships**. An arbitrary two-tone image converted to clues is
-usually _not_ a valid nonogram (it has several solutions), and any collection
-taken from elsewhere needs its source and licence honoured -- the Wavelength
-retail-deck problem. Drawing the pictures ourselves sidesteps both: the licence
-is ours, and the generator throws out any drawing that does not make a fair
-puzzle.
+| file | puzzles | origin | rights |
+|---|---|---|---|
+| `assets_local/picross/pictures.txt` | 68 | drawn for this fork | CC0 1.0 |
+| `assets_local/picross/janko.txt` | 171 | janko.at, six named designers | used by permission |
+
+Separate files rather than one mixed file, because the two carry different
+rights: **deleting `janko.txt` from `SOURCES` and regenerating leaves a bank
+that is entirely CC0**, which is the supported way for a fork to drop the
+puzzles it was not given permission for. That is only a one-line operation while
+the origins are separate. `parse()` also starts each file with fresh file-level
+defaults, so one file's `@@license` can never leak onto the other's puzzles.
+
+For the hand-drawn half: author a batch of candidates and triage them with
+`gen_picross.py --curate` (PASS/FAIL per picture, no emit); only the passers go
+into `pictures.txt`.
+
+For the imported half: the permission was obtained by the project owner from
+the designers Yilmaz Ekici and Danilo Kusmin, and separately from Otto Janko for
+the collection, on 2026-09-05. It is **not a public licence**, it does not
+extend to forks, and it did not come with the data -- the grids travelled
+janko.at -> `puzzlekit` -> `puzzlekit-dataset`, and that last carries no LICENSE
+and no provenance statement at all. `PROVENANCE.md` says all of this at length,
+and the importer will not write the file unless it does.
+
+An arbitrary two-tone image converted to clues is usually _not_ a valid nonogram
+(it has several solutions), and any collection taken from elsewhere needs its
+source and licence honoured -- the Wavelength retail-deck problem. The generator
+answers the first; the permission record and the per-puzzle provenance field
+answer the second.
 
 ### Provenance is a field, not a paragraph
 
@@ -82,20 +107,69 @@ _designed_, and a corpus somebody drew and somebody else played is the only
 place to find a lot of them at once.
 
 The script **refuses to write inside this repository** unless the licence it was
-given is one of a short redistributable list. A puzzle whose licence is unstated
+given is one of a short redistributable list, OR `--permission` cites a record
+inside the tree that states who granted it, that it is not a public licence,
+that it does not extend to forks, and when. A puzzle whose licence is unstated
 is all rights reserved; a file in `assets_local/` is in every clone and every
-release. Evaluating a corpus locally is fine and is what the script is for.
-Shipping one is a permission somebody has to obtain first, and the refusal is a
-mechanism rather than a line in a checklist.
+release. The refusal is a mechanism rather than a line in a checklist, and the
+thing that opens it is a written record rather than a flag, because a flag
+records nothing for the next reader.
 
 The `pictures.txt` format carries the provenance itself: `@@author` /
 `@@license` / `@@source` set a file-level default from that point down, and a
 single-`@` line above a name overrides it for that one picture.
 
+### The gate cannot see the picture, so the selection is a judgement
+
+Unique, line-solvable and fills-its-grid are all properties of **the clues**. A
+puzzle can satisfy every one of them and still solve into a scatter of blobs
+nobody can name, and no filter anywhere can tell the difference -- the finished
+picture is simply not in the data the gate looks at.
+
+So the import is **curated**, not bulk. `--ids` takes a file of corpus ids and
+imports only those; [`assets_local/picross/janko-selection.json`](../../assets_local/picross/janko-selection.json)
+is the list, with the method that produced it and the counts it rests on. 280 of
+the 531 gate-passing candidates were judged by eye at thumbnail scale, one
+question each: could the subject be named without the caption? 171 were kept
+(about half the 10x10s, about three quarters of the 15x15s). The remaining 251
+were never judged and are therefore not shipped -- padding the bank with them
+would add puzzles that solve into noise, which is exactly the failure the
+judgement exists to catch.
+
+`assets_local/picross/janko-authors.json` records the author of all 531
+candidates, read from each puzzle's own page, so "every puzzle has a named
+author" can be checked rather than believed.
+
+### Reproducing the imported half
+
+    python3 tools_local/picross/import_picross.py \
+        --corpus <path>/Nonogram_dataset.json --format janko-json \
+        --sizes 10,15 \
+        --ids assets_local/picross/janko-selection.json \
+        --author-map assets_local/picross/janko-authors.json \
+        --license 'all rights reserved, used by permission' \
+        --source-template 'https://www.janko.at/Raetsel/Nonogramme/{id04}.a.htm' \
+        --name-prefix JANKO \
+        --permission assets_local/picross/PROVENANCE.md \
+        --out assets_local/picross/janko.txt
+    python3 tools_local/picross/gen_picross.py
+
+`{id04}` rather than `{id}`: janko serves `0001.a.htm` and 404s on `1.a.htm`,
+and redirects the unpadded three-digit form. A provenance URL that 404s is worse
+than no URL at all, because it looks like the origin was recorded and checked.
+
+**Only 10x10 and 15x15 are imported, and that is a layout decision.** The corpus
+also holds 393 at 20x20, 372 at 25x25 and 435 at 30x30, all excluded: at the
+densest 20x20 the row-clue gutter takes 217px of the 480px panel against a 240px
+grid, cells fall to 12px, and the satisfied-clue strikethroughs read as vertical
+smears through the row-clue digits. 15x15 at its worst is clean (19px cells, a
+177px gutter). Making the larger sizes playable is a clue-gutter redesign, not
+an import setting.
+
 ## Verification
 
 Two implementations of "unique" and "line-solvable", in different languages,
-agreeing on all 68 puzzles. This is the app's equivalent of the dungeon bank's
+agreeing on all 239 puzzles. This is the app's equivalent of the dungeon bank's
 cross-check.
 
 **In Python, at generation time.**
@@ -181,7 +255,7 @@ the picture. It only has to be a decent punchline once.
 
 ## The picker: size tabs, one selection language
 
-68 puzzles is too many for one grid, so the picker is **size-tabbed**: a row of
+239 puzzles is far too many for one grid, so the picker is **size-tabbed**: a row of
 `5x5 / 10x10 / 15x15` tabs across the top, each carrying its own solved count, over
 a 4-column paged grid of that size (page dots below). It opens on the tab and page
 that contain the puzzle RESUME/PLAY would open. Chosen from three rendered variants

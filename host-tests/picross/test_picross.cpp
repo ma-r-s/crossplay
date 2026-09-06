@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <vector>
 
@@ -502,6 +503,32 @@ void bankRecordsItsProvenance() {
     CHECK(prov.author != nullptr && prov.author[0] != '\0');
     CHECK(prov.license != nullptr && prov.license[0] != '\0');
     CHECK(prov.source != nullptr);
+    // A picture we did not draw has to say WHERE it came from. The bank now
+    // mixes the fork's own CC0 artwork with 171 puzzles used by permission of
+    // six named designers, and for those the source URL is not a courtesy: it
+    // is the only way a reader can check the claim in PROVENANCE.md against the
+    // page that carries the author's name. So the two fields move together --
+    // anything not under our own CC0 names its source, and a blank source is
+    // legal only for artwork that came from nowhere.
+    const bool ours = std::strcmp(prov.license, "CC0-1.0") == 0;
+    if (!ours && prov.source[0] == '\0')
+      std::printf("  provenance %d (%s, %s) has no source URL\n", i, prov.author, prov.license);
+    CHECK(ours || prov.source[0] != '\0');
+  }
+}
+
+// The credit the win screen draws must FIT the buffer it is drawn into, and
+// that buffer is sized from picross::kMaxAuthorLen. Both are derived by the
+// generator from the same bank, so this can only fail when one of them stops
+// being derived -- which is the failure worth catching, because its symptom is
+// a designer's name silently truncated on the one screen that credits them.
+void everyAuthorFitsTheCreditLine() {
+  for (int i = 0; i < picross::kProvenanceCount; ++i) {
+    const std::size_t len = std::strlen(picross::kProvenances[i].author);
+    if (len > static_cast<std::size_t>(picross::kMaxAuthorLen))
+      std::printf("  author %s is %d chars, kMaxAuthorLen is %d\n", picross::kProvenances[i].author,
+                  static_cast<int>(len), picross::kMaxAuthorLen);
+    CHECK(len <= static_cast<std::size_t>(picross::kMaxAuthorLen));
   }
 }
 
@@ -557,6 +584,7 @@ int main() {
   bankFillsItsGrid();
   bankIsSizeSorted();
   bankRecordsItsProvenance();
+  everyAuthorFitsTheCreditLine();
   satisfiedAgreesOnBothAxes();
   clueDerivation();
   mistakeAndWin();

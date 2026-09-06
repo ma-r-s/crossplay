@@ -1,5 +1,11 @@
 # Picross pictures -- ORIGINAL artwork, authored for this fork (public domain /
-# CC0). See PROVENANCE.md in this directory. No third-party source is used.
+# CC0). No third-party source is used IN THIS FILE.
+#
+# This is one of two origin files the bank is built from. The other,
+# janko.txt, holds 171 puzzles used BY PERMISSION of six named designers and
+# not under any public licence; they are a separate file precisely so this
+# sentence can stay true of this one, and so a fork that did not receive that
+# permission can drop them by deleting one file. See PROVENANCE.md.
 #
 # The three '@@' lines below are the file-level PROVENANCE, read by the
 # generator and written into the header beside every bitmap. They are what lets
