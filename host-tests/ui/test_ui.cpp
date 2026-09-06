@@ -34,6 +34,7 @@
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
+#include "../../src/apps_local/solitaire/SolitaireScreens.h"
 #include "../../src/apps_local/study/StudyScreens.h"
 #include "../../src/apps_local/sudoku/SudokuScreens.h"
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
@@ -330,6 +331,154 @@ fui::DeviceContext device() {
 // CI, and this is the second time that gap has been a compiler and not a test.
 const toybattle::Draft kFreshDraft{};
 
+// --- the chrome probe ------------------------------------------------------
+//
+// What Mario reported twice: content sitting on the header. The header work
+// that answered it both times fixed the HEADER, and the header was never the
+// half that was wrong -- every screen decides for itself where its content
+// starts, and a dozen of them decided it from toybox::kHeaderHeight, a constant
+// that names the black band and knows nothing about the rule drawn under it.
+//
+// So this is not a per-screen test. A per-screen test is the thing that failed:
+// it covers the screen you thought of, and Mario opens the other one. It lives
+// in ~Rendered, so EVERY screen this suite renders is measured -- including the
+// ones written after this comment by someone who never read it.
+//
+// The rule: the chrome owns rows 0..kChromeHeight (the band, the gap, the
+// rule), and the first content pixel below it clears kGutter. That is the same
+// number card #295 gave the Yahtzee dice, so this is the fork's own answer to
+// "how far must content clear the header" applied everywhere rather than once.
+// A screen may still draw INSIDE the band -- folder marks, medal tallies, face
+// doors -- and those are placed by bandCenterY()/headerInkRect() on purpose.
+//
+// Text is measured as INK, not as its line box. A run's rect is the box the
+// text was given and the glyphs sit inset within it (see inkTopIn), so
+// measuring the rect would report collisions the eye cannot see and move type
+// that already clears.
+//
+// KNOWN UNDERSTATEMENT, and it points the wrong way: inkBandOf resolves a cut
+// through cutForSlot, which knows the three Jersey cuts and nothing else. The
+// readers rebind their slots -- readingChromeFaces() puts the UI cut in the
+// SMALL slot -- so a SMALL-slot run in reader chrome is measured against
+// kTileCut when kUiCut drew it, and the probe puts its ink about five pixels
+// LOWER than the truth. Nothing is close enough for that to matter today
+// (Hacker News and Instapaper start 24px clear of the floor), but the margin is
+// what protects them, not this check. A probe that resolved the cut from the
+// theme actually in force would close it.
+
+// The band a render actually painted, or 0. Taken from the paint rather than
+// from kHeaderHeight, because the band is a THEME token and Solitaire raises
+// it: a probe keyed to the constant would measure that screen against a line
+// seven rows from where its rule is, and would have to be told to skip it --
+// which is how a screen ends up outside the only check that would have caught
+// it. headerBand() paints one full-width rect at row 0 and nothing else does.
+fui::Rect bandRectOf(const FakeTarget& t) {
+  fui::Rect band{};
+  for (size_t i = 0; i < t.fills.size(); ++i) {
+    const fui::Rect& r = t.fills[i];
+    // Full-bleed from the panel's top-left corner. The width is not asserted
+    // against 480: Solitaire is landscape, and a probe that assumed portrait
+    // would silently stop looking at the one app whose band is not standard.
+    if (r.x != 0 || r.y != 0 || r.width < 480 || r.height <= 0) continue;
+    if (r.height > toybox::kHeaderHeight) continue;
+    // And its RULE. A black strip at row 0 is not on its own a header: the
+    // Forehead round screen paints one across each long edge to label the two
+    // physical keys, and it has no header at all. headerBand() draws the band
+    // and the rule together, so the pair is the signature and a lone strip is
+    // not.
+    bool ruled = false;
+    for (size_t j = 0; j < t.fills.size(); ++j) {
+      const fui::Rect& q = t.fills[j];
+      if (q.x == 0 && q.width == r.width && q.height == toybox::kRule && q.y == r.height + toybox::kBandRuleGap) {
+        ruled = true;
+        break;
+      }
+    }
+    if (!ruled) continue;
+    if (r.height > band.height) band = r;
+  }
+  return band;
+}
+
+// The first row below the chrome that content may use.
+int16_t chromeFloorFor(const fui::Rect& band) {
+  return static_cast<int16_t>(band.height + toybox::kBandRuleGap + toybox::kRule + toybox::kGutter);
+}
+
+// True for the two rects headerBand() itself paints, which are allowed to be
+// exactly where they are and nowhere else.
+bool isChromePaint(const fui::Rect& r, const fui::Rect& band) {
+  if (r.x != 0 || r.width != band.width) return false;
+  if (r.y == 0 && r.height == band.height) return true;                                     // the band
+  if (r.y == band.height + toybox::kBandRuleGap && r.height == toybox::kRule) return true;  // the rule
+  return false;
+}
+
+// Anything wholly inside the band is band ink, and belongs there.
+bool insideBand(const fui::Rect& r, const fui::Rect& band) { return r.bottom() <= band.height; }
+
+struct ChromeHit {
+  fui::Rect rect{};
+  std::string what;
+  bool found = false;
+};
+
+void noteHit(ChromeHit& hit, const fui::Rect& r, const std::string& what) {
+  if (hit.found && hit.rect.y <= r.y) return;
+  hit = ChromeHit{r, what, true};
+}
+
+// The topmost thing that fails to clear the chrome, or nothing.
+ChromeHit chromeIntrusion(const FakeTarget& t, const fui::Rect& band) {
+  ChromeHit hit;
+  const int16_t floor = chromeFloorFor(band);
+  for (size_t i = 0; i < t.fills.size(); ++i) {
+    const fui::Rect& r = t.fills[i];
+    if (isChromePaint(r, band) || insideBand(r, band) || r.height <= 0 || r.width <= 0) continue;
+    if (r.y < floor) noteHit(hit, r, "fill");
+  }
+  for (const auto& run : t.texts) {
+    const fui::Rect ink = inkBandOf(run);
+    if (insideBand(ink, band)) continue;
+    if (ink.y < floor) noteHit(hit, ink, "text \"" + run.text + "\"");
+  }
+  for (const auto& blit : t.blits) {
+    if (insideBand(blit.rect, band)) continue;
+    if (blit.rect.y < floor) noteHit(hit, blit.rect, "bitmap");
+  }
+  for (const auto& st : t.strokes) {
+    if (insideBand(st.rect, band)) continue;
+    if (st.rect.y < floor) noteHit(hit, st.rect, "stroke");
+  }
+  // Triangles too. FakeTarget records them and this walk used to skip them, so
+  // a chevron or a pointer in the chrome's rows was invisible -- and five apps
+  // draw with them (insider, connections, jaipur, forehead, toy battle). A
+  // probe that reads four of the five op kinds reports clean on the fifth.
+  for (const auto& tri : t.triangles) {
+    const int16_t top =
+        tri.a.y < tri.b.y ? (tri.a.y < tri.c.y ? tri.a.y : tri.c.y) : (tri.b.y < tri.c.y ? tri.b.y : tri.c.y);
+    const int16_t bottom =
+        tri.a.y > tri.b.y ? (tri.a.y > tri.c.y ? tri.a.y : tri.c.y) : (tri.b.y > tri.c.y ? tri.b.y : tri.c.y);
+    if (bottom <= band.height) continue;
+    if (top < floor) noteHit(hit, fui::makeRect(0, top, 1, static_cast<int16_t>(bottom - top)), "triangle");
+  }
+  return hit;
+}
+
+// The title, so a failure says which screen without anyone having to guess.
+// How many renders the probe actually measured, and how many it passed over.
+// Printed at the end of the run: a probe whose coverage silently drops to zero
+// reports exactly what a clean tree reports.
+int chromeScreensMeasured = 0;
+int chromeScreensSkipped = 0;
+
+std::string bandLabel(const FakeTarget& t, const fui::Rect& band) {
+  for (const auto& run : t.texts) {
+    if (insideBand(inkBandOf(run), band)) return run.text;
+  }
+  return "?";
+}
+
 // One rendered screen, with everything the assertions need to inspect.
 struct Rendered {
   FakeTarget target;
@@ -353,6 +502,29 @@ struct Rendered {
     input.touchX = static_cast<int16_t>(x);
     input.touchY = static_cast<int16_t>(y);
     return interactions.route(input);
+  }
+
+  // Measured on the way out, so no test has to remember to ask. See the chrome
+  // probe above for why this is not a per-screen assertion.
+  ~Rendered() {
+    const fui::Rect band = bandRectOf(target);
+    if (band.height == 0) {
+      // Not a header render: a popup, a headerless play screen (Forehead's
+      // round, every Wavelength screen), or a build that drew nothing. Counted
+      // rather than ignored, because "measured and clean" and "never looked at"
+      // are the same silence otherwise.
+      ++chromeScreensSkipped;
+      return;
+    }
+    ++chromeScreensMeasured;
+    const ChromeHit hit = chromeIntrusion(target, band);
+    if (hit.found) {
+      std::printf("FAIL chrome: [%s] %s at y=%d clears the %dpx band's rule by %d, needs %d\n",
+                  bandLabel(target, band).c_str(), hit.what.c_str(), static_cast<int>(hit.rect.y),
+                  static_cast<int>(band.height),
+                  static_cast<int>(hit.rect.y - band.height - toybox::kBandRuleGap - toybox::kRule), toybox::kGutter);
+    }
+    check(!hit.found, "content clears the header chrome by a gutter", __LINE__);
   }
 };
 
@@ -765,6 +937,235 @@ void testSettingsRouting() {
 // headerBand() itself rather than against any one app's screen: a per-app
 // assertion is precisely what let 12 of the fork's 41 band sites ship with no
 // rule at all, the Yahtzee card among them.
+// --- Solitaire ------------------------------------------------------------
+//
+// The one app the ui suite COMPILED and never rendered. That is not a gap in
+// its own tests -- host-tests/solitaire covers the rules -- it is a gap in this
+// file's chrome probe, which measures whatever is rendered here and therefore
+// measured nothing at all for the only landscape screen in the fork and the
+// only one that raises its header band. Card #248 found it by asking which
+// screens the probe had actually seen, which a green run does not say.
+//
+// Three renders, because Solitaire has three bands and the fault it had -- a
+// top row nine pixels under the rule, plus a rule drawn a second time by hand
+// on top of the one headerBand() draws -- was on all three.
+fui::DeviceContext solitaireDevice() {
+  fui::DeviceContext ctx;
+  ctx.width = 800;
+  ctx.height = 480;
+  ctx.hasTouch = true;
+  ctx.hasButtons = true;
+  return ctx;
+}
+
+toybox::Screen solitaireScreen(toybox::Frame& frame, fui::ThemeTokens& tokens) {
+  tokens = toybox::themeTokens();
+  tokens.headerHeight = solitaireui::kHeaderBand;
+  return toybox::Screen(frame, tokens);
+}
+
+// The two Trivia screens the report feature added, rendered here for one
+// reason: the chrome probe measures what this suite DRAWS, so a screen no test
+// constructs is a screen the probe has never looked at. That is not a
+// hypothetical -- Solitaire below was in exactly that state, and these two
+// landed in the same window as card #248 with their own suite covering the
+// queue and the pack rather than the pixels.
+void triviaReportScreensClearTheChrome() {
+  {
+    Rendered reasons;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(reasons.target, ctx, noInput, reasons.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    triviaui::ReasonModel model;
+    model.count = 4;
+    const char* labels[4] = {"THE ANSWER IS WRONG", "THE QUESTION MAKES NO SENSE", "IT IS A DUPLICATE",
+                             "SOMETHING ELSE"};
+    for (int i = 0; i < model.count; ++i) {
+      model.label[i] = labels[i];
+      model.value[i] = i;
+    }
+    triviaui::buildReasons(screen, model);
+    CHECK(reasons.target.drew("THE ANSWER IS WRONG"));
+    // The probe SAW this screen. Without this the test would pass just as well
+    // on a render that drew no chrome at all, and "measured" and "skipped"
+    // would look identical from the outside -- which is the whole failure mode
+    // these renders exist to close.
+    CHECK(bandRectOf(reasons.target).height > 0);
+  }
+  {
+    Rendered notice;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(notice.target, ctx, noInput, notice.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    triviaui::NoticeModel model;
+    model.headline = "REPORT SENT";
+    model.body = "It goes up with the next pack sync.";
+    model.actionLabel = "BACK";
+    model.action = 1;
+    triviaui::buildNotice(screen, model);
+    CHECK(notice.target.drew("REPORT SENT"));
+    CHECK(bandRectOf(notice.target).height > 0);
+  }
+}
+
+void solitaireDrawsOneRuleAndClearsIt() {
+  const fui::DeviceContext ctx = solitaireDevice();
+  const fui::InputSnapshot noInput{};
+  solitaire::Game game;
+  game.deal(12345, false);
+
+  // The board. ~Rendered measures the clearance; what is asserted here is the
+  // half a clearance check cannot see: exactly ONE rule under the band.
+  Rendered board;
+  {
+    toybox::Frame frame(board.target, ctx, noInput, board.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = solitaireScreen(frame, tokens);
+    solitaireui::BoardModel model;
+    model.game = &game;
+    solitaireui::Layout layout;
+    solitaireui::buildBoard(screen, model, layout);
+  }
+  int rules = 0;
+  for (size_t i = 0; i < board.target.fills.size(); ++i) {
+    const fui::Rect& r = board.target.fills[i];
+    if (r.x == 0 && r.width == ctx.width && r.height == toybox::kRule &&
+        r.y == solitaireui::kHeaderBand + toybox::kBandRuleGap) {
+      ++rules;
+    }
+  }
+  // Two, until this card: headerBand() draws the rule for every screen in the
+  // fork, and this app kept drawing its own on the same pixels. Identical ink,
+  // so nothing looked wrong -- which is the point. A second copy of the
+  // chrome's geometry in an app file is a bug that is waiting rather than a bug
+  // that is showing.
+  CHECK(rules == 1);
+  // And the probe recognised this band, which is a 56px one. A render it does
+  // not recognise is a render it silently skips.
+  CHECK(bandRectOf(board.target).height == solitaireui::kHeaderBand);
+
+  Rendered menu;
+  {
+    toybox::Frame frame(menu.target, ctx, noInput, menu.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = solitaireScreen(frame, tokens);
+    solitaireui::MenuModel model;
+    model.hasSave = true;
+    model.savedMoves = 42;
+    model.played = 9;
+    model.wins = 3;
+    model.streak = 1;
+    solitaireui::buildMenu(screen, model);
+  }
+  CHECK(menu.target.drew("SOLITAIRE"));
+  CHECK(bandRectOf(menu.target).height == solitaireui::kHeaderBand);
+
+  Rendered win;
+  {
+    toybox::Frame frame(win.target, ctx, noInput, win.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = solitaireScreen(frame, tokens);
+    solitaireui::WinModel model;
+    model.moves = 120;
+    model.wins = 4;
+    model.streak = 2;
+    solitaireui::buildWin(screen, model);
+  }
+  CHECK(win.target.texts.size() > 0);
+  CHECK(bandRectOf(win.target).height == solitaireui::kHeaderBand);
+
+  // And the band this app raises is the number the Activity hands the theme.
+  // It was 56 typed twice in two files; the builders and the token could
+  // disagree and nothing would say so.
+  CHECK(solitaireui::kHeaderBand == 56);
+}
+
+// The probe, tested. Every op kind FakeTarget records is planted one pixel
+// inside the chrome's forbidden rows and must be caught.
+//
+// This exists because the probe shipped blind to triangles: it walked fills,
+// texts, blits and strokes, and five apps draw with triangles. Nothing failed,
+// which is what being blind looks like. A check whose own failure has never
+// been demonstrated is a check nobody has tested, and the fork has paid for
+// that distinction more than once -- so each kind is asserted to be SEEN here,
+// rather than the whole probe being asserted to be clean somewhere else.
+void theChromeProbeCatchesEveryDrawKind() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  // One row below the band's bottom, which is inside the gap the rule sits in
+  // and well inside the gutter every screen must clear.
+  const int16_t inside = static_cast<int16_t>(toybox::kHeaderHeight + 1);
+
+  struct Case {
+    const char* what;
+    void (*draw)(toybox::Screen&, int16_t);
+  };
+  const Case cases[] = {
+      {"fill",
+       [](toybox::Screen& screen, const int16_t y) {
+         screen.target().fill(fui::makeRect(10, y, 40, 20), fui::Paint::solid(fui::Color::Black));
+       }},
+      {"text",
+       [](toybox::Screen& screen, const int16_t y) {
+         fui::TextStyle style;
+         style.font = toybox::kUiFont;
+         screen.target().text(fui::makeRect(10, y, 200, 40), "TOO HIGH", style);
+       }},
+      {"bitmap",
+       [](toybox::Screen& screen, const int16_t y) {
+         screen.target().bitmap(fui::makeRect(10, y, 32, 32), fui::bitmapFromIcon(icon_mineflag_32),
+                                fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::Black));
+       }},
+      {"stroke",
+       [](toybox::Screen& screen, const int16_t y) {
+         screen.target().stroke(fui::makeRect(10, y, 40, 20), fui::Paint::solid(fui::Color::Black), 2);
+       }},
+      {"triangle",
+       [](toybox::Screen& screen, const int16_t y) {
+         screen.target().triangle(fui::Point{10, y}, fui::Point{50, y}, fui::Point{30, static_cast<int16_t>(y + 20)},
+                                  fui::Paint::solid(fui::Color::Black));
+       }},
+  };
+
+  for (const Case& c : cases) {
+    FakeTarget target;
+    toybox::Interactions interactions;
+    toybox::Frame frame(target, ctx, noInput, interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    fui::HeaderProps props;
+    props.title = "TITLE";
+    toybox::headerBand(screen, props);
+    c.draw(screen, inside);
+
+    const fui::Rect band = bandRectOf(target);
+    CHECK(band.height == toybox::kHeaderHeight);
+    const ChromeHit hit = chromeIntrusion(target, band);
+    if (!hit.found) std::printf("FAIL the chrome probe is blind to a %s\n", c.what);
+    CHECK(hit.found);
+  }
+
+  // And the same five, placed a gutter below the chrome, are NOT caught. A
+  // probe that flagged everything would pass the loop above and be useless.
+  for (const Case& c : cases) {
+    FakeTarget target;
+    toybox::Interactions interactions;
+    toybox::Frame frame(target, ctx, noInput, interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    fui::HeaderProps props;
+    props.title = "TITLE";
+    toybox::headerBand(screen, props);
+    // Well clear: the text case is measured as ink, which sits lower than its
+    // box, so the box itself starting at the floor is the tightest legal case.
+    c.draw(screen, static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter));
+
+    const ChromeHit hit = chromeIntrusion(target, bandRectOf(target));
+    if (hit.found) std::printf("FAIL the chrome probe flags a legal %s at the floor\n", c.what);
+    CHECK(!hit.found);
+  }
+}
+
 void everyBandCarriesItsRule() {
   Rendered out;
   const fui::DeviceContext ctx = device();
@@ -775,11 +1176,20 @@ void everyBandCarriesItsRule() {
   props.title = "TITLE";
   toybox::headerBand(screen, props);
 
-  // Half one, and the constraint that shaped the whole fix: the header still
-  // reserves exactly kHeaderHeight, so not one pixel of content anywhere in
-  // the fork moves. Adding the rule BELOW the band would have pushed every
-  // board, table and card down by six.
-  CHECK(screen.body().y == toybox::kHeaderHeight);
+  // Half one: the chrome reserves every row it paints. The band's black stops
+  // at kHeaderHeight and the rule is drawn kBandRuleGap below that, so the
+  // first row a screen owns is kChromeHeight -- and screen.body().y says so.
+  //
+  // This assertion used to read `== kHeaderHeight`, on the reasoning that no
+  // screen's content should move to buy the rule. That was true of the rule
+  // and false of the body: it left body().y pointing at the top of a line the
+  // header had already drawn, so the honest way of laying out a screen -- take
+  // the body and add a gutter -- put content five pixels under the rule. The
+  // Connections calendar and the Wallpapers grid both did precisely that, and
+  // both are correct now without either file being touched, which is the only
+  // kind of fix that survives the next twenty screens. See card #248.
+  CHECK(screen.body().y == toybox::kChromeHeight);
+  CHECK(screen.body().y == toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule);
 
   // Half two: a black, full-bleed rule, kBandRuleGap below the band.
   bool ruled = false;
@@ -810,6 +1220,63 @@ void everyBandCarriesItsRule() {
   const size_t before = out.target.fills.size();
   toybox::headerRule(screen);
   CHECK(out.target.fills.size() == before);
+}
+
+// Yahtzee's other three screens, rendered so the chrome probe can see them.
+//
+// yahtzeeDiceClearTheHeader() below asks dieRect() where a die goes, which is
+// the one number card #295 fixed -- and no test in this suite had ever BUILT
+// any Yahtzee screen. So the app Mario named three times was, for the probe,
+// four screens none of which had been looked at; buildCard is the very screen
+// whose missing rule he opened and asked about. The renders are the coverage,
+// and ~Rendered supplies the assertion.
+void yahtzeeScreensClearTheChrome() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+
+  Rendered menu;
+  {
+    toybox::Frame frame(menu.target, ctx, noInput, menu.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    yzui::MenuModel model;
+    model.played = 12;
+    model.won = 5;
+    model.best = 312;
+    model.yahtzees = 2;
+    model.yahtzeeFace = 4;
+    yzui::buildMenu(screen, model);
+  }
+  CHECK(bandRectOf(menu.target).height == toybox::kHeaderHeight);
+
+  Rendered card;
+  {
+    toybox::Frame frame(card.target, ctx, noInput, card.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    yzui::CardModel model;
+    model.yourTurn = true;
+    yzui::buildCard(screen, model);
+  }
+  CHECK(bandRectOf(card.target).height == toybox::kHeaderHeight);
+
+  Rendered result;
+  {
+    toybox::Frame frame(result.target, ctx, noInput, result.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    yzui::ResultModel model;
+    model.yourTotal = 240;
+    model.theirTotal = 198;
+    yzui::buildResult(screen, model);
+  }
+  CHECK(bandRectOf(result.target).height == toybox::kHeaderHeight);
+
+  Rendered howTo;
+  {
+    toybox::Frame frame(howTo.target, ctx, noInput, howTo.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    yzui::HowToModel model;
+    yzui::buildHowTo(screen, model);
+  }
+  CHECK(bandRectOf(howTo.target).height == toybox::kHeaderHeight);
 }
 
 void yahtzeeDiceClearTheHeader() {
@@ -9451,8 +9918,10 @@ void testTheBandIsAbsoluteWithoutBeingAsked() {
 
   // The bezel must not push the band down. Both numbers matter: a band that
   // starts at the safe top AND keeps its height ends kHeaderHeight + 10 down
-  // the panel, which is the 85px band Mario saw.
-  CHECK(screen.body().y == toybox::kHeaderHeight);
+  // the panel, which is the 85px band Mario saw. Measured at the body's top,
+  // which is the band plus the rule under it -- the whole chrome, because the
+  // whole chrome is what a screen has to clear.
+  CHECK(screen.body().y == toybox::kChromeHeight);
 
   bool paintedFromRowZero = false;
   for (size_t i = 0; i < out.target.fills.size(); ++i) {
@@ -10458,9 +10927,19 @@ int main() {
   testAShortBoxIsWhatMakesTheCorrectionNecessary();
   testAMinesweeperDigitIsCentredInItsCell();
   testAKnucklebonesColumnTotalClearsItsBand();
+  triviaReportScreensClearTheChrome();
+  solitaireDrawsOneRuleAndClearsIt();
+  theChromeProbeCatchesEveryDrawKind();
   everyBandCarriesItsRule();
+  yahtzeeScreensClearTheChrome();
   yahtzeeDiceClearTheHeader();
 
+  std::printf("chrome probe: %d header renders measured, %d renders had no band\n", chromeScreensMeasured,
+              chromeScreensSkipped);
+  // The probe measuring nothing is a silent regression, not a pass. This number
+  // only goes up as screens are added; if it collapses, the renders stopped
+  // drawing chrome and the probe quietly stopped being a check.
+  check(chromeScreensMeasured >= 200, "the chrome probe measured the suite's header renders", __LINE__);
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
 }

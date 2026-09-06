@@ -33,14 +33,15 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  const fui::Rect panel = screen.device().screen();
-  const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
-  toybox::headerRule(screen);
   if (doorAction != fui::NO_ACTION) {
     // Registered after the header drew, so the hit rect and the label come from
-    // the same band and cannot drift apart.
-    screen.frame().hit(fui::makeRect(static_cast<int16_t>(panel.width * 3 / 5), bandTop,
-                                     static_cast<int16_t>(panel.width * 2 / 5), toybox::kHeaderHeight),
+    // the same band and cannot drift apart. The band is asked for, not rebuilt
+    // from the content top: that subtraction was arithmetic on the chrome's
+    // geometry done in an app file, and it broke the moment the chrome started
+    // reserving the rule as well as the band.
+    const fui::Rect band = toybox::headerBandRect(screen);
+    screen.frame().hit(fui::makeRect(static_cast<int16_t>(band.width * 3 / 5), band.y,
+                                     static_cast<int16_t>(band.width * 2 / 5), band.height),
                        doorAction, 0);
   }
 }
