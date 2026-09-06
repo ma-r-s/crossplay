@@ -28,6 +28,26 @@
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 
+// Upstream's 8192 is sized for the X4 and X3: an ESP32-C3 with ~380KB and no
+// PSRAM, where every kilobyte of a task stack is one the reader cannot have.
+// The X4 Pro is an S3 with 8MB, so this fork can afford the headroom and needs
+// it: its own screens draw through FreeInkUI, whose deepest path wants 9520
+// bytes. The literal has now crashed this fork twice -- v1.0.0 on the first
+// device that ever ran it, and v1.12.45 in Study and xkcd, after a sync took
+// upstream's copy of this file wholesale and dropped the override with it.
+//
+// Left as an overridable default rather than a changed literal so the number
+// this fork uses lives in this fork's platformio.ini, and merges from upstream
+// touching this line stay trivial.
+//
+// scripts_local/stack_budget.py now asserts that this macro actually reaches
+// xTaskCreatePinnedToCore. The define alone silently did nothing for all of
+// v1.12.45: the flag was set to 16384, the gate read the flag and printed
+// headroom on every CI run, and the firmware ran the render task on 8192.
+#ifndef CROSSPOINT_RENDER_TASK_STACK
+#define CROSSPOINT_RENDER_TASK_STACK 8192
+#endif
+
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 
 void ActivityManager::begin() {
@@ -37,10 +57,10 @@ void ActivityManager::begin() {
   constexpr BaseType_t renderTaskCore = 0;
 #endif
   xTaskCreatePinnedToCore(&renderTaskTrampoline, "ActivityManagerRender",
-                          8192,               // Stack size
-                          this,               // Parameters
-                          1,                  // Priority
-                          &renderTaskHandle,  // Task handle
+                          CROSSPOINT_RENDER_TASK_STACK,  // Stack size
+                          this,                          // Parameters
+                          1,                             // Priority
+                          &renderTaskHandle,             // Task handle
                           renderTaskCore  // Keep long renders/cover decodes off CPU 0's idle watchdog when available
   );
   assert(renderTaskHandle != nullptr && "Failed to create render task");
