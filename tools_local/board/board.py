@@ -813,6 +813,23 @@ def session_live(root, sid):
     return (time.time() - st.st_mtime) < IDLE_MINUTES * 60
 
 
+def tree_gate_pid(root, tree):
+    """The pid of a check.sh still verifying wt/<name>, or None (the guard's rule)."""
+    import hashlib
+    try:
+        real = str((root / tree).resolve())
+    except OSError:
+        return None
+    lock = pathlib.Path(os.environ.get("TMPDIR") or "/tmp") / f"xteink-check-{hashlib.sha1(real.encode()).hexdigest()[:8]}.running"
+    try:
+        pid = int((lock.read_text() or "0").split()[0])
+        os.kill(pid, 0)
+        cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+    except (OSError, ValueError, IndexError):
+        return None
+    return pid if "check.sh" in cmd else None
+
+
 def cmd_bind(st, a):
     with st.lock():
         c = st.get_card(a.id)
@@ -847,6 +864,12 @@ def cmd_bind(st, a):
                 sys.exit(
                     f"board: {tree} is already the tree of #{k['id']} ({k['title'][:60]}), held by session {norm_sid(k['session'])}.\n"
                     f"  One card, one branch, one worktree: ./scripts/wt.sh new <name> for yours, or --take if that session is gone."
+                )
+            gate = tree_gate_pid(st.root, tree)
+            if gate is not None:
+                sys.exit(
+                    f"board: {tree} has a check.sh still verifying it (pid {gate}); an edit there now would make that verdict meaningless.\n"
+                    f"  Wait for it (ps -p {gate} -o etime,command), or ./scripts/wt.sh new <name> for a tree of your own."
                 )
         if held and held != sid:
             card_history(st, c, f"taken over from session {held}" + ("" if getattr(a, "take", False) else " (it had ended, or was silent for %d minutes)" % IDLE_MINUTES))

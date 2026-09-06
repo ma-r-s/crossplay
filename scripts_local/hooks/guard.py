@@ -22,11 +22,13 @@ input, including the ones that must NOT block.
 """
 
 import datetime as dt
+import hashlib
 import json
 import time
 import os
 import pathlib
 import re
+import subprocess
 import sys
 
 HANDBACK = re.compile(
@@ -261,7 +263,45 @@ class Board:
     def is_integrator(self, sid):
         return norm_sid(sid) in self.claim_ids(self.integrator())
 
+    # Chosen against two clocks. The Bash tool caps one call at ten minutes, so
+    # no session goes quiet that long from a single command; and a worker
+    # waiting on a backgrounded gate makes no tool calls at all, which is why
+    # a living gate on the tree counts as life below (tree_gate_pid) rather
+    # than this number growing to cover it. Forty-five is well past the first
+    # and does not need to cover the second.
     IDLE_MINUTES = 45
+
+    @staticmethod
+    def tree_gate_pid(tree_path):
+        """The pid of a check.sh still verifying `tree_path`, or None.
+
+        check.sh keeps ${TMPDIR:-/tmp}/xteink-check-<tag>.running with its pid
+        while it runs (tag = the first eight hex of sha1 of the tree's real
+        path, as check.sh computes it). A tree with a living gate is in use
+        whatever its session is doing, and an edit landing in it would make
+        that verdict meaningless while looking green.
+        """
+        try:
+            real = str(pathlib.Path(tree_path).resolve())
+        except OSError:
+            return None
+        tag = hashlib.sha1(real.encode()).hexdigest()[:8]
+        lock = pathlib.Path(os.environ.get("TMPDIR") or "/tmp") / f"xteink-check-{tag}.running"
+        try:
+            pid = int((lock.read_text() or "0").split()[0])
+        except (OSError, ValueError, IndexError):
+            return None
+        if pid <= 0:
+            return None
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return None
+        try:
+            cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+        except OSError:
+            return None
+        return pid if "check.sh" in cmd else None
 
     def session_seen(self, sid):
         """When the session last touched a tool, or None if the board never saw it.
@@ -351,9 +391,10 @@ class Board:
         # a dead session (card 44) again, once per worktree. The write is
         # allowed; binding the card afterwards records the takeover.
         live = [(h, c) for h, c in holders if self.session_live(h)]
-        if not live:
+        gate = self.tree_gate_pid(self.root / tree)
+        if not live and gate is None:
             return None
-        return (tree, live)
+        return (tree, live, gate)
 
     def note_session(self, sid, cwd):
         d = self.dir / "sessions"
@@ -472,11 +513,14 @@ def writes_into_tree(cmd):
 
 
 def foreign_tree_refusal(board, sid, where):
-    tree, holders = where
-    who = ", ".join(
+    tree, holders, gate = where
+    parts = [
         f"session {h} (card #{c}, active {int((time.time() - (board.session_seen(h) or time.time())) // 60)} min ago)"
         for h, c in holders
-    )
+    ]
+    if gate is not None:
+        parts.append(f"a check.sh still verifying it (pid {gate}; ps -p {gate} -o etime,command)")
+    who = ", ".join(parts) or "another session"
     return (
         f"Refused: {tree} is bound to {who}, and two sessions writing one tree verify nothing "
         "(the gates each ran against a tree the other was still changing). Work in your own tree: "

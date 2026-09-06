@@ -582,6 +582,20 @@ expect "the new holder is live again (touched by its tool call)" 2 pretool "{\"s
 printf '{"session_id":"held-d"}' | python3 "$GUARD" session-end >/dev/null 2>&1
 grep -q '"ended_at"' "$ROOT/.board/sessions/held-d.json" && ok "SessionEnd marks the session ended" || bad "session_end wrote no ended_at"
 expect "an ended holder's tree is free at once"       0 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+# a gate still verifying the tree is a sign of life whatever its session does:
+# a worker waiting on a backgrounded gate makes no tool calls for as long as
+# the gate takes (95 minutes one night), and its tree must not count as free
+mkdir -p "$ROOT/wt/gone"
+GATE_TAG="$(python3 -c 'import hashlib,pathlib,sys; print(hashlib.sha1(str(pathlib.Path(sys.argv[1]).resolve()).encode()).hexdigest()[:8])' "$ROOT/wt/gone")"
+export TMPDIR="$WORK"
+bash -c 'exec -a check.sh sleep 30' & GATEPID=$!
+sleep 0.2; echo "$GATEPID" >"$WORK/xteink-check-$GATE_TAG.running"
+expect "a tree with a living gate is held even when its session is gone" 2 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+grep -q "check.sh still verifying it (pid $GATEPID" "$WORK/err" && ok "the refusal names the gate's pid" || bad "refusal lacks the gate: $(head -c 240 "$WORK/err")"
+if board bind "$GONE" --session "held-e" --tree wt/gone >"$WORK/gate.out" 2>&1; then bad "bind took a tree with a living gate"; else grep -q "check.sh still verifying it (pid $GATEPID" "$WORK/gate.out" && ok "bind refuses a tree with a living gate and names it" || bad "bind's refusal lacks the gate: $(cat "$WORK/gate.out")"; fi
+kill "$GATEPID" 2>/dev/null; wait "$GATEPID" 2>/dev/null
+expect "the gate gone, the tree is free"                0 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+unset TMPDIR
 
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
