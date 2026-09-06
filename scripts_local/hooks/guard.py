@@ -24,6 +24,7 @@ input, including the ones that must NOT block.
 import datetime as dt
 import hashlib
 import json
+import shlex
 import time
 import os
 import pathlib
@@ -44,10 +45,17 @@ HANDBACK = re.compile(
 # a file, it does not edit one). Both refused read-only commands on 2026-09-04.
 WRITE_VERB = re.compile(
     r"((?<![\w-])sed\s+-i|(?<![\w-])(tee|cp|mv|rm|touch|mkdir|ln|truncate)(?![\w-])|"
-    r"(?<![\w-])git\s+(merge|commit|checkout|reset|rebase|cherry-pick|tag(?!\s+(?:-l|-n|--list|--contains|--no-contains|--merged|--no-merged|--points-at)\b)|push|pull|switch|stash|apply|am|clean|restore)\b|"
+    r"(?<![\w-])git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+)*(merge|commit|checkout|reset|rebase|cherry-pick|tag(?!\s+(?:-l|-n|--list|--contains|--no-contains|--merged|--no-merged|--points-at)\b)|push|pull|switch|stash|apply|am|clean|restore|revert|worktree\s+(?:remove|prune|add|move)|branch\s+-[Dfdm]|update-ref|gc)\b|"
     r"(?<![\w-])pio\s+run|\bbuild\.py|\bprecompress\.py)"
 )
 QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
+# Verbs that destroy or rewrite another actor's work in a tree; refused against
+# a tree the caller does not hold whatever the holder's liveness (a sweep once
+# committed another worker's in-progress diff with a reassuring message).
+DESTRUCTIVE = re.compile(
+    r"(?<![\w-])git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+)*(worktree\s+(remove|prune|add|move)|branch\s+-[Dfdm]|update-ref|reset\s+--hard|clean\b|checkout\b|switch\b|restore\b|stash|commit|rebase|merge|pull|apply|am|cherry-pick|revert|gc)\b"
+    r"|(?<![\w-])rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f?\s"
+)
 # A redirect whose TARGET is a file (2>&1 and >/dev/null are not writes into anything of ours).
 REDIRECT = re.compile(r"(?<![0-9&<])>{1,2}\s*(?!&)(\S+)")
 HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\s*\1\s*(?=\n|$)", re.S)
@@ -263,14 +271,6 @@ class Board:
     def is_integrator(self, sid):
         return norm_sid(sid) in self.claim_ids(self.integrator())
 
-    # Chosen against two clocks. The Bash tool caps one call at ten minutes, so
-    # no session goes quiet that long from a single command; and a worker
-    # waiting on a backgrounded gate makes no tool calls at all, which is why
-    # a living gate on the tree counts as life below (tree_gate_pid) rather
-    # than this number growing to cover it. Forty-five is well past the first
-    # and does not need to cover the second.
-    IDLE_MINUTES = 45
-
     @staticmethod
     def tree_gate_pid(tree_path):
         """The pid of a check.sh still verifying `tree_path`, or None.
@@ -278,8 +278,7 @@ class Board:
         check.sh keeps ${TMPDIR:-/tmp}/xteink-check-<tag>.running with its pid
         while it runs (tag = the first eight hex of sha1 of the tree's real
         path, as check.sh computes it). A tree with a living gate is in use
-        whatever its session is doing, and an edit landing in it would make
-        that verdict meaningless while looking green.
+        whatever its holder is doing.
         """
         try:
             real = str(pathlib.Path(tree_path).resolve())
@@ -303,26 +302,6 @@ class Board:
             return None
         return pid if "check.sh" in cmd else None
 
-    def session_seen(self, sid):
-        """When the session last touched a tool, or None if the board never saw it.
-
-        The hook touches the session file on every tool call, so its mtime is
-        the last sign of life; SessionEnd (when wired) writes ended_at.
-        """
-        p = self.dir / "sessions" / f"{norm_sid(sid)}.json"
-        try:
-            st = p.stat()
-        except OSError:
-            return None
-        cur = read_json(p) or {}
-        if cur.get("ended_at"):
-            return None
-        return st.st_mtime
-
-    def session_live(self, sid):
-        seen = self.session_seen(sid)
-        return seen is not None and (time.time() - seen) < self.IDLE_MINUTES * 60
-
     def touch_session(self, sid):
         p = self.dir / "sessions" / f"{norm_sid(sid)}.json"
         try:
@@ -336,6 +315,22 @@ class Board:
         p = d / f"{norm_sid(sid)}.json"
         cur = read_json(p) or {"session_id": norm_sid(sid)}
         cur["ended_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        # Every tree this session's actors hold loses its lease now; a tree with
+        # a running gate stays in use through the gate's own pid file.
+        td = self.dir / "trees"
+        if td.is_dir():
+            for tp in td.glob("*.json"):
+                rec = read_json(tp) or {}
+                if norm_sid(rec.get("session")) == norm_sid(sid):
+                    # The lease is the file's mtime, and this write would renew
+                    # it: write the expiry, then put the mtime back before it.
+                    rec["expired_at"] = time.time()
+                    try:
+                        with open(tp, "w") as f:
+                            json.dump(rec, f, indent=1)
+                        os.utime(tp, (rec["expired_at"] - 1, rec["expired_at"] - 1))
+                    except OSError:
+                        pass
         try:
             d.mkdir(parents=True, exist_ok=True)
             with open(p, "w") as f:
@@ -343,30 +338,70 @@ class Board:
         except OSError:
             pass
 
-    def tree_holders(self, tree):
-        """Open cards bound to `tree` (as `wt/<name>`), as (session, card id).
+    LEASE_MINUTES = 45
+    CLAIMANT_SECONDS = 180
 
-        Two sessions once wrote into one worktree for an hour and ran two gates
-        against it at the same time; the identical resulting SHAs read as
-        "independently converged" and meant "there was only ever one tree"
-        (2026-09-05). The cards know who holds a tree; the guard reads them.
+    @staticmethod
+    def actor_of(data):
+        """(session_id, agent_id or main): the per-worker identity the hook can
+        see. A subagent carries its parent's session_id and its own agent_id;
+        the session's own conversation carries no agent_id. Measured 2026-09-06."""
+        return f"{norm_sid(data.get('session_id'))}:{data.get('agent_id') or 'main'}"
+
+    def tree_record(self, name):
+        return read_json(self.dir / "trees" / f"{name}.json")
+
+    def leave_claimant(self, data, cmd):
+        """Leave the actor's identity for a `board bind` about to run.
+
+        The CLI cannot see the agent id; the hook can. Keyed on the card and
+        the tree, which both sides know verbatim (a word hash broke on
+        redirects, pipes and $VARS). Only a segment that IS a bind command
+        counts, not one that mentions the words. A note grants nothing by
+        itself; the CLI's bind does, under its lock.
         """
-        out = []
-        d = self.dir / "cards"
-        if not d.is_dir():
-            return out
-        for p in d.glob("*.json"):
-            c = read_json(p) or {}
-            if str(c.get("tree") or "").rstrip("/") != tree:
+        for seg in re.split(r"&&|\|\||;|\|", HEREDOC.sub(" ", cmd)):
+            seg = seg.strip()
+            m = re.match(r"(?:\S*python3\s+\S*board\.py|board)\s+bind\s+(\d+)\b(.*)$", seg)
+            if not m:
                 continue
-            if c.get("state") in ("done", "released", "parked") or not c.get("session"):
+            t = re.search(r"--tree(?:=|\s+)[\"']?([^\s\"']+)", m.group(2))
+            if not t:
                 continue
-            out.append((norm_sid(c.get("session")), c.get("id")))
-        return out
+            key = f"{int(m.group(1))}|{t.group(1).rstrip('/').split('/')[-1]}"
+            d = self.dir / "claimants"
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+                with open(d / f"{key}.json", "w") as f:
+                    json.dump({"session_id": norm_sid(data.get("session_id")), "agent_id": data.get("agent_id") or "main",
+                               "tool_use_id": data.get("tool_use_id"), "at": time.time()}, f)
+                for old in d.glob("*.json"):
+                    try:
+                        if time.time() - old.stat().st_mtime > self.CLAIMANT_SECONDS:
+                            old.unlink()
+                    except OSError:
+                        pass
+            except OSError:
+                pass
 
-    def foreign_tree(self, sid, path_or_cwd):
-        """The `wt/<name>` under the workspace that `path_or_cwd` is inside, if a
-        card binds it to a session other than `sid`; else None."""
+    def renew_leases(self, actor):
+        """Every tool call by an actor renews the lease of the trees it holds:
+        the record's mtime IS the lease, so a renewal is a touch and cannot
+        race a takeover's write."""
+        d = self.dir / "trees"
+        if not d.is_dir():
+            return
+        for p in d.glob("*.json"):
+            rec = read_json(p) or {}
+            if rec.get("actor") == actor:
+                try:
+                    os.utime(p, None)
+                except OSError:
+                    pass
+
+    def tree_name_of(self, path_or_cwd):
+        """The wt/<name> a path is inside, or None. Segment-exact: wt/openbridge
+        is not wt/openbridge2."""
         try:
             p = pathlib.Path(path_or_cwd)
             if not p.is_absolute():
@@ -375,26 +410,58 @@ class Board:
             wt = (self.root / "wt").resolve()
             if wt not in p.parents:
                 return None
-            name = p.relative_to(wt).parts[0]
+            return p.relative_to(wt).parts[0]
         except (OSError, ValueError, IndexError):
             return None
+
+    def lease_live(self, path, rec):
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return False
+        if rec.get("expired_at") and float(rec["expired_at"]) >= mtime:
+            return False
+        return time.time() - mtime < self.LEASE_MINUTES * 60
+
+    def tree_verdict(self, actor, name):
+        """None when `actor` may write into wt/<name>; else the refusal text.
+
+        The default is refusal: a tree with no holder record is nobody's until
+        `board bind` says whose it is. A tree whose holder is another actor is
+        refused whether that holder is live or not; taking a tree over is
+        `board bind --take`, which checks the lease, the gate and the tree's
+        quiescence and tells the displaced card. Anything that goes wrong in
+        this decision refuses rather than allows: the hook's usual fail-open
+        would here be the collision it exists to prevent.
+        """
         tree = f"wt/{name}"
-        holders = self.tree_holders(tree)
-        if not holders:
-            return None
-        me = norm_sid(sid)
-        if any(h == me for h, _ in holders) or self.is_orchestrator(sid):
-            return None
-        # A holder that has ended, or has not touched a tool for IDLE_MINUTES,
-        # is gone: sessions end all the time without unbinding, and a tree
-        # locked to a session that no longer exists is the claims stranded by
-        # a dead session (card 44) again, once per worktree. The write is
-        # allowed; binding the card afterwards records the takeover.
-        live = [(h, c) for h, c in holders if self.session_live(h)]
-        gate = self.tree_gate_pid(self.root / tree)
-        if not live and gate is None:
-            return None
-        return (tree, live, gate)
+        try:
+            path = self.dir / "trees" / f"{name}.json"
+            rec = read_json(path)
+            if not rec or not rec.get("actor"):
+                return (
+                    f"Refused: {tree} has no holder. Bind your card to it first, then write: "
+                    f"{board_cmd(self.root)} bind <card> --session <your session id> --tree {tree}"
+                )
+            if rec["actor"] == actor:
+                return None
+            gate = self.tree_gate_pid(self.root / tree)
+            age = int((time.time() - path.stat().st_mtime) // 60)
+            live = self.lease_live(path, rec)
+            if gate is not None:
+                how = f"a check.sh is still verifying it (pid {gate}), so nobody but the holder writes until it ends"
+            elif live:
+                how = f"lease live for another {max(0, self.LEASE_MINUTES - age)} min; --take is refused until it expires"
+            else:
+                how = (f"lease expired {age - self.LEASE_MINUTES} min ago; take it over on purpose: "
+                       f"{board_cmd(self.root)} bind <card> --session <your session id> --tree {tree} --take "
+                       f"(refused while the tree has uncommitted work, unless that session has ended; look first: {board_cmd(self.root)} tree {name})")
+            return (
+                f"Refused: {tree} is held by {rec['actor']} for card #{rec.get('card')}; this command would write into it. "
+                f"Two actors in one tree verify nothing. {how}. A tree of your own: ./scripts/wt.sh new <name>"
+            )
+        except Exception as e:  # noqa: BLE001
+            return f"Refused: the tree rule for {tree} could not be evaluated ({type(e).__name__}: {e}); refusing rather than allowing a write into a tree of unknown ownership"
 
     def note_session(self, sid, cwd):
         d = self.dir / "sessions"
@@ -512,39 +579,25 @@ def writes_into_tree(cmd):
     return False
 
 
-def foreign_tree_refusal(board, sid, where):
-    tree, holders, gate = where
-    parts = [
-        f"session {h} (card #{c}, active {int((time.time() - (board.session_seen(h) or time.time())) // 60)} min ago)"
-        for h, c in holders
-    ]
-    if gate is not None:
-        parts.append(f"a check.sh still verifying it (pid {gate}; ps -p {gate} -o etime,command)")
-    who = ", ".join(parts) or "another session"
-    return (
-        f"Refused: {tree} is bound to {who}, and two sessions writing one tree verify nothing "
-        "(the gates each ran against a tree the other was still changing). Work in your own tree: "
-        f"./scripts/wt.sh new <name>, then {board_cmd(board.root)} bind <card> --session {norm_sid(sid)} --tree wt/<name>. "
-        f"A holder idle for {board.IDLE_MINUTES} minutes counts as gone and this refusal lifts by itself; "
-        f"to take a tree over now: {board_cmd(board.root)} bind <card> --session {norm_sid(sid)} --tree {tree} --take"
-    )
-
-
 def pretool(board, data):
     sid = data.get("session_id", "")
     tool = data.get("tool_name", "")
     inp = data.get("tool_input") or {}
     root = board.root
     board.touch_session(sid)
+    actor = board.actor_of(data)
+    board.renew_leases(actor)
 
     if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
         path = inp.get("file_path") or inp.get("notebook_path") or ""
         sroot = scratch_root_of(path, root)
         if sroot is not None:
             block(scratch_refusal(board, sid, data.get("cwd"), path, sroot))
-        where = board.foreign_tree(sid, path)
-        if where:
-            block(foreign_tree_refusal(board, sid, where))
+        name = board.tree_name_of(path)
+        if name:
+            verdict = board.tree_verdict(actor, name)
+            if verdict:
+                block(verdict)
         if under_integration_tree(root, path) and not board.is_integrator(sid):
             block(
                 "Refused: that file is in firmware-next, the integration tree. Work happens in "
@@ -564,19 +617,37 @@ def pretool(board, data):
                 "Refused: a raw `pio run` bypasses the workspace build lock and can corrupt another "
                 "tree's build. Use ./scripts_local/check.sh (or dev.sh / sim-shot.sh) from your tree."
             )
-        # A write from inside another session's tree (the shell's cwd), or one
-        # that names such a tree: the same rule as firmware-next, per tree.
-        body = QUOTED.sub(" ", HEREDOC.sub(" ", cmd))
-        if WRITE_VERB.search(body) or REDIRECT.search(body):
-            candidates = [data.get("cwd") or ""]
-            candidates += [m.group(0) for m in re.finditer(r"(?:/[^\s'\"]*)?wt/[A-Za-z0-9_.-]+/?", cmd)]
-            for cand in candidates:
-                if not cand:
-                    continue
-                cpath = cand if cand.startswith("/") else str(root / cand)
-                where = board.foreign_tree(sid, cpath)
-                if where:
-                    block(foreign_tree_refusal(board, sid, where))
+        board.leave_claimant(data, cmd)
+        # A write into a worktree: from the shell's cwd, from a `cd` earlier
+        # in the same command, or naming the tree. Names are read off the raw
+        # command per path segment (wt/x is not wt/x2), quotes included, so
+        # `bash -c 'cd wt/x && ...'` and "wt/x" count; a bash -c payload is
+        # searched for verbs like the command itself. Destructive git verbs
+        # count whatever else the command says.
+        stripped = HEREDOC.sub(" ", cmd)
+        inner = " ".join(m.group(2) for m in re.finditer(r"\b(?:ba|z)?sh\s+-[a-zA-Z]*c\s+(['\"])(.*?)\1", stripped, re.S))
+        cur = board.tree_name_of(data.get("cwd") or "")
+        cwd_path = pathlib.Path(data.get("cwd") or os.getcwd())
+        for seg in re.split(r"&&|\|\||;|\|", stripped + (" ; " + inner if inner else "")):
+            seg = seg.strip()
+            if not seg:
+                continue
+            m = re.match(r"cd\s+([^\s;&|]+)", seg)
+            if m:
+                target = m.group(1).strip("\"'")
+                tpath = pathlib.Path(target) if target.startswith("/") else cwd_path / target
+                cur = board.tree_name_of(str(tpath))
+                cwd_path = tpath
+                continue
+            seg_body = QUOTED.sub(" ", seg)
+            if not (WRITE_VERB.search(seg_body) or REDIRECT.search(seg_body) or DESTRUCTIVE.search(seg_body)):
+                continue
+            names = [cur] if cur else []
+            names += re.findall(r"(?:^|[\s\"'=(/])wt/([A-Za-z0-9_.-]+)(?=[/\s\"');&|]|$)", seg)
+            for name in dict.fromkeys(n for n in names if n):
+                verdict = board.tree_verdict(actor, name)
+                if verdict:
+                    block(verdict)
         if (
             writes_into_tree(cmd) and not board.is_integrator(sid)
         ):
