@@ -76,7 +76,7 @@
 
   <section class="pn-tools">
     <button class="pn-btn is-wide" id="browseBtn" type="button" aria-expanded="false" aria-controls="grid">
-      Browse all 137
+      Browse all <span id="browseTotal">137</span>
     </button>
 
     <div class="pn-grid-wrap" id="grid" hidden>
@@ -88,6 +88,11 @@
       </div>
       <div class="pn-grid" id="gridCells"></div>
     </div>
+
+    <p class="pn-done" id="doneNote" hidden>
+      All <strong id="doneTotal">137</strong> answered. <strong>Download names.txt</strong> below
+      and hand that to whoever is putting the names on the device.
+    </p>
 
     <details class="pn-io">
       <summary>Save file, export, and where this lives</summary>

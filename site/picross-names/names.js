@@ -277,7 +277,9 @@
     gridCells: document.getElementById("gridCells"),
     browseBtn: document.getElementById("browseBtn"),
     ioNote: document.getElementById("ioNote"),
-    storageNote: document.getElementById("storageNote")
+    storageNote: document.getElementById("storageNote"),
+    doneNote: document.getElementById("doneNote"),
+    io: document.querySelector(".pn-io")
   };
 
   function current() {
@@ -308,6 +310,14 @@
     el.countNameless.textContent = c.nameless;
     el.countLeft.textContent = c.left;
     el.fill.style.width = (total ? (c.done / total) * 100 : 0) + "%";
+
+    // Finished is not the same as delivered. The answers are safe in this
+    // browser either way, but the FILE is the thing the device side needs and
+    // nothing else in the page ever mentions it: a counter reading 0 left is
+    // not an instruction. So the last answer opens the export and says so.
+    var done = c.left === 0;
+    el.doneNote.hidden = !done;
+    if (done && !el.io.open) el.io.open = true;
   }
 
   function showVerdict(name) {
@@ -728,7 +738,12 @@
     "They survive closing the tab and rebooting; they do NOT follow you to another device or another browser, " +
     "and clearing site data erases them. To move between a phone and a laptop, download the save file and load it on the other one.";
   savedNote.textContent = storageNoteText();
+  // Every count on the page comes from the bank, never from a number typed into
+  // the markup: the bank is 137 today and the whole point of reading it is that
+  // nobody has to remember that when it is not.
   el.countTotal.textContent = total;
+  document.getElementById("doneTotal").textContent = total;
+  document.getElementById("browseTotal").textContent = total;
   boot.hidden = true;
   el.main.hidden = false;
 

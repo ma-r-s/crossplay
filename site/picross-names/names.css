@@ -409,3 +409,14 @@
   border: 2px solid var(--ink);
   cursor: pointer;
 }
+
+/* The end of the job. It says what to do next, because a counter reading
+ * "0 left" is a fact and not an instruction, and the FILE is what the device
+ * side needs. */
+.pn-done {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 3px solid var(--ink);
+  background: var(--paper-2);
+  font-size: 0.92rem;
+}
