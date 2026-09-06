@@ -127,12 +127,24 @@ be a file somebody put on the card by hand.
 
 ## The interaction
 
-### No gesture is a hold
+### Nothing here is entered by a hold
 
 `InputManager::wasTouchTap` has **no duration gate**, and an app may only pump
 `mappedInput.update()` when it blocked the loop, so a hold on a screen that
 repaints slowly arrives as an ordinary tap. A feature whose entry gesture is a
-hold is a feature that intermittently does not exist. Nothing here uses one.
+hold is a feature that intermittently does not exist. The chip is a tap.
+
+The hold belongs to card #365's sheet (preview and delete), which merged while
+this was being built. It keeps the hold in **both** modes -- the earlier draft
+of this document said a hold should do nothing while choosing, and that was
+wrong on inspection: the sheet's delete sits behind a confirm that names the
+file, and the classifier's failure mode runs the safe way here (a missed hold
+arrives as a tap, which toggles membership, which is one tap to undo). Previewing
+a picture while picking pictures is also the obvious thing to want.
+
+All four rules that now want this one tap live in `wallpapers::cellAction`,
+which the host suite walks over every combination. Three early returns beside
+each other is how one of them silently wins.
 
 ### Two grid modes, and the chip that switches them
 
@@ -267,21 +279,22 @@ this fork's most repeated bug, and this design adds paging pressure to it. The
 arithmetic is now `wallpapersui::pageCountFor`, freestanding and walked over
 every combination in `host-tests/wallcaption`.
 
-## Composing with PR #147 (`app/wallhold`, hold a tile to preview or delete)
+## What the merge with #143 and #147 settled
 
-Deliberately built on `xteink` rather than merged into #147, so each lands on
-its own. They do not fight for a gesture: #147 owns the **hold**, this owns the
-**tap** and one chip. The resolution when the second of the two merges:
+Both landed on `xteink` while this was being built, so the composition stopped
+being a plan and became a resolution. Three things came out of it:
 
-1. In choosing mode a hold must **not** open the sheet. The sheet offers a
-   delete, and a delete behind a gesture whose classifier misses
-   (`tapWasHeldLong`) must never be reachable from a mode whose taps mean
-   something else.
-2. `saysOnSleepScreen(isMarked, reach)` from #147 answers for a set too, with
-   `isMarked` meaning "in the chosen set" -- but it must also take the
-   shadowed-set fact, for the same reason `shuffleStripLine` does: the sheet
-   asserts "This one is on your sleep screen now.", and behind a stray
-   `/sleep.bmp` that is false for every member but one.
-3. Both edit the tap branch of `WallpapersActivity::loop()` and the chrome
-   model; the conflicts are additive and named here so the resolver does not
-   have to rediscover them.
+1. **`cellAction` grew this card's half** rather than gaining early returns
+   beside it. It now takes `choosing`, `chosenCount` and `shadowedSet` as well
+   as `heldLong` and `sleepBlocked`, and the ordering is asserted as a property
+   over every combination: a hold always opens the sheet, a plain tap never
+   does, choosing always toggles, and a live set is never collapsed.
+2. **The hold sheet now asks `isChosen(index)`**, not `index == activeIndex_`.
+   A member of a live set genuinely is on the sleep screen -- it just takes its
+   turn -- and asking for the pinned index would under-claim for every member
+   of every set, on the screen that is about to delete one. `isChosen` is right
+   in all three shapes: the pin, a set, and a set hidden behind a stray pin
+   (where only the pin is showing).
+3. **`WallpapersCore.h`'s filter-drift audit gained a line.** It said the only
+   bridge between the picker's filter and `findNextValidSleepImage` was the byte
+   copy to `/sleep.bmp`. There are two bridges now, and both are size-checked.

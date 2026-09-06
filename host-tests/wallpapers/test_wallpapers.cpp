@@ -507,6 +507,198 @@ int main() {
     }
   }
 
+  // THE HOLD, and why it is proved here rather than anywhere else.
+  //
+  // InputManager::wasTouchTap has no duration gate, so a five-second hold is
+  // delivered as an ordinary tap and only MappedInputManager::tapWasHeldLong()
+  // can tell the two apart. The simulator never compiles lib/hal and never runs
+  // InputManager (simulator-cannot-test-input-edges), so a screenshot run
+  // cannot see this at all: a hold that never registers on hardware looks clean
+  // there, and one that double-fires looks clean too. This is the proof.
+  {
+    using wallpapers::CellAction;
+    using wallpapers::cellAction;
+
+    // A plain tap keeps the meaning it has always had.
+    CHECK(cellAction(false, false, 3, -1, 0, false, false) == CellAction::Set);
+    CHECK(cellAction(false, false, 3, 7, 0, false, false) == CellAction::Set);
+    // ... except on the wallpaper already in use, where it does nothing.
+    CHECK(cellAction(false, false, 3, 3, 0, false, false) == CellAction::None);
+
+    // Card #354's rule, which arrived on xteink while this branch was open and
+    // has to survive the merge: "already the sleep screen" is a reason to do
+    // nothing only while it can actually BE the sleep screen. With the settings
+    // blocking it, a second tap on the marked wallpaper is the user asking
+    // again after nothing happened, and it must re-pin rather than be
+    // swallowed. This is the case that goes red if the hold work is resolved by
+    // taking its own side of the merge wholesale.
+    CHECK(cellAction(false, false, 3, 3, 0, true, false) == CellAction::Set);
+    // The blocked flag changes nothing anywhere else on the tap path.
+    CHECK(cellAction(false, false, 3, 7, 0, true, false) == CellAction::Set);
+
+    // A hold opens the sheet, and NEVER sets the sleep screen. This is the one
+    // that goes red without the fix: routing a hold as a tap would set a
+    // wallpaper the user was reaching past, with no confirmation and no undo.
+    CHECK(cellAction(true, false, 3, -1, 0, false, false) == CellAction::Sheet);
+    CHECK(cellAction(true, false, 3, 7, 0, false, false) == CellAction::Sheet);
+    // Including on the wallpaper that is already set. Returning None here would
+    // make the sheet unreachable for exactly one wallpaper -- the one wearing
+    // the marker, and so the one most likely to be held.
+    CHECK(cellAction(true, false, 3, 3, 0, false, false) == CellAction::Sheet);
+    // And the hold wins over #354's re-pin too. The two rules would compete if
+    // either were written as an early return beside the other; the hold is
+    // asked FIRST, so a blocked-and-marked wallpaper that is HELD still opens
+    // the sheet rather than silently repairing the settings the user did not
+    // ask about.
+    CHECK(cellAction(true, false, 3, 3, 0, true, false) == CellAction::Sheet);
+
+    // No hold on a cell that is not a wallpaper.
+    CHECK(cellAction(true, false, -1, 0, 0, false, false) == CellAction::None);
+    CHECK(cellAction(false, false, -1, 0, 0, false, false) == CellAction::None);
+    CHECK(cellAction(true, false, -1, 0, 0, true, false) == CellAction::None);
+    CHECK(cellAction(false, false, -1, 0, 0, true, false) == CellAction::None);
+
+    // Said as a property rather than as six cases: a hold is never Set, for any
+    // index and any selection, blocked or not. A future branch added above the
+    // hold check would fail here rather than on the panel -- including one
+    // added by a later merge of the settings rule, which is how the ordering
+    // was lost the first time.
+    for (int blocked = 0; blocked <= 1; ++blocked) {
+      for (int idx = 0; idx < 8; ++idx) {
+        for (int active = -1; active < 8; ++active) {
+          CHECK(cellAction(true, false, idx, active, 0, blocked != 0, false) != CellAction::Set);
+        }
+      }
+    }
+
+    // Card #305's half, and the same argument shape: the rules compose in one
+    // place instead of racing as early returns beside each other.
+
+    // While choosing, a tap is membership -- on a marked one too, because
+    // tapping again is how you take it out.
+    CHECK(cellAction(false, true, 3, -1, 0, false, false) == CellAction::Toggle);
+    CHECK(cellAction(false, true, 3, 3, 1, false, false) == CellAction::Toggle);
+    CHECK(cellAction(false, true, 3, 7, 4, false, false) == CellAction::Toggle);
+
+    // A live set is NEVER collapsed by one stray tap outside the mode. This is
+    // the case that goes red without the rule: it used to return Set, which
+    // replaced the whole set with the one wallpaper touched -- several taps of
+    // work undone by one, silently, under the pixel that meant "add to the set"
+    // one chip-press earlier.
+    CHECK(cellAction(false, false, 3, -1, 2, false, false) == CellAction::Toggle);
+    CHECK(cellAction(false, false, 3, -1, 21, false, false) == CellAction::Toggle);
+    // One chosen is a pinned single, not a set: the tap replaces it, as always.
+    CHECK(cellAction(false, false, 3, 7, 1, false, false) == CellAction::Set);
+    CHECK(cellAction(false, false, 3, -1, 0, false, false) == CellAction::Set);
+
+    // A stray /sleep.bmp hiding a set reads exactly like sleepBlocked does: the
+    // marked wallpaper is not doing what the mark says, so a second tap is the
+    // user asking again and it must re-commit rather than be swallowed.
+    CHECK(cellAction(false, false, 3, 3, 1, false, true) == CellAction::Set);
+    CHECK(cellAction(false, false, 3, 3, 1, false, false) == CellAction::None);
+
+    // The hold still wins over both of #305's branches, for the same reason it
+    // wins over #354's: it is asked first. Said as a property over every
+    // combination rather than as the four cases anybody would think to try --
+    // a branch added above the hold check fails HERE rather than on the panel.
+    for (int choosing = 0; choosing <= 1; ++choosing) {
+      for (int blocked = 0; blocked <= 1; ++blocked) {
+        for (int shadow = 0; shadow <= 1; ++shadow) {
+          for (int chosen = 0; chosen <= 4; ++chosen) {
+            for (int idx = 0; idx < 4; ++idx) {
+              for (int active = -1; active < 4; ++active) {
+                const CellAction held = cellAction(true, choosing != 0, idx, active, chosen, blocked != 0, shadow != 0);
+                CHECK(held == (idx < 0 ? CellAction::None : CellAction::Sheet));
+                // And nothing but a hold ever opens the sheet: a plain tap on
+                // this grid must never reach a screen with a delete on it.
+                CHECK(cellAction(false, choosing != 0, idx, active, chosen, blocked != 0, shadow != 0) !=
+                      CellAction::Sheet);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // WHO IS ALLOWED TO SAY "on your sleep screen", and why it is not the marker.
+  //
+  // This is the defect the merge with #354 CREATED, which neither branch had on
+  // its own. #354 deliberately un-gated loadActive() from sleepScreen ==
+  // CUSTOM, so a wallpaper now wears the grid's marker under DARK, LIGHT, BLANK
+  // and quick-resume as well -- modes where the pinned picture never reaches
+  // the glass. The grid qualifies the marker with its hint strip. The hold
+  // sheet and the delete confirm are THIS branch's screens, they carry no
+  // strip, and both make a flat claim about the sleep screen. Handed the raw
+  // marker they assert something false under exactly the settings #354 exists
+  // to expose.
+  //
+  // Asserted against reachOfPinnedSleep's own classification rather than a
+  // second copy of the mode rules, so this cannot drift away from the predicate
+  // it describes.
+  {
+    using wallpapers::Reach;
+    using wallpapers::saysOnSleepScreen;
+
+    // Not the marked wallpaper: never, whatever the settings do.
+    for (const Reach r : {Reach::Always, Reach::OutsideReaderOnly, Reach::BlockedByQuickResume, Reach::BlockedByMode}) {
+      CHECK(!saysOnSleepScreen(false, r));
+    }
+
+    // Marked and it genuinely shows.
+    CHECK(saysOnSleepScreen(true, Reach::Always));
+    // COVER_CUSTOM still counts: it shows on an ordinary sleep, and the book
+    // cover exception is the strip's to explain. Denying the sentence here
+    // would be the opposite error -- a user told their wallpaper is NOT the
+    // sleep screen while looking at it.
+    CHECK(saysOnSleepScreen(true, Reach::OutsideReaderOnly));
+
+    // Marked, and blocked. These two are the cases that go red without the fix:
+    // the marker is set, so the pre-merge `index == activeIndex_` would have
+    // said yes and put a false sentence on both screens.
+    CHECK(!saysOnSleepScreen(true, Reach::BlockedByQuickResume));
+    CHECK(!saysOnSleepScreen(true, Reach::BlockedByMode));
+
+    // Said against the predicate rather than the enum, so the two cannot
+    // disagree: the sheet may claim the sleep screen exactly when an ordinary
+    // idle sleep, outside a book, actually draws the pinned file.
+    for (uint8_t mode = 0; mode < 8; ++mode) {
+      for (int qr = 0; qr <= 1; ++qr) {
+        const Reach reach = wallpapers::reachOfPinnedSleep(mode, qr != 0);
+        const bool drawsOnIdle = wallpapers::drawsPinnedSleep(mode, qr != 0, true, false);
+        CHECK(saysOnSleepScreen(true, reach) == drawsOnIdle);
+      }
+    }
+  }
+
+  // The confirm's consequence, walked over all four combinations rather than
+  // the one somebody looked at -- a caveat assembled per render is a caveat
+  // that can silently lose a branch (a-warning-that-can-vanish).
+  {
+    using wallpapers::deleteConsequence;
+    const auto has = [](const std::string& hay, const char* needle) { return hay.find(needle) != std::string::npos; };
+    for (int builtIn = 0; builtIn <= 1; ++builtIn) {
+      for (int active = 0; active <= 1; ++active) {
+        const std::string said = deleteConsequence(builtIn != 0, active != 0);
+        CHECK(!said.empty());
+        // The recovery cost, in the terms it is actually paid in: runSetDownload
+        // fetches the WHOLE pack unconditionally, so "the whole set again" is
+        // the honest sentence and "you can get it back" is not.
+        if (builtIn != 0) {
+          CHECK(has(said, "whole set again"));
+          CHECK(!has(said, "only copy"));
+        } else {
+          CHECK(has(said, "cannot be undone"));
+          CHECK(!has(said, "whole set"));
+        }
+        // /sleep.bmp is a copy, so deleting the pinned wallpaper does not take
+        // it off the sleep screen. A user who believed otherwise would delete a
+        // second time looking for an effect that never comes.
+        CHECK(has(said, "sleep screen") == (active != 0));
+      }
+    }
+  }
+
   std::printf("wallpapers: %d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
 }

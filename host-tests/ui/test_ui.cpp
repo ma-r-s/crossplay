@@ -44,6 +44,7 @@
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/ToyboxWrappedText.h"
+#include "../../src/apps_local/wallpapers/WallpapersCore.h"
 #include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
@@ -10100,6 +10101,24 @@ void testTheGlassNeverMovesABodyTop() {
     checkTheGlassDoesNotMoveTheBody<wallpapersui::GridChromeModel, wallpapersui::buildGridChrome>(
         model, "wallpapers grid: the glass does not move the body");
   }
+  // Card 365's two screens, added to card 358's guard rather than left outside
+  // it. The grid above was the only wallpapers screen listed, and these two
+  // reach the panel by a different route (a hold, not a tap), so a clean run of
+  // the list above said nothing at all about them -- which is exactly how the
+  // ten-pixel drop survived in this app while twenty others were right.
+  {
+    wallpapersui::SheetModel model;
+    model.name = "Holiday In Lisbon";
+    checkTheGlassDoesNotMoveTheBody<wallpapersui::SheetModel, wallpapersui::buildSheet>(
+        model, "wallpapers hold sheet: the glass does not move the body");
+  }
+  {
+    wallpapersui::ConfirmModel model;
+    model.name = "Holiday In Lisbon";
+    model.consequence = "Your own wallpaper. The card holds the only copy, so this cannot be undone.";
+    checkTheGlassDoesNotMoveTheBody<wallpapersui::ConfirmModel, wallpapersui::buildConfirm>(
+        model, "wallpapers delete confirm: the glass does not move the body");
+  }
 }
 
 // Moving a body top moves everything under it, and this fork has already
@@ -10387,27 +10406,252 @@ void testWallpapersCaptionNeverCollidesWithArtwork() {
   }
 }
 
-// The empty state names the gap and how to fix it.
+// The empty state names the gap and how to fix it -- and no longer sends anyone
+// to a computer. It named File Transfer until the phone flow existed.
 void testWallpapersEmptyStateSaysSomething() {
   Rendered out;
   wallpapersui::EmptyModel model;
   buildWallpapersEmpty(out, model);
   CHECK(drewText(out, "NO WALLPAPERS"));
-  CHECK(drewText(out, "File Transfer"));
+  CHECK(drewText(out, "+ Add a wallpaper"));
+  CHECK(!drewText(out, "File Transfer"));
 }
 
-// The help card behind the "+ Add a wallpaper" tile names the uploader and how
-// the file reaches the card.
-void testWallpapersHelpCardPointsAtTheUploader() {
+// The address the QR encodes is NOT the one printed large, and the printed
+// second line disappears when there is nothing true to put in it.
+//
+// This pins the fix for a fault the code could already see: startAddServer()
+// logged a failed MDNS.begin() and then encoded the .local name anyway, so the
+// phone said "cannot find server" while the prose blamed the user's WiFi. The
+// activity now hands an EMPTY altUrl in that case, and this asserts the screen
+// draws nothing rather than an address that cannot resolve.
+void testWallpapersAddScreenDropsAnAddressItCannotStandBehind() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  {
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wallpapersui::AddModel model;
+    model.url = "http://crossplay-a1b2c3.local/w";
+    model.altUrl = "http://192.168.1.42/w";
+    const fui::Rect qr = wallpapersui::buildAdd(screen, model);
+    CHECK(drewText(out, "SCAN THIS CODE"));
+    CHECK(drewText(out, "crossplay-a1b2c3.local/w"));
+    CHECK(drewText(out, "192.168.1.42/w"));
+    // The scheme is encoded, never drawn: it costs the address its type cut.
+    CHECK(!drewText(out, "http://crossplay-a1b2c3.local/w"));
+    CHECK(qr.width > 0 && qr.height > 0);
+  }
+  {
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wallpapersui::AddModel model;
+    model.url = "http://192.168.1.42/w";  // mDNS did not start: the address takes the line
+    model.altUrl = nullptr;
+    wallpapersui::buildAdd(screen, model);
+    CHECK(drewText(out, "192.168.1.42/w"));
+    CHECK(!drewText(out, ".local"));
+  }
+}
+
+// The Offer screen is the ONLY screen a factory device shows, so the phone flow
+// has to be reachable from it. It was a sentence, and ActionAddOwn was routed
+// but drawn by nothing at all -- so a new reader could not reach the feature
+// this app is now built around.
+void testWallpapersOfferReachesTheAddFlow() {
   Rendered out;
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
-  wallpapersui::buildHelp(screen);
-  CHECK(drewText(out, "ADD A WALLPAPER"));
-  CHECK(drewText(out, "crossplay.ma-r-s.com/wallpapers"));
-  CHECK(drewText(out, "File Transfer"));
+  wallpapersui::OfferModel model;
+  model.count = 21;
+  model.bytes = 1009302;
+  wallpapersui::buildOffer(screen, model);
+  bool addOwn = false;
+  for (size_t i = 0; i < out.interactions.count(); ++i)
+    if (out.interactions.data()[i].action == wallpapersui::ActionAddOwn) addOwn = true;
+  CHECK(addOwn);
+  CHECK(!out.interactions.overflowed());
+}
+
+// --- Wallpapers: the hold sheet ---------------------------------------------
+
+void buildWallpapersSheet(Rendered& out, const wallpapersui::SheetModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildSheet(screen, model);
+}
+
+void buildWallpapersConfirm(Rendered& out, const wallpapersui::ConfirmModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildConfirm(screen, model);
+}
+
+bool registered(const Rendered& out, const fui::ActionId action) {
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    if (out.interactions.data()[i].action == action) return true;
+  }
+  return false;
+}
+
+// The sheet a hold opens: it names the wallpaper, offers exactly the two things
+// a tap cannot do, and says how to get out of the preview BEFORE opening it --
+// the preview draws no chrome at all, so this is the only place that can.
+void testWallpapersSheetOffersPreviewAndDelete() {
+  Rendered out;
+  wallpapersui::SheetModel model;
+  model.name = "Duerer: Four Horsemen";
+  buildWallpapersSheet(out, model);
+  CHECK(drewText(out, "WALLPAPER"));
+  CHECK(drewText(out, "Duerer: Four Horsemen"));
+  CHECK(drewText(out, "PREVIEW"));
+  CHECK(drewText(out, "DELETE"));
+  CHECK(drewText(out, "tap it to come back"));
+  CHECK(registered(out, wallpapersui::ActionPreview));
+  CHECK(registered(out, wallpapersui::ActionDelete));
+  // The sheet is the SAFE screen: nothing on it deletes anything. That is what
+  // makes reusing its DELETE pixels for the confirm's KEEP IT sound.
+  CHECK(!registered(out, wallpapersui::ActionConfirmDelete));
+}
+
+// The sheet says so when the wallpaper it is about is the one in use, because
+// the delete's consequence differs for it and the user should learn that before
+// the confirm rather than in it.
+void testWallpapersSheetSaysWhenItIsTheOneInUse() {
+  Rendered active;
+  wallpapersui::SheetModel model;
+  model.name = "Bauhaus";
+  model.isActive = true;
+  buildWallpapersSheet(active, model);
+  CHECK(drewText(active, "on your sleep screen now"));
+
+  Rendered idle;
+  model.isActive = false;
+  buildWallpapersSheet(idle, model);
+  CHECK(!drewText(idle, "on your sleep screen now"));
+}
+
+// The confirm carries BOTH halves and says what deleting costs. The consequence
+// text itself is proved over all four of its combinations in
+// host-tests/wallpapers; this is that it reaches the panel at all.
+void testWallpapersConfirmSaysTheCostAndOffersBoth() {
+  Rendered out;
+  wallpapersui::ConfirmModel model;
+  model.name = "Bauhaus";
+  // Held in a named local: c_str() on the temporary would dangle before the
+  // builder ever read it, and the panel would draw whatever was left on the
+  // stack -- which is exactly the class of bug toybox::detail::OwnedDevice
+  // exists for.
+  const std::string cost = wallpapers::deleteConsequence(true, true);
+  model.consequence = cost.c_str();
+  buildWallpapersConfirm(out, model);
+  CHECK(drewText(out, "DELETE WALLPAPER"));
+  CHECK(drewText(out, "Bauhaus"));
+  CHECK(drewText(out, "whole set again"));
+  CHECK(drewText(out, "KEEP IT"));
+  CHECK(drewText(out, "DELETE IT"));
+  CHECK(registered(out, wallpapersui::ActionKeep));
+  CHECK(registered(out, wallpapersui::ActionConfirmDelete));
+}
+
+// A wallpaper the user added is named by its FILE, and the sheet must SHRINK
+// that name rather than mark it: no Toybox cut above toybox_10 carries U+2026,
+// so an ellipsis there draws as a hole and the name stops with a gap after it.
+// wallcaption proves toybox::fittedTitle behaves; this proves buildSheet CALLS
+// it, which is the half a helper-only test cannot see -- the builder used a
+// bare fitLines at the display cut until this went in.
+void testWallpapersSheetShrinksALongNameRatherThanMarkingIt() {
+  const auto runFor = [](const Rendered& out, const char* needle, fui::TextStyle& style) {
+    for (const auto& run : out.target.texts) {
+      if (run.text.find(needle) == std::string::npos) continue;
+      style = run.style;
+      return true;
+    }
+    return false;
+  };
+
+  Rendered shortName;
+  wallpapersui::SheetModel sm;
+  sm.name = "Bauhaus";
+  buildWallpapersSheet(shortName, sm);
+  fui::TextStyle shortStyle{};
+  CHECK(runFor(shortName, "Bauhaus", shortStyle));
+  CHECK(shortStyle.font == fui::FONT_SLOT_TITLE);  // a name that fits keeps the display cut
+
+  Rendered longName;
+  const char* huge = "supercalifragilisticexpialidociouswallpaperfromaphone";
+  sm.name = huge;
+  buildWallpapersSheet(longName, sm);
+  fui::TextStyle longStyle{};
+  bool found = false;
+  std::string drawn;
+  for (const auto& run : longName.target.texts) {
+    if (run.text.compare(0, 6, "superc") != 0) continue;
+    longStyle = run.style;
+    drawn = run.text;
+    found = true;
+  }
+  CHECK(found);
+  // Either it kept the whole name (by stepping down), or it marked it -- and if
+  // it marked it, only in the one cut that can draw the mark.
+  CHECK(drawn == huge || longStyle.font == fui::FONT_SLOT_SMALL);
+  // It must not still be sitting on the display cut untouched and overflowing.
+  CHECK(!(drawn == huge && longStyle.font == fui::FONT_SLOT_TITLE));
+}
+
+// The whole defence against same-pixel-different-action, asserted on the rects
+// the builders actually draw into rather than on the ones they were meant to.
+// wallcaption proves the same identity against the published helpers; this
+// proves the SHEET AND THE CONFIRM USE THEM, which is the half a helper-only
+// test cannot see.
+void testWallpapersConfirmReusesTheSheetsDeletePixelsForItsSafeHalf() {
+  const fui::DeviceContext ctx = device();
+  const fui::Rect sheetDelete = wallpapersui::sheetDeleteRect(ctx);
+  const fui::Rect kill = wallpapersui::confirmDeleteRect(ctx);
+
+  const auto rectOf = [](const Rendered& out, fui::ActionId action, fui::Rect& found) {
+    for (size_t i = 0; i < out.interactions.count(); ++i) {
+      if (out.interactions.data()[i].action != action) continue;
+      found = out.interactions.data()[i].rect;
+      return true;
+    }
+    return false;
+  };
+
+  Rendered sheet;
+  wallpapersui::SheetModel sm;
+  sm.name = "Bauhaus";
+  buildWallpapersSheet(sheet, sm);
+  fui::Rect drawnSheetDelete{};
+  CHECK(rectOf(sheet, wallpapersui::ActionDelete, drawnSheetDelete));
+  CHECK(drawnSheetDelete.x == sheetDelete.x && drawnSheetDelete.y == sheetDelete.y &&
+        drawnSheetDelete.width == sheetDelete.width && drawnSheetDelete.height == sheetDelete.height);
+
+  Rendered confirm;
+  wallpapersui::ConfirmModel cm;
+  cm.name = "Bauhaus";
+  cm.consequence = "x";
+  buildWallpapersConfirm(confirm, cm);
+  fui::Rect drawnKeep{};
+  fui::Rect drawnKill{};
+  CHECK(rectOf(confirm, wallpapersui::ActionKeep, drawnKeep));
+  CHECK(rectOf(confirm, wallpapersui::ActionConfirmDelete, drawnKill));
+
+  // A second press of the pixels that opened this screen CANCELS.
+  CHECK(drawnKeep.x == drawnSheetDelete.x && drawnKeep.y == drawnSheetDelete.y &&
+        drawnKeep.width == drawnSheetDelete.width && drawnKeep.height == drawnSheetDelete.height);
+  // And the destructive button is somewhere else entirely.
+  CHECK(drawnKill.y == kill.y);
+  CHECK(!(drawnKill.y < drawnSheetDelete.y + drawnSheetDelete.height &&
+          drawnSheetDelete.y < drawnKill.y + drawnKill.height));
 }
 
 // The layout is DERIVED now (positions hang off screen.body().y and off each
@@ -10655,7 +10899,15 @@ int main() {
   testWallpapersChromeWarningVerbatim();
   testWallpapersEmptyStateSaysSomething();
   testWallpapersCaptionNeverCollidesWithArtwork();
-  testWallpapersHelpCardPointsAtTheUploader();
+  // testWallpapersHelpCardPointsAtTheUploader is NOT here: app/wallqr deleted
+  // buildHelp and the test with it. Both sides' remaining wallpapers tests run.
+  testWallpapersSheetOffersPreviewAndDelete();
+  testWallpapersSheetSaysWhenItIsTheOneInUse();
+  testWallpapersConfirmSaysTheCostAndOffersBoth();
+  testWallpapersSheetShrinksALongNameRatherThanMarkingIt();
+  testWallpapersConfirmReusesTheSheetsDeletePixelsForItsSafeHalf();
+  testWallpapersAddScreenDropsAnAddressItCannotStandBehind();
+  testWallpapersOfferReachesTheAddFlow();
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();

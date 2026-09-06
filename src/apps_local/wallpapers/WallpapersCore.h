@@ -39,15 +39,35 @@ inline constexpr char kShuffleDir[] = "/.sleep";
 // trusted when that file exists and the sleep mode is CUSTOM.
 inline constexpr char kActiveMarker[] = "/wallpapers/.active";
 
-// A wallpaper file is a plain `.bmp` whose name does not start with '.'. That
-// is the NAME half of the sleep system's own findNextValidSleepImage filter,
-// and the two are not the same rule: upstream also parses each candidate's BMP
-// headers and skips the ones that fail, which a name cannot see. So this is a
-// necessary condition, not a sufficient one -- everything it rejects the sleep
-// screen rejects, and a file it accepts can still be skipped for being
-// unreadable. Everything this app itself writes is size-checked at
-// kWallpaperFileBytes on the way in, so the gap is only ever a file somebody
-// put on the card by hand.
+// A wallpaper file is a plain `.bmp` whose name does not start with '.'.
+//
+// This used to claim it "matches the sleep system's own findNextValidSleepImage
+// filter exactly ... the two filters cannot drift, because they are the same
+// rule". That was false, and a comment asserting a safety property nothing
+// enforces is worse than no comment. They are two different rules and a
+// 2026-09-05 audit found six ways they disagree:
+//
+//   * this one checks the NAME only; findNextValidSleepImage also requires
+//     Bitmap::parseHeaders() == Ok, so a corrupt file named .bmp is listed here
+//     and skipped there;
+//   * a BMP over 2048x3072, at 16bpp, or RLE-compressed is listed here and
+//     rejected there (Bitmap.cpp:109-131);
+//   * .png is accepted there in overlay mode and never here;
+//   * names of 128..255 bytes are listed there and dropped here (this app's
+//     buffer is 128, and SdFat returns "" rather than truncating);
+//   * the 257th file in a folder is counted there and hidden here (kMaxLibrary);
+//   * a valid BMP whose size is not kWallpaperFileBytes is listed here and
+//     cannot be set at all -- setWallpaper refuses and the caller shows nothing.
+//
+// The two also never read the same directory: this filter walks /wallpapers,
+// and findNextValidSleepImage only ever walks /.sleep, /sleep and the two
+// overlay folders. The bridges between them are the byte copies this app makes
+// -- to /sleep.bmp for one chosen wallpaper, into /.sleep for a set -- and both
+// are size-checked at kWallpaperFileBytes on the way, so a file this app puts
+// where the sleep screen looks is one the sleep screen accepts. A file somebody
+// dropped in /.sleep by hand is the gap.
+// host-tests/wallpapers asserts the name half, which is why the drift was
+// untested rather than caught.
 bool isSupportedWallpaper(std::string_view name);
 
 // The free-space precondition. The device cannot measure free space reliably
@@ -90,6 +110,68 @@ bool isBuiltInFile(std::string_view fileName);
 // alphabetical. Mario's ask -- your own pictures should not be buried behind
 // twenty-one defaults.
 bool sortsBefore(std::string_view a, std::string_view b);
+
+// What a tap that landed on a wallpaper cell MEANS. Freestanding because it is
+// the one decision on this screen that a wrong answer makes destructive, and a
+// decision left inside loop() cannot be asserted anywhere -- the simulator never
+// compiles lib/hal and never runs InputManager, so the host suite is the only
+// place this can be proved at all.
+//
+// `heldLong` is MappedInputManager::tapWasHeldLong(): the SDK's wasTouchTap has
+// no duration gate, so a hold arrives here as an ordinary tap and only that
+// call tells the two apart. It wins over every other branch, INCLUDING the
+// already-set one: holding the wallpaper you are already using is how you reach
+// its preview and its delete, and returning None there would make the sheet
+// unreachable for exactly one wallpaper -- the one most likely to be held.
+//
+// `sleepBlocked` is card #354's rule, folded in here rather than left as an
+// early return beside this call, because the two would otherwise compete for
+// the same tap. "Already the sleep screen" is a reason to do NOTHING only when
+// it can actually BE the sleep screen; when the settings block it, tapping the
+// marked wallpaper again is what a person does after nothing happened, and it
+// must re-pin and repair the settings. Holding it still opens the sheet, which
+// is the ordering the two cards together require.
+//
+// `choosing`, `chosenCount` and `shadowedSet` are card #305's half, folded in
+// here for the same reason #354's was: three cards now want this one tap, and
+// three early returns beside each other is how one of them silently wins.
+//
+//   * choosing: a tile tap adds or removes that wallpaper. A hold still opens
+//     the sheet -- the delete behind it needs a second deliberate tap on a
+//     screen that names the file, and previewing a picture while picking
+//     pictures is the obvious thing to want.
+//   * a live set (two or more chosen) and NOT choosing: the tap opens the set
+//     for editing with that tile toggled. It must never collapse the set to one
+//     wallpaper: that is several taps of work undone by one, silently, under
+//     the pixel that meant "add to the set" one chip-press earlier.
+//   * shadowedSet: a stray /sleep.bmp (BmpViewerActivity, the File Transfer
+//     page, a power cut mid-commit) is hiding a set. Tapping the marked
+//     wallpaper is the user asking again, exactly as under sleepBlocked, and
+//     re-committing is what clears the shadow.
+enum class CellAction : uint8_t {
+  None,    // nothing to do (a plain tap on the wallpaper already in use)
+  Set,     // pin it as the sleep screen, alone
+  Sheet,   // open the hold sheet for it
+  Toggle,  // add it to the chosen set, or take it out
+};
+CellAction cellAction(bool heldLong, bool choosing, int index, int activeIndex, int chosenCount, bool sleepBlocked,
+                      bool shadowedSet);
+
+// What the delete confirm has to say, before it is asked. Two clauses, each
+// conditional, and a caveat assembled per render is a caveat that can silently
+// lose a branch (a-warning-that-can-vanish) -- so it is built HERE, where a
+// host test walks all four combinations rather than the one somebody looked at.
+//
+// Clause 1, for a built-in: recovery is NOT an undo. runSetDownload fetches the
+// whole ~1MB pack unconditionally (no Range), behind the WiFi picker and behind
+// a 12MB + pack free-space floor; only the unpack skips files already present.
+// So the honest sentence is "the whole set again", not "you can get it back".
+//
+// Clause 2, for the wallpaper currently pinned: /sleep.bmp is a COPY, so
+// deleting the library file does not take the picture off the sleep screen. A
+// confirm that let the user believe it did would be wrong in the direction that
+// makes them delete twice.
+std::string deleteConsequence(bool builtIn, bool isActive);
 
 // ---------------------------------------------------------------------------
 // Does the pinned wallpaper actually reach the glass?
@@ -148,6 +230,24 @@ enum class Reach : uint8_t {
   BlockedByMode,         // the sleep screen is set to something that never reads /sleep.bmp
 };
 Reach reachOfPinnedSleep(uint8_t sleepScreenMode, bool quickResumeAfterTimeout);
+
+// Whether the hold sheet and the delete confirm get to SAY a wallpaper is on
+// the sleep screen. Not the same question as the grid's marker, and the two
+// came apart in the merge that brought #354 onto this branch.
+//
+// The marker asks "is this the pinned file", and #354 deliberately widened it:
+// loadSelection() is no longer gated on sleepScreen == CUSTOM, so a wallpaper
+// wears the marker under DARK, LIGHT, BLANK and quick-resume too. The grid
+// qualifies that with the hint strip. The sheet ("This one is on your sleep
+// screen now.") and the confirm ("It stays on your sleep screen until you pick
+// another.") carry no strip and no room for one, so they ask the stronger
+// question here instead -- otherwise both assert something false under exactly
+// the settings #354 exists to expose.
+//
+// OutsideReaderOnly still counts as yes: the picture does show on an ordinary
+// sleep, and the book-cover exception is the strip's to explain, not a reason
+// to deny the sentence outright.
+bool saysOnSleepScreen(bool isMarked, Reach reach);
 
 // The sentence for the picker's hint strip when NOTHING was selected this
 // session, or nullptr when there is nothing to say. Short on purpose: the strip
