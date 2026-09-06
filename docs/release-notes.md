@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.45
+
+- Replace the bank with Mario's 199-puzzle pack, four size tiers
+
 ### 1.12.44
 
 - Picross: 10x10 only, asterisk mistakes, auto-marking, key paging
