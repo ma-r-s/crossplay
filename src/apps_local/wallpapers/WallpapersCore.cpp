@@ -103,6 +103,32 @@ DisplayName displayName(std::string_view fileName) {
   return DisplayName{own, own};
 }
 
+CellAction cellAction(const bool heldLong, const int index, const int activeIndex, const bool sleepBlocked) {
+  if (index < 0) return CellAction::None;
+  // FIRST, above every other branch. A hold that the SDK classified as a tap is
+  // still a hold, and the thing the user was reaching past is setWallpaper --
+  // which has no confirmation and no undo.
+  if (heldLong) return CellAction::Sheet;
+  // #354: doing nothing on the marked wallpaper is right only while that mark
+  // is TRUE. When the settings block it from ever reaching the glass, a second
+  // tap is the user asking again, and swallowing it is the bug that card fixed.
+  if (index == activeIndex && !sleepBlocked) return CellAction::None;
+  return CellAction::Set;
+}
+
+std::string deleteConsequence(const bool builtIn, const bool isActive) {
+  std::string out;
+  if (builtIn) {
+    out += "A built-in wallpaper. Getting it back means downloading the whole set again, not just this one.";
+  } else {
+    out += "Your own wallpaper. The card holds the only copy, so this cannot be undone.";
+  }
+  if (isActive) {
+    out += " It stays on your sleep screen until you pick another.";
+  }
+  return out;
+}
+
 bool drawsPinnedSleep(const uint8_t sleepScreenMode, const bool quickResumeAfterTimeout, const bool fromTimeout,
                       const bool fromReader) {
   // 1. Quick resume short-circuits every mode, including the custom ones.
@@ -126,6 +152,11 @@ Reach reachOfPinnedSleep(const uint8_t sleepScreenMode, const bool quickResumeAf
   if (!onTimeout) return Reach::BlockedByQuickResume;
   return drawsPinnedSleep(sleepScreenMode, quickResumeAfterTimeout, true, true) ? Reach::Always
                                                                                 : Reach::OutsideReaderOnly;
+}
+
+bool saysOnSleepScreen(const bool isMarked, const Reach reach) {
+  if (!isMarked) return false;
+  return reach == Reach::Always || reach == Reach::OutsideReaderOnly;
 }
 
 const char* reachHint(const Reach reach) {

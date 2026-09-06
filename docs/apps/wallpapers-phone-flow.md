@@ -158,13 +158,16 @@ generation fails). In `DARK`, `LIGHT`, `COVER`, `BLANK`, `QUICK_RESUME` and
 `TRANSPARENT_CUSTOM` it is silently ignored -- and `TRANSPARENT_CUSTOM` does not
 read `/sleep.bmp` or `/.sleep` at all, only the four `sleep-overlay` slots.
 
-**And even `CUSTOM` is not sufficient**, which is card #354 and not this card's
-to fix: `quickResumeSleepScreen == QUICK_RESUME_AFTER_TIMEOUT` short-circuits
-*above* the mode switch (`SleepActivity.cpp:500-507`) whenever `fromTimeout`,
-which is the ordinary idle sleep. So the wallpaper is only seen when the device
-is slept by hand. There is a reachable path where that flag sticks on
-permanently, and `setWallpaper` forcing `sleepScreen = CUSTOM` without the sync
-call is part of it.
+**And even `CUSTOM` is not sufficient**: `quickResumeSleepScreen ==
+QUICK_RESUME_AFTER_TIMEOUT` short-circuits *above* the mode switch
+(`SleepActivity.cpp:500-507`) whenever `fromTimeout`, which is the ordinary idle
+sleep. So the wallpaper is only seen when the device is slept by hand.
+
+**FIXED, by card #354 (PR #145), which has since merged into this branch.**
+`setWallpaper` now applies `wallpapers::choiceForSetWallpaper`, which clears the
+timeout quick-resume flag as well as moving the mode, so choosing a wallpaper no
+longer leaves it unreachable on every idle sleep. The paragraph above describes
+the defect, not the current code.
 
 That is what the hint strip is for, and it is why the strip carries a sentence
 rather than a marker: no per-cell mark can express "your settings mean none of
@@ -193,9 +196,24 @@ critic showed that is false in two ways, both verifiable in
   short-circuited entirely by quick-resume. In BLANK, COVER, or
   `TRANSPARENT_CUSTOM`, nothing the picker shows reaches the glass at all.
 
-The existing code already knows this -- `loadActive()` returns early unless the
-mode is CUSTOM (`WallpapersActivity.cpp:103`) -- and the first draft silently
-dropped that guard.
+The code at the time of writing knew this by returning early from
+`loadActive()` unless the mode was CUSTOM, and the first draft silently dropped
+that guard.
+
+**That guard is gone now, deliberately, and it is not a regression.** Card #354
+deleted it because it was wrong in both directions: it hid the marker under
+`COVER_CUSTOM`, where the wallpaper genuinely does show, and it drew the marker
+at full confidence under `CUSTOM`-plus-quick-resume, where it never does.
+`activeIndex_` is therefore now set whatever the sleep mode, and what qualifies
+it is `wallpapers::reachOfPinnedSleep` feeding the hint strip.
+
+The consequence for the screens added by card #365 (hold to preview or delete),
+which is the one thing the two cards together got wrong: the sheet and the
+delete confirm each make a flat claim about the sleep screen and carry no strip
+to qualify it, so they must not read the raw marker. They ask
+`wallpapers::saysOnSleepScreen(isMarked, reach)` instead, which is true only
+where an ordinary idle sleep actually draws the file. Neither card had this
+defect alone.
 
 **So the marker means "chosen here", which is all the app can honestly claim**,
 and the screen says the rest: when `SETTINGS.sleepScreen` is not a mode that
@@ -537,8 +555,49 @@ Four pull requests, in this order. The first is a prerequisite for the third.
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | 0   | **The tap/hold gate.** Refuse a tap held longer than the long-press threshold, with a host test that fails when the bound is reverted.                                                                                            | nothing    |
 | 1   | **QR + upload.** The new screen, `wallpapersOnly` server mode, the devmode latch, a real bind-failure path, `roomFor` on upload, `.davtmp` sweeping, collision naming, the Wi-Fi short-circuit. Grid stays tap-only.              | nothing    |
-| 2   | **Hold sheet: preview, delete, confirm.** Including the honest "getting it back means the whole pack again" wording and the `specialTiles()` renumbering.                                                                         | PR 0       |
+| 2   | **Hold sheet: preview, delete, confirm.** DONE, card #365 -- see "What PR 2 shipped" below. | PR 0       |
 | 3   | **Shuffle (#305).** Selection mode, the `.placed` manifest, the sleep-mode honesty line. Its prerequisite audit is DONE (Part 2), and #354 should land first or the honesty line is telling half the truth. | PR 0, PR 2 |
+
+### What PR 2 shipped, and the two things it settled differently
+
+Built on card #365, stacked on this branch because `tapWasHeldLong()` is PR 0's
+and lives here.
+
+**The defence against `same-pixel-different-action` is a rectangle identity, not
+a rule.** `confirmKeepRect()` returns exactly `sheetDeleteRect()`: the confirm's
+SAFE half occupies the pixels the button that opened it did. A second press of
+the same spot -- a double tap, an impatient repeat during a 0.3-2s e-ink
+repaint, a finger that never moved -- cancels, because there is nothing
+destructive there to hit. `confirmDeleteRect()` overlaps neither sheet control.
+`host-tests/wallcaption` asserts the identity and the separation at both insets.
+
+**What that does NOT buy, said plainly:** the confirm's DELETE does sit over the
+grid's cells. It cannot not -- the cells span y 134..758 of an 800px panel and
+the only cell-free bands are 46px, 24px and 42px, none of which holds a 64px
+finger target. The grid is two screens and one 500ms hold away, and
+`RevealedInteractions::route()` refuses any tap routed against a table the panel
+has not shown, so no single remembered tap can reach it.
+
+**Preview draws no chrome at all.** It is what the sleep screen puts on the
+glass; a hint band over it would be a preview of something that never appears.
+The way out is said on the sheet instead, where there is room for it. The
+placement arithmetic is `SleepActivity`'s non-oversize branch reproduced rather
+than called: `calculateBitmapPlacement` is file-local to upstream's
+`SleepActivity.cpp` and widening it is not ours to do. It is the identity for
+every wallpaper this app ships or produces, all of which are exactly 480x800.
+
+**One layout defect only a render could find.** At the first cut the button
+stack sat at y=380, which left the confirm's prose five 42px lines for a
+sentence that needs six. The clause it dropped was the second one -- "it stays
+on your sleep screen until you pick another" -- so the confirm for the wallpaper
+actually in use lost the only line that was about it. `host-tests/ui` cannot see
+this (its target answers ten pixels a character); `wallcaption` now measures all
+four combinations against the real box in the real face, and the stack sits at
+470.
+
+**Sorting was already done.** `wallpapers::sortsBefore` puts a user's own files
+ahead of the built-ins and has since the picker shipped; PR 2 confirmed it in a
+render rather than rewriting it.
 
 PR 1 is the whole of Mario's first ask and the only piece with a security
 surface. It is also the only one that needs his eyes on a screen before it is

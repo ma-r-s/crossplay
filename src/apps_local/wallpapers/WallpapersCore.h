@@ -99,6 +99,49 @@ bool isBuiltInFile(std::string_view fileName);
 // twenty-one defaults.
 bool sortsBefore(std::string_view a, std::string_view b);
 
+// What a tap that landed on a wallpaper cell MEANS. Freestanding because it is
+// the one decision on this screen that a wrong answer makes destructive, and a
+// decision left inside loop() cannot be asserted anywhere -- the simulator never
+// compiles lib/hal and never runs InputManager, so the host suite is the only
+// place this can be proved at all.
+//
+// `heldLong` is MappedInputManager::tapWasHeldLong(): the SDK's wasTouchTap has
+// no duration gate, so a hold arrives here as an ordinary tap and only that
+// call tells the two apart. It wins over every other branch, INCLUDING the
+// already-set one: holding the wallpaper you are already using is how you reach
+// its preview and its delete, and returning None there would make the sheet
+// unreachable for exactly one wallpaper -- the one most likely to be held.
+//
+// `sleepBlocked` is card #354's rule, folded in here rather than left as an
+// early return beside this call, because the two would otherwise compete for
+// the same tap. "Already the sleep screen" is a reason to do NOTHING only when
+// it can actually BE the sleep screen; when the settings block it, tapping the
+// marked wallpaper again is what a person does after nothing happened, and it
+// must re-pin and repair the settings. Holding it still opens the sheet, which
+// is the ordering the two cards together require.
+enum class CellAction : uint8_t {
+  None,   // nothing to do (a plain tap on the wallpaper already in use)
+  Set,    // pin it as the sleep screen
+  Sheet,  // open the hold sheet for it
+};
+CellAction cellAction(bool heldLong, int index, int activeIndex, bool sleepBlocked);
+
+// What the delete confirm has to say, before it is asked. Two clauses, each
+// conditional, and a caveat assembled per render is a caveat that can silently
+// lose a branch (a-warning-that-can-vanish) -- so it is built HERE, where a
+// host test walks all four combinations rather than the one somebody looked at.
+//
+// Clause 1, for a built-in: recovery is NOT an undo. runSetDownload fetches the
+// whole ~1MB pack unconditionally (no Range), behind the WiFi picker and behind
+// a 12MB + pack free-space floor; only the unpack skips files already present.
+// So the honest sentence is "the whole set again", not "you can get it back".
+//
+// Clause 2, for the wallpaper currently pinned: /sleep.bmp is a COPY, so
+// deleting the library file does not take the picture off the sleep screen. A
+// confirm that let the user believe it did would be wrong in the direction that
+// makes them delete twice.
+std::string deleteConsequence(bool builtIn, bool isActive);
+
 // ---------------------------------------------------------------------------
 // Does the pinned wallpaper actually reach the glass?
 //
@@ -156,6 +199,24 @@ enum class Reach : uint8_t {
   BlockedByMode,         // the sleep screen is set to something that never reads /sleep.bmp
 };
 Reach reachOfPinnedSleep(uint8_t sleepScreenMode, bool quickResumeAfterTimeout);
+
+// Whether the hold sheet and the delete confirm get to SAY a wallpaper is on
+// the sleep screen. Not the same question as the grid's marker, and the two
+// came apart in the merge that brought #354 onto this branch.
+//
+// The marker asks "is this the pinned file", and #354 deliberately widened it:
+// loadActive() is no longer gated on sleepScreen == CUSTOM, so a wallpaper
+// wears the marker under DARK, LIGHT, BLANK and quick-resume too. The grid
+// qualifies that with the hint strip. The sheet ("This one is on your sleep
+// screen now.") and the confirm ("It stays on your sleep screen until you pick
+// another.") carry no strip and no room for one, so they ask the stronger
+// question here instead -- otherwise both assert something false under exactly
+// the settings #354 exists to expose.
+//
+// OutsideReaderOnly still counts as yes: the picture does show on an ordinary
+// sleep, and the book-cover exception is the strip's to explain, not a reason
+// to deny the sentence outright.
+bool saysOnSleepScreen(bool isMarked, Reach reach);
 
 // The sentence for the picker's hint strip when NOTHING was selected this
 // session, or nullptr when there is nothing to say. Short on purpose: the strip
