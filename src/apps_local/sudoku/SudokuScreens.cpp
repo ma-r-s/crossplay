@@ -31,7 +31,10 @@ namespace sk = sudoku;
 constexpr int16_t kCell = 50;
 constexpr int16_t kGridSide = kCell * sk::kSize;
 constexpr int16_t kBoardOuter = kGridSide + 2 * toybox::kBoardFrame;
-constexpr int16_t kBoardTop = toybox::kHeaderHeight + toybox::kMargin;
+// From the whole chrome, band and rule alike. kHeaderHeight + kMargin looks
+// like a generous margin and is a nine-pixel gap, because the rule under the
+// band is not in the constant it was measured from.
+constexpr int16_t kBoardTop = toybox::kChromeHeight + toybox::kGutter;
 
 // The keys abut, and the gap between two of them is their own two outlines.
 // A real gap would be pixels that belong to no key, and `padKeyAt` would either
@@ -116,7 +119,6 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 

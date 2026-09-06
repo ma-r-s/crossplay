@@ -25,7 +25,6 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = 
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
@@ -398,8 +397,10 @@ int mapsPerPage() {
   // The band the dots occupy is always reserved, even on a one-page list. It
   // costs a little white space there and it keeps this function from depending
   // on its own answer.
-  const int16_t room = static_cast<int16_t>(800 - toybox::kHeaderHeight - 4 - toybox::kRule - toybox::kGutter * 3 -
-                                            toybox::kMargin - kDotsBand);
+  // kChromeHeight, not the band plus a hand-spelled gap and rule: the same
+  // number, but one that moves when the chrome does.
+  const int16_t room =
+      static_cast<int16_t>(800 - toybox::kChromeHeight - toybox::kGutter * 3 - toybox::kMargin - kDotsBand);
   const int fits = (room + toybox::kGutter) / (kMapCard + toybox::kGutter);
   return fits < 1 ? 1 : fits;
 }

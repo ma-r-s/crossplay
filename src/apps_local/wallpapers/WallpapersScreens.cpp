@@ -13,9 +13,19 @@ namespace wallpapersui {
 
 namespace {
 
-// The top of the body: below the header band and the rule Toybox draws under
-// it, matching the other apps so the grid lines up with the shelf it came from.
-constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter);
+// The top of the body: below the header band AND the rule Toybox draws under
+// it, which is what kChromeHeight names -- kHeaderHeight is the band alone, so
+// this read as a gutter of clearance and was five pixels.
+//
+// NOT the same row as the shelf's, and the comment here used to claim it was.
+// Every caller below adds safe.y to this (see gridGeom and buildEmpty), while
+// the chrome it is measured from is pinned at panel row 0 by absoluteChrome --
+// so on the X4 Pro this body starts ten pixels lower than Hacker News' or the
+// shelf's, which do not add it. That predates card #248 and is left alone here
+// rather than fixed blind: it is an alignment BETWEEN apps, the ui suite builds
+// every screen with an empty safe area and cannot see it, and moving two apps
+// up by ten pixels is a change to look at on the panel. Card #358.
+constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter);
 // A fixed strip under the chrome for the free-space advisory or the "nothing is
 // set yet" hint. Fixed so the grid's top does not jump when a hint appears.
 constexpr int16_t kHintH = 30;
@@ -160,7 +170,6 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
     header.subtitleText.color = fui::Color::White;
   }
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
@@ -233,17 +242,31 @@ int cellAt(const GridGeom& g, int x, int y) {
   return -1;
 }
 
+int16_t hintTextWidth(const fui::Rect& safe) { return static_cast<int16_t>(safe.width - toybox::kMargin * 2); }
+
+int16_t hintStripHeight() { return kHintH; }
+
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
   chrome(screen, model.title, model.rightLabel);
 
-  // The hint strip, at a fixed place so the grid below it never moves. The
-  // free-space advisory wins the strip when present; otherwise, if nothing is
-  // set yet, it says so -- a grid with no thick border and no words reads as a
-  // selection that failed to draw.
+  // The hint strip, at a fixed place so the grid below it never moves. One
+  // line, and three things want it; the order is settled just below.
   const fui::Rect safe = screen.frame().safeRect();
   const int16_t hintY = static_cast<int16_t>(safe.y + kBodyTop);
   const char* line = nullptr;
-  if (model.warning != nullptr && model.warning[0] != '\0') {
+  // The sleep-screen note wins, ahead of the free-space advisory. The honest
+  // statement of that trade: on a filling card with a sleep-screen note to
+  // show, the space advisory does not appear on THIS screen for the rest of the
+  // session, because warning_ is computed once per onEnter and never refreshed.
+  //
+  // It wins anyway because the advisory has other voices and the note has none.
+  // A pin that actually fails now raises the Notice screen, and buildOffer and
+  // buildEmpty draw the same warning in their own full body width. A wallpaper
+  // that cannot reach the glass is contradicted by the marker drawn beside it
+  // and by nothing else, which is card #354 exactly.
+  if (model.note != nullptr && model.note[0] != '\0') {
+    line = model.note;
+  } else if (model.warning != nullptr && model.warning[0] != '\0') {
     line = model.warning;
   } else if (!model.hasActive) {
     // Short enough to fit the hint strip at the grid's cut. The longer form
@@ -251,9 +274,19 @@ void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
     line = "Tap one to set your sleep screen.";
   }
   if (line != nullptr) {
-    const fui::Rect rect = fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), hintY,
-                                         static_cast<int16_t>(safe.width - toybox::kMargin * 2), kHintH);
+    const fui::Rect rect =
+        fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), hintY, hintTextWidth(safe), kHintH);
     fui::TextStyle style = onPaper(screen.theme().smallText, fui::TextAlign::Left);
+    // The SMALL slot, explicitly -- the same override drawGrid() makes for the
+    // captions, for the same reason. themeTokens().smallText.font is kUiFont =
+    // FONT_SLOT_BODY (ToyboxTokens.h says so out loud), and in this screen's
+    // face set that is toybox_20, whose advanceY is 42 in a strip that is
+    // kHintH = 30 tall. Worse, fittedTitle steps DOWN from the style's font, so
+    // WHICH cut a sentence landed in depended on its length: short lines
+    // overflowed the strip at 20px and long ones quietly dropped to 14px.
+    // toybox_14's advanceY is 29, so pinning the slot makes every sentence fit
+    // and makes the measurement in host-tests/wallcaption mean something.
+    style.font = fui::FONT_SLOT_SMALL;
     std::string fitted = toybox::fittedTitle(screen.target(), line, rect.width, style);
     screen.target().text(rect, fitted.c_str(), style);
   }

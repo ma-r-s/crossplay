@@ -31,7 +31,6 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
@@ -73,7 +72,10 @@ void miniBoard(toybox::Screen& screen, const int16_t left, const int16_t top, co
 constexpr int16_t kSquare = 56;
 constexpr int16_t kBoardSide = kSquare * ck::kSize;
 
-int16_t boardTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter * 2); }
+// The first SQUARE. The board's frame is stroked kBoardFrame outside it and is
+// the topmost thing drawn, so the clearance is measured from the frame: two
+// gutters below kHeaderHeight left the frame eight pixels under the rule.
+int16_t boardTop() { return static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter + toybox::kBoardFrame); }
 
 int16_t boardLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - kBoardSide) / 2); }
 

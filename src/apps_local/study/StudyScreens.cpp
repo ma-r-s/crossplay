@@ -21,7 +21,6 @@ void chrome(toybox::Screen& screen, const char* title) {
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
 }
 
 // The same corner brackets the chess board and the Connections grid wear. Two

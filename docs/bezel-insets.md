@@ -65,12 +65,13 @@ content rect from `frame.safeRect()` -- so a fui screen lays out clear of
 the glass by default.
 
 **Toybox-chromed apps (the games, the shelf, player, study, hacker news)
-opt back out** via `toybox::absoluteChrome(screen)` followed by
-`toybox::headerBand(screen, props)`: every layout in those apps is tuned
-against the band's BOTTOM edge at `kHeaderHeight`, so that edge stays put
-and nothing below moves -- but the title (plus any right label, and the
-decorations positioned with `toybox::bandCenterY`) centres between the
-bezel's safe top and that bottom edge, rather than in rows nobody can see.
+opt back out** inside `toybox::headerBand(screen, props)`, which calls
+`absoluteChrome` itself so no screen can forget it: the band's TOP is the
+panel's row 0 rather than the bezel's safe top, and the layouts below hang
+off the chrome's bottom -- but the title (plus any right label, and the
+decorations positioned with `toybox::bandCenterY` / `toybox::headerInkRect`)
+centres between the bezel's safe top and the band's bottom edge, rather
+than in rows nobody can see.
 Mario's design, arrived at the hard way: the first flip moved the whole
 chrome down by the insets, which ate the gaps the layouts were tuned for
 (boards touched the divider rule, folder icons drifted off their rows, Toy
@@ -161,29 +162,47 @@ traps were found:
    It used to be a separate opt-in `headerRule(screen)` call, and 12 of the
    fork's 41 band sites never made it -- the Yahtzee card among them, which is
    how Mario came to open a screen with no line under its header. `headerRule`
-   survives as a no-op so the call sites that still name it keep compiling.
-   The old idiom (a hand-rolled fill at absolute `kHeaderHeight + 4`, which
-   Solitaire still uses at three sites) would sit inside the shifted band and
-   vanish.
+   survives as a no-op so a branch written before the change keeps compiling;
+   the fork's own 25 calls are gone and `host-tests/chromeguard` refuses a new
+   one. Solitaire's three hand-rolled fills at `kHeader + 4` are gone with
+   them: they painted a SECOND rule on the same pixels as the first, which is
+   invisible until the first one moves.
 
    The rule is deliberately NOT carved out of `kHeaderHeight`: shortening the
    band to make room was tried and fails on this very page's subject. The
    title cut's line box is about 64px, so a band shorter than that trips the
    vertical clamp in the text layout, the title stops being centred and pins
    to the top -- which behind the X4 Pro's glass, already eating the top ten
-   rows, reads as a header sitting visibly low. Screens must therefore clear
-   `kChromeHeight` (band + gap + rule), not `kHeaderHeight`.
+   rows, reads as a header sitting visibly low.
+
+   So the band paints `kHeaderHeight` and RESERVES `kChromeHeight` (band + gap
+   + rule): `headerBand()` takes the top with a `kBandRuleGap + kRule` trailing
+   gap, and `screen.body().y` is therefore the first row a screen owns. Until
+   card #248 it reserved the band alone, and the honest way of laying a screen
+   out -- take the body rect and add a gutter -- still landed content five
+   pixels under the rule. A dozen screens instead measured from the
+   `kHeaderHeight` CONSTANT, which cannot see the rule at all; that is what
+   Mario reported three times, and it is the reason two correct fixes to the
+   header did not fix it. Where there is no `Screen` to ask (the geometry
+   functions an Activity shares with its builder for hit-testing) the answer is
+   `toybox::kChromeHeight`, or `toybox::chromeBelow(band)` for Solitaire's
+   raised band.
 3. **Decorations riding the header band** (the shelf's folder mark, toy
    battle's medal tally, murdle's face doors, connections' and murdle's
-   header-door hit rects) position from the band's real top
-   (`body().y - kHeaderHeight` right after header(), or `safeRect().y`),
-   never from y=0. Two were missed and fixed on 2026-09-03 with the paint:
-   trivia's hand-drawn right label boxed itself over the whole band, and
-   chess's gear centred on `(kHeaderHeight - size) / 2`. Both centred partly
-   in covered rows and rode about 5px above the title beside them. The rule
-   for anything drawn on the band by hand is `toybox::bandCenterY`, or the
-   same arithmetic where there is no `Screen` to hand (`ChessActivity`
-   reads `getOrientedViewableTRBL` for it).
+   header-door hit rects) ASK for the band rather than rebuilding it:
+   `toybox::headerBandRect(screen)` for the whole painted band, and
+   `toybox::headerInkRect(screen)` for the rows an eye can read, which is
+   what a label drawn by hand wants. Four apps used to reconstruct it as
+   `body().y - kHeaderHeight`, correct only while the chrome reserved the band
+   and nothing else, and all four broke together the moment it stopped.
+   Vertical centring on the band is `toybox::bandCenterY(screen, h)`, or
+   `toybox::bandCenterY(renderer, h)` (ToyboxTheme.h) for an Activity drawing
+   straight to the renderer -- `ChessActivity` open-coded that arithmetic and
+   is the reason the renderer-side twin exists. Two more were missed and fixed
+   on 2026-09-03 with the paint: trivia's hand-drawn right label boxed itself
+   over the whole band, and chess's gear centred on
+   `(kHeaderHeight - size) / 2`. Both centred partly in covered rows and rode
+   about 5px above the title beside them.
 4. **Deliberate full-bleed stays full-bleed**: band fills and rules span the
    panel width AND reach its top row (paint may run under the bezel; content
    may not -- and a band that stopped short of that row is the bug the

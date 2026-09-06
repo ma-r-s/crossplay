@@ -111,6 +111,15 @@ It is never rsync'd in either direction (`deploy.sh` excludes it, and that
 exclude is load-bearing) and never pasted into commands, where it would land
 in shell history and `ps` output. Edit it in place on the pi.
 
+**`BRIDGE_ALLOWLIST` is this service's gate and it fails closed: unset means
+nobody may sign in, `*` opens it.** The twin at `/srv/readbridge` calls the
+same idea `READ_ALLOWLIST`, and writing one name into the other's `.env` is
+completely silent -- no warning, no log line, and the same
+"This bridge is invitation-only for now." a stranger already saw. Verify a
+change from outside with `server/verify_open.sh`, never with `printenv` or a
+200 on `/healthz`. See `server/read-bridge/scripts/DEPLOY-RUNBOOK.md` step 6
+and `docs/bridge-security.md`.
+
 ## The pages people see
 
 `bridge/chrome.py` is the whole look: the band, the three-step rail, the

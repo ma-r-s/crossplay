@@ -140,6 +140,12 @@ class XkcdActivity final : public Activity {
   // The update.
   bool wifiConnected_ = false;
   bool updateQueued_ = false;
+  // The catch-up's cancel, read by fetchOne()'s download and by runUpdate()'s
+  // own loop. A member rather than a local because the pump that sets it lives
+  // inside the artwork download's progress callback, which is the only thing
+  // running often enough for the input debounce to see a press at all.
+  bool updateCancel_ = false;
+  bool updateHomeCancel_ = false;
   bool downloadQueued_ = false;
   bool downloadCancel_ = false;
   int fetched_ = 0;
