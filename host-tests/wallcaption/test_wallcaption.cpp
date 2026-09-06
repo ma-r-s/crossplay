@@ -25,6 +25,7 @@
 
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/fonts/toybox_10.h"
+#include "../../src/apps_local/ui/fonts/toybox_14.h"
 #include "../../src/apps_local/ui/fonts/toybox_20.h"
 #include "../../src/apps_local/ui/fonts/toybox_30.h"
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
@@ -47,9 +48,11 @@ void check(const bool ok, const std::string& what) {
 // The faces the picker really binds: the caption asks for FONT_SLOT_SMALL and
 // the Toybox theme answers with toybox_10 (WallpapersActivity::drawGrid).
 EpdFont small10(&toybox_10);
+EpdFont button14(&toybox_14);
 EpdFont ui20(&toybox_20);
 EpdFont display30(&toybox_30);
 EpdFontFamily smallFamily(&small10);
+EpdFontFamily buttonFamily(&button14);
 EpdFontFamily uiFamily(&ui20);
 EpdFontFamily displayFamily(&display30);
 
@@ -57,6 +60,50 @@ class FontTarget final : public fui::DrawTarget {
  public:
   const EpdFontFamily* familyFor(const fui::FontId font) const {
     if (font == fui::FONT_SLOT_SMALL) return &smallFamily;
+    if (font == fui::FONT_SLOT_BODY) return &uiFamily;
+    return &displayFamily;
+  }
+  int widthOf(const fui::FontId font, const std::string& text) const {
+    if (text.empty()) return 0;
+    int w = 0;
+    int h = 0;
+    familyFor(font)->getTextDimensions(text.c_str(), &w, &h);
+    return w;
+  }
+  fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle) const override {
+    return fui::Size{static_cast<int16_t>(widthOf(font, text == nullptr ? "" : text)), lineHeight(font)};
+  }
+  int16_t lineHeight(const fui::FontId font) const override {
+    return static_cast<int16_t>(familyFor(font)->getData(EpdFontFamily::REGULAR)->advanceY);
+  }
+  void fill(fui::Rect, fui::Paint, uint8_t = 0, uint8_t = 0xFF) override {}
+  void stroke(fui::Rect, fui::Paint, uint8_t, uint8_t = 0, uint8_t = 0xFF) override {}
+  void line(fui::Point, fui::Point, uint8_t, fui::Paint) override {}
+  void triangle(fui::Point, fui::Point, fui::Point, fui::Paint) override {}
+  void text(fui::Rect, const char*, const fui::TextStyle) override {}
+  void bitmap(fui::Rect, fui::BitmapRef, fui::BitmapMode, fui::Paint = {},
+              fui::Rotation = fui::Rotation::None) override {}
+};
+
+// The grid CHROME is a different face set from the grid's captions, and the
+// difference is the whole reason this block exists.
+//
+// drawGrid() builds its caption target with toybox::makeTarget(renderer) and
+// the DEFAULT Faces, so FONT_SLOT_SMALL is kTileFontId = toybox_10 -- what
+// FontTarget above models. render() builds the CHROME's target with
+// toybox::proseMenuFaces(), where the same slot is kButtonFontId = toybox_14.
+// So the hint strip draws ~40% wider than the captions do, and measuring it in
+// toybox_10 said every sentence fitted while the panel cut one mid-word. The
+// simulator screenshot is what caught it; this target is what stops it coming
+// back ("drawn size is a claim").
+//
+// fittedTitle can rescue nothing here: it steps DOWN through the bound slots,
+// and in this face set TITLE (30) and BODY (20) are both taller than SMALL
+// (14), so there is no rung below and the only move left is the ellipsis.
+class ChromeFontTarget final : public fui::DrawTarget {
+ public:
+  const EpdFontFamily* familyFor(const fui::FontId font) const {
+    if (font == fui::FONT_SLOT_SMALL) return &buttonFamily;
     if (font == fui::FONT_SLOT_BODY) return &uiFamily;
     return &displayFamily;
   }
@@ -309,6 +356,7 @@ int main() {
   //    the bezel-insets memory), which is narrower than a bare 480 -- so the
   //    number here is the device's, not the emulator's.
   {
+    const ChromeFontTarget chrome;
     const fui::Rect bezelSafe = fui::makeRect(1, 10, 478, 790);
     const int16_t stripWidth = wallpapersui::hintTextWidth(bezelSafe);
     fui::TextStyle hintStyle;
@@ -341,8 +389,8 @@ int main() {
     std::string widestHintText;
     for (const std::string& line : lines) {
       fui::TextStyle style = hintStyle;
-      const std::string fitted = toybox::fittedTitle(target, line.c_str(), stripWidth, style);
-      const int w = target.widthOf(fui::FONT_SLOT_SMALL, line);
+      const std::string fitted = toybox::fittedTitle(chrome, line.c_str(), stripWidth, style);
+      const int w = chrome.widthOf(fui::FONT_SLOT_SMALL, line);
       if (w > widestHint) {
         widestHint = w;
         widestHintText = line;

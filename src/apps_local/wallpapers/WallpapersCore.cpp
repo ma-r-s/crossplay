@@ -136,7 +136,7 @@ const char* reachHint(const Reach reach) {
     case Reach::Always:
       return nullptr;
     case Reach::OutsideReaderOnly:
-      return "Book covers win when you sleep in a book.";
+      return "Book covers win inside a book.";
     case Reach::BlockedByQuickResume:
       return "Quick Resume on Timeout hides this.";
     case Reach::BlockedByMode:
@@ -195,24 +195,30 @@ const char* takeoverNote(const SleepChoice& choice) {
   // Both settings can move at once, and a note that reported only one of them
   // would quietly drop the other ("a warning that can vanish"). So all three
   // branches exist and every one of them is a sentence.
+  //
+  // Terse on purpose. The strip draws in the CHROME face set (toybox_14 in the
+  // small slot, not the captions' toybox_10), which is ~40% wider per character
+  // and leaves 446px for one line. The longer forms measured 504-519px and the
+  // panel cut them mid-word. host-tests/wallcaption measures every one of these
+  // in that face.
   if (choice.tookOverMode && choice.clearedQuickResume) {
-    return "Sleep Screen now Custom, Quick Resume off.";
+    return "Now Custom, Quick Resume off.";
   }
   if (choice.clearedQuickResume) return "Quick Resume on Timeout turned off.";
   if (!choice.tookOverMode) return nullptr;
   switch (choice.previousMode) {
     case kSleepDark:
-      return "Sleep Screen was Dark, now Custom.";
+      return "Was Dark, now Custom.";
     case kSleepLight:
-      return "Sleep Screen was Light, now Custom.";
+      return "Was Light, now Custom.";
     case kSleepCover:
-      return "Sleep Screen was Cover, now Custom.";
+      return "Was Cover, now Custom.";
     case kSleepBlank:
-      return "Sleep Screen was Blank, now Custom.";
+      return "Was Blank, now Custom.";
     case kSleepQuickResume:
-      return "Sleep Screen was Quick Resume, now Custom.";
+      return "Was Quick Resume, now Custom.";
     case kSleepTransparentCustom:
-      return "Sleep Screen was Transparent, now Custom.";
+      return "Was Transparent, now Custom.";
     default:
       return nullptr;
   }
