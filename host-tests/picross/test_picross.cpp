@@ -295,14 +295,19 @@ void mistakeAndWin() {
   CHECK(board.cell(er, ec) == picross::Cell::Mistake);
   CHECK(board.mistakes() == 1);  // not double counted
 
-  // Mark is a free, reversible annotation and never a mistake.
+  // Mark is a free, reversible annotation and never a mistake. The cell has to
+  // be BLANK, not merely empty: a correct fill can satisfy its line, and a
+  // satisfied line is auto-crossed, so "the first empty cell" is often already
+  // Crossed and marking it would toggle it OFF -- which is the opposite of what
+  // this is checking.
   int er2 = -1, ec2 = -1;
   for (int r = 0; r < board.size() && er2 < 0; ++r)
     for (int c = 0; c < board.size() && er2 < 0; ++c)
-      if (!board.solid(r, c) && !(r == er && c == ec)) {
+      if (!board.solid(r, c) && board.cell(r, c) == picross::Cell::Blank) {
         er2 = r;
         ec2 = c;
       }
+  CHECK(er2 >= 0);
   CHECK(board.mark(er2, ec2));
   CHECK(board.cell(er2, ec2) == picross::Cell::Crossed);
   CHECK(board.mistakes() == 1);
@@ -490,30 +495,152 @@ void bankIsSizeSorted() {
 // whose licence was never recorded has to SAY that, or the next reader assumes
 // it was cleared. `source` is the one field legitimately empty -- artwork drawn
 // for this fork came from nowhere.
-void bankRecordsItsProvenance() {
+// The bank ships ONE size, and the picker's static_assert is the other half of
+// this: it draws no size tabs, so a second tier would run together with the
+// first in one flat sequence of pages with nothing saying so.
+void bankShipsOneSize() {
+  CHECK(picross::kSizeGroupCount == 1);
   for (int p = 0; p < picross::kPuzzleCount; ++p) {
-    const picross::Puzzle& z = picross::kPuzzles[p];
-    if (z.provenance >= picross::kProvenanceCount)
-      std::printf("  %s names provenance %d of %d\n", z.name, static_cast<int>(z.provenance),
-                  picross::kProvenanceCount);
-    CHECK(z.provenance < picross::kProvenanceCount);
+    if (picross::kPuzzles[p].size != picross::kPuzzles[0].size)
+      std::printf("  puzzle %d is %dx%d, the bank's first is %dx%d\n", p, picross::kPuzzles[p].size,
+                  picross::kPuzzles[p].size, picross::kPuzzles[0].size, picross::kPuzzles[0].size);
+    CHECK(picross::kPuzzles[p].size == picross::kPuzzles[0].size);
   }
-  for (int i = 0; i < picross::kProvenanceCount; ++i) {
-    const picross::Provenance& prov = picross::kProvenances[i];
-    CHECK(prov.author != nullptr && prov.author[0] != '\0');
-    CHECK(prov.license != nullptr && prov.license[0] != '\0');
-    CHECK(prov.source != nullptr);
-    // EVERY picture in this bank came from somewhere else, so every row has to
-    // say where. All 321 are used by permission of six named designers
-    // (assets_local/picross/PROVENANCE.md); the source URL is not a courtesy,
-    // it is the only way a reader can check that claim against the page
-    // carrying the author's name. The fork's own CC0 artwork is not shipped, so
-    // "a blank source means we drew it" no longer applies to anything here and
-    // a blank source is simply an unsourced third-party picture.
-    if (prov.source[0] == '\0')
-      std::printf("  provenance %d (%s, %s) has no source URL\n", i, prov.author, prov.license);
-    CHECK(prov.source[0] != '\0');
+  // And kMaxSize is that size, not a leftover from a wider bank: it sizes the
+  // save's cell grid and every clue buffer, so a stale one is silent waste in
+  // flash, in RAM and in every SaveState written to the card.
+  CHECK(picross::kMaxSize == picross::kPuzzles[0].size);
+}
+
+// The name is the reveal, and it is the only string the bank carries now that
+// the designer, the rights line and the source URL have left the firmware for
+// PROVENANCE.md. It is written by hand, so a bank is normally PART named and an
+// empty name is not a fault -- what would be a fault is a name that cannot be
+// drawn.
+//
+// The generator refuses a bad one (gen_picross.load_names), and this asserts the
+// same properties over the header that actually ships, so a hand-edit cannot
+// slip one past: within kMaxNameLen, and made only of glyphs the display cut
+// has. A glyph it lacks is a HOLE in the word, not a box, so this is the
+// difference between a reveal reading "R  BIT" and reading "RABBIT".
+void bankNamesAreDrawable() {
+  const char* allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -'";
+  int named = 0;
+  int longest = 0;
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    const char* name = picross::kPuzzles[p].name;
+    CHECK(name != nullptr);
+    if (name == nullptr || name[0] == '\0') continue;
+    ++named;
+    const int len = static_cast<int>(std::strlen(name));
+    if (len > longest) longest = len;
+    if (len > picross::kMaxNameLen)
+      std::printf("  puzzle %d is named %s, %d characters against kMaxNameLen %d\n", p, name, len,
+                  picross::kMaxNameLen);
+    CHECK(len <= picross::kMaxNameLen);
+    for (const char* ch = name; *ch != '\0'; ++ch) {
+      if (std::strchr(allowed, *ch) == nullptr)
+        std::printf("  puzzle %d is named %s, which uses %c -- not in the display cut\n", p, name, *ch);
+      CHECK(std::strchr(allowed, *ch) != nullptr);
+    }
   }
+  // kMaxNameLen is DERIVED by the generator from the names it emitted. If it
+  // disagrees with the bank, something hand-edited one of the two.
+  CHECK(longest == picross::kMaxNameLen);
+  std::printf("  (%d of %d puzzles named, longest %d)\n", named, picross::kPuzzleCount, longest);
+}
+
+// A line whose solid cells are all filled has every REMAINING cell provably
+// empty, so the game crosses them off rather than making the player do it by
+// hand. Mario asked for it; this is the proof it happens, that it never places
+// ink anywhere it could be wrong, and that it cannot disturb the invariant the
+// whole game rests on.
+void autoMarksSatisfiedLines() {
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    picross::Board board;
+    board.load(p);
+    const int n = board.size();
+
+    // Pick a row with at least one solid cell AND at least one empty one, so
+    // "the rest of the line" is not the empty set.
+    int target = -1;
+    for (int r = 0; r < n && target < 0; ++r) {
+      int solid = 0;
+      for (int c = 0; c < n; ++c)
+        if (board.solid(r, c)) ++solid;
+      if (solid > 0 && solid < n) target = r;
+    }
+    if (target < 0) continue;  // a bank of solid stripes; nothing to prove here
+
+    for (int c = 0; c < n; ++c)
+      if (board.solid(target, c)) board.fill(target, c);
+    CHECK(board.rowSatisfied(target));
+    for (int c = 0; c < n; ++c) {
+      const picross::Cell got = board.cell(target, c);
+      if (board.solid(target, c)) {
+        CHECK(got == picross::Cell::Filled);
+      } else {
+        // Crossed, never Mistake: an auto mark is an annotation, so it can
+        // never add to the count or lock a cell.
+        if (got != picross::Cell::Crossed)
+          std::printf("  puzzle %d row %d col %d is %d, not Crossed\n", p, target, c, static_cast<int>(got));
+        CHECK(got == picross::Cell::Crossed);
+      }
+    }
+    // It cost nothing and claimed nothing: no mistake, and not solved unless
+    // the picture really is finished.
+    CHECK(board.mistakes() == 0);
+  }
+
+  picross::Board board;
+  board.load(0);
+  const int n = board.size();
+
+  // AN AUTO MARK IS AN ORDINARY MARK. The player can rub it out exactly like
+  // one they placed, because it is stored as the same thing with no flag saying
+  // who put it there. A mark the game placed and the player could not remove
+  // would be the only uneraseable annotation in the game.
+  int row = -1;
+  for (int r = 0; r < n && row < 0; ++r) {
+    int solid = 0;
+    for (int c = 0; c < n; ++c)
+      if (board.solid(r, c)) ++solid;
+    if (solid > 0 && solid < n) row = r;
+  }
+  CHECK(row >= 0);
+  for (int c = 0; c < n; ++c)
+    if (board.solid(row, c)) board.fill(row, c);
+  int auto_ = -1;
+  for (int c = 0; c < n && auto_ < 0; ++c)
+    if (board.cell(row, c) == picross::Cell::Crossed) auto_ = c;
+  CHECK(auto_ >= 0);
+  CHECK(board.mark(row, auto_));
+  CHECK(board.cell(row, auto_) == picross::Cell::Blank);
+
+  // And a cell it crossed can still be FILLED afterwards -- which, on a
+  // satisfied line, is a wrong fill and must still lock as a mistake. Auto
+  // marking must not quietly immunise the player against their own taps.
+  picross::Board second;
+  second.load(0);
+  for (int c = 0; c < second.size(); ++c)
+    if (second.solid(row, c)) second.fill(row, c);
+  int crossed = -1;
+  for (int c = 0; c < second.size() && crossed < 0; ++c)
+    if (second.cell(row, c) == picross::Cell::Crossed) crossed = c;
+  CHECK(crossed >= 0);
+  CHECK(second.fill(row, crossed));
+  CHECK(second.cell(row, crossed) == picross::Cell::Mistake);
+  CHECK(second.mistakes() == 1);
+
+  // A FRESH board is never pre-marked. autoMark runs only from a fill that
+  // landed, so a puzzle nobody has touched reports touched() == false -- and
+  // that matters beyond tidiness: touched() is what makes the picker offer
+  // RESUME, so a board that auto-marked on load would offer to resume itself.
+  picross::Board fresh;
+  fresh.load(0);
+  CHECK(!fresh.touched());
+  for (int r = 0; r < fresh.size(); ++r)
+    for (int c = 0; c < fresh.size(); ++c) CHECK(fresh.cell(r, c) == picross::Cell::Blank);
 }
 
 // rowSatisfied and colSatisfied are ONE question asked along two axes, and this
@@ -567,7 +694,9 @@ int main() {
   validateBank();
   bankFillsItsGrid();
   bankIsSizeSorted();
-  bankRecordsItsProvenance();
+  bankShipsOneSize();
+  bankNamesAreDrawable();
+  autoMarksSatisfiedLines();
   satisfiedAgreesOnBothAxes();
   clueDerivation();
   mistakeAndWin();
