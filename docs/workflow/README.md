@@ -142,11 +142,19 @@ error-trigger or upstream-sync card is `session`, a GitHub-issue card is
 `user`. The site's form is public, so it stamps `mario` only when the address
 given is the owner's and `user` otherwise.
 
-The 360 cards that predate the column were recovered from their own text and
-from verbatim matches against the session transcripts:
+The cards that predate the column were recovered from their own text and from
+verbatim matches against the session transcripts:
 [what-mario-reported.md](what-mario-reported.md) has the counts, the list he
-asked for, the evidence behind every `mario` row, and the six that could not
+asked for, the evidence behind every `mario` row, and the ones that could not
 be established.
+
+**Read all three channels if you ever redo this.** Anything Mario types WHILE a
+session is mid-turn is never stored as a transcript entry of type `user`: it
+arrives as an attachment of type `queued_command` whose origin kind is `human`.
+A filter on `type: "user"` alone misses it, and it missed 221 of his messages
+the first time, 74 of them inside the window the board covers. His typed inbox
+answers are a third channel again, in the `blockers` table. The same trap
+applies to anything else that reads these transcripts for what he said.
 
 ## When the guard itself breaks
 
