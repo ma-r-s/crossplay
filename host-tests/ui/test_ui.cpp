@@ -10833,6 +10833,38 @@ void testPicrossPickerTabsReachEveryTier() {
     }
   }
   CHECK(sizesSeen == picross::kSizeGroupCount);
+
+  // EVERY PAGE STARTS ITS GRID AT THE SAME Y, including a short last page.
+  //
+  // The grid is centred in the body's leftover space, and centring by the rows
+  // THIS page happens to draw would float a short last page halfway down the
+  // panel while every other page sits under the tabs -- the grid would appear
+  // to jump as you page through a tier. It is centred by the full page height
+  // instead, and this is what says so.
+  {
+    int gridTop = -1;
+    for (int t = 0; t < layout.tabCount; ++t) {
+      picrossui::MenuModel m;
+      m.progress = &progress;
+      m.total = picross::kPuzzleCount;
+      m.sizeTab = t;
+      Rendered probe;
+      picrossui::PickerLayout first;
+      buildPicrossMenu(probe, m, first);
+      for (int page = 0; page < first.pageCount; ++page) {
+        m.page = page;
+        Rendered sheet;
+        picrossui::PickerLayout pl;
+        buildPicrossMenu(sheet, m, pl);
+        if (gridTop < 0) gridTop = pl.grid.y;
+        if (pl.grid.y != gridTop)
+          std::printf("  tab %d page %d starts its grid at y=%d, not %d\n", t, page, pl.grid.y, gridTop);
+        CHECK(pl.grid.y == gridTop);
+      }
+    }
+    CHECK(gridTop > 0);
+  }
+
   if (reached != picross::kPuzzleCount)
     std::printf("  the tabs reach %d of %d puzzles\n", reached, picross::kPuzzleCount);
   CHECK(reached == picross::kPuzzleCount);

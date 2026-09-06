@@ -717,7 +717,25 @@ void layOutGrid(toybox::Screen& screen, const MenuModel& model, const fui::Rect&
   const int16_t gridW = static_cast<int16_t>(g.cols * g.cell + (g.cols - 1) * g.gap);
   const int16_t gridH = static_cast<int16_t>(rows * g.cell + (rows - 1) * g.gap);
   const int16_t left = static_cast<int16_t>(body.x + (body.width - gridW) / 2);
-  const int16_t top = body.y;
+
+  // Centred vertically in what the body actually has, and centred by the FULL
+  // page rather than by this page's rows.
+  //
+  // The rows are derived from the height (gridGeom), so there is always a
+  // remainder -- four rows of 103 leave 75px under the last one on this panel,
+  // and top-aligned that reads as a grid the screen cut off rather than as
+  // margin. It is genuinely a remainder: a fifth row needs 40px the tab band
+  // took, and shrinking the tiles to buy it trades a legible thumbnail for a
+  // row nobody asked for.
+  //
+  // BY THE FULL PAGE, because centring by `rows` would float a short last page
+  // -- a final row of two tiles would sit halfway down the panel while every
+  // other page starts under the tabs, and the grid would appear to jump as you
+  // page. Every page's first row lands on the same y; a short page is simply
+  // shorter at the bottom.
+  const int16_t fullH = static_cast<int16_t>(g.rows * g.cell + (g.rows - 1) * g.gap);
+  const int16_t slack = static_cast<int16_t>(body.height > fullH ? (body.height - fullH) / 2 : 0);
+  const int16_t top = static_cast<int16_t>(body.y + slack);
 
   layout.grid = fui::makeRect(left, top, gridW, gridH);
   layout.cell = g.cell;
