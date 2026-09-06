@@ -56,6 +56,12 @@ expect "worker edit in firmware-next refused"   2 pretool "{\"session_id\":\"$WO
 grep -q "integrator --session $WORKER" "$WORK/err" && ok "the refusal carries the remedy with the session id filled in" || bad "refusal lacks the substituted remedy: $(head -c 200 "$WORK/err")"
 expect "worker write in firmware-next refused"  2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$ROOT/firmware-next/docs/x.md\"}}"
 expect "integrator edit in firmware-next allowed" 0 pretool "{\"session_id\":\"$INTEG\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/firmware-next/src/a.cpp\"}}"
+# wt/x is the worker's: the record board bind would leave, written directly here
+python3 - "$ROOT/.board/trees/x.json" "$WORKER" <<'PY'
+import json, os, sys, time
+os.makedirs(os.path.dirname(sys.argv[1]), exist_ok=True)
+json.dump({"tree": "wt/x", "card": 0, "actor": sys.argv[2] + ":main", "session": sys.argv[2], "agent": "main", "renewed_at": time.time(), "lease_until": time.time() + 2700, "gen": 1}, open(sys.argv[1], "w"))
+PY
 expect "worker edit in its own tree allowed"    0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
 expect "worker bash write into firmware-next refused" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && git merge app/x\"}}"
 expect "worker bash read of firmware-next allowed"    0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $ROOT/firmware-next log --oneline -5\"}}"
@@ -134,22 +140,25 @@ expect "a finished turn passes"                  0 stop "{\"session_id\":\"$WORK
 
 CID=$(board new "Sudoku loses the puzzle from the difficulty menu" --from sudoku --kind bug | sed 's/^#\([0-9]*\).*/\1/')
 board bind "$CID" --session "$WORKER" --tree wt/x --branch app/x >/dev/null
-echo "a tree another session holds refuses writes"
-expect "another session editing wt/x is refused"        2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
-grep -q "wt/x is bound to session $WORKER (card #$CID," "$WORK/err" && ok "the refusal names the tree, its holder and the card" || bad "refusal lacks the holder: $(head -c 200 "$WORK/err")"
-grep -q "wt.sh new" "$WORK/err" && ok "and says to cut a tree of its own" || bad "refusal lacks the remedy"
-expect "the holder still edits its tree"                0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
-expect "the orchestrator may edit any tree"             0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
-expect "an unbound tree is anyone's"                    0 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/free/src/a.cpp\"}}"
+echo "a tree is its holder's, and nobody else's"
+expect "the worker that bound wt/x writes there"          0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+expect "another session editing wt/x is refused"          2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+grep -q "wt/x is held by $WORKER:main for card #$CID" "$WORK/err" && ok "the refusal names the tree, its holder and the card" || bad "refusal lacks the holder: $(head -c 240 "$WORK/err")"
+grep -q -- "--take" "$WORK/err" && grep -q "wt.sh new" "$WORK/err" && ok "and names both remedies" || bad "refusal lacks a remedy"
+expect "a subagent of the holding session is another actor"  2 pretool "{\"session_id\":\"$WORKER\",\"agent_id\":\"a1111111111111111\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+expect "the orchestrator is not exempt"                      2 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+expect "a tree nobody bound refuses writes too"              2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/free/src/a.cpp\"}}"
+grep -q "has no holder" "$WORK/err" && grep -q "bind <card>" "$WORK/err" && ok "and says to bind first" || bad "no-holder refusal lacks the bind remedy: $(head -c 200 "$WORK/err")"
+expect "wt/x2 is not wt/x (segment-exact)"                   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x2/src/a.cpp\"}}"
+grep -q "wt/x2 has no holder" "$WORK/err" && ok "the neighbour is judged on its own record" || bad "wt/x2 was confused with wt/x: $(head -c 160 "$WORK/err")"
 expect "a write from inside the tree by another session is refused" 2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"sed -i '' src/a.cpp\"},\"cwd\":\"$ROOT/wt/x\"}"
 expect "a read from inside the tree by another session is fine"     0 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -rn foo src\"},\"cwd\":\"$ROOT/wt/x\"}"
 expect "a write naming the tree from elsewhere is refused"          2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cp /tmp/a.h $ROOT/wt/x/src/a.h\"},\"cwd\":\"$ROOT\"}"
-expect "the holder writes from inside its tree"                     0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -am x\"},\"cwd\":\"$ROOT/wt/x\"}"
-mk_transcript "I cannot see the panel from here. Let me know when you have flashed it."
-expect "hand-back with a card but no blocker refused" 2 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
-grep -q "card #$CID" "$WORK/err" && ok "refusal names the card" || bad "refusal does not name the card"
-board block "$CID" --session "$WORKER" --need desk --ask "flash and look at the door" --default "stays unverified" >/dev/null
-expect "hand-back with a blocker recorded passes" 0 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
+expect "a write naming the tree inside bash -c quotes is refused"   2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"bash -c 'cd wt/x && rm -rf src'\"},\"cwd\":\"$ROOT\"}"
+expect "a commit in another actor's tree is refused"               2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $ROOT/wt/x commit -am 'work preserved'\"},\"cwd\":\"$ROOT\"}"
+expect "removing another actor's worktree is refused"              2 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git worktree remove --force wt/x\"},\"cwd\":\"$ROOT\"}"
+expect "the holder commits from inside its tree"                    0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -am x\"},\"cwd\":\"$ROOT/wt/x\"}"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["actor"]=="'"$WORKER"':main" and d["card"]=='"$CID"' and d["lease_until"]>0, d' "$ROOT/.board/trees/x.json" && ok "bind wrote the tree record with the actor and a lease" || bad "tree record wrong or missing"
 
 echo "session start"
 guard session-start "{\"session_id\":\"$WORKER\",\"cwd\":\"$ROOT\"}" >/dev/null
@@ -554,48 +563,51 @@ grep -q "$SP/pr.md is at the top" "$WORK/err" \
   || bad "the refusal named a path the reader cannot paste: $(grep -o "$SP[^ ]*" "$WORK/err" | head -1)"
 
 echo
-echo "a held card is not bound twice"
-CID2=$(board new "Sudoku: a second card that wants the same tree" --from sudoku --kind task --anyway | sed 's/^#\([0-9]*\).*/\1/')
-if board bind "$CID2" --session "other-session" --tree wt/x >"$WORK/tree.out" 2>&1; then bad "a second card was bound to a held tree"; else grep -q "already the tree of #$CID" "$WORK/tree.out" && ok "binding a second card to a held tree is refused, naming the card" || bad "tree refusal lacks the card: $(cat "$WORK/tree.out")"; fi
-board bind "$CID2" --session "other-session" --tree wt/y | grep -q "bound to other-session" && ok "a tree of its own binds" || bad "a free tree was refused"
-HELD=$(board new "Trivia: the timer keeps running on the score screen" --from trivia --kind bug | sed 's/^#\([0-9]*\).*/\1/')
-board bind "$HELD" --session "held-a" --tree wt/one --branch app/one >/dev/null
-if board bind "$HELD" --session "other-session" --tree wt/two >"$WORK/bind.out" 2>&1; then bad "a second session bound a held card"; else grep -q "held by session held-a" "$WORK/bind.out" && grep -q "wt/one" "$WORK/bind.out" && ok "the second bind is refused and the holder, its tree and branch are named" || bad "bind refusal lacks the holder: $(cat "$WORK/bind.out")"; fi
-grep -q -- "--take" "$WORK/bind.out" && ok "the refusal says how to take the card over on purpose" || bad "refusal lacks the --take remedy"
-board show "$HELD" | grep -q "session held-a" && ok "the card stayed with its holder" || bad "the card changed hands anyway"
-board bind "$HELD" --session "held-a" --tree wt/one >/dev/null 2>&1 && ok "the holder may bind its own card again" || bad "the holder was refused its own card"
-board bind "$HELD" --session "other-session" --tree wt/two --take | grep -q "bound to other-session" && ok "--take hands the card over" || bad "--take did not bind"
-board show "$HELD" | grep -q "taken over from session held-a" && ok "the takeover is a history line" || bad "no takeover line"
-board state "$HELD" done >/dev/null
-board bind "$HELD" --session "held-a" >/dev/null 2>&1 && ok "a settled card can be re-bound without --take" || bad "a settled card was treated as held"
+echo "the claimant note, the lease, the takeover"
+mkdir -p "$ROOT/wt/gone" && ( cd "$ROOT/wt/gone" && git init -q && git config user.email t@t && git config user.name t && echo a > a.txt && git add -A && git commit -qm base ) >/dev/null 2>&1
 GONE=$(board new "Jaipur: the market never refills after a bonus" --from jaipur --kind bug --anyway | sed 's/^#\([0-9]*\).*/\1/')
-board bind "$GONE" --session "held-c" --tree wt/gone --branch app/gone >/dev/null
-expect "a live holder keeps its tree from others"     2 pretool "{\"session_id\":\"held-d\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
-grep -q "active 0 min ago" "$WORK/err" && ok "the refusal says how recently the holder was seen" || bad "refusal lacks the holder's activity: $(head -c 240 "$WORK/err")"
-grep -q -- "--take" "$WORK/err" && grep -q "idle for 45 minutes counts as gone" "$WORK/err" && ok "and names --take and the idle rule" || bad "refusal lacks --take or the idle rule"
-touch -t 202001010000 "$ROOT/.board/sessions/held-c.json"
-expect "a holder silent for longer than the idle window is gone" 0 pretool "{\"session_id\":\"held-d\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
-board bind "$GONE" --session "held-d" --tree wt/gone | grep -q "bound to held-d" && ok "bind takes a silent holder's card over without a flag" || bad "bind refused a silent holder's card"
-board show "$GONE" | grep -q "taken over from session held-c (it had ended, or was silent" && ok "and says why on the card" || bad "no takeover reason on the card"
-printf '{"session_id":"held-d","tool_name":"Bash","tool_input":{"command":"ls"}}' | python3 "$GUARD" pretool >/dev/null 2>&1
-expect "the new holder is live again (touched by its tool call)" 2 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
-printf '{"session_id":"held-d"}' | python3 "$GUARD" session-end >/dev/null 2>&1
-grep -q '"ended_at"' "$ROOT/.board/sessions/held-d.json" && ok "SessionEnd marks the session ended" || bad "session_end wrote no ended_at"
-expect "an ended holder's tree is free at once"       0 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
-# a gate still verifying the tree is a sign of life whatever its session does:
-# a worker waiting on a backgrounded gate makes no tool calls for as long as
-# the gate takes (95 minutes one night), and its tree must not count as free
-mkdir -p "$ROOT/wt/gone"
+# the guard sees the bind command pass with agent id a2222...; the CLI's bind then finds that note
+printf '{"session_id":"held-c","agent_id":"a2222222222222222","tool_use_id":"tu1","tool_name":"Bash","tool_input":{"command":"cd '"$ROOT"'/wt/gone && python3 '"$BOARD"' bind '"$GONE"' --session held-c --tree wt/gone --branch app/gone"}}' | python3 "$GUARD" pretool >/dev/null 2>&1
+ls "$ROOT/.board/claimants/"*.json >/dev/null 2>&1 && ok "the guard leaves a claimant note for a bind it sees" || bad "no claimant note"
+board bind "$GONE" --session held-c --tree wt/gone --branch app/gone | grep -q "bound to held-c:a2222222222222222 in wt/gone" && ok "bind records the actor the guard saw, agent and all" || bad "bind did not pick up the claimant"
+ls "$ROOT/.board/claimants/"*.json >/dev/null 2>&1 && bad "the claimant note was not consumed" || ok "the note is consumed once"
+expect "that agent writes in its tree"                       0 pretool "{\"session_id\":\"held-c\",\"agent_id\":\"a2222222222222222\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/a.txt\"}}"
+expect "the same session's main conversation does not"       2 pretool "{\"session_id\":\"held-c\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/a.txt\"}}"
+python3 - "$ROOT/.board/trees/gone.json" <<'PY'
+import json,sys,time
+p=sys.argv[1]; d=json.load(open(p)); d["lease_until"]=time.time()-1; d["renewed_at"]=time.time()-3600; json.dump(d,open(p,"w"))
+PY
+board tree gone >"$WORK/tree.out" 2>&1; grep -q "lease expired" "$WORK/tree.out" && grep -q "free to take" "$WORK/tree.out" && ok "board tree reports an expired lease as free to take" || bad "board tree: $(cat "$WORK/tree.out")"
+printf '{"session_id":"held-c","agent_id":"a2222222222222222","tool_name":"Bash","tool_input":{"command":"ls"}}' | python3 "$GUARD" pretool >/dev/null 2>&1
+{ board tree gone 2>&1 || true; } | grep -q "lease LIVE" && ok "one tool call by the holder renews the lease" || bad "the lease was not renewed by a tool call"
+if board bind "$GONE" --session held-d --tree wt/gone --take >"$WORK/take.out" 2>&1; then bad "--take took a tree whose holder is live"; else grep -q "holder held-c:a2222222222222222 is live" "$WORK/take.out" && ok "--take is refused while the holder is live" || bad "wrong refusal: $(cat "$WORK/take.out")"; fi
+python3 - "$ROOT/.board/trees/gone.json" <<'PY'
+import json,sys,time
+p=sys.argv[1]; d=json.load(open(p)); d["lease_until"]=time.time()-1; json.dump(d,open(p,"w"))
+PY
+echo dirty >> "$ROOT/wt/gone/a.txt"
+if board bind "$GONE" --session held-d --tree wt/gone --take >"$WORK/take.out" 2>&1; then bad "--take took a tree with uncommitted work"; else grep -q "uncommitted change" "$WORK/take.out" && ok "--take is refused while the tree has uncommitted work, and says so" || bad "wrong refusal: $(cat "$WORK/take.out")"; fi
+( cd "$ROOT/wt/gone" && git checkout -q -- a.txt )
+GONE2=$(board new "Jaipur: a second card that inherits the tree" --from jaipur --kind task --anyway | sed 's/^#\([0-9]*\).*/\1/')
+board bind "$GONE2" --session held-d --tree wt/gone --take | grep -q "bound to held-d:main in wt/gone" && ok "--take hands a quiescent tree with an expired lease over" || bad "--take refused a quiescent tree"
+board show "$GONE2" | grep -q "took over wt/gone from held-c:a2222222222222222" && ok "the new card says whom it took the tree from" || bad "no takeover line on the taker"
+board show "$GONE" | grep -q "wt/gone was taken over by held-d:main" && ok "and the displaced card is told" || bad "the displaced card was not told"
+expect "the displaced actor is refused now"                  2 pretool "{\"session_id\":\"held-c\",\"agent_id\":\"a2222222222222222\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/a.txt\"}}"
+# a gate still verifying the tree keeps it in use whatever the lease says
 GATE_TAG="$(python3 -c 'import hashlib,pathlib,sys; print(hashlib.sha1(str(pathlib.Path(sys.argv[1]).resolve()).encode()).hexdigest()[:8])' "$ROOT/wt/gone")"
 export TMPDIR="$WORK"
 bash -c 'exec -a check.sh sleep 30' & GATEPID=$!
 sleep 0.2; echo "$GATEPID" >"$WORK/xteink-check-$GATE_TAG.running"
-expect "a tree with a living gate is held even when its session is gone" 2 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
-grep -q "check.sh still verifying it (pid $GATEPID" "$WORK/err" && ok "the refusal names the gate's pid" || bad "refusal lacks the gate: $(head -c 240 "$WORK/err")"
-if board bind "$GONE" --session "held-e" --tree wt/gone >"$WORK/gate.out" 2>&1; then bad "bind took a tree with a living gate"; else grep -q "check.sh still verifying it (pid $GATEPID" "$WORK/gate.out" && ok "bind refuses a tree with a living gate and names it" || bad "bind's refusal lacks the gate: $(cat "$WORK/gate.out")"; fi
+python3 - "$ROOT/.board/trees/gone.json" <<'PY'
+import json,sys,time
+p=sys.argv[1]; d=json.load(open(p)); d["lease_until"]=time.time()-1; json.dump(d,open(p,"w"))
+PY
+if board bind "$GONE" --session held-e --tree wt/gone --take >"$WORK/take.out" 2>&1; then bad "--take took a tree with a running gate"; else grep -q "live (lease or a running gate)" "$WORK/take.out" && ok "--take is refused while a gate runs on the tree" || bad "wrong refusal: $(cat "$WORK/take.out")"; fi
+{ board tree gone 2>&1 || true; } | grep -q "gate: running, pid $GATEPID" && ok "board tree names the running gate" || bad "board tree misses the gate"
 kill "$GATEPID" 2>/dev/null; wait "$GATEPID" 2>/dev/null
-expect "the gate gone, the tree is free"                0 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
 unset TMPDIR
+printf '{"session_id":"held-d"}' | python3 "$GUARD" session-end >/dev/null 2>&1
+{ board tree gone 2>&1 || true; } | grep -q "lease expired" && ok "session-end expires the leases of that session's trees" || bad "session-end left the lease live"
 
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -797,6 +797,84 @@ def cmd_new(st, a):
 
 
 IDLE_MINUTES = 45
+LEASE_MINUTES = 45
+CLAIMANT_SECONDS = 180
+
+
+def actor_key(session, agent):
+    return f"{norm_sid(session)}:{agent or 'main'}"
+
+
+def bind_claim_key(argv_after_bind):
+    """The key under which the guard leaves the actor of a `board bind` call.
+
+    The guard sees the whole Bash command and the hook payload's agent id; the
+    CLI sees only its own argv. Both hash the words after `bind`, so the CLI
+    finds the note the guard left for exactly this call and nothing else.
+    """
+    import hashlib
+    words = [w for w in argv_after_bind if w]
+    return hashlib.sha1(" ".join(words).encode()).hexdigest()[:16]
+
+
+def take_claimant(root, key):
+    """The actor the guard recorded for this bind call, consumed once."""
+    p = root / ".board" / "claimants" / f"{key}.json"
+    try:
+        d = json.loads(p.read_text() or "{}")
+        p.unlink()
+    except (OSError, ValueError):
+        return None
+    if time.time() - float(d.get("at", 0)) > CLAIMANT_SECONDS:
+        return None
+    return d
+
+
+def tree_record(root, tree):
+    p = root / ".board" / "trees" / f"{tree.split('/')[-1]}.json"
+    try:
+        return json.loads(p.read_text() or "{}")
+    except (OSError, ValueError):
+        return None
+
+
+def write_tree_record(root, tree, rec):
+    d = root / ".board" / "trees"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{tree.split('/')[-1]}.json"
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(rec, indent=1))
+    os.replace(tmp, p)
+
+
+def tree_quiescence(root, tree):
+    """Why a tree may NOT be taken over: a living gate, uncommitted work, an
+    operation in progress. Empty list means quiescent."""
+    reasons = []
+    gate = tree_gate_pid(root, tree)
+    if gate is not None:
+        reasons.append(f"a check.sh is still verifying it (pid {gate})")
+    path = root / tree
+    if not path.is_dir():
+        return reasons
+    try:
+        st = subprocess.run(["git", "-C", str(path), "status", "--porcelain", "--ignore-submodules=untracked"], capture_output=True, text=True, timeout=20).stdout
+        dirty = [l for l in st.splitlines() if not l.startswith("??")]
+        if dirty:
+            reasons.append(f"{len(dirty)} uncommitted change(s) in it")
+    except (OSError, subprocess.SubprocessError):
+        reasons.append("git status could not be read")
+    gitdir = subprocess.run(["git", "-C", str(path), "rev-parse", "--git-dir"], capture_output=True, text=True).stdout.strip()
+    if gitdir:
+        g = pathlib.Path(gitdir) if gitdir.startswith("/") else path / gitdir
+        for marker in ("MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD", "REVERT_HEAD", "index.lock"):
+            if (g / marker).exists():
+                reasons.append(f"{marker} present (an operation in progress)")
+    return reasons
+
+
+def lease_live(rec):
+    return bool(rec) and float(rec.get("lease_until", 0)) > time.time()
 
 
 def session_live(root, sid):
@@ -831,48 +909,62 @@ def tree_gate_pid(root, tree):
 
 
 def cmd_bind(st, a):
+    """One card, one branch, one worktree: the tree's holder is written here,
+    under the board's own lock, as (session, agent) plus a lease.
+
+    Who the agent is comes from the guard: it sees the hook payload's agent id
+    when this very command passes PreToolUse and leaves a claimant note keyed
+    on the words after `bind`; this reads the note. Without one (a bind run
+    outside the hook, from a script, from a human shell) the agent is `main`.
+    """
+    sid = norm_sid(a.session)
+    agent = None
+    note = take_claimant(st.root, bind_claim_key(sys.argv[sys.argv.index("bind") + 1:])) if "bind" in sys.argv else None
+    if note and norm_sid(note.get("session_id")) == sid:
+        agent = note.get("agent_id") or "main"
+    me = actor_key(sid, agent)
     with st.lock():
         c = st.get_card(a.id)
-        sid = norm_sid(a.session)
-        # A card another session holds is not bound twice by accident: the
-        # orchestrator once dispatched a worker onto a card whose holder was
-        # mid-rebase on the same branch, and both did the work (2026-09-05).
-        # Taking a card over is a decision, so it has a flag and a history line.
+        tree = (a.tree or c.get("tree") or "").rstrip("/") or None
+        take = getattr(a, "take", False)
+        if tree:
+            rec = tree_record(st.root, tree)
+            held_by_other = rec and rec.get("actor") and rec["actor"] != me and rec.get("card") not in (None, c["id"]) or (rec and rec.get("actor") and rec["actor"] != me)
+            if rec and rec.get("actor") and rec["actor"] != me:
+                alive = lease_live(rec) or tree_gate_pid(st.root, tree) is not None
+                if alive and not take:
+                    sys.exit(
+                        f"board: {tree} is held by {rec['actor']} (card #{rec.get('card')}, lease renewed {int((time.time() - float(rec.get('renewed_at', 0))) // 60)} min ago).\n"
+                        f"  Two actors in one tree verify nothing. A tree of your own: ./scripts/wt.sh new <name>; then board bind {c['id']} --session {a.session} --tree wt/<name>.\n"
+                        f"  To take this one over on purpose (the holder must be gone and the tree quiescent): board bind {c['id']} --session {a.session} --tree {tree} --take"
+                    )
+                if alive and take:
+                    sys.exit(
+                        f"board: {tree} cannot be taken: its holder {rec['actor']} is live (lease or a running gate). Wait, or use a tree of your own."
+                    )
+                reasons = tree_quiescence(st.root, tree)
+                if reasons:
+                    sys.exit(
+                        f"board: {tree} cannot be taken over while it is not quiescent: " + "; ".join(reasons) + ".\n"
+                        f"  Somebody's work is in it. Look before you take: board tree {tree.split('/')[-1]}"
+                    )
+                card_history(st, c, f"took over {tree} from {rec['actor']} (card #{rec.get('card')}, lease expired, tree quiescent)")
+                if rec.get("card") not in (None, c["id"]):
+                    try:
+                        old = st.get_card(rec["card"])
+                        card_history(st, old, f"{tree} was taken over by {me} for card #{c['id']}; the lease had expired and the tree was quiescent")
+                        st.save_card(old)
+                    except SystemExit:
+                        pass
+            now_ = time.time()
+            write_tree_record(st.root, tree, {
+                "tree": tree, "card": c["id"], "actor": me, "session": sid, "agent": agent or "main",
+                "bound_at": now(), "renewed_at": now_, "lease_until": now_ + LEASE_MINUTES * 60,
+                "gen": int((rec or {}).get("gen", 0)) + 1,
+            })
         held = norm_sid(c.get("session"))
-        take = getattr(a, "take", False) or (held and held != sid and not session_live(st.root, held))
-        if held and held != sid and c["state"] not in SETTLED and not take:
-            since = next((h["at"] for h in reversed(c.get("history", [])) if str(h.get("what", "")).startswith("bound to session")), c.get("updated"))
-            sys.exit(
-                f"board: #{c['id']} is held by session {held}"
-                + (f" in {c['tree']}" if c.get("tree") else "")
-                + (f" on {c['branch']}" if c.get("branch") else "")
-                + f" since {since}.\n  If that session is gone, take it over on purpose: board bind {c['id']} --session {a.session} --take"
-            )
-        # And a tree another session's card holds: one card, one branch, one
-        # worktree was a convention until two sessions shared wt/gcclist for an
-        # hour (2026-09-05). --take covers this too, since it is the same call.
-        if a.tree and not getattr(a, "take", False):
-            tree = a.tree.rstrip("/")
-            others = [
-                k for k in st.list_cards()
-                if k["id"] != c["id"] and str(k.get("tree") or "").rstrip("/") == tree
-                and k.get("session") and norm_sid(k.get("session")) != sid and k["state"] not in SETTLED
-                and session_live(st.root, k["session"])
-            ]
-            if others:
-                k = others[0]
-                sys.exit(
-                    f"board: {tree} is already the tree of #{k['id']} ({k['title'][:60]}), held by session {norm_sid(k['session'])}.\n"
-                    f"  One card, one branch, one worktree: ./scripts/wt.sh new <name> for yours, or --take if that session is gone."
-                )
-            gate = tree_gate_pid(st.root, tree)
-            if gate is not None:
-                sys.exit(
-                    f"board: {tree} has a check.sh still verifying it (pid {gate}); an edit there now would make that verdict meaningless.\n"
-                    f"  Wait for it (ps -p {gate} -o etime,command), or ./scripts/wt.sh new <name> for a tree of your own."
-                )
         if held and held != sid:
-            card_history(st, c, f"taken over from session {held}" + ("" if getattr(a, "take", False) else " (it had ended, or was silent for %d minutes)" % IDLE_MINUTES))
+            card_history(st, c, f"taken over from session {held}")
         c["session"] = sid
         if a.tree:
             c["tree"] = a.tree
@@ -881,13 +973,34 @@ def cmd_bind(st, a):
         if c["state"] in ("reported", "triaged"):
             c["state"] = "working"
         card_history(
-            st, c, f"bound to session {sid}" + (f" in {a.tree}" if a.tree else "")
+            st, c, f"bound to {me}" + (f" in {a.tree}" if a.tree else "")
         )
         st.save_card(c)
         s = st.session(sid)
         s["card"] = c["id"]
+        cards = [x for x in (s.get("cards") or []) if x != c["id"]] + [c["id"]]
+        s["cards"] = cards
         st.save_session(s)
-    print(f"#{c['id']} bound to {sid}")
+    print(f"#{c['id']} bound to {me}" + (f" in {tree}" if tree else ""))
+
+
+def cmd_tree(st, a):
+    """What a sweep must ask before it calls a tree abandoned."""
+    tree = f"wt/{a.name.split('/')[-1]}"
+    rec = tree_record(st.root, tree)
+    gate = tree_gate_pid(st.root, tree)
+    reasons = tree_quiescence(st.root, tree)
+    if not rec:
+        print(f"{tree}: no holder record (nobody has bound it since the record existed)")
+    else:
+        age = int((time.time() - float(rec.get("renewed_at", 0))) // 60)
+        state = "LIVE" if lease_live(rec) else "expired"
+        print(f"{tree}: held by {rec.get('actor')} for card #{rec.get('card')}, lease {state} (renewed {age} min ago), bound {rec.get('bound_at')}")
+    print(f"  gate: {'running, pid ' + str(gate) if gate is not None else 'none'}")
+    print("  quiescent: " + ("yes" if not reasons else "NO: " + "; ".join(reasons)))
+    held = bool(rec and (lease_live(rec) or gate is not None))
+    print("  verdict: " + ("IN USE, hands off" if held else ("free to take (board bind <card> --session <you> --tree %s --take)" % tree if rec else "free")))
+    sys.exit(1 if held or reasons else 0)
 
 
 def _block(st, cid, need, ask, default, by, steps=None):
@@ -1562,6 +1675,9 @@ def main(argv=None):
         help="on app mario: what happens if he never answers",
     )
     s.set_defaults(fn=cmd_app)
+    s = sub.add_parser("tree", help="who holds a worktree, its lease, its gate, whether it is quiescent")
+    s.add_argument("name")
+    s.set_defaults(fn=cmd_tree)
     s = sub.add_parser("bind")
     s.add_argument("id", type=int)
     s.add_argument("--session", required=True)

@@ -197,6 +197,14 @@ cmd_prune() {
     if [ "$dirty" != "0" ] || [ "$unmerged" != "0" ] || [ -n "$touched" ] || pgrep -f "^$d/.pio/build/simulator_x4_pro/program" >/dev/null 2>&1; then
       kept=$((kept + 1)); continue
     fi
+    # And the board's word: a tree whose holder's lease is live, or with a gate
+    # running on it, is in use whatever the files say. Two sessions once shared
+    # one tree for an hour; a sweep once committed another worker's diff. The
+    # record is the only thing that may call a tree abandoned.
+    local boardpy="$INTEGRATION/tools_local/board/board.py"
+    if [ -f "$boardpy" ] && ! python3 "$boardpy" tree "$name" >/dev/null 2>&1; then
+      kept=$((kept + 1)); continue
+    fi
     if [ "$dry" = 1 ]; then
       echo "would drop $name ($branch: merged, clean)"
     else

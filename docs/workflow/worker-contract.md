@@ -63,6 +63,15 @@ are enforced by hooks and will refuse rather than remind.
   host suites green in your tree, pushed, a pull request open, and
   `board state <id> review`. Say in the PR what was not verified. Hardware
   always counts as not verified.
+- **A tree is its holder's.** `board bind <card> --session <id> --tree
+  wt/<name>` before the first write: the record it leaves is what the guard
+  reads, and a tree with no record refuses writes, as does a tree bound to
+  another actor (a subagent is its own actor). Your tool calls renew the
+  lease; a running `check.sh` keeps the tree in use without them. Taking a
+  tree over is `board bind ... --take`, refused while the holder is live or
+  the tree has uncommitted work or an operation in progress, and the
+  displaced card is told. `board tree <name>` is the only way to call a tree
+  abandoned; a sweep that commits or removes a tree asks it first.
 - **Your diff is the three-dot one.** `git diff origin/xteink...HEAD
   --name-only` (the merge base) is what your branch changes; the two-dot
   `git diff origin/xteink` lists everything trunk did since you branched and
