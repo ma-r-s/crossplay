@@ -53,17 +53,20 @@ class GeometryTarget final : public fui::DrawTarget {
 }  // namespace
 
 int main() {
-  const picross::Puzzle* first = nullptr;
-  for (int i = 0; i < picross::kPuzzleCount; ++i) {
-    if (picross::kPuzzles[i].size == 10) {
-      first = &picross::kPuzzles[i];
-      break;
-    }
-  }
-  if (first == nullptr) {
-    std::fprintf(stderr, "no 10x10 puzzle in the bank\n");
+  if (picross::kPuzzleCount <= 0) {
+    std::fprintf(stderr, "the bank is empty\n");
     return 1;
   }
+
+  // A puzzle the screen will actually draw a name band for. Since card #390 an
+  // UNNAMED puzzle gets no band at all -- the picture takes the space, because
+  // a blank 52px gap reads as a name that failed to render -- and the bank
+  // ships unnamed, so probing kPuzzles[0] straight out of the header measures
+  // a band that is not there. The puzzle is copied and given a name instead.
+  static constexpr const char* kProbeName = "PROBE";
+  picross::Puzzle probe = picross::kPuzzles[0];
+  probe.name = kProbeName;
+  const picross::Puzzle* first = &probe;
 
   fui::DeviceContext ctx;
   ctx.width = 480;  // the X4 Pro's logical frame, portrait
@@ -84,14 +87,14 @@ int main() {
   model.moreToPlay = true;
   picrossui::buildWin(screen, model);
 
-  // The name is the only run drawn with the puzzle's own name in it. Found by
-  // its text rather than by position, so a reordered screen still answers.
+  // Found by its text rather than by position, so a reordered screen still
+  // answers.
   for (const auto& run : target.texts) {
-    if (run.text == first->name) {
+    if (run.text == kProbeName) {
       std::printf("%d\n", static_cast<int>(run.rect.width));
       return 0;
     }
   }
-  std::fprintf(stderr, "the win screen did not draw the puzzle's name -- has it been renamed or removed?\n");
+  std::fprintf(stderr, "the win screen drew no name band for a NAMED puzzle -- has buildWin changed?\n");
   return 1;
 }

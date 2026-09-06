@@ -22,7 +22,6 @@ enum : fui::ActionId {
   ActionPick = 3,  // value is a puzzle index, or -1 to resolve through the picker
   ActionMode = 4,  // value is Mode: which input mode a tap selects
   ActionPage = 5,  // value is a page index the picker should jump to
-  ActionTab = 6,   // value is a size-group index the picker should switch to
 };
 
 enum Button : int {
@@ -71,10 +70,15 @@ struct MenuModel {
   int total = 0;
   // RESUME rather than PLAY on the selected tile, when it is the in-progress one.
   bool hasProgress = false;
-  // Which page of the picker to draw, and (for the size-tabbed layout) which
-  // size group is active. The activity owns these and the picker clamps them.
+  // Which page of the picker to draw. The activity owns it and the picker
+  // clamps it, reporting back what it actually drew in PickerLayout.
   int page = 0;
-  int sizeTab = 0;
+  // Ignore `page` and open on the page holding `selectedIndex`. Set when the
+  // picker appears, so the highlighted tile is on screen without the activity
+  // having to know how many tiles a page holds -- that number is derived from
+  // the panel inside buildMenu, and a second copy of it elsewhere is a copy
+  // that goes stale the next time the layout moves.
+  bool followSelection = false;
 };
 
 // Where the picker drew its tile grid. Same discipline as the board's Layout:
@@ -110,7 +114,18 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
 void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& layout);
 
 // The payoff: the finished picture, revealed clean and named, graded by
-// mistakes.
+// mistakes. A puzzle nobody has named yet is revealed without a name band.
 void buildWin(toybox::Screen& screen, const WinModel& model);
+
+// One page step, clamped to [0, pageCount). `delta` is -1 or +1.
+//
+// A free function, and the ONLY reason it is one is that it can be tested. The
+// two physical side keys page the picker, and the simulator never runs
+// InputManager and never sees a button at all -- so nothing about the key
+// press itself is provable off-device. What IS provable is the decision the
+// press feeds: this. Clamping rather than wrapping, because the keys are the
+// case's moulded page-turn keys and the reader they were made for stops at the
+// ends of a book.
+int stepPage(int page, int pageCount, int delta);
 
 }  // namespace picrossui

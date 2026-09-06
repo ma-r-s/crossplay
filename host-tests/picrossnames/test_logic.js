@@ -69,8 +69,13 @@ eq(L.judge("PIÑATA", DATA).fold, "PINATA", "and offers the folded spelling");
 // It used to be offered whenever the fold removed the HOLES, so the iPhone
 // possessive got two stops in a row, the second caused by the tool's own
 // suggestion.
-eq(L.judge("PIÑATA'S", DATA).level, "stop", "an accent plus an apostrophe is refused");
-eq(L.judge("PIÑATA'S", DATA).fold, null, "and no fold is offered, because the fold would be refused too");
+eq(L.judge("PIÑATA'S", DATA).fold, "PINATA'S", "the apostrophe survives the fold now that the file accepts it");
+eq(L.judge("PIÑATA@HOME", DATA).level, "stop", "an accent plus a character the file refuses is refused");
+eq(L.judge("PIÑATA@HOME", DATA).fold, null, "and no fold is offered, because the fold would be refused too");
+eq(L.judge("WÜRZBÜRGER WÜRSTCHEN", DATA).fold, "WURZBURGER WURSTCHEN",
+   "a long folded name is still offered: the device shrinks it rather than refusing it");
+eq(L.judge("Ü" + "W".repeat(40), DATA).fold, null,
+   "but not when the folded name overflows even the smallest cut");
 
 // The character quoted must be the one that was typed. Reading text[i] after
 // stepping over a surrogate pair quoted the LOW SURROGATE, so the message named
@@ -79,11 +84,17 @@ check(L.judge("\u{1F600} CAT", DATA).text.includes("\u{1F600}"), "an emoji is qu
 // A decomposed accent is stripped rather than reported as a mark with no letter.
 eq(L.judge("CAFÉ", DATA).fold, "CAFE", "a combining accent folds away");
 
-eq(L.judge("CAFE'S BAR", DATA).level, "stop", "the file's charset refuses an apostrophe");
-eq(L.judge("SEVENTEEN LETTERS", DATA).level, "stop", "over the file's 16-character cap");
+eq(L.judge("CAFE'S BAR", DATA).level, "ok", "an apostrophe is allowed, and the display cut draws it");
 eq(L.judge("A-FRAME HOUSE", DATA).level, "ok", "hyphens and spaces are allowed");
-eq(L.judge("SIXTEEN CHARS OK", DATA).level, "warn", "16 legal characters can still be too wide for the display cut");
-eq(L.judge("SIXTEEN CHARS OK", DATA).rung, 1, "and the device sets that one a cut down");
+eq(L.judge("CAT@HOME", DATA).level, "stop", "a character outside the file's charset is refused");
+
+// The width IS the rule, and it is not a character count. A count safe for the
+// worst glyph refuses names that fit easily, and #390's nine-character cap
+// refused this one.
+eq(L.judge("CHRISTMAS TREE", DATA).level, "ok", "fourteen characters fit when the letters are ordinary");
+eq(L.judge("WWWWWWWWWW", DATA).level, "ok", "ten of the widest glyph still fit, so ten is the floor for ANY name");
+eq(L.judge("WWWWWWWWWWW", DATA).level, "warn", "eleven do not, and the device shrinks rather than clipping");
+eq(L.judge("WWWWWWWWWWW", DATA).rung, 1, "one cut down");
 
 // Advances are rounded PER GLYPH, as EpdFont does, not summed and rounded once.
 // Summed-then-rounded measured sixteen capital As at 488px against the device's
@@ -184,6 +195,40 @@ eq(beforeLoad.draft, "HALF TYPED", "mergeState does not mutate the state it was 
 // A save file whose position is past the end of a shrunken bank.
 eq(L.mergeState({ v: 1, pos: 9999, draft: "", entries: {} }, {}, known, DATA).state.pos, 0,
    "a position past the end of the bank is clamped by a load too");
+
+// --- the two implementations of one rule ----------------------------------
+//
+// The browser needs JavaScript and gen_picross.py needs Python, so the rule
+// exists twice whether anyone likes it or not. What must not exist twice is a
+// DISAGREEMENT: a name the tool accepts and the generator then refuses is 137
+// names rejected at the end of a day's work. So both are run over one corpus
+// here and any difference is a failure.
+//
+// The corpus is built rather than listed: every allowed character on its own
+// and in runs across the band's whole interesting range, plus the awkward
+// cases, so it cannot quietly stop covering the boundary.
+const cross = [];
+const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '-";
+for (const ch of alphabet) {
+  for (const n of [1, 5, 9, 10, 11, 14, 20, 33]) cross.push(ch.repeat(n));
+}
+cross.push(
+  "", "CAT", "CHRISTMAS TREE", "COCKTAIL GLASS", "CAFE'S BAR", "A-FRAME HOUSE",
+  "PIÑATA", "CAT@HOME", "cat", "  SPACED  ", "0123456789", "I I I I I I I I I I"
+);
+const pyPath = path.join(root, "host-tests/picrossnames/cross_check.json");
+fs.writeFileSync(
+  pyPath,
+  JSON.stringify(cross.map((n) => ({ name: n, level: L.judge(n, DATA).level })), null, 1)
+);
+const py = require("child_process").spawnSync(
+  "python3",
+  [path.join(root, "host-tests/picrossnames/cross_check.py"), pyPath],
+  { encoding: "utf8" }
+);
+check(py.status === 0, "the Python rule agrees with the JavaScript one on every string\n" + (py.stdout || "") + (py.stderr || ""));
+fs.unlinkSync(pyPath);
+check(cross.length > 300, "the cross-check corpus is not a token handful (" + cross.length + " strings)");
 
 console.log(checks + " checks, " + failed + " failed");
 process.exit(failed === 0 ? 0 : 1);

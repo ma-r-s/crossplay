@@ -29,13 +29,25 @@ constexpr char kSavePath[] = "/.crosspoint/picross.sav";
 // came back empty, and only on the puzzles past the 256th.
 //
 // v4 is the janko import. `solved` is a bitset sized by kProgressWords, which
-// is derived from kPuzzleCount, so GROWING THE BANK CHANGES THIS STRUCT even
+// is derived from kPuzzleCount, so CHANGING THE BANK CHANGES THIS STRUCT even
 // though no field here was touched -- and, worse, the bank is emitted
 // size-sorted, so adding 10x10 puzzles renumbers every 15x15 and a bit that
 // survived would name a different puzzle. Solved progress from an earlier bank
 // therefore cannot be migrated, only discarded, and this bump is what discards
 // it by version instead of by a short read that says nothing.
-constexpr uint8_t kSaveVersion = 4;
+// v5 drops the 15x15 tier. Mario played one on the panel: "it's just not gonna
+// work". That is a bank change and therefore a save-format change twice over,
+// which is the trap this comment exists for -- NO FIELD BELOW WAS TOUCHED:
+//   - `cells` is kMaxSize*kMaxSize and kMaxSize fell from 15 to 10, so the
+//     struct is 125 bytes shorter;
+//   - `solved` is kProgressWords wide, derived from a bank that fell from 321
+//     puzzles to 137, so it is six words shorter;
+//   - and the bank is emitted size-sorted, so removing the 15x15s renumbers
+//     nothing that survives but leaves every stored index naming a puzzle
+//     chosen from a different, larger list.
+// A v4 save read as a v5 is therefore garbage that parses. Discarded by
+// version, which is the only honest option -- there is nothing to migrate.
+constexpr uint8_t kSaveVersion = 5;
 
 // How many MARKS may go unwritten. A committing FILL is flushed immediately --
 // it is irreversible and unrepeatable, so losing one to a sleep is the worst
@@ -173,20 +185,26 @@ void PicrossActivity::routeBoardTap(const int x, const int y) {
   requestUpdate();
 }
 
-// Land the picker on the size group and page that show `selected`, so the
-// highlighted tile is on screen the moment the grid appears. The bank is stored
-// with each size contiguous, so the group is the run `selected` falls in.
-void PicrossActivity::syncPicker() {
-  int tab = 0;
-  int groupStart = 0;
-  for (int i = 1; i <= selected && i < picross::kPuzzleCount; ++i) {
-    if (picross::kPuzzles[i].size != picross::kPuzzles[i - 1].size) {
-      ++tab;
-      groupStart = i;
-    }
-  }
-  menuTab = tab;
-  menuPage = (selected - groupStart) / 16;
+// Land the picker on the page showing `selected`, so the highlighted tile is on
+// screen the moment the grid appears.
+//
+// It sets a flag rather than working the page out, because the page depends on
+// how many tiles fit the panel and that is decided in buildMenu. This used to
+// divide by a literal 16 -- the number the picker happened to draw when a size-
+// tab band sat above the grid -- and the moment that band went the two
+// disagreed silently, opening the picker on the wrong page. The picker reports
+// what it drew and menuPage is copied back from that.
+void PicrossActivity::syncPicker() { menuFollowsSelection = true; }
+
+// Show picker page `page`, from a dot tap or a side key. A no-op when it is
+// already the page on screen: an e-ink full refresh for nothing is a visible
+// blink that says something happened when nothing did.
+void PicrossActivity::showPage(const int page) {
+  if (view != View::Menu || page == menuPage) return;
+  menuPage = page;
+  menuFollowsSelection = false;  // an explicit page beats "open on the selection"
+  flashOnNextPaint = true;       // a wholesale page swap earns a clean full refresh
+  requestUpdate();
 }
 
 void PicrossActivity::routeButton(const int button) {
@@ -234,10 +252,23 @@ void PicrossActivity::loop() {
     return;
   }
 
-  // The two physical side keys select the input mode directly, so a player who
-  // has the device in two hands never has to reach for the capsule. Touch stays
-  // complete -- the capsule does the same thing -- so this is an alias, which is
-  // the fork's rule for the side keys. Only meaningful on the board.
+  // The two physical side keys, which on the X4 Pro are the ONLY buttons there
+  // are: back, confirm, left and right are unassigned pins and can never fire
+  // (see docs/buttons.md). Physically they are the moulded page-turn keys, and
+  // what they do here follows the view:
+  //
+  //   on the BOARD   select the input mode (Up = FILL, Down = MARK), so a
+  //                  player holding the device in two hands never reaches for
+  //                  the capsule;
+  //   on the PICKER  turn the page, which is what the keys are shaped for and
+  //                  what the reader already does with them. 137 puzzles page
+  //                  several ways and the page dots were the only way through
+  //                  them -- Mario could not change page with the buttons at
+  //                  all, which on a page-turn key reads as broken.
+  //
+  // Both are aliases: touch does everything on both screens (the capsule, the
+  // dots), which is the fork's rule for these keys. Neither view can starve the
+  // other, because a key is read against the view that is on screen.
   if (view == View::Board) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
       setMode(ui::ModeFill);
@@ -245,6 +276,15 @@ void PicrossActivity::loop() {
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
       setMode(ui::ModeMark);
+      return;
+    }
+  } else if (view == View::Menu) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+      showPage(ui::stepPage(menuPage, pickerLayout.pageCount, -1));
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+      showPage(ui::stepPage(menuPage, pickerLayout.pageCount, +1));
       return;
     }
   }
@@ -282,16 +322,7 @@ void PicrossActivity::loop() {
     }
     case ui::ActionPage:
       if (view != View::Menu || action.value == menuPage) break;
-      menuPage = action.value;
-      flashOnNextPaint = true;  // a wholesale page swap earns a clean full refresh
-      requestUpdate();
-      break;
-    case ui::ActionTab:
-      if (view != View::Menu || action.value == menuTab) break;
-      menuTab = action.value;
-      menuPage = 0;  // a different group starts at its first page
-      flashOnNextPaint = true;
-      requestUpdate();
+      showPage(action.value);
       break;
     default:
       break;
@@ -336,11 +367,13 @@ void PicrossActivity::render(RenderLock&&) {
       model.total = picross::kPuzzleCount;
       model.hasProgress = model.inProgressIndex == selected && model.inProgressIndex >= 0;
       model.page = menuPage;
-      model.sizeTab = menuTab;
+      model.followSelection = menuFollowsSelection;
       ui::buildMenu(screen, model, pickerLayout);
-      // The picker clamped whatever it was handed; keep our copy in step so the
-      // dots and the next tap agree with what was drawn.
+      // The picker clamped whatever it was handed, and may have resolved the
+      // page from `selected` instead; keep our copy in step so the dots, the
+      // side keys and the next tap all agree with what was drawn.
       menuPage = pickerLayout.pageOnScreen;
+      menuFollowsSelection = false;
       break;
     }
   }

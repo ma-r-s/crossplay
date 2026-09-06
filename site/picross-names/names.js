@@ -36,17 +36,12 @@
 
   var STORE_KEY = "crossplay.picross.names.v1";
 
-  // What the file card #390 consumes will accept. Its generator makes each of
-  // these a HARD ERROR on the whole file, so a name that breaks one is not a
-  // warning to read later: it is 137 names rejected at the end. Checked here,
-  // on the picture it belongs to, while there is still something to do about it.
-  //
-  // The charset is tighter than the font is -- toybox_30 draws every printable
-  // ASCII character -- and the cap is a proxy for a width this tool measures
-  // exactly. Both are recorded on the card as things that could be relaxed;
-  // until they are, this enforces what the consumer enforces.
-  var ALLOWED = /^[A-Z0-9 -]*$/;
-  var MAX_CHARS = 16;
+  // A ceiling on the FIELD, not the rule. Nothing above this can fit at any cut
+  // in any charset (32 narrow letters is the widest that still fits, and it is
+  // already a nonsense name), so it stops a paste running away without ever
+  // being the thing that refuses a real name -- the width does that, and says
+  // so. See logic.js.
+  var MAX_FIELD = 40;
   var puzzles = DATA.puzzles;
   var total = puzzles.length;
   var indexById = {};
@@ -504,7 +499,7 @@
     // to be of the string that will really be stored: caps are wider, so
     // measuring what he typed and storing what the device gets would report a
     // fit that is not there.
-    var up = L.foldWith(L.PUNCT_FOLD, el.field.value).toUpperCase().slice(0, L.MAX_CHARS);
+    var up = L.foldWith(L.PUNCT_FOLD, el.field.value).toUpperCase().slice(0, MAX_FIELD);
     if (up !== el.field.value) {
       var at = el.field.selectionStart;
       el.field.value = up;

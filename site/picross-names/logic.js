@@ -23,11 +23,24 @@
     { key: "small", label: "the smallest cut" }
   ];
 
-  // What the file card #390 consumes will accept. Its generator makes each of
-  // these a HARD ERROR on the whole file, so a name that breaks one is not a
-  // warning to read later: it is 137 names rejected at the end.
-  var ALLOWED = /^[A-Z0-9 -]*$/;
-  var MAX_CHARS = 16;
+  // What gen_picross.load_names accepts, and a HARD ERROR on the whole file if
+  // broken -- so a bad name is not a warning to read later, it is 137 names
+  // rejected at the end. Checked here, on the picture it belongs to.
+  //
+  // The apostrophe is in. It was refused while the consuming generator refused
+  // it, and now that #390 accepts it there is no reason left: the display cut
+  // draws it, and a possessive is a natural picture name.
+  //
+  // THERE IS NO CHARACTER CAP. A count cannot answer this question, because
+  // fittedTitle does not clip a name that is too wide, it SHRINKS it silently
+  // to a smaller cut -- so the only honest test is a width, and a count that is
+  // safe for the worst glyph refuses names that fit easily. Any name up to ten
+  // characters fits whatever its letters (ten Ws is 437px of 448); the measured
+  // rule takes "CHRISTMAS TREE" at fourteen, which a nine-character cap
+  // refused. tools_local/picross/name_width.py is the same rule in Python for
+  // the generator to gate on, and host-tests/picrossnames runs both over one
+  // corpus and fails on any disagreement.
+  var ALLOWED = /^[A-Z0-9 '-]*$/;
 
   // Two different folds, because the firmware makes the same distinction and
   // for the same reason (lib/Utf8's utf8FoldTypography, and the typography-fold
@@ -179,29 +192,21 @@
       return {
         level: "stop",
         text:
-          "The names file takes letters, digits, spaces and hyphens only, so " +
+          "The names file would refuse " +
           bad
             .map(function (c) {
               return '"' + c + '"';
             })
             .join(", ") +
-          " would be refused for the whole file. Spell it without."
+          ", and it refuses the whole file over one. Letters, digits, spaces, hyphens and apostrophes."
       };
     }
 
-    if (name.length > MAX_CHARS) {
-      return {
-        level: "stop",
-        text: "The names file takes " + MAX_CHARS + " characters at most, and this is " + name.length + "."
-      };
-    }
-
-    // Only two width answers can actually happen, and saying "three" here was
-    // wrong: sixteen characters of the widest glyph the file's charset allows
-    // is 252px in toybox_10 against a 448px band, so neither the smallest cut
-    // nor the ellipsis is reachable while MAX_CHARS is 16. The loop still walks
-    // every rung rather than assuming that, because MAX_CHARS is the thing
-    // most likely to move.
+    // All four answers are reachable now that the character cap is gone, which
+    // is the point of walking the rungs rather than assuming: a long name is
+    // set one cut down and then two, and only past the smallest is it cut
+    // short. The middle two are the ones worth saying out loud, because the
+    // device handles them and says nothing.
     for (var i = 0; i < RUNGS.length; i++) {
       var w = measure(name, RUNGS[i].key, data.fonts).width;
       if (w <= data.bandWidth) {
@@ -209,9 +214,7 @@
           return {
             level: "ok",
             rung: i,
-            text:
-              "Fits at " + RUNGS[i].label + " (" + w + " of " + data.bandWidth + "px, " +
-              name.length + " of " + MAX_CHARS + " characters)."
+            text: "Fits at " + RUNGS[i].label + " (" + w + " of " + data.bandWidth + "px)."
           };
         }
         return {
@@ -382,7 +385,6 @@
   root.PicrossNamesLogic = {
     RUNGS: RUNGS,
     ALLOWED: ALLOWED,
-    MAX_CHARS: MAX_CHARS,
     PUNCT_FOLD: PUNCT_FOLD,
     LETTER_FOLD: LETTER_FOLD,
     foldWith: foldWith,

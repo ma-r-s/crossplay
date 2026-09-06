@@ -45,6 +45,11 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 BANK = REPO / "src/apps_local/picross/PicrossPuzzles.h"
+# Where the designers live now. The attribution left the firmware on card
+# #390 -- 137 source URLs were ~34KB of a ~51KB bank -- so the header cannot
+# be asked who drew a picture any more, and host-tests/picrossprov fails if a
+# later session puts them back.
+SOURCE = REPO / "assets_local/picross/janko.txt"
 FONTS = REPO / "src/apps_local/ui/fonts"
 OUT = REPO / "site/picross-names/data.js"
 
@@ -113,51 +118,114 @@ def load_font(name):
     return metrics, line_height
 
 
-def janko_id(name, prov):
-    """The janko.at puzzle number, as `janko-authors.json` keys it: a decimal
-    string with no leading zeros. The names file card #390 consumes is keyed by
-    this rather than by the bank's index, because a re-import renumbers the bank
-    and does not renumber janko.
+def parse_source():
+    """Every candidate picture in janko.txt, keyed by its BITMAP.
 
-    Derived from the SOURCE URL, which is where the number actually comes from,
-    and cross-checked against the puzzle's own id. They agree today; if a puzzle
-    ever arrives whose id and URL disagree, or which has no janko number at all
-    (the fork's own CC0 pictures do not), this refuses rather than inventing a
-    key that would silently name the wrong picture."""
-    from_url = re.search(r"/Nonogramme/0*(\d+)\.", prov.get("source", "") or "")
-    from_name = re.fullmatch(r"JANKO0*(\d+)", name)
-    if from_url is None or from_name is None:
-        raise SystemExit(
-            f"{name}: cannot tell what its janko number is (source {prov.get('source')!r}). "
-            "The names file is keyed by that number; fix the provenance or teach this function."
-        )
-    if from_url.group(1) != from_name.group(1):
-        raise SystemExit(f"{name}: its id says {from_name.group(1)} and its source URL says {from_url.group(1)}")
-    return from_url.group(1)
+    Keyed by the bitmap and not by a name, because since card #390 the string a
+    shipped puzzle carries is Mario's name for the picture and says nothing
+    about where it came from. The bitmap is the puzzle. This is deliberately the
+    same mechanism host-tests/picrossprov re-derives the credit with -- one way
+    of answering "which janko puzzle is this", not two.
+
+    Parsed with a GRID STATE rather than line by line: a solid row is
+    "##########", which starts with a '#' and is indistinguishable from a
+    comment unless you already know a grid is open.
+    """
+    lines = SOURCE.read_text(encoding="utf-8").splitlines()
+    by_bitmap = {}
+    defaults = {}
+    pending = {}
+    i = 0
+    while i < len(lines):
+        line = lines[i].rstrip()
+        if not line.strip() or line.lstrip().startswith("#"):
+            i += 1
+            continue
+        if line.lstrip().startswith("@"):
+            text = line.strip()
+            sticky = text.startswith("@@")
+            key, _, value = text.lstrip("@").partition(" ")
+            (defaults if sticky else pending)[key.strip().lower()] = value.strip()
+            i += 1
+            continue
+        name = line.strip()
+        prov = dict(defaults)
+        prov.update(pending)
+        pending = {}
+        i += 1
+        cells = []
+        while i < len(lines) and lines[i].strip() and set(lines[i].strip()) <= {"#", "."}:
+            cells.append([1 if ch == "#" else 0 for ch in lines[i].strip()])
+            i += 1
+        if not cells:
+            continue
+        size = len(cells)
+        bits = tuple(sum(1 << c for c in range(size) if cells[r][c]) for r in range(size))
+        by_bitmap.setdefault((size, bits), []).append((name, prov))
+    return by_bitmap
+
+
+def janko_key(name):
+    """The bare janko number, as janko-names.json keys it.
+
+    janko-names.json accepts either "JANKO222" or "222" and this emits the bare
+    form. Refused rather than guessed for anything else: a wrong key here names
+    the wrong picture, and nobody would catch that by reading the file.
+    """
+    m = re.fullmatch(r"JANKO0*(\d+)", name)
+    if m is None:
+        raise SystemExit(f"{name}: not a janko puzzle name, so the names file has no key for it")
+    return m.group(1)
 
 
 def load_bank():
+    """The puzzles that ACTUALLY SHIP, with the origin of each.
+
+    Read from the emitted header rather than from janko.txt filtered to 10x10:
+    the bank is whatever gen_picross.py chose to emit, and a tool that re-derives
+    that choice for itself is a tool that can disagree with the device about
+    which pictures exist.
+    """
     src = BANK.read_text()
     body = src.split("constexpr Puzzle kPuzzles[] = {", 1)[1].split("\n};", 1)[0]
-    entries = re.findall(r'\{"([A-Za-z0-9_-]+)",\s*(\d+),\s*(\d+),\s*\{([^}]*)\}\}', body)
+    # The struct lost its provenance index when the attribution left the
+    # firmware (card #390), and `name` now holds Mario's name for the picture --
+    # empty until he writes one. Neither the janko id nor the designer is in
+    # this file any more, by design, and host-tests/picrossprov fails if either
+    # comes back.
+    entries = re.findall(r'\{"((?:[^"\\]|\\.)*)",\s*(\d+),\s*\{([^}]*)\}\}', body)
     if not entries:
         raise SystemExit(f"{BANK}: no puzzles parsed -- the table's shape changed")
 
-    prov_body = src.split("constexpr Provenance kProvenances[] = {", 1)[1].split("\n};", 1)[0]
-    provs = [
-        {"author": a, "license": lic, "source": s}
-        for a, lic, s in re.findall(r'\{"([^"]*)",\s*"([^"]*)",\s*"([^"]*)"\}', prov_body)
-    ]
-
+    by_bitmap = parse_source()
     puzzles = []
-    for name, size, prov, rows in entries:
+    provs = []
+    prov_index = {}
+    for _name, size, rows in entries:
         size = int(size)
-        if size != 10:
-            continue  # the bank is 10x10 only from card #390; read it, do not assume it
-        bits = [int(x, 0) for x in re.findall(r"0x[0-9A-Fa-f]+", rows)][:size]
-        puzzles.append({"id": name, "janko": janko_id(name, provs[int(prov)]), "rows": bits, "prov": int(prov)})
+        bits = tuple(int(x, 0) for x in re.findall(r"0x[0-9A-Fa-f]+", rows))[:size]
+        matches = by_bitmap.get((size, bits), [])
+        if len(matches) != 1:
+            raise SystemExit(
+                f"a shipped {size}x{size} bitmap matches {len(matches)} pictures in "
+                f"{SOURCE.relative_to(REPO)}; the tool cannot say where it came from"
+            )
+        src_name, prov = matches[0]
+        for key in ("author", "license", "source"):
+            if not prov.get(key):
+                raise SystemExit(f"{src_name}: no {key} recorded, so the tool would credit nobody")
+        row = (prov["author"], prov["license"], prov["source"])
+        if row not in prov_index:
+            prov_index[row] = len(provs)
+            provs.append({"author": row[0], "license": row[1], "source": row[2]})
+        puzzles.append(
+            {"id": src_name, "janko": janko_key(src_name), "rows": list(bits), "prov": prov_index[row]}
+        )
     if not puzzles:
-        raise SystemExit(f"{BANK}: no 10x10 puzzles -- nothing for the tool to name")
+        raise SystemExit(f"{BANK}: no puzzles -- nothing for the tool to name")
+    sizes = {len(p["rows"]) for p in puzzles}
+    if len(sizes) != 1:
+        raise SystemExit(f"{BANK}: the bank mixes sizes {sorted(sizes)} and this tool draws one")
     return puzzles, provs
 
 
@@ -203,7 +271,10 @@ def render(band_width):
 
     payload = {
         "generatedBy": "tools_local/picross/gen_name_tool.py",
-        "size": 10,
+        # Read off the bank rather than stated: the bank was two size tiers
+        # until card #390 dropped 15x15, and a literal here would have been a
+        # number that quietly stopped being true.
+        "size": len(puzzles[0]["rows"]),
         "bandWidth": band_width,
         "puzzles": puzzles,
         "provenances": [provs[old] for old in used],
@@ -248,8 +319,8 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(text)
     data = json.loads(text.split("= ", 1)[1].rstrip(";\n"))
-    print(f"wrote {OUT.relative_to(REPO)}: {len(data['puzzles'])} puzzles at 10x10, "
-          f"{len(data['provenances'])} provenance rows, band {band}px")
+    print(f"wrote {OUT.relative_to(REPO)}: {len(data['puzzles'])} puzzles at "
+          f"{data['size']}x{data['size']}, {len(data['provenances'])} provenance rows, band {band}px")
     return 0
 
 

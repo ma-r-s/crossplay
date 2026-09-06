@@ -52,9 +52,10 @@ tool says so where the "Saved" line usually goes, rather than pretending.
 
 ## The format it exports
 
-`janko-names.json`, the shape card #390's generator reads and the shape
-`janko-authors.json` already uses: a flat object keyed by the **janko.at puzzle
-number** as a decimal string.
+`janko-names.json`, which is card #390's format and its file: it drops straight
+over `assets_local/picross/janko-names.json`, and `gen_picross.py` reads it. A
+flat object keyed by the **janko.at puzzle number** as a decimal string, the
+same shape `janko-authors.json` uses.
 
 ```json
 {
@@ -64,12 +65,10 @@ number** as a decimal string.
 }
 ```
 
-Keyed by the janko number rather than by the bank's index or by `JANKO222`,
-because a re-import renumbers the bank and janko does not. The key is derived
-per puzzle by `gen_name_tool.py` from the provenance URL and cross-checked
-against the puzzle id; a puzzle whose two disagree, or which has no janko number
-at all (the fork's own CC0 pictures do not), is **refused rather than guessed**,
-because a wrong key silently names the wrong picture.
+Keyed by the janko number rather than by a bank index, because the bank is
+emitted size-sorted and **renumbers whenever it changes** -- an index names a
+different picture after any edit. `gen_picross.load_names` also accepts the
+`"JANKO222"` form; this emits the bare number.
 
 Three states, and the file distinguishes all three:
 
@@ -82,37 +81,75 @@ Three states, and the file distinguishes all three:
 That third row is the reason a skipped puzzle writes nothing at all. "I have not
 got to this one" and "this picture has no name" are different answers, and a
 format that cannot tell them apart turns the second one into a gap in the data
-instead of the finding it is.
+instead of the finding it is. Both read the same on the device -- a puzzle with
+no name draws no name band, and the picture takes the space -- but only one of
+them means he is finished.
 
 The file is assembled line by line rather than through `JSON.stringify` on an
 object, for two reasons that both show up in a diff: an object's integer-like
 keys enumerate BEFORE its string keys, so `_comment` would not be the first line
-the way it is in `janko-authors.json`; and the keys are written in bank order, so
-two exports of the same answers are the same bytes.
+the way it is in `janko-authors.json`; and the keys are written in bank order,
+so two exports of the same answers are the same bytes.
 
 **The save file is a different file** (`picross-names-save.json`) and is not the
 answer: it is the tool's own state, and it exists to be carried between devices.
-Loading one merges its answers and keeps **this** device's position and its
+Loading one merges its answers and keeps **this** device's position, and its
 half-typed word is dropped -- the position in the file is written but not read
 back, because the puzzle he was on over there is not where he is here.
 
-### Two rules the tool enforces that come from the CONSUMER, not the font
+### Where the puzzle data comes from, now that the header has less of it
 
-Card #390's generator makes each of these a hard error **on the whole file**, so
-a name that breaks one is not a warning to read later: it is 137 names rejected
-at the end. They are therefore checked at entry, on the picture they belong to.
+Card #390 took the attribution out of the firmware -- 137 source URLs were ~34KB
+of a ~51KB bank -- so `PicrossPuzzles.h` no longer carries a designer, a licence,
+a URL or even a janko id. Each puzzle is a bitmap, a size, and the name Mario
+gives it.
 
-- **Letters, digits, spaces and hyphens only.** Tighter than the font: the cut
-  draws every printable ASCII character, an apostrophe included, and an iPhone
-  will produce one from a possessive without being asked.
-- **16 characters at most.** A proxy for a width this tool measures exactly, and
-  a loose one in both directions: `SIXTEEN CHARS OK` is legal at 16 characters
-  and still too wide for the display cut, while twenty narrow letters would fit
-  and are refused.
+`gen_name_tool.py` therefore reads the bank for **what ships** and matches each
+bitmap against `janko.txt` for **where it came from**, which is exactly the
+mechanism `host-tests/picrossprov` re-derives the credit with. One way of
+answering "which janko puzzle is this", not two. A bitmap that matches no source
+picture, or more than one, is a hard error rather than a guess: a wrong key here
+would name the wrong picture and nobody would catch it by reading the file.
 
-Both are recorded on #391 as things that could be relaxed once somebody decides.
-Until then the tool enforces what the consumer enforces, because the alternative
-is finding out at the end.
+Reading the emitted bank rather than filtering `janko.txt` is deliberate. The
+bank is whatever the generator chose to emit; a tool that re-derives that choice
+for itself is a tool that can disagree with the device about which pictures
+exist.
+
+
+### One rule, two implementations, and a test that they cannot drift
+
+The name has to pass the same judgement in two places: in this tool, while he is
+typing, and in `gen_picross.py`, which refuses `janko-names.json` outright
+rather than ship a name the panel cannot draw. The browser needs JavaScript and
+the generator needs Python, so the rule exists twice whether anyone likes it or
+not. What must not exist twice is a **disagreement**: a name the tool accepts and
+the generator then refuses is 137 names rejected at the end of a day's work.
+
+So `tools_local/picross/name_width.py` is the rule in Python,
+`site/picross-names/logic.js` is the rule in JavaScript, and
+`host-tests/picrossnames` runs **both over one corpus** -- every allowed
+character alone and in runs across the band's whole interesting range, plus the
+awkward cases -- and fails on any difference. Taking the apostrophe out of one
+of them is caught immediately, by name, on the exact strings that diverge.
+
+`name_width.py` run with no arguments prints what the rule actually permits,
+which is the question anyone reaching for a character cap is really asking.
+
+### It is a width, not a count, and that is not a preference
+
+`toybox::fittedTitle` does not clip a name that is too wide. It **shrinks** it to
+the next cut, and nothing reports that -- so the failure is silent and the only
+honest test is a width. A count has to assume the worst glyph to be safe, and
+the cost is real: **any name up to ten characters fits whatever its letters**
+(ten `W`s is 437px of the 448px band, eleven is 481px), while the measured rule
+takes `CHRISTMAS TREE` at fourteen characters and 410px. A nine-character cap
+refuses that name; the width does not.
+
+The charset is `A-Z`, digits, space, hyphen and apostrophe -- what
+`gen_picross.load_names` accepts. Every one of them is inside U+0020..U+007E,
+which is all a Toybox cut carries.
+
 
 ## What the tool knows that a text box does not
 
@@ -128,12 +165,12 @@ it, and offers the folded spelling as a button. The preview box shows the word
 with the hole in it, which is more convincing than the sentence.
 
 Typographic punctuation is folded silently on the way in, exactly as
-`utf8FoldTypography` folds prose. Note what that is and is not for now: it was
-written to rescue the apostrophe an iPhone makes out of a possessive, and the
-names file refuses an apostrophe however it is spelled, so that case is refused
-rather than folded. What is left is narrower but real -- a non-breaking or thin
-space becomes a space and a dash of any width becomes a hyphen, both of which
-the file accepts and both of which a phone keyboard produces. Letters are never
+`utf8FoldTypography` folds prose, and the case it was written for is live again:
+an iPhone turns a typed apostrophe into U+2019 by itself, the display cut has no
+glyph for that, and the file accepts the ASCII one -- so without the fold every
+possessive he typed on the sofa would arrive as a hole. A non-breaking or thin
+space becomes a space and a dash of any width becomes a hyphen, for the same
+reason. Letters are never
 folded silently, because an accent folded away changes the word and that is his
 call; the fold is offered as a button, and only when the folded spelling passes
 the whole judgement, so the tool never suggests a name its own next rule
@@ -142,11 +179,10 @@ refuses.
 **A name too wide for the display cut is set in a smaller one.** `fittedTitle`
 walks toybox_30 -> toybox_20 -> toybox_10 and only ellipsizes when the smallest
 still overflows, so the tool walks the same ladder and says which rung the name
-landed on. **Two of those four answers are reachable today and two are not**:
-sixteen characters of the widest glyph the file's charset allows is 252px in
-toybox_10 against a 448px band, so while the cap is 16 nothing can reach the
-smallest cut or the ellipsis. The code still walks every rung rather than
-assuming that, because the cap is the thing most likely to move.
+landed on. All four answers are reachable now that the character cap is gone,
+which is the point of walking the rungs rather than assuming: the middle two are
+the ones worth saying out loud, because the device handles them and says
+nothing.
 
 The measurement is `EpdFont::getTextBounds` restated rather than approximated,
 and the difference is not academic. What the device reports is the width of the
@@ -172,18 +208,21 @@ name. It is **448px today**, and that number is not typed anywhere by hand:
     tools_local/picross/gen_name_tool.py       # rebuilds data.js from bank + fonts + that
 
 `measure_name_band.sh` writes `tools_local/picross/name_band.txt` and
-`gen_name_tool.py` reads it, refusing to run if it is missing. **Card #390
-changes this screen** -- the size label goes, the designer credit goes, the name
-arrives -- so whoever lands that should re-run both, in that order.
-`host-tests/site/run.sh` fails if `data.js` no longer matches the bank, the
-fonts and the recorded band, so a curated bank or a regenerated cut cannot leave
-the tool quietly describing a screen that has moved.
+`gen_name_tool.py` reads it, refusing to run if it is missing. It was re-measured
+after card #390 rewrote this screen and came back 448px again -- and the probe
+had to change to get that answer, because an UNNAMED puzzle now gets no name
+band at all, so probing the bank straight out of the header measured a band that
+was not there. It names a puzzle first. `host-tests/site/run.sh` fails if
+`data.js` no longer matches the bank, the fonts and the recorded band, so a
+curated bank or a regenerated cut cannot leave the tool quietly describing a
+screen that has moved.
 
 ## What the tool does not do
 
-It does not write anything into the repository, and it does not know about the
-firmware. Landing the names is a separate step: take `janko-names.json`, and let the
-generator put the names into `PicrossPuzzles.h` beside the ids.
+It does not write anything into the repository. Landing the names is a separate
+step and one file copy: `janko-names.json` goes over
+`assets_local/picross/janko-names.json`, and `tools_local/picross/gen_picross.py`
+puts them into `PicrossPuzzles.h`.
 
 It also cannot tell whether a name is a GOOD name. The pictures were judged
 legible at picker scale (`janko-selection.json`), not nameable; some of them

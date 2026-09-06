@@ -82,6 +82,8 @@ class Board {
   // FreeErase becomes a plain Crossed. A Filled cell toggles back to Blank (a
   // correct fill is never locked, so a mis-tap on geometry is recoverable). A
   // Mistake is locked and refuses.
+  //
+  // A fill that COMPLETES a line also auto-marks it: see autoMark().
   bool fill(int row, int col);
   // mark(): toggles Blank <-> Crossed. Never a mistake, never counted -- it
   // asserts nothing about the cell being filled. Refuses a Filled or Mistake
@@ -105,6 +107,33 @@ class Board {
   void restore(int index, const uint8_t* cells, int mistakes);
 
  private:
+  // Cross every still-blank cell of every satisfied line. A satisfied line has
+  // all of its solid cells filled, so every remaining blank cell in it is
+  // PROVABLY empty and the cross is always right -- this is a chore the player
+  // would otherwise do by hand, never a guess made on their behalf.
+  //
+  // It is safe against this game's central invariant because it only ever
+  // writes Crossed. A MARK is a free, reversible annotation that asserts
+  // nothing; a FILL is the committing move that can lock as a Mistake. So
+  // auto-marking cannot manufacture a mistake, cannot alter the mistake count,
+  // and cannot make solved() true -- "a filled cell is always correct" is
+  // untouched.
+  //
+  // AN AUTO-PLACED MARK IS AN ORDINARY MARK. It is stored as Cell::Crossed with
+  // no flag saying who put it there, so mark() erases it exactly like one the
+  // player made, and the save carries it like one. That is deliberate: a mark
+  // the game placed and the player cannot remove would be the only
+  // uneraseable annotation in the game, and telling the two apart would need a
+  // fifth cell state, a save format that carries it, and a rule for what
+  // happens when the line stops being satisfied. Erasing one is never
+  // punished, so nothing is lost by letting them.
+  //
+  // Only called from a fill that LANDED (a fill is the only move that can make
+  // a line satisfied), never from load() or restore(): a board that arrives
+  // pre-crossed would read as touched(), and a fresh puzzle would offer to
+  // RESUME itself.
+  void autoMark();
+
   bool inside(int row, int col) const;
   int filledInRow(int row) const;
   int filledInCol(int col) const;
