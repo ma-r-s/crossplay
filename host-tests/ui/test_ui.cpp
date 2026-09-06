@@ -10387,27 +10387,75 @@ void testWallpapersCaptionNeverCollidesWithArtwork() {
   }
 }
 
-// The empty state names the gap and how to fix it.
+// The empty state names the gap and how to fix it -- and no longer sends anyone
+// to a computer. It named File Transfer until the phone flow existed.
 void testWallpapersEmptyStateSaysSomething() {
   Rendered out;
   wallpapersui::EmptyModel model;
   buildWallpapersEmpty(out, model);
   CHECK(drewText(out, "NO WALLPAPERS"));
-  CHECK(drewText(out, "File Transfer"));
+  CHECK(drewText(out, "+ Add a wallpaper"));
+  CHECK(!drewText(out, "File Transfer"));
 }
 
-// The help card behind the "+ Add a wallpaper" tile names the uploader and how
-// the file reaches the card.
-void testWallpapersHelpCardPointsAtTheUploader() {
+// The address the QR encodes is NOT the one printed large, and the printed
+// second line disappears when there is nothing true to put in it.
+//
+// This pins the fix for a fault the code could already see: startAddServer()
+// logged a failed MDNS.begin() and then encoded the .local name anyway, so the
+// phone said "cannot find server" while the prose blamed the user's WiFi. The
+// activity now hands an EMPTY altUrl in that case, and this asserts the screen
+// draws nothing rather than an address that cannot resolve.
+void testWallpapersAddScreenDropsAnAddressItCannotStandBehind() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  {
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wallpapersui::AddModel model;
+    model.url = "http://crossplay-a1b2c3.local/w";
+    model.altUrl = "http://192.168.1.42/w";
+    const fui::Rect qr = wallpapersui::buildAdd(screen, model);
+    CHECK(drewText(out, "SCAN THIS CODE"));
+    CHECK(drewText(out, "crossplay-a1b2c3.local/w"));
+    CHECK(drewText(out, "192.168.1.42/w"));
+    // The scheme is encoded, never drawn: it costs the address its type cut.
+    CHECK(!drewText(out, "http://crossplay-a1b2c3.local/w"));
+    CHECK(qr.width > 0 && qr.height > 0);
+  }
+  {
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wallpapersui::AddModel model;
+    model.url = "http://192.168.1.42/w";  // mDNS did not start: the address takes the line
+    model.altUrl = nullptr;
+    wallpapersui::buildAdd(screen, model);
+    CHECK(drewText(out, "192.168.1.42/w"));
+    CHECK(!drewText(out, ".local"));
+  }
+}
+
+// The Offer screen is the ONLY screen a factory device shows, so the phone flow
+// has to be reachable from it. It was a sentence, and ActionAddOwn was routed
+// but drawn by nothing at all -- so a new reader could not reach the feature
+// this app is now built around.
+void testWallpapersOfferReachesTheAddFlow() {
   Rendered out;
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
-  wallpapersui::buildHelp(screen);
-  CHECK(drewText(out, "ADD A WALLPAPER"));
-  CHECK(drewText(out, "crossplay.ma-r-s.com/wallpapers"));
-  CHECK(drewText(out, "File Transfer"));
+  wallpapersui::OfferModel model;
+  model.count = 21;
+  model.bytes = 1009302;
+  wallpapersui::buildOffer(screen, model);
+  bool addOwn = false;
+  for (size_t i = 0; i < out.interactions.count(); ++i)
+    if (out.interactions.data()[i].action == wallpapersui::ActionAddOwn) addOwn = true;
+  CHECK(addOwn);
+  CHECK(!out.interactions.overflowed());
 }
 
 // The layout is DERIVED now (positions hang off screen.body().y and off each
@@ -10655,7 +10703,8 @@ int main() {
   testWallpapersChromeWarningVerbatim();
   testWallpapersEmptyStateSaysSomething();
   testWallpapersCaptionNeverCollidesWithArtwork();
-  testWallpapersHelpCardPointsAtTheUploader();
+  testWallpapersAddScreenDropsAnAddressItCannotStandBehind();
+  testWallpapersOfferReachesTheAddFlow();
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();

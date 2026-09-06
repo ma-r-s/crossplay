@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "../../activities/Activity.h"
+#include "../../network/CrossPointWebServer.h"
 #include "../ui/ToyboxScreen.h"
 #include "WallpapersCore.h"
 #include "WallpapersScreens.h"
@@ -50,7 +51,7 @@ class WallpapersActivity final : public Activity {
   // remembered "have I offered already" flag: a stored value that decides what
   // you see turns a reproducible screen into a nondeterministic one
   // (invisible-saved-state-reads-as-nondeterminism).
-  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Help };
+  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Add };
   View view_ = View::Grid;
 
   void scanLibrary();
@@ -63,6 +64,10 @@ class WallpapersActivity final : public Activity {
   bool unpackSet();       // pack -> individual .bmp files, resumable
   void prewarmThumbs();   // build the thumbnail cache while the bar is still up
   void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
+  void openAdd();          // entry: get the radio, then serve
+  void startAddServer();   // latch dev mode, bind, advertise, build the address
+  void stopAddServer();    // and undo all four, in reverse
+  void pollAddArrivals();  // has a wallpaper landed while the code was up?
   void loadActive();
   void computeWarning();
   // Whether the pinned wallpaper can reach the sleep screen under the settings
@@ -101,6 +106,27 @@ class WallpapersActivity final : public Activity {
   std::string noticeBody_;
   const char* noticeAction_ = nullptr;
   freeink::ui::ActionId noticeActionId_ = 0;
+  std::unique_ptr<CrossPointWebServer> addServer_;
+  int addBefore_ = 0;   // library size when the code went up
+  int addArrived_ = 0;  // how many have landed since
+  bool addWaitingWifi_ = false;
+  unsigned long addLastPoll_ = 0;
+  // Whether THIS screen is the one holding dev mode's yield. The LinkRadio
+  // shape: what makes the pause/resume pairing correct at runtime is this flag,
+  // not the 1:1 source count host-tests/release can see (its own comment says
+  // it cannot see reachability at all). One pause, one resume, one owner.
+  bool addDevPaused_ = false;
+
+  // The screen owns the radio while the code is up, and the user is looking at
+  // their PHONE -- nothing here counts as activity, so the 10-minute auto-sleep
+  // (minimum 1) would reset the chip mid-upload. The two other owners of this
+  // same server both carry this line; this is the third (fix-the-twin-too).
+  bool preventAutoSleep() override { return addServer_ && addServer_->isRunning(); }
+  std::string addStatus_;
+  std::string addQrUrl_;  // what the CODE carries: always the numeric address
+  std::string addUrl_;  // printed large: the name when it resolves, else the address     // http://crossplay.local/w --
+                        // what the QR encodes and the screen prints
+  std::string addAltUrl_;  // http://<ip>/w -- the fallback, printed under it, never encoded
   std::string rightLabel_;
   std::string warning_;
   // The last selection's outcome, kept so the strip can report what it changed

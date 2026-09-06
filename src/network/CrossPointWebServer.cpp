@@ -28,11 +28,14 @@
 #include "SettingsList.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
+#include "apps_local/wallpapers/WallpapersCore.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
 #include "html/SettingsPageHtml.generated.h"
+#include "html/WallpaperPageHtml.generated.h"
 #include "html/js/jszip_minJs.generated.h"
+#include "html/js/wallconvertJs.generated.h"
 #include "util/BookCacheUtils.h"
 #include "util/TaskWatchdog.h"
 
@@ -98,7 +101,7 @@ bool isProtectedItemName(const String& name) {
 // - HomePageHtml (from html/HomePage.html)
 // - FilesPageHeaderHtml (from html/FilesPageHeader.html)
 // - FilesPageFooterHtml (from html/FilesPageFooter.html)
-CrossPointWebServer::CrossPointWebServer(bool devOnly) : devOnly(devOnly) {}
+CrossPointWebServer::CrossPointWebServer(Surface surface) : surface(surface) {}
 
 CrossPointWebServer::~CrossPointWebServer() { stop(); }
 
@@ -154,11 +157,15 @@ void CrossPointWebServer::begin() {
   // rather than from the LAN, and the reply to a successful guess hands over
   // the token. The reader's own web UI is a browser page and needs CORS; the
   // dev API's client is curl and does not.
-  if (!devOnly) server->enableCORS(true);
+  // Full only. WallpapersOnly serves its own page to its own origin, so CORS
+  // would only widen who may read the replies, and DeveloperOnly deliberately
+  // withholds it (see below).
+  if (isFull()) server->enableCORS(true);
 
   // Setup routes
-  LOG_DBG("WEB", "Setting up routes (%s)...", devOnly ? "developer mode only" : "full");
-  if (!devOnly) {
+  LOG_DBG("WEB", "Setting up routes (%s)...",
+          isFull() ? "full" : (isDev() ? "developer mode only" : "wallpapers only"));
+  if (isFull()) {
     server->on("/", HTTP_GET, [this] { handleRoot(); });
     server->on("/files", HTTP_GET, [this] { handleFileList(); });
     server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
@@ -202,32 +209,51 @@ void CrossPointWebServer::begin() {
     server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
     server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
     server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
-  }  // !devOnly
+  }  // isFull()
 
-  // Always present, in both surfaces. /api/status carries no secrets and is how
-  // a script finds and identifies a device before it has a token.
-  server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
-  server->on("/api/dev/pair", HTTP_POST, [this] { handleDevPair(); });
-  server->on("/api/dev/flash", HTTP_POST, [this] { handleDevFlash(); });
-  // HTTP_PUT, and that is load-bearing rather than taste. This core's
-  // FunctionRequestHandler hands the SAME callback to both the upload path and
-  // the raw path, with nothing passed in to tell them apart -- and calling
-  // server->upload() while the server is in raw mode dereferences a null
-  // _currentUpload and reboots the device. Registering as PUT makes canUpload()
-  // structurally unreachable (it requires HTTP_POST), so only the raw path can
-  // ever fire and there is one mode to write for instead of two to distinguish.
-  server->on("/api/dev/upload", HTTP_PUT, [this] { handleDevUpload(); }, [this] { handleDevUploadData(); });
-  server->on("/api/dev/disable", HTTP_POST, [this] { handleDevDisable(); });
-  server->on("/api/dev/crash", HTTP_GET, [this] { handleDevCrash(); });
-  server->on("/api/dev/log", HTTP_GET, [this] { handleDevLog(); });
+  if (isWallpapers()) {
+    server->on("/w", HTTP_GET, [this] { handleWallpaperPage(); });
+    server->on("/js/wallconvert.js", HTTP_GET, [this] { handleWallpaperScript(); });
+    // HTTP_PUT for the same structural reason /api/dev/upload is: this core
+    // hands ONE callback to both the multipart and the raw paths with nothing
+    // to tell them apart, and calling server->upload() in raw mode dereferences
+    // a null _currentUpload and reboots. PUT makes canUpload() unreachable, so
+    // only the raw path can ever fire.
+    server->on("/w/upload", HTTP_PUT, [this] { handleWallpaperUpload(); }, [this] { handleWallpaperUploadData(); });
+  }
+
+  // The developer surface. Present for Full and DeveloperOnly and DELIBERATELY
+  // NOT for WallpapersOnly: these routes flash firmware, and the whole point of
+  // that surface is that its address is printed in a QR code for anyone in the
+  // room to scan. "Always present" was true when there were two surfaces; a
+  // third one that quietly inherited a flashing API would be the worst kind of
+  // default. /api/status carries no secrets and is how a script finds a device
+  // before it has a token, so it rides along with them.
+  if (isFull() || isDev()) {
+    server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
+    server->on("/api/dev/pair", HTTP_POST, [this] { handleDevPair(); });
+    server->on("/api/dev/flash", HTTP_POST, [this] { handleDevFlash(); });
+    // HTTP_PUT, and that is load-bearing rather than taste. This core's
+    // FunctionRequestHandler hands the SAME callback to both the upload path and
+    // the raw path, with nothing passed in to tell them apart -- and calling
+    // server->upload() while the server is in raw mode dereferences a null
+    // _currentUpload and reboots the device. Registering as PUT makes canUpload()
+    // structurally unreachable (it requires HTTP_POST), so only the raw path can
+    // ever fire and there is one mode to write for instead of two to distinguish.
+    server->on("/api/dev/upload", HTTP_PUT, [this] { handleDevUpload(); }, [this] { handleDevUploadData(); });
+    server->on("/api/dev/disable", HTTP_POST, [this] { handleDevDisable(); });
+    server->on("/api/dev/crash", HTTP_GET, [this] { handleDevCrash(); });
+    server->on("/api/dev/log", HTTP_GET, [this] { handleDevLog(); });
 #if CROSSPOINT_DEV_SERIAL_BRIDGE
-  // Driving the device, over the transport that needs no cable. Gated on the
-  // same flag as the injector itself, so a release build carries neither the
-  // routes nor the per-frame input overlay they schedule onto.
-  server->on("/api/dev/input", HTTP_POST, [this] { handleDevInput(); });
-  server->on("/api/dev/screen", HTTP_GET, [this] { handleDevScreen(); });
-  server->on("/api/dev/serial", HTTP_GET, [this] { handleDevSerial(); });
+    // Driving the device, over the transport that needs no cable. Gated on the
+    // same flag as the injector itself, so a release build carries neither the
+    // routes nor the per-frame input overlay they schedule onto.
+    server->on("/api/dev/input", HTTP_POST, [this] { handleDevInput(); });
+    server->on("/api/dev/screen", HTTP_GET, [this] { handleDevScreen(); });
+    server->on("/api/dev/serial", HTTP_GET, [this] { handleDevSerial(); });
 #endif
+
+  }  // isFull() || isDev()
 
   server->onNotFound([this] { handleNotFound(); });
   LOG_DBG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
@@ -238,14 +264,14 @@ void CrossPointWebServer::begin() {
   // paired request looks unpaired.
   const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "X-Dev-Token"};
   server->collectHeaders(davHeaders, 7);
-  if (!devOnly) {
+  if (isFull()) {
     server->addHandler(new WebDAVHandler());  // deleted by WebServer when the server is stopped
     LOG_DBG("WEB", "WebDAV handler initialized");
   }
 
   server->begin();
 
-  if (!devOnly) {
+  if (isFull()) {
     // Fast binary uploads for the file manager. Dev mode uploads over plain
     // HTTP instead, which is one fewer listening port for the surface that
     // stays up the longest.
@@ -2319,6 +2345,161 @@ void CrossPointWebServer::handleDevScreen() {
 // not fit anywhere else. The destination is fixed rather than caller-chosen: an
 // authenticated endpoint that writes an arbitrary path is a worse primitive
 // than one that writes the only path this feature needs.
+// ---------------------------------------------------------------------------
+// The Wallpapers surface: one page, its script, and one upload.
+// ---------------------------------------------------------------------------
+
+void CrossPointWebServer::handleWallpaperPage() const {
+  sendHtmlContent(server.get(), WallpaperPageHtml, sizeof(WallpaperPageHtml));
+}
+
+void CrossPointWebServer::handleWallpaperScript() const {
+  server->sendHeader("Content-Encoding", "gzip");
+  server->send_P(200, "application/javascript", wallconvertJs, sizeof(wallconvertJs));
+}
+
+namespace {
+// The device names the file, never the client. That is not tidiness: it deletes
+// the traversal question and the collision question outright rather than
+// answering them. handleUpload thirty lines away takes upload.filename into a
+// path with no check at all (card #353), and the font handler beside it does
+// check -- so this fork has already proved it can go either way on the same
+// afternoon. There is nothing to validate if nothing is accepted.
+//
+// The original name is no loss: the picker captions a user's wallpaper with its
+// file stem, and a phone hands over "IMG_0001".
+std::string nextWallpaperPath() {
+  for (int i = 1; i <= 9999; ++i) {
+    char name[48];
+    std::snprintf(name, sizeof(name), "%s/w%04d.bmp", wallpapers::kLibraryDir, i);
+    if (!Storage.exists(name)) return std::string(name);
+  }
+  return std::string();
+}
+}  // namespace
+
+void CrossPointWebServer::handleWallpaperUploadData() {
+#ifdef SIMULATOR
+  // The simulator's WebServer shim has no raw() body API. A PLATFORM gate, not
+  // a feature gate, exactly as /api/dev/upload carries.
+  return;
+#else
+  HTTPRaw& raw = server->raw();
+
+  if (raw.status == RAW_START) {
+    // Everything is decided HERE, because by RAW_END the whole body is already
+    // on the card -- but nothing is ANSWERED here: sending a response while the
+    // body is still being parsed corrupts the server.
+    wallUpload.accepted = false;
+    wallUpload.ok = false;
+    wallUpload.written = 0;
+    wallUpload.refusal = nullptr;
+
+    if (!isWallpapers()) {
+      wallUpload.refusal = "not this surface";
+      return;
+    }
+
+    // The free-space precondition the WebDAV path never had. Three outcomes,
+    // and Unknown REFUSES: freeBytes() returns false when the cluster walk
+    // failed, which is an abnormal card and never "the card is empty".
+    // Refusing costs a retry; proceeding costs the one user whose card was
+    // already in trouble -- and the floor exists to protect Study's review log,
+    // not this app.
+    uint64_t freeNow = 0;
+    const bool queryOk = Storage.freeBytes(freeNow);
+    if (wallpapers::roomFor(queryOk, freeNow, wallpapers::kCardFloorBytes) != wallpapers::Room::Ok) {
+      wallUpload.refusal = "The reader is low on space. Nothing was written.";
+      return;
+    }
+
+    if (!Storage.exists(wallpapers::kLibraryDir) && !Storage.mkdir(wallpapers::kLibraryDir)) {
+      wallUpload.refusal = "The reader could not open its wallpapers folder.";
+      return;
+    }
+
+    wallUpload.final = nextWallpaperPath();
+    if (wallUpload.final.empty()) {
+      wallUpload.refusal = "The reader has too many wallpapers already.";
+      return;
+    }
+    wallUpload.target = wallUpload.final + ".part";
+    Storage.remove(wallUpload.target.c_str());
+    if (!Storage.openFileForWrite("WALL", wallUpload.target, wallUpload.file)) {
+      wallUpload.refusal = "The reader could not write to its card.";
+      return;
+    }
+    wallUpload.accepted = true;
+    LOG_INF("WALL", "receiving wallpaper -> %s", wallUpload.target.c_str());
+    return;
+  }
+
+  if (!wallUpload.accepted) return;
+
+  if (raw.status == RAW_WRITE) {
+    // Bounded before a byte is written, not after: kWallpaperFileBytes is the
+    // only size the panel accepts, so a longer body is a wrong file or a
+    // hostile one and there is no reason to spend the card on it.
+    if (wallUpload.written + raw.currentSize > wallpapers::kWallpaperFileBytes) {
+      wallUpload.refusal = "That is not a reader wallpaper.";
+      wallUpload.accepted = false;
+      wallUpload.file.close();
+      Storage.remove(wallUpload.target.c_str());
+      return;
+    }
+    if (wallUpload.file.write(raw.buf, raw.currentSize) == raw.currentSize) {
+      wallUpload.written += raw.currentSize;
+    } else {
+      wallUpload.refusal = "The card stopped accepting the file.";
+      wallUpload.accepted = false;
+      wallUpload.file.close();
+      Storage.remove(wallUpload.target.c_str());
+    }
+    return;
+  }
+
+  if (raw.status == RAW_END) {
+    wallUpload.file.close();
+    // A short body is a dropped connection. The .part is removed rather than
+    // left behind: sweepPartFiles() only matches .part, which is why this path
+    // writes one instead of the .davtmp WebDAV would have left invisible to
+    // both the sweep and the picker.
+    if (wallUpload.written != wallpapers::kWallpaperFileBytes) {
+      Storage.remove(wallUpload.target.c_str());
+      wallUpload.refusal = "The picture did not arrive completely.";
+      return;
+    }
+    Storage.remove(wallUpload.final.c_str());
+    if (!Storage.rename(wallUpload.target.c_str(), wallUpload.final.c_str())) {
+      Storage.remove(wallUpload.target.c_str());
+      wallUpload.refusal = "The card refused to name the file.";
+      return;
+    }
+    wallUpload.ok = true;
+    LOG_INF("WALL", "wallpaper saved: %s", wallUpload.final.c_str());
+  }
+#endif
+}
+
+void CrossPointWebServer::handleWallpaperUpload() {
+  // Read ONCE and clear, the lesson /api/dev/upload paid for: ok is only ever
+  // set by the raw callback, so a PUT that never reaches it -- no body, or a
+  // body the core drops -- would otherwise inherit the PREVIOUS request's
+  // success and be answered 204. That is a success reported for an upload that
+  // did not happen, and the phone would say "it is on your reader".
+  const bool uploaded = wallUpload.ok;
+  const char* refusal = wallUpload.refusal;
+  wallUpload.ok = false;
+  wallUpload.refusal = nullptr;
+
+  if (uploaded) {
+    server->send(204, "text/plain", "");
+    return;
+  }
+  server->send(refusal != nullptr ? 507 : 400, "text/plain",
+               refusal != nullptr ? refusal : "The reader did not receive a picture.");
+}
+
 void CrossPointWebServer::handleDevUploadData() {
 #ifdef SIMULATOR
   // The simulator's WebServer shim has no raw() body API, and the emulator has

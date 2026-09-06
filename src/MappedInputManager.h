@@ -90,6 +90,36 @@ class MappedInputManager {
   // the long-press opened. The SDK owns that latch and self-clears it once the
   // contact ends.
   bool wasScreenLongPress(int& x, int& y) const;
+  // A hold the SDK's classifier missed, delivered as an ordinary tap.
+  //
+  // InputManager::wasTouchTap has NO duration gate (InputManager.cpp:643): it
+  // asks for a release edge, an unsuppressed single contact and no motion past
+  // the release slop, and a stationary finger held for five seconds satisfies
+  // all four. The long press is the WEAKER signal -- touchLongPressEvent is set
+  // only when an update() happens to run while the finger is still down and
+  // past TOUCH_LONG_PRESS_MS (:1220), and it is cleared at the top of every
+  // update() (:507). An app that blocks its own loop -- an e-ink repaint, or a
+  // page of BMP thumbnails decoded off the card -- can miss that window
+  // outright, and then the lift arrives as a plain tap.
+  //
+  // Harmless while tap and hold mean the same thing. Not harmless on a grid
+  // where a tap acts and a hold offers to delete: there the missed hold does
+  // the one thing the user was reaching past, with no confirmation.
+  //
+  // Ask this AFTER wasScreenTapped() has reported a tap -- that call is what
+  // latches the duration, through rememberTouchHeldTime(). True means route it
+  // as a hold.
+  bool tapWasHeldLong() const;
+  // The fork's screen-hold threshold. Deliberately the same 500ms the SDK's
+  // classifier uses for touchLongPressEvent, so the two agree about what a hold
+  // is -- but held HERE because the SDK's own TOUCH_LONG_PRESS_MS is private
+  // and this fork does not patch the submodule to read it.
+  //
+  // If the SDK ever retunes its value, this must move with it. The two drifting
+  // apart is not a crash: it is holds classifying one way in the SDK and the
+  // other way here, on exactly the screens where tap and hold do different
+  // things. A gap, named so the next person sees it.
+  static constexpr unsigned long SCREEN_HOLD_MS = 500;
   // fork-local: ignore the remainder of the in-progress contact -- its hold
   // and its release edge -- via the SDK's suppression latch. For apps that do
   // their own hold timing against geometry outside the interaction buffer
