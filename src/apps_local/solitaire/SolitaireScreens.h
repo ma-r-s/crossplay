@@ -17,6 +17,16 @@ namespace solitaireui {
 
 namespace fui = freeink::ui;
 
+// The band height, which this app alone raises: 56 rather than the fork's 76.
+// In portrait the header costs a tenth of the screen; in landscape the standard
+// band would cost a sixth of the dimension the tableau needs.
+//
+// Named here because the Activity has to hand the same number to the theme
+// token that the builders lay out against, and it used to do that by typing 56
+// again in another file. Two literals that must agree and cannot be checked
+// against each other is the shape half this app's chrome bugs came in.
+inline constexpr int16_t kHeaderBand = 56;
+
 enum : fui::ActionId {
   ActionPile = 1,    // value is a pile index
   ActionButton = 2,  // value is a Button below

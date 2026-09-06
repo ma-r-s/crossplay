@@ -543,7 +543,10 @@ void ChessActivity::recordMove(const chess::Move& move) {
 ChessActivity::BoardGeometry ChessActivity::boardGeometry() const {
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
-  const int bandTop = toybox::kHeaderHeight;
+  // The first row below the CHROME, not below the black band: the captured
+  // strip hangs off this, and measured from kHeaderHeight it sat five pixels
+  // under the header rule.
+  const int bandTop = toybox::kChromeHeight;
   const int bandHeight = screenHeight - bandTop;
   const int statusBlock = toybox::kGutter * 2 + toybox::kPillHeight;
   const int strips = 2 * (chessart::kSmallPieceSize + toybox::kGutter);
@@ -1000,10 +1003,8 @@ Rect ChessActivity::gearRect() const {
   // Centred in the VISIBLE part of the band, the same rule toybox::bandCenterY
   // gives the shelf's folder mark and toy battle's medals: the bezel covers the
   // band's top rows, so centring over the whole band rides high on the panel.
-  int viewTop, viewRight, viewBottom, viewLeft;
-  renderer.getOrientedViewableTRBL(&viewTop, &viewRight, &viewBottom, &viewLeft);
-  return Rect{renderer.getScreenWidth() - toybox::kMargin - size,
-              viewTop + (toybox::kHeaderHeight - viewTop - size) / 2, size, size};
+  // Asked for rather than open-coded: the band's height belongs to the chrome.
+  return Rect{renderer.getScreenWidth() - toybox::kMargin - size, toybox::bandCenterY(renderer, size), size, size};
 }
 
 void ChessActivity::activateMenuRow(const MenuRow row) {
@@ -1281,8 +1282,8 @@ void ChessActivity::gameRender() {
   const Rect gear = gearRect();
   toybox::gear(renderer, gear, false);
   const int gearHitX = gear.x - toybox::kGutter;
-  frame.hit(fui::makeRect(gearHitX, 0, renderer.getScreenWidth() - gearHitX, toybox::kHeaderHeight),
-            chessui::ActionOpenSettings);
+  const Rect band = toybox::headerBandRect(renderer);
+  frame.hit(fui::makeRect(gearHitX, band.y, band.width - gearHitX, band.height), chessui::ActionOpenSettings);
 
   const BoardGeometry geometry = boardGeometry();
   const int boardSize = geometry.squareSize * 8;

@@ -20,7 +20,11 @@ namespace tb = toybattle;
 // The prompt line sits between the rule and the board, and the board starts
 // below it. They shared a band at first and the question was drawn over the
 // top row of bases.
-constexpr int16_t kPromptTop = toybox::kHeaderHeight + 10;
+// Measured from the whole chrome, not from the band: kHeaderHeight + 10 put
+// the prompt's ink seven pixels under a rule the arithmetic could not see.
+// kBoardHeight is derived from this, so the board simply gets nine fewer
+// pixels rather than the prompt being moved onto it.
+constexpr int16_t kPromptTop = toybox::kChromeHeight + toybox::kGutter;
 constexpr int16_t kBoardTop = kPromptTop + 26;
 constexpr int16_t kRackTile = 54;
 // Taller than it is wide: a numeral over a mark needs the height, and the
@@ -813,8 +817,6 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   toybox::headerBand(screen, header);
 
   const fui::DeviceContext device = screen.device();
-
-  toybox::headerRule(screen);
 
   // Medals ride in the black band beside the title, where the eye already goes
   // and where they cost no body space. They were on their own line under the
