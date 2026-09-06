@@ -78,6 +78,26 @@ if [ "$rc" -eq 0 ] && [ -z "$out" ]; then ok; else
 fi
 
 # 2. Behind by a FIRMWARE commit: exit 4.
+# CI's emulator rebuild commits touch site/emulator/ only; a tree behind by
+# those alone is not behind on anything a gate verifies (twenty-one of them
+# withheld verdicts in one day).
+seed_clone
+advance_remote site/emulator/crossplay.wasm rebuilt
+out="$("$PROBE" "$WORK/clone" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then ok; else
+  bad "behind only by an emulator rebuild reported rc=$rc, expected 0: $out"
+fi
+case "$out" in
+  *"emulator rebuild"*) ok ;;
+  *) bad "the emulator-only case does not say so: $out" ;;
+esac
+seed_clone
+advance_remote site/emulator/crossplay.wasm rebuilt
+advance_remote docs/readme.md changed
+out="$("$PROBE" "$WORK/clone" 2>&1)"; rc=$?
+if [ "$rc" -eq 3 ]; then ok; else
+  bad "behind by a rebuild AND a docs commit reported rc=$rc, expected 3: $out"
+fi
 seed_clone
 advance_remote src/main.cpp changed
 out="$("$PROBE" "$WORK/clone" 2>&1)"; rc=$?
