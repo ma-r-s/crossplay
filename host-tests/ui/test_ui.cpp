@@ -31,6 +31,7 @@
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
+#include "../../src/apps_local/picross/PicrossScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
@@ -10304,6 +10305,183 @@ void testAHandDrawnRightLabelSitsOnTheTitlesLine() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Picross. A grid too big for the interaction buffer (a 10x10 is a hundred
+// cells against twenty-four slots), hit-tested through its Layout, plus a mode
+// capsule and a picker that must not spoil an unsolved picture.
+// ---------------------------------------------------------------------------
+
+void buildPicrossBoard(Rendered& out, const picrossui::BoardModel& model, picrossui::Layout& layout) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  picrossui::buildBoard(screen, model, layout);
+}
+
+void buildPicrossMenu(Rendered& out, const picrossui::MenuModel& model, picrossui::PickerLayout& layout) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  picrossui::buildMenu(screen, model, layout);
+}
+
+void buildPicrossWin(Rendered& out, const picrossui::WinModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  picrossui::buildWin(screen, model);
+}
+
+// A mid-game HEART: two correct fills, one locked mistake, one annotation.
+picross::Board picrossMidGame() {
+  picross::Board board;
+  board.load(0);  // HEART 5x5
+  int filled = 0;
+  for (int r = 0; r < board.size() && filled < 2; ++r)
+    for (int c = 0; c < board.size() && filled < 2; ++c)
+      if (board.solid(r, c)) {
+        board.fill(r, c);
+        ++filled;
+      }
+  for (int r = 0; r < board.size(); ++r)
+    for (int c = 0; c < board.size(); ++c)
+      if (!board.solid(r, c)) {
+        board.fill(r, c);
+        goto marked;
+      }  // one wrong fill -> mistake
+marked:
+  for (int r = 0; r < board.size(); ++r)
+    for (int c = 0; c < board.size(); ++c)
+      if (!board.solid(r, c) && board.cell(r, c) == picross::Cell::Blank) {
+        board.mark(r, c);
+        return board;
+      }
+  return board;
+}
+
+bool allDigits(const std::string& s) {
+  if (s.empty()) return false;
+  for (const char ch : s)
+    if (ch < '0' || ch > '9') return false;
+  return true;
+}
+
+// The whole grid is one target, so every one of a hundred cells does not land in
+// a twenty-four slot buffer. The direct assertion is that a full-panel sweep
+// reaches only the handful of real controls, and the grid through its Layout.
+void testPicrossBoardSpendsFewInteractions() {
+  picross::Board board = picrossMidGame();
+  Rendered out;
+  picrossui::BoardModel model;
+  model.board = &board;
+  model.mode = picrossui::ModeFill;
+  model.solvedCount = 0;
+  model.total = picross::kPuzzleCount;
+  picrossui::Layout layout;
+  buildPicrossBoard(out, model, layout);
+
+  std::vector<int> actions;
+  bool sawFill = false, sawMark = false, sawRestart = false, sawPuzzles = false, sawBoard = false;
+  for (int y = 2; y < 800; y += 7) {
+    for (int x = 2; x < 480; x += 7) {
+      const fui::ActionEvent e = out.tap(x, y);
+      if (e.action == fui::NO_ACTION) continue;
+      bool seen = false;
+      for (const int a : actions) seen = seen || a == static_cast<int>(e.action);
+      if (!seen) actions.push_back(static_cast<int>(e.action));
+      if (e.action == picrossui::ActionBoard) sawBoard = true;
+      if (e.action == picrossui::ActionMode && e.value == picrossui::ModeFill) sawFill = true;
+      if (e.action == picrossui::ActionMode && e.value == picrossui::ModeMark) sawMark = true;
+      if (e.action == picrossui::ActionButton && e.value == picrossui::ButtonRestart) sawRestart = true;
+      if (e.action == picrossui::ActionButton && e.value == picrossui::ButtonPuzzles) sawPuzzles = true;
+    }
+  }
+  // Only the real controls answer, and the grid is one of them (not a hundred).
+  CHECK(actions.size() <= 4);
+  CHECK(sawBoard);
+  CHECK(sawFill && sawMark);  // both halves of the mode capsule report their mode
+  CHECK(sawRestart && sawPuzzles);
+}
+
+// The pair has to be an exact inverse over the board it actually drew: a rect the
+// hit test misses is a dead cell, and a point it claims outside a cell's rect is
+// a tap that lands where the finger did not.
+void testPicrossGridHitTestIsExactInverse() {
+  picross::Board board = picrossMidGame();
+  Rendered out;
+  picrossui::BoardModel model;
+  model.board = &board;
+  picrossui::Layout layout;
+  buildPicrossBoard(out, model, layout);
+
+  const int n = layout.size;
+  bool everyPixelMapsHome = true;
+  bool everyClaimIsInsideItsRect = true;
+  for (int r = 0; r < n; ++r) {
+    for (int c = 0; c < n; ++c) {
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(layout.board.x + c * layout.cell),
+                        static_cast<int16_t>(layout.board.y + r * layout.cell), layout.cell, layout.cell);
+      for (int y = box.y; y < box.bottom(); ++y) {
+        for (int x = box.x; x < box.right(); ++x) {
+          int gotR = -1, gotC = -1;
+          if (!layout.cellAt(x, y, gotR, gotC) || gotR != r || gotC != c) everyPixelMapsHome = false;
+        }
+      }
+    }
+  }
+  for (int y = layout.board.y; y < layout.board.bottom(); ++y) {
+    for (int x = layout.board.x; x < layout.board.right(); ++x) {
+      int gotR = -1, gotC = -1;
+      if (!layout.cellAt(x, y, gotR, gotC)) continue;
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(layout.board.x + gotC * layout.cell),
+                        static_cast<int16_t>(layout.board.y + gotR * layout.cell), layout.cell, layout.cell);
+      if (x < box.x || x >= box.right() || y < box.y || y >= box.bottom()) everyClaimIsInsideItsRect = false;
+    }
+  }
+  CHECK(everyPixelMapsHome);
+  CHECK(everyClaimIsInsideItsRect);
+
+  // It claims nothing in the header band or the clue gutters.
+  int rr = -1, cc = -1;
+  CHECK(!layout.cellAt(240, 40, rr, cc));
+  CHECK(!layout.cellAt(layout.board.x - 4, layout.board.y + 4, rr, cc));
+}
+
+// Every clue number is drawn -- the fittedtitle/fmtwidth lesson: a clue elided
+// for want of gutter is a puzzle that cannot be solved. Count the digit-only
+// runs and match the clue total the board must show.
+void testPicrossDrawsEveryClue() {
+  for (const int idx : {0, 22, 50}) {  // a 5x5, a 10x10 and a 15x15, one per size bucket
+    picross::Board board;
+    board.load(idx);
+    Rendered out;
+    picrossui::BoardModel model;
+    model.board = &board;
+    picrossui::Layout layout;
+    buildPicrossBoard(out, model, layout);
+
+    uint8_t buf[picross::kMaxSize];
+    int expected = 0;
+    for (int r = 0; r < board.size(); ++r) {
+      const int k = board.rowClues(r, buf);
+      expected += k == 0 ? 1 : k;
+    }
+    for (int c = 0; c < board.size(); ++c) {
+      const int k = board.colClues(c, buf);
+      expected += k == 0 ? 1 : k;
+    }
+    int drawn = 0;
+    for (const FakeTarget::TextRun& run : out.target.texts)
+      if (allDigits(run.text)) ++drawn;
+    CHECK(drawn == expected);
+  }
+}
+
 // --- Wallpapers -------------------------------------------------------------
 
 void buildWallpapersChrome(Rendered& out, const wallpapersui::GridChromeModel& model) {
@@ -10353,6 +10531,314 @@ void testWallpapersCellsStayOnScreen() {
   }
 }
 
+// The picker must never show an unsolved puzzle's name -- the picture is the
+// reward, and its name gives it away. With nothing solved, no name is drawn.
+void testPicrossPickerHidesUnsolvedNames() {
+  picross::Progress progress;  // nothing solved
+  Rendered out;
+  picrossui::MenuModel model;
+  model.progress = &progress;
+  model.selectedIndex = 0;
+  model.inProgressIndex = -1;
+  model.solvedCount = 0;
+  model.total = picross::kPuzzleCount;
+  picrossui::PickerLayout layout;
+  buildPicrossMenu(out, model, layout);
+
+  CHECK(out.target.drew("PICROSS"));
+  CHECK(out.target.drew("PLAY"));
+  bool anyName = false;
+  for (int i = 0; i < picross::kPuzzleCount; ++i)
+    if (out.target.drew(picross::kPuzzles[i].name)) anyName = true;
+  CHECK(!anyName);
+
+  // The picker registers one target for the whole grid and resolves the tile
+  // through the layout, so a full sweep reaches ActionPick and the PLAY button.
+  bool sawPick = false;
+  for (int y = 2; y < 800; y += 9)
+    for (int x = 2; x < 480; x += 9)
+      if (out.tap(x, y).action == picrossui::ActionPick) sawPick = true;
+  CHECK(sawPick);
+  CHECK(layout.indexAt(layout.grid.x + 2, layout.grid.y + 2) == 0);
+}
+
+// The picker is size-tabbed and paged: each tab shows one size group, a group
+// larger than a page pages, and every tile hit-tests back to its own GLOBAL
+// puzzle index through the layout. A tap-resolution bug here opens the wrong
+// puzzle, which the sim cannot catch (it never runs InputManager).
+void testPicrossPickerGroupsAndPagesBySize() {
+  // The bank stores each size contiguously. Recover the start of every group by
+  // scanning, exactly as the picker does, rather than naming the sizes: the
+  // bank has held two tiers and three at different times, and a test that spells
+  // "10x10" and "15x15" starts failing on a bank change that is not a bug.
+  int start[picross::kSizeGroupCount] = {};
+  int groups = 0;
+  for (int i = 0; i < picross::kPuzzleCount; ++i) {
+    if (i == 0 || picross::kPuzzles[i].size != picross::kPuzzles[i - 1].size) {
+      CHECK(groups < picross::kSizeGroupCount);
+      start[groups++] = i;
+    }
+  }
+  CHECK(groups == picross::kSizeGroupCount);
+  CHECK(groups >= 2);
+  // Tab 1 is the second tier, whatever size that is today.
+  const int start10 = start[1];
+  picross::Progress progress;
+
+  // Tab 1 (10x10), page 0: first tile is the group start, and the centre of
+  // every drawn tile resolves to its own global index -- an exact inverse.
+  {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.sizeTab = 1;
+    model.page = 0;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    CHECK(layout.firstIndex == start10);
+    // A full page is 16 tiles in four rows. Pinned because the size-tab row sits
+    // directly above the grid: making the tabs taller (they were vertically
+    // cramped) eats the grid's height, and silently dropping to three rows would
+    // change the paging without anyone noticing.
+    CHECK(layout.count == 16);
+    CHECK(layout.rows == 4);
+    CHECK(layout.cols == 4);
+    const int pitch = layout.cell + layout.gap;
+    for (int k = 0; k < layout.count; ++k) {
+      const int r = k / layout.cols;
+      const int c = k % layout.cols;
+      const int cx = layout.grid.x + c * pitch + layout.cell / 2;
+      const int cy = layout.grid.y + r * pitch + layout.cell / 2;
+      CHECK(layout.indexAt(cx, cy) == start10 + k);
+    }
+  }
+
+  // Tab 1, page 1: the 10x10 group has more than 16 puzzles, so it pages, and
+  // page 1 starts 16 past the group start (not 16 past index 0).
+  {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.sizeTab = 1;
+    model.page = 1;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    CHECK(layout.pageCount >= 2);
+    CHECK(layout.firstIndex == start10 + 16);
+    CHECK(layout.indexAt(layout.grid.x + 2, layout.grid.y + 2) == start10 + 16);
+  }
+
+  // The size tabs are all tappable and a multi-page group exposes a page
+  // control: sweeping the screen reaches ActionTab for every tab and ActionPage.
+  {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.sizeTab = 1;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    bool sawTab[picross::kSizeGroupCount] = {};
+    bool sawPage = false;
+    for (int y = 2; y < 800; y += 6)
+      for (int x = 2; x < 480; x += 6) {
+        const fui::ActionEvent e = out.tap(x, y);
+        if (e.action == picrossui::ActionTab && e.value >= 0 && e.value < picross::kSizeGroupCount)
+          sawTab[e.value] = true;
+        if (e.action == picrossui::ActionPage) sawPage = true;
+      }
+    for (int t = 0; t < picross::kSizeGroupCount; ++t) {
+      if (!sawTab[t]) std::printf("  tab %d of %d has no tap target\n", t, picross::kSizeGroupCount);
+      CHECK(sawTab[t]);
+    }
+    CHECK(sawPage);
+  }
+}
+
+// Every tab, on its FIRST and LAST page, must fit the 24-rect interaction
+// buffer -- and the page dots are the reason this is not obvious. The tiles are
+// one hit rect for the whole grid (resolved geometrically), the tabs are three,
+// but the dots are ONE RECT PER PAGE, so the buffer's headroom shrinks as the
+// bank grows. A 239-puzzle bank pages a tier seven ways; a much larger import
+// would page it far more, and the failure mode is silent: past the ceiling a
+// dot draws, looks live, and routes nowhere.
+//
+// The page count is derived from the bank here rather than written down, so
+// this fails when a future import outgrows the buffer instead of when somebody
+// remembers to update a literal.
+void testPicrossPickerFitsTheInteractionBuffer() {
+  picross::Progress progress;
+  for (int tab = 0; tab < picross::kSizeGroupCount; ++tab) {
+    int pageCount = 1;
+    {
+      Rendered probe;
+      picrossui::MenuModel model;
+      model.progress = &progress;
+      model.total = picross::kPuzzleCount;
+      model.sizeTab = tab;
+      model.page = 0;
+      picrossui::PickerLayout layout;
+      buildPicrossMenu(probe, model, layout);
+      pageCount = layout.pageCount;
+    }
+    const int pages[2] = {0, pageCount - 1};
+    for (int which = 0; which < 2; ++which) {
+      Rendered out;
+      picrossui::MenuModel model;
+      model.progress = &progress;
+      model.total = picross::kPuzzleCount;
+      model.sizeTab = tab;
+      model.page = pages[which];
+      picrossui::PickerLayout layout;
+      buildPicrossMenu(out, model, layout);
+      if (out.interactions.overflowed() || out.interactions.count() > toybox::kMaxInteractions)
+        std::printf("  picker tab %d page %d of %d spends %d of %d interaction slots\n", tab, pages[which], pageCount,
+                    static_cast<int>(out.interactions.count()), static_cast<int>(toybox::kMaxInteractions));
+      CHECK(!out.interactions.overflowed());
+      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+    }
+  }
+
+  // And every page of the largest tier is actually REACHABLE: sweeping the dot
+  // band has to yield an ActionPage for each page index, not just for some.
+  int biggest = 0;
+  int biggestPages = 1;
+  for (int tab = 0; tab < picross::kSizeGroupCount; ++tab) {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.sizeTab = tab;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    if (layout.pageCount > biggestPages) {
+      biggestPages = layout.pageCount;
+      biggest = tab;
+    }
+  }
+  CHECK(biggestPages > 1);
+  Rendered out;
+  picrossui::MenuModel model;
+  model.progress = &progress;
+  model.total = picross::kPuzzleCount;
+  model.sizeTab = biggest;
+  picrossui::PickerLayout layout;
+  buildPicrossMenu(out, model, layout);
+  std::vector<bool> reached(static_cast<size_t>(biggestPages), false);
+  for (int y = 2; y < 800; y += 2)
+    for (int x = 2; x < 480; x += 2) {
+      const fui::ActionEvent e = out.tap(x, y);
+      if (e.action == picrossui::ActionPage && e.value >= 0 && e.value < biggestPages)
+        reached[static_cast<size_t>(e.value)] = true;
+    }
+  for (int p = 0; p < biggestPages; ++p) {
+    if (!reached[static_cast<size_t>(p)]) std::printf("  page %d of %d has no tap target\n", p, biggestPages);
+    CHECK(reached[static_cast<size_t>(p)]);
+  }
+}
+
+// Every picture in the bank is CREDITED on the win screen, by name, and the
+// credit fits its band.
+//
+// All 321 shipped puzzles are used by kind permission of six named designers
+// and are not licensed to anybody (assets_local/picross/PROVENANCE.md), so the
+// credit is the least this screen owes them, and a claim in a provenance file
+// that no screen honours is worse than no claim.
+//
+// buildWin draws the credit only when the puzzle names a SOURCE. Nothing in
+// this bank has an empty source -- the fork's own CC0 artwork is no longer
+// emitted -- so that guard is unreachable from the shipped data and is kept for
+// a bank that mixes origins again. What is testable, and tested here, is that
+// the condition holds for every puzzle: sweep the whole bank rather than
+// sampling, because a single row whose source went missing would silently lose
+// its designer's name and nothing else would report it.
+void testPicrossWinCreditsEveryDesigner() {
+  int longest = -1;
+  std::size_t width = 0;
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    const picross::Provenance& prov = picross::provenanceOf(picross::kPuzzles[p]);
+    if (prov.source[0] == '\0') std::printf("  puzzle %s names no source\n", picross::kPuzzles[p].name);
+    CHECK(prov.source[0] != '\0');
+    const std::size_t len = std::strlen(prov.author);
+    if (len > width) {
+      width = len;
+      longest = p;
+    }
+  }
+  CHECK(longest >= 0);
+
+  // One puzzle rendered per DISTINCT designer, not per puzzle: 321 renders
+  // would say nothing 6 does not, and the string is built from the author.
+  std::vector<std::string> seen;
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    const std::string author = picross::provenanceOf(picross::kPuzzles[p]).author;
+    if (std::find(seen.begin(), seen.end(), author) != seen.end()) continue;
+    seen.push_back(author);
+    char credit[128];
+    std::snprintf(credit, sizeof(credit), "PUZZLE BY %s", author.c_str());
+    Rendered out;
+    picrossui::WinModel model;
+    model.cleared = &picross::kPuzzles[p];
+    model.total = picross::kPuzzleCount;
+    buildPicrossWin(out, model);
+    if (!out.target.drew(credit)) std::printf("  %s is not credited\n", credit);
+    CHECK(out.target.drew(credit));
+    CHECK(out.target.drew(picross::kPuzzles[p].name));
+  }
+  CHECK(seen.size() >= 6);
+
+  // The LONGEST designer name, drawn WHOLE. drew() only proves the string was
+  // handed to the renderer, and the renderer is what shortens it -- a credit too
+  // wide for its band passes "did it draw?" while the panel reads "PUZZLE BY
+  // Hermann Kudli...".
+  //
+  // WHAT THIS BOUNDS, precisely: FakeTarget measures a uniform 10px per
+  // character for every font, so this is a check on the credit's LENGTH against
+  // its band width (448px, i.e. ~44 characters), not on real glyph metrics. The
+  // longest name today, "PUZZLE BY Hermann Kudlich", measures 225px in
+  // toybox_10 on the real cut -- measured off a 480x800 render, not computed
+  // here, because a host suite has no font. So the guard is the one that matters
+  // for a future import (a name roughly twice as long as any in the bank now),
+  // and it is NOT a claim that this suite has seen the real typeface.
+  {
+    char widest[128];
+    std::snprintf(widest, sizeof(widest), "PUZZLE BY %s", picross::provenanceOf(picross::kPuzzles[longest]).author);
+    Rendered out;
+    picrossui::WinModel model;
+    model.cleared = &picross::kPuzzles[longest];
+    model.total = picross::kPuzzleCount;
+    buildPicrossWin(out, model);
+    if (!drewLabelWhole(out, widest)) std::printf("  credit %s does not fit its band\n", widest);
+    CHECK(drewLabelWhole(out, widest));
+  }
+}
+
+// The reveal names the picture and grades the solve. Zero mistakes is PERFECT.
+void testPicrossWinRevealsNameAndGrade() {
+  Rendered out;
+  picrossui::WinModel model;
+  model.cleared = &picross::kPuzzles[0];
+  model.mistakes = 0;
+  model.solvedCount = 1;
+  model.total = picross::kPuzzleCount;
+  model.moreToPlay = true;
+  buildPicrossWin(out, model);
+  CHECK(out.target.drew("SOLVED"));
+  // The bank's own first name, not a literal: this used to spell "HEART" and
+  // went red when the hand-drawn pictures stopped being emitted, which is a
+  // bank change rather than a bug in the screen it is testing.
+  CHECK(out.target.drew(picross::kPuzzles[0].name));
+  CHECK(out.target.drew("PERFECT -- NO MISTAKES"));
+  CHECK(out.target.drew("NEXT"));
+
+  Rendered flawed;
+  picrossui::WinModel two = model;
+  two.mistakes = 2;
+  buildPicrossWin(flawed, two);
+  CHECK(flawed.target.drew("SOLVED WITH 2 MISTAKES"));
+}
 // The tap hit-test reads the SAME rectangles the Activity draws into: the centre
 // of each cell routes to that cell, and a point up in the header routes to none.
 void testWallpapersCellHitTestMatchesDraw() {
@@ -10987,6 +11473,14 @@ int main() {
   testEverySudokuLessonPagesAndClearsItsButton();
   testTheSudokuOrnamentCarriesTheGame();
   testTheSudokuFrontDoorNeverSharesInkBetweenTwoLines();
+  testPicrossBoardSpendsFewInteractions();
+  testPicrossGridHitTestIsExactInverse();
+  testPicrossDrawsEveryClue();
+  testPicrossPickerHidesUnsolvedNames();
+  testPicrossPickerGroupsAndPagesBySize();
+  testPicrossPickerFitsTheInteractionBuffer();
+  testPicrossWinCreditsEveryDesigner();
+  testPicrossWinRevealsNameAndGrade();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
   testMurdleRefusalDoesNotMoveTheGrid();
