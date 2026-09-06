@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <string_view>
 
 #include "../ui/ToyboxText.h"
 #include "WallpapersCore.h"
@@ -13,18 +14,17 @@ namespace wallpapersui {
 namespace {
 
 // The top of the body: below the header band AND the rule Toybox draws under
-// it, which is what kChromeHeight names -- kHeaderHeight is the band alone, so
-// this read as a gutter of clearance and was five pixels.
+// it, which is what toybox::kBodyTop derives from chromeBelow().
 //
-// NOT the same row as the shelf's, and the comment here used to claim it was.
-// Every caller below adds safe.y to this (see gridGeom and buildEmpty), while
-// the chrome it is measured from is pinned at panel row 0 by absoluteChrome --
-// so on the X4 Pro this body starts ten pixels lower than Hacker News' or the
-// shelf's, which do not add it. That predates card #248 and is left alone here
-// rather than fixed blind: it is an alignment BETWEEN apps, the ui suite builds
-// every screen with an empty safe area and cannot see it, and moving two apps
-// up by ten pixels is a change to look at on the panel. Card #358.
-constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter);
+// This app was wrong twice, and card 358 closes both. It read
+// kHeaderHeight + kGutter -- the band alone plus one gutter, five pixels of
+// clearance under a rule it never counted, where every other app has
+// twenty-nine. And every caller below (gridGeom, buildGridChrome) then added
+// safe.y on top, while the chrome it measures from is pinned at panel row 0 by
+// absoluteChrome and already covers the rows the glass hides -- so the hint and
+// the grid started ten pixels below Hacker News' body and the shelf's list.
+// The comment here used to claim the opposite on both counts.
+constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kBodyTop);
 // A fixed strip under the chrome for the free-space advisory or the "nothing is
 // set yet" hint. Fixed so the grid's top does not jump when a hint appears.
 constexpr int16_t kHintH = 30;
@@ -66,9 +66,10 @@ fui::TextStyle owned(fui::TextStyle style, fui::TextAlign align) {
   return style;
 }
 
-fui::TextStyle onPaper(fui::TextStyle style, fui::TextAlign align) {
+fui::TextStyle onPaper(fui::TextStyle style, fui::TextAlign align, uint8_t maxLines = 0) {
   style.align = align;
   style.color = fui::Color::Black;
+  if (maxLines > 0) style.maxLines = maxLines;
   return style;
 }
 
@@ -81,6 +82,18 @@ void drawButton(toybox::Screen& screen, const fui::Rect& box, const char* label,
   fui::TextStyle style = screen.theme().smallText;
   style.align = fui::TextAlign::Center;
   style.color = fui::Color::White;
+  style.maxLines = 1;
+  screen.target().text(box, label, style);
+  screen.frame().hit(box, action);
+}
+
+// The same finger target as drawButton, stroked rather than filled: a control
+// that is clearly a control and clearly not the primary one.
+void drawOutlineButton(toybox::Screen& screen, const fui::Rect& box, const char* label, const fui::ActionId action) {
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 3);
+  fui::TextStyle style = screen.theme().smallText;
+  style.align = fui::TextAlign::Center;
+  style.color = fui::Color::Black;
   style.maxLines = 1;
   screen.target().text(box, label, style);
   screen.frame().hit(box, action);
@@ -186,7 +199,9 @@ GridGeom gridGeom(const fui::DeviceContext& device) {
 
   const int16_t gridLeft = static_cast<int16_t>(safe.x + toybox::kMargin);
   const int16_t gridW = static_cast<int16_t>(safe.width - toybox::kMargin * 2);
-  const int16_t gridTop = static_cast<int16_t>(safe.y + kBodyTop + kHintH + kHintGap);
+  // Sides and bottom off the safe rect; the top absolute, because the header
+  // band already covers the rows the glass hides. See toybox::kBodyTop.
+  const int16_t gridTop = static_cast<int16_t>(kBodyTop + kHintH + kHintGap);
   const int16_t gridBottom = static_cast<int16_t>(safe.bottom() - kPageStripH - kBottomMargin);
   const int16_t gridH = static_cast<int16_t>(gridBottom - gridTop);
 
@@ -250,7 +265,8 @@ void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
   // The hint strip, at a fixed place so the grid below it never moves. One
   // line, and three things want it; the order is settled just below.
   const fui::Rect safe = screen.frame().safeRect();
-  const int16_t hintY = static_cast<int16_t>(safe.y + kBodyTop);
+  // Absolute, like every other app's: see toybox::kBodyTop.
+  const int16_t hintY = kBodyTop;
   const char* line = nullptr;
   // The sleep-screen note wins, ahead of the free-space advisory. The honest
   // statement of that trade: on a filling card with a sleep-screen note to
@@ -304,27 +320,153 @@ void buildEmpty(toybox::Screen& screen, const EmptyModel& model) {
 
   fui::TextAreaProps detail;
   detail.text =
-      "Add wallpapers from crossplay.ma-r-s.com/wallpapers, then copy them into the "
-      "wallpapers folder on the card using File Transfer. They will show up here.\n\n"
+      "Tap + Add a wallpaper to put one here from your phone: scan the code, pick a "
+      "picture, done. The built-in set can be downloaded too.\n\n"
       "Press Back to return.";
   detail.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
   detail.showCaret = false;
   screen.textArea(detail, static_cast<int16_t>(screen.body().height - toybox::kGutter));
 }
 
-void buildHelp(toybox::Screen& screen) {
-  chrome(screen, "ADD A WALLPAPER", nullptr);
+// ---------------------------------------------------------------------------
+// ADD FROM A PHONE. Chosen from three rendered arrangements: the pairing twin,
+// a numbered three-step rail, and a bare oversized code. This one won on its
+// headline -- it is the only one that says what the black square IS before you
+// have looked at it, which matters on a screen whose whole failure mode is
+// "my phone is on the wrong network".
+//
+// Two facts here are load-bearing rather than decorative: the address in words
+// (a QR tells a person nothing, and it is the only thing to fall back on) and
+// that Back stops it.
+namespace {
 
-  fui::TextAreaProps detail;
-  detail.text =
-      "Make a wallpaper from any picture in your browser at "
-      "crossplay.ma-r-s.com/wallpapers (nothing is uploaded), then copy the file into "
-      "the wallpapers folder on the card using File Transfer. It will appear here "
-      "beside the built-in ones.\n\n"
-      "Press Back to return.";
-  detail.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
-  detail.showCaret = false;
-  screen.textArea(detail, static_cast<int16_t>(screen.body().height - toybox::kGutter));
+// The address, at the largest cut that holds it. NEVER handed straight to
+// text(): it is one unbreakable token, and an overflowing token in these cuts
+// does not arrive clipped or ellipsised -- the faces above toybox_10 carry no
+// U+2026 glyph, so it simply stops at a plausible place. That is how a pairing
+// screen once printed "read.crossplay.ma-r-s.com/pai" and nobody could see why
+// the address did not work.
+// "http://" is encoded in the QR and NOT drawn. It costs seven characters, and
+// seven characters is the difference between the address holding the bold cut
+// and stepping down onto the same serif 14 as the paragraph under it -- which
+// is precisely the hierarchy defect the UI review had just removed, measured
+// out of the render as an ink band falling from 27px to 24px the moment the
+// hostname grew per-device. Browsers supply the scheme, and HTTPS-First does
+// not interfere: Chromium exempts "non-unique hostnames, local IP addresses,
+// and single-label hostnames", which covers both lines on this screen.
+std::string_view withoutScheme(const char* url) {
+  std::string_view v(url == nullptr ? "" : url);
+  constexpr std::string_view kHttp = "http://";
+  if (v.size() > kHttp.size() && v.compare(0, kHttp.size(), kHttp) == 0) v.remove_prefix(kHttp.size());
+  return v;
+}
+
+void drawAddress(toybox::Screen& screen, const fui::Rect& box, const char* url) {
+  // FONT_SLOT_SMALL, which readingAddressFaces binds to the bold reading cut.
+  // Naming titleText here looked like asking for the display cut and was not:
+  // no address fits it (a worst-case IPv4 URL measures 632 against 448), so the
+  // ladder silently stepped this to the same serif 14 as the prose below it.
+  // At bold 16 the longest possible address measures 399 and fits with room.
+  fui::TextStyle style = onPaper(screen.theme().bodyText, fui::TextAlign::Center, 1);
+  style.font = fui::FONT_SLOT_SMALL;
+  const std::string shown(withoutScheme(url));
+  const std::string fitted = toybox::fittedTitle(screen.target(), shown.c_str(), box.width, style);
+  screen.target().text(box, fitted.c_str(), style);
+}
+
+// The numeric address, under the name. Quieter than the name on purpose: it is
+// the fallback, and a reader who can use the QR should never need to read it.
+// It is drawn rather than hidden because the two fail in opposite conditions --
+// the name dies on a router that filters mDNS or a phone on a VPN, the address
+// dies when DHCP moves this device -- and neither failure puts anything on
+// screen to explain itself.
+void drawAltAddress(toybox::Screen& screen, const fui::Rect& box, const char* url) {
+  if (url == nullptr || url[0] == '\0') return;
+  fui::TextStyle style = onPaper(screen.theme().bodyText, fui::TextAlign::Center, 1);
+  style.color = fui::Color::DarkGray;
+  const std::string shown(withoutScheme(url));
+  screen.target().text(box, toybox::fittedTitle(screen.target(), shown.c_str(), box.width, style).c_str(), style);
+}
+
+// The same-WiFi requirement is this screen's ENTIRE error handling, so it lives
+// in the prose rather than the footer: nothing on the device can detect that the
+// phone went out over cellular instead, and the browser's own message ("cannot
+// reach this site") names no cause. It was in the footer for one render and came
+// out as "PHONE MUST BE ON THE SAM..." -- the failure explanation, truncated.
+constexpr const char* kProse = "Pick a photo and it lands here. Phone or computer, on this same WiFi.";
+constexpr const char* kFoot = "BACK STOPS";
+
+// Inherited from the Instapaper twin as `bottom() - 30, height 24`, which is
+// correct THERE because it draws in toybox_10 (line box 21). Here the same box
+// holds a 40px line box: DrawTarget::text clamps a negative centring offset to
+// zero, so the line ran 758..798 -- five pixels BELOW body.bottom() and eleven
+// from the panel edge, eating the whole page margin. The box came across from
+// the twin and the font did not. Sized from the bound face now, so it cannot
+// happen again when the face changes.
+void drawFoot(toybox::Screen& screen, const fui::Rect& body) {
+  fui::TextStyle style = onPaper(screen.theme().bodyText, fui::TextAlign::Center, 1);
+  const int16_t lineH = screen.target().lineHeight(style.font);
+  const fui::Rect box = fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - lineH), body.width, lineH);
+  screen.target().text(box, toybox::fittedTitle(screen.target(), kFoot, box.width, style).c_str(), style);
+}
+
+// The headline is the only thing on this screen that gets the display cut, and
+// it only keeps it by being short enough: "SCAN WITH YOUR PHONE" measures 579
+// against a 448px body at toybox_30, so the ladder stepped it down to the same
+// serif 14 as everything else and the screen lost its hierarchy without ever
+// looking broken. "SCAN THIS CODE" fits, so the three levels are real -- Jersey
+// 30 headline, bold serif 16 address, serif 14 prose.
+void drawHeadline(toybox::Screen& screen, const fui::Rect& box, const char* text) {
+  fui::TextStyle style = onPaper(screen.theme().titleText, fui::TextAlign::Center, 1);
+  screen.target().text(box, toybox::fittedTitle(screen.target(), text, box.width, style).c_str(), style);
+}
+
+}  // namespace
+
+fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
+  // No right label. Any label at all costs the band its display cut: the widest
+  // that fits is 62px, and "ADD A WALLPAPER" needs 433 of the 448 either way, so
+  // the title steps from a 38px Jersey cap to a 21px serif one the moment a
+  // count appears. A count belongs in the body, where it can also say a number
+  // other than one.
+  chrome(screen, "ADD A WALLPAPER", nullptr);
+  const fui::Rect body = screen.body();
+
+  // The pairing twin. Same skeleton as InstapaperScreens::buildPairQr, with the
+  // address occupying the line its 8-character code does.
+  constexpr int16_t kQrSide = 232;
+  constexpr int16_t kHead = 48;
+  // Every text block's height is asked of the face that will draw it, never
+  // typed. The two literals here were 46 and 108 against line boxes of 45 and
+  // 120, so the prose overran its own rect by twelve pixels -- and the numbers
+  // were then wrong for anything laid out against them.
+  const int16_t addrH = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
+  const int16_t proseLine = screen.target().lineHeight(fui::FONT_SLOT_BODY);
+  const int16_t proseH = static_cast<int16_t>(proseLine * 3);
+
+  // Centred in the body rather than hung from its top, so the leftover is
+  // shared above and below instead of pooling into a dead band over the footer.
+  const int16_t stack =
+      static_cast<int16_t>(kHead + toybox::kMargin * 2 + kQrSide + toybox::kMargin + addrH + toybox::kGutter + proseH);
+  int16_t y = static_cast<int16_t>(body.y + (body.height - proseLine - stack) / 2);
+  if (y < body.y) y = body.y;
+
+  drawHeadline(screen, fui::makeRect(body.x, y, body.width, kHead), "SCAN THIS CODE");
+  const fui::Rect qr = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
+                                     static_cast<int16_t>(y + kHead + toybox::kMargin * 2), kQrSide, kQrSide);
+
+  const int16_t addrY = static_cast<int16_t>(qr.bottom() + toybox::kMargin);
+  drawAddress(screen, fui::makeRect(body.x, addrY, body.width, addrH), model.url);
+  drawAltAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(addrY + addrH), body.width, proseLine),
+                 model.altUrl);
+
+  // FULL body width, not inset: the address is the longest unbreakable token on
+  // this screen, and an inset that costs it two characters costs it silently.
+  screen.target().text(
+      fui::makeRect(body.x, static_cast<int16_t>(addrY + addrH + proseLine + toybox::kGutter), body.width, proseH),
+      model.status != nullptr ? model.status : kProse, onPaper(screen.theme().bodyText, fui::TextAlign::Center, 3));
+  drawFoot(screen, body);
+  return qr;
 }
 
 MarkerRects markerRects(const fui::Rect& thumb) {
@@ -416,10 +558,21 @@ void buildOffer(toybox::Screen& screen, const OfferModel& model) {
 
   drawButton(screen, fui::makeRect(left, buttonY, width, kButtonH), "GET THEM", ActionGetSet);
 
-  // The secondary route stays a sentence, never a second button: two buttons on
-  // a "before" screen is two obvious actions, which is none.
-  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(buttonY + kButtonH + 8), width, 84),
-            "Or make your own from any picture, in a browser.", fui::TextAlign::Center);
+  // The second route is now a CONTROL, outlined rather than filled.
+  //
+  // It was a sentence, on the reasoning that two buttons on a "before" screen
+  // is two obvious actions, which is none. That reasoning is sound about two
+  // EQUAL buttons and it made this feature unreachable on a factory device:
+  // an empty library shows only this screen, and its one control fetches a 1MB
+  // pack behind a 12MB floor and the WiFi picker. A person who just wants their
+  // own photo on their new reader had a sentence and no way to act on it --
+  // and ActionAddOwn was routed but drawn by NOTHING, so even a hopeful tap
+  // did nothing at all (nothing-calls-it).
+  //
+  // Outlined keeps the hierarchy the sentence was protecting: one filled
+  // button is still the obvious action, and this is plainly the other one.
+  const int16_t secondY = static_cast<int16_t>(buttonY + kButtonH + toybox::kGutter);
+  drawOutlineButton(screen, fui::makeRect(left, secondY, width, kButtonH), "USE MY OWN PHOTO", ActionAddOwn);
 }
 
 // DOWNLOADING. Painted from inside the blocking fetch, so it says what is

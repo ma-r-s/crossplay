@@ -180,8 +180,19 @@ struct EmptyModel {
 
 void buildEmpty(toybox::Screen& screen, const EmptyModel& model);
 
-// The help card reached from the "+ Add a wallpaper" tile: how to get your own
-// wallpapers onto the card. A screen, so it is testable.
-void buildHelp(toybox::Screen& screen);
+// Scan the code, pick a photo on the phone,
+// and it is here. The address is drawn as well as encoded, because a QR is
+// unreadable to a person and the one failure this screen has -- a phone on a
+// different network -- is one the reader has to be able to check by hand.
+struct AddModel {
+  const char* url = "";          // "http://crossplay.local/w" -- also what the QR encodes
+  const char* altUrl = nullptr;  // "http://192.168.1.42/w" -- printed, never encoded
+  int added = 0;                 // how many have arrived while this screen has been up
+  const char* status = nullptr;  // a line replacing the prose while connecting
+};
+
+// Returns the square the Activity must draw the QR into. The screen cannot draw
+// it: QrUtils needs the renderer, and this file compiles against the SDK alone.
+fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model);
 
 }  // namespace wallpapersui

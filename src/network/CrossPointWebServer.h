@@ -48,17 +48,28 @@ class CrossPointWebServer {
     UploadState() { buffer.resize(UPLOAD_BUFFER_SIZE); }
   } upload;
 
-  // devOnly builds the Developer Mode control surface instead of the reader's
-  // web UI: the /api/dev/ routes and nothing else. No file manager, no WebDAV,
-  // no settings API, no WebSocket upload.
+  // WHICH SURFACE this server exposes. Three, not a boolean, because the reason
+  // the old flag existed applies again with a different answer.
   //
-  // This matters because dev mode keeps its server up for as long as the toggle
-  // is on. The reader's web UI is unauthenticated by design -- it is a
-  // deliberate, temporary thing you open from a screen and close again. Serving
-  // that same surface persistently would quietly turn "I left dev mode on" into
-  // "anyone on this network can browse my card", which is not what the toggle
-  // says it does.
-  explicit CrossPointWebServer(bool devOnly = false);
+  // The reader's web UI is unauthenticated by design -- a deliberate, temporary
+  // thing you open from a screen and close again. DeveloperOnly exists because
+  // dev mode keeps its server up for as long as the toggle is on, and serving
+  // the file manager persistently would quietly turn "I left dev mode on" into
+  // "anyone on this network can browse my card".
+  //
+  // WallpapersOnly exists for the same reason one step further: the Wallpapers
+  // app puts an address in a QR CODE and invites you to scan it, which is the
+  // opposite of deliberate-and-temporary. Reusing Full there would have meant
+  // /files, /download, /delete, /api/settings, /api/wifi (the saved network
+  // list) and WebDAV over the whole card, all reachable from a code printed on
+  // a screen. It serves one page and takes one upload.
+  enum class Surface : uint8_t {
+    Full,            // the reader's web UI: file manager, settings, WebDAV, WebSocket
+    DeveloperOnly,   // /api/dev/* and nothing else
+    WallpapersOnly,  // GET /w, its script, and PUT /w/upload. No dev routes either.
+  };
+
+  explicit CrossPointWebServer(Surface surface = Surface::Full);
   ~CrossPointWebServer();
 
   // Start the web server (call after WiFi is connected)
@@ -82,7 +93,23 @@ class CrossPointWebServer {
   std::unique_ptr<WebServer> server = nullptr;
   std::unique_ptr<WebSocketsServer> wsServer = nullptr;
   bool running = false;
-  const bool devOnly = false;
+  const Surface surface = Surface::Full;
+  bool isFull() const { return surface == Surface::Full; }
+  bool isDev() const { return surface == Surface::DeveloperOnly; }
+  bool isWallpapers() const { return surface == Surface::WallpapersOnly; }
+
+  // The wallpaper upload, streamed straight to the card. Separate from
+  // UploadState because it shares nothing with the multipart path: no
+  // filename from the client, no directory from a query string.
+  struct WallUpload {
+    HalFile file;
+    std::string target;  // the .part being written
+    std::string final;   // where it is renamed on success
+    size_t written = 0;
+    bool accepted = false;  // the precondition passed and the file opened
+    bool ok = false;        // the body arrived complete and the rename worked
+    const char* refusal = nullptr;
+  } wallUpload;
   bool apMode = false;  // true when running in AP mode, false for STA mode
   uint16_t port = 80;
   uint16_t wsPort = 81;  // WebSocket port
@@ -149,6 +176,12 @@ class CrossPointWebServer {
   // Developer Mode endpoints. Present in every build, refused unless the
   // setting is on AND the caller carries a token from a successful pair.
   void handleDevPair();
+
+  // The Wallpapers surface.
+  void handleWallpaperPage() const;
+  void handleWallpaperScript() const;
+  void handleWallpaperUpload();      // the reply, after the body
+  void handleWallpaperUploadData();  // the raw body, streamed
   void handleDevFlash();
   void handleDevUpload();      // POST completion
   void handleDevUploadData();  // streaming body

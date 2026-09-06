@@ -12,8 +12,9 @@ namespace {
 
 // The top of any body: below the header band AND the rule Toybox draws under
 // it, which is what kChromeHeight names. Shared by every screen here so they
-// line up with each other and with the shelf the reader just came from.
-constexpr int kBodyTop = toybox::kChromeHeight + toybox::kGutter * 3;
+// line up with each other and with the shelf the reader just came from. See
+// toybox::kBodyTop for why it is derived rather than re-summed.
+constexpr int kBodyTop = toybox::kBodyTop;
 
 constexpr int kFooterHeight = toybox::kPillHeight;
 

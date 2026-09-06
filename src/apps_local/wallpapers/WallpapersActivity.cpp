@@ -1,5 +1,6 @@
 #include "WallpapersActivity.h"
 
+#include <ESPmDNS.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -10,8 +11,11 @@
 #include <cstring>
 
 #include "../../CrossPointSettings.h"
+#include "../../DevMode.h"
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../network/HttpDownloader.h"
+#include "../../util/DeviceHostname.h"
+#include "../../util/QrUtils.h"
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -743,6 +747,19 @@ void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const f
 // it is a bare concatenation, image i lives at i * kWallpaperFileBytes, and the
 // count is the file size divided by it. Built by tools_local/wallpapers/build_pack.py
 // in the same order as the built-in table, which host-tests/wallpack asserts.
+// The name is devicehost::mdnsName(), shared with the two activities that
+// advertise it, so this screen cannot print a name the device does not answer
+// to. It used to be a third copy of the literal "crossplay" here.
+//
+// Sharing the NAME is not sharing the LIFECYCLE: restartMdns lives in an
+// anonymous namespace in CrossPointWebServerActivity.cpp and the web-server
+// activity runs MDNS.end() in its own onExit, so mDNS is definitively not
+// running when this screen opens. PR 1 calls MDNS.begin itself.
+
+// Version 4, ECC_LOW, BYTE mode. Not the 114 QrUtils believes (that is the
+// alphanumeric figure, and every URL with a lowercase letter is byte mode).
+constexpr size_t kQrByteSafeLen = 78;
+
 constexpr const char* kPackUrl = "https://github.com/ma-r-s/crossplay/releases/download/wallpapers/wallpapers.dat";
 constexpr const char* kPackPart = "/wallpapers.dat.part";
 
@@ -801,6 +818,167 @@ int WallpapersActivity::builtInsPresent() const {
 // The screen is a function of the card, with no remembered "already offered"
 // flag to go stale or to make two identical cards show different things.
 void WallpapersActivity::pickView() { view_ = names_.empty() ? View::Offer : View::Grid; }
+
+// The address the phone opens. Station mode only: the hotspot has no NAT and a
+// captive-portal DNS that answers every name with this device, so a phone joined
+// to it has no internet and both iOS and Android offer to drop back to cellular
+// -- mid-upload, on the one screen that cannot survive it.
+void WallpapersActivity::openAdd() {
+#ifdef SIMULATOR
+  // A PLATFORM gate, not a feature gate: the simulator has no radio to bring up
+  // and does not compile CrossPointWebServer at all, so the real path cannot
+  // run here. Without this the screen became unreachable headlessly the moment
+  // it started requiring WiFi -- and a screen that cannot be rendered cannot be
+  // reviewed, which is how every layout defect in this app was found. The
+  // address is representative so the layout is measured against a real one.
+  addQrUrl_ = "http://192.168.1.42/w";
+  addUrl_ = std::string("http://") + devicehost::mdnsName() + ".local/w";
+  addAltUrl_ = "http://192.168.1.42/w";
+  addBefore_ = static_cast<int>(names_.size());
+  addArrived_ = 0;
+  view_ = View::Add;
+  interactionsReady_ = false;
+  requestUpdate();
+  return;
+#else
+  // The radio first, and the picker ONLY if it is needed. WifiSelectionActivity
+  // has no already-connected short-circuit of its own -- startWifiScan() runs
+  // WiFi.disconnect() on every path -- so launching it unconditionally would
+  // show a redundant chooser AND drop a working association. Four other apps
+  // guard it exactly this way.
+  if (WiFi.status() == WL_CONNECTED) {
+    startAddServer();
+    return;
+  }
+  addWaitingWifi_ = true;
+  WiFi.mode(WIFI_STA);
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) {
+                           addWaitingWifi_ = false;
+                           if (result.isCancelled || WiFi.status() != WL_CONNECTED) {
+                             showNotice("NO WIFI", "Adding a wallpaper from your phone needs WiFi. Nothing changed.",
+                                        "BACK", wallpapersui::ActionDismiss);
+                             return;
+                           }
+                           startAddServer();
+                         });
+#endif
+}
+
+void WallpapersActivity::startAddServer() {
+  // Dev mode holds 80, 81 and UDP 8134 for as long as its toggle is on, and
+  // Mario keeps a device on it. Two binds on one port fail in a way that reads
+  // as "the screen is broken", so dev mode yields for as long as this screen is
+  // up -- the same latch WifiSelectionActivity and the File Transfer screen
+  // already take.
+  devmode::pause();
+  addDevPaused_ = true;
+
+  // Every failure below leaves through stopAddServer(), so the yield is
+  // released in exactly ONE place no matter which way this goes wrong. Three
+  // resumes hung off three early returns read 1:1 to nobody and are how a latch
+  // ends up held after the path nobody tested.
+  addServer_ = makeUniqueNoThrow<CrossPointWebServer>(CrossPointWebServer::Surface::WallpapersOnly);
+  if (!addServer_) {
+    stopAddServer();
+    showNotice("OUT OF MEMORY", "There was not enough memory to start. Nothing changed.", "BACK",
+               wallpapersui::ActionDismiss);
+    return;
+  }
+  addServer_->begin();
+  if (!addServer_->isRunning()) {
+    stopAddServer();
+    showNotice("COULD NOT START", "The reader could not open its web server. Try again in a moment.", "TRY AGAIN",
+               wallpapersui::ActionRetry);
+    return;
+  }
+
+  // mDNS is ours to start. restartMdns() lives in an anonymous namespace in
+  // CrossPointWebServerActivity.cpp so nothing outside that file can call it,
+  // and that activity runs MDNS.end() in its own onExit -- so it is definitely
+  // not running when this screen opens.
+  MDNS.end();
+  const bool mdnsUp = MDNS.begin(devicehost::mdnsName());
+  if (!mdnsUp) LOG_DBG("WALL", "mDNS did not start; the code carries the address, which does not need it");
+
+  const std::string dotted = std::string(WiFi.localIP().toString().c_str());
+  const std::string ipUrl = "http://" + dotted + "/w";
+  const std::string nameUrl = std::string("http://") + devicehost::mdnsName() + ".local/w";
+
+  // THE CODE CARRIES THE ADDRESS, ALWAYS. It is generated from WiFi.localIP()
+  // at the moment of drawing and depends on no service, so the only way it can
+  // be wrong is DHCP moving this device in the seconds between the paint and
+  // the scan. The name depends on a responder that can fail to start -- and
+  // this function ALREADY KNEW when it had -- so encoding it was putting a
+  // detected fault into the one element the user cannot read. The phone would
+  // have said "cannot find server" and the prose would have blamed their WiFi.
+  addQrUrl_ = ipUrl;
+
+  // The name is the half worth BOOKMARKING -- it survives reboots, WiFi
+  // reconnects and DHCP moves -- so it goes where a human reads it. When the
+  // responder did not start it is not printed at all: an address that cannot
+  // resolve is worse than one line fewer.
+  addUrl_ = mdnsUp ? nameUrl : ipUrl;
+  addAltUrl_ = mdnsUp ? ipUrl : std::string();
+
+  // Card #352: QrUtils sizes its code from the ALPHANUMERIC table, so a payload
+  // past 78 bytes in byte mode draws a code that cannot scan, silently, at every
+  // layer. The address is ~24 bytes so this never fires; it stays because an
+  // unscannable code is the worst outcome a screen whose whole promise is
+  // "point your camera at it" can have.
+  if (addQrUrl_.size() > kQrByteSafeLen)
+    LOG_ERR("WALL", "address too long for a scannable code: %s", addQrUrl_.c_str());
+
+  addBefore_ = static_cast<int>(names_.size());
+  addArrived_ = 0;
+  view_ = View::Add;
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+void WallpapersActivity::stopAddServer() {
+  if (addServer_) {
+    addServer_->stop();
+    addServer_.reset();
+    MDNS.end();
+  }
+  // Guarded by the flag rather than by whether a server exists: the
+  // out-of-memory path never got one, and resuming a yield this screen does not
+  // hold drops the count out from under whoever does.
+  if (addDevPaused_) {
+    addDevPaused_ = false;
+    devmode::resume();
+  }
+  // Whatever arrived is kept; only a torn transfer leaves a .part, and the
+  // sweep that already exists removes those.
+  sweepPartFiles();
+}
+
+void WallpapersActivity::pollAddArrivals() {
+  if (!addServer_) return;
+  // The upload handler writes the file and says nothing to the app, so the
+  // screen learns by looking. The bridges poll at this cadence for the same
+  // reason.
+  // A member, not a function-local static: a static would outlive the activity
+  // and carry the last poll's timestamp into the NEXT visit, so re-entering
+  // this screen within the interval would miss the first arrival for up to a
+  // second and a half with nothing to explain the delay.
+  static constexpr unsigned long kPollMs = 1500;
+  const unsigned long now = millis();
+  if (now - addLastPoll_ < kPollMs) return;
+  addLastPoll_ = now;
+
+  const int was = static_cast<int>(names_.size());
+  scanLibrary();
+  const int isNow = static_cast<int>(names_.size());
+  if (isNow == was) return;
+  addArrived_ = isNow - addBefore_;
+  if (addArrived_ < 0) addArrived_ = 0;
+  loadActive();
+  computeWarning();
+  cachedPage_ = -1;
+  requestUpdate();
+}
 
 void WallpapersActivity::startSetDownload() {
   // The radio first: entering the TLS stack with WiFi never started fails in a
@@ -1048,12 +1226,21 @@ void WallpapersActivity::loop() {
     return;
   }
 
+  // The server only answers while this screen is up, and it answers from the
+  // app's own loop -- there is no task behind it.
+  if (addServer_ && addServer_->isRunning()) {
+    for (int i = 0; i < 8 && addServer_->isRunning(); ++i) addServer_->handleClient();
+    pollAddArrivals();
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (view_ == View::Help || view_ == View::Notice) {
+    if (view_ == View::Notice || view_ == View::Add) {
+      stopAddServer();
       pickView();
       requestUpdate();
       return;
     }
+    stopAddServer();
     shelf::leave(renderer, mappedInput);
     return;
   }
@@ -1074,8 +1261,7 @@ void WallpapersActivity::loop() {
         startSetDownload();
         return;
       case wallpapersui::ActionAddOwn:
-        view_ = View::Help;
-        requestUpdate();
+        openAdd();
         return;
       case wallpapersui::ActionDismiss:
         pickView();
@@ -1144,8 +1330,7 @@ void WallpapersActivity::loop() {
   const int total = specials + static_cast<int>(names_.size());
   if (combined >= total) return;
   if (combined == 0) {
-    view_ = View::Help;
-    requestUpdate();
+    openAdd();
     return;
   }
   if (specials > 1 && combined == 1) {
@@ -1153,6 +1338,16 @@ void WallpapersActivity::loop() {
     return;
   }
   const int idx = combined - specials;
+  // A hold the classifier missed arrives here as a tap, and a tap on this grid
+  // SETS the sleep screen with no confirmation -- so a user reaching for the
+  // hold sheet would get the one thing they were reaching past. Doing nothing
+  // is the right failure: the hold is repeatable, an unasked-for sleep screen
+  // is not. (Once the sheet exists this routes to it instead of returning.)
+  //
+  // FIRST, ahead of everything below: a missed hold must not fall through to
+  // the pin, and must not reach the failure notice either -- a notice for an
+  // action the user never asked for is worse than the silence.
+  if (mappedInput.tapWasHeldLong()) return;
   // "Already the sleep screen" is only true when it can actually BE the sleep
   // screen. When the settings block it, tapping the marked wallpaper again is
   // exactly what a person does after nothing happened, and it now repairs the
@@ -1186,17 +1381,35 @@ void WallpapersActivity::render(RenderLock&&) {
   // shares with the shelf; the offer, the progress and the notices are
   // SENTENCES, and at the 20px UI cut a sentence runs off the panel and is cut
   // with an ellipsis. Trivia carries the same split for the same reason.
-  const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Help;
-  fui::GfxRendererTarget target =
-      toybox::makeTarget(renderer, prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces());
+  const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Add;
+  // View::Add rebinds the SMALL slot to the bold reading cut so the address has
+  // a cut of its own: see readingAddressFaces. Without it the headline, the
+  // address, the prose and the footer all land on serif 14 and the one line the
+  // reader has to type is indistinguishable from the paragraph under it.
+  fui::GfxRendererTarget target = toybox::makeTarget(
+      renderer, view_ == View::Add ? toybox::readingAddressFaces()
+                                   : (prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces()));
   const fui::DeviceContext device = target.deviceContext();
   const fui::InputSnapshot noInput{};
   interactionsReady_ = false;
   toybox::Frame frame(target, device, noInput, interactions_);
   toybox::Screen surface(frame);
 
-  if (view_ == View::Help) {
-    wallpapersui::buildHelp(surface);
+  if (view_ == View::Add) {
+    wallpapersui::AddModel model;
+    model.url = addUrl_.c_str();
+    model.altUrl = addAltUrl_.c_str();
+    model.added = addArrived_;
+    // No plural: fmtwidth cannot bound a "%s" that switches word, and a count
+    // beside a fixed noun says the same thing (the trivia precedent).
+    if (addArrived_ > 0) {
+      char line[96];
+      std::snprintf(line, sizeof(line), "Added: %d. Send another, or press Back to see them.", addArrived_);
+      addStatus_ = line;
+      model.status = addStatus_.c_str();
+    }
+    const fui::Rect qr = wallpapersui::buildAdd(surface, model);
+    QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addQrUrl_);
   } else if (view_ == View::Fetching) {
     wallpapersui::FetchingModel model;
     model.done = fetchDone_;

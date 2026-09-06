@@ -21,6 +21,14 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.41
+
+- Wallpapers: scan a code, pick a photo on your phone, and it is on the reader
+
+### 1.12.40
+
+- Xkcd and Wallpapers stop adding the bezel to a chrome-derived body top (#358)
+
 ### 1.12.39
 
 - The catch-up says which comic it is on, and Back stops it (#306)
