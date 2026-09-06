@@ -789,11 +789,17 @@ void WallpapersActivity::openSheet(const int index) {
 
 // The one destructive thing this app does.
 //
-// Resolves the NAME rather than reusing sheetIndex_: between the hold and the
-// confirm the library can have been re-sorted by an upload, and an index is a
-// position in that order. A name that no longer resolves means the file is
+// Resolves the NAME rather than reusing sheetIndex_. An index is a position in
+// a sorted list, and this app re-sorts: scanLibrary() runs on every onEnter and
+// after every delete, and deleting a built-in also flips specialTiles() 1 -> 2
+// so every cell renumbers. A name that no longer resolves means the file is
 // already gone, and doing nothing is right -- deleting "whatever is at slot 4
 // now" is exactly the bug this app is shaped to avoid.
+//
+// Today no upload can land WHILE the sheet is up: addServer_ runs only in
+// View::Add and stopAddServer() is on the way out of it. That is a fact about
+// the current wiring, not a property, which is why this resolves the name
+// anyway rather than resting on it.
 //
 // /sleep.bmp is NOT touched. It is a self-contained copy, so a deleted
 // wallpaper stays on the sleep screen until another is chosen; the confirm says
