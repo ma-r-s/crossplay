@@ -72,6 +72,40 @@ jobs:
     # going an hour is stuck, not slow.
     timeout-minutes: 60
     steps:
+      # One rebuild per quiet window, not one per merge. Trunk landed a commit
+      # every fourteen minutes on 2026-09-05 and this job rebuilt after each:
+      # twenty-one "chore: emulator rebuilt" commits in a day, each moving the
+      # tip under whatever --committed gate was in flight, each a Vercel deploy
+      # of site/emulator until the free plan's daily budget was gone. So the
+      # job first waits for xteink to hold still for QUIET_SECONDS (a push
+      # restarts the clock, CAP_SECONDS ends the wait regardless), then checks
+      # out the tip AS IT IS THEN. With cancel-in-progress false a run that is
+      # waiting keeps waiting while arrivals replace the one pending run behind
+      # it, so a stream of merges yields one rebuild of the last of them.
+      # host-tests/ci runs this step's own text against a fake gh.
+      - name: Wait for xteink to hold still
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          quiet="${QUIET_SECONDS:-600}"; poll="${POLL_SECONDS:-60}"; cap="${CAP_SECONDS:-2400}"
+          tip() { gh api "repos/$GITHUB_REPOSITORY/commits/xteink" --jq .sha; }
+          last="$(tip)"; still=0; waited=0
+          while [ "$still" -lt "$quiet" ] && [ "$waited" -lt "$cap" ]; do
+            sleep "$poll"; waited=$((waited + poll))
+            now="$(tip)"
+            if [ "$now" = "$last" ]; then
+              still=$((still + poll))
+            else
+              echo "xteink moved to ${now:0:8} after ${waited}s; the quiet clock restarts"
+              last="$now"; still=0
+            fi
+          done
+          if [ "$still" -lt "$quiet" ]; then
+            echo "xteink never held still for ${quiet}s in ${cap}s; building ${last:0:8} anyway"
+          else
+            echo "xteink held still at ${last:0:8} for ${still}s; building it"
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: xteink

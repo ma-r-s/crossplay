@@ -134,6 +134,17 @@ expect "a finished turn passes"                  0 stop "{\"session_id\":\"$WORK
 
 CID=$(board new "Sudoku loses the puzzle from the difficulty menu" --from sudoku --kind bug | sed 's/^#\([0-9]*\).*/\1/')
 board bind "$CID" --session "$WORKER" --tree wt/x --branch app/x >/dev/null
+echo "a tree another session holds refuses writes"
+expect "another session editing wt/x is refused"        2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+grep -q "wt/x is bound to session $WORKER (card #$CID," "$WORK/err" && ok "the refusal names the tree, its holder and the card" || bad "refusal lacks the holder: $(head -c 200 "$WORK/err")"
+grep -q "wt.sh new" "$WORK/err" && ok "and says to cut a tree of its own" || bad "refusal lacks the remedy"
+expect "the holder still edits its tree"                0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+expect "the orchestrator may edit any tree"             0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+expect "an unbound tree is anyone's"                    0 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/free/src/a.cpp\"}}"
+expect "a write from inside the tree by another session is refused" 2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"sed -i '' src/a.cpp\"},\"cwd\":\"$ROOT/wt/x\"}"
+expect "a read from inside the tree by another session is fine"     0 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -rn foo src\"},\"cwd\":\"$ROOT/wt/x\"}"
+expect "a write naming the tree from elsewhere is refused"          2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cp /tmp/a.h $ROOT/wt/x/src/a.h\"},\"cwd\":\"$ROOT\"}"
+expect "the holder writes from inside its tree"                     0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -am x\"},\"cwd\":\"$ROOT/wt/x\"}"
 mk_transcript "I cannot see the panel from here. Let me know when you have flashed it."
 expect "hand-back with a card but no blocker refused" 2 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
 grep -q "card #$CID" "$WORK/err" && ok "refusal names the card" || bad "refusal does not name the card"
@@ -543,5 +554,48 @@ grep -q "$SP/pr.md is at the top" "$WORK/err" \
   || bad "the refusal named a path the reader cannot paste: $(grep -o "$SP[^ ]*" "$WORK/err" | head -1)"
 
 echo
+echo "a held card is not bound twice"
+CID2=$(board new "Sudoku: a second card that wants the same tree" --from sudoku --kind task --anyway | sed 's/^#\([0-9]*\).*/\1/')
+if board bind "$CID2" --session "other-session" --tree wt/x >"$WORK/tree.out" 2>&1; then bad "a second card was bound to a held tree"; else grep -q "already the tree of #$CID" "$WORK/tree.out" && ok "binding a second card to a held tree is refused, naming the card" || bad "tree refusal lacks the card: $(cat "$WORK/tree.out")"; fi
+board bind "$CID2" --session "other-session" --tree wt/y | grep -q "bound to other-session" && ok "a tree of its own binds" || bad "a free tree was refused"
+HELD=$(board new "Trivia: the timer keeps running on the score screen" --from trivia --kind bug | sed 's/^#\([0-9]*\).*/\1/')
+board bind "$HELD" --session "held-a" --tree wt/one --branch app/one >/dev/null
+if board bind "$HELD" --session "other-session" --tree wt/two >"$WORK/bind.out" 2>&1; then bad "a second session bound a held card"; else grep -q "held by session held-a" "$WORK/bind.out" && grep -q "wt/one" "$WORK/bind.out" && ok "the second bind is refused and the holder, its tree and branch are named" || bad "bind refusal lacks the holder: $(cat "$WORK/bind.out")"; fi
+grep -q -- "--take" "$WORK/bind.out" && ok "the refusal says how to take the card over on purpose" || bad "refusal lacks the --take remedy"
+board show "$HELD" | grep -q "session held-a" && ok "the card stayed with its holder" || bad "the card changed hands anyway"
+board bind "$HELD" --session "held-a" --tree wt/one >/dev/null 2>&1 && ok "the holder may bind its own card again" || bad "the holder was refused its own card"
+board bind "$HELD" --session "other-session" --tree wt/two --take | grep -q "bound to other-session" && ok "--take hands the card over" || bad "--take did not bind"
+board show "$HELD" | grep -q "taken over from session held-a" && ok "the takeover is a history line" || bad "no takeover line"
+board state "$HELD" done >/dev/null
+board bind "$HELD" --session "held-a" >/dev/null 2>&1 && ok "a settled card can be re-bound without --take" || bad "a settled card was treated as held"
+GONE=$(board new "Jaipur: the market never refills after a bonus" --from jaipur --kind bug --anyway | sed 's/^#\([0-9]*\).*/\1/')
+board bind "$GONE" --session "held-c" --tree wt/gone --branch app/gone >/dev/null
+expect "a live holder keeps its tree from others"     2 pretool "{\"session_id\":\"held-d\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+grep -q "active 0 min ago" "$WORK/err" && ok "the refusal says how recently the holder was seen" || bad "refusal lacks the holder's activity: $(head -c 240 "$WORK/err")"
+grep -q -- "--take" "$WORK/err" && grep -q "idle for 45 minutes counts as gone" "$WORK/err" && ok "and names --take and the idle rule" || bad "refusal lacks --take or the idle rule"
+touch -t 202001010000 "$ROOT/.board/sessions/held-c.json"
+expect "a holder silent for longer than the idle window is gone" 0 pretool "{\"session_id\":\"held-d\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+board bind "$GONE" --session "held-d" --tree wt/gone | grep -q "bound to held-d" && ok "bind takes a silent holder's card over without a flag" || bad "bind refused a silent holder's card"
+board show "$GONE" | grep -q "taken over from session held-c (it had ended, or was silent" && ok "and says why on the card" || bad "no takeover reason on the card"
+printf '{"session_id":"held-d","tool_name":"Bash","tool_input":{"command":"ls"}}' | python3 "$GUARD" pretool >/dev/null 2>&1
+expect "the new holder is live again (touched by its tool call)" 2 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+printf '{"session_id":"held-d"}' | python3 "$GUARD" session-end >/dev/null 2>&1
+grep -q '"ended_at"' "$ROOT/.board/sessions/held-d.json" && ok "SessionEnd marks the session ended" || bad "session_end wrote no ended_at"
+expect "an ended holder's tree is free at once"       0 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+# a gate still verifying the tree is a sign of life whatever its session does:
+# a worker waiting on a backgrounded gate makes no tool calls for as long as
+# the gate takes (95 minutes one night), and its tree must not count as free
+mkdir -p "$ROOT/wt/gone"
+GATE_TAG="$(python3 -c 'import hashlib,pathlib,sys; print(hashlib.sha1(str(pathlib.Path(sys.argv[1]).resolve()).encode()).hexdigest()[:8])' "$ROOT/wt/gone")"
+export TMPDIR="$WORK"
+bash -c 'exec -a check.sh sleep 30' & GATEPID=$!
+sleep 0.2; echo "$GATEPID" >"$WORK/xteink-check-$GATE_TAG.running"
+expect "a tree with a living gate is held even when its session is gone" 2 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+grep -q "check.sh still verifying it (pid $GATEPID" "$WORK/err" && ok "the refusal names the gate's pid" || bad "refusal lacks the gate: $(head -c 240 "$WORK/err")"
+if board bind "$GONE" --session "held-e" --tree wt/gone >"$WORK/gate.out" 2>&1; then bad "bind took a tree with a living gate"; else grep -q "check.sh still verifying it (pid $GATEPID" "$WORK/gate.out" && ok "bind refuses a tree with a living gate and names it" || bad "bind's refusal lacks the gate: $(cat "$WORK/gate.out")"; fi
+kill "$GATEPID" 2>/dev/null; wait "$GATEPID" 2>/dev/null
+expect "the gate gone, the tree is free"                0 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+unset TMPDIR
+
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

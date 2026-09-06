@@ -22,10 +22,13 @@ input, including the ones that must NOT block.
 """
 
 import datetime as dt
+import hashlib
 import json
+import time
 import os
 import pathlib
 import re
+import subprocess
 import sys
 
 HANDBACK = re.compile(
@@ -260,6 +263,139 @@ class Board:
     def is_integrator(self, sid):
         return norm_sid(sid) in self.claim_ids(self.integrator())
 
+    # Chosen against two clocks. The Bash tool caps one call at ten minutes, so
+    # no session goes quiet that long from a single command; and a worker
+    # waiting on a backgrounded gate makes no tool calls at all, which is why
+    # a living gate on the tree counts as life below (tree_gate_pid) rather
+    # than this number growing to cover it. Forty-five is well past the first
+    # and does not need to cover the second.
+    IDLE_MINUTES = 45
+
+    @staticmethod
+    def tree_gate_pid(tree_path):
+        """The pid of a check.sh still verifying `tree_path`, or None.
+
+        check.sh keeps ${TMPDIR:-/tmp}/xteink-check-<tag>.running with its pid
+        while it runs (tag = the first eight hex of sha1 of the tree's real
+        path, as check.sh computes it). A tree with a living gate is in use
+        whatever its session is doing, and an edit landing in it would make
+        that verdict meaningless while looking green.
+        """
+        try:
+            real = str(pathlib.Path(tree_path).resolve())
+        except OSError:
+            return None
+        tag = hashlib.sha1(real.encode()).hexdigest()[:8]
+        lock = pathlib.Path(os.environ.get("TMPDIR") or "/tmp") / f"xteink-check-{tag}.running"
+        try:
+            pid = int((lock.read_text() or "0").split()[0])
+        except (OSError, ValueError, IndexError):
+            return None
+        if pid <= 0:
+            return None
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return None
+        try:
+            cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+        except OSError:
+            return None
+        return pid if "check.sh" in cmd else None
+
+    def session_seen(self, sid):
+        """When the session last touched a tool, or None if the board never saw it.
+
+        The hook touches the session file on every tool call, so its mtime is
+        the last sign of life; SessionEnd (when wired) writes ended_at.
+        """
+        p = self.dir / "sessions" / f"{norm_sid(sid)}.json"
+        try:
+            st = p.stat()
+        except OSError:
+            return None
+        cur = read_json(p) or {}
+        if cur.get("ended_at"):
+            return None
+        return st.st_mtime
+
+    def session_live(self, sid):
+        seen = self.session_seen(sid)
+        return seen is not None and (time.time() - seen) < self.IDLE_MINUTES * 60
+
+    def touch_session(self, sid):
+        p = self.dir / "sessions" / f"{norm_sid(sid)}.json"
+        try:
+            if p.exists():
+                os.utime(p, None)
+        except OSError:
+            pass
+
+    def end_session(self, sid):
+        d = self.dir / "sessions"
+        p = d / f"{norm_sid(sid)}.json"
+        cur = read_json(p) or {"session_id": norm_sid(sid)}
+        cur["ended_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            with open(p, "w") as f:
+                json.dump(cur, f, indent=1)
+        except OSError:
+            pass
+
+    def tree_holders(self, tree):
+        """Open cards bound to `tree` (as `wt/<name>`), as (session, card id).
+
+        Two sessions once wrote into one worktree for an hour and ran two gates
+        against it at the same time; the identical resulting SHAs read as
+        "independently converged" and meant "there was only ever one tree"
+        (2026-09-05). The cards know who holds a tree; the guard reads them.
+        """
+        out = []
+        d = self.dir / "cards"
+        if not d.is_dir():
+            return out
+        for p in d.glob("*.json"):
+            c = read_json(p) or {}
+            if str(c.get("tree") or "").rstrip("/") != tree:
+                continue
+            if c.get("state") in ("done", "released", "parked") or not c.get("session"):
+                continue
+            out.append((norm_sid(c.get("session")), c.get("id")))
+        return out
+
+    def foreign_tree(self, sid, path_or_cwd):
+        """The `wt/<name>` under the workspace that `path_or_cwd` is inside, if a
+        card binds it to a session other than `sid`; else None."""
+        try:
+            p = pathlib.Path(path_or_cwd)
+            if not p.is_absolute():
+                p = pathlib.Path(os.getcwd()) / p
+            p = p.resolve()
+            wt = (self.root / "wt").resolve()
+            if wt not in p.parents:
+                return None
+            name = p.relative_to(wt).parts[0]
+        except (OSError, ValueError, IndexError):
+            return None
+        tree = f"wt/{name}"
+        holders = self.tree_holders(tree)
+        if not holders:
+            return None
+        me = norm_sid(sid)
+        if any(h == me for h, _ in holders) or self.is_orchestrator(sid):
+            return None
+        # A holder that has ended, or has not touched a tool for IDLE_MINUTES,
+        # is gone: sessions end all the time without unbinding, and a tree
+        # locked to a session that no longer exists is the claims stranded by
+        # a dead session (card 44) again, once per worktree. The write is
+        # allowed; binding the card afterwards records the takeover.
+        live = [(h, c) for h, c in holders if self.session_live(h)]
+        gate = self.tree_gate_pid(self.root / tree)
+        if not live and gate is None:
+            return None
+        return (tree, live, gate)
+
     def note_session(self, sid, cwd):
         d = self.dir / "sessions"
         d.mkdir(parents=True, exist_ok=True)
@@ -376,17 +512,39 @@ def writes_into_tree(cmd):
     return False
 
 
+def foreign_tree_refusal(board, sid, where):
+    tree, holders, gate = where
+    parts = [
+        f"session {h} (card #{c}, active {int((time.time() - (board.session_seen(h) or time.time())) // 60)} min ago)"
+        for h, c in holders
+    ]
+    if gate is not None:
+        parts.append(f"a check.sh still verifying it (pid {gate}; ps -p {gate} -o etime,command)")
+    who = ", ".join(parts) or "another session"
+    return (
+        f"Refused: {tree} is bound to {who}, and two sessions writing one tree verify nothing "
+        "(the gates each ran against a tree the other was still changing). Work in your own tree: "
+        f"./scripts/wt.sh new <name>, then {board_cmd(board.root)} bind <card> --session {norm_sid(sid)} --tree wt/<name>. "
+        f"A holder idle for {board.IDLE_MINUTES} minutes counts as gone and this refusal lifts by itself; "
+        f"to take a tree over now: {board_cmd(board.root)} bind <card> --session {norm_sid(sid)} --tree {tree} --take"
+    )
+
+
 def pretool(board, data):
     sid = data.get("session_id", "")
     tool = data.get("tool_name", "")
     inp = data.get("tool_input") or {}
     root = board.root
+    board.touch_session(sid)
 
     if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
         path = inp.get("file_path") or inp.get("notebook_path") or ""
         sroot = scratch_root_of(path, root)
         if sroot is not None:
             block(scratch_refusal(board, sid, data.get("cwd"), path, sroot))
+        where = board.foreign_tree(sid, path)
+        if where:
+            block(foreign_tree_refusal(board, sid, where))
         if under_integration_tree(root, path) and not board.is_integrator(sid):
             block(
                 "Refused: that file is in firmware-next, the integration tree. Work happens in "
@@ -406,6 +564,19 @@ def pretool(board, data):
                 "Refused: a raw `pio run` bypasses the workspace build lock and can corrupt another "
                 "tree's build. Use ./scripts_local/check.sh (or dev.sh / sim-shot.sh) from your tree."
             )
+        # A write from inside another session's tree (the shell's cwd), or one
+        # that names such a tree: the same rule as firmware-next, per tree.
+        body = QUOTED.sub(" ", HEREDOC.sub(" ", cmd))
+        if WRITE_VERB.search(body) or REDIRECT.search(body):
+            candidates = [data.get("cwd") or ""]
+            candidates += [m.group(0) for m in re.finditer(r"(?:/[^\s'\"]*)?wt/[A-Za-z0-9_.-]+/?", cmd)]
+            for cand in candidates:
+                if not cand:
+                    continue
+                cpath = cand if cand.startswith("/") else str(root / cand)
+                where = board.foreign_tree(sid, cpath)
+                if where:
+                    block(foreign_tree_refusal(board, sid, where))
         if (
             writes_into_tree(cmd) and not board.is_integrator(sid)
         ):
@@ -508,6 +679,11 @@ def stop(board, data):
     )
 
 
+def session_end(board, data):
+    """SessionEnd: the session file says so, and every tree it held is free."""
+    board.end_session(data.get("session_id", ""))
+
+
 def session_start(board, data):
     sid = norm_sid(data.get("session_id", ""))
     board.note_session(sid, data.get("cwd", ""))
@@ -575,6 +751,8 @@ def main():
     CURRENT.update(root=root, sid=norm_sid(data.get("session_id")), tool=data.get("tool_name") or mode)
     if mode == "pretool":
         pretool(board, data)
+    elif mode == "session-end":
+        session_end(board, data)
     elif mode == "stop":
         stop(board, data)
     elif mode == "session-start":

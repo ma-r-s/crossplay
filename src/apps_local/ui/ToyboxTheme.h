@@ -124,10 +124,24 @@ inline void reportOverflow(const Interactions& interactions, const char* screenN
   }
 }
 
-// The rule under the header band. Kept for callers that still draw straight to
-// the renderer; screen builders draw it through the DrawTarget instead.
-inline void headerRule(const GfxRenderer& renderer) {
-  renderer.fillRect(0, kHeaderHeight + 4, renderer.getScreenWidth(), kRule, true);
+// Vertical top for an element of height h centred in the VISIBLE part of the
+// header band, for an Activity drawing straight to the renderer. The twin of
+// toybox::bandCenterY(Screen&, int16_t), and it exists so the band's height is
+// named in exactly one place: chess open-coded this arithmetic, which is one
+// more copy of the chrome's geometry living in an app file. See
+// host-tests/chromeguard.
+inline int bandCenterY(const GfxRenderer& renderer, const int elementH) {
+  int viewTop = 0, viewRight = 0, viewBottom = 0, viewLeft = 0;
+  renderer.getOrientedViewableTRBL(&viewTop, &viewRight, &viewBottom, &viewLeft);
+  (void)viewRight;
+  (void)viewBottom;
+  (void)viewLeft;
+  return viewTop + (kHeaderHeight - viewTop - elementH) / 2;
 }
+
+// The band's own rect at renderer coordinates: absolute chrome puts it at the
+// panel's top-left corner, full width. For hit rects and decorations an
+// Activity registers over the band itself.
+inline Rect headerBandRect(const GfxRenderer& renderer) { return Rect{0, 0, renderer.getScreenWidth(), kHeaderHeight}; }
 
 }  // namespace toybox

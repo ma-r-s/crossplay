@@ -286,7 +286,7 @@ void SolitaireActivity::render(RenderLock&&) {
   // bowl of the S and the leg of the R were sliced off by the bar's own bottom
   // edge. 56 is the smallest that clears the descender box.
   fui::ThemeTokens tokens = toybox::themeTokens();
-  tokens.headerHeight = 56;
+  tokens.headerHeight = solitaireui::kHeaderBand;
   toybox::Screen screen(frame, tokens);
 
   if (view == View::Board) {

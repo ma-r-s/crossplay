@@ -23,9 +23,17 @@ constexpr int16_t kMapMinSide = 6;
 constexpr int16_t kOkWidth = 56;
 
 // The top of any body: below the header band and the rule Toybox draws under
-// it. Shared by every screen here so they line up with each other and with the
-// shelf the reader just came from.
-constexpr int16_t kBodyTop = kHeaderBand + toybox::kGutter * 3;
+// it. Shared by every screen here so they line up with each other.
+//
+// From the whole chrome. kHeaderBand is the BAND's height, which is what the
+// theme token wants and not what a body top wants.
+//
+// Not with the SHELF, though, whatever this used to say: every caller adds
+// safe.y to it, and the chrome it measures from starts at panel row 0, so on
+// the X4 Pro this sits ten pixels below Hacker News' body and the shelf's list.
+// Left as it is rather than fixed blind -- see card #358 and the note in
+// WallpapersScreens.cpp, which has the same shape.
+constexpr int16_t kBodyTop = toybox::kChromeHeight + toybox::kGutter * 3;
 
 // The menu's bands, laid out once. Both the builder and the Activity need the
 // mosaic's rect, and two functions that compute it separately are the defect
@@ -92,7 +100,6 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = 
   }
   toybox::headerBand(screen, header);
 
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 

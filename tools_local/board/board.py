@@ -49,6 +49,7 @@ import argparse
 import datetime as dt
 import fcntl
 import json
+import time
 import os
 import pathlib
 import re
@@ -795,10 +796,83 @@ def cmd_new(st, a):
     print(f"#{c['id']} {c['title']}" + ("  (in Mario's inbox)" if inbox else ""))
 
 
+IDLE_MINUTES = 45
+
+
+def session_live(root, sid):
+    """The hook touches .board/sessions/<sid>.json on every tool call and marks
+    ended_at at SessionEnd; a holder silent for IDLE_MINUTES or ended is gone."""
+    p = root / ".board" / "sessions" / f"{norm_sid(sid)}.json"
+    try:
+        st = p.stat()
+        cur = json.loads(p.read_text() or "{}")
+    except (OSError, ValueError):
+        return False
+    if cur.get("ended_at"):
+        return False
+    return (time.time() - st.st_mtime) < IDLE_MINUTES * 60
+
+
+def tree_gate_pid(root, tree):
+    """The pid of a check.sh still verifying wt/<name>, or None (the guard's rule)."""
+    import hashlib
+    try:
+        real = str((root / tree).resolve())
+    except OSError:
+        return None
+    lock = pathlib.Path(os.environ.get("TMPDIR") or "/tmp") / f"xteink-check-{hashlib.sha1(real.encode()).hexdigest()[:8]}.running"
+    try:
+        pid = int((lock.read_text() or "0").split()[0])
+        os.kill(pid, 0)
+        cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+    except (OSError, ValueError, IndexError):
+        return None
+    return pid if "check.sh" in cmd else None
+
+
 def cmd_bind(st, a):
     with st.lock():
         c = st.get_card(a.id)
         sid = norm_sid(a.session)
+        # A card another session holds is not bound twice by accident: the
+        # orchestrator once dispatched a worker onto a card whose holder was
+        # mid-rebase on the same branch, and both did the work (2026-09-05).
+        # Taking a card over is a decision, so it has a flag and a history line.
+        held = norm_sid(c.get("session"))
+        take = getattr(a, "take", False) or (held and held != sid and not session_live(st.root, held))
+        if held and held != sid and c["state"] not in SETTLED and not take:
+            since = next((h["at"] for h in reversed(c.get("history", [])) if str(h.get("what", "")).startswith("bound to session")), c.get("updated"))
+            sys.exit(
+                f"board: #{c['id']} is held by session {held}"
+                + (f" in {c['tree']}" if c.get("tree") else "")
+                + (f" on {c['branch']}" if c.get("branch") else "")
+                + f" since {since}.\n  If that session is gone, take it over on purpose: board bind {c['id']} --session {a.session} --take"
+            )
+        # And a tree another session's card holds: one card, one branch, one
+        # worktree was a convention until two sessions shared wt/gcclist for an
+        # hour (2026-09-05). --take covers this too, since it is the same call.
+        if a.tree and not getattr(a, "take", False):
+            tree = a.tree.rstrip("/")
+            others = [
+                k for k in st.list_cards()
+                if k["id"] != c["id"] and str(k.get("tree") or "").rstrip("/") == tree
+                and k.get("session") and norm_sid(k.get("session")) != sid and k["state"] not in SETTLED
+                and session_live(st.root, k["session"])
+            ]
+            if others:
+                k = others[0]
+                sys.exit(
+                    f"board: {tree} is already the tree of #{k['id']} ({k['title'][:60]}), held by session {norm_sid(k['session'])}.\n"
+                    f"  One card, one branch, one worktree: ./scripts/wt.sh new <name> for yours, or --take if that session is gone."
+                )
+            gate = tree_gate_pid(st.root, tree)
+            if gate is not None:
+                sys.exit(
+                    f"board: {tree} has a check.sh still verifying it (pid {gate}); an edit there now would make that verdict meaningless.\n"
+                    f"  Wait for it (ps -p {gate} -o etime,command), or ./scripts/wt.sh new <name> for a tree of your own."
+                )
+        if held and held != sid:
+            card_history(st, c, f"taken over from session {held}" + ("" if getattr(a, "take", False) else " (it had ended, or was silent for %d minutes)" % IDLE_MINUTES))
         c["session"] = sid
         if a.tree:
             c["tree"] = a.tree
@@ -1493,6 +1567,7 @@ def main(argv=None):
     s.add_argument("--session", required=True)
     s.add_argument("--tree")
     s.add_argument("--branch")
+    s.add_argument("--take", action="store_true", help="bind a card another session still holds (its holder is gone, or this is the orchestrator's call)")
     s.set_defaults(fn=cmd_bind)
     s = sub.add_parser("block")
     s.add_argument("id", type=int)
