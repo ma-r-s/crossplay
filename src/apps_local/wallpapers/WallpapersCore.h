@@ -26,6 +26,14 @@ inline constexpr char kLibraryDir[] = "/wallpapers";
 // library.
 inline constexpr char kPinnedSleep[] = "/sleep.bmp";
 
+// The shuffle set's directory. Upstream's renderCustomSleepScreen tries
+// "/.sleep" before "/sleep", and BOTH after "/sleep.bmp" -- so a set lives here
+// and the pinned single above SHADOWS it silently. That shadow is the whole
+// reason cardShapeFor() exists: the two are never allowed to be populated at
+// once. Dotted, unlike the library: it is upstream's own path, the user did not
+// put these files here, and they are copies rather than originals.
+inline constexpr char kShuffleDir[] = "/.sleep";
+
 // Which library file is currently pinned, so the picker can mark it. A hint,
 // not the source of truth: the source of truth is /sleep.bmp, and this is only
 // trusted when that file exists and the sleep mode is CUSTOM.
@@ -53,7 +61,11 @@ inline constexpr char kActiveMarker[] = "/wallpapers/.active";
 //
 // The two also never read the same directory: this filter walks /wallpapers,
 // and findNextValidSleepImage only ever walks /.sleep, /sleep and the two
-// overlay folders. The only bridge between them is the byte copy to /sleep.bmp.
+// overlay folders. The bridges between them are the byte copies this app makes
+// -- to /sleep.bmp for one chosen wallpaper, into /.sleep for a set -- and both
+// are size-checked at kWallpaperFileBytes on the way, so a file this app puts
+// where the sleep screen looks is one the sleep screen accepts. A file somebody
+// dropped in /.sleep by hand is the gap.
 // host-tests/wallpapers asserts the name half, which is why the drift was
 // untested rather than caught.
 bool isSupportedWallpaper(std::string_view name);
@@ -119,12 +131,31 @@ bool sortsBefore(std::string_view a, std::string_view b);
 // marked wallpaper again is what a person does after nothing happened, and it
 // must re-pin and repair the settings. Holding it still opens the sheet, which
 // is the ordering the two cards together require.
+//
+// `choosing`, `chosenCount` and `shadowedSet` are card #305's half, folded in
+// here for the same reason #354's was: three cards now want this one tap, and
+// three early returns beside each other is how one of them silently wins.
+//
+//   * choosing: a tile tap adds or removes that wallpaper. A hold still opens
+//     the sheet -- the delete behind it needs a second deliberate tap on a
+//     screen that names the file, and previewing a picture while picking
+//     pictures is the obvious thing to want.
+//   * a live set (two or more chosen) and NOT choosing: the tap opens the set
+//     for editing with that tile toggled. It must never collapse the set to one
+//     wallpaper: that is several taps of work undone by one, silently, under
+//     the pixel that meant "add to the set" one chip-press earlier.
+//   * shadowedSet: a stray /sleep.bmp (BmpViewerActivity, the File Transfer
+//     page, a power cut mid-commit) is hiding a set. Tapping the marked
+//     wallpaper is the user asking again, exactly as under sleepBlocked, and
+//     re-committing is what clears the shadow.
 enum class CellAction : uint8_t {
-  None,   // nothing to do (a plain tap on the wallpaper already in use)
-  Set,    // pin it as the sleep screen
-  Sheet,  // open the hold sheet for it
+  None,    // nothing to do (a plain tap on the wallpaper already in use)
+  Set,     // pin it as the sleep screen, alone
+  Sheet,   // open the hold sheet for it
+  Toggle,  // add it to the chosen set, or take it out
 };
-CellAction cellAction(bool heldLong, int index, int activeIndex, bool sleepBlocked);
+CellAction cellAction(bool heldLong, bool choosing, int index, int activeIndex, int chosenCount, bool sleepBlocked,
+                      bool shadowedSet);
 
 // What the delete confirm has to say, before it is asked. Two clauses, each
 // conditional, and a caveat assembled per render is a caveat that can silently
@@ -205,7 +236,7 @@ Reach reachOfPinnedSleep(uint8_t sleepScreenMode, bool quickResumeAfterTimeout);
 // came apart in the merge that brought #354 onto this branch.
 //
 // The marker asks "is this the pinned file", and #354 deliberately widened it:
-// loadActive() is no longer gated on sleepScreen == CUSTOM, so a wallpaper
+// loadSelection() is no longer gated on sleepScreen == CUSTOM, so a wallpaper
 // wears the marker under DARK, LIGHT, BLANK and quick-resume too. The grid
 // qualifies that with the hint strip. The sheet ("This one is on your sleep
 // screen now.") and the confirm ("It stays on your sleep screen until you pick
@@ -265,6 +296,71 @@ struct StripLine {
 };
 StripLine stripLineAfterSelection(const SleepChoice& choice, Reach reach);
 
+// ---------------------------------------------------------------------------
+// One selection, of size 0, 1 or many -- and the shape the card must be left in
+// for it.
+//
+// A pinned single and a shuffle set are not two features. They are the N == 1
+// and N >= 2 cases of ONE chosen set, which is what keeps the grid's marker
+// meaning exactly one thing ("this is on your sleep screen") instead of two.
+//
+// The card's two slots are not symmetric: renderCustomSleepScreen draws
+// /sleep.bmp if it parses AT ALL and only then looks in /.sleep, so a leftover
+// pin makes a five-wallpaper set show one picture forever with nothing on any
+// screen saying why. Both slots are therefore derived from the count HERE, in
+// one place, and host-tests/wallpapers walks every count asserting they are
+// never both live.
+//
+// An emptied /.sleep does not shadow anything: selectRandomSleepFile returns
+// false for a directory with no valid image and upstream falls through to
+// /sleep and then to the default screen. So "empty it" is enough; the directory
+// itself may stay.
+struct CardShape {
+  bool pinned = false;    // /sleep.bmp must hold the one chosen wallpaper
+  bool shuffled = false;  // /.sleep must hold exactly the chosen wallpapers
+  int files = 0;          // how many files /.sleep must hold (0 unless shuffled)
+};
+CardShape cardShapeFor(int chosenCount);
+
+// The strip's line while a set is involved, and what it covers.
+//
+// Same shape as StripLine above and for the same reason: a sentence that has to
+// carry a caveat AND a count cannot be checked by looking for a word in it, so
+// it declares what it says and host-tests/wallpapers asserts the coverage
+// equals the facts present.
+//
+// `count` is spoken by the CALLER (the strip is a std::string when a number is
+// in it), so what comes back here is the sentence WITHOUT the number plus a
+// flag saying a number belongs in front of it. Keeping the number out of this
+// function is what lets host-tests/wallcaption measure the sentence in the face
+// the strip resolves; the caller measures the longest number it can produce.
+struct ShuffleLine {
+  const char* text = nullptr;
+  bool wantsCount = false;  // the caller prefixes "<n> "
+  bool saysCaveat = false;
+  bool saysShadow = false;
+};
+// `choosing` is the picker's choose-a-set mode; `chosenCount` is how many
+// wallpapers are in the set right now; `shadowedSet` is the state only the CARD
+// can report -- /sleep.bmp present while /.sleep also holds files, so one
+// picture is showing and a set the user built is inert behind it.
+//
+// That state is not hypothetical and this app is not its only cause:
+// BmpViewerActivity's "set sleep cover" writes /sleep.bmp straight from the
+// file browser, the File Transfer page can drop one at the card root, and a
+// power cut halfway through a 1 <-> 2 transition leaves one behind. Reach
+// cannot see any of it -- it is a pure function of two SETTINGS values -- so
+// the card's own answer is a separate argument here rather than something the
+// predicate is asked to know.
+ShuffleLine shuffleStripLine(bool choosing, int chosenCount, bool shadowedSet, Reach reach);
+
+// Do two file names name the same file? Case-insensitively, because the card is
+// FAT: long names keep their case but the filesystem matches without it, and a
+// card mounted on a PC can hand back "BLAKE.BMP" for a file written as
+// "blake.bmp". A case-sensitive membership test would then draw no marker for a
+// wallpaper that is in the set.
+bool sameFileName(std::string_view a, std::string_view b);
+
 enum class Room : uint8_t { Ok, TooFull, Unknown };
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes);
 
@@ -288,5 +384,13 @@ inline constexpr uint64_t builtInPackBytes() { return kWallpaperFileBytes * kBui
 // other apps plus the whole set, not one file -- the download writes all of
 // them, and checking for one would pass on a card that fills at wallpaper 9.
 inline constexpr uint64_t kPackFloorBytes = kCardFloorBytes + builtInPackBytes();
+
+// What the card must have free before ADDING one wallpaper to the shuffle set.
+// Derived from the file size rather than typed, like every other figure here.
+//
+// One file, not N, because the set is committed a tap at a time: there is never
+// a batch of N in flight, so there is never a partly written set to size a
+// precondition for. See docs/apps/wallpapers-shuffle.md.
+inline constexpr uint64_t kAddFloorBytes = kCardFloorBytes + kWallpaperFileBytes;
 
 }  // namespace wallpapers

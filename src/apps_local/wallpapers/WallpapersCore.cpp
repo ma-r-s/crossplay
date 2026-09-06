@@ -103,16 +103,24 @@ DisplayName displayName(std::string_view fileName) {
   return DisplayName{own, own};
 }
 
-CellAction cellAction(const bool heldLong, const int index, const int activeIndex, const bool sleepBlocked) {
+CellAction cellAction(const bool heldLong, const bool choosing, const int index, const int activeIndex,
+                      const int chosenCount, const bool sleepBlocked, const bool shadowedSet) {
   if (index < 0) return CellAction::None;
   // FIRST, above every other branch. A hold that the SDK classified as a tap is
   // still a hold, and the thing the user was reaching past is setWallpaper --
   // which has no confirmation and no undo.
   if (heldLong) return CellAction::Sheet;
+  // #305: while choosing, a tap is membership -- on a marked one too, because
+  // tapping again is how you take it out.
+  if (choosing) return CellAction::Toggle;
+  // #305: a live set is never collapsed by one stray tap. The tap opens it for
+  // editing instead, with this wallpaper toggled.
+  if (chosenCount >= 2) return CellAction::Toggle;
   // #354: doing nothing on the marked wallpaper is right only while that mark
-  // is TRUE. When the settings block it from ever reaching the glass, a second
-  // tap is the user asking again, and swallowing it is the bug that card fixed.
-  if (index == activeIndex && !sleepBlocked) return CellAction::None;
+  // is TRUE. When the settings block it from ever reaching the glass -- or a
+  // stray pin is hiding a set behind it -- a second tap is the user asking
+  // again, and swallowing it is the bug that card fixed.
+  if (index == activeIndex && !sleepBlocked && !shadowedSet) return CellAction::None;
   return CellAction::Set;
 }
 
@@ -301,6 +309,94 @@ StripLine stripLineAfterSelection(const SleepChoice& choice, const Reach reach) 
     return line;
   }
   return line;
+}
+
+CardShape cardShapeFor(const int chosenCount) {
+  CardShape shape;
+  if (chosenCount <= 0) return shape;
+  if (chosenCount == 1) {
+    shape.pinned = true;
+    return shape;
+  }
+  shape.shuffled = true;
+  shape.files = chosenCount;
+  return shape;
+}
+
+ShuffleLine shuffleStripLine(const bool choosing, const int chosenCount, const bool shadowedSet, const Reach reach) {
+  ShuffleLine line;
+
+  // Nothing chosen and nothing hidden: there is nothing for a caveat to be
+  // ABOUT. Telling someone on a fresh device that Sleep Screen is not set to
+  // Custom, before they have picked anything and while their first pick is
+  // about to set it, displaces the one sentence that says what to do. Same rule
+  // the single-pin path has always had (currentSleepNote returns nothing when
+  // nothing is pinned).
+  const bool somethingToSpeakFor = chosenCount > 0 || shadowedSet;
+
+  // Otherwise the settings caveat wins the line outright: one 30px strip, and a
+  // sentence about which of the user's pictures appear is worth nothing on a
+  // device where none of them can.
+  if (somethingToSpeakFor && reach != Reach::Always) {
+    line.text = reachHint(reach);
+    line.saysCaveat = line.text != nullptr;
+    return line;
+  }
+
+  // Then the card's own contradiction. Said before any count, because the count
+  // would be a lie while it holds: the files are there and none of them shows.
+  if (shadowedSet) {
+    line.text = "One wallpaper is hiding a set.";
+    line.saysShadow = true;
+    return line;
+  }
+
+  if (choosing) {
+    // Naming the OTHER half of the gesture matters more than the count, which
+    // the header carries: a mode whose taps toggle is a mode whose taps must be
+    // seen to un-toggle, or the first mistap reads as a set you cannot escape.
+    if (chosenCount <= 0) {
+      line.text = "Tap wallpapers to build a set.";
+      return line;
+    }
+    // The count is HERE rather than in the band, and the render is why: the
+    // header holds the app name, the chip and one label, and at the display cut
+    // the third of those cut "WALLPAPERS" to "WALLPAPE...". The strip has the
+    // room and the count has to be somewhere -- four tiles fit a page and the
+    // library is six pages, so the marks alone cannot say how many are chosen.
+    if (chosenCount == 1) {
+      line.text = "chosen. Pick another.";
+      line.wantsCount = true;
+      return line;
+    }
+    line.text = "chosen. Tap again to remove.";
+    line.wantsCount = true;
+    return line;
+  }
+
+  // Not choosing. Only a real set is worth a line -- one pinned wallpaper is
+  // what reachHint and stripLineAfterSelection already speak for.
+  //
+  // "Take turns", never "shuffle" or "random", and the word is load-bearing.
+  // selectRandomSleepFile excludes the last `min(recentFill, N-1)` images, and
+  // recentFill climbs to 16 and never resets, so for any set up to seventeen
+  // every member but one is excluded and the order is a strict cycle. A two-set
+  // alternates. Calling that shuffling would be a promise the platform does not
+  // keep.
+  if (chosenCount >= 2) {
+    line.text = "take turns. Tap to change.";
+    line.wantsCount = true;
+    return line;
+  }
+  return line;
+}
+
+bool sameFileName(const std::string_view a, const std::string_view b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i]))) return false;
+  }
+  return true;
 }
 
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes) {

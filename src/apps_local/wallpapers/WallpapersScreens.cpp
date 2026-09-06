@@ -192,9 +192,39 @@ void paintTruchet(fui::DrawTarget& t, const fui::Rect& r, const int cell) {
   }
 }
 
-void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
+// The chip's style, re-derived against a BLACK ground rather than borrowed from
+// the paper pair. toybox::invertedStyles() is a solid black fill, which on this
+// band IS the band and leaves only a floating glyph; rowStyles() is a white
+// fill whose black hairline vanishes. HackerNews' save chip carries the same
+// pair for the same reason (the-black-band-swaps-your-styles). This chip is an
+// ACTION rather than a state, so it only ever needs the outline half: a filled
+// chip would read as "already on".
+fui::StyleSet bandOutlineStyles() {
+  fui::StyleSet styles;
+  styles.explicitlySet = true;
+  styles.normal.background = fui::Paint::solid(fui::Color::Black);
+  styles.normal.foreground = fui::Paint::solid(fui::Color::White);
+  styles.normal.border = fui::Paint::solid(fui::Color::White);
+  styles.normal.borderWidth = toybox::kHairline;
+  styles.selected = styles.normal;
+  styles.focused = styles.normal;
+  styles.active = styles.normal;
+  styles.disabled = styles.normal;
+  return styles;
+}
+
+void chrome(toybox::Screen& screen, const char* title, const char* rightLabel, const bool showChip = false,
+            const bool choosing = false) {
   fui::HeaderProps header;
   header.title = title;
+  if (showChip) {
+    header.trailingLabel = chooseChipLabel(choosing);
+    header.trailingAction = ActionChoose;
+    header.trailingStyles = bandOutlineStyles();
+    header.trailingText = screen.theme().smallText;
+    header.trailingText.color = fui::Color::White;
+    header.trailingRadius = toybox::kPillRadius / 2;
+  }
   header.rightLabel = rightLabel;
   header.borderEdges = fui::EdgesNone;
   if (rightLabel != nullptr) {
@@ -276,12 +306,27 @@ int cellAt(const GridGeom& g, int x, int y) {
   return -1;
 }
 
+int pageCountFor(const int specialTiles, const int libraryCount, const int perPage) {
+  if (perPage <= 0) return 1;
+  const int tiles = (specialTiles < 0 ? 0 : specialTiles) + (libraryCount < 0 ? 0 : libraryCount);
+  if (tiles <= 0) return 1;
+  return (tiles + perPage - 1) / perPage;
+}
+
 int16_t hintTextWidth(const fui::Rect& safe) { return static_cast<int16_t>(safe.width - toybox::kMargin * 2); }
 
 int16_t hintStripHeight() { return kHintH; }
 
+const char* chooseChipLabel(const bool choosing) { return choosing ? "DONE" : "CHOOSE"; }
+
+const char* chooseHint() { return "Tap CHOOSE to pick several."; }
+
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
-  chrome(screen, model.title, model.rightLabel);
+  // The title says which mode this is, in the biggest type on the screen. The
+  // chip alone could not: it reads DONE in one mode and SHUFFLE in the other,
+  // and a person who has not been watching cannot tell a verb they may press
+  // from a verb they already pressed.
+  chrome(screen, model.choosing ? "CHOOSE A SET" : model.title, model.rightLabel, true, model.choosing);
 
   // The hint strip, at a fixed place so the grid below it never moves. One
   // line, and three things want it; the order is settled just below.
@@ -307,6 +352,12 @@ void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
     // Short enough to fit the hint strip at the grid's cut. The longer form
     // ("Tap a wallpaper to set it as your sleep screen.") was cut mid-phrase.
     line = "Tap one to set your sleep screen.";
+  } else if (!model.choosing) {
+    // Something IS set, nothing is wrong, and the strip would otherwise be
+    // blank -- which is where the one affordance nobody would guess belongs.
+    // Four tiles fit a page, so a chip in the band is the only thing on this
+    // screen that says a set is possible at all.
+    line = chooseHint();
   }
   if (line != nullptr) {
     const fui::Rect rect =
@@ -599,11 +650,13 @@ void buildOffer(toybox::Screen& screen, const OfferModel& model) {
 // DOWNLOADING. Painted from inside the blocking fetch, so it says what is
 // happening, how far along, and that Back stops it -- the three things a person
 // staring at a frozen-looking panel needs (a-silent-screen-reads-as-a-crash).
-uint32_t gridMeaning(const int page, const int view, const int libraryCount, const int specialTiles) {
+uint32_t gridMeaning(const int page, const int view, const int libraryCount, const int specialTiles,
+                     const bool choosing) {
   uint32_t m = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(page));
   m = paintclock::mixMeaning(m, static_cast<uint32_t>(view));
   m = paintclock::mixMeaning(m, static_cast<uint32_t>(libraryCount));
-  return paintclock::mixMeaning(m, static_cast<uint32_t>(specialTiles));
+  m = paintclock::mixMeaning(m, static_cast<uint32_t>(specialTiles));
+  return paintclock::mixMeaning(m, choosing ? 1u : 0u);
 }
 
 BarSpan fetchBarSpan(const FetchingModel& model) {
