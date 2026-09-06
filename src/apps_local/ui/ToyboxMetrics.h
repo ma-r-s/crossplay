@@ -44,6 +44,45 @@ constexpr int kBandRuleGap = 4;
 // shares with its builder, which have no Screen to ask.
 constexpr int chromeBelow(const int bandHeight) { return bandHeight + kBandRuleGap + kRule; }
 constexpr int kChromeHeight = chromeBelow(kHeaderHeight);
+
+// The top gutter every toybox screen puts between its chrome and its first row:
+// the `kGutter * 3` that 41 screens hand to insetContent() after their chrome.
+constexpr int kBodyGutter = kGutter * 3;
+
+// The first row a screen's own content may occupy, for the geometry functions
+// that have no Screen to ask. Read the next two paragraphs before using it.
+//
+// DERIVED FROM chromeBelow(), NOT RESTATED BESIDE IT. headerBand() reserves
+// exactly chromeBelow(band), so a screen holding a Screen& already has this
+// number in screen.body().y after it insets by kBodyGutter -- and the two must
+// not be able to disagree. Card 248 moved the reservation from the band alone
+// to band + gap + rule; a kBodyTop written as its own sum of kHeaderHeight and
+// three gutters would have kept the OLD number silently while every
+// component-laid screen moved seven pixels down. host-tests/ui pins the two
+// paths together in testTheHandRolledBodyTopMatchesTheReservedOne, which
+// renders a screen through headerBand() + insetContent() and asserts
+// screen.body().y == kBodyTop.
+//
+// EVERY NUMBER IN THIS FILE IS AN ABSOLUTE PANEL ROW, measured from the panel's
+// physical row 0 and NOT from the bezel's safe top. headerBand() calls
+// absoluteChrome() before it takes the band, so the band paints from row 0
+// whatever the glass hides; testTheBandIsAbsoluteWithoutBeingAsked pins that on
+// a BEZELLED frame. The X4 Pro's ten covered rows are therefore already inside
+// the band's paint (docs/bezel-insets.md: paint may bleed under the bezel, ink
+// may not), and a screen that adds DeviceContext::safeArea.top to any of these
+// pushes its body ten pixels below every other app's while protecting nothing.
+// xkcd and Wallpapers both did, for as long as either app existed, and the
+// comment over each private copy of this constant claimed the opposite. Card
+// 358.
+constexpr int bodyTopBelow(const int bandHeight) { return chromeBelow(bandHeight) + kBodyGutter; }
+// kBodyTop is the DEFAULT band's body top, not a fork-wide law: kHeaderHeight
+// is a theme token and Solitaire overrides it to 56 in landscape
+// (solitaireui::kHeaderBand, set at SolitaireActivity.cpp:289). Its body top is
+// bodyTopBelow(56) = 99, and a Solitaire screen reaching for kBodyTop would
+// leave 20px of dead air under its rule -- invisible, because nothing would
+// clip. Anything whose band height is not kHeaderHeight calls bodyTopBelow()
+// with its own; that is why the function exists beside the constant.
+constexpr int kBodyTop = bodyTopBelow(kHeaderHeight);
 constexpr int kFrame = 4;
 // The board's own border is heavier than anything drawn inside it, so the
 // playing surface reads as a single object rather than as a grid that happens

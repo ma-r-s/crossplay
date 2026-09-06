@@ -21,6 +21,37 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.45
+
+- Replace the bank with Mario's 199-puzzle pack, four size tiers
+
+### 1.12.44
+
+- Picross: 10x10 only, asterisk mistakes, auto-marking, key paging
+
+### 1.12.43
+
+- Wallpapers: choose several wallpapers, and let them take turns
+- Picross: 321 janko puzzles by permission, and the fork's own artwork dropped
+- Minesweeper: tapping a satisfied number chords its neighbours
+
+### 1.12.42
+
+- Wallpapers: hold a tile to preview it, or delete it
+
+### 1.12.41
+
+- Wallpapers: scan a code, pick a photo on your phone, and it is on the reader
+
+### 1.12.40
+
+- Xkcd and Wallpapers stop adding the bezel to a chrome-derived body top (#358)
+
+### 1.12.39
+
+- The catch-up says which comic it is on, and Back stops it (#306)
+- Wallpapers: the chosen wallpaper survives an idle-timeout sleep, and the picker stops claiming one that cannot
+
 ### 1.12.38
 
 - The chrome reserves the rule it draws, so no screen has to know it exists (#248)

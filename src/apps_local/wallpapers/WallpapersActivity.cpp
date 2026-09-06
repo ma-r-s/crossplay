@@ -1,5 +1,6 @@
 #include "WallpapersActivity.h"
 
+#include <ESPmDNS.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -9,9 +10,13 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../../../lib/GfxRenderer/FontCacheManager.h"
 #include "../../CrossPointSettings.h"
+#include "../../DevMode.h"
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../network/HttpDownloader.h"
+#include "../../util/DeviceHostname.h"
+#include "../../util/QrUtils.h"
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -23,6 +28,24 @@
 namespace fui = freeink::ui;
 
 namespace {
+// WallpapersCore mirrors CrossPointSettings::SLEEP_SCREEN_MODE so the sleep-
+// reachability rules are freestanding and host-testable. This is the seam where
+// the mirror is checked: a value that moves upstream fails the build here
+// rather than silently teaching the picker to say the wrong sentence.
+static_assert(wallpapers::kSleepDark == CrossPointSettings::SLEEP_SCREEN_MODE::DARK, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepLight == CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepCustom == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepCover == CrossPointSettings::SLEEP_SCREEN_MODE::COVER, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepCoverCustom == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM,
+              "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepBlank == CrossPointSettings::SLEEP_SCREEN_MODE::BLANK, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepQuickResume == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME,
+              "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepTransparentCustom == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM,
+              "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepModeCount == CrossPointSettings::SLEEP_SCREEN_MODE::SLEEP_SCREEN_MODE_COUNT,
+              "a sleep screen mode was added upstream; WallpapersCore's mirror and its rules must be updated");
+
 constexpr int kMaxLibrary = 256;
 constexpr size_t kNameMax = 128;
 constexpr size_t kCopyChunk = 4096;
@@ -110,7 +133,7 @@ void WallpapersActivity::onEnter() {
   const uint32_t tSweep = millis();
   scanLibrary();
   const uint32_t tScan = millis();
-  loadActive();
+  loadSelection();
   const uint32_t tActive = millis();
   // The free-space probe is NOT here any more. HalStorage::freeBytes() walks the
   // FAT cluster chain (SDCardManager::refreshFreeClusters: "seconds on a large
@@ -122,6 +145,8 @@ void WallpapersActivity::onEnter() {
   // before-block work, so the screen is painted first and the walk happens
   // after, in loop(), with content already on the glass.
   warning_.clear();
+  selectedThisSession_ = false;
+  choosing_ = false;
   warningPending_ = true;
   LOG_INF("WALL", "onEnter %ums: fonts=%u sweep=%u scan=%u active=%u (free-space deferred)", tActive - tEnter,
           tFonts - tEnter, tSweep - tFonts, tScan - tSweep, tActive - tScan);
@@ -163,35 +188,157 @@ void WallpapersActivity::scanLibrary() {
   builtInsMissing_ = static_cast<int>(wallpapers::builtInCount()) - have;
 }
 
-void WallpapersActivity::loadActive() {
+void WallpapersActivity::listShuffleDir(std::vector<std::string>& out) const {
+  out.clear();
+  auto dir = Storage.open(wallpapers::kShuffleDir);
+  if (!dir || !dir.isDirectory()) return;
+  auto name = makeUniqueNoThrow<char[]>(kNameMax);
+  if (!name) {
+    LOG_ERR("WALL", "OOM: shuffle name buffer");
+    return;
+  }
+  for (auto entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+    if (entry.isDirectory()) continue;
+    entry.getName(name.get(), kNameMax);
+    if (!wallpapers::isSupportedWallpaper(std::string_view{name.get()})) continue;
+    out.emplace_back(name.get());
+    if (static_cast<int>(out.size()) >= kMaxLibrary) break;
+  }
+}
+
+// What the CARD says is chosen. Not a remembered intention and not a hint file:
+// /sleep.bmp and /.sleep are what SleepActivity reads, so they are what the
+// picker reports. See docs/apps/wallpapers-shuffle.md.
+void WallpapersActivity::loadSelection() {
   activeIndex_ = -1;
-  if (SETTINGS.sleepScreen != CrossPointSettings::CUSTOM) return;
-  if (!Storage.exists(wallpapers::kPinnedSleep)) return;
-  char marker[kNameMax] = {};
-  if (Storage.readFileToBuffer(wallpapers::kActiveMarker, marker, sizeof(marker)) == 0) return;
-  for (char* p = marker; *p; ++p) {
-    if (*p == '\n' || *p == '\r') {
-      *p = '\0';
-      break;
+  chosen_.clear();
+  shadowedSet_ = false;
+
+  // The pin is checked FIRST because renderCustomSleepScreen checks it first:
+  // while it is there it is the only thing that shows, whatever else is on the
+  // card. Deliberately NOT gated on sleepScreen == CUSTOM (#354) -- what is
+  // pinned is a fact about the card, and whether it reaches the glass is a fact
+  // about two settings that the hint strip says in words.
+  if (Storage.exists(wallpapers::kPinnedSleep)) {
+    std::vector<std::string> shadowed;
+    listShuffleDir(shadowed);
+    // A set behind a pin. This app is not the only way to get here:
+    // BmpViewerActivity's "set sleep cover" writes /sleep.bmp straight from the
+    // file browser, the File Transfer page can drop one at the root, and a
+    // power cut during a one-to-many transition leaves one behind. Reported
+    // rather than silently repaired: those are the user's files, and the strip
+    // has a sentence for exactly this.
+    shadowedSet_ = !shadowed.empty();
+    char marker[kNameMax] = {};
+    if (Storage.readFileToBuffer(wallpapers::kActiveMarker, marker, sizeof(marker)) == 0) return;
+    for (char* p = marker; *p; ++p) {
+      if (*p == '\n' || *p == '\r') {
+        *p = '\0';
+        break;
+      }
+    }
+    for (int i = 0; i < static_cast<int>(names_.size()); ++i) {
+      if (wallpapers::sameFileName(names_[static_cast<size_t>(i)], marker)) {
+        activeIndex_ = i;
+        chosen_.push_back(names_[static_cast<size_t>(i)]);
+        break;
+      }
+    }
+    return;
+  }
+
+  // No pin: the set IS the directory. Every file counts, including one whose
+  // library original has since been deleted -- that copy still takes its turn
+  // on the glass, and a count that skipped it would understate what the sleep
+  // screen does. Files the user put here themselves are adopted for the same
+  // reason: they are what the sleep screen shows.
+  listShuffleDir(chosen_);
+  if (chosen_.size() == 1) {
+    for (int i = 0; i < static_cast<int>(names_.size()); ++i) {
+      if (wallpapers::sameFileName(names_[static_cast<size_t>(i)], chosen_[0])) {
+        activeIndex_ = i;
+        break;
+      }
     }
   }
-  for (int i = 0; i < static_cast<int>(names_.size()); ++i) {
-    if (names_[i] == marker) {
-      activeIndex_ = i;
-      break;
-    }
+}
+
+bool WallpapersActivity::isChosen(const int index) const {
+  if (index < 0 || index >= static_cast<int>(names_.size())) return false;
+  const std::string& name = names_[static_cast<size_t>(index)];
+  for (const std::string& c : chosen_) {
+    if (wallpapers::sameFileName(c, name)) return true;
   }
+  return false;
+}
+
+wallpapers::Reach WallpapersActivity::sleepReach() const {
+  const bool quickResumeOnTimeout =
+      SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT;
+  return wallpapers::reachOfPinnedSleep(SETTINGS.sleepScreen, quickResumeOnTimeout);
+}
+
+bool WallpapersActivity::sleepBlocked() const {
+  const wallpapers::Reach reach = sleepReach();
+  return reach == wallpapers::Reach::BlockedByMode || reach == wallpapers::Reach::BlockedByQuickResume;
+}
+
+const char* WallpapersActivity::currentSleepNote() {
+  const wallpapers::Reach reach = sleepReach();
+  const int chosen = static_cast<int>(chosen_.size());
+
+  // What a selection changed BEHIND the user's back outranks everything below:
+  // it is the only voice that fact has, and stripLineAfterSelection already
+  // carries any standing caveat with it so nothing is lost by letting it win
+  // (#354 was a caveat suppressed by a line that had no room for both).
+  if (selectedThisSession_ && (lastChoice_.tookOverMode || lastChoice_.clearedQuickResume)) {
+    return wallpapers::stripLineAfterSelection(lastChoice_, reach).text;
+  }
+
+  // Choosing, a real set, or a set hidden behind a pin: the set line owns the
+  // strip, and it already orders the caveat and the contradiction ahead of any
+  // count it might otherwise print.
+  if (choosing_ || chosen >= 2 || shadowedSet_) {
+    const wallpapers::ShuffleLine line = wallpapers::shuffleStripLine(choosing_, chosen, shadowedSet_, reach);
+    if (line.text == nullptr) return nullptr;
+    if (!line.wantsCount) return line.text;
+    // The only line that allocates, and it is a member so it outlives the
+    // paint. host-tests/wallcaption measures the sentence with the widest count
+    // this app can produce in front of it.
+    note_ = std::to_string(chosen);
+    note_ += ' ';
+    note_ += line.text;
+    return note_.c_str();
+  }
+
+  // One wallpaper, or none. Nothing pinned: the strip already carries "Tap one
+  // to set your sleep screen.", and telling someone their non-existent
+  // wallpaper is blocked would be noise.
+  if (activeIndex_ < 0) return nullptr;
+  if (selectedThisSession_) return wallpapers::stripLineAfterSelection(lastChoice_, reach).text;
+  return wallpapers::reachHint(reach);
 }
 
 void WallpapersActivity::computeWarning() {
   warning_.clear();
   uint64_t free = 0;
   const bool ok = Storage.freeBytes(free);
+  // Kept RAW rather than as a verdict: an add applies the same three-outcome
+  // precondition at its own floor (kAddFloorBytes), and it must not trigger a
+  // second FAT cluster walk to do it -- that walk is what put ten seconds of
+  // blank screen on this app's open path, and a tap is the same input path.
+  freeKnown_ = ok;
+  freeBytes_ = ok ? free : 0;
   switch (wallpapers::roomFor(ok, free, wallpapers::kCardFloorBytes)) {
     case wallpapers::Room::Ok:
       break;
     case wallpapers::Room::TooFull:
-      warning_ = "Card is low on space. New wallpapers or books may not save.";
+      // Short enough to survive the hint strip. The longer form
+      // ("... New wallpapers or books may not save.") did not: it overflowed
+      // the 446px line in the face the strip resolves and was cut mid-phrase.
+      // host-tests/wallcaption measures this string with the rest of them --
+      // found by measuring rather than by looking.
+      warning_ = "Card is low on space. Saves may fail.";
       break;
     case wallpapers::Room::Unknown:
       warning_ = "Could not check card space.";
@@ -202,8 +349,16 @@ void WallpapersActivity::computeWarning() {
 int WallpapersActivity::pageCount() const {
   const int per = wallpapersui::gridGeom(toybox::makeTarget(renderer).deviceContext()).perPage;
   if (names_.empty() || per <= 0) return 1;
-  const int total = 1 + static_cast<int>(names_.size());  // the + Add tile plus the wallpapers
-  return (total + per - 1) / per;
+  // specialTiles(), not a literal 1. drawGrid and the hit-test both use it, and
+  // it is 2 whenever any built-in is missing -- so a literal 1 here promised
+  // fewer pages than the grid draws and the LAST wallpaper became unreachable
+  // at every library size where (1 + N) % perPage == 0. Pre-existing, and this
+  // app now has two brand-new routes into that state: deleting a built-in, and
+  // a set the user pages through to build.
+  //
+  // The arithmetic is freestanding so the three readers of "how many tiles are
+  // there" can be walked against each other rather than compared by eye.
+  return wallpapersui::pageCountFor(specialTiles(), static_cast<int>(names_.size()), per);
 }
 
 void WallpapersActivity::clampPage() {
@@ -212,23 +367,20 @@ void WallpapersActivity::clampPage() {
   if (page_ >= pages) page_ = pages - 1;
 }
 
-bool WallpapersActivity::setWallpaper(int index) {
-  const uint32_t tSet = millis();
-  if (index < 0 || index >= static_cast<int>(names_.size())) return false;
-  std::string src = std::string(wallpapers::kLibraryDir) + "/" + names_[static_cast<size_t>(index)];
-
-  // Through a .part name, renamed only when the whole file is written.
-  //
-  // Writing straight to /sleep.bmp truncates the user's CURRENT sleep image on
-  // the first byte, so a card that fills (or a power cut) halfway leaves a
-  // short file where a good one used to be. Bitmap::parseHeaders seeks to
-  // bfOffBits and never checks that the pixel data is complete, and
-  // SleepActivity::findNextValidSleepImage accepts a file on exactly that
-  // check -- so a truncated 480x800 image is a VALID sleep image and gets
-  // drawn, half-rendered, on every sleep, with nothing on screen to say why.
-  // The rename is the only thing between a failed copy and a permanently
-  // broken sleep screen.
-  const std::string part = std::string(wallpapers::kPinnedSleep) + ".part";
+// Copy one wallpaper onto the card, through a .part name renamed only when the
+// whole file is written.
+//
+// Writing straight to the destination truncates whatever was there on the first
+// byte, so a card that fills (or a power cut) halfway leaves a SHORT file where
+// a good one used to be. That is not a file the sleep screen skips:
+// Bitmap::parseHeaders seeks to bfOffBits and never checks that the pixel data
+// is complete, and SleepActivity::findNextValidSleepImage accepts a file on
+// exactly that check -- so a truncated 480x800 image is a VALID sleep image and
+// gets drawn, half-rendered, on every sleep, with nothing on screen to say why.
+// The rename is the only thing between a failed copy and a permanently broken
+// sleep screen.
+bool WallpapersActivity::copyWallpaper(const std::string& src, const std::string& dst) const {
+  const std::string part = dst + ".part";
   Storage.remove(part.c_str());
 
   HalFile in;
@@ -258,7 +410,7 @@ bool WallpapersActivity::setWallpaper(int index) {
     }
     if (got == 0) break;
     if (out.write(buffer.get(), static_cast<size_t>(got)) != static_cast<size_t>(got)) {
-      LOG_ERR("WALL", "Write error pinning wallpaper (card full?)");
+      LOG_ERR("WALL", "Write error copying wallpaper (card full?)");
       out.close();
       in.close();
       Storage.remove(part.c_str());
@@ -272,54 +424,196 @@ bool WallpapersActivity::setWallpaper(int index) {
   // The size is knowable and exact, so check it rather than trusting that the
   // writes returned what they claimed.
   if (copied != wallpapers::kWallpaperFileBytes) {
-    LOG_ERR("WALL", "Pinned wallpaper is %u bytes, expected %u -- not swapping it in", static_cast<unsigned>(copied),
+    LOG_ERR("WALL", "Copied wallpaper is %u bytes, expected %u -- not swapping it in", static_cast<unsigned>(copied),
             static_cast<unsigned>(wallpapers::kWallpaperFileBytes));
     Storage.remove(part.c_str());
     return false;
   }
 
-  Storage.remove(wallpapers::kPinnedSleep);
-  if (!Storage.rename(part.c_str(), wallpapers::kPinnedSleep)) {
-    LOG_ERR("WALL", "Card refused the final rename of %s", wallpapers::kPinnedSleep);
+  Storage.remove(dst.c_str());
+  if (!Storage.rename(part.c_str(), dst.c_str())) {
+    LOG_ERR("WALL", "Card refused the final rename of %s", dst.c_str());
     Storage.remove(part.c_str());
     return false;
   }
-
-  // Taking a QUICK_RESUME user off that mode is the ONE thing this app does
-  // that changes the whole device rather than its own screen, and it is the only
-  // wallpaper code anywhere near the boot path -- nothing of ours executes at
-  // wake at all.
-  //
-  // main.cpp::enterDeepSleep saves a retained frame ONLY when the sleep is a
-  // quick-resume sleep, and the wake branch that restores it is also the branch
-  // that draws the LoadingIcon. Flipping the mode to CUSTOM therefore cost two
-  // things at once: the fast frame restore, and the only sign of life the user
-  // gets while the device boots (wake is a chip reset). A decorative feature
-  // must not buy itself a slower wake for the whole device.
-  //
-  // quickResumeSleepScreen is left ON so timeout sleeps -- the common case, and
-  // the one Mario was waiting on -- keep the fast path and the icon. The
-  // combination is supported: SettingsActivity::syncQuickResumeTimeoutForSleepScreen
-  // preserves an explicitly-enabled timeout flag across a sleep-screen change.
-  // The trade is that the wallpaper then shows on manual sleeps rather than on
-  // timeout ones.
-  if (SETTINGS.sleepScreen == CrossPointSettings::QUICK_RESUME) {
-    SETTINGS.quickResumeSleepScreen = CrossPointSettings::QUICK_RESUME_AFTER_TIMEOUT;
-    LOG_INF("WALL", "was QUICK_RESUME; keeping quick wake on timeout sleeps so wake does not get slower");
-  }
-  SETTINGS.sleepScreen = CrossPointSettings::CUSTOM;
-  SETTINGS.saveToFile();
-
-  HalFile marker;
-  if (Storage.openFileForWrite("WALL", wallpapers::kActiveMarker, marker)) {
-    const std::string& n = names_[static_cast<size_t>(index)];
-    marker.write(reinterpret_cast<const uint8_t*>(n.c_str()), n.size());
-    marker.close();
-  }
-  activeIndex_ = index;
-  LOG_INF("WALL", "Set sleep wallpaper: %s (copy+settings took %ums)", names_[static_cast<size_t>(index)].c_str(),
-          millis() - tSet);
   return true;
+}
+
+// Where a chosen name can be read from. The library first; a member whose
+// library original was deleted is still on the card as its own copy, and that
+// copy is what keeps it in the rotation.
+std::string WallpapersActivity::sourcePathFor(const std::string& name) const {
+  const std::string inLibrary = std::string(wallpapers::kLibraryDir) + "/" + name;
+  if (Storage.exists(inLibrary.c_str())) return inLibrary;
+  return std::string(wallpapers::kShuffleDir) + "/" + name;
+}
+
+void WallpapersActivity::clearShuffleDir() {
+  std::vector<std::string> have;
+  listShuffleDir(have);
+  for (const std::string& n : have) {
+    const std::string path = std::string(wallpapers::kShuffleDir) + "/" + n;
+    Storage.remove(path.c_str());
+    LOG_INF("WALL", "Removed from the set: %s", n.c_str());
+  }
+}
+
+// Make /.sleep hold exactly `want`. ADDS first, so a copy that fails leaves the
+// set exactly as it was rather than as a shorter one nobody chose.
+bool WallpapersActivity::fillShuffleDir(const std::vector<std::string>& want) {
+  Storage.mkdir(wallpapers::kShuffleDir);
+  std::vector<std::string> have;
+  listShuffleDir(have);
+  const auto holds = [](const std::vector<std::string>& list, const std::string& n) {
+    for (const std::string& s : list) {
+      if (wallpapers::sameFileName(s, n)) return true;
+    }
+    return false;
+  };
+  for (const std::string& n : want) {
+    if (holds(have, n)) continue;
+    if (!copyWallpaper(sourcePathFor(n), std::string(wallpapers::kShuffleDir) + "/" + n)) return false;
+  }
+  for (const std::string& n : have) {
+    if (holds(want, n)) continue;
+    Storage.remove((std::string(wallpapers::kShuffleDir) + "/" + n).c_str());
+  }
+  return true;
+}
+
+// The two settings that decide whether the sleep system ever draws what this
+// app wrote (#354). Both slots -- the pin and the set -- are reached through
+// renderCustomSleepScreen, so one rule covers them.
+//
+// Keeping the timeout quick-resume flag ON used to be this app's way of not
+// making wake slower, and the price was the whole feature: while that flag is
+// on, the IDLE sleep -- the ordinary one -- short-circuits above the
+// sleep-screen switch and no wallpaper can appear. The user tapped a picture;
+// the picture wins, and the picker says what that cost.
+//
+// The rule and its consequences are proved in host-tests/wallpapers, which is
+// where they can be walked over all eight modes rather than reasoned about.
+void WallpapersActivity::applySleepSettings() {
+  const bool quickResumeOnTimeout =
+      SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT;
+  const wallpapers::SleepChoice choice = wallpapers::choiceForSetWallpaper(SETTINGS.sleepScreen, quickResumeOnTimeout);
+  // Written only when it actually moves. The set is committed one tap at a
+  // time, and an unconditional SETTINGS.saveToFile() would put a JSON write on
+  // every one of them for a value that has not changed since the first.
+  if (SETTINGS.sleepScreen != choice.sleepScreenMode || quickResumeOnTimeout != choice.quickResumeAfterTimeout) {
+    SETTINGS.sleepScreen = choice.sleepScreenMode;
+    SETTINGS.quickResumeSleepScreen = choice.quickResumeAfterTimeout
+                                          ? CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT
+                                          : CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_NEVER;
+    SETTINGS.saveToFile();
+    LOG_INF("WALL", "sleep settings changed by a selection: mode %s -> %s, quick resume on timeout %d -> %d",
+            wallpapers::sleepScreenModeName(choice.previousMode),
+            wallpapers::sleepScreenModeName(choice.sleepScreenMode), quickResumeOnTimeout ? 1 : 0,
+            choice.quickResumeAfterTimeout ? 1 : 0);
+  }
+  lastChoice_ = choice;
+  selectedThisSession_ = true;
+}
+
+// Put the card into the ONE shape cardShapeFor() names for this many
+// wallpapers. The only writer of /sleep.bmp, /.sleep and /wallpapers/.active,
+// so "the pin and the set are never both live" has one place to hold.
+//
+// The order inside each branch is chosen so that a power cut mid-commit leaves
+// a picture the user CHOSE on the glass rather than nothing: the slot that wins
+// is written before the slot that loses is cleared. That can leave both
+// populated for an instant, which is the same state BmpViewerActivity can
+// create at any time, and loadSelection() reports it in words either way.
+bool WallpapersActivity::commitSelection(const std::vector<std::string>& want) {
+  const wallpapers::CardShape shape = wallpapers::cardShapeFor(static_cast<int>(want.size()));
+
+  if (shape.pinned) {
+    if (!copyWallpaper(sourcePathFor(want[0]), wallpapers::kPinnedSleep)) return false;
+    clearShuffleDir();
+    HalFile marker;
+    if (Storage.openFileForWrite("WALL", wallpapers::kActiveMarker, marker)) {
+      marker.write(reinterpret_cast<const uint8_t*>(want[0].c_str()), want[0].size());
+      marker.close();
+    }
+  } else if (shape.shuffled) {
+    if (!fillShuffleDir(want)) return false;
+    Storage.remove(wallpapers::kPinnedSleep);
+    // The hint has nothing left to name, and a stale name beside a set is the
+    // second source that can disagree with the directory. Deleting it is
+    // cheaper than reconciling it.
+    Storage.remove(wallpapers::kActiveMarker);
+  } else {
+    Storage.remove(wallpapers::kPinnedSleep);
+    clearShuffleDir();
+    Storage.remove(wallpapers::kActiveMarker);
+  }
+
+  // Nothing chosen leaves the sleep mode alone. It is still CUSTOM with no file,
+  // which falls through to the user's own /sleep and then to the default screen
+  // -- and reverting a mode the user may have set deliberately, because they
+  // unchecked their last wallpaper, would be the app deciding more than it was
+  // asked to.
+  if (!want.empty()) applySleepSettings();
+  loadSelection();
+  LOG_INF("WALL", "selection committed: %d chosen (pin=%d set=%d)", static_cast<int>(want.size()), shape.pinned ? 1 : 0,
+          shape.files);
+  return true;
+}
+
+bool WallpapersActivity::setWallpaper(const int index) {
+  if (index < 0 || index >= static_cast<int>(names_.size())) return false;
+  return commitSelection({names_[static_cast<size_t>(index)]});
+}
+
+// A tap on a tile while choosing: add or remove one wallpaper, committed to the
+// card before the function returns. There is nothing held in RAM to lose, and
+// no cancel to get wrong -- DONE and Back therefore mean the same thing.
+void WallpapersActivity::toggleChosen(const int index) {
+  if (index < 0 || index >= static_cast<int>(names_.size())) return;
+  const std::string& name = names_[static_cast<size_t>(index)];
+
+  std::vector<std::string> want;
+  want.reserve(chosen_.size() + 1);
+  bool removing = false;
+  for (const std::string& c : chosen_) {
+    if (wallpapers::sameFileName(c, name)) {
+      removing = true;
+      continue;
+    }
+    want.push_back(c);
+  }
+  if (!removing) {
+    // The three-outcome precondition, at the floor for the ONE file this tap
+    // writes. Read from the LAST walk rather than a fresh one: freeBytes()
+    // walks the FAT cluster chain, and this is the input path.
+    //
+    // Unknown proceeds here rather than refusing, unlike the download's
+    // precondition. The doctrine's premise is that proceeding on Unknown costs
+    // the user whose card is already in trouble -- and this write is
+    // transactional (.part, size-checked, renamed), so a card that cannot take
+    // it loses nothing and says so. Refusing on a card whose free-space walk
+    // merely failed would make the picker unusable on it.
+    if (freeKnown_ && wallpapers::roomFor(true, freeBytes_, wallpapers::kAddFloorBytes) == wallpapers::Room::TooFull) {
+      showNotice("NOT ENOUGH ROOM",
+                 "Your set was not changed. Free some space on the card and try again -- each wallpaper is about "
+                 "48 KB.",
+                 "OK", wallpapersui::ActionDismiss);
+      return;
+    }
+    want.push_back(name);
+  }
+
+  if (!commitSelection(want)) {
+    warningPending_ = true;
+    showNotice("COULD NOT CHANGE THE SET",
+               "Your sleep screen is unchanged. The card may be full, or the file may be damaged.", "OK",
+               wallpapersui::ActionDismiss);
+    return;
+  }
+  // The free number moved. Re-armed rather than re-walked: loop() runs it after
+  // the next paint is on the glass.
+  warningPending_ = true;
+  requestUpdate();
 }
 
 WallpapersActivity::Thumb WallpapersActivity::decodeThumb(const std::string& path, int16_t cellW, int16_t cellH) const {
@@ -559,7 +853,7 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
     // A hairline on every cell so a mostly-white wallpaper still reads as a
     // framed tile. This is not the selection signal: it is on every cell.
     renderer.drawRect(th.x, th.y, th.width, th.height, 1, true);
-    if (idx == activeIndex_) drawMarker(th);
+    if (isChosen(idx)) drawMarker(th);
 
     // Caption (variants with one): the file name, fitted so it never truncates
     // into a missing glyph.
@@ -625,7 +919,12 @@ void WallpapersActivity::drawGetSetTile(const wallpapersui::GridGeom& geom, cons
   char label[48];
   // One line of text, wrapped by width. An embedded newline is not a break
   // this renderer honours: it vanished and joined the words into "GET THE21".
-  std::snprintf(label, sizeof(label), "GET THE %d BUILT-INS", builtInsMissing_);
+  //
+  // No plural: fmtwidth cannot bound a "%s" that switches word, and the count
+  // beside a fixed noun says the same thing (the trivia and add-screen
+  // precedent). The one-missing case was unreachable until the hold sheet could
+  // delete a built-in, and it read "GET THE 1 BUILT-INS".
+  std::snprintf(label, sizeof(label), "GET %d MISSING", builtInsMissing_);
   const fui::Rect box =
       fui::makeRect(th.x + 6, static_cast<int16_t>(th.y + th.height / 2 - 30), static_cast<int16_t>(th.width - 12), 60);
   target.text(box, label, style);
@@ -689,6 +988,19 @@ void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const f
 // it is a bare concatenation, image i lives at i * kWallpaperFileBytes, and the
 // count is the file size divided by it. Built by tools_local/wallpapers/build_pack.py
 // in the same order as the built-in table, which host-tests/wallpack asserts.
+// The name is devicehost::mdnsName(), shared with the two activities that
+// advertise it, so this screen cannot print a name the device does not answer
+// to. It used to be a third copy of the literal "crossplay" here.
+//
+// Sharing the NAME is not sharing the LIFECYCLE: restartMdns lives in an
+// anonymous namespace in CrossPointWebServerActivity.cpp and the web-server
+// activity runs MDNS.end() in its own onExit, so mDNS is definitively not
+// running when this screen opens. PR 1 calls MDNS.begin itself.
+
+// Version 4, ECC_LOW, BYTE mode. Not the 114 QrUtils believes (that is the
+// alphanumeric figure, and every URL with a lowercase letter is byte mode).
+constexpr size_t kQrByteSafeLen = 78;
+
 constexpr const char* kPackUrl = "https://github.com/ma-r-s/crossplay/releases/download/wallpapers/wallpapers.dat";
 constexpr const char* kPackPart = "/wallpapers.dat.part";
 
@@ -708,8 +1020,23 @@ uint64_t fileSizeOf(const std::string& path) {
 // ours and unambiguously incomplete, so they go on entry. Nothing else is
 // touched: a .bmp of an unexpected length might be a wallpaper the user made
 // elsewhere, and deleting a user's file to tidy up is not this app's call.
+// Incomplete copies left by a power cut. Swept from EVERY place this app writes
+// one, which is three: the library (the download's unpack), the set directory,
+// and the card root beside the pinned file. A .part is skipped by
+// findNextValidSleepImage on its extension, so one is inert rather than
+// dangerous -- but it is 48KB of a card whose free space this app warns about.
 void WallpapersActivity::sweepPartFiles() {
-  auto dir = Storage.open(wallpapers::kLibraryDir);
+  const std::string rootPart = std::string(wallpapers::kPinnedSleep) + ".part";
+  if (Storage.exists(rootPart.c_str())) {
+    Storage.remove(rootPart.c_str());
+    LOG_INF("WALL", "Swept incomplete %s", rootPart.c_str());
+  }
+  sweepPartFilesIn(wallpapers::kShuffleDir);
+  sweepPartFilesIn(wallpapers::kLibraryDir);
+}
+
+void WallpapersActivity::sweepPartFilesIn(const char* dirPath) {
+  auto dir = Storage.open(dirPath);
   if (!dir) return;
   std::vector<std::string> stale;
   for (;;) {
@@ -723,9 +1050,9 @@ void WallpapersActivity::sweepPartFiles() {
   }
   dir.close();
   for (const std::string& name : stale) {
-    const std::string path = std::string(wallpapers::kLibraryDir) + "/" + name;
+    const std::string path = std::string(dirPath) + "/" + name;
     Storage.remove(path.c_str());
-    LOG_INF("WALL", "Swept incomplete %s", name.c_str());
+    LOG_INF("WALL", "Swept incomplete %s", path.c_str());
   }
 }
 
@@ -747,6 +1074,354 @@ int WallpapersActivity::builtInsPresent() const {
 // The screen is a function of the card, with no remembered "already offered"
 // flag to go stale or to make two identical cards show different things.
 void WallpapersActivity::pickView() { view_ = names_.empty() ? View::Offer : View::Grid; }
+
+// A hold landed on a wallpaper. Everything the three screens behind this need is
+// SNAPSHOT here, in loop(), while the index is still the one the finger meant:
+// render() must not go looking things up in names_, and the delete must not
+// trust an index that uploading, deleting or re-sorting can renumber underneath
+// it. The file name is the identity that survives all three.
+void WallpapersActivity::openSheet(const int index) {
+  if (index < 0 || index >= static_cast<int>(names_.size())) return;
+  sheetIndex_ = index;
+  sheetFile_ = names_[static_cast<size_t>(index)];
+  sheetName_ = wallpapers::displayName(sheetFile_).full;
+  // Both screens behind this SAY something about the sleep screen -- the sheet
+  // "This one is on your sleep screen now.", the confirm "It stays on your
+  // sleep screen until you pick another." -- so the flag they read has to mean
+  // the wallpaper actually REACHES the glass, not merely that it wears the
+  // grid's marker.
+  //
+  // Those used to be the same thing. #354 deliberately un-gated loadSelection()
+  // from sleepScreen == CUSTOM, because the marker was wrong in both
+  // directions; activeIndex_ is now set under DARK, LIGHT, BLANK and
+  // quick-resume too, where the pinned picture never appears. The marker is
+  // qualified for the grid by the hint strip, which these two screens do not
+  // carry, so they qualify it here instead. Neither card had this alone: it is
+  // this branch's sentences meeting that card's wider activeIndex_.
+  // isChosen(), not index == activeIndex_. #305 made the selection a SET, and a
+  // member of a live set genuinely is on the sleep screen -- it just takes its
+  // turn. Asking for the pinned index would under-claim for every member of
+  // every set, on the screen that is about to delete one. isChosen answers
+  // correctly in all three shapes: the pin (only that one), a set (all of its
+  // members), and a set hidden behind a stray pin (only the pin, which is the
+  // one actually showing).
+  sheetIsActive_ = wallpapers::saysOnSleepScreen(isChosen(index), sleepReach());
+  sheetDetail_ = wallpapers::deleteConsequence(wallpapers::isBuiltInFile(sheetFile_), sheetIsActive_);
+  view_ = View::Sheet;
+  interactionsReady_ = false;
+  LOG_INF("WALL", "hold sheet for %s (index %d, active %d, chosen %d, blocked %d, shadowed %d)", sheetFile_.c_str(),
+          index, activeIndex_, static_cast<int>(chosen_.size()), static_cast<int>(sleepBlocked()),
+          static_cast<int>(shadowedSet_));
+  requestUpdate();
+}
+
+// The one destructive thing this app does.
+//
+// Resolves the NAME rather than reusing sheetIndex_. An index is a position in
+// a sorted list, and this app re-sorts: scanLibrary() runs on every onEnter and
+// after every delete, and deleting a built-in also flips specialTiles() 1 -> 2
+// so every cell renumbers. A name that no longer resolves means the file is
+// already gone, and doing nothing is right -- deleting "whatever is at slot 4
+// now" is exactly the bug this app is shaped to avoid.
+//
+// Today no upload can land WHILE the sheet is up: addServer_ runs only in
+// View::Add and stopAddServer() is on the way out of it. That is a fact about
+// the current wiring, not a property, which is why this resolves the name
+// anyway rather than resting on it.
+//
+// /sleep.bmp is NOT touched. It is a self-contained copy, so a deleted
+// wallpaper stays on the sleep screen until another is chosen; the confirm says
+// so (wallpapers::deleteConsequence), because a user who believed otherwise
+// would delete a second time looking for an effect that never comes.
+bool WallpapersActivity::deleteWallpaper() {
+  if (sheetFile_.empty()) return false;
+  const auto found = std::find(names_.begin(), names_.end(), sheetFile_);
+  if (found == names_.end()) {
+    LOG_INF("WALL", "delete: %s is no longer in the library; nothing to do", sheetFile_.c_str());
+    return false;
+  }
+  const std::string path = std::string(wallpapers::kLibraryDir) + "/" + sheetFile_;
+  if (!Storage.remove(path.c_str())) {
+    LOG_ERR("WALL", "Card refused to delete %s", path.c_str());
+    return false;
+  }
+  // The thumbnail cache is keyed on the file NAME, so a later upload reusing the
+  // name would otherwise be drawn from the deleted picture's cache entry until
+  // something else invalidated it. thumbFor's staleness check is the source's
+  // byte count plus a three-read content sample plus the cell size -- not the
+  // mtime -- so a same-named replacement is caught by its CONTENT and this
+  // removal is belt to that brace rather than the only guard. Removing it costs
+  // one decode; leaving it costs the wrong picture.
+  const std::string cache = std::string(kThumbDir) + "/" + sheetFile_ + ".thb";
+  Storage.remove(cache.c_str());
+
+  // The pin marker names a file that is gone. loadSelection() already fails to
+  // match it, so the grid is right today -- but a later upload with the SAME
+  // name would match it again and wear the "in use" border while /sleep.bmp
+  // still holds the deleted picture. The marker is a hint about the library;
+  // when its subject leaves the library the hint is stale, not just unmatched.
+  char marker[kNameMax] = {};
+  if (Storage.readFileToBuffer(wallpapers::kActiveMarker, marker, sizeof(marker)) > 0) {
+    for (char* c = marker; *c; ++c) {
+      if (*c == '\n' || *c == '\r') {
+        *c = '\0';
+        break;
+      }
+    }
+    if (sheetFile_ == marker) Storage.remove(wallpapers::kActiveMarker);
+  }
+  LOG_INF("WALL", "deleted %s", path.c_str());
+
+  // Re-derive everything from the card. builtInsMissing_ changes here whenever
+  // the deleted file was a built-in, and that flips specialTiles() from 1 to 2
+  // -- every wallpaper shifts one cell along. Nothing may act on the old
+  // numbering, which is why this is a full rescan and not an erase from names_.
+  sheetIndex_ = -1;
+  sheetFile_.clear();
+  scanLibrary();
+  loadSelection();
+  clampPage();
+  cachedPage_ = -1;
+  pickView();
+  return true;
+}
+
+// The wallpaper at 1:1, and nothing else. No chrome, no button hints, no border:
+// what is on the panel here is what the sleep screen puts there, which is the
+// whole question Mario asked ("a way to preview the wallpaper without turning
+// off the device"). Anything drawn over it would be answering a different one.
+//
+// The placement arithmetic is SleepActivity's non-oversize branch, reproduced
+// rather than called: calculateBitmapPlacement is file-local to SleepActivity
+// (upstream's file, not ours to widen). It is the identity for every wallpaper
+// this app ships or produces -- kWallpaperFileBytes pins them all at 480x800,
+// exactly the panel -- so the two agree on every file that can be here. A
+// stray hand-copied BMP of another size centres instead of cropping; it is
+// still the picture, and it is not a file any path in this app creates.
+void WallpapersActivity::renderPreview() {
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  renderer.clearScreen();
+
+  // drawBitmap is a SILENT NO-OP while the font cache is scanning
+  // (GfxRenderer.cpp:1365). Asking first, because the alternative is a cleared
+  // panel with nothing on it and a `drawn = true` derived from parseHeaders
+  // rather than from the draw -- a blank screen this fork has twice had cold
+  // testers read as a crash.
+  const FontCacheManager* fonts = renderer.getFontCacheManager();
+  const bool canDraw = fonts == nullptr || !fonts->isScanning();
+
+  const std::string path = std::string(wallpapers::kLibraryDir) + "/" + sheetFile_;
+  HalFile file;
+  bool drawn = false;
+  if (canDraw && Storage.openFileForRead("WALL", path, file)) {
+    Bitmap bitmap(file, true);
+    if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+      const int w = bitmap.getWidth();
+      const int h = bitmap.getHeight();
+      const int x = w <= pageWidth ? (pageWidth - w) / 2 : 0;
+      const int y = h <= pageHeight ? (pageHeight - h) / 2 : 0;
+      renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0.0f, 0.0f);
+      // The cover filter, because the sheet PROMISES "exactly as the sleep
+      // screen draws it" and renderBitmapSleepScreen inverts here
+      // (SleepActivity.cpp:631). The setting is user-reachable, and without
+      // this the one user who chose it is shown the negative of their
+      // wallpaper and told it is the real thing.
+      if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
+        renderer.invertScreen();
+      }
+      drawn = true;
+    }
+    file.close();
+  }
+
+  // A Frame with nothing built empties the hit table, so the sheet's DELETE
+  // cannot still be routable while a full-screen picture covers it. It also
+  // gives the one failure path here somewhere to put words: a blank panel reads
+  // as a crash, twice confirmed by cold testers in this fork.
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer, toybox::readingChromeFaces());
+  const fui::DeviceContext device = target.deviceContext();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(target, device, noInput, interactions_);
+  toybox::Screen surface(frame, toybox::themeTokens());
+  if (!drawn) {
+    LOG_ERR("WALL", "preview: cannot draw %s", path.c_str());
+    wallpapersui::NoticeModel model;
+    model.headline = "CANNOT PREVIEW";
+    model.body = "This file could not be opened as a wallpaper. Tap anywhere to go back.";
+    wallpapersui::buildNotice(surface, model);
+  }
+  interactionsReady_ = false;
+  // HALF_REFRESH, the same waveform every sleep-screen paint uses
+  // (SleepActivity.cpp:609,643). The default is FAST, and under FAST a dense
+  // 1-bit plate ghosts the screen it replaced and reads lower-contrast than the
+  // real thing -- so the preview would differ from the sleep screen in the one
+  // way a preview exists to rule out. The notice path takes it too, so the
+  // failure and the picture do not paint with different waveforms.
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  painted_ = true;
+}
+
+// The address the phone opens. Station mode only: the hotspot has no NAT and a
+// captive-portal DNS that answers every name with this device, so a phone joined
+// to it has no internet and both iOS and Android offer to drop back to cellular
+// -- mid-upload, on the one screen that cannot survive it.
+void WallpapersActivity::openAdd() {
+#ifdef SIMULATOR
+  // A PLATFORM gate, not a feature gate: the simulator has no radio to bring up
+  // and does not compile CrossPointWebServer at all, so the real path cannot
+  // run here. Without this the screen became unreachable headlessly the moment
+  // it started requiring WiFi -- and a screen that cannot be rendered cannot be
+  // reviewed, which is how every layout defect in this app was found. The
+  // address is representative so the layout is measured against a real one.
+  addQrUrl_ = "http://192.168.1.42/w";
+  addUrl_ = std::string("http://") + devicehost::mdnsName() + ".local/w";
+  addAltUrl_ = "http://192.168.1.42/w";
+  addBefore_ = static_cast<int>(names_.size());
+  addArrived_ = 0;
+  view_ = View::Add;
+  interactionsReady_ = false;
+  requestUpdate();
+  return;
+#else
+  // The radio first, and the picker ONLY if it is needed. WifiSelectionActivity
+  // has no already-connected short-circuit of its own -- startWifiScan() runs
+  // WiFi.disconnect() on every path -- so launching it unconditionally would
+  // show a redundant chooser AND drop a working association. Four other apps
+  // guard it exactly this way.
+  if (WiFi.status() == WL_CONNECTED) {
+    startAddServer();
+    return;
+  }
+  addWaitingWifi_ = true;
+  WiFi.mode(WIFI_STA);
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) {
+                           addWaitingWifi_ = false;
+                           if (result.isCancelled || WiFi.status() != WL_CONNECTED) {
+                             showNotice("NO WIFI", "Adding a wallpaper from your phone needs WiFi. Nothing changed.",
+                                        "BACK", wallpapersui::ActionDismiss);
+                             return;
+                           }
+                           startAddServer();
+                         });
+#endif
+}
+
+void WallpapersActivity::startAddServer() {
+  // Dev mode holds 80, 81 and UDP 8134 for as long as its toggle is on, and
+  // Mario keeps a device on it. Two binds on one port fail in a way that reads
+  // as "the screen is broken", so dev mode yields for as long as this screen is
+  // up -- the same latch WifiSelectionActivity and the File Transfer screen
+  // already take.
+  devmode::pause();
+  addDevPaused_ = true;
+
+  // Every failure below leaves through stopAddServer(), so the yield is
+  // released in exactly ONE place no matter which way this goes wrong. Three
+  // resumes hung off three early returns read 1:1 to nobody and are how a latch
+  // ends up held after the path nobody tested.
+  addServer_ = makeUniqueNoThrow<CrossPointWebServer>(CrossPointWebServer::Surface::WallpapersOnly);
+  if (!addServer_) {
+    stopAddServer();
+    showNotice("OUT OF MEMORY", "There was not enough memory to start. Nothing changed.", "BACK",
+               wallpapersui::ActionDismiss);
+    return;
+  }
+  addServer_->begin();
+  if (!addServer_->isRunning()) {
+    stopAddServer();
+    showNotice("COULD NOT START", "The reader could not open its web server. Try again in a moment.", "TRY AGAIN",
+               wallpapersui::ActionRetry);
+    return;
+  }
+
+  // mDNS is ours to start. restartMdns() lives in an anonymous namespace in
+  // CrossPointWebServerActivity.cpp so nothing outside that file can call it,
+  // and that activity runs MDNS.end() in its own onExit -- so it is definitely
+  // not running when this screen opens.
+  MDNS.end();
+  const bool mdnsUp = MDNS.begin(devicehost::mdnsName());
+  if (!mdnsUp) LOG_DBG("WALL", "mDNS did not start; the code carries the address, which does not need it");
+
+  const std::string dotted = std::string(WiFi.localIP().toString().c_str());
+  const std::string ipUrl = "http://" + dotted + "/w";
+  const std::string nameUrl = std::string("http://") + devicehost::mdnsName() + ".local/w";
+
+  // THE CODE CARRIES THE ADDRESS, ALWAYS. It is generated from WiFi.localIP()
+  // at the moment of drawing and depends on no service, so the only way it can
+  // be wrong is DHCP moving this device in the seconds between the paint and
+  // the scan. The name depends on a responder that can fail to start -- and
+  // this function ALREADY KNEW when it had -- so encoding it was putting a
+  // detected fault into the one element the user cannot read. The phone would
+  // have said "cannot find server" and the prose would have blamed their WiFi.
+  addQrUrl_ = ipUrl;
+
+  // The name is the half worth BOOKMARKING -- it survives reboots, WiFi
+  // reconnects and DHCP moves -- so it goes where a human reads it. When the
+  // responder did not start it is not printed at all: an address that cannot
+  // resolve is worse than one line fewer.
+  addUrl_ = mdnsUp ? nameUrl : ipUrl;
+  addAltUrl_ = mdnsUp ? ipUrl : std::string();
+
+  // Card #352: QrUtils sizes its code from the ALPHANUMERIC table, so a payload
+  // past 78 bytes in byte mode draws a code that cannot scan, silently, at every
+  // layer. The address is ~24 bytes so this never fires; it stays because an
+  // unscannable code is the worst outcome a screen whose whole promise is
+  // "point your camera at it" can have.
+  if (addQrUrl_.size() > kQrByteSafeLen)
+    LOG_ERR("WALL", "address too long for a scannable code: %s", addQrUrl_.c_str());
+
+  addBefore_ = static_cast<int>(names_.size());
+  addArrived_ = 0;
+  view_ = View::Add;
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+void WallpapersActivity::stopAddServer() {
+  if (addServer_) {
+    addServer_->stop();
+    addServer_.reset();
+    MDNS.end();
+  }
+  // Guarded by the flag rather than by whether a server exists: the
+  // out-of-memory path never got one, and resuming a yield this screen does not
+  // hold drops the count out from under whoever does.
+  if (addDevPaused_) {
+    addDevPaused_ = false;
+    devmode::resume();
+  }
+  // Whatever arrived is kept; only a torn transfer leaves a .part, and the
+  // sweep that already exists removes those.
+  sweepPartFiles();
+}
+
+void WallpapersActivity::pollAddArrivals() {
+  if (!addServer_) return;
+  // The upload handler writes the file and says nothing to the app, so the
+  // screen learns by looking. The bridges poll at this cadence for the same
+  // reason.
+  // A member, not a function-local static: a static would outlive the activity
+  // and carry the last poll's timestamp into the NEXT visit, so re-entering
+  // this screen within the interval would miss the first arrival for up to a
+  // second and a half with nothing to explain the delay.
+  static constexpr unsigned long kPollMs = 1500;
+  const unsigned long now = millis();
+  if (now - addLastPoll_ < kPollMs) return;
+  addLastPoll_ = now;
+
+  const int was = static_cast<int>(names_.size());
+  scanLibrary();
+  const int isNow = static_cast<int>(names_.size());
+  if (isNow == was) return;
+  addArrived_ = isNow - addBefore_;
+  if (addArrived_ < 0) addArrived_ = 0;
+  loadSelection();
+  computeWarning();
+  cachedPage_ = -1;
+  requestUpdate();
+}
 
 void WallpapersActivity::startSetDownload() {
   // The radio first: entering the TLS stack with WiFi never started fails in a
@@ -871,7 +1546,7 @@ void WallpapersActivity::runSetDownload() {
   Storage.remove(kPackPart);
   scanLibrary();
   prewarmThumbs();
-  loadActive();
+  loadSelection();
   computeWarning();
   page_ = 0;
   cachedPage_ = -1;
@@ -994,18 +1669,71 @@ void WallpapersActivity::loop() {
     return;
   }
 
+  // The server only answers while this screen is up, and it answers from the
+  // app's own loop -- there is no task behind it.
+  if (addServer_ && addServer_->isRunning()) {
+    for (int i = 0; i < 8 && addServer_->isRunning(); ++i) addServer_->handleClient();
+    pollAddArrivals();
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (view_ == View::Help || view_ == View::Notice) {
+    // Back unwinds the hold branch one step at a time. From the confirm it goes
+    // to the sheet, NOT to the grid: Back on a confirm means "not that", and
+    // dropping the user two screens back would make them start the hold again
+    // to reach the preview they were actually after.
+    if (view_ == View::Confirm || view_ == View::Preview) {
+      view_ = View::Sheet;
+      interactionsReady_ = false;
+      requestUpdate();
+      return;
+    }
+    if (view_ == View::Sheet) {
+      sheetIndex_ = -1;
+      sheetFile_.clear();
       pickView();
       requestUpdate();
       return;
     }
+    // View::Help is gone with buildHelp (app/wallqr): the QR screen replaced it.
+    if (view_ == View::Notice || view_ == View::Add) {
+      stopAddServer();
+      pickView();
+      requestUpdate();
+      return;
+    }
+    // Back and DONE do the same thing, and that is the point: every toggle is
+    // already on the card, so there is no uncommitted set for the two exits to
+    // disagree about. A modal whose two ways out mean different things is the
+    // ambiguity this design does not have. Checked after the screens above,
+    // which are their own views: Back closes the screen you can see first.
+    if (choosing_) {
+      choosing_ = false;
+      requestUpdate();
+      return;
+    }
+    stopAddServer();
     shelf::leave(renderer, mappedInput);
     return;
   }
-  // The Offer and Notice screens carry real buttons, so their taps go through
-  // Interactions rather than the grid's geometry hit-test.
-  if (view_ == View::Offer || view_ == View::Notice) {
+
+  // The preview has no controls at all, on purpose: it is the sleep screen, and
+  // the way out is anywhere on it. Said on the sheet before it opens, because
+  // this screen has nowhere to say it.
+  if (view_ == View::Preview) {
+    int px = 0;
+    int py = 0;
+    if (!mappedInput.wasScreenTapped(px, py)) return;
+    view_ = View::Sheet;
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
+  // The Offer, Notice, Sheet and Confirm screens carry real buttons, so their
+  // taps go through Interactions rather than the grid's geometry hit-test.
+  // Interactions::route() refuses a tap routed against a table the panel has
+  // not shown yet, which is what stops a tap aimed at the screen underneath
+  // from landing on the one that replaced it during a 0.3-2s e-ink repaint.
+  if (view_ == View::Offer || view_ == View::Notice || view_ == View::Sheet || view_ == View::Confirm) {
     int ax = 0;
     int ay = 0;
     if (!mappedInput.wasScreenTapped(ax, ay) || !interactionsReady_) return;
@@ -1020,11 +1748,42 @@ void WallpapersActivity::loop() {
         startSetDownload();
         return;
       case wallpapersui::ActionAddOwn:
-        view_ = View::Help;
-        requestUpdate();
+        openAdd();
         return;
       case wallpapersui::ActionDismiss:
         pickView();
+        requestUpdate();
+        return;
+      case wallpapersui::ActionPreview:
+        view_ = View::Preview;
+        interactionsReady_ = false;
+        requestUpdate();
+        return;
+      case wallpapersui::ActionDelete:
+        // Opens the question. Deletes nothing -- which is what makes this the
+        // safe half of the pair the confirm reuses the pixels of.
+        view_ = View::Confirm;
+        interactionsReady_ = false;
+        requestUpdate();
+        return;
+      case wallpapersui::ActionKeep:
+        view_ = View::Sheet;
+        interactionsReady_ = false;
+        requestUpdate();
+        return;
+      case wallpapersui::ActionConfirmDelete:
+        // A failed delete used to discard its bool and repaint the identical
+        // confirm: the panel flashed and came back unchanged, with no way to
+        // tell a card that refused from a touch that was dropped. Every other
+        // failure in this app goes through showNotice, and this is the one the
+        // user is watching hardest (a-silent-screen-reads-as-a-crash).
+        if (!deleteWallpaper()) {
+          showNotice("NOT DELETED",
+                     "The card would not remove this wallpaper, or it is already gone. It is still here.", "OK",
+                     wallpapersui::ActionDismiss);
+          return;
+        }
+        interactionsReady_ = false;
         requestUpdate();
         return;
       default:
@@ -1052,6 +1811,29 @@ void WallpapersActivity::loop() {
   int tapX = 0;
   int tapY = 0;
   if (!mappedInput.wasScreenTapped(tapX, tapY) || !interactionsReady_) return;
+
+  // The header chip is the only hit region the grid registers; everything below
+  // it is geometry. Routed FIRST so a tap on the band cannot fall through to a
+  // cell, and gated on the surface like every cell is: the chip is the one
+  // control on this screen whose label changes, so a tap that left the finger
+  // against the previous frame must not act on the new one.
+  {
+    fui::InputSnapshot chipInput{};
+    chipInput.touchReleased = true;
+    chipInput.touchX = static_cast<int16_t>(tapX);
+    chipInput.touchY = static_cast<int16_t>(tapY);
+    if (interactions_.route(chipInput).action == wallpapersui::ActionChoose) {
+      if (!surfaceRevealed()) {
+        LOG_INF("WALL", "chip tap refused: surface not yet seen");
+        return;
+      }
+      choosing_ = !choosing_;
+      LOG_INF("WALL", "choose-a-set mode %s with %d chosen", choosing_ ? "on" : "off",
+              static_cast<int>(chosen_.size()));
+      requestUpdate();
+      return;
+    }
+  }
 
   const wallpapersui::GridGeom geom = wallpapersui::gridGeom(toybox::makeTarget(renderer).deviceContext());
 
@@ -1089,39 +1871,150 @@ void WallpapersActivity::loop() {
   const int specials = specialTiles();
   const int total = specials + static_cast<int>(names_.size());
   if (combined >= total) return;
+  // The chrome tiles are not wallpapers and have no sheet, but they are on the
+  // same grid and a user who has learned "hold a tile for options" will hold the
+  // Add tile first. Neither action is destructive -- one brings up WiFi and a
+  // web server, the other a ~1MB fetch -- but both are the same failure this
+  // whole change exists to prevent: the hold firing the thing the user was
+  // reaching past. Silence is the right answer; the hold is repeatable.
+  //
+  // They keep their meaning in choose-a-set mode too -- a big black "+" that
+  // does nothing because of a mode you are in is worse than one that works --
+  // and they leave the mode behind, because they leave the grid. Nothing is
+  // lost by that: the set is already on the card.
+  const bool held = mappedInput.tapWasHeldLong();
   if (combined == 0) {
-    view_ = View::Help;
-    requestUpdate();
+    if (held) return;
+    choosing_ = false;
+    openAdd();
     return;
   }
   if (specials > 1 && combined == 1) {
+    if (held) return;
+    choosing_ = false;
     startSetDownload();
     return;
   }
   const int idx = combined - specials;
-  if (idx == activeIndex_) return;  // already the sleep screen
-  if (setWallpaper(idx)) requestUpdate();
+  // FOUR RULES MEET HERE, from three cards, and the order is the whole point.
+  // They compose; none is dropped.
+  //
+  // 1. #365: a hold the SDK's classifier missed arrives as an ORDINARY TAP --
+  //    wasTouchTap has no duration gate -- and a tap on this grid changes the
+  //    sleep screen. tapWasHeldLong() is the only discriminator and it must be
+  //    asked before any branch that can act.
+  // 2. #305: while choosing, a tap is membership; and with a set already live,
+  //    a tap opens that set for editing rather than collapsing it to one
+  //    wallpaper. A stray tap must never undo several taps of work.
+  // 3. #354: "already the sleep screen" is only a reason to do nothing when it
+  //    can actually BE the sleep screen. When the settings block it -- or a
+  //    stray pin is hiding a set -- tapping the marked wallpaper again is
+  //    exactly what a person does after nothing happened, and it must repair
+  //    that rather than be swallowed.
+  // 4. #354: a failed change says so, instead of doing nothing at all.
+  //
+  // Any of 1 to 3 expressed as a "return early" beside the others would
+  // silently win. They are all in cellAction instead, which the host suite
+  // walks over every combination: a HOLD on a blocked-and-marked wallpaper
+  // still opens the sheet, a TAP on it still repairs the settings, and neither
+  // is reachable while a set is being built.
+  switch (wallpapers::cellAction(held, choosing_, idx, activeIndex_, static_cast<int>(chosen_.size()), sleepBlocked(),
+                                 shadowedSet_)) {
+    case wallpapers::CellAction::Sheet:
+      openSheet(idx);
+      return;
+    case wallpapers::CellAction::None:
+      return;
+    case wallpapers::CellAction::Toggle:
+      // Entering the mode IS the tap's answer when a set was already live: the
+      // strip has said "Tap to change." and this is that change.
+      choosing_ = true;
+      toggleChosen(idx);
+      return;
+    case wallpapers::CellAction::Set:
+      break;
+  }
+  if (setWallpaper(idx)) {
+    requestUpdate();
+    return;
+  }
+  // A failed pin used to do NOTHING: no notice, no repaint, nothing on the
+  // panel at all, while the reasons (card full, unreadable file, a card that
+  // refused the rename) went only to the log. setWallpaper leaves /sleep.bmp
+  // untouched on every one of those paths, so the honest report is that the
+  // sleep screen did not change.
+  //
+  // The free-space walk is re-armed rather than run here: it can take seconds
+  // on a large card and this is the input path (rendering-is-notification-
+  // driven). loop() runs it after the notice is on the glass.
+  warningPending_ = true;
+  showNotice("COULD NOT SET IT",
+             "The wallpaper was not saved and your sleep screen is unchanged. The card may be full, or the file may be "
+             "damaged.",
+             "OK", wallpapersui::ActionDismiss);
 }
 
 void WallpapersActivity::render(RenderLock&&) {
   const uint32_t tPaint = millis();
   clampPage();
+  // Before anything toybox: the preview draws no chrome and takes no theme.
+  if (view_ == View::Preview) {
+    renderPreview();
+    LOG_INF("WALL", "render preview took %ums", millis() - tPaint);
+    return;
+  }
   renderer.clearScreen();
   // Faces per view, not per app. The grid is a menu and wants the Jersey cut it
   // shares with the shelf; the offer, the progress and the notices are
   // SENTENCES, and at the 20px UI cut a sentence runs off the panel and is cut
   // with an ellipsis. Trivia carries the same split for the same reason.
-  const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Help;
-  fui::GfxRendererTarget target =
-      toybox::makeTarget(renderer, prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces());
+  const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Add ||
+                     view_ == View::Sheet || view_ == View::Confirm;
+  // View::Add rebinds the SMALL slot to the bold reading cut so the address has
+  // a cut of its own: see readingAddressFaces. Without it the headline, the
+  // address, the prose and the footer all land on serif 14 and the one line the
+  // reader has to type is indistinguishable from the paragraph under it.
+  fui::GfxRendererTarget target = toybox::makeTarget(
+      renderer, view_ == View::Add ? toybox::readingAddressFaces()
+                                   : (prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces()));
   const fui::DeviceContext device = target.deviceContext();
   const fui::InputSnapshot noInput{};
   interactionsReady_ = false;
   toybox::Frame frame(target, device, noInput, interactions_);
   toybox::Screen surface(frame);
 
-  if (view_ == View::Help) {
-    wallpapersui::buildHelp(surface);
+  if (view_ == View::Add) {
+    wallpapersui::AddModel model;
+    model.url = addUrl_.c_str();
+    model.altUrl = addAltUrl_.c_str();
+    model.added = addArrived_;
+    // No plural: fmtwidth cannot bound a "%s" that switches word, and a count
+    // beside a fixed noun says the same thing (the trivia precedent).
+    if (addArrived_ > 0) {
+      char line[96];
+      std::snprintf(line, sizeof(line), "Added: %d. Send another, or press Back to see them.", addArrived_);
+      addStatus_ = line;
+      model.status = addStatus_.c_str();
+    }
+    const fui::Rect qr = wallpapersui::buildAdd(surface, model);
+    // addQrUrl_, NOT addUrl_ (app/wallqr): the code carries the numeric address,
+    // which depends on no responder; the name is the half a human reads.
+    QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addQrUrl_);
+  } else if (view_ == View::Sheet) {
+    wallpapersui::SheetModel model;
+    model.name = sheetName_.c_str();
+    // Settled in loop() by openSheet, not derived here. render() runs on the
+    // OTHER FreeRTOS task and ActivityManager holds no lock across it, so a
+    // names_[i] read in this function races scanLibrary()'s clear-and-realloc
+    // in deleteWallpaper -- a read of a freed std::string. A bool the loop task
+    // owns cannot be freed under the render task.
+    model.isActive = sheetIsActive_;
+    wallpapersui::buildSheet(surface, model);
+  } else if (view_ == View::Confirm) {
+    wallpapersui::ConfirmModel model;
+    model.name = sheetName_.c_str();
+    model.consequence = sheetDetail_.c_str();
+    wallpapersui::buildConfirm(surface, model);
   } else if (view_ == View::Fetching) {
     wallpapersui::FetchingModel model;
     model.done = fetchDone_;
@@ -1148,19 +2041,37 @@ void WallpapersActivity::render(RenderLock&&) {
   } else {
     const wallpapersui::GridGeom geom = wallpapersui::gridGeom(device);
     const int pages = pageCount();
-    if (pages > 1) {
-      char label[40];
-      snprintf(label, sizeof(label), "PAGE %d / %d", page_ + 1, pages);
-      rightLabel_ = label;
-    } else {
-      char label[40];
-      snprintf(label, sizeof(label), "%d SAVED", static_cast<int>(names_.size()));
+    // "1 / 6", not "PAGE 1 / 6", and "21 SAVED" is gone. The band now carries a
+    // third thing -- the chip -- and headerTitleWidth subtracts every one of
+    // them from the title's room: at the display cut the long forms cut
+    // "WALLPAPERS" to "WALLPAPE...", which the render showed and no assertion
+    // would have. The page dots under the grid say the same thing again, and
+    // the count moved to the strip, which has the room for a sentence.
+    rightLabel_.clear();
+    if (pages > 1 && !choosing_) {
+      // 32, not 16: host-tests/fmtwidth sizes a buffer by what the FORMAT can
+      // print, not by what this app's page counts happen to reach. Two ints are
+      // 11 characters each, so "%d / %d" needs 26 -- and a buffer sized by the
+      // value rather than the format is how a truncation ships the day
+      // something upstream of it changes.
+      char label[32];
+      snprintf(label, sizeof(label), "%d / %d", page_ + 1, pages);
       rightLabel_ = label;
     }
     wallpapersui::GridChromeModel model;
-    model.rightLabel = rightLabel_.c_str();
+    model.rightLabel = rightLabel_.empty() ? nullptr : rightLabel_.c_str();
     model.warning = warning_.empty() ? nullptr : warning_.c_str();
-    model.hasActive = activeIndex_ >= 0;
+    // A live SET counts as active. Without this the grid draws "Tap one to set
+    // your sleep screen." beside five marked wallpapers that already are it.
+    model.hasActive = !chosen_.empty();
+    model.choosing = choosing_;
+    // Rebuilt from SETTINGS and the card every paint rather than cached at
+    // selection time: the reach half is only knowable from the live settings,
+    // and a cached sentence is how #354's caveat came to be suppressed for a
+    // whole app session. The pointer is a literal out of WallpapersCore except
+    // for the one line that carries a count, which is built into note_ -- a
+    // member, so it outlives the paint.
+    model.note = currentSleepNote();
     wallpapersui::buildGridChrome(surface, model);
 
     // The chrome is a screen tree; the grid is the app's own surface, drawn
@@ -1185,5 +2096,13 @@ uint32_t WallpapersActivity::surfaceMeaning() const {
   // activeIndex_ is NOT in here. See wallpapersui::gridMeaning: the selection
   // does not remap a single cell, so gating taps on it made the picker deaf for
   // a whole refresh after every tap -- Mario's "touches get lost".
-  return wallpapersui::gridMeaning(page_, static_cast<int>(view_), static_cast<int>(names_.size()), specialTiles());
+  //
+  // choosing_ IS, because it changes what a cell DOES. The cost is real and
+  // named: the first tile tap after the chip is refused until the new frame is
+  // on the glass, which on this panel is 0.3-2s. That is the correct answer --
+  // the tap was aimed at the screen before the mode changed -- but it is a tap
+  // a person will feel, so it is written down here and in the pull request
+  // rather than discovered on hardware.
+  return wallpapersui::gridMeaning(page_, static_cast<int>(view_), static_cast<int>(names_.size()), specialTiles(),
+                                   choosing_);
 }

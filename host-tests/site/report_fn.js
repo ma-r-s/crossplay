@@ -13,6 +13,7 @@ const path = require("node:path");
 const root = process.argv[2] || path.join(__dirname, "..", "..");
 process.env.SUPABASE_URL = "https://board.test";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key-for-tests";
+process.env.BOARD_OWNER_EMAIL = "Owner@Example.Test";
 const handler = require(path.join(root, "site", "api", "report.js"));
 
 let calls = [];
@@ -156,6 +157,14 @@ const expect = (label, got, want) =>
     "The page turn takes four seconds on the X4 Pro since 1.12.2.",
   );
   expect("no email means null, not an empty string", row.reporter_email, null);
+  // This form is public. A report with no address is somebody, and that
+  // somebody is not established to be Mario -- crediting it to him would put a
+  // stranger's bug on the one list whose value is that he can trust it.
+  expect(
+    "a report with no address is a user's, not Mario's",
+    row.reporter,
+    "user",
+  );
   expect(
     "the address is stored hashed, not raw",
     typeof row.reporter_hash === "string" &&
@@ -300,6 +309,68 @@ const expect = (label, got, want) =>
     "a photo for a card the site did not create is refused",
     r.status,
     404,
+  );
+
+  // Who a report belongs to. The form is public, so only the owner's own
+  // address earns `mario`; everyone else is `user`, and the two must not be
+  // able to collapse into one another by a change to either side.
+  const reporterOf = async (email) => {
+    calls = [];
+    await call("POST", Object.assign({}, good, { email }));
+    const c = calls.find((x) => x.url.endsWith("/rest/v1/cards?select=id"));
+    return c ? JSON.parse(c.body).reporter : null;
+  };
+  expect(
+    "the owner's own address is stamped mario",
+    await reporterOf("owner@example.test"),
+    "mario",
+  );
+  expect(
+    "case and spacing do not decide it",
+    await reporterOf("  OWNER@EXAMPLE.TEST  "),
+    "mario",
+  );
+  expect(
+    "a stranger's address is a user, never Mario",
+    await reporterOf("someone.else@example.test"),
+    "user",
+  );
+  expect(
+    "and a stranger is never credited to a session either",
+    await reporterOf("someone.else@example.test"),
+    "user",
+  );
+
+  // The fallback owner address is a literal in report.js and a literal in the
+  // board's own allowed_users seed, and nothing links them. Read both rather
+  // than restating either here: a change to one is exactly the silent kind.
+  const fs = require("node:fs");
+  const reportSrc = fs.readFileSync(
+    path.join(root, "site", "api", "report.js"),
+    "utf8",
+  );
+  const boardSql = fs.readFileSync(
+    path.join(
+      root,
+      "server",
+      "board",
+      "supabase",
+      "migrations",
+      "20260903000000_board.sql",
+    ),
+    "utf8",
+  );
+  const fallback = (reportSrc.match(/BOARD_OWNER_EMAIL \|\|\s*"([^"]+)"/) ||
+    [])[1];
+  const seeded = (boardSql.match(
+    /insert into allowed_users \(email\) values \('([^']+)'\)/,
+  ) || [])[1];
+  expect(
+    "report.js's default owner is the address the board admits",
+    fallback && seeded
+      ? fallback.toLowerCase() === seeded.toLowerCase()
+      : false,
+    true,
   );
 
   console.log(`${pass + fail} checks, ${fail} failed`);

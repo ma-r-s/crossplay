@@ -21,6 +21,7 @@ file store so the hooks never need the network.
     board pulse [add <host> <GET|POST> <url> <alive> <app> | remove <host>]   what the board probes every 30 min
     board release                                     is the release watcher awake, and what is it owed
     board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."] [--parent <id>] [--default "..."]
+                       [--reporter mario|user|session|unknown]   whose observation it is; unknown unless said
     board app <id> <app> [--default "..."]             move a card to another app
     board parent <id> --of <parent>                    put a card under another (subtasks)
     board bind <id> --session <sid> [--tree wt/x] [--branch app/x]
@@ -83,6 +84,18 @@ MARIO_DEFAULT = "nothing happens until he answers"
 # by INSERTing a dump would otherwise flood the inbox with every settled
 # decision it ever held, which is the flood the backfill was written to avoid.
 SETTLED = ("done", "released", "parked")
+
+# Who a card's observation belongs to, which `source` never said: source is the
+# MECHANISM a card arrived by, and a bug Mario hit on his own device and a bug
+# an audit found by reading code both arrived as source 'session'. He asked
+# "what have I reported?" and the board could not answer.
+#
+# The default is 'unknown', NOT 'session'. A path that forgets to stamp must be
+# visible rather than silently claim one of our own sessions found it, because
+# the whole value of the answer is that he can trust the list. See
+# docs/workflow/what-mario-reported.md.
+REPORTERS = ("mario", "user", "session", "unknown")
+UNKNOWN_REPORTER = "unknown"
 
 
 def now():
@@ -179,6 +192,7 @@ class FileStore:
             "kind": fields.get("kind", "task"),
             "body": fields.get("body", ""),
             "state": fields.get("state", "reported"),
+            "reporter": fields.get("reporter", UNKNOWN_REPORTER),
             "created": fields.get("created") or now(),
             "updated": now(),
             "tree": fields.get("tree"),
@@ -355,6 +369,7 @@ class SupaStore:
             "source": row.get("source"),
             "device": row.get("device"),
             "version": row.get("version"),
+            "reporter": row.get("reporter") or UNKNOWN_REPORTER,
             "reporter_email": row.get("reporter_email"),
             "photo_path": row.get("photo_path"),
             "github_issue": row.get("github_issue"),
@@ -369,6 +384,7 @@ class SupaStore:
             "body": fields.get("body", ""),
             "state": fields.get("state", "reported"),
             "source": fields.get("source", "session"),
+            "reporter": fields.get("reporter", UNKNOWN_REPORTER),
             "tree": fields.get("tree"),
             "branch": fields.get("branch"),
             "session": fields.get("session"),
@@ -738,7 +754,11 @@ STOPWORDS = frozenset(
 
 
 def title_tokens(title):
-    return {w for w in re.findall(r"[a-z0-9]+", str(title).lower()) if w not in STOPWORDS and len(w) > 1}
+    return {
+        w
+        for w in re.findall(r"[a-z0-9]+", str(title).lower())
+        if w not in STOPWORDS and len(w) > 1
+    }
 
 
 def similar_open(st, title):
@@ -771,11 +791,15 @@ def cmd_new(st, a):
         if dup:
             lines = [f"board: this looks like an open card already on the board:"]
             for c in dup[:3]:
-                lines.append(f"  #{c['id']} {c['state']:<9} {c['from']:<10} {c['title']}")
+                lines.append(
+                    f"  #{c['id']} {c['state']:<9} {c['from']:<10} {c['title']}"
+                )
             lines.append(
                 f"  add what you know to it: board note {dup[0]['id']} '<what you found>' (--body to append to the card),"
             )
-            lines.append("  or file anyway with --anyway if it really is a different thing.")
+            lines.append(
+                "  or file anyway with --anyway if it really is a different thing."
+            )
             sys.exit("\n".join(lines))
     with st.lock():
         c = st.create_card(
@@ -784,6 +808,7 @@ def cmd_new(st, a):
                 "from": a.from_app.lower(),
                 "kind": a.kind,
                 "body": a.body or "",
+                "reporter": a.reporter,
                 "parent": a.parent,
                 "history": [{"at": now(), "what": "created"}],
             }
@@ -943,11 +968,16 @@ def tree_gate_pid(root, tree):
         real = str((root / tree).resolve())
     except OSError:
         return None
-    lock = pathlib.Path(os.environ.get("TMPDIR") or "/tmp") / f"xteink-check-{hashlib.sha1(real.encode()).hexdigest()[:8]}.running"
+    lock = (
+        pathlib.Path(os.environ.get("TMPDIR") or "/tmp")
+        / f"xteink-check-{hashlib.sha1(real.encode()).hexdigest()[:8]}.running"
+    )
     try:
         pid = int((lock.read_text() or "0").split()[0])
         os.kill(pid, 0)
-        cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+        cmd = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True
+        ).stdout
     except (OSError, ValueError, IndexError):
         return None
     return pid if "check.sh" in cmd else None
@@ -1341,7 +1371,9 @@ def cmd_state(st, a):
                 lines.append(
                     f"  answer or unblock them first (board answer {c['id']} '<choice>' --n N / board unblock {c['id']} --n N),"
                 )
-                lines.append("  or pass --with-blockers to settle the card and leave them open on purpose.")
+                lines.append(
+                    "  or pass --with-blockers to settle the card and leave them open on purpose."
+                )
                 sys.exit("\n".join(lines))
         c["state"] = a.state
         card_history(st, c, f"state {a.state}")
@@ -1371,7 +1403,11 @@ def cmd_note(st, a):
             sys.exit("board: a note needs text")
         card_history(st, c, f"note: {text}")
         if a.body:
-            c["body"] = (c.get("body") or "").rstrip() + ("\n\n" if c.get("body") else "") + text
+            c["body"] = (
+                (c.get("body") or "").rstrip()
+                + ("\n\n" if c.get("body") else "")
+                + text
+            )
         # The file store keeps history inside the card, so the note is only on
         # disk once the card is written; on Supabase the line is already in.
         st.save_card(c)
@@ -1481,7 +1517,8 @@ def fmt_card(c, full=False):
         return line
     lines = [
         line,
-        f"  kind {c['kind']}  created {c['created']}  updated {c['updated']}",
+        f"  kind {c['kind']}  reported by {c.get('reporter') or UNKNOWN_REPORTER}"
+        f"  created {c['created']}  updated {c['updated']}",
     ]
     if c.get("tree") or c.get("branch") or c.get("session"):
         lines.append(
@@ -1527,8 +1564,16 @@ def cmd_list(st, a):
         cards = [c for c in cards if c["state"] not in ("done", "released", "parked")]
     if getattr(a, "state", None):
         cards = [c for c in cards if c["state"] == a.state]
+    # Who reported it. --from-mario is the question that made the column exist,
+    # so it gets a name of its own rather than an enum value to remember.
+    want = "mario" if getattr(a, "from_mario", False) else getattr(a, "reporter", None)
+    if want:
+        cards = [c for c in cards if (c.get("reporter") or UNKNOWN_REPORTER) == want]
     if not cards:
-        print("board: no cards")
+        # An empty result from a filter is a different fact from an empty board,
+        # and one sentence for both is how a filter that matched nothing reads
+        # as one that was never applied.
+        print(f"board: no cards reported by {want}" if want else "board: no cards")
         return
     by_id = {c["id"]: c for c in cards}
     children = {}
@@ -1668,6 +1713,11 @@ def cmd_issues(st, a):
                     "body": f"GitHub issue #{i['number']} by {author or 'someone'}: {i.get('url', '')}\n\n{body}",
                     "state": "reported",
                     "source": "github",
+                    # A GitHub issue was written by a person, and that person
+                    # is not Mario -- he relays his own rather than filing them
+                    # there. The Supabase trigger derives the same value; this
+                    # keeps the file store, which the tests drive, in step.
+                    "reporter": "user",
                     "github_issue": i["number"],
                     "history": [
                         {"at": now(), "what": f"from GitHub issue #{i['number']}"}
@@ -1801,6 +1851,15 @@ def main(argv=None):
     s.add_argument("--kind", choices=["bug", "feature", "task"], default="task")
     s.add_argument("--body")
     s.add_argument(
+        "--reporter",
+        choices=REPORTERS,
+        default=UNKNOWN_REPORTER,
+        help="whose observation this is: mario if he reported or asked for it, "
+        "session if you found it yourself, user if a person who is not Mario did. "
+        "Defaults to unknown, so a card filed without one is visible rather than "
+        "silently credited to a session",
+    )
+    s.add_argument(
         "--default",
         help="on app mario: what happens if he never answers (a card filed there opens a mario blocker by itself)",
     )
@@ -1810,7 +1869,10 @@ def main(argv=None):
         help="file even if an open card's title says the same thing (the default is to stop and name it)",
     )
     s.set_defaults(fn=cmd_new)
-    s = sub.add_parser("note", help="put what you learnt on a card: a history line, --body appends it to the card too")
+    s = sub.add_parser(
+        "note",
+        help="put what you learnt on a card: a history line, --body appends it to the card too",
+    )
     s.add_argument("id", type=int)
     s.add_argument("text")
     s.add_argument("--body", action="store_true")
@@ -1895,6 +1957,15 @@ def main(argv=None):
     s = sub.add_parser("list")
     s.add_argument("--open", action="store_true")
     s.add_argument("--state", choices=STATES, help="only cards in this state")
+    s.add_argument(
+        "--reporter", choices=REPORTERS, help="only cards from this reporter"
+    )
+    s.add_argument(
+        "--from-mario",
+        dest="from_mario",
+        action="store_true",
+        help="only what Mario reported, asked for or ruled on (--reporter mario)",
+    )
     s.set_defaults(fn=cmd_list)
     sub.add_parser("inbox").set_defaults(fn=cmd_inbox)
     s = sub.add_parser("import")

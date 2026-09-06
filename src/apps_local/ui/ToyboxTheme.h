@@ -60,6 +60,15 @@ inline Faces readingFaces() { return Faces{kTileFontId, kReadingFontId, kDisplay
 // slots is a working set and a list's dense footnote cut and a footer's button
 // cut are never wanted on the same screen. Rebinding is one assignment.
 inline Faces readingChromeFaces() { return Faces{kButtonFontId, kReadingFontId, kDisplayFontId}; }
+// Same again, for a screen whose body carries ONE STRING that has to be read off
+// the glass and typed -- an address, a code. The small slot takes the bold
+// reading cut so that string has somewhere to land that is neither the display
+// cut (which no address fits: a worst-case IPv4 URL measures 632 against a
+// 448px body) nor the same serif 14 as the paragraph under it. Without this the
+// fitting ladder steps the headline, the address, the prose and the footer all
+// onto the identical cut, and the one line the reader has to copy is the third
+// line of a paragraph.
+inline Faces readingAddressFaces() { return Faces{kReadingBoldFontId, kReadingFontId, kDisplayFontId}; }
 
 // And for a screen whose header band carries a story's title rather than the
 // app's name: the title slot takes the bold reading cut so a whole headline

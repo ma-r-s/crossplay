@@ -850,5 +850,6 @@ else
   while IFS= read -r line; do echo "      $line"; done <<< "$fetch_out"
 fi
 
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

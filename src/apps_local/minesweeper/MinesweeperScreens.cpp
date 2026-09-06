@@ -187,13 +187,19 @@ bool lastGameLost(const ms::Game& board) {
   return false;
 }
 
-// The four lessons. The fourth is the win condition, and that flags are notes
+// The five lessons. The fourth is the win condition, and that flags are notes
 // rather than homework -- which nothing on the device said before.
+//
+// The fifth is the chord, and it is here because a move nobody is told about is
+// worth half of one. Every other rule on this list can be discovered by tapping
+// the board; this one cannot, because the cell it wants is one a player has
+// learnt is already spent.
 const char* const kLessonLines[] = {
     "A NUMBER COUNTS THE MINES TOUCHING IT, CORNERS INCLUDED.",
     "TAP TO DIG. HOLD TO PLANT A FLAG. THE BUTTON UNDER THE BOARD SWITCHES WHAT A TAP DOES.",
     "YOUR FIRST DIG IS ALWAYS SAFE, AND ALWAYS OPENS A SPACE.",
     "OPEN EVERY SAFE CELL AND THE FIELD IS CLEARED. FLAGS ARE NOTES: NONE ARE NEEDED TO WIN.",
+    "TAP A NUMBER THAT HAS ALL ITS FLAGS AND THE REST OPENS. A WRONG FLAG ENDS IT.",
 };
 
 // One diagram per lesson, centred in the vertical band it is given.
@@ -204,6 +210,10 @@ void lessonDiagram(toybox::Screen& screen, const int page, const int16_t bandTop
   static const char* const kTools[] = {"oF."};
   static const char* const kFlood[] = {"oo...", "oo**.", "ooo..", "ooo*."};
   static const char* const kWon[] = {"ooooo", "ooo*o", "ooooo", "ooFoo"};
+  // The chord's board: a 1 with its one flag already planted, and the covered
+  // cells it will open. The state to RECOGNISE, which is the half a picture
+  // can carry -- the sentence carries what happens next.
+  static const char* const kChord[] = {".F.", ".o.", "..."};
 
   const char* const* rows = kCount;
   int columns = 3;
@@ -223,6 +233,10 @@ void lessonDiagram(toybox::Screen& screen, const int page, const int16_t bandTop
     columns = 5;
     rowCount = 4;
     cell = smallCell;
+  } else if (page == 4) {
+    rows = kChord;
+    columns = 3;
+    rowCount = 3;
   }
   const int16_t width = static_cast<int16_t>(cell * columns);
   const int16_t height = static_cast<int16_t>(cell * rowCount);
@@ -285,7 +299,7 @@ bool cellAt(const fui::DeviceContext& device, const int x, const int y, int& col
   return true;
 }
 
-int howToPages() { return 4; }
+int howToPages() { return 5; }
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const fui::Rect room = menuFrontDoor(screen, model);

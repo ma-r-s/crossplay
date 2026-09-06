@@ -25,6 +25,7 @@
 
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/fonts/toybox_10.h"
+#include "../../src/apps_local/ui/fonts/toybox_14.h"
 #include "../../src/apps_local/ui/fonts/toybox_20.h"
 #include "../../src/apps_local/ui/fonts/toybox_30.h"
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
@@ -47,9 +48,11 @@ void check(const bool ok, const std::string& what) {
 // The faces the picker really binds: the caption asks for FONT_SLOT_SMALL and
 // the Toybox theme answers with toybox_10 (WallpapersActivity::drawGrid).
 EpdFont small10(&toybox_10);
+EpdFont button14(&toybox_14);
 EpdFont ui20(&toybox_20);
 EpdFont display30(&toybox_30);
 EpdFontFamily smallFamily(&small10);
+EpdFontFamily buttonFamily(&button14);
 EpdFontFamily uiFamily(&ui20);
 EpdFontFamily displayFamily(&display30);
 
@@ -57,6 +60,50 @@ class FontTarget final : public fui::DrawTarget {
  public:
   const EpdFontFamily* familyFor(const fui::FontId font) const {
     if (font == fui::FONT_SLOT_SMALL) return &smallFamily;
+    if (font == fui::FONT_SLOT_BODY) return &uiFamily;
+    return &displayFamily;
+  }
+  int widthOf(const fui::FontId font, const std::string& text) const {
+    if (text.empty()) return 0;
+    int w = 0;
+    int h = 0;
+    familyFor(font)->getTextDimensions(text.c_str(), &w, &h);
+    return w;
+  }
+  fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle) const override {
+    return fui::Size{static_cast<int16_t>(widthOf(font, text == nullptr ? "" : text)), lineHeight(font)};
+  }
+  int16_t lineHeight(const fui::FontId font) const override {
+    return static_cast<int16_t>(familyFor(font)->getData(EpdFontFamily::REGULAR)->advanceY);
+  }
+  void fill(fui::Rect, fui::Paint, uint8_t = 0, uint8_t = 0xFF) override {}
+  void stroke(fui::Rect, fui::Paint, uint8_t, uint8_t = 0, uint8_t = 0xFF) override {}
+  void line(fui::Point, fui::Point, uint8_t, fui::Paint) override {}
+  void triangle(fui::Point, fui::Point, fui::Point, fui::Paint) override {}
+  void text(fui::Rect, const char*, const fui::TextStyle) override {}
+  void bitmap(fui::Rect, fui::BitmapRef, fui::BitmapMode, fui::Paint = {},
+              fui::Rotation = fui::Rotation::None) override {}
+};
+
+// The grid CHROME is a different face set from the grid's captions, and the
+// difference is the whole reason this block exists.
+//
+// drawGrid() builds its caption target with toybox::makeTarget(renderer) and
+// the DEFAULT Faces, so FONT_SLOT_SMALL is kTileFontId = toybox_10 -- what
+// FontTarget above models. render() builds the CHROME's target with
+// toybox::proseMenuFaces(), where the same slot is kButtonFontId = toybox_14.
+// So the hint strip draws ~40% wider than the captions do, and measuring it in
+// toybox_10 said every sentence fitted while the panel cut one mid-word. The
+// simulator screenshot is what caught it; this target is what stops it coming
+// back ("drawn size is a claim").
+//
+// fittedTitle can rescue nothing here: it steps DOWN through the bound slots,
+// and in this face set TITLE (30) and BODY (20) are both taller than SMALL
+// (14), so there is no rung below and the only move left is the ellipsis.
+class ChromeFontTarget final : public fui::DrawTarget {
+ public:
+  const EpdFontFamily* familyFor(const fui::FontId font) const {
+    if (font == fui::FONT_SLOT_SMALL) return &buttonFamily;
     if (font == fui::FONT_SLOT_BODY) return &uiFamily;
     return &displayFamily;
   }
@@ -244,25 +291,29 @@ int main() {
   // The things that DO remap a cell still have to gate, or a tap during a page
   // turn opens whatever slid under the finger. Both halves are asserted.
   {
-    const uint32_t base = wallpapersui::gridMeaning(0, 0, 21, 1);
-    check(wallpapersui::gridMeaning(0, 0, 21, 1) == base, "gridMeaning is not stable for identical inputs");
+    const uint32_t base = wallpapersui::gridMeaning(0, 0, 21, 1, false);
+    check(wallpapersui::gridMeaning(0, 0, 21, 1, false) == base, "gridMeaning is not stable for identical inputs");
 
     // Changing the page, the view, the library size or the chrome-tile count
     // REMAPS cells, so each must change the meaning.
-    check(wallpapersui::gridMeaning(1, 0, 21, 1) != base, "a page turn does not gate taps");
-    check(wallpapersui::gridMeaning(0, 1, 21, 1) != base, "a view change does not gate taps");
-    check(wallpapersui::gridMeaning(0, 0, 22, 1) != base, "a library change does not gate taps");
-    check(wallpapersui::gridMeaning(0, 0, 21, 2) != base, "a chrome-tile change does not gate taps");
+    check(wallpapersui::gridMeaning(1, 0, 21, 1, false) != base, "a page turn does not gate taps");
+    check(wallpapersui::gridMeaning(0, 1, 21, 1, false) != base, "a view change does not gate taps");
+    check(wallpapersui::gridMeaning(0, 0, 22, 1, false) != base, "a library change does not gate taps");
+    check(wallpapersui::gridMeaning(0, 0, 21, 2, false) != base, "a chrome-tile change does not gate taps");
+    // Choose-a-set mode changes what a CELL does -- pin one, or toggle its
+    // membership -- so a tap left against the previous frame must not act on
+    // the new meaning.
+    check(wallpapersui::gridMeaning(0, 0, 21, 1, true) != base, "choose-a-set mode does not gate taps");
 
     // And the signature that mattered: nothing in gridMeaning takes the
     // selection, so there is no argument by which it could gate. Asserted by
     // walking every selection a 21-wallpaper library can have and confirming the
     // meaning for that page never moves.
     for (int page = 0; page < 6; ++page) {
-      const uint32_t forPage = wallpapersui::gridMeaning(page, 0, 21, 1);
+      const uint32_t forPage = wallpapersui::gridMeaning(page, 0, 21, 1, false);
       for (int selected = -1; selected < 21; ++selected) {
         // The old meaning mixed (selected + 1) in here; the new one cannot.
-        check(wallpapersui::gridMeaning(page, 0, 21, 1) == forPage,
+        check(wallpapersui::gridMeaning(page, 0, 21, 1, false) == forPage,
               "the selection moved the surface meaning, so taps will be refused mid-paint (page " +
                   std::to_string(page) + ", selected " + std::to_string(selected) + ")");
       }
@@ -295,6 +346,343 @@ int main() {
       check(target.widthOf(fui::FONT_SLOT_SMALL, drawn) <= cap.width, "upload caption overflows its box" + at);
       check(drawn.find('\n') == std::string::npos, "upload caption wrapped to a second line" + at);
     }
+  }
+
+  // 5. The hint strip's sentences, measured in the real face (#354).
+  //
+  //    The strip is ONE fixed line, kHintH tall, and buildGridChrome pins its
+  //    style to FONT_SLOT_SMALL. In the chrome's face set that is the bottom
+  //    rung, so fittedTitle -- which only steps DOWN -- has nothing left and
+  //    its only move is an ellipsis. A cut sentence in the strip that exists to
+  //    explain why a wallpaper is not showing is worse than no sentence at all,
+  //    so every string that can land there is measured here.
+  //
+  //    The pin matters as much as the width. Without it the style carries
+  //    themeTokens().smallText.font, which is FONT_SLOT_BODY -- toybox_20 here,
+  //    whose line box is TALLER than the strip. fittedTitle would then step a
+  //    long sentence down to 14 and leave a short one at 20, so which sentences
+  //    overflowed the strip vertically depended on how long they were.
+  //
+  //    Measured against the panel inset by the X4 Pro's bezel (T10 R1 B0 L1,
+  //    the bezel-insets memory), which is narrower than a bare 480 -- so the
+  //    number here is the device's, not the emulator's.
+  {
+    const ChromeFontTarget chrome;
+    const fui::Rect bezelSafe = fui::makeRect(1, 10, 478, 790);
+    const int16_t stripWidth = wallpapersui::hintTextWidth(bezelSafe);
+
+    // The strip's line box has to FIT the strip, which is the half a width
+    // measurement cannot see. buildGridChrome pins the style to
+    // FONT_SLOT_SMALL; the two checks below are why, and they are what a
+    // future session deleting that pin has to argue with.
+    check(chrome.lineHeight(fui::FONT_SLOT_SMALL) <= wallpapersui::hintStripHeight(),
+          "the strip's own face does not fit the strip: lineHeight " +
+              std::to_string(chrome.lineHeight(fui::FONT_SLOT_SMALL)) + " in a " +
+              std::to_string(wallpapersui::hintStripHeight()) + "px box");
+    check(chrome.lineHeight(fui::FONT_SLOT_BODY) > wallpapersui::hintStripHeight(),
+          "FONT_SLOT_BODY now fits the strip, so buildGridChrome's pin to the SMALL slot no longer needs to "
+          "be there -- re-read the comment before deleting it");
+    fui::TextStyle hintStyle;
+    hintStyle.font = fui::FONT_SLOT_SMALL;
+    hintStyle.align = fui::TextAlign::Left;
+    hintStyle.maxLines = 1;
+
+    std::vector<std::string> lines;
+    // Every reachHint sentence, walked off the enum rather than typed out.
+    for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+      for (int qr = 0; qr < 2; ++qr) {
+        const char* hint = wallpapers::reachHint(wallpapers::reachOfPinnedSleep(mode, qr != 0));
+        if (hint != nullptr) lines.emplace_back(hint);
+      }
+    }
+    // Every post-selection sentence, the same way.
+    for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+      for (int qr = 0; qr < 2; ++qr) {
+        const wallpapers::SleepChoice choice = wallpapers::choiceForSetWallpaper(mode, qr != 0);
+        const wallpapers::StripLine note = wallpapers::stripLineAfterSelection(
+            choice, wallpapers::reachOfPinnedSleep(choice.sleepScreenMode, choice.quickResumeAfterTimeout));
+        if (note.text != nullptr) lines.emplace_back(note.text);
+      }
+    }
+    // Every set sentence, walked off its own arguments the same way. The count
+    // ones are measured WITH the widest number this app can put in front of
+    // them: kMaxLibrary is 256, so three digits and a space, and a sentence
+    // that fits bare and not with "256 " on it is a sentence the panel cuts on
+    // the one card that has the most wallpapers on it.
+    for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+      for (int qr = 0; qr < 2; ++qr) {
+        const wallpapers::Reach reach = wallpapers::reachOfPinnedSleep(mode, qr != 0);
+        for (int choosing = 0; choosing < 2; ++choosing) {
+          for (int shadowed = 0; shadowed < 2; ++shadowed) {
+            for (int n = 0; n < 4; ++n) {
+              const wallpapers::ShuffleLine set = wallpapers::shuffleStripLine(choosing != 0, n, shadowed != 0, reach);
+              if (set.text == nullptr) continue;
+              lines.emplace_back(set.wantsCount ? std::string("256 ") + set.text : std::string(set.text));
+            }
+          }
+        }
+      }
+    }
+    // And the two the strip already carried, so this check covers the strip
+    // rather than only the new arrivals.
+    lines.emplace_back("Tap one to set your sleep screen.");
+    lines.emplace_back("Card is low on space. Saves may fail.");
+    lines.emplace_back("Could not check card space.");
+    lines.emplace_back(wallpapersui::chooseHint());
+
+    int widestHint = 0;
+    std::string widestHintText;
+    for (const std::string& line : lines) {
+      fui::TextStyle style = hintStyle;
+      const std::string fitted = toybox::fittedTitle(chrome, line.c_str(), stripWidth, style);
+      const int w = chrome.widthOf(fui::FONT_SLOT_SMALL, line);
+      if (w > widestHint) {
+        widestHint = w;
+        widestHintText = line;
+      }
+      check(fitted == line, "hint strip sentence was cut: \"" + line + "\" -> \"" + fitted + "\"");
+      check(line.find('\n') == std::string::npos, "hint strip sentence carries a newline: \"" + line + "\"");
+    }
+    std::printf("wallcaption: widest hint \"%s\" = %dpx in a %dpx strip (%dpx spare)\n", widestHintText.c_str(),
+                widestHint, stripWidth, stripWidth - widestHint);
+  }
+
+  // 6. THE HOLD SHEET'S CONTROLS, and the one destructive button behind them.
+  //
+  //    This fork has destroyed user data by putting a new meaning under a pixel
+  //    a finger was already travelling towards (same-pixel-different-action).
+  //    The picker is the worst host for that: a plain tap SETS the sleep screen
+  //    with no confirmation, and a hold arrives as a tap unless
+  //    tapWasHeldLong() says otherwise. So the defence is geometric and it is
+  //    asserted here rather than described in a comment.
+  //
+  //    Walked at BOTH insets: the panel with no bezel, and the X4 Pro's real
+  //    T10 R1 B0 L1 glass. Every rect hangs off safeRect(), so an identity that
+  //    held at one inset and not the other would be a screen that is safe on a
+  //    test target and not on the device.
+  {
+    fui::DeviceContext bezel = device();
+    bezel.safeArea = fui::Insets{10, 1, 0, 1};
+    const fui::DeviceContext panels[] = {device(), bezel};
+    const char* labels[] = {"no bezel", "X4 Pro bezel"};
+    for (int p = 0; p < 2; ++p) {
+      const fui::DeviceContext& dev = panels[p];
+      const std::string at = std::string(" (") + labels[p] + ")";
+      const fui::Rect preview = wallpapersui::sheetPreviewRect(dev);
+      const fui::Rect del = wallpapersui::sheetDeleteRect(dev);
+      const fui::Rect keep = wallpapersui::confirmKeepRect(dev);
+      const fui::Rect kill = wallpapersui::confirmDeleteRect(dev);
+
+      // THE IDENTITY. The confirm's SAFE half occupies exactly the pixels the
+      // sheet's DELETE did, so a repeat of the press that opened the confirm --
+      // a double tap, an impatient repeat during a 0.3-2s e-ink repaint, a
+      // finger that never moved -- cancels. Identical, not merely close: a
+      // "nearly" here is a band of pixels with no owner.
+      check(keep.x == del.x && keep.y == del.y && keep.width == del.width && keep.height == del.height,
+            "the confirm's KEEP is not exactly where the sheet's DELETE was" + at);
+
+      // THE SEPARATION. Reaching the destructive button takes a deliberate move
+      // to somewhere nothing was a moment ago.
+      check(!overlaps(kill, del), "the confirm's DELETE lands on the sheet's DELETE" + at);
+      check(!overlaps(kill, preview), "the confirm's DELETE lands on the sheet's PREVIEW" + at);
+      check(!overlaps(preview, del), "the sheet's two buttons overlap each other" + at);
+
+      // Finger targets, on the panel, and in reading order.
+      const fui::Rect all[] = {preview, del, kill};
+      for (const fui::Rect& r : all) {
+        check(r.height >= 44, "a hold-sheet control is under the finger-target minimum" + at);
+        check(r.x >= dev.safeRect().x, "a hold-sheet control runs off the left of the safe area" + at);
+        check(r.x + r.width <= dev.safeRect().right(), "a hold-sheet control runs off the right" + at);
+        check(r.y >= dev.safeRect().y, "a hold-sheet control runs above the safe area" + at);
+        check(r.y + r.height <= dev.safeRect().bottom(), "a hold-sheet control runs off the bottom" + at);
+      }
+      check(del.y > preview.y, "the sheet draws DELETE above PREVIEW" + at);
+      check(kill.y > keep.y, "the confirm draws its destructive half above its safe one" + at);
+
+      // The labels fit the buttons in the face that draws them. A label that
+      // overflows does not arrive clipped in these cuts -- the faces above
+      // toybox_10 carry no U+2026 -- it simply stops, so "DELETE IT" could read
+      // as "DELETE I" and mean something else entirely.
+      const char* buttonLabels[] = {"PREVIEW", "DELETE", "KEEP IT", "DELETE IT"};
+      for (const char* label : buttonLabels) {
+        check(target.widthOf(fui::FONT_SLOT_SMALL, label) <= preview.width - 8,
+              std::string("button label \"") + label + "\" overflows its button" + at);
+      }
+    }
+  }
+
+  // 7. THE SENTENCE ON THE CONFIRM, measured rather than eyeballed.
+  //
+  //    This one is here because a render caught what nothing else could: at the
+  //    first layout the longest of the four consequences needed six 42px lines
+  //    and had five, so it was cut with an ellipsis at "It stays on your sleep
+  //    scr..." -- dropping the SECOND clause, the one that only appears for the
+  //    wallpaper actually in use, on the screen where it matters most
+  //    (a-warning-that-can-vanish). host-tests/ui cannot see it: its target
+  //    answers ten pixels a character. Here the widths are the panel's own.
+  //
+  //    All four combinations, and BOTH insets, because the bezel shortens the
+  //    box from the bottom.
+  {
+    fui::TextStyle prose;
+    prose.font = fui::FONT_SLOT_BODY;
+    prose.align = fui::TextAlign::Left;
+    fui::DeviceContext bezel = device();
+    bezel.safeArea = fui::Insets{10, 1, 0, 1};
+    const fui::DeviceContext panels[] = {device(), bezel};
+    const char* labels[] = {"no bezel", "X4 Pro bezel"};
+    for (int p = 0; p < 2; ++p) {
+      const fui::Rect box = wallpapersui::confirmProseRect(panels[p]);
+      const int16_t lineH = target.lineHeight(fui::FONT_SLOT_BODY);
+      const int lines = lineH > 0 ? box.height / lineH : 0;
+      check(lines >= 1, std::string("the confirm has no room for its sentence at all (") + labels[p] + ")");
+      for (int builtIn = 0; builtIn <= 1; ++builtIn) {
+        for (int active = 0; active <= 1; ++active) {
+          const std::string said = wallpapers::deleteConsequence(builtIn != 0, active != 0);
+          const std::string drawn = toybox::fitLines(target, said.c_str(), box.width, lines, prose);
+          check(drawn == said, std::string("the delete confirm cuts its own consequence (builtIn=") +
+                                   std::to_string(builtIn) + " active=" + std::to_string(active) + ", " + labels[p] +
+                                   ") -> \"" + drawn + "\"");
+        }
+      }
+
+      // The sheet's own sentence, both forms, in its own (shorter) box. Read
+      // from wallpapersui::sheetInstruction rather than copied here: a test
+      // holding its own copy of the sentence keeps measuring the old one after
+      // the source is edited, and stays green while the panel cuts it.
+      const fui::Rect sheetBox = wallpapersui::sheetProseRect(panels[p]);
+      const int sheetLines = lineH > 0 ? sheetBox.height / lineH : 0;
+      for (int active = 0; active <= 1; ++active) {
+        const std::string line = wallpapersui::sheetInstruction(active != 0);
+        check(toybox::fitLines(target, line.c_str(), sheetBox.width, sheetLines, prose) == line,
+              std::string("the hold sheet cuts its own instruction (active=") + std::to_string(active) + ", " +
+                  labels[p] + ")");
+      }
+
+      // THE NAME, which is the one string on these screens nobody chose the
+      // width of: a wallpaper the user added is named by its FILE. fitLines
+      // appends U+2026 on overflow and the faces above toybox_10 carry no
+      // ellipsis glyph, so an over-long name does not arrive clipped -- it
+      // stops mid-word with a hole where the mark should be, on the screen
+      // that is about to delete it (typography-fold). Two lines of the title
+      // cut is what buildSheet and buildConfirm give it.
+      const fui::Rect nameBox = wallpapersui::sheetHeadRect(panels[p]);
+      check(nameBox.height >= target.lineHeight(fui::FONT_SLOT_TITLE) * 2,
+            std::string("the name box cannot hold the two title lines it is given (") + labels[p] + ")");
+      // The same call the builders make: fittedTitle, which rewrites the style
+      // to the cut it chose. That choice is what decides whether an ellipsis is
+      // drawable at all, so the test has to see it.
+      const auto fitName = [&](const char* name, fui::FontId& chose) {
+        fui::TextStyle style;
+        style.font = fui::FONT_SLOT_TITLE;
+        style.align = fui::TextAlign::Left;
+        style.maxLines = 2;
+        const std::string drawn = toybox::fittedTitle(target, name, nameBox.width, style);
+        chose = style.font;
+        return drawn;
+      };
+      for (size_t i = 0; i < wallpapers::builtInCount(); ++i) {
+        const std::string full = wallpapers::displayName(std::string(wallpapers::builtInStem(i)) + ".bmp").full;
+        fui::FontId chose = fui::FONT_SLOT_TITLE;
+        check(fitName(full.c_str(), chose) == full,
+              "the hold sheet cuts a built-in's name [" + full + ", " + labels[p] + "]");
+        check(chose == fui::FONT_SLOT_TITLE,
+              "a built-in's name had to step off the display cut [" + full + ", " + labels[p] + "]");
+      }
+      // A user's own file names. The app's own uploader writes w0001.bmp, but
+      // File Transfer and a card in a laptop do not, so the ones that matter
+      // are the ones a phone or a person produces -- including the long
+      // unbreakable single word, which has no space for fitLines to break at.
+      const char* ownNames[] = {
+          "DSC_00417_final_v2.bmp",
+          "a-really-long-holiday-photo-name-from-a-phone.bmp",
+          "supercalifragilisticexpialidociouswallpaper.bmp",
+          "SCREENSHOT 2026 09 05 AT 14 23 07.bmp",
+      };
+      for (const char* file : ownNames) {
+        const std::string full = wallpapers::displayName(file).full;
+        fui::FontId chose = fui::FONT_SLOT_TITLE;
+        const std::string drawn = fitName(full.c_str(), chose);
+        const std::string at = std::string(" [") + file + ", " + labels[p] + "]";
+        // fitLines and fittedTitle return the string UNWRAPPED when it fits --
+        // the renderer's own text() does the wrapping, from style.maxLines. So
+        // "does it fit" is answered by identity, not by measuring the return as
+        // one line, and an earlier version of this block measured it as one line
+        // and reported a defect that was its own (tests-that-share-the-bug, in
+        // reverse).
+        //
+        // Nobody chose these widths, so stepping down the ladder is fine and an
+        // ellipsis at the bottom rung is fine. What is never fine is a mark in a
+        // cut that has no glyph for it: only toybox_10 (FONT_SLOT_SMALL here)
+        // carries U+2026, and above it an ellipsised name does not arrive
+        // clipped -- it stops with a HOLE after it, on the screen that is about
+        // to delete it (typography-fold).
+        const bool marked = drawn != full;
+        check(!marked || chose == fui::FONT_SLOT_SMALL,
+              "a name was ellipsised in a cut with no ellipsis glyph -- it draws as a hole" + at + " -> \"" + drawn +
+                  "\"");
+        // And whatever cut it landed on, two lines of it must fit the box the
+        // builders draw into.
+        check(target.lineHeight(chose) * 2 <= nameBox.height, "a user's wallpaper name is taller than its box" + at);
+      }
+
+      // And neither box may reach the control under it.
+      check(wallpapersui::confirmProseRect(panels[p]).bottom() <= wallpapersui::confirmKeepRect(panels[p]).y,
+            std::string("the confirm's sentence runs under KEEP IT (") + labels[p] + ")");
+      check(sheetBox.bottom() <= wallpapersui::sheetPreviewRect(panels[p]).y,
+            std::string("the sheet's sentence runs under PREVIEW (") + labels[p] + ")");
+      check(wallpapersui::sheetHeadRect(panels[p]).bottom() <= sheetBox.y,
+            std::string("the name overlaps the sentence under it (") + labels[p] + ")");
+    }
+  }
+
+  // The strip's lowest line tells the user which control opens a set, so it has
+  // to name that control's own word. Rename the chip without renaming the hint
+  // and the sentence points at a word that is not on the screen. This is the
+  // one case where a check that matches the description is the point.
+  {
+    const std::string hint(wallpapersui::chooseHint());
+    const std::string enters(wallpapersui::chooseChipLabel(false));
+    const std::string leaves(wallpapersui::chooseChipLabel(true));
+    check(hint.find(enters) != std::string::npos,
+          "the strip's hint does not name the chip: \"" + hint + "\" vs \"" + enters + "\"");
+    check(enters != leaves, "the chip says the same thing entering and leaving the mode");
+    // No user-facing string in this app promises randomness: upstream's
+    // recent-shown window makes a small set a strict cycle, not a shuffle.
+    for (const std::string& s : {hint, enters, leaves}) {
+      check(s.find("huffl") == std::string::npos && s.find("HUFFL") == std::string::npos,
+            "a user-facing string promises shuffling: \"" + s + "\"");
+      check(s.find("andom") == std::string::npos && s.find("ANDOM") == std::string::npos,
+            "a user-facing string promises randomness: \"" + s + "\"");
+    }
+  }
+
+  // The three readers of "how many tiles are there" have to agree. drawGrid and
+  // the tap handler both count specialTiles() + the library; pageCount() counted
+  // ONE chrome tile, so with the built-in set incomplete (two chrome tiles) a
+  // library that lands exactly on a page boundary had a last wallpaper the grid
+  // drew and clampPage forbade the page for. Walked rather than spot-checked.
+  {
+    for (int per = 1; per <= 8; ++per) {
+      for (int specials = 1; specials <= 2; ++specials) {
+        for (int lib = 0; lib <= 40; ++lib) {
+          const int pages = wallpapersui::pageCountFor(specials, lib, per);
+          const int tiles = specials + lib;
+          check(pages >= 1, "pageCountFor returned no pages at all");
+          // Every tile the grid draws is on a page the picker can reach.
+          check(pages * per >= tiles, "the last tile is on a page pageCountFor does not count (per " +
+                                          std::to_string(per) + ", specials " + std::to_string(specials) +
+                                          ", library " + std::to_string(lib) + ")");
+          // And not one page more than needed, or the picker shows an empty one.
+          check((pages - 1) * per < tiles || tiles == 0,
+                "pageCountFor counts a page with nothing on it (per " + std::to_string(per) + ", specials " +
+                    std::to_string(specials) + ", library " + std::to_string(lib) + ")");
+        }
+      }
+    }
+    // The exact case that was broken: 4 a page, both chrome tiles, three
+    // wallpapers -- five tiles, which is two pages and used to be called one.
+    check(wallpapersui::pageCountFor(2, 3, 4) == 2, "the incomplete-set page boundary is still miscounted");
   }
 
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,

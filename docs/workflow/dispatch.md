@@ -19,8 +19,11 @@ When Mario says something is wrong, or wants something:
 1. **Name the app.** From what he said; if two apps could fit, ask one
    question with the two names in it. Never guess between apps.
 2. **File the card.** `board new "<his words, shortened>" --from <app>
---kind bug|feature --body "<what he said, verbatim, one paragraph>"`.
-   His words go in the body untouched; the title is the short form.
+--kind bug|feature --reporter mario --body "<what he said, verbatim, one
+   paragraph>"`. His words go in the body untouched; the title is the short
+   form. `--reporter mario` is not optional here: everything Dispatch files
+   came from him by definition, and without it the card reads `unknown` and
+   drops out of `board list --from-mario`, which is the list he asks for.
 3. **Route it.** `board route <id>`. If the app has an owner session, message
    that session: "Card #<id> is yours: <title>. board show <id>." If it has no
    owner, leave the card in `reported`; the orchestrator's next tick starts a

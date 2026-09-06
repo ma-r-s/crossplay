@@ -25,7 +25,7 @@ The **Xteink X4 Pro** and the **Seeed reTerminal Sticky** are cheap e-ink
 devices with an 800x480 panel, capacitive touch and two physical buttons, and
 [CrossPoint](https://crosspointreader.com/) already makes them good at reading.
 CrossPlay is firmware that keeps all of that and adds the other things a screen
-that holds still is good at: **19 games and 6 apps**,
+that holds still is good at: **20 games and 6 apps**,
 spaced-repetition flashcards, comics, a read-later queue, and two devices that
 play together with nothing to set up.
 
@@ -60,8 +60,9 @@ the browser: it fetches the day's board and nothing can be canned for it.
 | **Connect Four** | Drop a disc, get four in a line. Seven columns, one tap each.                |
 | **Yahtzee**      | Thirteen boxes, three rolls a turn, and the Joker rules in full.             |
 | **Knucklebones** | Cult of the Lamb's dice game. Matching dice multiply; yours destroy theirs.  |
-| **Minesweeper**  | Tap to dig, hold to flag. The first dig is always safe.                      |
+| **Minesweeper**  | Tap to dig, hold to flag, tap a finished number to chord its neighbours.     |
 | **Sudoku**       | Generated on the device and graded by the technique it needs, not the clues. |
+| **Picross**     | Fill the grid from the clues and a picture appears. Wrong fills lock in.     |
 | **Sea Salt**     | Sea Salt & Paper: collect duos, bet on STOP or LAST CHANCE.                  |
 | **Toy Battle**   | Nine boards of bases and paths. Hold regions, take medals, solo or nearby.   |
 | **Forehead**     | Screen against your forehead, the room shouts clues, sixty seconds.          |

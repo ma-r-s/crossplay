@@ -13,3 +13,27 @@
 # NOT reproducible byte-for-byte yet: the board is seeded from millis(), so the
 # minefield differs every run. That is task #8, and this file is honest about
 # it rather than implying otherwise.
+
+# --- the chord screenshots (card #249) -------------------------------------
+#
+# These ARE reproducible, and the trick is worth keeping: pin the seed instead
+# of hoping. Temporarily replace the millis() seed in
+# MinesweeperActivity::beginGame() with 3843u, and the first dig at (0,0) deals
+# a board whose (1,1) reads 1 with its only mine at (0,2). Flag that, tap the
+# 1, and the chord cascades 63 cells in one move.
+#
+# rm -f fs_agent/.crosspoint/shelf.cfg fs_agent/.crosspoint/minesweeper.sav
+# ./scripts_local/sim-shot.sh \
+#   '1500:TAP:120,635;3500:TAP:241,687;5500:TAP:240,479;7500:TAP:240,672;9500:TAP:30,128;11500:TAP:30,248,900;15000:TAP:90,188;19000:QUIT' \
+#   '14000:qa-artifacts/chord-before.bmp;17000:qa-artifacts/chord-after.bmp'
+#
+# The taps in order: GAMES on Home, the page-2 dot, MINESWEEPER, PLAY, dig
+# (0,0), a 900ms hold to flag (0,2), then the chord on (1,1). DOWN does NOT
+# move a selection on the shelf -- it pages, and past the last page it lands in
+# another folder, which is how one run opened Wallpapers. Tap the page dot.
+#
+# Swap the last tap for '15000:TAP:90,188,700' to hold the number for 700ms
+# instead: it must do NOTHING. The hold reaches the flag threshold, toggleFlag
+# refuses on a revealed cell, and the contact is swallowed. That is deliberate --
+# see docs/apps/minesweeper.md; letting the lift through hands the tap to the
+# touch-DOWN cell, which can be a different, covered, mined one.

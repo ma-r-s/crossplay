@@ -51,6 +51,8 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/knucklebones/KnucklebonesScreens.cpp \
   ../../src/apps_local/link/LinkScreens.cpp \
   ../../src/apps_local/minesweeper/MinesweeperScreens.cpp \
+  ../../src/apps_local/picross/PicrossCore.cpp \
+  ../../src/apps_local/picross/PicrossScreens.cpp \
   ../../src/apps_local/toybattle/ToyBattleScreens.cpp \
   ../../src/apps_local/toybattle/ToyBattleMenus.cpp \
   ../../src/apps_local/toybattle/ToyBattleHowTo.cpp \

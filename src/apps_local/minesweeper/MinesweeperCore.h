@@ -212,6 +212,74 @@ inline bool reveal(Game& game, const int column, const int row) {
   return true;
 }
 
+// How many flags the player has planted around a cell, counting the eight
+// neighbours. The mirror of neighbouringMines, and deliberately a separate
+// count: one is what the board knows, the other is what the player believes,
+// and the chord is the move that bets they agree.
+inline int neighbouringFlags(const Game& game, const int column, const int row) {
+  int count = 0;
+  for (int dc = -1; dc <= 1; ++dc) {
+    for (int dr = -1; dr <= 1; ++dr) {
+      if (dc == 0 && dr == 0) continue;
+      if (has(game, column + dc, row + dr, kFlagged)) ++count;
+    }
+  }
+  return count;
+}
+
+// Chording: tap a revealed number that already carries its flags, and every
+// remaining neighbour opens at once.
+//
+// **It is a shortcut, not a new kind of move**, and that is built in rather
+// than promised: it calls reveal() on each remaining neighbour in turn, in a
+// fixed order, so it reaches byte-for-byte the state that REVEALING those
+// cells one at a time would. The flood, the loss, the win check and the saved
+// board therefore need no knowledge of it, and there is no second
+// implementation that has to agree with the first.
+//
+// Precisely: the equivalence is to reveal(), not to dig(). A chord does NOT
+// recurse -- a neighbour that becomes a satisfied number as a result is not
+// itself chorded. One press, one chord, which is what every Minesweeper does
+// and what keeps a mis-flag's damage to the cells the player actually pointed
+// at.
+//
+// The rule when the flags are WRONG is the unforgiving one, which is the real
+// game: the move trusts the player's flags, so a chord whose count is right
+// and whose placement is not opens a mine and loses -- through reveal(), the
+// only way to lose here. The gentle version cannot be built without the game
+// telling the player something it should not know. Once reveal() sets Lost,
+// its own canReveal() refuses the remaining neighbours, so the chord stops
+// exactly where the taps would have.
+//
+// A count that does not match does NOTHING, and returns false to say so: the
+// activity repaints only on a change, which is how this game already says no.
+// Partially opening "the ones that must be safe" would be the game doing the
+// player's reasoning for them.
+//
+// A revealed zero is not special-cased. It satisfies itself with no flags, and
+// its neighbours are already open unless a flag that stopped the flood was
+// later lifted -- in which case opening them is precisely right.
+inline bool chord(Game& game, const int column, const int row) {
+  if (!inside(column, row)) return false;
+  // Playing, spelled out. Only Playing has revealed cells today, so the check
+  // below would catch Fresh anyway -- but that is a coincidence of how the
+  // board is dealt, not a rule, and a guard that holds by coincidence is one
+  // refactor from not holding. (over() cannot be used: it is declared below,
+  // which is why canReveal() spells its own check out too.)
+  if (game.status != Status::Playing) return false;
+  if ((game.cell[column][row] & kRevealed) == 0) return false;
+  if (neighbouringFlags(game, column, row) != neighbouringMines(game, column, row)) return false;
+
+  bool changed = false;
+  for (int dc = -1; dc <= 1; ++dc) {
+    for (int dr = -1; dr <= 1; ++dr) {
+      if (dc == 0 && dr == 0) continue;
+      if (reveal(game, column + dc, row + dr)) changed = true;
+    }
+  }
+  return changed;
+}
+
 // Plant or lift a flag. Never on a revealed cell, and never once the game is
 // settled.
 inline bool toggleFlag(Game& game, const int column, const int row) {
@@ -225,6 +293,17 @@ inline bool toggleFlag(Game& game, const int column, const int row) {
 // Mines minus flags planted. Goes negative when the player over-flags, which is
 // information rather than an error: it says the board disagrees with them.
 inline int minesRemaining(const Game& game) { return kMines - flagCount(game); }
+
+// One tap of the DIG tool, wherever it lands: a covered cell opens, a revealed
+// number that already carries its flags chords, and anything else is refused.
+//
+// The routing lives here rather than in the activity because it is a rule, and
+// this is the only layer the host suite can prove. reveal() already refuses a
+// revealed cell, so the two cases cannot both fire.
+inline bool dig(Game& game, const int column, const int row) {
+  if (reveal(game, column, row)) return true;
+  return chord(game, column, row);
+}
 
 inline bool over(const Game& game) { return game.status == Status::Won || game.status == Status::Lost; }
 

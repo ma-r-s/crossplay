@@ -103,6 +103,302 @@ DisplayName displayName(std::string_view fileName) {
   return DisplayName{own, own};
 }
 
+CellAction cellAction(const bool heldLong, const bool choosing, const int index, const int activeIndex,
+                      const int chosenCount, const bool sleepBlocked, const bool shadowedSet) {
+  if (index < 0) return CellAction::None;
+  // FIRST, above every other branch. A hold that the SDK classified as a tap is
+  // still a hold, and the thing the user was reaching past is setWallpaper --
+  // which has no confirmation and no undo.
+  if (heldLong) return CellAction::Sheet;
+  // #305: while choosing, a tap is membership -- on a marked one too, because
+  // tapping again is how you take it out.
+  if (choosing) return CellAction::Toggle;
+  // #305: a live set is never collapsed by one stray tap. The tap opens it for
+  // editing instead, with this wallpaper toggled.
+  if (chosenCount >= 2) return CellAction::Toggle;
+  // #354: doing nothing on the marked wallpaper is right only while that mark
+  // is TRUE. When the settings block it from ever reaching the glass -- or a
+  // stray pin is hiding a set behind it -- a second tap is the user asking
+  // again, and swallowing it is the bug that card fixed.
+  if (index == activeIndex && !sleepBlocked && !shadowedSet) return CellAction::None;
+  return CellAction::Set;
+}
+
+std::string deleteConsequence(const bool builtIn, const bool isActive) {
+  std::string out;
+  if (builtIn) {
+    out += "A built-in wallpaper. Getting it back means downloading the whole set again, not just this one.";
+  } else {
+    out += "Your own wallpaper. The card holds the only copy, so this cannot be undone.";
+  }
+  if (isActive) {
+    out += " It stays on your sleep screen until you pick another.";
+  }
+  return out;
+}
+
+bool drawsPinnedSleep(const uint8_t sleepScreenMode, const bool quickResumeAfterTimeout, const bool fromTimeout,
+                      const bool fromReader) {
+  // 1. Quick resume short-circuits every mode, including the custom ones.
+  if (sleepScreenMode == kSleepQuickResume) return false;
+  if (fromTimeout && quickResumeAfterTimeout) return false;
+  // 2. The transparent mode has its own art (/sleep-overlay.*), not this file.
+  if (sleepScreenMode == kSleepTransparentCustom) return false;
+  // 3. and 4.
+  if (sleepScreenMode == kSleepCustom) return true;
+  if (sleepScreenMode == kSleepCoverCustom) return !fromReader;
+  // 5. DARK, LIGHT, COVER, BLANK.
+  return false;
+}
+
+Reach reachOfPinnedSleep(const uint8_t sleepScreenMode, const bool quickResumeAfterTimeout) {
+  // Every answer below is asked of drawsPinnedSleep rather than restated, so
+  // the classification cannot disagree with the predicate it describes.
+  const bool onTimeout = drawsPinnedSleep(sleepScreenMode, quickResumeAfterTimeout, true, false);
+  const bool onManual = drawsPinnedSleep(sleepScreenMode, quickResumeAfterTimeout, false, false);
+  if (!onTimeout && !onManual) return Reach::BlockedByMode;
+  if (!onTimeout) return Reach::BlockedByQuickResume;
+  return drawsPinnedSleep(sleepScreenMode, quickResumeAfterTimeout, true, true) ? Reach::Always
+                                                                                : Reach::OutsideReaderOnly;
+}
+
+bool saysOnSleepScreen(const bool isMarked, const Reach reach) {
+  if (!isMarked) return false;
+  return reach == Reach::Always || reach == Reach::OutsideReaderOnly;
+}
+
+const char* reachHint(const Reach reach) {
+  // Every sentence names the setting the way SETTINGS names it ("Sleep Screen",
+  // "Quick Resume on Timeout", english.yaml), because a hint that describes a
+  // setting the user then cannot find is not a hint.
+  switch (reach) {
+    case Reach::Always:
+      return nullptr;
+    case Reach::OutsideReaderOnly:
+      return "Book covers win inside a book.";
+    case Reach::BlockedByQuickResume:
+      return "Quick Resume on Timeout hides this.";
+    case Reach::BlockedByMode:
+      return "Sleep Screen is not set to Custom.";
+  }
+  return nullptr;
+}
+
+const char* sleepScreenModeName(const uint8_t sleepScreenMode) {
+  switch (sleepScreenMode) {
+    case kSleepDark:
+      return "Dark";
+    case kSleepLight:
+      return "Light";
+    case kSleepCustom:
+      return "Custom";
+    case kSleepCover:
+      return "Cover";
+    case kSleepCoverCustom:
+      return "Cover + Custom";
+    case kSleepBlank:
+      // What Settings calls it: SettingsList.h maps BLANK to STR_NONE_OPT.
+      // Naming it "Blank" would send the user hunting for a value the menu
+      // does not have.
+      return "None";
+    case kSleepQuickResume:
+      return "Quick Resume";
+    case kSleepTransparentCustom:
+      return "Transparent";
+    default:
+      return "Unknown";
+  }
+}
+
+SleepChoice choiceForSetWallpaper(const uint8_t sleepScreenMode, const bool quickResumeAfterTimeout) {
+  SleepChoice choice;
+  choice.previousMode = sleepScreenMode;
+
+  // A mode that already draws /sleep.bmp on a non-reader sleep is kept, so a
+  // deliberate COVER_CUSTOM is handed a new picture rather than replaced by
+  // one. Asked of the predicate rather than listed, so a mode upstream adds is
+  // classified by the rules and not by this function's memory of them.
+  const bool modeAlreadyShowsIt = drawsPinnedSleep(sleepScreenMode, /*quickResumeAfterTimeout=*/false,
+                                                   /*fromTimeout=*/true, /*fromReader=*/false);
+  // The cast is load-bearing under g++ -Wextra: `cond ? uint8_t : SleepScreenMode`
+  // is "enumerated and non-enumerated type in conditional expression", which is
+  // an error in CI and silent under clang (see the ci-gcc-clang-gap memory).
+  choice.sleepScreenMode = modeAlreadyShowsIt ? sleepScreenMode : static_cast<uint8_t>(kSleepCustom);
+  choice.tookOverMode = !modeAlreadyShowsIt && sleepScreenMode != kSleepCustom;
+
+  // The timeout flag always comes off. It is not a preference about sleep
+  // screens, it is a short-circuit ABOVE them: while it is on, the idle sleep
+  // -- the ordinary one -- shows the last screen and no wallpaper of any kind
+  // can appear. Leaving it on to keep wake fast is the trade the app used to
+  // make, and it cost the user the one thing they had just asked for.
+  choice.quickResumeAfterTimeout = false;
+  choice.clearedQuickResume = quickResumeAfterTimeout;
+  return choice;
+}
+
+namespace {
+// The mode-takeover half of the sentence. File-local: it is one branch of
+// stripLineAfterSelection, not an API.
+//
+// Terse on purpose. The strip resolves to toybox_14 (buildGridChrome pins
+// FONT_SLOT_SMALL) and leaves 446px for one line at the X4 Pro's bezel inset;
+// host-tests/wallcaption measures every sentence here against that.
+const char* modeTakeoverNote(const uint8_t previousMode) {
+  switch (previousMode) {
+    case kSleepDark:
+      return "Was Dark, now Custom.";
+    case kSleepLight:
+      return "Was Light, now Custom.";
+    case kSleepCover:
+      return "Was Cover, now Custom.";
+    case kSleepBlank:
+      return "Was None, now Custom.";
+    case kSleepQuickResume:
+      return "Was Quick Resume, now Custom.";
+    case kSleepTransparentCustom:
+      return "Was Transparent, now Custom.";
+    default:
+      return nullptr;
+  }
+}
+}  // namespace
+
+StripLine stripLineAfterSelection(const SleepChoice& choice, const Reach reach) {
+  StripLine line;
+  const bool caveat = reach != Reach::Always;
+
+  // The four states a tap can leave behind, each with a sentence that names
+  // EVERY fact present. There is no fall-through: a combination with no
+  // sentence would silently drop one of them, which is the defect this shape
+  // exists to make impossible.
+  //
+  // Taking over the mode always ends at CUSTOM, which has no caveat, so
+  // "mode changed" and "caveat" cannot co-occur; the loop in
+  // host-tests/wallpapers is what establishes that rather than this comment.
+  if (choice.tookOverMode) {
+    if (choice.clearedQuickResume) {
+      line.text = "Now Custom, Quick Resume off.";
+      line.saysModeChanged = true;
+      line.saysQuickResumeCleared = true;
+      return line;
+    }
+    line.text = modeTakeoverNote(choice.previousMode);
+    line.saysModeChanged = line.text != nullptr;
+    return line;
+  }
+
+  if (choice.clearedQuickResume) {
+    if (caveat) {
+      // The case the first version lost: the mode was kept because it already
+      // draws the wallpaper (COVER_CUSTOM), the quick-resume flag came off, and
+      // the caveat that a book cover still wins inside a book STILL APPLIES.
+      // Both go in the line.
+      line.text = "Quick Resume off. Book covers win.";
+      line.saysQuickResumeCleared = true;
+      line.saysCaveat = true;
+      return line;
+    }
+    line.text = "Quick Resume on Timeout turned off.";
+    line.saysQuickResumeCleared = true;
+    return line;
+  }
+
+  if (caveat) {
+    line.text = reachHint(reach);
+    line.saysCaveat = line.text != nullptr;
+    return line;
+  }
+  return line;
+}
+
+CardShape cardShapeFor(const int chosenCount) {
+  CardShape shape;
+  if (chosenCount <= 0) return shape;
+  if (chosenCount == 1) {
+    shape.pinned = true;
+    return shape;
+  }
+  shape.shuffled = true;
+  shape.files = chosenCount;
+  return shape;
+}
+
+ShuffleLine shuffleStripLine(const bool choosing, const int chosenCount, const bool shadowedSet, const Reach reach) {
+  ShuffleLine line;
+
+  // Nothing chosen and nothing hidden: there is nothing for a caveat to be
+  // ABOUT. Telling someone on a fresh device that Sleep Screen is not set to
+  // Custom, before they have picked anything and while their first pick is
+  // about to set it, displaces the one sentence that says what to do. Same rule
+  // the single-pin path has always had (currentSleepNote returns nothing when
+  // nothing is pinned).
+  const bool somethingToSpeakFor = chosenCount > 0 || shadowedSet;
+
+  // Otherwise the settings caveat wins the line outright: one 30px strip, and a
+  // sentence about which of the user's pictures appear is worth nothing on a
+  // device where none of them can.
+  if (somethingToSpeakFor && reach != Reach::Always) {
+    line.text = reachHint(reach);
+    line.saysCaveat = line.text != nullptr;
+    return line;
+  }
+
+  // Then the card's own contradiction. Said before any count, because the count
+  // would be a lie while it holds: the files are there and none of them shows.
+  if (shadowedSet) {
+    line.text = "One wallpaper is hiding a set.";
+    line.saysShadow = true;
+    return line;
+  }
+
+  if (choosing) {
+    // Naming the OTHER half of the gesture matters more than the count, which
+    // the header carries: a mode whose taps toggle is a mode whose taps must be
+    // seen to un-toggle, or the first mistap reads as a set you cannot escape.
+    if (chosenCount <= 0) {
+      line.text = "Tap wallpapers to build a set.";
+      return line;
+    }
+    // The count is HERE rather than in the band, and the render is why: the
+    // header holds the app name, the chip and one label, and at the display cut
+    // the third of those cut "WALLPAPERS" to "WALLPAPE...". The strip has the
+    // room and the count has to be somewhere -- four tiles fit a page and the
+    // library is six pages, so the marks alone cannot say how many are chosen.
+    if (chosenCount == 1) {
+      line.text = "chosen. Pick another.";
+      line.wantsCount = true;
+      return line;
+    }
+    line.text = "chosen. Tap again to remove.";
+    line.wantsCount = true;
+    return line;
+  }
+
+  // Not choosing. Only a real set is worth a line -- one pinned wallpaper is
+  // what reachHint and stripLineAfterSelection already speak for.
+  //
+  // "Take turns", never "shuffle" or "random", and the word is load-bearing.
+  // selectRandomSleepFile excludes the last `min(recentFill, N-1)` images, and
+  // recentFill climbs to 16 and never resets, so for any set up to seventeen
+  // every member but one is excluded and the order is a strict cycle. A two-set
+  // alternates. Calling that shuffling would be a promise the platform does not
+  // keep.
+  if (chosenCount >= 2) {
+    line.text = "take turns. Tap to change.";
+    line.wantsCount = true;
+    return line;
+  }
+  return line;
+}
+
+bool sameFileName(const std::string_view a, const std::string_view b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i]))) return false;
+  }
+  return true;
+}
+
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes) {
   if (!queryOk) return Room::Unknown;
   return freeBytes >= floorBytes ? Room::Ok : Room::TooFull;

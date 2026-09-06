@@ -8,6 +8,7 @@
 // stable and the screens change every time Mario asks for something. Two real
 // bugs this file would have caught the day they were written are pinned below.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -30,6 +31,7 @@
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
+#include "../../src/apps_local/picross/PicrossScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
@@ -43,6 +45,7 @@
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/ToyboxWrappedText.h"
+#include "../../src/apps_local/wallpapers/WallpapersCore.h"
 #include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
@@ -112,6 +115,19 @@ class FakeTarget final : public fui::DrawTarget {
     fui::Color color;
   };
   std::vector<Triangle> triangles;
+
+  // Strokes drawn as LINES, which this target used to throw away. A mark made
+  // of lines was therefore invisible to every test: picross draws the player's
+  // X and the game's mistake asterisk this way, so "is a mistake still a solid
+  // black cell?" and "do the two marks differ?" were questions no assertion
+  // could reach, only a screenshot. Recording them costs a vector and turns
+  // both into checks.
+  struct Segment {
+    fui::Point a, b;
+    uint8_t width;
+    fui::Color color;
+  };
+  std::vector<Segment> lines;
 
   // A fixed cell, but not a fixed LINE. A layout that reserves a constant
   // number of pixels for wrapped text is correct at one metric and wrong at
@@ -191,7 +207,9 @@ class FakeTarget final : public fui::DrawTarget {
               const uint8_t = 0xFF) override {
     if (paint.kind != fui::PaintKind::None) strokes.push_back(Stroke{rect, width});
   }
-  void line(const fui::Point, const fui::Point, const uint8_t, const fui::Paint) override {}
+  void line(const fui::Point a, const fui::Point b, const uint8_t width, const fui::Paint paint) override {
+    if (paint.kind != fui::PaintKind::None) lines.push_back(Segment{a, b, width, paint.color});
+  }
   void triangle(const fui::Point a, const fui::Point b, const fui::Point c, const fui::Paint paint) override {
     triangles.push_back(Triangle{a, b, c, paint.color});
   }
@@ -5726,9 +5744,11 @@ void testTheSettledBoardStaysAndWearsItsVerdict() {
 }
 
 void testTheHowToPagesAndEndsOnGotIt() {
-  // Four pages now: the win condition (flags are notes, none are needed) got
-  // a page of its own in the art pass.
-  CHECK(mineui::howToPages() == 4);
+  // Five pages now: the win condition (flags are notes, none are needed) got
+  // a page of its own in the art pass, and the chord got the fifth -- a move
+  // that cannot be discovered by tapping, because the cell it wants is one the
+  // player has learnt is spent.
+  CHECK(mineui::howToPages() == 5);
   for (int page = 0; page < mineui::howToPages(); ++page) {
     mineui::HowToModel model;
     model.page = page;
@@ -5740,6 +5760,33 @@ void testTheHowToPagesAndEndsOnGotIt() {
     char progress[16];
     std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, mineui::howToPages());
     CHECK(out.target.drew(progress));
+
+    // The lesson fits the box it is drawn into, measured with the LINE CAP
+    // LIFTED. buildHowTo hands the sentence a flat 150px rect at maxLines 4, so
+    // a wording needing five lines is clipped and ellipsized -- and above the
+    // 10px cut the Toybox faces carry NO ellipsis glyph, so the overrun draws
+    // as nothing at all and the screenshot still looks fine.
+    //
+    // **What this can and cannot catch.** The fake target answers a flat width
+    // per character, far narrower than the real Jersey cut: all five of these
+    // lines measure 40-60px against the 150px box, so the check has enormous
+    // slack and would only fail on a runaway string. It is a floor, not the
+    // margin. The marginal case is not measured here at all -- it is avoided,
+    // by keeping every lesson line shorter than one already shipping and
+    // rendering correctly. Measuring it properly needs the real cuts, which is
+    // what host-tests/tilefit does for Connections and what this suite cannot.
+    //
+    // The lesson is identified by its box, the only 150px-tall text rect on the
+    // screen, and a page where that box is not found FAILS rather than
+    // skipping: a layout change must break this test, not silence it.
+    const FakeTarget::TextRun* lesson = nullptr;
+    for (const auto& run : out.target.texts) {
+      if (run.rect.height == 150) lesson = &run;
+    }
+    CHECK(lesson != nullptr);
+    if (lesson != nullptr) {
+      CHECK(lesson->rect.height >= uncappedWrappedHeight(out.target, *lesson));
+    }
   }
 }
 
@@ -9966,6 +10013,282 @@ void testTheHeaderBandBottomIgnoresTheBezel() {
   }
 }
 
+// --- the BODY under the bezel -----------------------------------------------
+//
+// The band absorbs the glass. The body must not absorb it a second time.
+//
+// toybox::kHeaderHeight, kChromeHeight and kBodyTop are ABSOLUTE panel rows:
+// headerBand() calls absoluteChrome() before it takes the band, so the band
+// paints from row 0 and its bottom edge lands at kHeaderHeight whatever the
+// bezel hides -- testTheBandIsAbsoluteWithoutBeingAsked above pins exactly
+// that. The ten covered rows are therefore already inside the band's paint,
+// and a screen that adds safeArea.top to a chrome-derived top pushes its body
+// ten pixels below every other app's and buys nothing.
+//
+// xkcd and Wallpapers did, for as long as both apps had existed, and the
+// comment above each constant claimed it lined up with the shelf. NOTHING
+// here could see it: every other test in this file builds against device(),
+// whose safeArea is empty, and twice nothing is nothing. That absent coverage
+// is the defect card 358 was really about, so the checks come in two parts:
+// the alignment (all four apps on one row) and the rule that keeps it (the
+// glass may not move a body top), the second of which a screen written
+// tomorrow cannot pass by accident.
+
+// Every row a screen's own content occupies: the y of everything drawn at or
+// below kChromeHeight, which is where headerBand()'s ownership ends.
+//
+// The WHOLE list, sorted, not just the topmost. Comparing only the first row
+// would pass a screen whose first element is absolute and whose later ones add
+// safe.y -- and half a screen compensating is exactly the shape this fork keeps
+// shipping (see the two-input-paths notes). Sorted rather than positional
+// because draw order is not layout order.
+//
+// Rects rather than ink bands on purpose. toybox::inkCentred() expands a text
+// rect around its cut, so a recorded rect can start above the band it was laid
+// into -- xkcd's menu headline draws at y=102 for a band at 112. That expansion
+// is identical in both contexts, so it cancels in a comparison and would only
+// mislead an absolute assertion. The absolute row is asserted from the exported
+// geometry instead, in testEveryAppsBodyStartsOnTheSameRow.
+std::vector<int> bodyRows(const FakeTarget& target) {
+  std::vector<int> rows;
+  for (const FakeTarget::TextRun& run : target.texts) {
+    if (run.rect.y >= toybox::kChromeHeight) rows.push_back(run.rect.y);
+  }
+  for (const fui::Rect& r : target.fills) {
+    if (r.y >= toybox::kChromeHeight) rows.push_back(r.y);
+  }
+  for (const FakeTarget::Stroke& st : target.strokes) {
+    if (st.rect.y >= toybox::kChromeHeight) rows.push_back(st.rect.y);
+  }
+  for (const FakeTarget::Blit& b : target.blits) {
+    if (b.rect.y >= toybox::kChromeHeight) rows.push_back(b.rect.y);
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void render(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The rule: rendered twice, once on a bare frame and once behind the glass,
+// every body row lands in the same place. Nothing about the app's own gutter is
+// assumed, which is what lets a screen nobody has written yet be added here in
+// two lines.
+//
+// The emptiness check is not ceremony. Comparing two renders that drew NOTHING
+// below the chrome compares two empty lists and passes, so a model that fails
+// to produce a body -- a wrong fixture, a builder that early-returns -- would
+// report this rule as satisfied. That is the failure mode a guard has when its
+// subject is absent, and it is the one this suite has been bitten by before.
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void checkTheGlassDoesNotMoveTheBody(const Model& model, const char* what) {
+  Rendered bare;
+  render<Model, Build>(bare, model);
+  Rendered glassed;
+  renderWithBezel<Model, Build>(glassed, model);
+  const std::vector<int> bareRows = bodyRows(bare.target);
+  const std::vector<int> glassedRows = bodyRows(glassed.target);
+  check(!bareRows.empty(), what, __LINE__);
+  check(bareRows == glassedRows, what, __LINE__);
+}
+
+void testTheGlassNeverMovesABodyTop() {
+  fui::ListItem rows[3] = {};
+  rows[0].label = "First";
+  rows[1].label = "Second";
+  rows[2].label = "Third";
+
+  {
+    shelfui::MenuModel model;
+    model.title = "GAMES";
+    model.items = rows;
+    model.count = 3;
+    checkTheGlassDoesNotMoveTheBody<shelfui::MenuModel, shelfui::buildMenu>(
+        model, "shelf folder: the glass does not move the body");
+  }
+  {
+    hnui::ListModel model;
+    model.items = rows;
+    model.count = 3;
+    checkTheGlassDoesNotMoveTheBody<hnui::ListModel, hnui::buildList>(
+        model, "hacker news list: the glass does not move the body");
+  }
+  {
+    xkcdui::ListModel model;
+    model.items = rows;
+    model.count = 3;
+    checkTheGlassDoesNotMoveTheBody<xkcdui::ListModel, xkcdui::buildList>(
+        model, "xkcd list: the glass does not move the body");
+  }
+  {
+    // The front door, whose headline is the one run inkCentred() expands.
+    xkcdui::MenuModel model;
+    checkTheGlassDoesNotMoveTheBody<xkcdui::MenuModel, xkcdui::buildMenu>(
+        model, "xkcd menu: the glass does not move the body");
+  }
+  {
+    xkcdui::NumberModel model;
+    model.typed = "12";
+    model.firstNum = 1;
+    model.maxNum = 3281;
+    checkTheGlassDoesNotMoveTheBody<xkcdui::NumberModel, xkcdui::buildNumber>(
+        model, "xkcd number pad: the glass does not move the body");
+  }
+  {
+    wallpapersui::GridChromeModel model;
+    model.title = "WALLPAPERS";
+    model.warning = "Card is nearly full";
+    checkTheGlassDoesNotMoveTheBody<wallpapersui::GridChromeModel, wallpapersui::buildGridChrome>(
+        model, "wallpapers grid: the glass does not move the body");
+  }
+  // Card 365's two screens, added to card 358's guard rather than left outside
+  // it. The grid above was the only wallpapers screen listed, and these two
+  // reach the panel by a different route (a hold, not a tap), so a clean run of
+  // the list above said nothing at all about them -- which is exactly how the
+  // ten-pixel drop survived in this app while twenty others were right.
+  {
+    wallpapersui::SheetModel model;
+    model.name = "Holiday In Lisbon";
+    checkTheGlassDoesNotMoveTheBody<wallpapersui::SheetModel, wallpapersui::buildSheet>(
+        model, "wallpapers hold sheet: the glass does not move the body");
+  }
+  {
+    wallpapersui::ConfirmModel model;
+    model.name = "Holiday In Lisbon";
+    model.consequence = "Your own wallpaper. The card holds the only copy, so this cannot be undone.";
+    checkTheGlassDoesNotMoveTheBody<wallpapersui::ConfirmModel, wallpapersui::buildConfirm>(
+        model, "wallpapers delete confirm: the glass does not move the body");
+  }
+}
+
+// Moving a body top moves everything under it, and this fork has already
+// shipped a box nudged to satisfy one rule that landed on its neighbour. So:
+// what did card 358 land on?
+//
+// Wallpapers is the screen that pays. Its grid is height-constrained between
+// the hint strip and the page dots, so the fourteen pixels the fix gave back
+// to the top come out of the THUMBNAILS, not off the bottom -- gridGeom()
+// re-fits the cells into whatever height is left, which is also why a
+// collision assertion here would be untestable: the cells shrink toward 1px
+// rather than ever overlapping the dots. Verified by inflating kBodyTop by
+// 300 and watching six other suites go red while a collision check stayed
+// green.
+//
+// A floor on the cell is therefore the assertion that can actually fail. The
+// measured size behind the glass is 150x249 after the fix, down from 154x256 --
+// BOTH axes, because the cell is height-bound here and the width follows the
+// aspect, so the thumbnails lost about 5.2% of their area.
+//
+// WHAT THIS DOES NOT CATCH, so nobody reads it as more than it is: the floor
+// trips at roughly +28px of body top on height and +44px on width, so it would
+// stay GREEN if this very bug were reintroduced -- a ten-pixel push leaves the
+// cell at 145x241, comfortably inside it. It is a gross-degradation guard, not
+// a guard on this card's defect; testTheGlassNeverMovesABodyTop and
+// testEveryAppsBodyStartsOnTheSameRow are what catch that, exactly. Set from
+// the measured size minus a little slack rather than tight against it, because
+// a floor that trips on any legitimate re-tuning gets deleted rather than
+// heeded.
+void testTheWallpapersThumbnailsStayBigEnoughToRead() {
+  for (const fui::DeviceContext& ctx : {device(), bezelDevice()}) {
+    const wallpapersui::GridGeom g = wallpapersui::gridGeom(ctx);
+    CHECK(g.cellW >= 140);
+    CHECK(g.cellH >= 240);
+    // And the first row still starts under the hint strip rather than in it.
+    CHECK(wallpapersui::cellRect(g, 0).y >= toybox::kBodyTop + 30);
+    // The bottom seam, for completeness: the last caption is above the dots.
+    CHECK(wallpapersui::captionRect(g, g.perPage - 1).bottom() <= g.pageDotsY);
+  }
+}
+
+// The two paths to a body top, pinned to each other.
+//
+// A screen holding a Screen& gets its body from headerBand()'s reservation
+// plus insetContent(); a geometry function an Activity shares with its builder
+// has no Screen and reaches for toybox::kBodyTop instead. Those are two
+// expressions of one fact, and card 248 is the proof they drift: it moved the
+// reservation from the band alone to band + gap + rule, and any kBodyTop
+// written as its own sum of kHeaderHeight and three gutters would have kept the
+// old number while every component-laid screen moved seven pixels down. Nothing
+// would have gone red -- both paths are internally consistent, they just stop
+// agreeing with each other.
+//
+// So kBodyTop is DERIVED (bodyTopBelow -> chromeBelow), and this asserts the
+// derivation against what the component path actually produces. Change either
+// side alone and this is what fails.
+void testTheHandRolledBodyTopMatchesTheReservedOne() {
+  for (const fui::DeviceContext& ctx : {device(), bezelDevice()}) {
+    Rendered out;
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    fui::HeaderProps props;
+    props.title = "TITLE";
+    toybox::headerBand(screen, props);
+    screen.insetContent(fui::Insets{toybox::kBodyGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+    CHECK(screen.body().y == toybox::kBodyTop);
+  }
+  // And the derivation is the reservation's, not a second sum that happens to
+  // agree today: kBodyTop must track a band height it was not written against.
+  // 56 is Solitaire's landscape band (solitaireui::kHeaderBand), the one real
+  // case where kHeaderHeight is not the band height.
+  CHECK(toybox::bodyTopBelow(toybox::kHeaderHeight) == toybox::kBodyTop);
+  CHECK(toybox::bodyTopBelow(56) == toybox::chromeBelow(56) + toybox::kBodyGutter);
+  CHECK(toybox::bodyTopBelow(56) != toybox::kBodyTop);
+
+  // A REAL screen, not just the synthetic chrome above. The assertions so far
+  // drive headerBand() directly; this drives one of the ~41 app screens that
+  // reach insetContent({kBodyGutter, ...}) through their own chrome() helper,
+  // and reads where its first component-laid element actually landed.
+  //
+  // Without this the suite measures screen.body().y in exactly two places, both
+  // against kHeaderHeight, and no app screen's component-laid body top is
+  // measured anywhere -- so the two halves of the fork's layout could disagree
+  // with nothing to say so. takeTop() returns a rect at content_.y and consumes
+  // the gap AFTER it, so the first one is the body top exactly, and this run is
+  // drawn from a raw rect with no inkCentred() expansion.
+  for (const fui::DeviceContext& ctx : {device(), bezelDevice()}) {
+    wallpapersui::EmptyModel empty;
+    empty.title = "WALLPAPERS";
+    empty.warning = nullptr;
+    Rendered out;
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wallpapersui::buildEmpty(screen, empty);
+    const FakeTarget::TextRun* headline = out.target.find("NO WALLPAPERS");
+    CHECK(headline != nullptr);
+    if (headline != nullptr) CHECK(headline->rect.y == toybox::kBodyTop);
+  }
+}
+
+// And the alignment itself, from the geometry the Activities share rather than
+// from a render, so the number is the one the paging arithmetic uses too.
+// Asserted BEHIND THE GLASS: on a bare frame these agreed all along, which is
+// the whole reason the misalignment shipped.
+void testEveryAppsBodyStartsOnTheSameRow() {
+  const fui::DeviceContext glass = bezelDevice();
+  CHECK(shelfui::listBand(glass, true, false).y == toybox::kBodyTop);
+  CHECK(hnui::listBand(glass).y == toybox::kBodyTop);
+  CHECK(xkcdui::listBand(glass).y == toybox::kBodyTop);
+
+  // Wallpapers has no exported body rect -- its hint strip IS the top of its
+  // body, and the grid hangs a fixed distance below it -- so this one is read
+  // off the render. The warning is drawn into the hint rect unexpanded.
+  wallpapersui::GridChromeModel model;
+  model.title = "WALLPAPERS";
+  model.warning = "Card is nearly full";
+  Rendered out;
+  renderWithBezel<wallpapersui::GridChromeModel, wallpapersui::buildGridChrome>(out, model);
+  const FakeTarget::TextRun* hint = out.target.find("Card is nearly full");
+  CHECK(hint != nullptr);
+  if (hint != nullptr) CHECK(hint->rect.y == toybox::kBodyTop);
+}
+
 // The ink rule again, for the labels apps draw on the band THEMSELVES.
 //
 // The header component centres each run on its own line box, so an app whose
@@ -9994,6 +10317,218 @@ void testAHandDrawnRightLabelSitsOnTheTitlesLine() {
     const int titleMid = titleInk.y + titleInk.height / 2;
     const int labelMid = labelInk.y + labelInk.height / 2;
     CHECK(titleMid - labelMid <= 2 && labelMid - titleMid <= 2);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Picross. A grid too big for the interaction buffer (a 10x10 is a hundred
+// cells against twenty-four slots), hit-tested through its Layout, plus a mode
+// capsule and a picker that must not spoil an unsolved picture.
+// ---------------------------------------------------------------------------
+
+void buildPicrossBoard(Rendered& out, const picrossui::BoardModel& model, picrossui::Layout& layout) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  picrossui::buildBoard(screen, model, layout);
+}
+
+void buildPicrossMenu(Rendered& out, const picrossui::MenuModel& model, picrossui::PickerLayout& layout) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  picrossui::buildMenu(screen, model, layout);
+}
+
+void buildPicrossWin(Rendered& out, const picrossui::WinModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  picrossui::buildWin(screen, model);
+}
+
+// A mid-game board: two correct fills, one locked mistake, one annotation.
+picross::Board picrossMidGame() {
+  picross::Board board;
+  board.load(0);
+  int filled = 0;
+  for (int r = 0; r < board.size() && filled < 2; ++r)
+    for (int c = 0; c < board.size() && filled < 2; ++c)
+      if (board.solid(r, c)) {
+        board.fill(r, c);
+        ++filled;
+      }
+  for (int r = 0; r < board.size(); ++r)
+    for (int c = 0; c < board.size(); ++c)
+      if (!board.solid(r, c)) {
+        board.fill(r, c);
+        goto marked;
+      }  // one wrong fill -> mistake
+marked:
+  for (int r = 0; r < board.size(); ++r)
+    for (int c = 0; c < board.size(); ++c)
+      if (!board.solid(r, c) && board.cell(r, c) == picross::Cell::Blank) {
+        board.mark(r, c);
+        return board;
+      }
+  return board;
+}
+
+// Where a cell of the drawn board is.
+fui::Rect picrossCellRect(const picrossui::Layout& layout, const int row, const int col) {
+  return fui::makeRect(static_cast<int16_t>(layout.board.x + col * layout.cell),
+                       static_cast<int16_t>(layout.board.y + row * layout.cell), layout.cell, layout.cell);
+}
+
+// Was any solid fill painted over the middle of this cell? The grid paints the
+// whole board white first, so "a fill somewhere near" is not the question --
+// the question is whether a BLACK fill covers the cell's centre, which is what
+// a filled picture cell is and what a mistake used to be.
+bool picrossCellIsInked(const Rendered& out, const fui::Rect& cell) {
+  const int cx = cell.x + cell.width / 2;
+  const int cy = cell.y + cell.height / 2;
+  for (std::size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& r = out.target.fills[i];
+    if (out.target.fillPaints[i].color != fui::Color::Black) continue;
+    if (cx >= r.x && cx < r.right() && cy >= r.y && cy < r.bottom()) return true;
+  }
+  return false;
+}
+
+// The line segments whose midpoint lands in this cell.
+std::vector<FakeTarget::Segment> picrossMarksIn(const Rendered& out, const fui::Rect& cell) {
+  std::vector<FakeTarget::Segment> found;
+  for (const FakeTarget::Segment& seg : out.target.lines) {
+    const int mx = (seg.a.x + seg.b.x) / 2;
+    const int my = (seg.a.y + seg.b.y) / 2;
+    if (mx >= cell.x && mx < cell.right() && my >= cell.y && my < cell.bottom()) found.push_back(seg);
+  }
+  return found;
+}
+
+bool allDigits(const std::string& s) {
+  if (s.empty()) return false;
+  for (const char ch : s)
+    if (ch < '0' || ch > '9') return false;
+  return true;
+}
+
+// The whole grid is one target, so every one of a hundred cells does not land in
+// a twenty-four slot buffer. The direct assertion is that a full-panel sweep
+// reaches only the handful of real controls, and the grid through its Layout.
+void testPicrossBoardSpendsFewInteractions() {
+  picross::Board board = picrossMidGame();
+  Rendered out;
+  picrossui::BoardModel model;
+  model.board = &board;
+  model.mode = picrossui::ModeFill;
+  model.solvedCount = 0;
+  model.total = picross::kPuzzleCount;
+  picrossui::Layout layout;
+  buildPicrossBoard(out, model, layout);
+
+  std::vector<int> actions;
+  bool sawFill = false, sawMark = false, sawRestart = false, sawPuzzles = false, sawBoard = false;
+  for (int y = 2; y < 800; y += 7) {
+    for (int x = 2; x < 480; x += 7) {
+      const fui::ActionEvent e = out.tap(x, y);
+      if (e.action == fui::NO_ACTION) continue;
+      bool seen = false;
+      for (const int a : actions) seen = seen || a == static_cast<int>(e.action);
+      if (!seen) actions.push_back(static_cast<int>(e.action));
+      if (e.action == picrossui::ActionBoard) sawBoard = true;
+      if (e.action == picrossui::ActionMode && e.value == picrossui::ModeFill) sawFill = true;
+      if (e.action == picrossui::ActionMode && e.value == picrossui::ModeMark) sawMark = true;
+      if (e.action == picrossui::ActionButton && e.value == picrossui::ButtonRestart) sawRestart = true;
+      if (e.action == picrossui::ActionButton && e.value == picrossui::ButtonPuzzles) sawPuzzles = true;
+    }
+  }
+  // Only the real controls answer, and the grid is one of them (not a hundred).
+  CHECK(actions.size() <= 4);
+  CHECK(sawBoard);
+  CHECK(sawFill && sawMark);  // both halves of the mode capsule report their mode
+  CHECK(sawRestart && sawPuzzles);
+}
+
+// The pair has to be an exact inverse over the board it actually drew: a rect the
+// hit test misses is a dead cell, and a point it claims outside a cell's rect is
+// a tap that lands where the finger did not.
+void testPicrossGridHitTestIsExactInverse() {
+  picross::Board board = picrossMidGame();
+  Rendered out;
+  picrossui::BoardModel model;
+  model.board = &board;
+  picrossui::Layout layout;
+  buildPicrossBoard(out, model, layout);
+
+  const int n = layout.size;
+  bool everyPixelMapsHome = true;
+  bool everyClaimIsInsideItsRect = true;
+  for (int r = 0; r < n; ++r) {
+    for (int c = 0; c < n; ++c) {
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(layout.board.x + c * layout.cell),
+                        static_cast<int16_t>(layout.board.y + r * layout.cell), layout.cell, layout.cell);
+      for (int y = box.y; y < box.bottom(); ++y) {
+        for (int x = box.x; x < box.right(); ++x) {
+          int gotR = -1, gotC = -1;
+          if (!layout.cellAt(x, y, gotR, gotC) || gotR != r || gotC != c) everyPixelMapsHome = false;
+        }
+      }
+    }
+  }
+  for (int y = layout.board.y; y < layout.board.bottom(); ++y) {
+    for (int x = layout.board.x; x < layout.board.right(); ++x) {
+      int gotR = -1, gotC = -1;
+      if (!layout.cellAt(x, y, gotR, gotC)) continue;
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(layout.board.x + gotC * layout.cell),
+                        static_cast<int16_t>(layout.board.y + gotR * layout.cell), layout.cell, layout.cell);
+      if (x < box.x || x >= box.right() || y < box.y || y >= box.bottom()) everyClaimIsInsideItsRect = false;
+    }
+  }
+  CHECK(everyPixelMapsHome);
+  CHECK(everyClaimIsInsideItsRect);
+
+  // It claims nothing in the header band or the clue gutters.
+  int rr = -1, cc = -1;
+  CHECK(!layout.cellAt(240, 40, rr, cc));
+  CHECK(!layout.cellAt(layout.board.x - 4, layout.board.y + 4, rr, cc));
+}
+
+// Every clue number is drawn -- the fittedtitle/fmtwidth lesson: a clue elided
+// for want of gutter is a puzzle that cannot be solved. Count the digit-only
+// runs and match the clue total the board must show.
+void testPicrossDrawsEveryClue() {
+  // Spread across the bank rather than one puzzle: the gutter is sized from the
+  // BUSIEST clue line, so a puzzle with more runs than the one that was checked
+  // is where a clue gets elided.
+  for (const int idx : {0, picross::kPuzzleCount / 2, picross::kPuzzleCount - 1}) {
+    picross::Board board;
+    board.load(idx);
+    Rendered out;
+    picrossui::BoardModel model;
+    model.board = &board;
+    picrossui::Layout layout;
+    buildPicrossBoard(out, model, layout);
+
+    uint8_t buf[picross::kMaxSize];
+    int expected = 0;
+    for (int r = 0; r < board.size(); ++r) {
+      const int k = board.rowClues(r, buf);
+      expected += k == 0 ? 1 : k;
+    }
+    for (int c = 0; c < board.size(); ++c) {
+      const int k = board.colClues(c, buf);
+      expected += k == 0 ? 1 : k;
+    }
+    int drawn = 0;
+    for (const FakeTarget::TextRun& run : out.target.texts)
+      if (allDigits(run.text)) ++drawn;
+    CHECK(drawn == expected);
   }
 }
 
@@ -10044,6 +10579,762 @@ void testWallpapersCellsStayOnScreen() {
     CHECK(c.right() <= dev.width);
     CHECK(c.bottom() <= dev.height);
   }
+}
+
+// The picker must never show an unsolved puzzle's name -- the picture is the
+// reward, and its name gives it away. With nothing solved, no name is drawn.
+void testPicrossPickerHidesUnsolvedNames() {
+  picross::Progress progress;  // nothing solved
+  Rendered out;
+  picrossui::MenuModel model;
+  model.progress = &progress;
+  model.selectedIndex = 0;
+  model.inProgressIndex = -1;
+  model.solvedCount = 0;
+  model.total = picross::kPuzzleCount;
+  picrossui::PickerLayout layout;
+  buildPicrossMenu(out, model, layout);
+
+  CHECK(out.target.drew("PICROSS"));
+  CHECK(out.target.drew("PLAY"));
+  // Nothing on this screen is a NAME. Asserted as an ALLOW-LIST -- every run is
+  // chrome, a button, a counter, a tile number or a size tab -- rather than as
+  // "none of the bank's names was drawn". The bank ships every puzzle titled
+  // now, so a sweep over kPuzzles[i].name would be a real check; it would also
+  // pass the moment a title happened not to be drawn for some other reason.
+  // Naming what the screen IS allowed to say catches an unexpected string
+  // whatever its source.
+  std::vector<std::string> tabLabels;
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    char label[16];
+    std::snprintf(label, sizeof(label), "%dx%d", picross::kPuzzles[p].size, picross::kPuzzles[p].size);
+    bool seen = false;
+    for (const std::string& l : tabLabels) seen = seen || l == label;
+    if (!seen) tabLabels.push_back(label);
+  }
+  for (const FakeTarget::TextRun& run : out.target.texts) {
+    if (run.text == "PICROSS" || run.text == "PLAY" || run.text == "RESUME") continue;
+    if (run.text.find('/') != std::string::npos) continue;  // the n/total counter
+    if (allDigits(run.text)) continue;                      // a tile's number
+    bool isTab = false;
+    for (const std::string& l : tabLabels) isTab = isTab || l == run.text;
+    if (isTab) continue;  // a size tab
+    std::printf("  the picker drew %s, which is neither chrome, a number nor a size tab\n", run.text.c_str());
+    CHECK(false);
+  }
+
+  // The picker registers one target for the whole grid and resolves the tile
+  // through the layout, so a full sweep reaches ActionPick and the PLAY button.
+  bool sawPick = false;
+  for (int y = 2; y < 800; y += 9)
+    for (int x = 2; x < 480; x += 9)
+      if (out.tap(x, y).action == picrossui::ActionPick) sawPick = true;
+  CHECK(sawPick);
+  CHECK(layout.indexAt(layout.grid.x + 2, layout.grid.y + 2) == 0);
+}
+
+// The picker pages WITHIN the size group on screen, and every tile hit-tests
+// back to its own GLOBAL puzzle index through the layout. A tap-resolution bug
+// here opens the wrong puzzle, which the sim cannot catch (it never runs
+// InputManager).
+void testPicrossPickerPagesTheWholeBank() {
+  picross::Progress progress;
+
+  // Page 0 starts at puzzle 0, and the centre of every drawn tile resolves to
+  // its own index -- an exact inverse.
+  int perPage = 0;
+  {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.page = 0;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    CHECK(layout.firstIndex == 0);
+    CHECK(layout.cols == 4);
+    CHECK(layout.count > 0);
+    perPage = layout.cols * layout.rows;
+    // Derived, never pinned to a literal: the tiles per page follow the panel
+    // (gridGeom), and the sixteen this used to assert was the number that fitted
+    // UNDER a 60px size-tab band. Removing the band changed it, and a literal
+    // here would have made a correct layout look like a regression.
+    CHECK(layout.count == perPage || layout.pageCount == 1);
+    const int pitch = layout.cell + layout.gap;
+    for (int k = 0; k < layout.count; ++k) {
+      const int r = k / layout.cols;
+      const int c = k % layout.cols;
+      const int cx = layout.grid.x + c * pitch + layout.cell / 2;
+      const int cy = layout.grid.y + r * pitch + layout.cell / 2;
+      CHECK(layout.indexAt(cx, cy) == k);
+    }
+    // The pages cover THIS TIER exactly, with none past the last page (which
+    // would be unreachable and silent). The tier is the first run in the bank,
+    // derived here rather than written down.
+    int tier0 = 0;
+    while (tier0 < picross::kPuzzleCount && picross::kPuzzles[tier0].size == picross::kPuzzles[0].size) ++tier0;
+    CHECK(layout.pageCount * perPage >= tier0);
+    CHECK((layout.pageCount - 1) * perPage < tier0);
+  }
+
+  // The LAST page starts where the arithmetic says and holds the remainder --
+  // the off-by-one that leaves the final puzzles unreachable lives here.
+  {
+    Rendered probe;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(probe, model, layout);
+    const int last = layout.pageCount - 1;
+
+    Rendered out;
+    model.page = last;
+    picrossui::PickerLayout tail;
+    buildPicrossMenu(out, model, tail);
+    int tier0 = 0;
+    while (tier0 < picross::kPuzzleCount && picross::kPuzzles[tier0].size == picross::kPuzzles[0].size) ++tier0;
+    CHECK(tail.pageOnScreen == last);
+    CHECK(tail.firstIndex == last * perPage);
+    CHECK(tail.firstIndex + tail.count == tier0);
+    CHECK(tail.indexAt(tail.grid.x + 2, tail.grid.y + 2) == tail.firstIndex);
+  }
+
+  // A page past the end is CLAMPED to a real page rather than drawing an empty
+  // grid: the side keys and a stale saved page both hand it out-of-range values.
+  {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.page = 9999;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    CHECK(layout.count > 0);
+    CHECK(layout.pageOnScreen == layout.pageCount - 1);
+  }
+
+  // followSelection opens on the page holding the selection, whatever `page`
+  // says. This is how the picker lands on the resumable puzzle, and the
+  // activity deliberately does NOT compute the page itself -- it used to divide
+  // by a literal 16 that stopped being the page size the moment the tabs went.
+  {
+    const int target = picross::kPuzzleCount - 1;
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.selectedIndex = target;
+    model.page = 0;
+    model.followSelection = true;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    // followSelection resolves the TAB as well as the page, so the last puzzle
+    // in the bank is on screen even though it lives in the last tier. This is
+    // the whole reason the activity does not compute either number.
+    CHECK(layout.firstIndex <= target);
+    CHECK(target < layout.firstIndex + layout.count);
+    CHECK(layout.tabOnScreen == layout.tabCount - 1);
+  }
+}
+
+// EVERY SIZE TAB IS DRAWN AND EVERY ONE ANSWERS A TAP, and between them they
+// reach every puzzle in the bank.
+//
+// This is the check that would have caught the bug this picker's group array
+// was written against: the slots were a literal 4 with a `break` under them, so
+// a bank producing a fifth run lost every puzzle after it -- unreachable from
+// the tabs, drawn nowhere, logged nowhere, with nothing on the screen looking
+// wrong. The bank ships four groups today, which is exactly that boundary.
+//
+// So it does not ask "are there tabs". It sweeps for a live ActionTab rect per
+// group, then opens each one and adds up what the pages actually hold, and
+// requires the total to be the whole bank. A tab that draws but answers nothing
+// fails the first half; a tier the pages cannot reach fails the second.
+void testPicrossPickerTabsReachEveryTier() {
+  picross::Progress progress;
+
+  Rendered out;
+  picrossui::MenuModel model;
+  model.progress = &progress;
+  model.total = picross::kPuzzleCount;
+  picrossui::PickerLayout layout;
+  buildPicrossMenu(out, model, layout);
+
+  // One tab per distinct size in the bank, and the generator's count is what
+  // the picker drew.
+  CHECK(layout.tabCount == picross::kSizeGroupCount);
+
+  // Wide enough to read and to hit. Checked against the shipped constant, not a
+  // copy of the number: "10x10" measures 83px in the body cut and the tabs land
+  // at 106px, but that margin is only there while the group count is four.
+  if (layout.tabWidth < picrossui::kTabMinWidth)
+    std::printf("  a size tab is %dpx wide, under the %dpx floor\n", layout.tabWidth, picrossui::kTabMinWidth);
+  CHECK(layout.tabWidth >= picrossui::kTabMinWidth);
+
+  // A LIVE TAP TARGET FOR EVERY TAB. Swept off the real frame rather than read
+  // back from the layout, because a rect the builder recorded and the frame
+  // never registered looks identical from the layout's side -- and the picker
+  // has a fixed interaction budget that a growing bank eats into.
+  std::vector<int> tabValues;
+  for (int y = 2; y < 800; y += 3)
+    for (int x = 2; x < 480; x += 3) {
+      const fui::ActionEvent e = out.tap(x, y);
+      if (e.action != picrossui::ActionTab) continue;
+      bool seen = false;
+      for (const int v : tabValues) seen = seen || v == e.value;
+      if (!seen) tabValues.push_back(e.value);
+    }
+  if (static_cast<int>(tabValues.size()) != layout.tabCount)
+    std::printf("  %d tabs drawn but %d answer a tap\n", layout.tabCount, static_cast<int>(tabValues.size()));
+  CHECK(static_cast<int>(tabValues.size()) == layout.tabCount);
+  for (int t = 0; t < layout.tabCount; ++t) {
+    bool found = false;
+    for (const int v : tabValues) found = found || v == t;
+    if (!found) std::printf("  tab %d has no tap target\n", t);
+    CHECK(found);
+  }
+
+  // Open each tab in turn and walk its pages, adding up the tiles actually laid
+  // out. The sum is the bank or something is unreachable.
+  int reached = 0;
+  int sizesSeen = 0;
+  int previousSize = 0;
+  for (int t = 0; t < layout.tabCount; ++t) {
+    picrossui::MenuModel tabModel;
+    tabModel.progress = &progress;
+    tabModel.total = picross::kPuzzleCount;
+    tabModel.sizeTab = t;
+
+    Rendered probe;
+    picrossui::PickerLayout first;
+    buildPicrossMenu(probe, tabModel, first);
+    CHECK(first.tabOnScreen == t);
+    // The tier this tab opened on, and it must be a NEW size: two tabs landing
+    // on the same run is the shape that overflows the group slots.
+    const int size = picross::kPuzzles[first.firstIndex].size;
+    CHECK(t == 0 || size > previousSize);
+    previousSize = size;
+    ++sizesSeen;
+
+    for (int page = 0; page < first.pageCount; ++page) {
+      Rendered sheet;
+      tabModel.page = page;
+      picrossui::PickerLayout pageLayout;
+      buildPicrossMenu(sheet, tabModel, pageLayout);
+      CHECK(pageLayout.pageOnScreen == page);
+      CHECK(pageLayout.count > 0);
+      // Every tile on this page is in this tier, and resolves to itself.
+      for (int k = 0; k < pageLayout.count; ++k) {
+        const int index = pageLayout.firstIndex + k;
+        CHECK(picross::kPuzzles[index].size == size);
+      }
+      reached += pageLayout.count;
+    }
+  }
+  CHECK(sizesSeen == picross::kSizeGroupCount);
+
+  // EVERY PAGE STARTS ITS GRID AT THE SAME Y, including a short last page.
+  //
+  // The grid is centred in the body's leftover space, and centring by the rows
+  // THIS page happens to draw would float a short last page halfway down the
+  // panel while every other page sits under the tabs -- the grid would appear
+  // to jump as you page through a tier. It is centred by the full page height
+  // instead, and this is what says so.
+  {
+    int gridTop = -1;
+    for (int t = 0; t < layout.tabCount; ++t) {
+      picrossui::MenuModel m;
+      m.progress = &progress;
+      m.total = picross::kPuzzleCount;
+      m.sizeTab = t;
+      Rendered probe;
+      picrossui::PickerLayout first;
+      buildPicrossMenu(probe, m, first);
+      for (int page = 0; page < first.pageCount; ++page) {
+        m.page = page;
+        Rendered sheet;
+        picrossui::PickerLayout pl;
+        buildPicrossMenu(sheet, m, pl);
+        if (gridTop < 0) gridTop = pl.grid.y;
+        if (pl.grid.y != gridTop)
+          std::printf("  tab %d page %d starts its grid at y=%d, not %d\n", t, page, pl.grid.y, gridTop);
+        CHECK(pl.grid.y == gridTop);
+      }
+    }
+    CHECK(gridTop > 0);
+  }
+
+  if (reached != picross::kPuzzleCount)
+    std::printf("  the tabs reach %d of %d puzzles\n", reached, picross::kPuzzleCount);
+  CHECK(reached == picross::kPuzzleCount);
+
+  // THE BIGGEST TIER IS THE ONE THAT CAN OVERFLOW THE HIT TABLE, and overflow
+  // only LOGS -- toybox::reportOverflow writes a line and the screen ships with
+  // dead controls. So it is checked here, on the worst case rather than on the
+  // tab that happens to open first.
+  //
+  // The picker's budget is one rect for the whole grid, one per page dot, one
+  // per size tab and one for PLAY. The dots are the term that grows: the tabs
+  // added four rects at the same moment the bank grew from 137 puzzles to 199,
+  // and a page dot is a rect per page of the largest tier. This is the sum that
+  // silently exceeds kMaxInteractions the next time either number moves.
+  int widestTab = 0;
+  int mostPages = 0;
+  for (int t = 0; t < layout.tabCount; ++t) {
+    picrossui::MenuModel probeModel;
+    probeModel.progress = &progress;
+    probeModel.total = picross::kPuzzleCount;
+    probeModel.sizeTab = t;
+    Rendered probe;
+    picrossui::PickerLayout probeLayout;
+    buildPicrossMenu(probe, probeModel, probeLayout);
+    if (probeLayout.pageCount > mostPages) {
+      mostPages = probeLayout.pageCount;
+      widestTab = t;
+    }
+    if (probe.interactions.overflowed())
+      std::printf("  tab %d overflowed the hit table at %d pages\n", t, probeLayout.pageCount);
+    CHECK(!probe.interactions.overflowed());
+  }
+
+  // On that worst tab, every tab AND every page dot still answers a tap. A
+  // control that drew but registered no rect is invisible from the layout's
+  // side, which is exactly what overflow produces.
+  {
+    picrossui::MenuModel worstModel;
+    worstModel.progress = &progress;
+    worstModel.total = picross::kPuzzleCount;
+    worstModel.sizeTab = widestTab;
+    Rendered worst;
+    picrossui::PickerLayout worstLayout;
+    buildPicrossMenu(worst, worstModel, worstLayout);
+
+    std::vector<int> tabs;
+    std::vector<int> dots;
+    for (int y = 2; y < 800; y += 3)
+      for (int x = 2; x < 480; x += 3) {
+        const fui::ActionEvent e = worst.tap(x, y);
+        std::vector<int>* bucket = nullptr;
+        if (e.action == picrossui::ActionTab) bucket = &tabs;
+        if (e.action == picrossui::ActionPage) bucket = &dots;
+        if (bucket == nullptr) continue;
+        bool seen = false;
+        for (const int v : *bucket) seen = seen || v == e.value;
+        if (!seen) bucket->push_back(e.value);
+      }
+    if (static_cast<int>(tabs.size()) != worstLayout.tabCount)
+      std::printf("  on the %d-page tier only %d of %d tabs answer\n", worstLayout.pageCount,
+                  static_cast<int>(tabs.size()), worstLayout.tabCount);
+    CHECK(static_cast<int>(tabs.size()) == worstLayout.tabCount);
+    if (static_cast<int>(dots.size()) != worstLayout.pageCount)
+      std::printf("  on the %d-page tier only %d page dots answer\n", worstLayout.pageCount,
+                  static_cast<int>(dots.size()));
+    CHECK(static_cast<int>(dots.size()) == worstLayout.pageCount);
+  }
+}
+
+// THE SIZE IS ON THE TABS AND NOWHERE ELSE.
+//
+// The tabs say it because it is the one thing a player picks between, and each
+// carries its own solved count so the row also answers "which tier still has
+// puzzles left". Everywhere else it is still noise: it was on every tile and in
+// the board's status strip, repeating a fact the player has already chosen and
+// cannot change from there. Mario's call, and it survives the tabs coming back.
+//
+// The tab label is "10x10" and NOT "10 x 10", which is a measurement rather
+// than a preference: at four tabs the band gives each pill 106px and "10 x 10"
+// sets 103px of it, one and a half pixels of air inside a 20px corner radius.
+// Asserted here so a later session tidying the label back to the spaced form
+// gets a red test instead of a cramped row nobody looks at closely.
+void testPicrossShowsTheSizeOnlyOnTheTabs() {
+  char spaced[16];
+  std::snprintf(spaced, sizeof(spaced), "%d x %d", picross::kPuzzles[0].size, picross::kPuzzles[0].size);
+  char tight[16];
+  std::snprintf(tight, sizeof(tight), "%dx%d", picross::kPuzzles[0].size, picross::kPuzzles[0].size);
+
+  picross::Progress progress;
+  Rendered menu;
+  picrossui::MenuModel model;
+  model.progress = &progress;
+  model.total = picross::kPuzzleCount;
+  picrossui::PickerLayout layout;
+  buildPicrossMenu(menu, model, layout);
+
+  // The tab for the tier on screen says its size, in the tight form.
+  if (!menu.target.drew(tight)) std::printf("  no size tab drew %s\n", tight);
+  CHECK(menu.target.drew(tight));
+  if (menu.target.drew(spaced)) std::printf("  a size tab drew the spaced %s, which overruns its pill\n", spaced);
+  CHECK(!menu.target.drew(spaced));
+
+  // A tile still shows a number, never a size: "10x10" under every one of
+  // twenty tiles is the noise that was removed and it stays removed.
+  //
+  // THE BOUND IS ONE, NOT tabCount. Each size labels exactly ONE tab -- the
+  // sizes are distinct, which bankTiersAreReachable proves -- so `<= tabCount`
+  // left room for three tiles to put the label back and still pass. A bound
+  // loose enough to admit the thing it forbids is not a bound.
+  int tightRuns = 0;
+  for (const FakeTarget::TextRun& run : menu.target.texts)
+    if (run.text == tight) ++tightRuns;
+  if (tightRuns != 1) std::printf("  %s is drawn %d times; exactly one tab carries it\n", tight, tightRuns);
+  CHECK(tightRuns == 1);
+
+  // The picker's actions are exactly the four it has: the grid, the buttons,
+  // the page dots and the tabs. Anything else is a control nobody designed.
+  std::vector<int> actions;
+  for (int y = 2; y < 800; y += 5)
+    for (int x = 2; x < 480; x += 5) {
+      const fui::ActionEvent e = menu.tap(x, y);
+      if (e.action == fui::NO_ACTION) continue;
+      bool seen = false;
+      for (const int a : actions) seen = seen || a == static_cast<int>(e.action);
+      if (!seen) actions.push_back(static_cast<int>(e.action));
+    }
+  for (const int a : actions)
+    CHECK(a == picrossui::ActionPick || a == picrossui::ActionButton || a == picrossui::ActionPage ||
+          a == picrossui::ActionTab);
+
+  // THE BOARD still says nothing about size, in either form. You chose the tier
+  // on the way in; repeating it over the puzzle is the noise that was removed.
+  picross::Board board = picrossMidGame();
+  Rendered play;
+  picrossui::BoardModel bm;
+  bm.board = &board;
+  bm.total = picross::kPuzzleCount;
+  picrossui::Layout blayout;
+  buildPicrossBoard(play, bm, blayout);
+  if (play.target.drew(spaced)) std::printf("  the board still says %s\n", spaced);
+  CHECK(!play.target.drew(spaced));
+  if (play.target.drew(tight)) std::printf("  the board still says %s\n", tight);
+  CHECK(!play.target.drew(tight));
+  // The strip still carries the thing that DOES change, or the removal took the
+  // wrong line with it.
+  CHECK(play.target.drew("MISTAKES  1") || play.target.drew("NO MISTAKES"));
+}
+
+// A MISTAKE IS NOT A SOLID CELL ANY MORE. It was a white X knocked out of a
+// filled black square, and a filled black square is what the PICTURE is made
+// of -- so every mistake added a black cell to the image the player is trying
+// to read, and a dozen of them made it a different picture. Mario: "The x is
+// not heavy. What's heavy is the x with black background when a mistake is
+// made."
+//
+// Two assertions, and the first is the one that matters: no black fill under
+// the mistake. The second says the two marks are still TELLABLE APART, which is
+// the risk of taking the fill away -- the mistake is a six-armed asterisk
+// (three segments, one of them vertical) and the player's own X is two
+// diagonals with no vertical among them.
+void testPicrossMistakeIsAMarkNotAFilledCell() {
+  picross::Board board;
+  board.load(0);
+  const int n = board.size();
+  // A wrong fill, and a hand mark, on cells we can name afterwards.
+  int mr = -1, mc = -1, xr = -1, xc = -1;
+  for (int r = 0; r < n; ++r)
+    for (int c = 0; c < n; ++c) {
+      if (board.solid(r, c)) continue;
+      if (mr < 0) {
+        mr = r;
+        mc = c;
+      } else if (xr < 0) {
+        xr = r;
+        xc = c;
+      }
+    }
+  CHECK(mr >= 0 && xr >= 0);
+  CHECK(board.fill(mr, mc));
+  CHECK(board.cell(mr, mc) == picross::Cell::Mistake);
+  CHECK(board.mark(xr, xc));
+  CHECK(board.cell(xr, xc) == picross::Cell::Crossed);
+
+  Rendered out;
+  picrossui::BoardModel model;
+  model.board = &board;
+  model.total = picross::kPuzzleCount;
+  picrossui::Layout layout;
+  buildPicrossBoard(out, model, layout);
+
+  const fui::Rect mistake = picrossCellRect(layout, mr, mc);
+  if (picrossCellIsInked(out, mistake)) std::printf("  the mistake cell is still filled solid\n");
+  CHECK(!picrossCellIsInked(out, mistake));
+
+  // A FILLED cell, by contrast, IS solid -- otherwise this test would pass on a
+  // board that had simply stopped drawing.
+  int fr = -1, fc = -1;
+  for (int r = 0; r < n && fr < 0; ++r)
+    for (int c = 0; c < n && fr < 0; ++c)
+      if (board.solid(r, c)) {
+        fr = r;
+        fc = c;
+      }
+  CHECK(fr >= 0);
+  CHECK(board.fill(fr, fc));
+  Rendered withFill;
+  picrossui::Layout l2;
+  buildPicrossBoard(withFill, model, l2);
+  CHECK(picrossCellIsInked(withFill, picrossCellRect(l2, fr, fc)));
+
+  // The two marks differ by GLYPH: three strokes with a vertical against two
+  // diagonals with none. At cell scale that vertical is the tell.
+  const std::vector<FakeTarget::Segment> asterisk = picrossMarksIn(out, mistake);
+  const std::vector<FakeTarget::Segment> cross = picrossMarksIn(out, picrossCellRect(layout, xr, xc));
+  if (asterisk.size() != 3)
+    std::printf("  the mistake drew %d strokes, expected 3\n", static_cast<int>(asterisk.size()));
+  CHECK(asterisk.size() == 3);
+  CHECK(cross.size() == 2);
+  int uprights = 0;
+  for (const FakeTarget::Segment& seg : asterisk)
+    if (seg.a.x == seg.b.x) ++uprights;
+  CHECK(uprights == 1);
+  for (const FakeTarget::Segment& seg : cross) CHECK(seg.a.x != seg.b.x);
+  // Both are ink on plain paper, so neither may be white-on-black any more.
+  for (const FakeTarget::Segment& seg : asterisk) CHECK(seg.color == fui::Color::Black);
+  for (const FakeTarget::Segment& seg : cross) CHECK(seg.color == fui::Color::Black);
+}
+
+// The two side keys are the only buttons the X4 Pro has, and on the picker they
+// turn the page. Nothing about a key PRESS is provable off-device (the sim never
+// runs InputManager), so what is tested is the decision the press feeds.
+void testPicrossPageStepClampsAtBothEnds() {
+  CHECK(picrossui::stepPage(0, 5, +1) == 1);
+  CHECK(picrossui::stepPage(3, 5, +1) == 4);
+  CHECK(picrossui::stepPage(4, 5, +1) == 4);  // last page: stays
+  CHECK(picrossui::stepPage(1, 5, -1) == 0);
+  CHECK(picrossui::stepPage(0, 5, -1) == 0);  // first page: stays
+  // One page, or none: there is nowhere to go and page 0 is the only answer.
+  CHECK(picrossui::stepPage(0, 1, +1) == 0);
+  CHECK(picrossui::stepPage(0, 1, -1) == 0);
+  CHECK(picrossui::stepPage(3, 0, +1) == 0);
+  // A page index that is already out of range comes back INSIDE it rather than
+  // stepping further out -- a stale saved page must not strand the picker.
+  CHECK(picrossui::stepPage(99, 5, +1) == 4);
+  CHECK(picrossui::stepPage(-9, 5, -1) == 0);
+
+  // And every page of the real bank is walkable end to end with the keys alone,
+  // which is what Mario could not do: touch was the only way through 137
+  // puzzles.
+  picross::Progress progress;
+  Rendered out;
+  picrossui::MenuModel model;
+  model.progress = &progress;
+  model.total = picross::kPuzzleCount;
+  picrossui::PickerLayout layout;
+  buildPicrossMenu(out, model, layout);
+  int page = 0;
+  int visited = 1;
+  for (int step = 0; step < layout.pageCount + 4; ++step) {
+    const int next = picrossui::stepPage(page, layout.pageCount, +1);
+    if (next != page) ++visited;
+    page = next;
+  }
+  CHECK(visited == layout.pageCount);
+  CHECK(page == layout.pageCount - 1);
+  for (int step = 0; step < layout.pageCount + 4; ++step) page = picrossui::stepPage(page, layout.pageCount, -1);
+  CHECK(page == 0);
+}
+
+// The picker's FIRST and LAST page must fit the 24-rect interaction buffer --
+// and the page dots are the reason this is not obvious. The tiles are one hit
+// rect for the whole grid (resolved geometrically), but the dots are ONE RECT
+// PER PAGE, so the buffer's headroom shrinks as the bank grows. The failure mode
+// is silent: past the ceiling a dot draws, looks live, and routes nowhere.
+//
+// The page count is derived from the bank here rather than written down, so this
+// fails when a future import outgrows the buffer instead of when somebody
+// remembers to update a literal.
+void testPicrossPickerFitsTheInteractionBuffer() {
+  picross::Progress progress;
+  int pageCount = 1;
+  {
+    Rendered probe;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.page = 0;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(probe, model, layout);
+    pageCount = layout.pageCount;
+  }
+  const int pages[2] = {0, pageCount - 1};
+  for (int which = 0; which < 2; ++which) {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.page = pages[which];
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    if (out.interactions.overflowed() || out.interactions.count() > toybox::kMaxInteractions)
+      std::printf("  picker page %d of %d spends %d of %d interaction slots\n", pages[which], pageCount,
+                  static_cast<int>(out.interactions.count()), static_cast<int>(toybox::kMaxInteractions));
+    CHECK(!out.interactions.overflowed());
+    CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+  }
+
+  // And every page is actually REACHABLE by touch: sweeping the dot band has to
+  // yield an ActionPage for each page index, not just for some. The side keys
+  // are an alias for this, never a replacement -- touch must stay complete.
+  CHECK(pageCount > 1);
+  Rendered out;
+  picrossui::MenuModel model;
+  model.progress = &progress;
+  model.total = picross::kPuzzleCount;
+  picrossui::PickerLayout layout;
+  buildPicrossMenu(out, model, layout);
+  std::vector<bool> reached(static_cast<size_t>(pageCount), false);
+  for (int y = 2; y < 800; y += 2)
+    for (int x = 2; x < 480; x += 2) {
+      const fui::ActionEvent e = out.tap(x, y);
+      if (e.action == picrossui::ActionPage && e.value >= 0 && e.value < pageCount)
+        reached[static_cast<size_t>(e.value)] = true;
+    }
+  for (int p = 0; p < pageCount; ++p) {
+    if (!reached[static_cast<size_t>(p)]) std::printf("  page %d of %d has no tap target\n", p, pageCount);
+    CHECK(reached[static_cast<size_t>(p)]);
+  }
+}
+
+// THE WIN SCREEN NO LONGER CREDITS THE DESIGNER, and there is nobody to credit.
+//
+// It read "PUZZLE BY <name>" for a bank of six named designers' work. Mario,
+// having seen it: "it just looks bad", and then, on the flash it cost, "as long
+// as it doesn't reach firmware anywhere and uses space there I'm good" -- 137
+// source URLs were ~34KB of an ~51KB bank. Those puzzles are gone now, and the
+// current bank carries no attribution obligation at all: no author, no licence,
+// no source, and no file anywhere recording one.
+//
+// This asserts the absence, because the absence is the thing a later session
+// will read as an oversight and helpfully undo.
+void testPicrossWinDrawsNoDesignerCredit() {
+  Rendered out;
+  picrossui::WinModel model;
+  model.cleared = &picross::kPuzzles[0];
+  model.total = picross::kPuzzleCount;
+  buildPicrossWin(out, model);
+  for (const FakeTarget::TextRun& run : out.target.texts) {
+    if (run.text.find("PUZZLE BY") != std::string::npos) std::printf("  the win screen drew %s\n", run.text.c_str());
+    CHECK(run.text.find("PUZZLE BY") == std::string::npos);
+  }
+}
+
+// The reveal names the picture and grades the solve. Zero mistakes is PERFECT.
+//
+// The NAME comes from a synthetic puzzle rather than from the bank, and that
+// stays deliberate even though the bank is now fully named. Reading
+// kPuzzles[0].name would tie this test to whichever picture happens to sort
+// first, so a bank change would move it for reasons that have nothing to do
+// with whether the screen draws a name and a grade.
+void testPicrossWinRevealsNameAndGrade() {
+  picross::Puzzle named = picross::kPuzzles[0];
+  named.name = "RABBIT";
+
+  Rendered out;
+  picrossui::WinModel model;
+  model.cleared = &named;
+  model.mistakes = 0;
+  model.solvedCount = 1;
+  model.total = picross::kPuzzleCount;
+  model.moreToPlay = true;
+  buildPicrossWin(out, model);
+  CHECK(out.target.drew("SOLVED"));
+  CHECK(out.target.drew("RABBIT"));
+  CHECK(drewLabelWhole(out, "RABBIT"));
+  CHECK(out.target.drew("PERFECT -- NO MISTAKES"));
+  CHECK(out.target.drew("NEXT"));
+
+  Rendered flawed;
+  picrossui::WinModel two = model;
+  two.mistakes = 2;
+  buildPicrossWin(flawed, two);
+  CHECK(flawed.target.drew("SOLVED WITH 2 MISTAKES"));
+
+  // The longest name the namer will hand over, drawn WHOLE. drew() only proves
+  // the string reached the renderer, and the renderer is what shrinks it: a name
+  // too wide for its band passes "did it draw?" while the panel shows it at half
+  // size. FakeTarget measures a uniform 10px per character, so this bounds the
+  // name's LENGTH against the band (448px, ~44 characters at that cell), not
+  // real glyph metrics -- the real cut is checked by looking at a render.
+  picross::Puzzle longest = picross::kPuzzles[0];
+  longest = picross::kPuzzles[0];
+  char widest[picross::kMaxNameLen > 9 ? picross::kMaxNameLen + 1 : 10];
+  for (std::size_t i = 0; i + 1 < sizeof(widest); ++i) widest[i] = 'W';
+  widest[sizeof(widest) - 1] = '\0';
+  longest.name = widest;
+  Rendered wide;
+  picrossui::WinModel big = model;
+  big.cleared = &longest;
+  buildPicrossWin(wide, big);
+  if (!drewLabelWhole(wide, widest))
+    std::printf("  a %d-character name does not fit its band\n", static_cast<int>(sizeof(widest) - 1));
+  CHECK(drewLabelWhole(wide, widest));
+}
+
+// A puzzle NOBODY HAS NAMED YET reveals its picture with no name band at all --
+// not an empty one. The names are hand-written, so a part-named bank is the
+// normal state, and a blank 52px gap over the picture reads as a name that
+// failed to render rather than as a picture without one. The picture must also
+// GROW into the space, or the band is still there in everything but ink.
+void testPicrossWinWithoutANameDrawsNoBand() {
+  picross::Puzzle blank = picross::kPuzzles[0];
+  blank.name = "";
+
+  Rendered out;
+  picrossui::WinModel model;
+  model.cleared = &blank;
+  model.total = picross::kPuzzleCount;
+  buildPicrossWin(out, model);
+  CHECK(out.target.drew("SOLVED"));
+  // Nothing but the chrome, the grade and the buttons: no stray empty run where
+  // the name would have been.
+  for (const FakeTarget::TextRun& run : out.target.texts) CHECK(!run.text.empty());
+
+  picross::Puzzle named = picross::kPuzzles[0];
+  named.name = "RABBIT";
+  Rendered withName;
+  picrossui::WinModel two = model;
+  two.cleared = &named;
+  buildPicrossWin(withName, two);
+
+  // And the 52px the band would have taken goes to the PICTURE rather than
+  // being left as a hole. The picture cannot get bigger -- it is square and
+  // width-limited on this panel, which is worth knowing and is why the first
+  // version of this check ("it grows") was wrong and went red -- so what proves
+  // the space was reclaimed is that the picture sits LOWER, centred in a taller
+  // area, while losing none of its size.
+  //
+  // Measured from the ink actually painted, and only from SQUARE fills: the
+  // buttons are fills too, at the foot of both screens, and a bounding box that
+  // swallowed them measured the gap above the buttons instead of the picture.
+  auto pictureBox = [](const Rendered& r) {
+    fui::Rect box{};
+    bool first = true;
+    for (std::size_t i = 0; i < r.target.fills.size(); ++i) {
+      if (r.target.fillPaints[i].color != fui::Color::Black) continue;
+      const fui::Rect& f = r.target.fills[i];
+      if (f.width != f.height || f.width <= 0) continue;  // a picture cell, not a control
+      if (f.y < 300) continue;                            // below the chrome
+      if (first) {
+        box = f;
+        first = false;
+        continue;
+      }
+      const int16_t x0 = box.x < f.x ? box.x : f.x;
+      const int16_t y0 = box.y < f.y ? box.y : f.y;
+      const int16_t x1 = box.right() > f.right() ? box.right() : f.right();
+      const int16_t y1 = box.bottom() > f.bottom() ? box.bottom() : f.bottom();
+      box = fui::makeRect(x0, y0, static_cast<int16_t>(x1 - x0), static_cast<int16_t>(y1 - y0));
+    }
+    return box;
+  };
+  const fui::Rect bare = pictureBox(out);
+  const fui::Rect withBand = pictureBox(withName);
+  CHECK(bare.height > 0 && withBand.height > 0);
+  if (bare.bottom() <= withBand.bottom())
+    std::printf("  the empty name band was left as a hole (picture bottom %d vs %d)\n", bare.bottom(),
+                withBand.bottom());
+  CHECK(bare.bottom() > withBand.bottom());
+  CHECK(bare.height >= withBand.height);
 }
 
 // The tap hit-test reads the SAME rectangles the Activity draws into: the centre
@@ -10128,27 +11419,252 @@ void testWallpapersCaptionNeverCollidesWithArtwork() {
   }
 }
 
-// The empty state names the gap and how to fix it.
+// The empty state names the gap and how to fix it -- and no longer sends anyone
+// to a computer. It named File Transfer until the phone flow existed.
 void testWallpapersEmptyStateSaysSomething() {
   Rendered out;
   wallpapersui::EmptyModel model;
   buildWallpapersEmpty(out, model);
   CHECK(drewText(out, "NO WALLPAPERS"));
-  CHECK(drewText(out, "File Transfer"));
+  CHECK(drewText(out, "+ Add a wallpaper"));
+  CHECK(!drewText(out, "File Transfer"));
 }
 
-// The help card behind the "+ Add a wallpaper" tile names the uploader and how
-// the file reaches the card.
-void testWallpapersHelpCardPointsAtTheUploader() {
+// The address the QR encodes is NOT the one printed large, and the printed
+// second line disappears when there is nothing true to put in it.
+//
+// This pins the fix for a fault the code could already see: startAddServer()
+// logged a failed MDNS.begin() and then encoded the .local name anyway, so the
+// phone said "cannot find server" while the prose blamed the user's WiFi. The
+// activity now hands an EMPTY altUrl in that case, and this asserts the screen
+// draws nothing rather than an address that cannot resolve.
+void testWallpapersAddScreenDropsAnAddressItCannotStandBehind() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  {
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wallpapersui::AddModel model;
+    model.url = "http://crossplay-a1b2c3.local/w";
+    model.altUrl = "http://192.168.1.42/w";
+    const fui::Rect qr = wallpapersui::buildAdd(screen, model);
+    CHECK(drewText(out, "SCAN THIS CODE"));
+    CHECK(drewText(out, "crossplay-a1b2c3.local/w"));
+    CHECK(drewText(out, "192.168.1.42/w"));
+    // The scheme is encoded, never drawn: it costs the address its type cut.
+    CHECK(!drewText(out, "http://crossplay-a1b2c3.local/w"));
+    CHECK(qr.width > 0 && qr.height > 0);
+  }
+  {
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wallpapersui::AddModel model;
+    model.url = "http://192.168.1.42/w";  // mDNS did not start: the address takes the line
+    model.altUrl = nullptr;
+    wallpapersui::buildAdd(screen, model);
+    CHECK(drewText(out, "192.168.1.42/w"));
+    CHECK(!drewText(out, ".local"));
+  }
+}
+
+// The Offer screen is the ONLY screen a factory device shows, so the phone flow
+// has to be reachable from it. It was a sentence, and ActionAddOwn was routed
+// but drawn by nothing at all -- so a new reader could not reach the feature
+// this app is now built around.
+void testWallpapersOfferReachesTheAddFlow() {
   Rendered out;
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
-  wallpapersui::buildHelp(screen);
-  CHECK(drewText(out, "ADD A WALLPAPER"));
-  CHECK(drewText(out, "crossplay.ma-r-s.com/wallpapers"));
-  CHECK(drewText(out, "File Transfer"));
+  wallpapersui::OfferModel model;
+  model.count = 21;
+  model.bytes = 1009302;
+  wallpapersui::buildOffer(screen, model);
+  bool addOwn = false;
+  for (size_t i = 0; i < out.interactions.count(); ++i)
+    if (out.interactions.data()[i].action == wallpapersui::ActionAddOwn) addOwn = true;
+  CHECK(addOwn);
+  CHECK(!out.interactions.overflowed());
+}
+
+// --- Wallpapers: the hold sheet ---------------------------------------------
+
+void buildWallpapersSheet(Rendered& out, const wallpapersui::SheetModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildSheet(screen, model);
+}
+
+void buildWallpapersConfirm(Rendered& out, const wallpapersui::ConfirmModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wallpapersui::buildConfirm(screen, model);
+}
+
+bool registered(const Rendered& out, const fui::ActionId action) {
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    if (out.interactions.data()[i].action == action) return true;
+  }
+  return false;
+}
+
+// The sheet a hold opens: it names the wallpaper, offers exactly the two things
+// a tap cannot do, and says how to get out of the preview BEFORE opening it --
+// the preview draws no chrome at all, so this is the only place that can.
+void testWallpapersSheetOffersPreviewAndDelete() {
+  Rendered out;
+  wallpapersui::SheetModel model;
+  model.name = "Duerer: Four Horsemen";
+  buildWallpapersSheet(out, model);
+  CHECK(drewText(out, "WALLPAPER"));
+  CHECK(drewText(out, "Duerer: Four Horsemen"));
+  CHECK(drewText(out, "PREVIEW"));
+  CHECK(drewText(out, "DELETE"));
+  CHECK(drewText(out, "tap it to come back"));
+  CHECK(registered(out, wallpapersui::ActionPreview));
+  CHECK(registered(out, wallpapersui::ActionDelete));
+  // The sheet is the SAFE screen: nothing on it deletes anything. That is what
+  // makes reusing its DELETE pixels for the confirm's KEEP IT sound.
+  CHECK(!registered(out, wallpapersui::ActionConfirmDelete));
+}
+
+// The sheet says so when the wallpaper it is about is the one in use, because
+// the delete's consequence differs for it and the user should learn that before
+// the confirm rather than in it.
+void testWallpapersSheetSaysWhenItIsTheOneInUse() {
+  Rendered active;
+  wallpapersui::SheetModel model;
+  model.name = "Bauhaus";
+  model.isActive = true;
+  buildWallpapersSheet(active, model);
+  CHECK(drewText(active, "on your sleep screen now"));
+
+  Rendered idle;
+  model.isActive = false;
+  buildWallpapersSheet(idle, model);
+  CHECK(!drewText(idle, "on your sleep screen now"));
+}
+
+// The confirm carries BOTH halves and says what deleting costs. The consequence
+// text itself is proved over all four of its combinations in
+// host-tests/wallpapers; this is that it reaches the panel at all.
+void testWallpapersConfirmSaysTheCostAndOffersBoth() {
+  Rendered out;
+  wallpapersui::ConfirmModel model;
+  model.name = "Bauhaus";
+  // Held in a named local: c_str() on the temporary would dangle before the
+  // builder ever read it, and the panel would draw whatever was left on the
+  // stack -- which is exactly the class of bug toybox::detail::OwnedDevice
+  // exists for.
+  const std::string cost = wallpapers::deleteConsequence(true, true);
+  model.consequence = cost.c_str();
+  buildWallpapersConfirm(out, model);
+  CHECK(drewText(out, "DELETE WALLPAPER"));
+  CHECK(drewText(out, "Bauhaus"));
+  CHECK(drewText(out, "whole set again"));
+  CHECK(drewText(out, "KEEP IT"));
+  CHECK(drewText(out, "DELETE IT"));
+  CHECK(registered(out, wallpapersui::ActionKeep));
+  CHECK(registered(out, wallpapersui::ActionConfirmDelete));
+}
+
+// A wallpaper the user added is named by its FILE, and the sheet must SHRINK
+// that name rather than mark it: no Toybox cut above toybox_10 carries U+2026,
+// so an ellipsis there draws as a hole and the name stops with a gap after it.
+// wallcaption proves toybox::fittedTitle behaves; this proves buildSheet CALLS
+// it, which is the half a helper-only test cannot see -- the builder used a
+// bare fitLines at the display cut until this went in.
+void testWallpapersSheetShrinksALongNameRatherThanMarkingIt() {
+  const auto runFor = [](const Rendered& out, const char* needle, fui::TextStyle& style) {
+    for (const auto& run : out.target.texts) {
+      if (run.text.find(needle) == std::string::npos) continue;
+      style = run.style;
+      return true;
+    }
+    return false;
+  };
+
+  Rendered shortName;
+  wallpapersui::SheetModel sm;
+  sm.name = "Bauhaus";
+  buildWallpapersSheet(shortName, sm);
+  fui::TextStyle shortStyle{};
+  CHECK(runFor(shortName, "Bauhaus", shortStyle));
+  CHECK(shortStyle.font == fui::FONT_SLOT_TITLE);  // a name that fits keeps the display cut
+
+  Rendered longName;
+  const char* huge = "supercalifragilisticexpialidociouswallpaperfromaphone";
+  sm.name = huge;
+  buildWallpapersSheet(longName, sm);
+  fui::TextStyle longStyle{};
+  bool found = false;
+  std::string drawn;
+  for (const auto& run : longName.target.texts) {
+    if (run.text.compare(0, 6, "superc") != 0) continue;
+    longStyle = run.style;
+    drawn = run.text;
+    found = true;
+  }
+  CHECK(found);
+  // Either it kept the whole name (by stepping down), or it marked it -- and if
+  // it marked it, only in the one cut that can draw the mark.
+  CHECK(drawn == huge || longStyle.font == fui::FONT_SLOT_SMALL);
+  // It must not still be sitting on the display cut untouched and overflowing.
+  CHECK(!(drawn == huge && longStyle.font == fui::FONT_SLOT_TITLE));
+}
+
+// The whole defence against same-pixel-different-action, asserted on the rects
+// the builders actually draw into rather than on the ones they were meant to.
+// wallcaption proves the same identity against the published helpers; this
+// proves the SHEET AND THE CONFIRM USE THEM, which is the half a helper-only
+// test cannot see.
+void testWallpapersConfirmReusesTheSheetsDeletePixelsForItsSafeHalf() {
+  const fui::DeviceContext ctx = device();
+  const fui::Rect sheetDelete = wallpapersui::sheetDeleteRect(ctx);
+  const fui::Rect kill = wallpapersui::confirmDeleteRect(ctx);
+
+  const auto rectOf = [](const Rendered& out, fui::ActionId action, fui::Rect& found) {
+    for (size_t i = 0; i < out.interactions.count(); ++i) {
+      if (out.interactions.data()[i].action != action) continue;
+      found = out.interactions.data()[i].rect;
+      return true;
+    }
+    return false;
+  };
+
+  Rendered sheet;
+  wallpapersui::SheetModel sm;
+  sm.name = "Bauhaus";
+  buildWallpapersSheet(sheet, sm);
+  fui::Rect drawnSheetDelete{};
+  CHECK(rectOf(sheet, wallpapersui::ActionDelete, drawnSheetDelete));
+  CHECK(drawnSheetDelete.x == sheetDelete.x && drawnSheetDelete.y == sheetDelete.y &&
+        drawnSheetDelete.width == sheetDelete.width && drawnSheetDelete.height == sheetDelete.height);
+
+  Rendered confirm;
+  wallpapersui::ConfirmModel cm;
+  cm.name = "Bauhaus";
+  cm.consequence = "x";
+  buildWallpapersConfirm(confirm, cm);
+  fui::Rect drawnKeep{};
+  fui::Rect drawnKill{};
+  CHECK(rectOf(confirm, wallpapersui::ActionKeep, drawnKeep));
+  CHECK(rectOf(confirm, wallpapersui::ActionConfirmDelete, drawnKill));
+
+  // A second press of the pixels that opened this screen CANCELS.
+  CHECK(drawnKeep.x == drawnSheetDelete.x && drawnKeep.y == drawnSheetDelete.y &&
+        drawnKeep.width == drawnSheetDelete.width && drawnKeep.height == drawnSheetDelete.height);
+  // And the destructive button is somewhere else entirely.
+  CHECK(drawnKill.y == kill.y);
+  CHECK(!(drawnKill.y < drawnSheetDelete.y + drawnSheetDelete.height &&
+          drawnSheetDelete.y < drawnKill.y + drawnKill.height));
 }
 
 // The layout is DERIVED now (positions hang off screen.body().y and off each
@@ -10396,12 +11912,24 @@ int main() {
   testWallpapersChromeWarningVerbatim();
   testWallpapersEmptyStateSaysSomething();
   testWallpapersCaptionNeverCollidesWithArtwork();
-  testWallpapersHelpCardPointsAtTheUploader();
+  // testWallpapersHelpCardPointsAtTheUploader is NOT here: app/wallqr deleted
+  // buildHelp and the test with it. Both sides' remaining wallpapers tests run.
+  testWallpapersSheetOffersPreviewAndDelete();
+  testWallpapersSheetSaysWhenItIsTheOneInUse();
+  testWallpapersConfirmSaysTheCostAndOffersBoth();
+  testWallpapersSheetShrinksALongNameRatherThanMarkingIt();
+  testWallpapersConfirmReusesTheSheetsDeletePixelsForItsSafeHalf();
+  testWallpapersAddScreenDropsAnAddressItCannotStandBehind();
+  testWallpapersOfferReachesTheAddFlow();
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();
   testTheHeaderBandBottomIgnoresTheBezel();
   testTheBandIsAbsoluteWithoutBeingAsked();
+  testTheGlassNeverMovesABodyTop();
+  testTheHandRolledBodyTopMatchesTheReservedOne();
+  testEveryAppsBodyStartsOnTheSameRow();
+  testTheWallpapersThumbnailsStayBigEnoughToRead();
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
   testTriviaDrawsNoOptionsWithoutAQuestion();
@@ -10443,6 +11971,19 @@ int main() {
   testEverySudokuLessonPagesAndClearsItsButton();
   testTheSudokuOrnamentCarriesTheGame();
   testTheSudokuFrontDoorNeverSharesInkBetweenTwoLines();
+  testPicrossBoardSpendsFewInteractions();
+  testPicrossGridHitTestIsExactInverse();
+  testPicrossDrawsEveryClue();
+  testPicrossPickerHidesUnsolvedNames();
+  testPicrossPickerPagesTheWholeBank();
+  testPicrossShowsTheSizeOnlyOnTheTabs();
+  testPicrossPickerTabsReachEveryTier();
+  testPicrossMistakeIsAMarkNotAFilledCell();
+  testPicrossPageStepClampsAtBothEnds();
+  testPicrossPickerFitsTheInteractionBuffer();
+  testPicrossWinDrawsNoDesignerCredit();
+  testPicrossWinRevealsNameAndGrade();
+  testPicrossWinWithoutANameDrawsNoBand();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
   testMurdleRefusalDoesNotMoveTheGrid();

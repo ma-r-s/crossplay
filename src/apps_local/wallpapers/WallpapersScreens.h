@@ -50,6 +50,13 @@ fui::Rect captionRect(const GridGeom& g, int slot);
 // Activity draws into.
 int cellAt(const GridGeom& g, int x, int y);
 
+// How many pages the grid spans. Freestanding because the drawing, the
+// hit-test and the page count are three readers of one number, and the one that
+// disagreed made the last wallpaper of a page-boundary library unreachable:
+// pageCount() counted ONE chrome tile while the other two counted
+// specialTiles(), which is two while the built-in set is incomplete.
+int pageCountFor(int specialTiles, int libraryCount, int perPage);
+
 // The selection marker: four corner brackets drawn in the cell's PADDING, so
 // they touch neither the artwork nor the caption. It lives here rather than in
 // the Activity because "does the mark collide with the label" is a question
@@ -73,7 +80,79 @@ enum : fui::ActionId {
   ActionAddOwn = 2,   // the "make your own in a browser" card
   ActionRetry = 3,    // try the fetch again after a failure
   ActionDismiss = 4,  // acknowledge a notice and go back to whatever is on the card
+  // The hold sheet, and the confirm behind its DELETE.
+  ActionPreview = 5,        // show this wallpaper full screen, as the sleep screen draws it
+  ActionDelete = 6,         // ask to delete it -- opens the confirm, deletes nothing
+  ActionKeep = 7,           // the confirm's safe half: leave it alone
+  ActionConfirmDelete = 8,  // the only destructive control in this app
+  ActionChoose = 9,         // the header chip: enter or leave choose-a-set mode
 };
+
+// ---------------------------------------------------------------------------
+// THE HOLD SHEET AND ITS CONFIRM, and why their rectangles are public.
+//
+// This fork has destroyed user data by putting a new meaning under a pixel a
+// finger was already travelling towards (same-pixel-different-action). The
+// wallpapers grid is the worst possible host for that: a tap on a cell SETS the
+// sleep screen with no confirmation, and a hold arrives as a tap unless
+// MappedInputManager::tapWasHeldLong() says otherwise.
+//
+// So the two screens are laid out against ONE set of rectangles, published here
+// and asserted in host-tests/wallcaption, rather than each drawing its own:
+//
+//   * confirmKeepRect() IS sheetDeleteRect(), the same pixels. The button the
+//     user just pressed to reach the confirm becomes the SAFE half of it, so a
+//     second press of the same spot -- a double tap, an impatient repeat during
+//     the 0.3-2s e-ink repaint, a finger that never moved -- cancels. It cannot
+//     delete, because there is nothing destructive there to hit.
+//   * confirmDeleteRect() overlaps NEITHER of the sheet's controls. Reaching it
+//     takes a deliberate move to a place nothing was a moment ago.
+//
+// What this does NOT buy, said plainly because a reader will otherwise assume
+// it: the confirm's DELETE does sit over the grid's cells. It cannot not --
+// the cells span y 134..758 of an 800px panel and the only cell-free bands are
+// 46px, 24px and 42px tall, none of which holds a 64px finger target. The grid
+// is two screens and one 500ms hold away, and the interaction buffer refuses
+// every tap routed against a table the panel has not shown
+// (RevealedInteractions::route), so no single remembered tap can reach it.
+constexpr int16_t kSheetButtonH = 64;
+// The name, and the sentence under it. Published for the same reason the button
+// rects are: the sentence's four combinations are measured against this box in
+// the real face by host-tests/wallcaption, and a box read from screen.body()
+// could not be. The prose box is derived from BOTH ends -- under the headline,
+// above the first control -- so moving either shrinks it rather than letting a
+// sentence run under a button.
+fui::Rect sheetHeadRect(const fui::DeviceContext& device);
+fui::Rect sheetProseRect(const fui::DeviceContext& device);
+fui::Rect confirmProseRect(const fui::DeviceContext& device);
+fui::Rect sheetPreviewRect(const fui::DeviceContext& device);
+fui::Rect sheetDeleteRect(const fui::DeviceContext& device);
+fui::Rect confirmKeepRect(const fui::DeviceContext& device);
+fui::Rect confirmDeleteRect(const fui::DeviceContext& device);
+
+// The sheet a hold opens: this one wallpaper, and the two things you can do to
+// it that a tap cannot.
+struct SheetModel {
+  const char* name = "";  // the wallpaper's display name, not its file name
+  bool isActive = false;  // it is the one currently on the sleep screen
+};
+void buildSheet(toybox::Screen& screen, const SheetModel& model);
+
+// The sentence buildSheet draws under the name, in both its forms. Published
+// rather than typed inline, because host-tests/wallcaption measures it against
+// sheetProseRect in the real face -- and a test holding its own COPY of the
+// sentence keeps measuring the old one after the source is edited, and stays
+// green while the panel cuts it (derived-facts-written-as-literals).
+const char* sheetInstruction(bool isActive);
+
+// The confirm behind DELETE. `consequence` comes from
+// wallpapers::deleteConsequence -- built there so all four of its combinations
+// are walked by a test rather than assembled per render.
+struct ConfirmModel {
+  const char* name = "";
+  const char* consequence = "";
+};
+void buildConfirm(toybox::Screen& screen, const ConfirmModel& model);
 
 // The BEFORE state: the built-in set is not on the card. This screen has to sell
 // the set and offer exactly one action, because an empty grid with a lone "+"
@@ -127,7 +206,12 @@ BarSpan fetchBarSpan(const FetchingModel& model);
 //
 // Including the selection made every tap deaf for the length of one refresh
 // after every tap, which is what "touches get lost" was.
-uint32_t gridMeaning(int page, int view, int libraryCount, int specialTiles);
+// `choosing` IS in here, unlike the selection, and the difference is the point:
+// the selection does not change what a cell does, and choose-a-set mode does --
+// a tile tap pins one wallpaper outside it and toggles membership inside it. A
+// tap that left the finger against the previous frame must not act on the new
+// meaning (same-pixel-different-action).
+uint32_t gridMeaning(int page, int view, int libraryCount, int specialTiles, bool choosing);
 
 // The FAILED state, and every other "something happened, here is what" screen.
 // Always carries an action: a screen that reports a failure and gives you
@@ -149,9 +233,51 @@ struct GridChromeModel {
   const char* rightLabel = nullptr;
   const char* warning = nullptr;  // free-space advisory, null when there is room
   bool hasActive = false;         // false -> draw the "tap one to set it" hint
+  // The sleep-screen line (#354). Carries every fact that applies at once: what
+  // the last selection changed behind the user's back, AND any standing caveat
+  // about the wallpaper not reaching the glass. Built by
+  // wallpapers::stripLineAfterSelection / reachHint, which are what guarantee
+  // one cannot hide the other. Wins the strip -- see buildGridChrome.
+  const char* note = nullptr;
+  // Choose-a-set mode. Changes the title and the chip's label, and nothing
+  // else: the grid below is the same grid, because the wallpapers are what the
+  // user is choosing between in both modes. The chip is the ONLY way in and the
+  // only way out besides Back, and it is a tap rather than a hold -- a hold on
+  // this panel arrives as a tap often enough that a feature behind one
+  // intermittently does not exist (MappedInputManager, InputManager::wasTouchTap).
+  bool choosing = false;
 };
 
+// What the header chip says. One place, because the width the title is fitted
+// to comes out of this string's measured width, and a second copy is a second
+// thing to edit alone (the same rule as HackerNews' save chip).
+const char* chooseChipLabel(bool choosing);
+
+// The lowest-priority line on the strip: how you get to a set at all.
+//
+// It names the chip's own word, so the two cannot drift -- host-tests/wallpapers
+// asserts the sentence CONTAINS chooseChipLabel(false), which is the one case
+// where matching the description is the point rather than the bug: rename the
+// chip and this must be renamed with it (derived-facts-written-as-literals).
+//
+// It sits BELOW the free-space advisory deliberately. It is chrome, not news,
+// and a permanent hint that outranked a filling card would suppress that
+// warning forever.
+const char* chooseHint();
+
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model);
+
+// The hint strip's box: how wide a sentence may be inside a given safe rect,
+// and how tall the strip is. Both exposed so host-tests/wallcaption can measure
+// the sentences in the face the strip really resolves rather than assume they
+// fit. Assuming is how the first version of this shipped four sentences the
+// panel cut, plus a rung whose line box was TALLER than the strip.
+//
+// buildGridChrome pins the style to FONT_SLOT_SMALL, so a sentence too wide has
+// nothing left to step down to and is cut with an ellipsis. A cut sentence is
+// the defect the strip exists to avoid.
+int16_t hintTextWidth(const freeink::ui::Rect& safe);
+int16_t hintStripHeight();
 
 // The empty state: no wallpapers on the card at all. Names the gap and how to
 // fill it, so a fresh device does not look broken.
@@ -162,8 +288,19 @@ struct EmptyModel {
 
 void buildEmpty(toybox::Screen& screen, const EmptyModel& model);
 
-// The help card reached from the "+ Add a wallpaper" tile: how to get your own
-// wallpapers onto the card. A screen, so it is testable.
-void buildHelp(toybox::Screen& screen);
+// Scan the code, pick a photo on the phone,
+// and it is here. The address is drawn as well as encoded, because a QR is
+// unreadable to a person and the one failure this screen has -- a phone on a
+// different network -- is one the reader has to be able to check by hand.
+struct AddModel {
+  const char* url = "";          // "http://crossplay.local/w" -- also what the QR encodes
+  const char* altUrl = nullptr;  // "http://192.168.1.42/w" -- printed, never encoded
+  int added = 0;                 // how many have arrived while this screen has been up
+  const char* status = nullptr;  // a line replacing the prose while connecting
+};
+
+// Returns the square the Activity must draw the QR into. The screen cannot draw
+// it: QrUtils needs the renderer, and this file compiles against the SDK alone.
+fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model);
 
 }  // namespace wallpapersui
