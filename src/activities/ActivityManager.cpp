@@ -30,6 +30,22 @@
 
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 
+// x4pro_common and sticky_common raise this via -D to 32768; every other env
+// (the C3 targets, papermono) never defines it, so this default is what they
+// have always actually run with. It was a bare "8192" literal here until a
+// real device tripped the stack-canary watchpoint opening the Study deck
+// screen: platformio.ini had said 16384 (once) since v1.0.0's own crash, its
+// comments and scripts_local/stack_budget.py both referred to that number as
+// the render task's real budget, and NONE of it reached this call -- the
+// task was, and until this fix remained, always created with 8192 regardless
+// of the -D flag. stack_budget.py's own "ok, headroom 6864 of 16384" was
+// therefore comparing the call graph against a budget the binary never had;
+// the true headroom against the 8192 it did have was already negative for
+// the worst KNOWN path (Xkcd's, at 9520) before Study's screen ever ran.
+#ifndef CROSSPOINT_RENDER_TASK_STACK
+#define CROSSPOINT_RENDER_TASK_STACK 8192
+#endif
+
 void ActivityManager::begin() {
 #if defined(configNUM_CORES) && configNUM_CORES > 1
   constexpr BaseType_t renderTaskCore = 1;
@@ -37,7 +53,7 @@ void ActivityManager::begin() {
   constexpr BaseType_t renderTaskCore = 0;
 #endif
   xTaskCreatePinnedToCore(&renderTaskTrampoline, "ActivityManagerRender",
-                          8192,               // Stack size
+                          CROSSPOINT_RENDER_TASK_STACK,  // Stack size
                           this,               // Parameters
                           1,                  // Priority
                           &renderTaskHandle,  // Task handle
