@@ -21,6 +21,11 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.39
+
+- The catch-up says which comic it is on, and Back stops it (#306)
+- Wallpapers: the chosen wallpaper survives an idle-timeout sleep, and the picker stops claiming one that cannot
+
 ### 1.12.38
 
 - The chrome reserves the rule it draws, so no screen has to know it exists (#248)
