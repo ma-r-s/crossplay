@@ -21,6 +21,13 @@
   padding-block: 0;
 }
 
+/* And 3.1rem of top padding for a fixed nav bar this page does not render:
+ * ~50px of dead space at the top of the one layout in this repository whose
+ * entire problem is vertical room with a phone keyboard up. */
+body.pn-body {
+  padding-top: 0;
+}
+
 .pn {
   max-width: 34rem;
   margin: 0 auto;
@@ -42,8 +49,8 @@
   top: 0;
   z-index: 5;
   background: var(--paper);
-  padding-top: 0.4rem;
-  padding-bottom: 0.4rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
 }
 
 .pn-progress {
@@ -81,6 +88,14 @@
   font-size: 0.74rem;
   color: var(--muted);
   min-height: 1.1em;
+  /* Reassurance, not something he reads while typing, and every row in this
+   * bar costs the action row pixels it needs more. Shown only when it has
+   * something to say: a flash after a save, or a browser that is not storing. */
+  display: none;
+}
+
+.pn-saved.is-flash {
+  display: block;
 }
 
 .pn-saved.is-flash {
@@ -419,4 +434,24 @@
   border: 3px solid var(--ink);
   background: var(--paper-2);
   font-size: 0.92rem;
+}
+
+/* Set apart from Skip, which sits next to it and is reversible. "No good name"
+ * writes an entry, jumps away and takes the puzzle out of the "left to do"
+ * filter, and there is nothing between a thumb aimed at Skip and that. */
+.pn-btn.is-set-apart {
+  margin-left: 0.6rem;
+  border-color: var(--edge);
+}
+
+/* The undo that a one-tap irreversible control has to have. */
+.pn-undo {
+  font: inherit;
+  font-size: 0.82rem;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.55rem;
+  color: var(--paper);
+  background: var(--ink);
+  border: 2px solid var(--ink);
+  cursor: pointer;
 }

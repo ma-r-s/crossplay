@@ -55,7 +55,7 @@
     <form id="entryForm" autocomplete="off">
       <input class="pn-field" id="nameField" type="text" inputmode="text"
              autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"
-             maxlength="60" placeholder="What is it?" aria-label="Name for this picture"
+             maxlength="16" placeholder="What is it?" aria-label="Name for this picture"
              enterkeyhint="next">
     </form>
 
@@ -63,14 +63,23 @@
          the Jersey advance widths the win screen sets the name in; the preview
          below is the same typeface in the browser and is there for the feel. -->
     <p class="pn-verdict" id="verdict" aria-live="polite">&nbsp;</p>
-    <div class="pn-preview" aria-hidden="true">
-      <span class="pn-preview-name" id="previewName"></span>
+    <!-- The controls come BEFORE the preview, and that ordering is the fix for
+         a measured bug: with a phone keyboard up the visible viewport is about
+         476px, and with the preview above them the action row sat at 534 --
+         58px below the fold, on every one of 137 puzzles. Skip and "no good
+         name" are two of the four things he has to be able to do, and both
+         needed a scroll first; scrolling to reach them hid the picture behind
+         the sticky bar, so he could not see the picture and the "no good name"
+         button at the same time, which is the one decision needing both. The
+         preview is the part that can go under the fold. -->
+    <div class="pn-actions">
+      <button class="pn-btn is-ghost" id="prevBtn" type="button" title="Previous puzzle">&#8592; Back</button>
+      <button class="pn-btn is-ghost" id="skipBtn" type="button" title="Skip for now, come back later">Skip &#8594;</button>
+      <button class="pn-btn is-ghost is-set-apart" id="namelessBtn" type="button" title="This picture has no good name">No good name</button>
     </div>
 
-    <div class="pn-actions">
-      <button class="pn-btn is-ghost" id="prevBtn" type="button" title="Previous (Alt+Left)">&#8592; Back</button>
-      <button class="pn-btn is-ghost" id="skipBtn" type="button" title="Skip for now (Alt+Right)">Skip &#8594;</button>
-      <button class="pn-btn is-ghost" id="namelessBtn" type="button" title="No good name (Alt+N)">No good name</button>
+    <div class="pn-preview" aria-hidden="true">
+      <span class="pn-preview-name" id="previewName"></span>
     </div>
   </section>
 
@@ -129,6 +138,7 @@
 <p class="pn-boot" id="boot">Loading the puzzles&hellip;</p>
 
 <script src="/picross-names/data.js"></script>
+<script src="/picross-names/logic.js"></script>
 <script src="/picross-names/names.js"></script>
 </body>
 </html>

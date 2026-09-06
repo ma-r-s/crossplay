@@ -19,9 +19,16 @@ somebody regenerates a font or curates the bank:
    win screen sets the name in `toybox::kDisplayFont` and puts it through
    `toybox::fittedTitle`, which walks TITLE -> BODY -> SMALL (toybox_30 ->
    toybox_20 -> toybox_10) and only ellipsizes when the smallest still
-   overflows. So "will this name fit" has three answers, not two, and the tool
-   can only give them by measuring the real proportional face: counting
-   characters cannot, since "WWWW" and "iiii" differ threefold.
+   overflows. So "will this name fit" is not a yes/no, and the tool can only
+   answer it by measuring the real proportional face: counting characters
+   cannot, since "WWWW" and "iiii" differ threefold.
+
+   Three arrays per cut, not one, because the device reports the width of the
+   INK BOX and not the sum of the advances -- see measure() in
+   site/picross-names/logic.js. The advances are handed over in 12.4 FIXED
+   POINT rather than pixels, because EpdFont rounds each one to a whole pixel
+   as it accumulates and the browser has to round in the same units at the same
+   moments.
 
    The coverage matters as much as the width. toybox_20 and toybox_30 carry
    U+0020..U+007E and NOTHING ELSE, and a codepoint the face has no glyph for
@@ -82,16 +89,28 @@ def load_font(name):
     fields = [f.strip() for f in src[tail:].split("{", 1)[1].split("}", 1)[0].split(",")]
     line_height = int(fields[4])
 
-    advances = {}
+    # Kerning would have to be replicated too, and none of these cuts has any
+    # ("this cut has no kerning data at all" in every toybox_* header). Refuse
+    # rather than measure a cut whose pairs move: EpdFont folds the kern into
+    # the same accumulator as the advance, so ignoring it would make the tool's
+    # answer quietly wrong by a few pixels per pair.
+    if "kernLeftCodepoints" in src and "nullptr,  // kernLeftCodepoints" not in src:
+        raise SystemExit(f"{name}: this cut has kerning data and measure() does not replicate kerning")
+
+    metrics = {}
     for cp in range(0x20, 0x7F):
         for first, last, offset in intervals:
             if first <= cp <= last:
-                advances[cp] = glyphs[offset + (cp - first)][2] / 16.0
+                g = glyphs[offset + (cp - first)]
+                # advanceX (12.4 fixed point), the bitmap's width, and its left
+                # side bearing. All three, because the device measures the INK
+                # BOX -- maxX - minX -- and not the sum of the advances.
+                metrics[cp] = {"adv": g[2], "w": g[0], "left": g[3]}
                 break
-    missing = [cp for cp in range(0x20, 0x7F) if cp not in advances]
+    missing = [cp for cp in range(0x20, 0x7F) if cp not in metrics]
     if missing:
         raise SystemExit(f"{name}: no glyph for printable ASCII {missing} -- the tool cannot measure with it")
-    return advances, line_height
+    return metrics, line_height
 
 
 def janko_id(name, prov):
@@ -157,13 +176,21 @@ def render(band_width):
     puzzles, provs = load_bank()
     fonts = {}
     for slot, cut in CUTS:
-        advances, line_height = load_font(cut)
+        metrics, line_height = load_font(cut)
         fonts[slot] = {
             "cut": cut,
             "lineHeight": line_height,
-            # Indexed from 0x20 so the browser can look a codepoint up by
-            # subtraction rather than carrying 95 keys.
-            "advance": [advances[cp] for cp in range(0x20, 0x7F)],
+            # Three parallel arrays, indexed from 0x20 so the browser looks a
+            # codepoint up by subtraction rather than carrying 95 keys.
+            #
+            # `advance` is 12.4 FIXED POINT, not pixels, and it is handed over
+            # that way on purpose: EpdFont rounds each advance to a whole pixel
+            # as it accumulates, so the browser has to round in the same units
+            # at the same moments. Converting here would throw away the only
+            # thing that makes the two agree.
+            "advance": [metrics[cp]["adv"] for cp in range(0x20, 0x7F)],
+            "width": [metrics[cp]["w"] for cp in range(0x20, 0x7F)],
+            "left": [metrics[cp]["left"] for cp in range(0x20, 0x7F)],
         }
 
     # Only the provenance rows the kept puzzles actually index, renumbered. A

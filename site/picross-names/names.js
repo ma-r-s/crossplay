@@ -8,6 +8,12 @@
  * localStorage synchronously before anything moves, and the half-typed word in
  * the field is written too. See save().
  *
+ * That draft is also the sharpest edge in here. A cold review found it
+ * surviving a save-file load and reappearing on top of the answer the load had
+ * just merged in, where one Enter overwrote that answer with a newer timestamp
+ * and merging back could not recover it. Clearing it is part of merging now,
+ * in logic.js, where a test can hold it to that.
+ *
  * The other thing this does that a plain text box could not: it knows what the
  * device can draw. The win screen sets the name in toybox_30 and puts it
  * through toybox::fittedTitle, which steps down to toybox_20 and then to
@@ -29,7 +35,6 @@
   }
 
   var STORE_KEY = "crossplay.picross.names.v1";
-  var MAX_NAME = 60;
 
   // What the file card #390 consumes will accept. Its generator makes each of
   // these a HARD ERROR on the whole file, so a name that breaks one is not a
@@ -75,7 +80,12 @@
       var parsed = JSON.parse(raw);
       if (parsed && parsed.entries) {
         state.entries = parsed.entries;
-        state.pos = typeof parsed.pos === "number" ? parsed.pos : 0;
+        // Clamped HERE, not trusted. An out-of-range position threw inside
+        // show() AFTER the page had revealed itself, leaving a tool that read
+        // "0 of 137", accepted typing and discarded every name in silence. The
+        // bank shrinks when card #390 lands, so a position saved today can be
+        // past the end tomorrow.
+        state.pos = L.clampPos(parsed.pos, total);
         state.draft = typeof parsed.draft === "string" ? parsed.draft : "";
       }
     } catch (e) {
@@ -119,142 +129,20 @@
   }
 
   // --- what the panel can draw --------------------------------------------
-
-  // The rungs toybox::fittedTitle walks, largest first. Names match data.js.
-  var RUNGS = [
-    { key: "title", label: "full size" },
-    { key: "body", label: "one size down" },
-    { key: "small", label: "the smallest cut" }
-  ];
-
-  // Two different folds, because the firmware makes the same distinction and
-  // for the same reason (lib/Utf8's utf8FoldTypography, and the typography-fold
-  // note): PUNCTUATION has an exact ASCII spelling and folding it changes
-  // nothing, while a LETTER does not -- turning an n-tilde into an n changes
-  // the word, and that is his call rather than the tool's.
   //
-  // The punctuation fold is not a nicety, it is the commonest case. An iPhone
-  // turns a typed apostrophe into U+2019 by itself, so without this every
-  // possessive typed on the sofa would become a name the panel draws with a
-  // hole in it.
-  var PUNCT_FOLD = {
-    "\u2018": "'", "\u2019": "'", "\u201A": "'", "\u201B": "'",
-    "\u201C": '"', "\u201D": '"', "\u201E": '"', "\u00AB": '"', "\u00BB": '"',
-    "\u2013": "-", "\u2014": "-", "\u2012": "-", "\u2015": "-", "\u2212": "-",
-    "\u2026": "...", "\u00A0": " ", "\u2007": " ", "\u2009": " ", "\u202F": " ",
-    "\u2022": "*", "\u00D7": "x", "\u00B7": ".", "\u2032": "'", "\u2033": '"'
-  };
-
-  var LETTER_FOLD = {
-    "\u00C0": "A", "\u00C1": "A", "\u00C2": "A", "\u00C3": "A", "\u00C4": "A",
-    "\u00C5": "A", "\u00C6": "AE", "\u00C7": "C", "\u00C8": "E", "\u00C9": "E",
-    "\u00CA": "E", "\u00CB": "E", "\u00CC": "I", "\u00CD": "I", "\u00CE": "I",
-    "\u00CF": "I", "\u00D1": "N", "\u00D2": "O", "\u00D3": "O", "\u00D4": "O",
-    "\u00D5": "O", "\u00D6": "O", "\u00D8": "O", "\u00D9": "U", "\u00DA": "U",
-    "\u00DB": "U", "\u00DC": "U", "\u00DD": "Y", "\u00DF": "SS",
-    "\u0152": "OE", "\u0160": "S", "\u017D": "Z", "\u0178": "Y"
-  };
-
-  function foldWith(table, text) {
-    var out = "";
-    for (var i = 0; i < text.length; i++) {
-      var ch = text[i];
-      out += Object.prototype.hasOwnProperty.call(table, ch) ? table[ch] : ch;
-    }
-    return out;
+  // The judgement itself lives in logic.js, with no DOM around it, so
+  // host-tests/picrossnames can drive it. See that file for what each rule is
+  // and why it is in the order it is.
+  var L = window.PicrossNamesLogic;
+  if (!L) {
+    boot.textContent = "logic.js did not load; the tool cannot judge a name without it.";
+    return;
   }
 
-  // Pixels the given cut would set this string in. A codepoint the cut has no
-  // glyph for costs ZERO and draws NOTHING, so it is reported rather than
-  // measured -- otherwise a broken string measures as a comfortable fit.
-  function measure(text, rung) {
-    var adv = DATA.fonts[rung].advance;
-    var width = 0;
-    var holes = [];
-    for (var i = 0; i < text.length; i++) {
-      var cp = text.codePointAt(i);
-      if (cp > 0xffff) i++; // surrogate pair, one character
-      if (cp >= 0x20 && cp <= 0x7e) {
-        width += adv[cp - 0x20];
-      } else {
-        holes.push(text[i]);
-      }
-    }
-    return { width: width, holes: holes };
-  }
-
-  // -> {level, text}. level is "ok" | "warn" | "stop".
   function judge(name) {
-    if (!name) return { level: "ok", text: "Type a name and press Enter." };
-
-    var holes = measure(name, "title").holes;
-    if (holes.length) {
-      var uniq = holes.filter(function (c, i) {
-        return holes.indexOf(c) === i;
-      });
-      // Offered, not applied. And offered as a BUTTON: Alt+F is not a key a
-      // phone has, and the phone is where he said he would be doing this.
-      var folded = foldWith(LETTER_FOLD, name);
-      var canFold = measure(folded, "title").holes.length === 0 && folded !== name;
-      return {
-        level: "stop",
-        text:
-          "The device cannot draw " +
-          uniq
-            .map(function (c) {
-              return '"' + c + '"';
-            })
-            .join(", ") +
-          ". It would draw a HOLE in the word, not a box. " +
-          (canFold ? "" : "Use plain letters, digits and punctuation."),
-        fold: canFold ? folded : null
-      };
-    }
-
-    if (!ALLOWED.test(name)) {
-      var bad = [];
-      for (var b = 0; b < name.length; b++) {
-        if (!ALLOWED.test(name[b]) && bad.indexOf(name[b]) === -1) bad.push(name[b]);
-      }
-      return {
-        level: "stop",
-        text:
-          "The names file takes letters, digits, spaces and hyphens only, so " +
-          bad
-            .map(function (c) {
-              return '"' + c + '"';
-            })
-            .join(", ") +
-          " would be refused for the whole file. Spell it without."
-      };
-    }
-
-    if (name.length > MAX_CHARS) {
-      return {
-        level: "stop",
-        text: "The names file takes " + MAX_CHARS + " characters at most, and this is " + name.length + "."
-      };
-    }
-
-    var band = DATA.bandWidth;
-    for (var i = 0; i < RUNGS.length; i++) {
-      var w = measure(name, RUNGS[i].key).width;
-      if (w <= band) {
-        if (i === 0) {
-          return { level: "ok", rung: i, text: "Fits at " + RUNGS[i].label + " (" + Math.round(w) + " of " + band + "px)." };
-        }
-        return {
-          level: "warn",
-          rung: i,
-          text: "Too wide for full size; the device will set it at " + RUNGS[i].label + "."
-        };
-      }
-    }
-    return {
-      level: "stop",
-      text: "Too long even at the smallest cut. The device would cut it and end it in an ellipsis."
-    };
+    return L.judge(name, DATA);
   }
+
 
   // --- drawing -------------------------------------------------------------
 
@@ -324,19 +212,11 @@
   }
 
   function entryOf(id) {
-    return Object.prototype.hasOwnProperty.call(state.entries, id) ? state.entries[id] : null;
+    return L.normaliseEntry(state.entries[id]);
   }
 
   function counts() {
-    var named = 0;
-    var nameless = 0;
-    puzzles.forEach(function (p) {
-      var e = entryOf(p.id);
-      if (!e) return;
-      if (e.nameless) nameless++;
-      else if (e.name) named++;
-    });
-    return { named: named, nameless: nameless, done: named + nameless, left: total - named - nameless };
+    return L.countsOf(puzzles, state.entries);
   }
 
   function refreshCounts() {
@@ -390,8 +270,13 @@
     return v;
   }
 
-  // One place that writes the field, so the draft, the verdict and the preview
-  // can never disagree with what is in the box.
+  // The place that writes the field FROM A CONTROL -- the fold button, Escape.
+  // Not the only writer: show() sets it when the puzzle changes and the input
+  // handler rewrites it as he types, and saying "one place" here was wrong in a
+  // way that mattered, because show() was exactly the writer that left the
+  // draft disagreeing with the box after a save-file load. That is fixed in
+  // logic.js's mergeState; this comment no longer claims a rule the file does
+  // not keep.
   function setField(value) {
     el.field.value = value;
     showVerdict(value);
@@ -455,8 +340,12 @@
     return true;
   }
 
+  // One tap, irreversible, and sitting next to Skip. Recovering from a mis-tap
+  // without this means opening Browse, switching the filter to "no name",
+  // finding the thumbnail and tapping it -- so the tap offers to undo itself.
   function markNameless() {
     var p = current();
+    var was = state.entries[p.id];
     state.entries[p.id] = { nameless: true, at: new Date().toISOString() };
     state.draft = "";
     save();
@@ -464,6 +353,28 @@
     show(next === -1 ? state.pos : next);
     el.field.focus();
     buildGrid();
+    offerUndo(p, was);
+  }
+
+  function offerUndo(puzzle, previous) {
+    el.verdict.textContent = "Marked " + puzzle.id + " as having no good name. ";
+    el.verdict.className = "pn-verdict is-warn";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pn-undo";
+    btn.textContent = "Undo";
+    btn.addEventListener("pointerdown", function (ev) {
+      ev.preventDefault();
+    });
+    btn.addEventListener("click", function () {
+      if (previous === undefined) delete state.entries[puzzle.id];
+      else state.entries[puzzle.id] = previous;
+      save();
+      show(indexById[puzzle.id]);
+      buildGrid();
+      el.field.focus();
+    });
+    el.verdict.appendChild(btn);
   }
 
   // Skip writes nothing at all: it is "not now", and the export must not
@@ -530,52 +441,8 @@
 
   // --- export --------------------------------------------------------------
 
-  // janko-names.json: the answer, in the shape card #390's generator reads and
-  // in the shape janko-authors.json already uses -- a flat object keyed by the
-  // janko.at puzzle number as a decimal string.
-  //
-  // Keyed by that number rather than by the bank's index or by JANKO222,
-  // because a re-import renumbers the bank and janko does not. It is derived
-  // per puzzle by gen_name_tool.py from the provenance URL, cross-checked
-  // against the puzzle id, and refused rather than guessed.
-  //
-  // THREE states, and the file keeps all three apart:
-  //
-  //   absent      not answered yet
-  //   ""          answered: this picture has no good name
-  //   "CAT"       answered: this is what it is
-  //
-  // The empty string is not a gap. He looked at the picture and decided, and a
-  // format that could not say so would turn a finding into missing data.
   function namesJson() {
-    var c = counts();
-    var out = {
-      _comment:
-        "Picross puzzle names, written by hand at /picross-names/. Keyed by the janko.at " +
-        "puzzle number, as janko-authors.json is. An empty string means the picture was " +
-        "looked at and has no good name; a puzzle absent from this file has not been " +
-        "answered yet. " +
-        c.named +
-        " named, " +
-        c.nameless +
-        " deliberately unnamed, " +
-        c.left +
-        " not answered."
-    };
-    // Assembled line by line rather than handed to JSON.stringify, for one
-    // reason: an object's integer-like keys are enumerated BEFORE its string
-    // keys, so "222" would come out above "_comment" and the file would not
-    // read like janko-authors.json, whose comment is its first line. The keys
-    // are also kept in bank order rather than in whatever order a JS engine
-    // decides, so two exports of the same answers are the same file and a diff
-    // between them shows the answers that changed.
-    var lines = ['  "_comment": ' + JSON.stringify(out._comment)];
-    puzzles.forEach(function (p) {
-      var e = entryOf(p.id);
-      if (!e) return;
-      lines.push("  " + JSON.stringify(p.janko) + ": " + JSON.stringify(e.name || ""));
-    });
-    return "{\n" + lines.join(",\n") + "\n}\n";
+    return L.namesJson(puzzles, state.entries);
   }
 
   function download(filename, text, type) {
@@ -596,31 +463,21 @@
     el.ioNote.textContent = text;
   }
 
-  // Merging, not replacing: the point of the save file is carrying work between
-  // a phone and a laptop, and a load that threw away whatever was already in
-  // this browser would be the same lost-work failure by another route. Newer
-  // timestamp wins; an entry only one side has is kept.
   function merge(incoming) {
-    var added = 0;
-    var updated = 0;
-    Object.keys(incoming.entries || {}).forEach(function (id) {
-      if (!Object.prototype.hasOwnProperty.call(indexById, id)) return; // not a puzzle we ship
-      var theirs = incoming.entries[id];
-      var mine = entryOf(id);
-      if (!mine) {
-        state.entries[id] = theirs;
-        added++;
-        return;
-      }
-      if ((theirs.at || "") > (mine.at || "")) {
-        state.entries[id] = theirs;
-        updated++;
-      }
-    });
+    // The whole state comes back, not just the entries: clearing the draft is
+    // part of merging (see logic.js), and as a line in this function it was
+    // untestable and it was missing.
+    var result = L.mergeState(state, incoming.entries, indexById, DATA);
+    state = result.state;
     save();
     show(state.pos);
     buildGrid();
-    note("Merged: " + added + " new, " + updated + " replaced by a newer answer.");
+    var said = "Merged: " + result.added + " new, " + result.updated + " replaced by a newer answer.";
+    // Loudly, because a refused name is an answer of his that did not arrive.
+    if (result.refused.length) {
+      said += " " + result.refused.length + " refused as unusable: " + result.refused.join(", ") + ".";
+    }
+    note(said);
   }
 
   // --- wiring --------------------------------------------------------------
@@ -647,7 +504,7 @@
     // to be of the string that will really be stored: caps are wider, so
     // measuring what he typed and storing what the device gets would report a
     // fit that is not there.
-    var up = foldWith(PUNCT_FOLD, el.field.value).toUpperCase().slice(0, MAX_NAME);
+    var up = L.foldWith(L.PUNCT_FOLD, el.field.value).toUpperCase().slice(0, L.MAX_CHARS);
     if (up !== el.field.value) {
       var at = el.field.selectionStart;
       el.field.value = up;
@@ -663,26 +520,36 @@
     save(true);
   });
 
-  document.getElementById("prevBtn").addEventListener("click", prev);
-  document.getElementById("skipBtn").addEventListener("click", skip);
-  document.getElementById("namelessBtn").addEventListener("click", markNameless);
+  // Tapping a <button> blurs the field, which on a phone dismisses the keyboard
+  // and then raises it again when the handler re-focuses -- a full animation
+  // and a visualViewport reflow of the picture underneath, on every skip, 137
+  // times. Refusing the default on pointerdown keeps focus where it is and the
+  // keyboard never moves.
+  function actionButton(id, fn) {
+    var btn = document.getElementById(id);
+    btn.addEventListener("pointerdown", function (ev) {
+      ev.preventDefault();
+    });
+    btn.addEventListener("click", fn);
+  }
 
-  document.addEventListener("keydown", function (ev) {
-    if (ev.altKey && ev.key === "ArrowRight") {
-      ev.preventDefault();
-      skip();
-    } else if (ev.altKey && ev.key === "ArrowLeft") {
-      ev.preventDefault();
-      prev();
-    } else if (ev.altKey && (ev.key === "n" || ev.key === "N")) {
-      ev.preventDefault();
-      markNameless();
-    } else if (ev.altKey && (ev.key === "f" || ev.key === "F")) {
-      ev.preventDefault();
-      setField(foldWith(LETTER_FOLD, el.field.value).toUpperCase());
-    } else if (ev.key === "Escape") {
-      setField("");
-    }
+  actionButton("prevBtn", prev);
+  actionButton("skipBtn", skip);
+  actionButton("namelessBtn", markNameless);
+
+  // Escape clears the field, and ONLY while the field has focus: it used to be
+  // a document-level handler, so Escape anywhere on the page wiped what he had
+  // typed, with no undo.
+  //
+  // The Alt shortcuts that were here are gone. Option is the dead-key composer
+  // on macOS -- Option+N reports key "Dead" and Option+F reports a florin --
+  // so neither could ever have fired on the laptop, a phone has no Alt at all,
+  // and Option+Arrow also took word-jump away from the text field. Each of
+  // them had a button beside it that works everywhere.
+  el.field.addEventListener("keydown", function (ev) {
+    if (ev.key !== "Escape") return;
+    ev.preventDefault();
+    setField("");
   });
 
   el.browseBtn.addEventListener("click", function () {
@@ -811,7 +678,7 @@
 
   // Resume where he was, on the puzzle he was looking at, with the half-typed
   // word still in the field.
-  var startAt = state.pos;
+  var startAt = L.clampPos(state.pos, total);
   if (!state.draft && entryOf(puzzles[startAt].id)) {
     var open = nextUnfinished(startAt - 1);
     if (open !== -1) startAt = open;

@@ -91,8 +91,10 @@ the way it is in `janko-authors.json`; and the keys are written in bank order, s
 two exports of the same answers are the same bytes.
 
 **The save file is a different file** (`picross-names-save.json`) and is not the
-answer: it is the tool's own state, including which puzzle he was on, and exists
-to be carried between devices.
+answer: it is the tool's own state, and it exists to be carried between devices.
+Loading one merges its answers and keeps **this** device's position and its
+half-typed word is dropped -- the position in the file is written but not read
+back, because the puzzle he was on over there is not where he is here.
 
 ### Two rules the tool enforces that come from the CONSUMER, not the font
 
@@ -126,18 +128,35 @@ it, and offers the folded spelling as a button. The preview box shows the word
 with the hole in it, which is more convincing than the sentence.
 
 Typographic punctuation is folded silently on the way in, exactly as
-`utf8FoldTypography` folds prose, and for a specific reason: an iPhone turns a
-typed apostrophe into U+2019 by itself, so without that every possessive he
-typed would arrive broken. Letters are never folded silently, because an accent
-folded away changes the word and that is his call.
+`utf8FoldTypography` folds prose. Note what that is and is not for now: it was
+written to rescue the apostrophe an iPhone makes out of a possessive, and the
+names file refuses an apostrophe however it is spelled, so that case is refused
+rather than folded. What is left is narrower but real -- a non-breaking or thin
+space becomes a space and a dash of any width becomes a hyphen, both of which
+the file accepts and both of which a phone keyboard produces. Letters are never
+folded silently, because an accent folded away changes the word and that is his
+call; the fold is offered as a button, and only when the folded spelling passes
+the whole judgement, so the tool never suggests a name its own next rule
+refuses.
 
 **A name too wide for the display cut is set in a smaller one.** `fittedTitle`
 walks toybox_30 -> toybox_20 -> toybox_10 and only ellipsizes when the smallest
-still overflows. So there are four answers, not two, and the tool gives all
-four: fits at full size, will be set one size down, will be set at the smallest
-cut, or will be cut short. It measures the real proportional advance widths out
-of the font headers -- counting characters cannot answer it, since `WWWW` and
-`iiii` differ threefold.
+still overflows, so the tool walks the same ladder and says which rung the name
+landed on. **Two of those four answers are reachable today and two are not**:
+sixteen characters of the widest glyph the file's charset allows is 252px in
+toybox_10 against a 448px band, so while the cap is 16 nothing can reach the
+smallest cut or the ellipsis. The code still walks every rung rather than
+assuming that, because the cap is the thing most likely to move.
+
+The measurement is `EpdFont::getTextBounds` restated rather than approximated,
+and the difference is not academic. What the device reports is the width of the
+**ink box** (`maxX - minX`), which is not the sum of the advances: each advance
+is rounded to a whole pixel as it is accumulated, so the fractions never cancel,
+and the box ends at the last glyph's right edge rather than after its advance.
+Summing float advances measured sixteen capital As at 488px against the device's
+493 -- and that error points the unsafe way, telling him a name fits at full
+size when the device would set it a cut down. Counting characters cannot answer
+any of this, since `WWWW` and `iiii` differ threefold.
 
 The name is uppercased as it is typed, because every Toybox label is and because
 the measurement has to be of the string that will really be drawn: capitals are
