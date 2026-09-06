@@ -48,7 +48,10 @@ answers>'`. Never forward a worker's wording; write the three lines
    You are not exempt from a worker's tree: the guard refuses your writes
    into `wt/<name>` like anyone else's, since a sweep from this seat once
    committed another worker's diff. Take a tree with `board bind ... --take`
-   (it must be quiescent) or leave it. `board tree <name>` before any prune.
+   (it must be quiescent, or its session ended) or leave it. `board tree
+   <name>` before any prune. The day this lands: `board trees --seed` once,
+   so every open card's tree gets a record and live workers are not refused
+   from their own trees; a subagent then rebinds itself on its first refusal.
    Before a batch, `python3 tools_local/board/overlap.py`: two open pull
    requests that touch one file are each green alone and can be wrong
    together, and the bug would bisect to whichever landed second. Merge one,
