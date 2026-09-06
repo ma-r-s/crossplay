@@ -401,6 +401,11 @@ writes it, `host-tests/picrossprov` fails if those numbers are not what
 against the same file. The two were checked against each other over 84
 measurements in three cuts and agreed on every one.
 
+He writes the names in the tool at `site/picross-names/`, which emits that exact
+file; [naming the picross puzzles](picross-names.md) is how it works and where
+his answers live while he is part-way through.
+
+
 **A puzzle with no name draws no name band at all**, and the picture takes the
 space. Not an empty band: the names arrive by hand, so a part-named bank is the
 normal state, and a blank 52px gap over the picture reads as a name that failed
