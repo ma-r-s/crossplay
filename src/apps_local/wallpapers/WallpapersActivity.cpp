@@ -2049,7 +2049,12 @@ void WallpapersActivity::render(RenderLock&&) {
     // the count moved to the strip, which has the room for a sentence.
     rightLabel_.clear();
     if (pages > 1 && !choosing_) {
-      char label[16];
+      // 32, not 16: host-tests/fmtwidth sizes a buffer by what the FORMAT can
+      // print, not by what this app's page counts happen to reach. Two ints are
+      // 11 characters each, so "%d / %d" needs 26 -- and a buffer sized by the
+      // value rather than the format is how a truncation ships the day
+      // something upstream of it changes.
+      char label[32];
       snprintf(label, sizeof(label), "%d / %d", page_ + 1, pages);
       rightLabel_ = label;
     }
