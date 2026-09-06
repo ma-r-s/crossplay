@@ -103,6 +103,11 @@ class WallpapersActivity final : public Activity {
   int addArrived_ = 0;  // how many have landed since
   bool addWaitingWifi_ = false;
   unsigned long addLastPoll_ = 0;
+  // Whether THIS screen is the one holding dev mode's yield. The LinkRadio
+  // shape: what makes the pause/resume pairing correct at runtime is this flag,
+  // not the 1:1 source count host-tests/release can see (its own comment says
+  // it cannot see reachability at all). One pause, one resume, one owner.
+  bool addDevPaused_ = false;
   std::string addStatus_;
   std::string addUrl_;     // http://crossplay.local/w -- what the QR encodes and the screen prints
   std::string addAltUrl_;  // http://<ip>/w -- the fallback, printed under it, never encoded

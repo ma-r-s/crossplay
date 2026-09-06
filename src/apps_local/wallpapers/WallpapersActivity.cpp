@@ -817,18 +817,22 @@ void WallpapersActivity::startAddServer() {
   // up -- the same latch WifiSelectionActivity and the File Transfer screen
   // already take.
   devmode::pause();
+  addDevPaused_ = true;
 
+  // Every failure below leaves through stopAddServer(), so the yield is
+  // released in exactly ONE place no matter which way this goes wrong. Three
+  // resumes hung off three early returns read 1:1 to nobody and are how a latch
+  // ends up held after the path nobody tested.
   addServer_ = makeUniqueNoThrow<CrossPointWebServer>(CrossPointWebServer::Surface::WallpapersOnly);
   if (!addServer_) {
-    devmode::resume();
+    stopAddServer();
     showNotice("OUT OF MEMORY", "There was not enough memory to start. Nothing changed.", "BACK",
                wallpapersui::ActionDismiss);
     return;
   }
   addServer_->begin();
   if (!addServer_->isRunning()) {
-    addServer_.reset();
-    devmode::resume();
+    stopAddServer();
     showNotice("COULD NOT START", "The reader could not open its web server. Try again in a moment.", "TRY AGAIN",
                wallpapersui::ActionRetry);
     return;
@@ -868,6 +872,12 @@ void WallpapersActivity::stopAddServer() {
     addServer_->stop();
     addServer_.reset();
     MDNS.end();
+  }
+  // Guarded by the flag rather than by whether a server exists: the
+  // out-of-memory path never got one, and resuming a yield this screen does not
+  // hold drops the count out from under whoever does.
+  if (addDevPaused_) {
+    addDevPaused_ = false;
     devmode::resume();
   }
   // Whatever arrived is kept; only a torn transfer leaves a .part, and the
