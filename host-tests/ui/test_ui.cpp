@@ -10101,6 +10101,24 @@ void testTheGlassNeverMovesABodyTop() {
     checkTheGlassDoesNotMoveTheBody<wallpapersui::GridChromeModel, wallpapersui::buildGridChrome>(
         model, "wallpapers grid: the glass does not move the body");
   }
+  // Card 365's two screens, added to card 358's guard rather than left outside
+  // it. The grid above was the only wallpapers screen listed, and these two
+  // reach the panel by a different route (a hold, not a tap), so a clean run of
+  // the list above said nothing at all about them -- which is exactly how the
+  // ten-pixel drop survived in this app while twenty others were right.
+  {
+    wallpapersui::SheetModel model;
+    model.name = "Holiday In Lisbon";
+    checkTheGlassDoesNotMoveTheBody<wallpapersui::SheetModel, wallpapersui::buildSheet>(
+        model, "wallpapers hold sheet: the glass does not move the body");
+  }
+  {
+    wallpapersui::ConfirmModel model;
+    model.name = "Holiday In Lisbon";
+    model.consequence = "Your own wallpaper. The card holds the only copy, so this cannot be undone.";
+    checkTheGlassDoesNotMoveTheBody<wallpapersui::ConfirmModel, wallpapersui::buildConfirm>(
+        model, "wallpapers delete confirm: the glass does not move the body");
+  }
 }
 
 // Moving a body top moves everything under it, and this fork has already

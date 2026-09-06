@@ -678,11 +678,20 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
 // one they are on.
 
 namespace {
-// One derivation, four rects. Every one of them hangs off safe.y and off the
-// two constants above, so moving the stack moves the confirm with it and the
-// "keep is where delete was" identity cannot be broken by editing one of them.
+// One derivation, four rects. Every one of them hangs off the two constants
+// above, so moving the stack moves the confirm with it and the "keep is where
+// delete was" identity cannot be broken by editing one of them.
+//
+// Card 358: the ROW is absolute, the sides are not. kSheetStackTop is measured
+// down from the body top, and that body top is pinned at panel row 0 by
+// absoluteChrome -- the header band already paints over the rows the glass
+// hides. Adding safe.y here was the same double count card 358 took out of
+// gridGeom and buildGridChrome, and it put these two screens ten pixels below
+// every other app's body. Left and width still come off the safe rect, because
+// the bezel really does cover a column on each side.
 int16_t stackSlot(const fui::DeviceContext& device, const int index) {
-  return static_cast<int16_t>(device.safeRect().y + kSheetStackTop + index * (kSheetButtonH + kSheetButtonGap));
+  (void)device;
+  return static_cast<int16_t>(kSheetStackTop + index * (kSheetButtonH + kSheetButtonGap));
 }
 fui::Rect stackRect(const fui::DeviceContext& device, const int index) {
   const fui::Rect safe = device.safeRect();
@@ -693,8 +702,8 @@ fui::Rect stackRect(const fui::DeviceContext& device, const int index) {
 
 fui::Rect sheetHeadRect(const fui::DeviceContext& device) {
   const fui::Rect safe = device.safeRect();
-  return fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin),
-                       static_cast<int16_t>(safe.y + kBodyTop + toybox::kGutter),
+  // Absolute row, safe-rect sides. See stackSlot and toybox::kBodyTop.
+  return fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), static_cast<int16_t>(kBodyTop + toybox::kGutter),
                        static_cast<int16_t>(safe.width - toybox::kMargin * 2), kSheetHeadH);
 }
 
