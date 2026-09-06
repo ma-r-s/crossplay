@@ -8,6 +8,7 @@
 // stable and the screens change every time Mario asks for something. Two real
 // bugs this file would have caught the day they were written are pinned below.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
