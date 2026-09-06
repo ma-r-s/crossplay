@@ -43,7 +43,7 @@ The edge rule's real job is smaller and worth keeping: flood volume stops at
 Cloudflare instead of costing a one-worker uvicorn on an ARM box a socket and
 a scheduling slot.
 
-## Status: published 2026-09-03 at https://read.ma-r-s.com, allowlist still CLOSED
+## Status: all three services are OPEN to strangers since 2026-09-06
 
 Steps 1-4 are done. `/srv/readbridge` holds the service, both containers are
 up, the firewall is installed and enabled, and the isolation test passes from
@@ -58,16 +58,16 @@ Verified from a laptop, not from a deploy command's exit status:
 code and a pollToken, `GET /api/pair/poll` answers `{"pending":true}`, and
 `POST /api/pair/abandon` cleans the code up.
 
-What remains is step 5 (nobody has signed in and paired a real reader) and
-step 6 (opening the allowlist). **`READ_ALLOWLIST` is untouched and still the
-owner's address only.** Publishing the hostname does not change who may sign
-in, and it must not.
+**Step 6 was applied on 2026-09-06 and verified from outside.** All three
+doors are open; the state each one was actually in is recorded at the end of
+step 6, and two of the three were not what this file predicted. What remains
+is step 5: nobody has signed in and paired a real reader, on either bridge.
 
-Step 6 no longer has a blocker of its own: the Instapaper review landed and
-the Cloudflare rules exist. It is waiting only on the pi being powered on
-(card #347). While the box is off, all three hostnames answer **530**, which
-is Cloudflare saying the tunnel is up and the ORIGIN is not, and no allowlist
-can be applied or verified through it.
+The three hostnames are `read.ma-r-s.com`, `sync.ma-r-s.com` and
+`books.ma-r-s.com`. **The Study bridge is `sync`, and `study.ma-r-s.com` does
+not exist**: it is not in the zone and does not resolve, so a probe aimed at
+it returns nothing at all and reads as an outage rather than as a typo. Name
+the host from this list before concluding a service is down.
 
 The kill switch is one command, and it leaves everything else on the box
 alone:
@@ -286,6 +286,51 @@ third-party Instapaper credential proves a stranger can actually finish
 signing in. Do not report the first as the second.
 
 Replying on GitHub issue #115 is Mario's, not a session's.
+
+### What the three doors ACTUALLY held when the box came back (2026-09-06)
+
+Recorded because two of the three contradicted what this file and card #348
+both predicted, and because the prediction was the reason the step was sized
+as three edits rather than one.
+
+| Service   | Variable                              | Before                                   | After |
+| --------- | ------------------------------------- | ---------------------------------------- | ----- |
+| Read      | `READ_ALLOWLIST`                      | `*` already, set 2026-09-04              | `*`   |
+| Study     | `BRIDGE_ALLOWLIST`                    | the owner's address only. THE ONLY SHUT DOOR | `*` |
+| Get Books | `GETBOOKS_PUBLIC_USER` / `_PASS`      | already `crossplay` / the shipped pair   | unchanged |
+
+So exactly one variable needed writing. Read had been opened two days earlier
+and this file still said it was "untouched and still the owner's address
+only"; Get Books already carried the pair from `src/OpdsServerStore.cpp`
+byte for byte. **A runbook's own status line is a claim about a machine, not
+a reading of it.** Read the three `.env` files and the three RUNNING
+containers before deciding how big this step is.
+
+Verified after the change, from a laptop over the public internet:
+
+    server/verify_open.sh   ->  ALL THREE ARE OPEN TO STRANGERS  (exit 0)
+
+with `server/verify_open_selftest.sh` run in the same session to prove the
+classifier still reaches its SHUT verdicts, because an all-green from a probe
+nobody has watched fail is not evidence.
+
+The container is the thing to check, not only the file. `docker inspect
+<name> --format '{{range .Config.Env}}{{println .}}{{end}}'` and `docker exec
+<name> printenv <VAR>` must AGREE; when they disagree the container predates
+the edit and needs `up -d`. Both said `*` afterwards, and ankibridge's
+`Created` timestamp moved, which is what distinguishes a recreate from the
+`restart` that would have changed nothing.
+
+**Isolation was re-tested after the recreate**, because a new container is a
+new network namespace and the firewall units were installed against the old
+one. Both `scripts/isolation_test.sh` pass with every private probe timing
+out and egress working, and all three `*-firewall.service` units are enabled
+and active after the reboot.
+
+Still NOT verified, and not to be reported as if it were: no stranger has
+completed a sign-in on either bridge. `verify_open.sh` proves our gate lets
+the attempt through, and on read-bridge a non-owner Instapaper 403 is
+indistinguishable from a wrong password.
 
 ## Before any of it: can this machine even reach the pi?
 

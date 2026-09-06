@@ -214,6 +214,12 @@ produces no warning at all whenever the right name is still present with its old
 value, which it always is. GitHub issue #115 is what a shut gate looks like from
 outside: a stranger, and no signal on our side at all.
 
+**Current state, 2026-09-06: all three are OPEN.** `READ_ALLOWLIST=*`,
+`BRIDGE_ALLOWLIST=*`, and `GETBOOKS_PUBLIC_USER`/`_PASS` holding the pair
+`src/OpdsServerStore.cpp` ships. Only the Study one was shut when the box came
+back; the other two had been open for days while the runbook said otherwise.
+Do not take this paragraph as the reading either. Run the script.
+
 So the gates are verified the way a stranger experiences them:
 
 ```bash
