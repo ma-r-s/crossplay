@@ -725,7 +725,52 @@ ignore() {  # ref, "changed"|"same" -> prints build|skip
 }
 [ "$(ignore xteink changed)" = build ] && ok || bad "vercel.json ignoreCommand: xteink with a site change must build"
 [ "$(ignore xteink same)" = skip ] && ok || bad "vercel.json ignoreCommand: xteink with no site change must skip, as before"
-[ "$(ignore app/anything changed)" = skip ] && ok || bad "vercel.json ignoreCommand: a pull request branch must not deploy a preview"
+[ "$(ignore app/anything changed)" = skip ] && ok || bad "vercel.json ignoreCommand: a pull request branch must not BUILD"
+
+# ...and the ignore command cannot be the thing that stops a preview. It runs
+# INSIDE the deployment. By the time it speaks, Vercel has created the
+# deployment, booked a build machine and cloned the repository; the build log
+# then reads "The deployment was canceled because the Ignored Build Step
+# command returned exit code 0". The free plan's limit is worded "Deployments
+# Created per Day: 100" over a rolling 86400s, and a deployment canceled that
+# way was still created, so it still counts. That is why the commit which
+# taught the ignore command about $VERCEL_GIT_COMMIT_REF did not stop the rate
+# limit: measured over Sep 3-5 2026, 265 deployments, 159 of them previews off
+# app/** and sync/** branches, peaking at 154 in one rolling 24 hours against a
+# limit of 100. Denying those two namespaces takes the same peak to 64.
+#
+# git.deploymentEnabled is the only setting that stops the deployment being
+# CREATED. Its patterns are checked against where branch names actually come
+# from, not repeated here as literals, so renaming the worktree prefix fails
+# this test instead of silently reopening the tap.
+DEPLOY_ENABLED() { python3 -c '
+import json, sys
+g = json.load(open(sys.argv[1])).get("git", {}).get("deploymentEnabled")
+print(json.dumps(g if isinstance(g, dict) else {}))' "$VERCEL"; }
+DE="$(DEPLOY_ENABLED)"
+
+# Every worktree gets branch app/<name>; scripts_local/wt.sh is the only thing
+# that decides that, so read the prefix out of it.
+WT_PREFIX="$(sed -nE 's/.*branch="([A-Za-z0-9_-]+)\/\$name".*/\1/p' "$ROOT/scripts_local/wt.sh" | head -1)"
+if [ -z "$WT_PREFIX" ]; then
+  bad "scripts_local/wt.sh no longer names a branch prefix, so nothing here knows which namespace must not deploy"
+else
+  ok
+  printf '%s' "$DE" | grep -q "\"$WT_PREFIX/\*\*\": *false" \
+    && ok || bad "site/vercel.json git.deploymentEnabled does not deny '$WT_PREFIX/**'; every push to a worktree branch then CREATES a Vercel deployment and spends one of the free plan's 100 a day, whatever the ignore command later does with it"
+fi
+
+# The daily upstream sync opens sync/upstream-<date> (docs/workflow/upstream-sync.md).
+grep -q 'sync/upstream-' "$ROOT/docs/workflow/upstream-sync.md" \
+  && ok || bad "docs/workflow/upstream-sync.md no longer names the sync/upstream- branch namespace that vercel.json denies"
+printf '%s' "$DE" | grep -q '"sync/\*\*": *false' \
+  && ok || bad "site/vercel.json git.deploymentEnabled does not deny 'sync/**'; the daily upstream sync branch then creates preview deployments"
+
+# The other half of the rule: production must still deploy. A catch-all that
+# swept xteink up with the rest would stop the site updating at all, and
+# nothing would go red -- a deployment that is never created cannot fail.
+printf '%s' "$DE" | grep -q '"xteink": *false' \
+  && bad "site/vercel.json git.deploymentEnabled disables xteink; the site would never update again and no check anywhere would report it" || ok
 
 # .vercelignore exists to keep laptop-only tooling off a public URL, and both
 # halves of the fetch look exactly like that. Ignoring either leaves the build
