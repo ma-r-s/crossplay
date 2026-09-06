@@ -2,12 +2,12 @@
 #
 # THESE PUZZLES CARRY NO ATTRIBUTION, and that is a settled fact rather than a
 # gap somebody forgot to fill. There is nobody to credit, no licence to honour
-# and no source to cite, so none of the three is written: every @author and
-# @license below reads `unknown` because that is the true value, and no @source
-# line exists at all.
+# and no source to cite, so none of the three is written: no @author line and no
+# @source line appears below at all, and the file-level @license reads `unknown`
+# because that is the true value.
 #
 # DO NOT "FIX" THIS by finding an origin to name. The reason is
-# the pack came to Mario privately, from a person who does not want to be named; there is nobody to credit and no licence to honour
+# the pack came to Mario privately; he has its provenance and has decided it is not going into a public repository, and there is nobody asking to be credited
 # and it is Mario's decision. A hedged source line, a TODO, or a guess would all
 # be worse than the silence, because each one invites the next reader to resolve
 # it.
@@ -19,7 +19,13 @@
 # because the opposite mistake has been made here before -- 68 puzzles were once
 # described as CC0 that were not ours to describe at all.
 #
-# Corpus:  nonograms_all.json
+# THE CORPUS IS NOT NAMED HERE EITHER, and that is the same decision one step
+# further. The other two banners print the file they were built from, which is
+# ordinary provenance; here the filename is the only surviving string that says
+# where the pack came from, eighteen lines under a paragraph promising there is
+# no source to cite. A filename is a smaller claim than a URL and it is still a
+# claim.
+#
 # Licence: unknown
 # Puzzles: 199
 

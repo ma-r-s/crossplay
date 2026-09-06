@@ -1,14 +1,16 @@
 """Will this Picross name render at full size on the panel?
 
-THE ONE PLACE THAT ANSWERS THAT, and it is imported rather than copied. Two
-things ask it and they must agree to the pixel:
+THE ONE PLACE THAT ANSWERS THAT, and it is imported rather than copied.
+`gen_picross.py` is the gate -- a name that does not fit is a hard error on the
+whole bank, so this decides what ships -- and `host-tests/picrossnames` re-asks
+it of the header that actually shipped.
 
-  * `gen_picross.py` -- the gate. A name that does not fit is a hard error on
-    the whole names file, so this decides what ships.
-  * `site/picross-names/` -- the tool Mario types into, which tells him while
-    he is typing. It cannot import Python, so it restates measure() in
-    JavaScript; `name_fit_corpus()` below emits the corpus that PINS that
-    restatement to this one. Neither can drift without a red test.
+It used to have a second caller: a naming page that restated measure() in
+JavaScript because it could not import Python, pinned to this one by the corpus
+below. That page is deleted (the bank arrives titled and there is nothing left
+to name), so the corpus now pins this implementation to its own recorded output
+-- which is still worth having, because glyph metrics MOVE when a Toybox cut is
+regenerated and every accepted name changes width when they do.
 
 WHY A WIDTH AND NOT A CHARACTER COUNT. A character count is the wrong
 instrument for a variable-width font, and it is wrong in BOTH directions at
@@ -239,7 +241,7 @@ def corpus():
 def write_corpus():
     """Write name_fit_corpus.json: the pin between this and the naming tool's JS.
 
-    The tool cannot import Python, so site/picross-names/logic.js restates
+    The deleted naming page could not import Python, so its logic.js restated
     measure() in JavaScript. Two implementations of a rule that must agree to
     the pixel is the drift this fork keeps paying for, so they are not left to
     agree by inspection: this file is the corpus both check against.

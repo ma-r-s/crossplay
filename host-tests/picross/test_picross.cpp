@@ -496,6 +496,83 @@ void bankIsSizeSorted() {
   CHECK(runs == picross::kSizeGroupCount);
 }
 
+// NEXT STAYS IN THE TIER YOU ARE PLAYING.
+//
+// `nextUnsolved()` is the first unsolved in BANK ORDER and the bank is
+// size-sorted, so with four tiers it means finishing any 10x10 hands the player
+// the lowest unsolved 5x5 -- four tabs from where they were and a third of the
+// size. That was progression while the game was one tier; it is a tier change
+// now, and the win screen's NEXT is the only thing that does it. The picker is
+// how you change tier deliberately.
+void nextStaysInTier() {
+  // Derive the tiers from the bank rather than naming 5, 8, 9 and 10: this test
+  // must not need editing when SHIPPED_SIZES does.
+  int sizes[picross::kSizeGroupCount] = {};
+  int starts[picross::kSizeGroupCount] = {};
+  int lens[picross::kSizeGroupCount] = {};
+  int tiers = 0;
+  for (int i = 0; i < picross::kPuzzleCount; ++i) {
+    const int s = picross::kPuzzles[i].size;
+    if (tiers == 0 || sizes[tiers - 1] != s) {
+      if (tiers >= picross::kSizeGroupCount) break;
+      sizes[tiers] = s;
+      starts[tiers] = i;
+      lens[tiers] = 0;
+      ++tiers;
+    }
+    ++lens[tiers - 1];
+  }
+  CHECK(tiers == picross::kSizeGroupCount);
+  // The bug needs more than one tier to exist at all, so say so rather than
+  // passing vacuously on a bank that cannot exhibit it.
+  CHECK(tiers > 1);
+
+  {
+    // Nothing solved: each tier's NEXT is that tier's first puzzle, NOT the
+    // bank's. Only the lowest tier gives the same answer as nextUnsolved(),
+    // which is exactly why the bug was invisible while there was one tier.
+    picross::Progress prog;
+    for (int t = 0; t < tiers; ++t) CHECK(prog.nextUnsolvedAtSize(sizes[t]) == starts[t]);
+    CHECK(prog.nextUnsolved() == starts[0]);
+    for (int t = 1; t < tiers; ++t) CHECK(prog.nextUnsolvedAtSize(sizes[t]) != prog.nextUnsolved());
+  }
+
+  {
+    // Solve the first puzzle of the top tier: NEXT moves to the second of that
+    // tier, while nextUnsolved() still points at the bottom tier.
+    picross::Progress prog;
+    const int top = tiers - 1;
+    prog.markSolved(starts[top]);
+    CHECK(prog.nextUnsolvedAtSize(sizes[top]) == starts[top] + 1);
+    CHECK(prog.nextUnsolved() == starts[0]);
+  }
+
+  {
+    // A FINISHED TIER RETURNS -1 so the caller can fall back. A NEXT that does
+    // nothing on the last puzzle of a tier is worse than one that moves on.
+    picross::Progress prog;
+    const int top = tiers - 1;
+    for (int i = starts[top]; i < starts[top] + lens[top]; ++i) prog.markSolved(i);
+    CHECK(prog.nextUnsolvedAtSize(sizes[top]) == -1);
+    // and the other tiers are untouched by that sweep
+    for (int t = 0; t < top; ++t) CHECK(prog.nextUnsolvedAtSize(sizes[t]) == starts[t]);
+  }
+
+  {
+    // Every index it ever returns is in the tier that was asked for. The whole
+    // point is the size, so check the size rather than the arithmetic.
+    picross::Progress prog;
+    for (int t = 0; t < tiers; ++t)
+      for (int k = 0; k < lens[t]; ++k) {
+        const int next = prog.nextUnsolvedAtSize(sizes[t]);
+        CHECK(next >= 0);
+        if (next < 0) break;
+        CHECK(picross::kPuzzles[next].size == sizes[t]);
+        prog.markSolved(next);
+      }
+  }
+}
+
 // EVERY TIER IS REACHABLE FROM THE PICKER, re-derived here the way the picker
 // derives it and checked against the bank it was derived from.
 //
@@ -559,17 +636,18 @@ void bankTiersAreReachable() {
   CHECK(picross::kMaxSize <= 16);
 }
 
-// The name is the reveal, and it is the only string the bank carries now that
-// the designer, the rights line and the source URL have left the firmware for
-// PROVENANCE.md. It is written by hand, so a bank is normally PART named and an
-// empty name is not a fault -- what would be a fault is a name that cannot be
-// drawn.
+// The name is the reveal, and it is the only string the bank carries -- there is
+// no designer, no rights line and no source URL anywhere, in the firmware or
+// out of it. A name is the puzzle's TITLE in the source file, so a bank is
+// normally fully named; an empty name is still not a fault (a corpus may carry
+// an untitled picture, and the win screen then draws no name band at all). What
+// would be a fault is a name that cannot be drawn.
 //
 // WHAT THIS CHECKS AND WHAT IT CANNOT. A host suite has no font, so it cannot
 // ask the question that actually decides a name: does it render at FULL SIZE in
 // the win screen's 448px band? That is measured in
 // tools_local/picross/name_fit.py and re-asked of the shipped bank by
-// host-tests/picrossprov. What is checkable here is the property that does not
+// host-tests/picrossnames. What is checkable here is the property that does not
 // need metrics -- every character is printable ASCII, which is exactly the
 // range the toybox cuts cover, so no name carries a HOLE (a glyph the cut lacks
 // draws nothing and advances nothing, so it is a gap in the word rather than a
@@ -751,6 +829,7 @@ int main() {
   bankFillsItsGrid();
   bankIsSizeSorted();
   bankTiersAreReachable();
+  nextStaysInTier();
   bankNamesAreDrawable();
   autoMarksSatisfiedLines();
   satisfiedAgreesOnBothAxes();

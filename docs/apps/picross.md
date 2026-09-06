@@ -376,25 +376,31 @@ name, it **shrinks** it, walking down the font slots until one fits, and nothing
 logs that. The failure being guarded against is not a broken screen; it is a
 reveal set two-thirds size with nobody told.
 
-**Two implementations, pinned rather than trusted.** The naming tool
-(`site/picross-names/logic.js`) cannot import Python, so it restates the same
-measurement in JavaScript. A second copy of a rule that must agree to the pixel
-is the drift this fork keeps paying for, so
-`tools_local/picross/name_fit_corpus.json` is the pin: `name_fit.py --corpus`
-writes it, `host-tests/picrossnames` checks those numbers are still what
-`measure()` computes today and drives the JavaScript against the same file. The
-two were checked against each other over 84 measurements in three cuts and agreed
-on every one.
+**The band is re-measured, not read on trust.** 448 is the number every name in
+the bank was accepted against, and it lived in a file written by a script nobody
+ran again -- move `buildWin`'s layout and it silently becomes wrong while every
+check goes on reporting clean. `host-tests/picrossnames` now compiles
+`measure_name_band` against the current `PicrossScreens.cpp` on every run and
+fails if its answer is not what `name_band.txt` says. A checked-in measurement
+that nothing re-derives is a literal.
 
-**The naming tool at `site/picross-names/` has nothing left to do**, and it is
-still here. It existed because the previous bank was unnamed; this one is not.
-`gen_name_tool.py` detects that state from the bank rather than being told --
-`--check` passes and reports "superseded" while every shipped puzzle carries a
-name, and the staleness check it used to run comes back the moment a bank ships
-an unnamed one. `data.js` is deliberately NOT regenerated: it still describes the
-previous bank, and it is left untouched so anything Mario typed into the page
-still loads. **The page, `gen_name_tool.py` and `docs/apps/picross-names.md` are
-proposed for removal together** -- his call.
+**The corpus pins the measurement to its own recorded output.**
+`tools_local/picross/name_fit_corpus.json` records what `measure()` computed when
+it was written, and `host-tests/picrossnames` fails if those numbers move. That
+is not redundant with the band check: glyph metrics shift when a Toybox cut is
+regenerated -- a recorded, real failure in this fork -- and every accepted name
+silently changes width when they do.
+
+**The naming tool is gone.** `site/picross-names/`,
+`tools_local/picross/gen_name_tool.py` and `docs/apps/picross-names.md` were
+deleted with this bank. The page existed to type 137 names for a bank that had
+none; this one arrives titled, so it produced output nothing consumed, behind a
+live public URL, which is worse than no code. It would have needed *rewriting*
+rather than restoring in any case: it drew ONE size where the bank now has four,
+and it keyed its output by janko id where both override files key by title. It
+also carried a second, JavaScript restatement of the fit rule, pinned to the
+Python one over 84 measurements in three cuts with zero disagreements; that pin
+is now one implementation against its own corpus.
 
 **A puzzle with no name draws no name band at all**, and the picture takes the
 space. Every puzzle in this bank has one, so the case does not arise today; it
@@ -463,12 +469,18 @@ Three mechanisms, because the failure is invisible:
 - **A compile-time count.** `countSizeRuns()` in `PicrossScreens.cpp` walks the
   `constexpr` bank and a `static_assert` requires the number of RUNS to equal the
   number of distinct SIZES. Those are equal if and only if the bank is
-  size-sorted, so an appended import -- which is exactly what produces an
-  unsorted bank -- stops the build instead of losing puzzles.
-- **`host-tests/picross`** re-derives the runs and requires them to **account for
-  every puzzle in the bank**. That subtraction is the only thing that catches a
-  break that fired: with a three-slot array it reports "the tabs reach 62 of 199
-  puzzles -- 137 are unreachable".
+  size-sorted, so a **hand-edited header** stops the build instead of losing
+  puzzles. It does not catch an appended *import*: `emit()` calls
+  `sort_by_size()` unconditionally and derives the count from the sorted result
+  in the same pass, so a regenerate cannot produce a bank this would reject. The
+  generator is why the property holds; the assert is why nobody can edit it away
+  afterwards.
+- **`host-tests/picross`** re-derives the runs and requires them to be ascending,
+  distinct, and to **account for every puzzle in the bank**. That subtraction is
+  the only thing that catches a break that fired: with a three-slot array it
+  reports "the tabs reach 62 of 199 puzzles -- 137 are unreachable". It is also
+  the half that catches what the `static_assert` cannot -- a hand-edit that bumps
+  `kSizeGroupCount` to match its own damage passes the assert and fails here.
 - **`host-tests/ui`** sweeps the rendered frame for a live `ActionTab` rect per
   group, opens each tab in turn and adds up the tiles its pages actually lay out,
   and requires the total to be the whole bank. A tab that draws but answers

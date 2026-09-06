@@ -97,9 +97,9 @@ NAMES = os.path.join(ASSETS, "name-overrides.json")
 
 # A name is accepted exactly when it RENDERS AT FULL SIZE, which is measured
 # rather than approximated by a character count. tools_local/picross/name_fit.py
-# is the one place that answers it; the naming tool
-# (site/picross-names/logic.js) restates the same measurement in JavaScript for
-# live feedback and is pinned to this one by a corpus.
+# is the one place that answers it, and host-tests/picrossnames re-asks it of the
+# header that shipped, re-measures the band from the real screen builder, and
+# pins the measurement to its own recorded corpus.
 #
 # THIS USED TO BE A NINE-CHARACTER CAP, and a character count is the wrong
 # instrument for a variable-width font in both directions at once: it refused
@@ -572,9 +572,6 @@ def emit(puzzles, sources):
     hexdigits = (maxsize + 3) // 4  # 5->2, 10->3, 15->4
     emitted = []
     longest = 0
-    max_row_runs = 0
-    max_col_runs = 0
-    max_run = 0
     for name, cells, _prov in puzzles:
         n = len(cells)
         ok, reason = evaluate(name, cells)
@@ -583,8 +580,6 @@ def emit(puzzles, sources):
                 "%s: %s. Redesign it or drop it (run --curate to triage)."
                 % (name, reason)
             )
-        rows = row_clues(cells)
-        cols = col_clues(cells)
         bits = []
         for r in range(maxsize):
             value = 0
@@ -600,9 +595,6 @@ def emit(puzzles, sources):
         if display:
             check_name(display, "%s: name for %r" % (os.path.relpath(OUTPUT, ROOT), name), fit, widest_run)
         longest = max(longest, len(display))
-        max_row_runs = max(max_row_runs, max(len(rc) for rc in rows))
-        max_col_runs = max(max_col_runs, max(len(cc) for cc in cols))
-        max_run = max(max_run, max(max(rc) for rc in rows), max(max(cc) for cc in cols))
         emitted.append(
             "    {%s, %d, {%s}},"
             % (
@@ -622,9 +614,6 @@ def emit(puzzles, sources):
         "sizegroups": len(sizes),
         "maxsize": maxsize,
         "longest": longest,
-        "maxrowruns": max_row_runs,
-        "maxcolruns": max_col_runs,
-        "maxrun": max_run,
     }
     with open(OUTPUT, "w", encoding="utf-8") as out:
         out.write(header)
@@ -787,13 +776,6 @@ constexpr int kSizeGroupCount = %(sizegroups)d;
 // than measuring at runtime, and the generator keeps it honest. Zero while no
 // picture has been named.
 constexpr int kMaxNameLen = %(longest)d;
-
-// The most clue numbers any one row or column carries, and the largest single
-// run. The clue gutters are sized from these so no clue is ever elided, and the
-// generator recomputes them from the bank on every run.
-constexpr int kMaxRowRuns = %(maxrowruns)d;
-constexpr int kMaxColRuns = %(maxcolruns)d;
-constexpr int kMaxRun = %(maxrun)d;
 
 }  // namespace picross
 """

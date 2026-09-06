@@ -10936,14 +10936,17 @@ void testPicrossShowsTheSizeOnlyOnTheTabs() {
   CHECK(!menu.target.drew(spaced));
 
   // A tile still shows a number, never a size: "10x10" under every one of
-  // twenty tiles is the noise that was removed and it stays removed. Asserted
-  // by counting -- one per tab, not one per tile.
+  // twenty tiles is the noise that was removed and it stays removed.
+  //
+  // THE BOUND IS ONE, NOT tabCount. Each size labels exactly ONE tab -- the
+  // sizes are distinct, which bankTiersAreReachable proves -- so `<= tabCount`
+  // left room for three tiles to put the label back and still pass. A bound
+  // loose enough to admit the thing it forbids is not a bound.
   int tightRuns = 0;
   for (const FakeTarget::TextRun& run : menu.target.texts)
     if (run.text == tight) ++tightRuns;
-  if (tightRuns > layout.tabCount)
-    std::printf("  %s is drawn %d times for %d tabs -- the tiles have it back\n", tight, tightRuns, layout.tabCount);
-  CHECK(tightRuns <= layout.tabCount);
+  if (tightRuns != 1) std::printf("  %s is drawn %d times; exactly one tab carries it\n", tight, tightRuns);
+  CHECK(tightRuns == 1);
 
   // The picker's actions are exactly the four it has: the grid, the buttons,
   // the page dots and the tabs. Anything else is a control nobody designed.
@@ -11160,11 +11163,14 @@ void testPicrossPickerFitsTheInteractionBuffer() {
   }
 }
 
-// THE WIN SCREEN NO LONGER CREDITS THE DESIGNER, and that is a decision, not a
-// regression -- Mario, having seen it: "it just looks bad". The whole
-// attribution left the firmware with it (137 source URLs were ~34KB of an ~51KB
-// bank) and now lives in assets_local/picross/PROVENANCE.md, which
-// host-tests/picrossprov checks against the shipped bitmaps.
+// THE WIN SCREEN NO LONGER CREDITS THE DESIGNER, and there is nobody to credit.
+//
+// It read "PUZZLE BY <name>" for a bank of six named designers' work. Mario,
+// having seen it: "it just looks bad", and then, on the flash it cost, "as long
+// as it doesn't reach firmware anywhere and uses space there I'm good" -- 137
+// source URLs were ~34KB of an ~51KB bank. Those puzzles are gone now, and the
+// current bank carries no attribution obligation at all: no author, no licence,
+// no source, and no file anywhere recording one.
 //
 // This asserts the absence, because the absence is the thing a later session
 // will read as an oversight and helpfully undo.
@@ -11182,10 +11188,11 @@ void testPicrossWinDrawsNoDesignerCredit() {
 
 // The reveal names the picture and grades the solve. Zero mistakes is PERFECT.
 //
-// The NAME comes from a synthetic puzzle rather than from the bank, and that is
-// deliberate: the names are being written by hand into janko-names.json, so the
-// bank is normally part-named and reading kPuzzles[0].name would make this test
-// pass or fail on how far Mario has got rather than on whether the screen works.
+// The NAME comes from a synthetic puzzle rather than from the bank, and that
+// stays deliberate even though the bank is now fully named. Reading
+// kPuzzles[0].name would tie this test to whichever picture happens to sort
+// first, so a bank change would move it for reasons that have nothing to do
+// with whether the screen draws a name and a grade.
 void testPicrossWinRevealsNameAndGrade() {
   picross::Puzzle named = picross::kPuzzles[0];
   named.name = "RABBIT";

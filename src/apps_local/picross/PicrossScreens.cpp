@@ -570,17 +570,25 @@ constexpr int16_t kTabGap = 8;
 // HOW MANY SIZE RUNS THE BANK ACTUALLY HAS, counted from the bank at compile
 // time, and checked against the number the generator wrote down.
 //
-// This is the whole mechanism, and it is worth being precise about what it
-// catches. The picker recovers its groups by run-scanning for changes of size,
-// which is correct only while each size is ONE CONTIGUOUS RUN. An unsorted bank
-// -- which is exactly what appending an import to the file produces -- makes
+// The picker recovers its groups by run-scanning for changes of size, which is
+// correct only while each size is ONE CONTIGUOUS RUN. An unsorted bank makes
 // every alternation a new run: more runs than there are sizes, more groups than
 // there are slots, the `break` in sizeGroups() fires, and every puzzle past that
 // point is unreachable from the tabs. Nothing draws wrong. Nothing is logged.
 //
-// Counting the runs here turns that into a build failure. kSizeGroupCount is
-// the number of DISTINCT sizes; this is the number of RUNS; they are equal if
-// and only if the bank is size-sorted.
+// kSizeGroupCount is the number of DISTINCT sizes; this is the number of RUNS;
+// they are equal if and only if the bank is size-sorted.
+//
+// BE PRECISE ABOUT WHAT THIS CATCHES: a HAND-EDITED header, or a bad merge of
+// one. It does NOT catch an appended import, whatever a comment here used to
+// claim -- gen_picross.emit() calls sort_by_size() unconditionally and derives
+// kSizeGroupCount from the sorted result in the same pass, so a regenerate
+// cannot produce a bank this assert would reject. The generator is the reason
+// the property holds; this is the reason nobody can quietly edit it away
+// afterwards. The other half of the guard is host-tests/picross, which catches
+// the case this cannot: a hand-edit that bumps kSizeGroupCount to match its own
+// damage still passes here and fails there, because the runs stop being
+// ascending and stop accounting for every puzzle.
 constexpr int countSizeRuns() {
   int runs = 0;
   for (int i = 0; i < picross::kPuzzleCount; ++i)
@@ -836,7 +844,16 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
   // the activity by dividing by a literal 16, and it went silently wrong the
   // moment this band's height changed.
   const int selected = clampInt(model.selectedIndex, 0, picross::kPuzzleCount - 1);
-  const int tab = model.followSelection ? groupOf(groups, selected) : clampInt(model.sizeTab, 0, groups.count - 1);
+  // Clamped to 0 and not to groups.count - 1 when there are no groups: on an
+  // empty bank that upper bound is -1, and clampInt would hand back -1, which
+  // then indexes groups.start[] below. Two of the three uses of `tab` were
+  // already defended against that and the third was not -- the shape this fork
+  // calls "bounding one of two input paths". kPuzzleCount is never zero (the
+  // generator refuses an empty bank and a static_assert backs it), so this is
+  // insurance rather than a live bug, but a bound that only holds because of a
+  // fact two files away is not a bound.
+  const int lastTab = groups.count > 0 ? groups.count - 1 : 0;
+  const int tab = model.followSelection ? groupOf(groups, selected) : clampInt(model.sizeTab, 0, lastTab);
 
   const int len = groups.count > 0 ? groups.len[tab] : 0;
   const int pageCount = len > 0 ? (len + perPage - 1) / perPage : 1;
@@ -846,7 +863,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
   drawSizeTabs(screen, model, groups, tabBand, tab, layout);
 
   const int firstInGroup = page * perPage;
-  const int first = groups.start[tab] + firstInGroup;
+  const int first = (groups.count > 0 ? groups.start[tab] : 0) + firstInGroup;
   const int n = len - firstInGroup < perPage ? len - firstInGroup : perPage;
   layOutGrid(screen, model, screen.body(), g, first, n, page, pageCount, layout);
   drawPageDots(screen, dotBand, pageCount, page);
@@ -894,20 +911,26 @@ void buildWin(toybox::Screen& screen, const WinModel& model) {
   gradeStyle.align = fui::TextAlign::Center;
   screen.target().text(toybox::inkCentred(gradeBand, toybox::kUiCut), grade, gradeStyle);
 
-  // NO DESIGNER CREDIT HERE, and that is a decision rather than an oversight.
-  // It used to read "PUZZLE BY <name>" under the reveal. Mario, having seen it:
-  // "it just looks bad". The credit obligation is unchanged and is met in
-  // assets_local/picross/PROVENANCE.md, which carries the full per-puzzle
-  // mapping, is generated from the bank and is checked against it -- see the
-  // note at the top of PicrossPuzzles.h. The designer strings are no longer in
-  // the firmware at all, so there is nothing here to draw even if somebody
-  // wanted to.
+  // NO DESIGNER CREDIT HERE, AND THERE IS NOBODY TO CREDIT.
+  //
+  // It used to read "PUZZLE BY <name>" under the reveal, for a bank of six named
+  // designers' work used by permission. Mario, having seen it: "it just looks
+  // bad" -- and then, on the flash it cost, "as long as it doesn't reach
+  // firmware anywhere and uses space there I'm good". Those puzzles are gone.
+  // The current bank carries no attribution obligation at all: no author, no
+  // licence, no source, and no file anywhere recording one. See the note at the
+  // top of PicrossPuzzles.h, which is the whole of what is claimed.
+  //
+  // This comment used to say the obligation was met in
+  // assets_local/picross/PROVENANCE.md. That file was deleted with the puzzles
+  // it credited, and this line outlived it -- the last place in the firmware
+  // still asserting these pictures have designers on record.
 
   // The revealed name, now safe to show -- and the WHOLE reward, which is why
   // the picker and the board hide it.
   //
-  // An UNNAMED puzzle draws no band at all rather than an empty one: the names
-  // are being written by hand, so a bank is normally part-named, and a blank
+  // An UNNAMED puzzle draws no band at all rather than an empty one: a name is
+  // the puzzle's title in the source file and a corpus may not carry one, so a bank is normally part-named, and a blank
   // 52px gap over every unnamed picture would read as a name that failed to
   // render (see the a-silent-screen-reads-as-a-crash memory). No band means the
   // picture simply gets the space.

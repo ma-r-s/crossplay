@@ -165,6 +165,15 @@ struct Progress {
   // The first unsolved puzzle, or the last when every one is done. This is what
   // PLAY opens, so the player never has to pick before playing.
   int nextUnsolved() const;
+
+  // The next unsolved puzzle AT `size`, or -1 when that tier is finished.
+  //
+  // The bank is size-sorted, so plain nextUnsolved() is "the first unsolved in
+  // bank order" -- which was progression while the game was one tier and is a
+  // tier change now. Finishing a 10x10 would hand the player the lowest
+  // unsolved 5x5, four tabs away from where they were and a third of the size.
+  // NEXT means "another one of these"; the picker is how you change tier.
+  int nextUnsolvedAtSize(int size) const;
 };
 
 }  // namespace picross

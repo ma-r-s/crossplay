@@ -268,11 +268,4 @@ constexpr int kSizeGroupCount = 4;
 // picture has been named.
 constexpr int kMaxNameLen = 16;
 
-// The most clue numbers any one row or column carries, and the largest single
-// run. The clue gutters are sized from these so no clue is ever elided, and the
-// generator recomputes them from the bank on every run.
-constexpr int kMaxRowRuns = 5;
-constexpr int kMaxColRuns = 5;
-constexpr int kMaxRun = 10;
-
 }  // namespace picross
