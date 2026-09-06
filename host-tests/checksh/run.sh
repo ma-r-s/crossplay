@@ -2067,8 +2067,15 @@ undo_repo() {  # builds $WORK/undo with trunk T (base + 3 commits x 30 lines) an
     git update-ref refs/remotes/origin/xteink HEAD )
 }
 undo_run() {  # echoes fired|silent for HEAD of $WORK/undo; die leaves a marker, since the block's own output is captured
+  # CHECK_ALLOW_UNDO is UNSET here, and that is the whole hermeticity of this
+  # fixture: it is the variable that switches the guard off, so inheriting it
+  # from whoever ran check.sh makes every "fires" case below report silent and
+  # fail. A caller legitimately holds it whenever their own branch refactors a
+  # file trunk touched recently -- which is not rare -- and they would then see
+  # this suite fail for a reason that has nothing to do with their change. The
+  # one case that WANTS the flag exports it in its own subshell, below.
   rm -f "$WORK/undo.fired"
-  ( cd "$WORK/undo" && die() { : >"$WORK/undo.fired"; exit 0; } && . "$WORK/undo.sh" >"$WORK/undo.out" 2>&1 )
+  ( cd "$WORK/undo" && unset CHECK_ALLOW_UNDO && die() { : >"$WORK/undo.fired"; exit 0; } && . "$WORK/undo.sh" >"$WORK/undo.out" 2>&1 )
   [ -e "$WORK/undo.fired" ] && echo fired || echo silent
 }
 undo_expect() {  # label, fired|silent

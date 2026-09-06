@@ -1022,6 +1022,7 @@ void WallpapersActivity::openAdd() {
   // it started requiring WiFi -- and a screen that cannot be rendered cannot be
   // reviewed, which is how every layout defect in this app was found. The
   // address is representative so the layout is measured against a real one.
+  addQrUrl_ = "http://192.168.1.42/w";
   addUrl_ = std::string("http://") + devicehost::mdnsName() + ".local/w";
   addAltUrl_ = "http://192.168.1.42/w";
   addBefore_ = static_cast<int>(names_.size());
@@ -1088,22 +1089,36 @@ void WallpapersActivity::startAddServer() {
   // and that activity runs MDNS.end() in its own onExit -- so it is definitely
   // not running when this screen opens.
   MDNS.end();
-  if (!MDNS.begin(devicehost::mdnsName())) {
-    // Not fatal, and deliberately not a notice: the numeric address under the
-    // code does not depend on mDNS, so the screen still works. Saying so in the
-    // log is enough; saying it on the panel would be alarming and useless.
-    LOG_DBG("WALL", "mDNS did not start; the numeric address still works");
-  }
+  const bool mdnsUp = MDNS.begin(devicehost::mdnsName());
+  if (!mdnsUp) LOG_DBG("WALL", "mDNS did not start; the code carries the address, which does not need it");
 
   const std::string dotted = std::string(WiFi.localIP().toString().c_str());
-  addUrl_ = std::string("http://") + devicehost::mdnsName() + ".local/w";
-  addAltUrl_ = "http://" + dotted + "/w";
+  const std::string ipUrl = "http://" + dotted + "/w";
+  const std::string nameUrl = std::string("http://") + devicehost::mdnsName() + ".local/w";
+
+  // THE CODE CARRIES THE ADDRESS, ALWAYS. It is generated from WiFi.localIP()
+  // at the moment of drawing and depends on no service, so the only way it can
+  // be wrong is DHCP moving this device in the seconds between the paint and
+  // the scan. The name depends on a responder that can fail to start -- and
+  // this function ALREADY KNEW when it had -- so encoding it was putting a
+  // detected fault into the one element the user cannot read. The phone would
+  // have said "cannot find server" and the prose would have blamed their WiFi.
+  addQrUrl_ = ipUrl;
+
+  // The name is the half worth BOOKMARKING -- it survives reboots, WiFi
+  // reconnects and DHCP moves -- so it goes where a human reads it. When the
+  // responder did not start it is not printed at all: an address that cannot
+  // resolve is worse than one line fewer.
+  addUrl_ = mdnsUp ? nameUrl : ipUrl;
+  addAltUrl_ = mdnsUp ? ipUrl : std::string();
+
   // Card #352: QrUtils sizes its code from the ALPHANUMERIC table, so a payload
   // past 78 bytes in byte mode draws a code that cannot scan, silently, at every
-  // layer. Both strings are ~31 bytes so this never fires; it is here because a
-  // QR that does not scan is the worst outcome a screen whose whole promise is
+  // layer. The address is ~24 bytes so this never fires; it stays because an
+  // unscannable code is the worst outcome a screen whose whole promise is
   // "point your camera at it" can have.
-  if (addUrl_.size() > kQrByteSafeLen) addUrl_ = addAltUrl_;
+  if (addQrUrl_.size() > kQrByteSafeLen)
+    LOG_ERR("WALL", "address too long for a scannable code: %s", addQrUrl_.c_str());
 
   addBefore_ = static_cast<int>(names_.size());
   addArrived_ = 0;
@@ -1427,7 +1442,8 @@ void WallpapersActivity::loop() {
       requestUpdate();
       return;
     }
-    if (view_ == View::Help || view_ == View::Notice || view_ == View::Add) {
+    // View::Help is gone with buildHelp (app/wallqr): the QR screen replaced it.
+    if (view_ == View::Notice || view_ == View::Add) {
       stopAddServer();
       pickView();
       requestUpdate();
@@ -1648,8 +1664,8 @@ void WallpapersActivity::render(RenderLock&&) {
   // shares with the shelf; the offer, the progress and the notices are
   // SENTENCES, and at the 20px UI cut a sentence runs off the panel and is cut
   // with an ellipsis. Trivia carries the same split for the same reason.
-  const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Help ||
-                     view_ == View::Add || view_ == View::Sheet || view_ == View::Confirm;
+  const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Add ||
+                     view_ == View::Sheet || view_ == View::Confirm;
   // View::Add rebinds the SMALL slot to the bold reading cut so the address has
   // a cut of its own: see readingAddressFaces. Without it the headline, the
   // address, the prose and the footer all land on serif 14 and the one line the
@@ -1677,7 +1693,9 @@ void WallpapersActivity::render(RenderLock&&) {
       model.status = addStatus_.c_str();
     }
     const fui::Rect qr = wallpapersui::buildAdd(surface, model);
-    QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addUrl_);
+    // addQrUrl_, NOT addUrl_ (app/wallqr): the code carries the numeric address,
+    // which depends on no responder; the name is the half a human reads.
+    QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addQrUrl_);
   } else if (view_ == View::Sheet) {
     wallpapersui::SheetModel model;
     model.name = sheetName_.c_str();
@@ -1693,8 +1711,6 @@ void WallpapersActivity::render(RenderLock&&) {
     model.name = sheetName_.c_str();
     model.consequence = sheetDetail_.c_str();
     wallpapersui::buildConfirm(surface, model);
-  } else if (view_ == View::Help) {
-    wallpapersui::buildHelp(surface);
   } else if (view_ == View::Fetching) {
     wallpapersui::FetchingModel model;
     model.done = fetchDone_;

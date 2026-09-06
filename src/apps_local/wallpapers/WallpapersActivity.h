@@ -54,7 +54,10 @@ class WallpapersActivity final : public Activity {
   // Sheet, Confirm and Preview are the hold branch. Preview draws NO chrome at
   // all -- it is what the sleep screen puts on the glass, and a hint band over
   // it would be a preview of something that never appears.
-  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Help, Add, Sheet, Confirm, Preview };
+  //
+  // Help is absent on purpose: app/wallqr removed it with buildHelp when the QR
+  // screen replaced it, and a member nothing sets is a branch nothing reaches.
+  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Add, Sheet, Confirm, Preview };
   View view_ = View::Grid;
 
   void scanLibrary();
@@ -136,8 +139,16 @@ class WallpapersActivity final : public Activity {
   // not the 1:1 source count host-tests/release can see (its own comment says
   // it cannot see reachability at all). One pause, one resume, one owner.
   bool addDevPaused_ = false;
+
+  // The screen owns the radio while the code is up, and the user is looking at
+  // their PHONE -- nothing here counts as activity, so the 10-minute auto-sleep
+  // (minimum 1) would reset the chip mid-upload. The two other owners of this
+  // same server both carry this line; this is the third (fix-the-twin-too).
+  bool preventAutoSleep() override { return addServer_ && addServer_->isRunning(); }
   std::string addStatus_;
-  std::string addUrl_;     // http://crossplay.local/w -- what the QR encodes and the screen prints
+  std::string addQrUrl_;  // what the CODE carries: always the numeric address
+  std::string addUrl_;  // printed large: the name when it resolves, else the address     // http://crossplay.local/w --
+                        // what the QR encodes and the screen prints
   std::string addAltUrl_;  // http://<ip>/w -- the fallback, printed under it, never encoded
   std::string rightLabel_;
   std::string warning_;

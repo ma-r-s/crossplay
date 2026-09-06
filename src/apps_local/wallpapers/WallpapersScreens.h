@@ -251,11 +251,7 @@ struct EmptyModel {
 
 void buildEmpty(toybox::Screen& screen, const EmptyModel& model);
 
-// The help card reached from the "+ Add a wallpaper" tile: how to get your own
-// wallpapers onto the card. A screen, so it is testable.
-void buildHelp(toybox::Screen& screen);
-
-// The screen that replaces buildHelp: scan the code, pick a photo on the phone,
+// Scan the code, pick a photo on the phone,
 // and it is here. The address is drawn as well as encoded, because a QR is
 // unreadable to a person and the one failure this screen has -- a phone on a
 // different network -- is one the reader has to be able to check by hand.

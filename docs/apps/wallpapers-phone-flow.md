@@ -479,15 +479,28 @@ copy it across" path still exists for it -- it just stops being the headline.
    held by a match, refuse and say so. Otherwise `WifiSelectionActivity`.
 3. Take the `devmode` latch, start the server in `wallpapersOnly` mode, and
    **verify it bound** before drawing anything.
-4. Draw the QR for **`http://crossplay.local/w`**, with the numeric address
-   printed under it as the fallback (both 24 bytes, well inside the budget
-   below). Mario is on an iPhone, and mDNSResponder *is* the system resolver on
-   Apple platforms -- Safari needs no local-network permission for it, which is
-   the one place iOS is strictly better than Android here. The name also
-   survives DHCP moving this device, so it is the half worth bookmarking.
-   The address is drawn too because the name is what dies on a router that
-   filters mDNS, on a VPN, or on Android below 12, and that failure puts
-   nothing on screen.
+4. **The code carries the numeric address; the name is printed.** This was the
+   other way round for one revision and the doc contradicted itself about it
+   inside a single step, which is how the inversion survived review.
+
+   The address is generated from `WiFi.localIP()` at the moment of drawing and
+   depends on no service at all, so the only way it can be wrong is DHCP moving
+   this device in the seconds between the paint and the scan. The name depends
+   on a responder that can fail to start -- and `startAddServer()` **already
+   knew** when it had, logged it, and then encoded the name anyway. That put a
+   fault the device had detected into the one element a person cannot read: the
+   phone would say "cannot find server" and the prose beneath would blame their
+   Wi-Fi, sending them to change networks over something the reader knew.
+
+   So the name goes where a human reads it, which is also where it is worth
+   most: it survives reboots, Wi-Fi reconnects and DHCP moves, so it is the
+   half worth **bookmarking**. When the responder does not start it is not
+   printed at all -- an address that cannot resolve is worse than one line
+   fewer -- and the numeric address takes the printed line instead.
+
+   mDNS is still worth having on iOS specifically: mDNSResponder *is* the system
+   resolver on Apple platforms, and Safari needs no local-network permission for
+   it. On Android it is 12+ only (the Nov 2021 Mainline update), dead below that.
 
    **PR 1 must call `MDNS.begin` itself.** `restartMdns` lives in an anonymous
    namespace in `CrossPointWebServerActivity.cpp:45`, so nothing outside that
@@ -505,14 +518,13 @@ copy it across" path still exists for it -- it just stops being the headline.
    `crossplay-<6 hex>` from a hash of all six MAC bytes -- hashed rather than
    sliced, because the first three bytes of a MAC are the OUI and taking the
    wrong end would give every unit the same name, silently, which is the bug
-   being fixed reintroduced inside the fix. Station mode only: the hotspot has no NAT and a
-   captive-portal DNS answering every name with the device, so a phone joined to
-   it has no internet and both iOS and Android offer to drop back to cellular,
-   mid-upload. (HTTPS-First does not threaten this: Chromium's own adoption guide
-   exempts "non-unique hostnames, local IP addresses, and single-label
-   hostnames". The QR carries the IP rather than `crossplay.local` because
-   Android only gained mDNS `.local` resolution in the Nov 2021 Mainline update
-   -- Android 12+ -- and it is dead on 11 and earlier.)
+   being fixed reintroduced inside the fix.
+
+   Station mode only: the hotspot has no NAT and a captive-portal DNS answering
+   every name with the device, so a phone joined to it has no internet and both
+   iOS and Android offer to drop back to cellular, mid-upload. HTTPS-First does
+   not threaten either string: Chromium's own adoption guide exempts
+   "non-unique hostnames, local IP addresses, and single-label hostnames".
 5. The phone picks a photo, sees the 1-bit preview, sends. The device checks
    `roomFor` before accepting and refuses with a sentence the page shows.
 6. The device polls its own library at 1500 ms and, when a file appears, redraws
