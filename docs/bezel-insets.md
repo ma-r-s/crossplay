@@ -132,10 +132,13 @@ Two consequences worth keeping straight when touching that helper:
   `screen.header(props)` straight and were missed by the flip: their band
   came off the safe rect, inset on three sides, so it had a white strip
   above it AND a white column down each side, and its bottom edge sat 10px
-  below their own menus'. The paint is fixed; the bottom-edge difference is
-  not -- those eleven still lack `absoluteChrome`, and giving it to them
-  moves their content up by the top inset, which is a layout change to be
-  rendered and judged rather than smuggled into a paint fix.
+  below their own menus'.
+
+  **CLOSED by card 248.** `headerBand()` now calls `absoluteChrome()` itself,
+  unconditionally, so no screen can lack it: the bottom-edge difference this
+  paragraph described as unfixed is gone, and the eleven are absolute like
+  everything else. It also reserves the rule it draws, so `screen.body().y`
+  is the whole chrome rather than the band alone.
 
 What made the flip safe for the screens that DO honor it, in the order the
 traps were found:
@@ -246,7 +249,8 @@ Verified by rendering every app's ENTRY screen plus the shelf, both folders
 and PLAYER in the simulator (21 screens). Note what an entry screen is: a
 menu, and every menu goes through `headerBand()`. That is why the eleven
 board and result screens that did not were not among the 21 and kept a
-three-sided inset band for a fortnight. A sweep scoped to "the screen each
+three-sided inset band for a fortnight (card 248 has since made
+`headerBand()` apply the absolute chrome itself, so no screen can miss it). A sweep scoped to "the screen each
 app opens on" cannot see the screen you spend the whole game looking at.
 
 The ui host-tests could not catch any of it either, and still cannot by

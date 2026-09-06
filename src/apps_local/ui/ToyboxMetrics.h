@@ -75,6 +75,13 @@ constexpr int kBodyGutter = kGutter * 3;
 // comment over each private copy of this constant claimed the opposite. Card
 // 358.
 constexpr int bodyTopBelow(const int bandHeight) { return chromeBelow(bandHeight) + kBodyGutter; }
+// kBodyTop is the DEFAULT band's body top, not a fork-wide law: kHeaderHeight
+// is a theme token and Solitaire overrides it to 56 in landscape
+// (solitaireui::kHeaderBand, set at SolitaireActivity.cpp:289). Its body top is
+// bodyTopBelow(56) = 99, and a Solitaire screen reaching for kBodyTop would
+// leave 20px of dead air under its rule -- invisible, because nothing would
+// clip. Anything whose band height is not kHeaderHeight calls bodyTopBelow()
+// with its own; that is why the function exists beside the constant.
 constexpr int kBodyTop = bodyTopBelow(kHeaderHeight);
 constexpr int kFrame = 4;
 // The board's own border is heavier than anything drawn inside it, so the

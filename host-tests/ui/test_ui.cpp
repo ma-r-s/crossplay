@@ -9987,30 +9987,37 @@ void testTheHeaderBandBottomIgnoresTheBezel() {
 // glass may not move a body top), the second of which a screen written
 // tomorrow cannot pass by accident.
 
-// The first row a screen's own content occupies: the topmost thing drawn at or
+// Every row a screen's own content occupies: the y of everything drawn at or
 // below kChromeHeight, which is where headerBand()'s ownership ends.
 //
+// The WHOLE list, sorted, not just the topmost. Comparing only the first row
+// would pass a screen whose first element is absolute and whose later ones add
+// safe.y -- and half a screen compensating is exactly the shape this fork keeps
+// shipping (see the two-input-paths notes). Sorted rather than positional
+// because draw order is not layout order.
+//
 // Rects rather than ink bands on purpose. toybox::inkCentred() expands a text
-// rect around its cut, so the recorded rect can start above the band it was
-// laid into -- xkcd's menu headline draws at y=102 for a band at 112. That
-// expansion is identical in both contexts, so it cancels in a comparison and
-// would only mislead an absolute assertion. The absolute row is asserted from
-// the exported geometry instead, in testEveryAppsBodyStartsOnTheSameRow.
-int16_t firstBodyRow(const FakeTarget& target) {
-  int32_t top = 0x7fff;
+// rect around its cut, so a recorded rect can start above the band it was laid
+// into -- xkcd's menu headline draws at y=102 for a band at 112. That expansion
+// is identical in both contexts, so it cancels in a comparison and would only
+// mislead an absolute assertion. The absolute row is asserted from the exported
+// geometry instead, in testEveryAppsBodyStartsOnTheSameRow.
+std::vector<int> bodyRows(const FakeTarget& target) {
+  std::vector<int> rows;
   for (const FakeTarget::TextRun& run : target.texts) {
-    if (run.rect.y >= toybox::kChromeHeight && run.rect.y < top) top = run.rect.y;
+    if (run.rect.y >= toybox::kChromeHeight) rows.push_back(run.rect.y);
   }
   for (const fui::Rect& r : target.fills) {
-    if (r.y >= toybox::kChromeHeight && r.y < top) top = r.y;
+    if (r.y >= toybox::kChromeHeight) rows.push_back(r.y);
   }
-  for (const FakeTarget::Stroke& s : target.strokes) {
-    if (s.rect.y >= toybox::kChromeHeight && s.rect.y < top) top = s.rect.y;
+  for (const FakeTarget::Stroke& st : target.strokes) {
+    if (st.rect.y >= toybox::kChromeHeight) rows.push_back(st.rect.y);
   }
   for (const FakeTarget::Blit& b : target.blits) {
-    if (b.rect.y >= toybox::kChromeHeight && b.rect.y < top) top = b.rect.y;
+    if (b.rect.y >= toybox::kChromeHeight) rows.push_back(b.rect.y);
   }
-  return static_cast<int16_t>(top);
+  std::sort(rows.begin(), rows.end());
+  return rows;
 }
 
 template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
@@ -10022,16 +10029,25 @@ void render(Rendered& out, const Model& model) {
 }
 
 // The rule: rendered twice, once on a bare frame and once behind the glass,
-// the body starts on the same row. Nothing about the app's own gutter is
+// every body row lands in the same place. Nothing about the app's own gutter is
 // assumed, which is what lets a screen nobody has written yet be added here in
 // two lines.
+//
+// The emptiness check is not ceremony. Comparing two renders that drew NOTHING
+// below the chrome compares two empty lists and passes, so a model that fails
+// to produce a body -- a wrong fixture, a builder that early-returns -- would
+// report this rule as satisfied. That is the failure mode a guard has when its
+// subject is absent, and it is the one this suite has been bitten by before.
 template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
 void checkTheGlassDoesNotMoveTheBody(const Model& model, const char* what) {
   Rendered bare;
   render<Model, Build>(bare, model);
   Rendered glassed;
   renderWithBezel<Model, Build>(glassed, model);
-  check(firstBodyRow(bare.target) == firstBodyRow(glassed.target), what, __LINE__);
+  const std::vector<int> bareRows = bodyRows(bare.target);
+  const std::vector<int> glassedRows = bodyRows(glassed.target);
+  check(!bareRows.empty(), what, __LINE__);
+  check(bareRows == glassedRows, what, __LINE__);
 }
 
 void testTheGlassNeverMovesABodyTop() {
@@ -10099,10 +10115,19 @@ void testTheGlassNeverMovesABodyTop() {
 // green.
 //
 // A floor on the cell is therefore the assertion that can actually fail. The
-// measured size after the fix is 153x254 behind the glass, down from 153x262;
-// these numbers are that, minus a little slack. They go red for anyone who
-// pushes the body top down again by more than about thirty pixels, which is
-// the failure this screen really has.
+// measured size behind the glass is 150x249 after the fix, down from 154x256 --
+// BOTH axes, because the cell is height-bound here and the width follows the
+// aspect, so the thumbnails lost about 5.2% of their area.
+//
+// WHAT THIS DOES NOT CATCH, so nobody reads it as more than it is: the floor
+// trips at roughly +28px of body top on height and +44px on width, so it would
+// stay GREEN if this very bug were reintroduced -- a ten-pixel push leaves the
+// cell at 145x241, comfortably inside it. It is a gross-degradation guard, not
+// a guard on this card's defect; testTheGlassNeverMovesABodyTop and
+// testEveryAppsBodyStartsOnTheSameRow are what catch that, exactly. Set from
+// the measured size minus a little slack rather than tight against it, because
+// a floor that trips on any legitimate re-tuning gets deleted rather than
+// heeded.
 void testTheWallpapersThumbnailsStayBigEnoughToRead() {
   for (const fui::DeviceContext& ctx : {device(), bezelDevice()}) {
     const wallpapersui::GridGeom g = wallpapersui::gridGeom(ctx);
@@ -10144,9 +10169,36 @@ void testTheHandRolledBodyTopMatchesTheReservedOne() {
   }
   // And the derivation is the reservation's, not a second sum that happens to
   // agree today: kBodyTop must track a band height it was not written against.
+  // 56 is Solitaire's landscape band (solitaireui::kHeaderBand), the one real
+  // case where kHeaderHeight is not the band height.
   CHECK(toybox::bodyTopBelow(toybox::kHeaderHeight) == toybox::kBodyTop);
   CHECK(toybox::bodyTopBelow(56) == toybox::chromeBelow(56) + toybox::kBodyGutter);
   CHECK(toybox::bodyTopBelow(56) != toybox::kBodyTop);
+
+  // A REAL screen, not just the synthetic chrome above. The assertions so far
+  // drive headerBand() directly; this drives one of the ~41 app screens that
+  // reach insetContent({kBodyGutter, ...}) through their own chrome() helper,
+  // and reads where its first component-laid element actually landed.
+  //
+  // Without this the suite measures screen.body().y in exactly two places, both
+  // against kHeaderHeight, and no app screen's component-laid body top is
+  // measured anywhere -- so the two halves of the fork's layout could disagree
+  // with nothing to say so. takeTop() returns a rect at content_.y and consumes
+  // the gap AFTER it, so the first one is the body top exactly, and this run is
+  // drawn from a raw rect with no inkCentred() expansion.
+  for (const fui::DeviceContext& ctx : {device(), bezelDevice()}) {
+    wallpapersui::EmptyModel empty;
+    empty.title = "WALLPAPERS";
+    empty.warning = nullptr;
+    Rendered out;
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wallpapersui::buildEmpty(screen, empty);
+    const FakeTarget::TextRun* headline = out.target.find("NO WALLPAPERS");
+    CHECK(headline != nullptr);
+    if (headline != nullptr) CHECK(headline->rect.y == toybox::kBodyTop);
+  }
 }
 
 // And the alignment itself, from the geometry the Activities share rather than
