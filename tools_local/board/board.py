@@ -49,6 +49,7 @@ import argparse
 import datetime as dt
 import fcntl
 import json
+import time
 import os
 import pathlib
 import re
@@ -795,6 +796,23 @@ def cmd_new(st, a):
     print(f"#{c['id']} {c['title']}" + ("  (in Mario's inbox)" if inbox else ""))
 
 
+IDLE_MINUTES = 45
+
+
+def session_live(root, sid):
+    """The hook touches .board/sessions/<sid>.json on every tool call and marks
+    ended_at at SessionEnd; a holder silent for IDLE_MINUTES or ended is gone."""
+    p = root / ".board" / "sessions" / f"{norm_sid(sid)}.json"
+    try:
+        st = p.stat()
+        cur = json.loads(p.read_text() or "{}")
+    except (OSError, ValueError):
+        return False
+    if cur.get("ended_at"):
+        return False
+    return (time.time() - st.st_mtime) < IDLE_MINUTES * 60
+
+
 def cmd_bind(st, a):
     with st.lock():
         c = st.get_card(a.id)
@@ -804,7 +822,8 @@ def cmd_bind(st, a):
         # mid-rebase on the same branch, and both did the work (2026-09-05).
         # Taking a card over is a decision, so it has a flag and a history line.
         held = norm_sid(c.get("session"))
-        if held and held != sid and c["state"] not in SETTLED and not getattr(a, "take", False):
+        take = getattr(a, "take", False) or (held and held != sid and not session_live(st.root, held))
+        if held and held != sid and c["state"] not in SETTLED and not take:
             since = next((h["at"] for h in reversed(c.get("history", [])) if str(h.get("what", "")).startswith("bound to session")), c.get("updated"))
             sys.exit(
                 f"board: #{c['id']} is held by session {held}"
@@ -821,6 +840,7 @@ def cmd_bind(st, a):
                 k for k in st.list_cards()
                 if k["id"] != c["id"] and str(k.get("tree") or "").rstrip("/") == tree
                 and k.get("session") and norm_sid(k.get("session")) != sid and k["state"] not in SETTLED
+                and session_live(st.root, k["session"])
             ]
             if others:
                 k = others[0]
@@ -829,7 +849,7 @@ def cmd_bind(st, a):
                     f"  One card, one branch, one worktree: ./scripts/wt.sh new <name> for yours, or --take if that session is gone."
                 )
         if held and held != sid:
-            card_history(st, c, f"taken over from session {held}")
+            card_history(st, c, f"taken over from session {held}" + ("" if getattr(a, "take", False) else " (it had ended, or was silent for %d minutes)" % IDLE_MINUTES))
         c["session"] = sid
         if a.tree:
             c["tree"] = a.tree

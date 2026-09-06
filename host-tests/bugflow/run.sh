@@ -136,7 +136,7 @@ CID=$(board new "Sudoku loses the puzzle from the difficulty menu" --from sudoku
 board bind "$CID" --session "$WORKER" --tree wt/x --branch app/x >/dev/null
 echo "a tree another session holds refuses writes"
 expect "another session editing wt/x is refused"        2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
-grep -q "wt/x is bound to session $WORKER (card #$CID)" "$WORK/err" && ok "the refusal names the tree, its holder and the card" || bad "refusal lacks the holder: $(head -c 200 "$WORK/err")"
+grep -q "wt/x is bound to session $WORKER (card #$CID," "$WORK/err" && ok "the refusal names the tree, its holder and the card" || bad "refusal lacks the holder: $(head -c 200 "$WORK/err")"
 grep -q "wt.sh new" "$WORK/err" && ok "and says to cut a tree of its own" || bad "refusal lacks the remedy"
 expect "the holder still edits its tree"                0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
 expect "the orchestrator may edit any tree"             0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
@@ -568,6 +568,20 @@ board bind "$HELD" --session "other-session" --tree wt/two --take | grep -q "bou
 board show "$HELD" | grep -q "taken over from session held-a" && ok "the takeover is a history line" || bad "no takeover line"
 board state "$HELD" done >/dev/null
 board bind "$HELD" --session "held-a" >/dev/null 2>&1 && ok "a settled card can be re-bound without --take" || bad "a settled card was treated as held"
+GONE=$(board new "Jaipur: the market never refills after a bonus" --from jaipur --kind bug --anyway | sed 's/^#\([0-9]*\).*/\1/')
+board bind "$GONE" --session "held-c" --tree wt/gone --branch app/gone >/dev/null
+expect "a live holder keeps its tree from others"     2 pretool "{\"session_id\":\"held-d\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+grep -q "active 0 min ago" "$WORK/err" && ok "the refusal says how recently the holder was seen" || bad "refusal lacks the holder's activity: $(head -c 240 "$WORK/err")"
+grep -q -- "--take" "$WORK/err" && grep -q "idle for 45 minutes counts as gone" "$WORK/err" && ok "and names --take and the idle rule" || bad "refusal lacks --take or the idle rule"
+touch -t 202001010000 "$ROOT/.board/sessions/held-c.json"
+expect "a holder silent for longer than the idle window is gone" 0 pretool "{\"session_id\":\"held-d\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+board bind "$GONE" --session "held-d" --tree wt/gone | grep -q "bound to held-d" && ok "bind takes a silent holder's card over without a flag" || bad "bind refused a silent holder's card"
+board show "$GONE" | grep -q "taken over from session held-c (it had ended, or was silent" && ok "and says why on the card" || bad "no takeover reason on the card"
+printf '{"session_id":"held-d","tool_name":"Bash","tool_input":{"command":"ls"}}' | python3 "$GUARD" pretool >/dev/null 2>&1
+expect "the new holder is live again (touched by its tool call)" 2 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
+printf '{"session_id":"held-d"}' | python3 "$GUARD" session_end >/dev/null 2>&1
+grep -q '"ended_at"' "$ROOT/.board/sessions/held-d.json" && ok "SessionEnd marks the session ended" || bad "session_end wrote no ended_at"
+expect "an ended holder's tree is free at once"       0 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
 
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

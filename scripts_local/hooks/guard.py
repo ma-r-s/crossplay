@@ -23,6 +23,7 @@ input, including the ones that must NOT block.
 
 import datetime as dt
 import json
+import time
 import os
 import pathlib
 import re
@@ -260,6 +261,48 @@ class Board:
     def is_integrator(self, sid):
         return norm_sid(sid) in self.claim_ids(self.integrator())
 
+    IDLE_MINUTES = 45
+
+    def session_seen(self, sid):
+        """When the session last touched a tool, or None if the board never saw it.
+
+        The hook touches the session file on every tool call, so its mtime is
+        the last sign of life; SessionEnd (when wired) writes ended_at.
+        """
+        p = self.dir / "sessions" / f"{norm_sid(sid)}.json"
+        try:
+            st = p.stat()
+        except OSError:
+            return None
+        cur = read_json(p) or {}
+        if cur.get("ended_at"):
+            return None
+        return st.st_mtime
+
+    def session_live(self, sid):
+        seen = self.session_seen(sid)
+        return seen is not None and (time.time() - seen) < self.IDLE_MINUTES * 60
+
+    def touch_session(self, sid):
+        p = self.dir / "sessions" / f"{norm_sid(sid)}.json"
+        try:
+            if p.exists():
+                os.utime(p, None)
+        except OSError:
+            pass
+
+    def end_session(self, sid):
+        d = self.dir / "sessions"
+        p = d / f"{norm_sid(sid)}.json"
+        cur = read_json(p) or {"session_id": norm_sid(sid)}
+        cur["ended_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            with open(p, "w") as f:
+                json.dump(cur, f, indent=1)
+        except OSError:
+            pass
+
     def tree_holders(self, tree):
         """Open cards bound to `tree` (as `wt/<name>`), as (session, card id).
 
@@ -302,7 +345,15 @@ class Board:
         me = norm_sid(sid)
         if any(h == me for h, _ in holders) or self.is_orchestrator(sid):
             return None
-        return (tree, holders)
+        # A holder that has ended, or has not touched a tool for IDLE_MINUTES,
+        # is gone: sessions end all the time without unbinding, and a tree
+        # locked to a session that no longer exists is the claims stranded by
+        # a dead session (card 44) again, once per worktree. The write is
+        # allowed; binding the card afterwards records the takeover.
+        live = [(h, c) for h, c in holders if self.session_live(h)]
+        if not live:
+            return None
+        return (tree, live)
 
     def note_session(self, sid, cwd):
         d = self.dir / "sessions"
@@ -422,11 +473,16 @@ def writes_into_tree(cmd):
 
 def foreign_tree_refusal(board, sid, where):
     tree, holders = where
-    who = ", ".join(f"session {h} (card #{c})" for h, c in holders)
+    who = ", ".join(
+        f"session {h} (card #{c}, active {int((time.time() - (board.session_seen(h) or time.time())) // 60)} min ago)"
+        for h, c in holders
+    )
     return (
         f"Refused: {tree} is bound to {who}, and two sessions writing one tree verify nothing "
         "(the gates each ran against a tree the other was still changing). Work in your own tree: "
-        f"./scripts/wt.sh new <name>, then {board_cmd(board.root)} bind <card> --session {norm_sid(sid)} --tree wt/<name>"
+        f"./scripts/wt.sh new <name>, then {board_cmd(board.root)} bind <card> --session {norm_sid(sid)} --tree wt/<name>. "
+        f"A holder idle for {board.IDLE_MINUTES} minutes counts as gone and this refusal lifts by itself; "
+        f"to take a tree over now: {board_cmd(board.root)} bind <card> --session {norm_sid(sid)} --tree {tree} --take"
     )
 
 
@@ -435,6 +491,7 @@ def pretool(board, data):
     tool = data.get("tool_name", "")
     inp = data.get("tool_input") or {}
     root = board.root
+    board.touch_session(sid)
 
     if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
         path = inp.get("file_path") or inp.get("notebook_path") or ""
@@ -578,6 +635,11 @@ def stop(board, data):
     )
 
 
+def session_end(board, data):
+    """SessionEnd: the session file says so, and every tree it held is free."""
+    board.end_session(data.get("session_id", ""))
+
+
 def session_start(board, data):
     sid = norm_sid(data.get("session_id", ""))
     board.note_session(sid, data.get("cwd", ""))
@@ -645,6 +707,8 @@ def main():
     CURRENT.update(root=root, sid=norm_sid(data.get("session_id")), tool=data.get("tool_name") or mode)
     if mode == "pretool":
         pretool(board, data)
+    elif mode == "session_end":
+        session_end(board, data)
     elif mode == "stop":
         stop(board, data)
     elif mode == "session-start":
