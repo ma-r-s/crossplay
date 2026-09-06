@@ -12,6 +12,10 @@ board list --reporter session    # only what a session found
 board list --reporter unknown    # the ones nobody could establish
 ```
 
+Those flags reach `board` when this change is in `firmware-next`, which is
+what `/opt/homebrew/bin/board` resolves to and which runs behind `xteink`. The
+counts and the list below are the recovery itself and do not need the CLI.
+
 ## The count, over all 360 cards on the board
 
 | reporter | cards | what it means |
