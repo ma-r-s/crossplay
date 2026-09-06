@@ -88,8 +88,12 @@ exists rather than being redundant with the per-IP rule.
 
 **Nothing here can be done from this repository.** The tunnel is TOKEN-managed,
 so its routes and the zone's rules live in the dashboard rather than in a file
-on the pi, there is no `cf` CLI in this workspace, and no API token exists for
-one. Every step below is manual, and it is the only part of this card that is.
+on the pi. There IS an API token now, written 2026-09-05 when Rule 1 was
+applied: `~/.cf-waf-token`, mode 600, scoped **Zone WAF: Edit only**. It can
+write rules and cannot list zones or accounts, so hold the zone id
+(`bd1d38d600c956607a4b5f0c2f79c674`) -- nothing can rediscover it with that
+token. Everything below can be done by API or by hand; the dashboard offers the
+same entitlements, never more.
 
 Go to **dash.cloudflare.com > the `ma-r-s.com` zone > Security > WAF > Rate
 limiting rules**, and add:
@@ -114,8 +118,8 @@ limiting rules**, and add:
   is the Free plan, not a preference.** It said 20 requests per 1 minute,
   blocked for 1 hour. Neither is settable: the API refuses any period but 10
   seconds (`not entitled to use the period 60, can only use a period among
-  [10]`) and any mitigation timeout different from the period (`not entitled
-  to use a mitigation timeout different from 10`). The dashboard offers the
+[10]`) and any mitigation timeout different from the period (`not entitled
+to use a mitigation timeout different from 10`). The dashboard offers the
   same choices, because it is the same entitlement. Applied 2026-09-05 by API;
   the rule is live in the zone.
 
@@ -185,6 +189,53 @@ are using. It does **not** run the floods -- they would spend a shared rate
 limiter and lock real accounts out -- so it cannot confirm the rule fires. To
 confirm that, watch **Security > Events** in the dashboard while making the
 requests, or accept that this one is unverified from here and say so.
+
+## The gates, and why a shut one is invisible
+
+Three services face the public, and each one is opened by a single environment
+variable on the pi that **fails closed**. They do not share a name:
+
+| Service   | On the pi         | Variable                                        |
+| --------- | ----------------- | ----------------------------------------------- |
+| Read      | `/srv/readbridge` | `READ_ALLOWLIST`                                |
+| Study     | `/srv/ankibridge` | `BRIDGE_ALLOWLIST`                              |
+| Get Books | `/srv/getbooks`   | `GETBOOKS_PUBLIC_USER` + `GETBOOKS_PUBLIC_PASS` |
+
+Get Books belongs on that list even though it has no allowlist: `getbooks/app.py`
+puts HTTP Basic auth in front of everything but `/healthz`, and the second,
+deliberately public account is what every shipped reader uses
+(`src/OpdsServerStore.cpp`). Unset it and the whole world gets 401.
+
+**A shut gate is invisible to every instrument we have.** `docker compose up`
+exits 0, `/healthz` answers 200, the container healthcheck passes, `board pulse`
+even counts Get Books' 401 as ALIVE, and the owner's own account keeps working
+because he is the one on the list. Writing the WRONG variable name into a `.env`
+produces no warning at all whenever the right name is still present with its old
+value, which it always is. GitHub issue #115 is what a shut gate looks like from
+outside: a stranger, and no signal on our side at all.
+
+**Current state, 2026-09-06: all three are OPEN.** `READ_ALLOWLIST=*`,
+`BRIDGE_ALLOWLIST=*`, and `GETBOOKS_PUBLIC_USER`/`_PASS` holding the pair
+`src/OpdsServerStore.cpp` ships. Only the Study one was shut when the box came
+back; the other two had been open for days while the runbook said otherwise.
+Do not take this paragraph as the reading either. Run the script.
+
+So the gates are verified the way a stranger experiences them:
+
+```bash
+server/verify_open.sh          # one bogus sign-in per bridge, from outside
+server/verify_open_selftest.sh # proves that classifier can reach every verdict
+```
+
+The distinction it exists to draw: "This bridge is invitation-only for now."
+means our gate refused, and "AnkiWeb / Instapaper did not accept that email and
+password." means our gate passed the attempt through and the upstream refused a
+deliberately bogus key. Those look alike and mean opposite things.
+
+**A closed allowlist also blinds the live attack run below**, for the same
+reason the local suite sets the allowlist to `*`: a bridge that refuses every
+attempt at the door reports a clean run for a service with no rate limiting at
+all. Opening the gates makes that suite meaningful for the first time.
 
 ## The attack suite
 
