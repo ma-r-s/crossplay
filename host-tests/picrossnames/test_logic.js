@@ -70,12 +70,9 @@ eq(L.judge("PIÑATA", DATA).fold, "PINATA", "and offers the folded spelling");
 // possessive got two stops in a row, the second caused by the tool's own
 // suggestion.
 eq(L.judge("PIÑATA'S", DATA).fold, "PINATA'S", "the apostrophe survives the fold now that the file accepts it");
-eq(L.judge("PIÑATA@HOME", DATA).level, "stop", "an accent plus a character the file refuses is refused");
-eq(L.judge("PIÑATA@HOME", DATA).fold, null, "and no fold is offered, because the fold would be refused too");
-eq(L.judge("WÜRZBÜRGER WÜRSTCHEN", DATA).fold, "WURZBURGER WURSTCHEN",
-   "a long folded name is still offered: the device shrinks it rather than refusing it");
-eq(L.judge("Ü" + "W".repeat(40), DATA).fold, null,
-   "but not when the folded name overflows even the smallest cut");
+eq(L.judge("WÜRZBÜRGER WÜRSTCHEN", DATA).fold, null,
+   "no fold is offered when the folded name would then be refused for its width");
+eq(L.judge("CAFÉ", DATA).fold, "CAFE", "and one is when the folded name passes the whole rule");
 
 // The character quoted must be the one that was typed. Reading text[i] after
 // stepping over a surrogate pair quoted the LOW SURROGATE, so the message named
@@ -86,15 +83,18 @@ eq(L.judge("CAFÉ", DATA).fold, "CAFE", "a combining accent folds away");
 
 eq(L.judge("CAFE'S BAR", DATA).level, "ok", "an apostrophe is allowed, and the display cut draws it");
 eq(L.judge("A-FRAME HOUSE", DATA).level, "ok", "hyphens and spaces are allowed");
-eq(L.judge("CAT@HOME", DATA).level, "stop", "a character outside the file's charset is refused");
+// No alphabet list, matching gen_picross: any printable ASCII the cut DRAWS is
+// allowed, and what is refused is a character it has no glyph for. A tool
+// stricter than the gate refuses names that would have shipped.
+eq(L.judge("CAT@HOME", DATA).level, "ok", "punctuation the cut draws is not refused by a list");
 
 // The width IS the rule, and it is not a character count. A count safe for the
 // worst glyph refuses names that fit easily, and #390's nine-character cap
 // refused this one.
 eq(L.judge("CHRISTMAS TREE", DATA).level, "ok", "fourteen characters fit when the letters are ordinary");
 eq(L.judge("WWWWWWWWWW", DATA).level, "ok", "ten of the widest glyph still fit, so ten is the floor for ANY name");
-eq(L.judge("WWWWWWWWWWW", DATA).level, "warn", "eleven do not, and the device shrinks rather than clipping");
-eq(L.judge("WWWWWWWWWWW", DATA).rung, 1, "one cut down");
+eq(L.judge("WWWWWWWWWWW", DATA).level, "stop", "eleven do not, and the gate refuses what it would shrink");
+check(L.judge("WWWWWWWWWWW", DATA).text.includes("shrink"), "and the refusal says what the device would have done");
 
 // Advances are rounded PER GLYPH, as EpdFont does, not summed and rounded once.
 // Summed-then-rounded measured sixteen capital As at 488px against the device's
@@ -196,39 +196,48 @@ eq(beforeLoad.draft, "HALF TYPED", "mergeState does not mutate the state it was 
 eq(L.mergeState({ v: 1, pos: 9999, draft: "", entries: {} }, {}, known, DATA).state.pos, 0,
    "a position past the end of the bank is clamped by a load too");
 
-// --- the two implementations of one rule ----------------------------------
+// --- pinned to the rule that actually gates the build ----------------------
 //
-// The browser needs JavaScript and gen_picross.py needs Python, so the rule
-// exists twice whether anyone likes it or not. What must not exist twice is a
-// DISAGREEMENT: a name the tool accepts and the generator then refuses is 137
-// names rejected at the end of a day's work. So both are run over one corpus
-// here and any difference is a failure.
+// tools_local/picross/name_fit.py is the one place that answers "does this name
+// render at full size", and gen_picross.py refuses the whole names file on it,
+// so it decides what ships. This file's measure() is a RESTATEMENT of that
+// module's, in JavaScript, because a browser cannot import Python -- and a
+// second copy of something that must agree to the pixel is the drift this fork
+// keeps paying for.
 //
-// The corpus is built rather than listed: every allowed character on its own
-// and in runs across the band's whole interesting range, plus the awkward
-// cases, so it cannot quietly stop covering the boundary.
-const cross = [];
-const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '-";
-for (const ch of alphabet) {
-  for (const n of [1, 5, 9, 10, 11, 14, 20, 33]) cross.push(ch.repeat(n));
+// So it is pinned rather than trusted. `name_fit.py --corpus` writes
+// name_fit_corpus.json (host-tests/picrossprov checks those numbers are what
+// its own measure() computes today), and every width in it is checked here
+// against this code. Neither side can move without a red test.
+const corpus = JSON.parse(
+  fs.readFileSync(path.join(root, "tools_local/picross/name_fit_corpus.json"), "utf8")
+);
+eq(DATA.bandWidth, corpus.band, "the tool and the gate measure against the same band");
+
+let pinned = 0;
+let drifted = [];
+for (const [cut, widths] of Object.entries(corpus.widths)) {
+  for (const [text, want] of Object.entries(widths)) {
+    const got = L.measure(text, cut, DATA.fonts).width;
+    pinned++;
+    if (got !== want) drifted.push(`${cut} ${JSON.stringify(text)}: JS ${got}, name_fit.py ${want}`);
+  }
 }
-cross.push(
-  "", "CAT", "CHRISTMAS TREE", "COCKTAIL GLASS", "CAFE'S BAR", "A-FRAME HOUSE",
-  "PIÑATA", "CAT@HOME", "cat", "  SPACED  ", "0123456789", "I I I I I I I I I I"
+check(
+  drifted.length === 0,
+  "every width in name_fit_corpus.json matches this measure()\n      " + drifted.slice(0, 6).join("\n      ")
 );
-const pyPath = path.join(root, "host-tests/picrossnames/cross_check.json");
-fs.writeFileSync(
-  pyPath,
-  JSON.stringify(cross.map((n) => ({ name: n, level: L.judge(n, DATA).level })), null, 1)
+check(pinned >= 60, "the corpus is not a token handful (" + pinned + " measurements)");
+
+// The two answers the gate gives, given here too. gen_picross.py accepts a name
+// exactly when it renders at full size, so anything this calls "ok" it must
+// accept, and there is no third verdict on either side.
+const levels = new Set(
+  ["", "CAT", "CHRISTMAS TREE", "W".repeat(10), "W".repeat(11), "W".repeat(40), "PIÑATA", "CAFE'S BAR"].map(
+    (n) => L.judge(n, DATA).level
+  )
 );
-const py = require("child_process").spawnSync(
-  "python3",
-  [path.join(root, "host-tests/picrossnames/cross_check.py"), pyPath],
-  { encoding: "utf8" }
-);
-check(py.status === 0, "the Python rule agrees with the JavaScript one on every string\n" + (py.stdout || "") + (py.stderr || ""));
-fs.unlinkSync(pyPath);
-check(cross.length > 300, "the cross-check corpus is not a token handful (" + cross.length + " strings)");
+check(!levels.has("warn"), "there is no 'warn' verdict, because the gate has no such answer");
 
 console.log(checks + " checks, " + failed + " failed");
 process.exit(failed === 0 ? 0 : 1);

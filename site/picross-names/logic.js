@@ -23,24 +23,20 @@
     { key: "small", label: "the smallest cut" }
   ];
 
-  // What gen_picross.load_names accepts, and a HARD ERROR on the whole file if
-  // broken -- so a bad name is not a warning to read later, it is 137 names
-  // rejected at the end. Checked here, on the picture it belongs to.
+  // THE RULE LIVES IN tools_local/picross/name_fit.py, not here. That module is
+  // what gen_picross.py gates the whole names file on, so it decides what
+  // ships; this is a restatement of its measure() for live feedback while Mario
+  // types, because a browser cannot import Python.
   //
-  // The apostrophe is in. It was refused while the consuming generator refused
-  // it, and now that #390 accepts it there is no reason left: the display cut
-  // draws it, and a possessive is a natural picture name.
+  // A restatement is a second copy of something that must agree to the pixel,
+  // which is the drift this fork keeps paying for -- so it is PINNED rather
+  // than trusted: name_fit.py --corpus writes name_fit_corpus.json, and
+  // host-tests/picrossnames checks every width in it against this code.
   //
-  // THERE IS NO CHARACTER CAP. A count cannot answer this question, because
-  // fittedTitle does not clip a name that is too wide, it SHRINKS it silently
-  // to a smaller cut -- so the only honest test is a width, and a count that is
-  // safe for the worst glyph refuses names that fit easily. Any name up to ten
-  // characters fits whatever its letters (ten Ws is 437px of 448); the measured
-  // rule takes "CHRISTMAS TREE" at fourteen, which a nine-character cap
-  // refused. tools_local/picross/name_width.py is the same rule in Python for
-  // the generator to gate on, and host-tests/picrossnames runs both over one
-  // corpus and fails on any disagreement.
-  var ALLOWED = /^[A-Z0-9 '-]*$/;
+  // Two rules, and there is no third. No character cap (a count is the wrong
+  // instrument for a variable-width font in both directions at once) and no
+  // alphabet list (a name may use any printable ASCII the cut draws; what is
+  // refused is a character it has NO GLYPH for).
 
   // Two different folds, because the firmware makes the same distinction and
   // for the same reason (lib/Utf8's utf8FoldTypography, and the typography-fold
@@ -151,14 +147,18 @@
     return { width: maxX - minX, holes: holes };
   }
 
-  // -> {level, text, rung, fold}. level is "ok" | "warn" | "stop".
+  // -> {level, text, rung, fold}. level is "ok" | "stop".
   //
-  // The order is deliberate: what the FONT cannot draw, then what the FILE will
-  // not accept, then how wide it ends up. A name that fails more than one is
-  // reported by the first, and `fold` is only ever offered when the folded
-  // spelling passes the WHOLE judgement -- offering a fold that the next rule
-  // then refuses is two stops in a row, the second caused by the tool's own
-  // suggestion.
+  // There is no "warn". A name that only fits at a SMALLER cut is a hard error
+  // in gen_picross.py -- it accepts a name exactly when it renders at full
+  // size -- and a tool that accepted what the gate refuses would hand him a
+  // file rejected outright after a day of typing. So the two answers here are
+  // the two answers there.
+  //
+  // toybox::fittedTitle is why "smaller" is not a mild outcome: it does not
+  // clip an overlong name, it SHRINKS it down the font slots until one fits,
+  // and nothing logs that. The failure is a reveal set two thirds size with
+  // nobody told.
   function judge(name, data) {
     if (!name) return { level: "ok", text: "Type a name and press Enter." };
 
@@ -167,6 +167,8 @@
       var uniq = holes.filter(function (c, i) {
         return holes.indexOf(c) === i;
       });
+      // Offered, not applied. And offered as a BUTTON: Alt+F is not a key a
+      // phone has, and the phone is where he said he would be doing this.
       var folded = foldWith(LETTER_FOLD, name);
       var canFold = folded !== name && judge(folded, data).level !== "stop";
       return {
@@ -179,54 +181,32 @@
             })
             .join(", ") +
           ". It would draw a HOLE in the word, not a box. " +
-          (canFold ? "" : "Use letters, digits, spaces and hyphens."),
+          (canFold ? "" : "Try it without."),
         fold: canFold ? folded : null
       };
     }
 
-    if (!ALLOWED.test(name)) {
-      var bad = [];
-      for (var b = 0; b < name.length; b++) {
-        if (!ALLOWED.test(name[b]) && bad.indexOf(name[b]) === -1) bad.push(name[b]);
-      }
-      return {
-        level: "stop",
-        text:
-          "The names file would refuse " +
-          bad
-            .map(function (c) {
-              return '"' + c + '"';
-            })
-            .join(", ") +
-          ", and it refuses the whole file over one. Letters, digits, spaces, hyphens and apostrophes."
-      };
+    var band = data.bandWidth;
+    var full = measure(name, RUNGS[0].key, data.fonts).width;
+    if (full <= band) {
+      return { level: "ok", rung: 0, text: "Fits at full size (" + full + " of " + band + "px)." };
     }
 
-    // All four answers are reachable now that the character cap is gone, which
-    // is the point of walking the rungs rather than assuming: a long name is
-    // set one cut down and then two, and only past the smallest is it cut
-    // short. The middle two are the ones worth saying out loud, because the
-    // device handles them and says nothing.
-    for (var i = 0; i < RUNGS.length; i++) {
-      var w = measure(name, RUNGS[i].key, data.fonts).width;
-      if (w <= data.bandWidth) {
-        if (i === 0) {
-          return {
-            level: "ok",
-            rung: i,
-            text: "Fits at " + RUNGS[i].label + " (" + w + " of " + data.bandWidth + "px)."
-          };
-        }
-        return {
-          level: "warn",
-          rung: i,
-          text: "Too wide for full size; the device will set it at " + RUNGS[i].label + "."
-        };
+    // How much smaller the device WOULD set it, which is the useful half of the
+    // refusal: it says whether this is nearly there or nowhere near.
+    var landed = null;
+    for (var i = 1; i < RUNGS.length; i++) {
+      if (measure(name, RUNGS[i].key, data.fonts).width <= band) {
+        landed = RUNGS[i].label;
+        break;
       }
     }
     return {
       level: "stop",
-      text: "Too long even at the smallest cut. The device would cut it and end it in an ellipsis."
+      text:
+        "Too wide: " + full + "px against the band's " + band + ". The device would " +
+        (landed === null ? "cut it short" : "shrink it to " + landed) +
+        " and say nothing, so the names file refuses it. Shorter, or narrower letters."
     };
   }
 
@@ -384,7 +364,6 @@
 
   root.PicrossNamesLogic = {
     RUNGS: RUNGS,
-    ALLOWED: ALLOWED,
     PUNCT_FOLD: PUNCT_FOLD,
     LETTER_FOLD: LETTER_FOLD,
     foldWith: foldWith,

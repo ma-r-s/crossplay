@@ -356,26 +356,55 @@ not the picker, not the board, not the status strip.
 `janko.txt` (`"JANKO222"`) or by the bare janko id that name ends in (`"222"`).
 Both forms are accepted; a **bank index is never a key**, because the bank is
 emitted size-sorted and renumbers whenever it changes. `gen_picross.load_names`
-refuses the file outright on a key that matches no puzzle, a character the
-display cut cannot draw, or a name too long for the band -- every one a hard
-error, because a half-applied annotation pass looks exactly like a full one.
+refuses the file outright on a key that matches no puzzle, a character the cut
+has no glyph for, or a name that does not render at full size -- every one a
+hard error, because a half-applied annotation pass looks exactly like a full
+one.
 
-He writes them in the tool at `site/picross-names/`, which emits that exact
-file. What the tool knows about THIS screen -- the width of the band the name
-gets, the cuts `fittedTitle` can set it in, and the fact that a character
-outside U+0020..U+007E draws as a HOLE in a Toybox cut rather than a box -- is
-in [naming the picross puzzles](picross-names.md). **Anything that moves the
-name band should re-run `tools_local/picross/measure_name_band.sh`**, because
-the tool's whole "will this fit" answer is that one measured number, and
-`gen_picross.load_names` judges by the same rule.
+**A name is accepted exactly when it renders at full size, and that is
+MEASURED.** `tools_local/picross/name_fit.py` is the one place that answers it:
+it reads the real Jersey metrics out of `src/apps_local/ui/fonts/` and restates
+`EpdFont::getTextBounds`, against a band width measured from the real screen
+builder into `tools_local/picross/name_band.txt` (448px) rather than copied by
+hand.
 
-**The cap is measured, not guessed.** The band is
-448px and the display cut is ~29px for an average glyph but ~45px for a `W`, so
-nine of the widest letter (405px) is the last width that renders at full size;
-ten does not. `toybox::fittedTitle` does not clip a longer name, it SHRINKS it,
-which is worse because nothing reports it -- "CHRISTMAS TREE" fits whole at
-fourteen characters, and twelve `W`s comes back two thirds the size. Nine is the
-limit that holds for every string.
+It is a restatement and not an approximation, and the difference points the
+unsafe way. The device reports the width of the **ink box** (`maxX - minX` in
+`getTextDimensions`), which is not the sum of the advances: each advance is
+rounded to a whole pixel *as it is accumulated* (`fp4::toPixel`, which is
+`(fp + 8) >> 4`), so the fractions never cancel, and the box ends at the last
+glyph's **right edge** rather than after its advance. Summing float advances put
+sixteen capital As at 488px against the device's 493 -- under-reporting, which
+is exactly the direction that says "fits" for a name the panel sets a cut down.
+The 493 was measured on hardware by the session that built the naming tool; the
+algorithm here was then checked against `lib/EpdFont/EpdFont.cpp` directly.
+
+**This replaced a nine-character cap**, and the cap was the wrong instrument in
+both directions at once. `CHRISTMAS TREE` is fourteen characters and measures
+410px, comfortably inside the band; ten capital Ws measure 437px and also fit,
+while eleven (481px) do not. Any fixed count is either too tight for good names
+or too loose for wide ones. Roughly: eleven to fourteen ordinary letters, ten of
+the widest, thirty-two `I`s.
+
+`toybox::fittedTitle` is why this matters at all. It does not clip an overlong
+name, it **shrinks** it, walking down the font slots until one fits, and nothing
+logs that. The failure being guarded against is not a broken screen; it is a
+reveal set two-thirds size with nobody told.
+
+**Two implementations, pinned rather than trusted.** The naming tool
+(`site/picross-names/logic.js`) cannot import Python, so it restates the same
+measurement in JavaScript for live feedback while Mario types. A second copy of
+a rule that must agree to the pixel is the drift this fork keeps paying for, so
+`tools_local/picross/name_fit_corpus.json` is the pin: `name_fit.py --corpus`
+writes it, `host-tests/picrossprov` fails if those numbers are not what
+`measure()` computes today, and `host-tests/picrossnames` drives the JavaScript
+against the same file. The two were checked against each other over 84
+measurements in three cuts and agreed on every one.
+
+He writes the names in the tool at `site/picross-names/`, which emits that exact
+file; [naming the picross puzzles](picross-names.md) is how it works and where
+his answers live while he is part-way through.
+
 
 **A puzzle with no name draws no name band at all**, and the picture takes the
 space. Not an empty band: the names arrive by hand, so a part-named bank is the

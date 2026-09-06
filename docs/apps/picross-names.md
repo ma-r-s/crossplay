@@ -117,60 +117,41 @@ for itself is a tool that can disagree with the device about which pictures
 exist.
 
 
-### One rule, two implementations, and a test that they cannot drift
+### The rule is `name_fit.py`, and this tool is pinned to it
 
-The name has to pass the same judgement in two places: in this tool, while he is
-typing, and in `gen_picross.py`, which refuses `janko-names.json` outright
-rather than ship a name the panel cannot draw. The browser needs JavaScript and
-the generator needs Python, so the rule exists twice whether anyone likes it or
-not. What must not exist twice is a **disagreement**: a name the tool accepts and
-the generator then refuses is 137 names rejected at the end of a day's work.
+`tools_local/picross/name_fit.py` is the one place that answers "does this name
+render at full size". `gen_picross.py` refuses the whole names file on it, so it
+decides what ships; this tool restates its `measure()` in JavaScript for live
+feedback while Mario types, because a browser cannot import Python.
 
-So `tools_local/picross/name_width.py` is the rule in Python,
-`site/picross-names/logic.js` is the rule in JavaScript, and
-`host-tests/picrossnames` runs **both over one corpus** -- every allowed
-character alone and in runs across the band's whole interesting range, plus the
-awkward cases -- and fails on any difference. Taking the apostrophe out of one
-of them is caught immediately, by name, on the exact strings that diverge.
+A restatement is a second copy of something that must agree to the pixel, which
+is the drift this fork keeps paying for -- so it is **pinned, not trusted**.
+`name_fit.py --corpus` writes `tools_local/picross/name_fit_corpus.json`;
+`host-tests/picrossprov` fails if those numbers are not what its own `measure()`
+computes today, and `host-tests/picrossnames` checks every one of them against
+this tool's. Watched failing: summing the advances instead of rounding each one
+as it accumulates -- the exact bug -- names the strings that diverge.
 
-`name_width.py` run with no arguments prints what the rule actually permits,
-which is the question anyone reaching for a character cap is really asking; run
-with a name, it judges that name.
+**There is no third rule here.** No character cap and no alphabet list: a count
+is the wrong instrument for a variable-width font in both directions at once,
+and a name may use any printable ASCII the cut draws. What is refused is a
+character it has NO GLYPH for, and a name too wide to render at full size.
 
-**`gen_picross.load_names` still gates on a character count** (`NAME_MAX = 9`)
-at the time of writing, so it refuses names this tool accepts -- `CAFE'S BAR`
-at ten characters and 272px, `CHRISTMAS TREE` at fourteen and 410px. Swapping it
-is two lines, and they are written out below rather than described, because the
-whole point is that the two rules stop being two:
+**And there is no "warn".** A name that fits only at a smaller cut is a hard
+error in `gen_picross.py`, so it is one here: a tool that accepted what the gate
+refuses would hand him a file rejected outright after a day of typing.
 
-```python
-import name_width                      # beside the other imports
+### What that actually permits
 
-        verdict = name_width.judge(text, _metrics())
-        if verdict["level"] != "ok":   # replaces `if len(text) > NAME_MAX:`
-            sys.exit(...)
-```
+Roughly eleven to fourteen ordinary letters. Precisely: **any name up to ten
+characters fits whatever its letters** (ten `W`s is 437px of the 448px band,
+eleven is 481px), `CHRISTMAS TREE` is fourteen characters and 410px,
+`HOT AIR BALLOON` is fifteen and 409px, and thirty-two `I`s fit.
 
-with a `_metrics()` that caches `name_width.load()`. Tested against the real
-loader: it accepts `SAILBOAT`, `CAFE'S BAR`, `CHRISTMAS TREE` and
-`HOT AIR BALLOON`, and still refuses eleven `W`s (481px) and `CAT@HOME`.
-`name_width.load()` reads the font headers and `name_band.txt` directly, so
-this costs `gen_picross.py` nothing but the import -- no dependency on the site
-or on anything having been regenerated first.
-
-### It is a width, not a count, and that is not a preference
-
-`toybox::fittedTitle` does not clip a name that is too wide. It **shrinks** it to
-the next cut, and nothing reports that -- so the failure is silent and the only
-honest test is a width. A count has to assume the worst glyph to be safe, and
-the cost is real: **any name up to ten characters fits whatever its letters**
-(ten `W`s is 437px of the 448px band, eleven is 481px), while the measured rule
-takes `CHRISTMAS TREE` at fourteen characters and 410px. A nine-character cap
-refuses that name; the width does not.
-
-The charset is `A-Z`, digits, space, hyphen and apostrophe -- what
-`gen_picross.load_names` accepts. Every one of them is inside U+0020..U+007E,
-which is all a Toybox cut carries.
+`toybox::fittedTitle` is why the ceiling matters at all: it does not clip an
+overlong name, it **shrinks** it down the font slots until one fits, and nothing
+logs that. The failure being guarded against is not a broken screen; it is a
+reveal set two-thirds size with nobody told.
 
 
 ## What the tool knows that a text box does not
