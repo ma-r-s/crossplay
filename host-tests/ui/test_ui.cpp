@@ -5728,9 +5728,11 @@ void testTheSettledBoardStaysAndWearsItsVerdict() {
 }
 
 void testTheHowToPagesAndEndsOnGotIt() {
-  // Four pages now: the win condition (flags are notes, none are needed) got
-  // a page of its own in the art pass.
-  CHECK(mineui::howToPages() == 4);
+  // Five pages now: the win condition (flags are notes, none are needed) got
+  // a page of its own in the art pass, and the chord got the fifth -- a move
+  // that cannot be discovered by tapping, because the cell it wants is one the
+  // player has learnt is spent.
+  CHECK(mineui::howToPages() == 5);
   for (int page = 0; page < mineui::howToPages(); ++page) {
     mineui::HowToModel model;
     model.page = page;
@@ -5742,6 +5744,33 @@ void testTheHowToPagesAndEndsOnGotIt() {
     char progress[16];
     std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, mineui::howToPages());
     CHECK(out.target.drew(progress));
+
+    // The lesson fits the box it is drawn into, measured with the LINE CAP
+    // LIFTED. buildHowTo hands the sentence a flat 150px rect at maxLines 4, so
+    // a wording needing five lines is clipped and ellipsized -- and above the
+    // 10px cut the Toybox faces carry NO ellipsis glyph, so the overrun draws
+    // as nothing at all and the screenshot still looks fine.
+    //
+    // **What this can and cannot catch.** The fake target answers a flat width
+    // per character, far narrower than the real Jersey cut: all five of these
+    // lines measure 40-60px against the 150px box, so the check has enormous
+    // slack and would only fail on a runaway string. It is a floor, not the
+    // margin. The marginal case is not measured here at all -- it is avoided,
+    // by keeping every lesson line shorter than one already shipping and
+    // rendering correctly. Measuring it properly needs the real cuts, which is
+    // what host-tests/tilefit does for Connections and what this suite cannot.
+    //
+    // The lesson is identified by its box, the only 150px-tall text rect on the
+    // screen, and a page where that box is not found FAILS rather than
+    // skipping: a layout change must break this test, not silence it.
+    const FakeTarget::TextRun* lesson = nullptr;
+    for (const auto& run : out.target.texts) {
+      if (run.rect.height == 150) lesson = &run;
+    }
+    CHECK(lesson != nullptr);
+    if (lesson != nullptr) {
+      CHECK(lesson->rect.height >= uncappedWrappedHeight(out.target, *lesson));
+    }
   }
 }
 

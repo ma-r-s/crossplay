@@ -201,6 +201,24 @@ void MinesweeperActivity::loop() {
         // undo. In FLAG mode it simply agrees with the tap.
         holdFired = true;
         if (ms::toggleFlag(game, column, row)) requestUpdate();
+        // UNCONDITIONAL, and it must stay that way. Swallowing only when the
+        // flag was actually planted looks harmless -- on a revealed cell the
+        // hold does nothing, so why eat the contact? -- and it opens a way to
+        // dig a cell the finger never rested on:
+        //
+        //   isScreenTouchHeld reports touchUpPoint, the LATEST contact sample,
+        //   with no slop gate at all. wasScreenTapped reports touchDownPoint,
+        //   the FIRST sample, and stays valid until motion passes the 59px
+        //   release slop. A finger that lands on covered cell A, rolls 29-59px
+        //   onto revealed cell B and rests there re-arms the hold at B; the
+        //   hold fires at B, toggleFlag refuses because B is revealed, and the
+        //   lift then taps A. Cells are 60px, so that window is about one cell
+        //   wide, and the cell it digs can be a mine.
+        //
+        // Suppressing the contact is what makes those two positions unable to
+        // disagree. The cost is that a press held past kFlagHoldMs on a number
+        // does not chord -- chording is a quick tap, which is what it is
+        // everywhere else -- and that is the cheap half of this trade.
         mappedInput.swallowCurrentTouch();
       }
       return;
@@ -231,8 +249,19 @@ void MinesweeperActivity::loop() {
       // the grid still reaches route(), which has its own digest gate for the
       // chrome. See Activity::surfaceMeaning().
       if (!surfaceRevealed()) return;
-      // The rules decide legality, not the screen and not here.
-      const bool changed = flagMode ? ms::toggleFlag(game, column, row) : ms::reveal(game, column, row);
+      // FLAG mode does NOT chord, and that is a decision rather than an
+      // oversight: chording is a dig, so it would make the FLAG tool able to
+      // end the game. The hold branch above already refuses the same thing for
+      // the same reason -- a move you did not mean should never cost more than
+      // an extra tap to undo, and digging is the one move that can cost the
+      // run. A player in FLAG mode taps the number again in DIG.
+      //
+      // The rules decide legality, and what the tap even MEANS: ms::dig digs a
+      // covered cell and chords a revealed number that already carries its
+      // flags. The choice between them is a rule, so it lives in the core
+      // where the host suite can reach it -- there is nothing here that could
+      // prove it, and the simulator never runs this file's input at all.
+      const bool changed = flagMode ? ms::toggleFlag(game, column, row) : ms::dig(game, column, row);
       if (changed) requestUpdate();
       return;
     }
