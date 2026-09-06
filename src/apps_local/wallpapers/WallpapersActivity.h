@@ -56,14 +56,30 @@ class WallpapersActivity final : public Activity {
   void scanLibrary();
   int builtInsPresent() const;  // how many of the built-in set are on the card
   void pickView();              // Grid or Offer, from the card alone
-  void sweepPartFiles();        // drop incomplete unpacks left by a power cut
-  void startSetDownload();      // ask for WiFi, then queue the fetch
+  void sweepPartFiles();        // drop incomplete copies left by a power cut
+  void sweepPartFilesIn(const char* dirPath);
+  void startSetDownload();  // ask for WiFi, then queue the fetch
   void onWifiChosen(bool connected);
   void runSetDownload();  // blocking: fetch the pack, then unpack it
   bool unpackSet();       // pack -> individual .bmp files, resumable
   void prewarmThumbs();   // build the thumbnail cache while the bar is still up
   void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
-  void loadActive();
+  // What the CARD says is chosen, re-read after every commit. Never a
+  // remembered intention: /sleep.bmp and /.sleep are what the sleep screen
+  // reads, so they are what the picker reports (see docs/apps/wallpapers-shuffle.md).
+  void loadSelection();
+  bool isChosen(int index) const;
+  void listShuffleDir(std::vector<std::string>& out) const;
+  // Put the card into the one shape cardShapeFor() names for this many
+  // wallpapers. The ONLY writer of /sleep.bmp, /.sleep and /wallpapers/.active,
+  // so the invariant that they are never both live has one place to hold.
+  bool commitSelection(const std::vector<std::string>& want);
+  bool copyWallpaper(const std::string& src, const std::string& dst) const;
+  std::string sourcePathFor(const std::string& name) const;
+  bool fillShuffleDir(const std::vector<std::string>& want);
+  void clearShuffleDir();
+  void applySleepSettings();
+  void toggleChosen(int index);  // a tap on a tile while choosing
   void computeWarning();
   // Whether the pinned wallpaper can reach the sleep screen under the settings
   // as they are RIGHT NOW, and the one line that says so. Both read SETTINGS
@@ -71,8 +87,10 @@ class WallpapersActivity final : public Activity {
   // and the web settings page) while this app is not looking. See #354.
   wallpapers::Reach sleepReach() const;
   bool sleepBlocked() const;
-  const char* currentSleepNote() const;
-  bool setWallpaper(int index);  // copy /wallpapers/<index> -> /sleep.bmp
+  // Not const: a line carrying a count is built into note_, which has to
+  // outlive the paint. Every other line is a literal out of WallpapersCore.
+  const char* currentSleepNote();
+  bool setWallpaper(int index);  // choose exactly this one
   int pageCount() const;         // over the whole library
   void clampPage();
   void ensureThumbsForPage();  // decode this page's cells if not cached
@@ -87,10 +105,16 @@ class WallpapersActivity final : public Activity {
   void drawMarker(const freeink::ui::Rect& th) const;
 
   std::vector<std::string> names_;  // library file names, sorted
-  int activeIndex_ = -1;            // which name is pinned, or -1
-  int builtInsMissing_ = 0;         // how many of the built-in set are not on the card
-  bool warningPending_ = false;     // the free-space walk, deferred until after the first paint
-  bool painted_ = false;            // the panel has shown something at least once
+  // The chosen set, as it is on the card. Holds the pinned name when one
+  // wallpaper is chosen and the contents of /.sleep when several are -- INCLUDING
+  // any whose library file has since been deleted, because those copies still
+  // take their turn on the glass and a count that skipped them would understate
+  // what the sleep screen does.
+  std::vector<std::string> chosen_;
+  int activeIndex_ = -1;         // which name is pinned, or -1
+  int builtInsMissing_ = 0;      // how many of the built-in set are not on the card
+  bool warningPending_ = false;  // the free-space walk, deferred until after the first paint
+  bool painted_ = false;         // the panel has shown something at least once
   int page_ = 0;
   int fetchDone_ = 0;
   int fetchTotal_ = 0;
@@ -110,6 +134,20 @@ class WallpapersActivity final : public Activity {
   // suppress a caveat for a whole app session (#354, twice over).
   bool selectedThisSession_ = false;
   wallpapers::SleepChoice lastChoice_;
+  // Choose-a-set mode: what a tap on a tile means. RAM only and reset on every
+  // onEnter, because it is a mode the user is in, not a fact about the card --
+  // an invisible saved value that decides what a tap does is how a reproducible
+  // screen becomes a nondeterministic one.
+  bool choosing_ = false;
+  // /sleep.bmp present while /.sleep also holds files: one picture is showing
+  // and a set is inert behind it. Read off the card on entry, because nothing
+  // in SETTINGS can see it and this app is not its only cause.
+  bool shadowedSet_ = false;
+  // The last free-space walk's raw answer, so an add can apply the precondition
+  // at its own floor without a second FAT cluster walk on the input path.
+  bool freeKnown_ = false;
+  uint64_t freeBytes_ = 0;
+  std::string note_;  // the hint strip's line, when it carries a number
 
   // The current page's thumbnails, one per on-page slot (perPage entries;
   // trailing empty slots have ok = false).

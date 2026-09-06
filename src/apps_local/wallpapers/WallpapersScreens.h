@@ -50,6 +50,13 @@ fui::Rect captionRect(const GridGeom& g, int slot);
 // Activity draws into.
 int cellAt(const GridGeom& g, int x, int y);
 
+// How many pages the grid spans. Freestanding because the drawing, the
+// hit-test and the page count are three readers of one number, and the one that
+// disagreed made the last wallpaper of a page-boundary library unreachable:
+// pageCount() counted ONE chrome tile while the other two counted
+// specialTiles(), which is two while the built-in set is incomplete.
+int pageCountFor(int specialTiles, int libraryCount, int perPage);
+
 // The selection marker: four corner brackets drawn in the cell's PADDING, so
 // they touch neither the artwork nor the caption. It lives here rather than in
 // the Activity because "does the mark collide with the label" is a question
@@ -73,6 +80,7 @@ enum : fui::ActionId {
   ActionAddOwn = 2,   // the "make your own in a browser" card
   ActionRetry = 3,    // try the fetch again after a failure
   ActionDismiss = 4,  // acknowledge a notice and go back to whatever is on the card
+  ActionChoose = 5,   // the header chip: enter or leave choose-a-set mode
 };
 
 // The BEFORE state: the built-in set is not on the card. This screen has to sell
@@ -127,7 +135,12 @@ BarSpan fetchBarSpan(const FetchingModel& model);
 //
 // Including the selection made every tap deaf for the length of one refresh
 // after every tap, which is what "touches get lost" was.
-uint32_t gridMeaning(int page, int view, int libraryCount, int specialTiles);
+// `choosing` IS in here, unlike the selection, and the difference is the point:
+// the selection does not change what a cell does, and choose-a-set mode does --
+// a tile tap pins one wallpaper outside it and toggles membership inside it. A
+// tap that left the finger against the previous frame must not act on the new
+// meaning (same-pixel-different-action).
+uint32_t gridMeaning(int page, int view, int libraryCount, int specialTiles, bool choosing);
 
 // The FAILED state, and every other "something happened, here is what" screen.
 // Always carries an action: a screen that reports a failure and gives you
@@ -155,7 +168,31 @@ struct GridChromeModel {
   // wallpapers::stripLineAfterSelection / reachHint, which are what guarantee
   // one cannot hide the other. Wins the strip -- see buildGridChrome.
   const char* note = nullptr;
+  // Choose-a-set mode. Changes the title and the chip's label, and nothing
+  // else: the grid below is the same grid, because the wallpapers are what the
+  // user is choosing between in both modes. The chip is the ONLY way in and the
+  // only way out besides Back, and it is a tap rather than a hold -- a hold on
+  // this panel arrives as a tap often enough that a feature behind one
+  // intermittently does not exist (MappedInputManager, InputManager::wasTouchTap).
+  bool choosing = false;
 };
+
+// What the header chip says. One place, because the width the title is fitted
+// to comes out of this string's measured width, and a second copy is a second
+// thing to edit alone (the same rule as HackerNews' save chip).
+const char* chooseChipLabel(bool choosing);
+
+// The lowest-priority line on the strip: how you get to a set at all.
+//
+// It names the chip's own word, so the two cannot drift -- host-tests/wallpapers
+// asserts the sentence CONTAINS chooseChipLabel(false), which is the one case
+// where matching the description is the point rather than the bug: rename the
+// chip and this must be renamed with it (derived-facts-written-as-literals).
+//
+// It sits BELOW the free-space advisory deliberately. It is chrome, not news,
+// and a permanent hint that outranked a filling card would suppress that
+// warning forever.
+const char* chooseHint();
 
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model);
 

@@ -332,6 +332,143 @@ void testStripLineCoversEveryFact() {
   CHECK(reachHint(reachOfPinnedSleep(kSleepCustom, false)) == nullptr);
 }
 
+// The invariant the whole feature rests on: /sleep.bmp is checked FIRST by
+// SleepActivity::renderCustomSleepScreen and shadows /.sleep outright, so a
+// leftover pin beside a set shows one picture forever with nothing on any
+// screen able to explain it. The two slots are derived from ONE count, and this
+// walks every count rather than the two or three anybody would think to try.
+void testCardShapeNeverHasBothSlots() {
+  for (int n = 0; n <= 64; ++n) {
+    const wallpapers::CardShape shape = wallpapers::cardShapeFor(n);
+    CHECK(!(shape.pinned && shape.shuffled));
+    // The set is exactly what was chosen -- not a prefix, not a page of it.
+    CHECK(shape.files == (shape.shuffled ? n : 0));
+    if (n == 0) {
+      CHECK(!shape.pinned && !shape.shuffled);
+    } else if (n == 1) {
+      // One wallpaper stays in the slot it has always used, so a card written
+      // by an older build keeps working and #354's proven path is unchanged.
+      CHECK(shape.pinned && !shape.shuffled);
+    } else {
+      CHECK(shape.shuffled && !shape.pinned);
+    }
+  }
+  // A negative count is a bug upstream of here; it must still not pin anything.
+  CHECK(!wallpapers::cardShapeFor(-1).pinned);
+  CHECK(!wallpapers::cardShapeFor(-1).shuffled);
+}
+
+// A count sentence, a settings caveat and "the card contradicts you" cannot all
+// fit one 30px line, so they have to be ordered -- and the two that displace a
+// count both have to win, every time, or the app says "5 take turns" on a
+// device where none of them can appear.
+//
+// Asserted as COVERAGE rather than by looking for a word: a sentence cannot
+// pass this by mentioning the right thing (a-detector-that-matches-the-
+// description).
+void testShuffleLineNeverPromisesASetThatCannotShow() {
+  for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+    for (int qr = 0; qr < 2; ++qr) {
+      const wallpapers::Reach reach = wallpapers::reachOfPinnedSleep(mode, qr != 0);
+      const bool blocked = reach != wallpapers::Reach::Always;
+      for (int choosing = 0; choosing < 2; ++choosing) {
+        for (int shadowed = 0; shadowed < 2; ++shadowed) {
+          for (int n = 0; n <= 6; ++n) {
+            const wallpapers::ShuffleLine line = wallpapers::shuffleStripLine(choosing != 0, n, shadowed != 0, reach);
+            // A number NEVER appears while anything is stopping those files
+            // reaching the glass. This is the whole assertion.
+            if (blocked || shadowed != 0) CHECK(!line.wantsCount);
+            // With nothing chosen and nothing hidden there is nothing for a
+            // caveat to be about, and saying it would displace the instruction.
+            if (n == 0 && shadowed == 0) {
+              CHECK(!line.saysCaveat && !line.saysShadow && !line.wantsCount);
+              CHECK((line.text != nullptr) == (choosing != 0));
+            } else if (blocked) {
+              CHECK(line.text != nullptr);
+              CHECK(line.saysCaveat);
+              CHECK(!line.saysShadow);  // the settings beat the card: nothing shows either way
+            } else if (shadowed != 0) {
+              CHECK(line.text != nullptr);
+              CHECK(line.saysShadow);
+              CHECK(!line.saysCaveat);
+            } else {
+              CHECK(!line.saysCaveat && !line.saysShadow);
+              // A number only ever appears in a sentence built to carry one,
+              // and never for a count of nothing.
+              if (line.wantsCount) CHECK(line.text != nullptr && n >= 1);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Unblocked and unshadowed, the four states each get their own sentence, and
+  // no two are the same string -- a mode whose screen does not change is a mode
+  // nobody can tell they are in.
+  const wallpapers::Reach ok = wallpapers::Reach::Always;
+  const wallpapers::ShuffleLine none = wallpapers::shuffleStripLine(true, 0, false, ok);
+  const wallpapers::ShuffleLine one = wallpapers::shuffleStripLine(true, 1, false, ok);
+  const wallpapers::ShuffleLine many = wallpapers::shuffleStripLine(true, 3, false, ok);
+  const wallpapers::ShuffleLine live = wallpapers::shuffleStripLine(false, 3, false, ok);
+  CHECK(none.text != nullptr && one.text != nullptr && many.text != nullptr && live.text != nullptr);
+  CHECK(std::strcmp(none.text, one.text) != 0);
+  CHECK(std::strcmp(one.text, many.text) != 0);
+  CHECK(std::strcmp(many.text, live.text) != 0);
+  // Choosing, the count is always on screen from the first pick onwards: it is
+  // the fact four visible tiles cannot carry.
+  CHECK(live.wantsCount && one.wantsCount && many.wantsCount);
+  CHECK(!none.wantsCount);
+
+  // Not choosing, with nothing or one wallpaper chosen, this says nothing: the
+  // single-pin case belongs to reachHint / stripLineAfterSelection, and two
+  // voices on one line is how a caveat got lost in #354.
+  CHECK(wallpapers::shuffleStripLine(false, 0, false, ok).text == nullptr);
+  CHECK(wallpapers::shuffleStripLine(false, 1, false, ok).text == nullptr);
+
+  // And the instruction survives a blocked device while nothing is chosen: the
+  // caveat has nothing to be about yet, and the render showed it taking the
+  // line on a fresh card where Sleep Screen is Dark.
+  for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+    for (int qr = 0; qr < 2; ++qr) {
+      const wallpapers::Reach reach = wallpapers::reachOfPinnedSleep(mode, qr != 0);
+      const wallpapers::ShuffleLine fresh = wallpapers::shuffleStripLine(true, 0, false, reach);
+      CHECK(fresh.text != nullptr);
+      CHECK(std::strcmp(fresh.text, none.text) == 0);
+    }
+  }
+
+  // No user-facing sentence may promise randomness. The recent-shown window
+  // upstream keeps (min(recentFill, N-1), recentFill climbing to 16 and never
+  // reset) makes a set of up to seventeen a strict cycle, and a two-set a
+  // metronome. "Take turns" is what that is.
+  for (int choosing = 0; choosing < 2; ++choosing) {
+    for (int shadowed = 0; shadowed < 2; ++shadowed) {
+      for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+        const wallpapers::ShuffleLine line =
+            wallpapers::shuffleStripLine(choosing != 0, 3, shadowed != 0, wallpapers::reachOfPinnedSleep(mode, false));
+        if (line.text == nullptr) continue;
+        const std::string text(line.text);
+        CHECK(text.find("huffl") == std::string::npos);
+        CHECK(text.find("andom") == std::string::npos);
+      }
+    }
+  }
+}
+
+// FAT keeps the case of a long name but matches without it, so a card that has
+// been on a PC can hand back a name in a different case than it was written in.
+// A case-sensitive membership test would then draw no marker for a wallpaper
+// that is genuinely in the set.
+void testFileNamesMatchWithoutCase() {
+  CHECK(wallpapers::sameFileName("blake.bmp", "BLAKE.BMP"));
+  CHECK(wallpapers::sameFileName("Durer-Eden.bmp", "durer-eden.BMP"));
+  CHECK(wallpapers::sameFileName("", ""));
+  CHECK(!wallpapers::sameFileName("blake.bmp", "blake2.bmp"));
+  CHECK(!wallpapers::sameFileName("blake.bmp", "blak.bmp"));
+  CHECK(!wallpapers::sameFileName("waves.bmp", "rings.bmp"));
+}
+
 }  // namespace
 
 int main() {
@@ -343,6 +480,9 @@ int main() {
   testChoiceReachesTheGlassOnTimeout();
   testChoiceKeepsWhatItCan();
   testStripLineCoversEveryFact();
+  testCardShapeNeverHasBothSlots();
+  testShuffleLineNeverPromisesASetThatCannotShow();
+  testFileNamesMatchWithoutCase();
 
   // Uploads first, then built-ins, each alphabetical. Mario's ask, and the
   // ordering the picker's captions are indexed by -- get it wrong and every

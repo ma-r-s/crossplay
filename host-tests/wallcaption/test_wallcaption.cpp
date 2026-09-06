@@ -291,25 +291,29 @@ int main() {
   // The things that DO remap a cell still have to gate, or a tap during a page
   // turn opens whatever slid under the finger. Both halves are asserted.
   {
-    const uint32_t base = wallpapersui::gridMeaning(0, 0, 21, 1);
-    check(wallpapersui::gridMeaning(0, 0, 21, 1) == base, "gridMeaning is not stable for identical inputs");
+    const uint32_t base = wallpapersui::gridMeaning(0, 0, 21, 1, false);
+    check(wallpapersui::gridMeaning(0, 0, 21, 1, false) == base, "gridMeaning is not stable for identical inputs");
 
     // Changing the page, the view, the library size or the chrome-tile count
     // REMAPS cells, so each must change the meaning.
-    check(wallpapersui::gridMeaning(1, 0, 21, 1) != base, "a page turn does not gate taps");
-    check(wallpapersui::gridMeaning(0, 1, 21, 1) != base, "a view change does not gate taps");
-    check(wallpapersui::gridMeaning(0, 0, 22, 1) != base, "a library change does not gate taps");
-    check(wallpapersui::gridMeaning(0, 0, 21, 2) != base, "a chrome-tile change does not gate taps");
+    check(wallpapersui::gridMeaning(1, 0, 21, 1, false) != base, "a page turn does not gate taps");
+    check(wallpapersui::gridMeaning(0, 1, 21, 1, false) != base, "a view change does not gate taps");
+    check(wallpapersui::gridMeaning(0, 0, 22, 1, false) != base, "a library change does not gate taps");
+    check(wallpapersui::gridMeaning(0, 0, 21, 2, false) != base, "a chrome-tile change does not gate taps");
+    // Choose-a-set mode changes what a CELL does -- pin one, or toggle its
+    // membership -- so a tap left against the previous frame must not act on
+    // the new meaning.
+    check(wallpapersui::gridMeaning(0, 0, 21, 1, true) != base, "choose-a-set mode does not gate taps");
 
     // And the signature that mattered: nothing in gridMeaning takes the
     // selection, so there is no argument by which it could gate. Asserted by
     // walking every selection a 21-wallpaper library can have and confirming the
     // meaning for that page never moves.
     for (int page = 0; page < 6; ++page) {
-      const uint32_t forPage = wallpapersui::gridMeaning(page, 0, 21, 1);
+      const uint32_t forPage = wallpapersui::gridMeaning(page, 0, 21, 1, false);
       for (int selected = -1; selected < 21; ++selected) {
         // The old meaning mixed (selected + 1) in here; the new one cannot.
-        check(wallpapersui::gridMeaning(page, 0, 21, 1) == forPage,
+        check(wallpapersui::gridMeaning(page, 0, 21, 1, false) == forPage,
               "the selection moved the surface meaning, so taps will be refused mid-paint (page " +
                   std::to_string(page) + ", selected " + std::to_string(selected) + ")");
       }
@@ -400,11 +404,31 @@ int main() {
         if (note.text != nullptr) lines.emplace_back(note.text);
       }
     }
+    // Every set sentence, walked off its own arguments the same way. The count
+    // ones are measured WITH the widest number this app can put in front of
+    // them: kMaxLibrary is 256, so three digits and a space, and a sentence
+    // that fits bare and not with "256 " on it is a sentence the panel cuts on
+    // the one card that has the most wallpapers on it.
+    for (uint8_t mode = 0; mode < wallpapers::kSleepModeCount; ++mode) {
+      for (int qr = 0; qr < 2; ++qr) {
+        const wallpapers::Reach reach = wallpapers::reachOfPinnedSleep(mode, qr != 0);
+        for (int choosing = 0; choosing < 2; ++choosing) {
+          for (int shadowed = 0; shadowed < 2; ++shadowed) {
+            for (int n = 0; n < 4; ++n) {
+              const wallpapers::ShuffleLine set = wallpapers::shuffleStripLine(choosing != 0, n, shadowed != 0, reach);
+              if (set.text == nullptr) continue;
+              lines.emplace_back(set.wantsCount ? std::string("256 ") + set.text : std::string(set.text));
+            }
+          }
+        }
+      }
+    }
     // And the two the strip already carried, so this check covers the strip
     // rather than only the new arrivals.
     lines.emplace_back("Tap one to set your sleep screen.");
     lines.emplace_back("Card is low on space. Saves may fail.");
     lines.emplace_back("Could not check card space.");
+    lines.emplace_back(wallpapersui::chooseHint());
 
     int widestHint = 0;
     std::string widestHintText;
@@ -421,6 +445,55 @@ int main() {
     }
     std::printf("wallcaption: widest hint \"%s\" = %dpx in a %dpx strip (%dpx spare)\n", widestHintText.c_str(),
                 widestHint, stripWidth, stripWidth - widestHint);
+  }
+
+  // The strip's lowest line tells the user which control opens a set, so it has
+  // to name that control's own word. Rename the chip without renaming the hint
+  // and the sentence points at a word that is not on the screen. This is the
+  // one case where a check that matches the description is the point.
+  {
+    const std::string hint(wallpapersui::chooseHint());
+    const std::string enters(wallpapersui::chooseChipLabel(false));
+    const std::string leaves(wallpapersui::chooseChipLabel(true));
+    check(hint.find(enters) != std::string::npos,
+          "the strip's hint does not name the chip: \"" + hint + "\" vs \"" + enters + "\"");
+    check(enters != leaves, "the chip says the same thing entering and leaving the mode");
+    // No user-facing string in this app promises randomness: upstream's
+    // recent-shown window makes a small set a strict cycle, not a shuffle.
+    for (const std::string& s : {hint, enters, leaves}) {
+      check(s.find("huffl") == std::string::npos && s.find("HUFFL") == std::string::npos,
+            "a user-facing string promises shuffling: \"" + s + "\"");
+      check(s.find("andom") == std::string::npos && s.find("ANDOM") == std::string::npos,
+            "a user-facing string promises randomness: \"" + s + "\"");
+    }
+  }
+
+  // The three readers of "how many tiles are there" have to agree. drawGrid and
+  // the tap handler both count specialTiles() + the library; pageCount() counted
+  // ONE chrome tile, so with the built-in set incomplete (two chrome tiles) a
+  // library that lands exactly on a page boundary had a last wallpaper the grid
+  // drew and clampPage forbade the page for. Walked rather than spot-checked.
+  {
+    for (int per = 1; per <= 8; ++per) {
+      for (int specials = 1; specials <= 2; ++specials) {
+        for (int lib = 0; lib <= 40; ++lib) {
+          const int pages = wallpapersui::pageCountFor(specials, lib, per);
+          const int tiles = specials + lib;
+          check(pages >= 1, "pageCountFor returned no pages at all");
+          // Every tile the grid draws is on a page the picker can reach.
+          check(pages * per >= tiles, "the last tile is on a page pageCountFor does not count (per " +
+                                          std::to_string(per) + ", specials " + std::to_string(specials) +
+                                          ", library " + std::to_string(lib) + ")");
+          // And not one page more than needed, or the picker shows an empty one.
+          check((pages - 1) * per < tiles || tiles == 0,
+                "pageCountFor counts a page with nothing on it (per " + std::to_string(per) + ", specials " +
+                    std::to_string(specials) + ", library " + std::to_string(lib) + ")");
+        }
+      }
+    }
+    // The exact case that was broken: 4 a page, both chrome tiles, three
+    // wallpapers -- five tiles, which is two pages and used to be called one.
+    check(wallpapersui::pageCountFor(2, 3, 4) == 2, "the incomplete-set page boundary is still miscounted");
   }
 
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,
