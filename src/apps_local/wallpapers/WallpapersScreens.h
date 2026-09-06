@@ -116,6 +116,19 @@ struct BarSpan {
 };
 BarSpan fetchBarSpan(const FetchingModel& model);
 
+// What a tap on the grid MEANS, for the surface gate that refuses taps on a
+// frame the user has not seen yet.
+//
+// Deliberately NOT the selection. The gate exists so a tap cannot act on a
+// surface whose pixels have moved under the finger, and moving the brackets
+// moves nothing: cell N is wallpaper N whether or not it is the chosen one. The
+// things that DO remap a cell are here -- the page, the view, how many
+// wallpapers there are, and how many chrome tiles sit in front of them.
+//
+// Including the selection made every tap deaf for the length of one refresh
+// after every tap, which is what "touches get lost" was.
+uint32_t gridMeaning(int page, int view, int libraryCount, int specialTiles);
+
 // The FAILED state, and every other "something happened, here is what" screen.
 // Always carries an action: a screen that reports a failure and gives you
 // nothing to press is a dead end, and Get Books shipped exactly that once.
