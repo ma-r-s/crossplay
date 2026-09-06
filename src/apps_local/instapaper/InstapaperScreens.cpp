@@ -10,10 +10,10 @@
 namespace instapaperui {
 namespace {
 
-// The top of any body: below the header band and the rule Toybox draws under
-// it. Shared by every screen here so they line up with each other and with the
-// shelf the reader just came from.
-constexpr int kBodyTop = toybox::kHeaderHeight + toybox::kGutter * 3;
+// The top of any body: below the header band AND the rule Toybox draws under
+// it, which is what kChromeHeight names. Shared by every screen here so they
+// line up with each other and with the shelf the reader just came from.
+constexpr int kBodyTop = toybox::kChromeHeight + toybox::kGutter * 3;
 
 constexpr int kFooterHeight = toybox::kPillHeight;
 
@@ -39,7 +39,6 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
   }
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 

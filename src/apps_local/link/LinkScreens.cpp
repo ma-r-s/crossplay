@@ -36,7 +36,6 @@ void toyboxChrome(toybox::Screen& screen, const char* title) {
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 

@@ -27,7 +27,10 @@ constexpr int kPageBarHeight = 44;
 int pageBarHeight(const bool hasPages) { return hasPages ? kPageBarHeight + toybox::kGutter : 0; }
 
 fui::Rect listBand(const fui::DeviceContext& device, const bool hasDeviceName, const bool hasPages) {
-  const int top = toybox::kHeaderHeight + toybox::kGutter * 3;
+  // From the whole chrome -- band, gap and rule -- not from the band alone.
+  // Three gutters below kHeaderHeight is three gutters below a line that is
+  // not the bottom of anything.
+  const int top = toybox::kChromeHeight + toybox::kGutter * 3;
   return fui::makeRect(toybox::kMargin, top, device.width - 2 * toybox::kMargin,
                        device.height - toybox::kMargin - top - footerHeight(hasDeviceName) - pageBarHeight(hasPages));
 }
@@ -127,7 +130,6 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     screen.target().text(toybox::inkCentred(box, toybox::kUiCut), counter, style);
   }
 
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   // Taken before the list, so the list can never grow into it.

@@ -23,7 +23,13 @@ constexpr int16_t kCell = 60;
 constexpr int16_t kBoardWidth = kCell * ms::kColumns;
 constexpr int16_t kBoardHeight = kCell * ms::kRows;
 
-int16_t boardTop() { return static_cast<int16_t>(toybox::kHeaderHeight + 8); }
+// The first CELL. The frame bar sits kRule above it and is the topmost thing
+// drawn, so the clearance that matters is measured from the bar, not from here:
+// at kHeaderHeight + 8 the bar landed at 81, inside the rows the header rule
+// owns, and the minefield's top edge and the header's bottom edge were one
+// line. Measured from the whole chrome now (band + gap + rule), plus a gutter,
+// plus the bar's own weight.
+int16_t boardTop() { return static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter + toybox::kRule); }
 
 // The mark on a flagged cell and beside the counter.
 //
@@ -80,7 +86,6 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 

@@ -29,12 +29,21 @@ constexpr int kRule = 3;
 // rule therefore keeps the position it has always had, just below the band,
 // where 27 of the fork's 44 band sites were already drawing it by hand.
 constexpr int kBandRuleGap = 4;
-// What a screen must actually clear: the band, the gap AND the rule. Screens
-// measured their first gutter from kHeaderHeight alone, which is why several
-// sit their content five pixels under a line they never counted -- the rule
-// was invisible to the arithmetic because it was drawn by a separate call.
-// Measure the top gutter from this, not from kHeaderHeight.
-constexpr int kChromeHeight = kHeaderHeight + kBandRuleGap + kRule;
+// What a screen must actually clear below a band of `bandHeight`: the band, the
+// gap AND the rule. Screens measured their first gutter from kHeaderHeight
+// alone, which is why several sat their content a few pixels under a line they
+// never counted -- the rule was invisible to the arithmetic because it was
+// drawn by a separate call.
+//
+// A function as well as a constant because the band height is a THEME TOKEN and
+// one app raises it: Solitaire runs a 56px band in landscape, so kChromeHeight
+// is not its chrome and a screen that reached for the constant anyway would be
+// wrong by exactly the amount that is invisible. Screens holding a Screen& do
+// not need either -- headerBand() reserves the whole chrome, so screen.body().y
+// already is this number. These are for the geometry functions an Activity
+// shares with its builder, which have no Screen to ask.
+constexpr int chromeBelow(const int bandHeight) { return bandHeight + kBandRuleGap + kRule; }
+constexpr int kChromeHeight = chromeBelow(kHeaderHeight);
 constexpr int kFrame = 4;
 // The board's own border is heavier than anything drawn inside it, so the
 // playing surface reads as a single object rather than as a grid that happens

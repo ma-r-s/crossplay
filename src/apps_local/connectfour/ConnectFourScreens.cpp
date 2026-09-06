@@ -32,7 +32,6 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
@@ -130,7 +129,7 @@ int16_t gridLeft(const fui::DeviceContext& device) { return static_cast<int16_t>
 // which is the same answer Checkers reached for the same gap.
 int16_t boardGridTop(const fui::DeviceContext& device) {
   (void)device;
-  const int16_t top = static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter * 2);
+  const int16_t top = static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter * 2);
   return static_cast<int16_t>(top + toybox::kBoardFrame + kSlotHeight);
 }
 
