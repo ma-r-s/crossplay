@@ -72,7 +72,7 @@ mirrors the half of it the wrap needs.
 
 | | Status |
 | --- | --- |
-| Chinese and Japanese | **Break between characters**, which is how those scripts break, plus the leading half of **kinsoku shori**: a full stop, a closing bracket, a long-vowel mark or a repeat mark is never left to open a line. The trailing half — characters that may not *end* a line — needs a lookahead the greedy wrap does not have. |
+| Chinese and Japanese | **Break between characters**, which is how those scripts break, plus **kinsoku shori, both halves**. A full stop, a closing bracket, a long-vowel mark or a repeat mark is never left to open a line -- it stays on the line that ends, one character of overhang, which is what a typesetter does. An opening bracket or quote is never left to end one -- the wrap takes it back off and places it at the head of the next line, which is the only way a greedy wrap can act on a decision it has already made. |
 | Korean | **Breaks at spaces**, which is correct: Korean is written with spaces between words, and breaking between syllables would split words the space rule keeps whole. |
 | Latin | **Breaks at spaces.** A word longer than the line overhangs rather than being split, and `fitsAsDrawn` refuses a face that would let that happen; a run longer than the whole line buffer is broken by codepoint, because the alternative is a blank card. |
 
@@ -131,15 +131,43 @@ of the deck's own face.
 | Syncing from the device itself | **Deliberately not.** AnkiWeb's protocol is undocumented, and a client that gets it subtly wrong corrupts the collection on the server — which for most people is the only copy — with no way to show the user what went wrong. |
 | Adding, editing, browsing, retraining FSRS | **In Anki**, where those things are good. Reader reviews count toward **Optimize FSRS parameters** like any others, and re-converting carries the new weights back. |
 
+## Cards written by another build
+
+A card may have been written by a different build of these tools -- another
+branch, an older release, someone else's fork. What carries over is decided by
+one thing: **the two files holding your practice are keyed by Anki card id,
+not by position or by content.**
+
+| File | Rewritten every conversion? | Carries progress? |
+| --- | --- | --- |
+| `deck.dat` | Yes | No |
+| `meta.dat` | Yes | No |
+| `glyphs-*.txt`, `fonts/` | Yes | No |
+| `cards.dat` | No | **Yes** — each record holds its Anki card id |
+| `revlog.dat` | Never (append-only) | **Yes** — keyed by card id and the millisecond answered |
+
+`deck_to_anki.py` never opens `deck.dat`: `read_cards` builds a dict keyed on
+the id inside each record, and `read_reviews` does the same. So a build that
+changed the field layout, the note order, the fonts or the whole renderer
+changed nothing that the replay depends on. Practice done on such a card
+carries over; the cards look different afterwards and schedule identically.
+
+What could genuinely break it is the 32-byte record layout of those two files.
+`inspect_deck.py` checks that from the files themselves rather than trusting
+either build, and refuses when it does not hold — the case worth guarding is a
+build using a longer record, where the byte count still divides evenly, every
+field is then read from the wrong offset, and nothing downstream can tell that
+from a strange review. It runs immediately before the step that writes into
+what is usually the only copy of years of study.
+
 ## If you want one of these
 
 The ones with a real case, in the order they would be worth doing:
 
 1. **Leeches and sibling burying.** Both are per-preset numbers already sitting in the deck config protobuf, and both are small state machines on top of the queue that is already there.
 2. **Interval fuzz.** Twenty lines, and it removes a small standing divergence.
-3. **Trailing kinsoku.** The half of the rule that is missing. It needs the wrap to look one unit ahead before committing a break.
-4. **Image Occlusion.** The card kind with the largest audience of those refused. It needs shape data in the deck file and a compositing step on the device, so it is a real piece of work rather than a rule.
-5. **A template renderer.** The biggest, and the one to be most careful about: the value is not in reproducing a stylesheet but in letting a deck say *which of a few layouts* it wants.
+3. **Image Occlusion.** The card kind with the largest audience of those refused. It needs shape data in the deck file and a compositing step on the device, so it is a real piece of work rather than a rule.
+4. **A template renderer.** The biggest, and the one to be most careful about: the value is not in reproducing a stylesheet but in letting a deck say *which of a few layouts* it wants.
 
 Arabic and Hebrew are not on that list, and should not be until someone wants
 them enough to write a bidi pass. A right-to-left script drawn left to right

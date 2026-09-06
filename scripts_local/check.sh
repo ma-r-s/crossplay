@@ -809,6 +809,19 @@ else
   FAILED=1
 fi
 
+# What inspect_deck.py refuses. It runs immediately before deck_to_anki.py,
+# which writes into the user's collection -- often the only copy of years of
+# study -- so a card whose record layout is not this one has to be caught
+# there rather than discovered afterwards.
+if (cd "$REPO" && python3 tools_local/study/test_inspect_deck.py) \
+    > "$LOGS/study-inspect.log" 2>&1; then
+  printf "  %-12s ok\n" "inspectdeck"
+else
+  printf "  %-12s FAILED\n" "inspectdeck"
+  tail -10 "$LOGS/study-inspect.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
 # The trivia option-picker. Standard library only, so it never skips: the pack
 # it guards is a published release asset, and the last regression in it (option
 # sets that told you the answer without the question) shipped and stayed

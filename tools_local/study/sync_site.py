@@ -38,6 +38,7 @@ MEMBERS = [
     # --from-zip now runs the pipeline from inside this zip, so an absent
     # member fails a test instead of a user.
     "tools_local/study/deck_to_anki.py",
+    "tools_local/study/inspect_deck.py",
     "tools_local/study/make_images.py",
     "tools_local/study/make_fonts.py",
     "tools_local/study/mono_cpfont.py",

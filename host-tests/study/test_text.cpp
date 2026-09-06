@@ -220,6 +220,47 @@ void run() {
     check(out.lines.size() == 2 && out.lines[0] == "中文句", "an unprotected character wraps normally");
   }
 
+  // --- kinsoku, the trailing half ------------------------------------------
+  //
+  // The mirror of the rule above: a line may not END on an opening bracket.
+  // The greedy wrap has already placed it by the time it finds out, so the
+  // only implementation is to take it back off and put it on the next line.
+  {
+    // Three characters fit at 90px. Without the rule the line would be
+    // 中文「 and the quote would be stranded from what it opens.
+    const Laid out = lay("中文「文句", 90);
+    check(out.lines.size() == 2, "the text still wraps");
+    check(out.lines.size() == 2 && out.lines[0] == "中文", "the opening bracket is taken off the full line");
+    check(out.lines.size() == 2 && out.lines[1] == "「文句", "and opens the next line with what it opens");
+  }
+  {
+    // Codepoint accounting has to survive the take-back, or every span after
+    // it slides. The bracket is codepoint 2; the span (2, 1) must still be it.
+    const std::vector<std::string> marked = marks("中文「文句", 90, 2, 1);
+    check(marked.size() == 1 && marked[0] == "「", "a span still lands on the moved character");
+  }
+  {
+    // A line that is nothing but the bracket has nowhere better to put it.
+    // This is the case that would loop forever if the rule fired on an empty
+    // line, so it is the case worth pinning.
+    const Laid out = lay("「文句子", 60);
+    check(out.lines.size() >= 1, "a line starting with a bracket terminates");
+    check(!out.lines.empty() && out.lines[0].find("\u300c") == 0, "and keeps the bracket at the front");
+  }
+  {
+    // Both halves at once: 「 may not end a line and 」 may not begin one.
+    const Laid out = lay("中文「句」", 90);
+    check(out.lines.size() == 2, "both rules together still terminate");
+    check(out.lines.size() == 2 && out.lines[0] == "中文", "the opener moves down");
+    check(out.lines.size() == 2 && out.lines[1] == "「句」", "and the closer stays with its content");
+  }
+  {
+    // An ordinary character at the end of a line is left alone: the rule is
+    // about brackets, not about everything that happens to be last.
+    const Laid out = lay("中文句子", 90);
+    check(out.lines.size() == 2 && out.lines[0] == "中文句", "an ordinary line end is untouched");
+  }
+
   // --- the span, which is what cloze rides on -------------------------------
   {
     // "The capital is Paris." -- underline "Paris", codepoints 15..19.

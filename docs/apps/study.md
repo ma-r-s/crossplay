@@ -215,6 +215,51 @@ export.
 - The deck screen shows the last two weeks, today's due count, retention, and
   the streak.
 
+## Moving a card from another build
+
+Card text is rebuilt from Anki on every conversion. **Your practice is not in
+the card text.** It is in two files, and both are keyed by Anki card id rather
+than by position or by content:
+
+| | |
+| --- | --- |
+| `deck.dat`, `meta.dat`, `glyphs-*.txt`, `fonts/` | Card text, parameters, faces. Rewritten every conversion. |
+| `cards.dat` | Scheduling state -- each record carries the Anki card id it belongs to. |
+| `revlog.dat` | Every review, keyed by card id and the millisecond it was answered, which is Anki's own revlog primary key. |
+
+`deck_to_anki.py` reads only the last two, and reads them by card id: it never
+opens `deck.dat` at all. So days of practice done on a card written by a
+different build -- another branch, an older release, someone else's fork --
+carry over without that build's field layout, note order, fonts or rendering
+mattering in the slightest. The cards may look different afterwards. The
+schedule will not be.
+
+Check the card first, because the next step writes into your collection:
+
+```bash
+./tools_local/study/inspect_deck.py /Volumes/SDCARD/study/<deck> \
+    --collection ~/…/collection.anki2
+```
+
+It reports what wrote the card and how much practice is on it, and validates
+every record before it says anything is safe. The failure it exists for is a
+build whose records are a different size: the byte count still divides evenly,
+every field is then read from the wrong offset, and the replay cannot tell
+that from a strange review. It exits non-zero and says so rather than letting
+that reach Anki.
+
+Then, with Anki closed:
+
+```bash
+./tools_local/study/deck_to_anki.py /Volumes/SDCARD/study/<deck> ~/…/collection.anki2
+./tools_local/study/study.py setup --replace
+```
+
+The first replays the practice into Anki; the second rebuilds the deck with
+this build's converter, and the scheduling state comes back out of Anki with
+your days of work in it. The replay is idempotent, so running it twice applies
+nothing the second time.
+
 ## When something looks wrong
 
 | Symptom                                  | Cause and fix                                                                                                                                   |
@@ -227,6 +272,7 @@ export.
 | Sync says Anki is running                | Quit Anki and re-run. `--force` exists but means two writers.                                                                                   |
 | Word and meaning came out swapped        | The converter guessed fields by order. Re-run setup with `--map headword=... --map meaning=...`.                                                |
 | Reviews look doubled in Anki             | They cannot: replay is keyed by review timestamp, and rows that already exist are skipped. Run `sync` as often as you like.                     |
+| A card from another build shows no deck   | Its `deck.dat` is a format this firmware does not read, which is harmless: run `inspect_deck.py`, replay the progress, and re-convert. See "Moving a card from another build".               |
 
 ## What is deliberately not here
 

@@ -70,13 +70,16 @@ inline bool isWideScript(const uint32_t codepoint) {
          (codepoint >= 0xFF00 && codepoint <= 0xFFEF);     // fullwidth forms
 }
 
-// Characters that may not BEGIN a line. Japanese and Chinese typesetting call
-// this kinsoku shori, and without it a sentence breaks so that the next line
-// starts with a full stop or a closing quote, which is the one wrapping
-// mistake a reader of those languages notices immediately. Only the leading
-// half of the rule is implemented: the trailing half (characters that may not
-// END a line) needs a lookahead the greedy wrap does not have, and getting
-// half of it right is a clear improvement while getting it wrong is not.
+// Kinsoku shori, the Japanese and Chinese rule about what may sit at the edge
+// of a line. Two halves, and they are enforced from opposite ends.
+//
+// A character that may not BEGIN a line is handled by keeping it on the line
+// that ends: the wrap is greedy, so it is already looking at the character
+// when it decides, and one character of overhang is what a typesetter does
+// here. A character that may not END a line is handled by pushing it DOWN --
+// the wrap has already placed it, so it is taken back off and reprocessed on
+// the next line, which is the only way a greedy wrap can implement a rule
+// about a decision it has already made.
 inline bool isProhibitedLineStart(const uint32_t codepoint) {
   switch (codepoint) {
     case 0x3001:  // 、
@@ -103,6 +106,44 @@ inline bool isProhibitedLineStart(const uint32_t codepoint) {
     default:
       return false;
   }
+}
+
+// Characters that may not END a line: the opening halves of the bracket and
+// quote pairs, and the currency marks that bind to the number after them.
+// Leaving 「 alone at the end of a line and its content on the next is the
+// mirror of the mistake isProhibitedLineStart exists to stop, and it is just
+// as visible.
+inline bool isProhibitedLineEnd(const uint32_t codepoint) {
+  switch (codepoint) {
+    case 0x300C:  // 「
+    case 0x300E:  // 『
+    case 0xFF08:  // （
+    case 0x3008:  // 〈
+    case 0x300A:  // 《
+    case 0x3010:  // 【
+    case 0x3014:  // 〔
+    case 0xFF3B:  // ［
+    case 0xFF5B:  // ｛
+    case 0x2018:  // '
+    case 0x201C:  // "
+    case 0xFF04:  // ＄
+    case 0xFFE5:  // ￥
+    case 0xFF03:  // ＃
+      return true;
+    default:
+      return false;
+  }
+}
+
+// The last codepoint of a NUL-terminated run of `length` bytes, or 0.
+// Scanning back to the lead byte is cheaper than walking the line forward,
+// and the line is walked forward often enough already.
+inline uint32_t lastCodepoint(const char* text, const int length) {
+  if (text == nullptr || length <= 0) return 0;
+  int start = length - 1;
+  while (start > 0 && (static_cast<unsigned char>(text[start]) & 0xC0) == 0x80) --start;
+  const char* p = text + start;
+  return nextCodepoint(p);
 }
 
 // May a line break happen either side of this character? True for spaces and
@@ -296,6 +337,13 @@ void wrapText(const char* text, const int maxWidth, char* line, const int lineBy
   int lineLength = 0;
   int lineStartCp = 0;
   int cpIndex = 0;
+  // Where the unit most recently placed on this line began -- in the buffer,
+  // in the source, and in codepoints. Trailing kinsoku has to take that unit
+  // back off again, and a greedy wrap can only do that by remembering where
+  // it put it.
+  int lastUnitOffset = 0;
+  const char* lastUnitSrc = nullptr;
+  int lastUnitCp = 0;
 
   const auto flush = [&]() {
     if (lineLength == 0) return;
@@ -308,6 +356,9 @@ void wrapText(const char* text, const int maxWidth, char* line, const int lineBy
     emit(out);
     lineLength = 0;
     lineStartCp = cpIndex;
+    lastUnitOffset = 0;
+    lastUnitSrc = nullptr;
+    lastUnitCp = 0;
   };
 
   const char* p = text;
@@ -405,6 +456,22 @@ void wrapText(const char* text, const int maxWidth, char* line, const int lineBy
         continue;
       }
       if (measure(line) > maxWidth) {
+        // Trailing kinsoku: this line is about to end, and it must not end on
+        // an opening bracket. Take that unit back off and let the loop place
+        // it at the head of the next line instead -- the only way a greedy
+        // wrap can act on a decision it has already made.
+        //
+        // Only when something would be left behind. A line that is nothing
+        // BUT the bracket has nowhere better to put it, and taking a unit off
+        // an empty line would not terminate.
+        if (lastUnitSrc != nullptr && lastUnitOffset > 0 &&
+            isProhibitedLineEnd(lastCodepoint(line + lastUnitOffset, lineLength - lastUnitOffset))) {
+          lineLength = lastUnitOffset;
+          cpIndex -= lastUnitCp;
+          p = lastUnitSrc;
+          flush();
+          continue;
+        }
         flush();
         // A leading space after a break IS the break, and it still counts as
         // a codepoint the span offsets were measured against.
@@ -430,6 +497,9 @@ void wrapText(const char* text, const int maxWidth, char* line, const int lineBy
         ++unitCp;
       }
     }
+    lastUnitOffset = lineLength;
+    lastUnitSrc = p;
+    lastUnitCp = unitCp;
     lineLength += unitBytes;
     cpIndex += unitCp;
     p = unitEnd;
