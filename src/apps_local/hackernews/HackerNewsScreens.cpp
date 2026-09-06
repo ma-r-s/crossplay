@@ -10,8 +10,10 @@ namespace {
 
 // The top of any body: below the header band and the rule Toybox draws under
 // it. Shared by all three screens so they line up with each other and with the
-// shelf the reader just came from.
-constexpr int kBodyTop = toybox::kHeaderHeight + toybox::kGutter * 3;
+// shelf the reader just came from. The number now lives in one place for the
+// whole fork -- see toybox::kBodyTop, which also says why nothing adds a safe
+// area to it.
+constexpr int kBodyTop = toybox::kBodyTop;
 
 // The reader's footer: one row of three controls.
 constexpr int kFooterHeight = toybox::kPillHeight;

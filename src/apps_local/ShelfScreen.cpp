@@ -27,7 +27,7 @@ constexpr int kPageBarHeight = 44;
 int pageBarHeight(const bool hasPages) { return hasPages ? kPageBarHeight + toybox::kGutter : 0; }
 
 fui::Rect listBand(const fui::DeviceContext& device, const bool hasDeviceName, const bool hasPages) {
-  const int top = toybox::kHeaderHeight + toybox::kGutter * 3;
+  const int top = toybox::kBodyTop;
   return fui::makeRect(toybox::kMargin, top, device.width - 2 * toybox::kMargin,
                        device.height - toybox::kMargin - top - footerHeight(hasDeviceName) - pageBarHeight(hasPages));
 }

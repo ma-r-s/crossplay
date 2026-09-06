@@ -77,9 +77,30 @@ chrome down by the insets, which ate the gaps the layouts were tuned for
 Battle's helper text crowded the rule) while protecting nothing, because no
 game ever drew content in the covered rows. Cut the hidden millimetre from
 the band and recentre; do not push the screen down. Found on the device,
-not in the sim, both times. What keeps the full safe-area treatment: xkcd
-(its comic and menus reach the panel edge), the readers, and every screen
-laid out from `UITheme::getScreenSafeArea`.
+not in the sim, both times. What keeps the full safe-area treatment: xkcd's
+COMIC (`readerViewport()`, which reaches the panel edge), the readers, and
+every screen laid out from `UITheme::getScreenSafeArea`.
+
+**Not xkcd's menus, and not the Wallpapers grid, whatever this page said
+until card 358.** Both apps took their sides and their bottom off the safe
+rect, correctly, and then added `safe.y` to a body top derived from
+`kHeaderHeight` as well -- so their content started ten pixels below every
+other app's while protecting nothing, because the header band above it
+already paints over the covered rows. Twenty apps agreeing was not the
+evidence that settled it; `host-tests/ui`'s own
+`testTheBandIsAbsoluteWithoutBeingAsked` was, by asserting
+`screen.body().y == kHeaderHeight` on a BEZELLED frame. That makes
+`kHeaderHeight`, `kChromeHeight` and now `toybox::kBodyTop` absolute panel
+rows by construction, and any safe area added to one of them a double count.
+`toybox::kBodyTop` (`ToyboxMetrics.h`) is the shared constant and carries the
+whole argument; the shelf, hacker news, instapaper, xkcd and wallpapers all
+name it now instead of each keeping a private copy.
+
+The reason nothing caught it for as long as either app existed: `host-tests/ui`
+builds every screen against `device()`, whose `safeArea` is empty, so twice
+nothing is nothing. `testTheGlassNeverMovesABodyTop` renders each of those
+screens on both frames and requires the same first body row, which is a rule a
+screen written tomorrow cannot pass by accident.
 
 **The band's PAINT, though, starts at the panel's physical top-left corner
 and spans the full width -- ink centring is the only thing the insets move.**

@@ -35,6 +35,32 @@ constexpr int kBandRuleGap = 4;
 // was invisible to the arithmetic because it was drawn by a separate call.
 // Measure the top gutter from this, not from kHeaderHeight.
 constexpr int kChromeHeight = kHeaderHeight + kBandRuleGap + kRule;
+
+// The first row a screen's own content may occupy. Read the next paragraph
+// before adding a safe area to it.
+//
+// EVERY NUMBER IN THIS FILE IS AN ABSOLUTE PANEL ROW, measured from the
+// panel's physical row 0 and NOT from the bezel's safe top. toybox::headerBand()
+// calls absoluteChrome() before it takes the band, so the band paints rows
+// 0..kHeaderHeight and its rule lands at kChromeHeight whatever the glass
+// hides; host-tests/ui pins it with testTheBandIsAbsoluteWithoutBeingAsked,
+// which asserts screen.body().y == kHeaderHeight on a BEZELLED frame. The X4
+// Pro's ten covered rows are therefore already inside the band's paint
+// (docs/bezel-insets.md: paint may bleed under the bezel, ink may not), and a
+// screen that adds DeviceContext::safeArea.top to a value derived from these
+// pushes its body ten pixels below every other app's while protecting nothing.
+// xkcd and Wallpapers both did, for as long as either app existed, and the
+// comment over each private copy of this constant claimed the opposite. Card
+// 358.
+//
+// The value is kGutter * 3 under the band, which is exactly what the 41
+// screens that call insetContent({kGutter * 3, kMargin, kMargin, kMargin})
+// after their chrome already get from screen.body(). Screens that lay their
+// body out by hand -- the shelf, hacker news, instapaper, xkcd, wallpapers --
+// use this so the hand-rolled ones and the component-laid ones land on one
+// row. host-tests/ui asserts that they do, behind the glass, in
+// testEveryAppsBodyStartsOnTheSameRow.
+constexpr int kBodyTop = kHeaderHeight + kGutter * 3;
 constexpr int kFrame = 4;
 // The board's own border is heavier than anything drawn inside it, so the
 // playing surface reads as a single object rather than as a grid that happens

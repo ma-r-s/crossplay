@@ -13,8 +13,12 @@ namespace wallpapersui {
 namespace {
 
 // The top of the body: below the header band and the rule Toybox draws under
-// it, matching the other apps so the grid lines up with the shelf it came from.
-constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter);
+// it, matching the other apps so the hint lines up with the shelf it came
+// from. Card 358: it did not. This was kHeaderHeight + kGutter, a gutter of
+// its own that cleared the rule by five pixels where every other app clears it
+// by twenty-nine, and every site below then added safe.y to it as well.
+// toybox::kBodyTop carries the reason it must be used bare.
+constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kBodyTop);
 // A fixed strip under the chrome for the free-space advisory or the "nothing is
 // set yet" hint. Fixed so the grid's top does not jump when a hint appears.
 constexpr int16_t kHintH = 30;
@@ -177,7 +181,9 @@ GridGeom gridGeom(const fui::DeviceContext& device) {
 
   const int16_t gridLeft = static_cast<int16_t>(safe.x + toybox::kMargin);
   const int16_t gridW = static_cast<int16_t>(safe.width - toybox::kMargin * 2);
-  const int16_t gridTop = static_cast<int16_t>(safe.y + kBodyTop + kHintH + kHintGap);
+  // Sides and bottom off the safe rect; the top absolute, because the header
+  // band already covers the rows the glass hides. See toybox::kBodyTop.
+  const int16_t gridTop = static_cast<int16_t>(kBodyTop + kHintH + kHintGap);
   const int16_t gridBottom = static_cast<int16_t>(safe.bottom() - kPageStripH - kBottomMargin);
   const int16_t gridH = static_cast<int16_t>(gridBottom - gridTop);
 
@@ -239,7 +245,8 @@ void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
   // set yet, it says so -- a grid with no thick border and no words reads as a
   // selection that failed to draw.
   const fui::Rect safe = screen.frame().safeRect();
-  const int16_t hintY = static_cast<int16_t>(safe.y + kBodyTop);
+  // Absolute, like every other app's: see toybox::kBodyTop.
+  const int16_t hintY = kBodyTop;
   const char* line = nullptr;
   if (model.warning != nullptr && model.warning[0] != '\0') {
     line = model.warning;
