@@ -60,7 +60,7 @@ the browser: it fetches the day's board and nothing can be canned for it.
 | **Connect Four** | Drop a disc, get four in a line. Seven columns, one tap each.                |
 | **Yahtzee**      | Thirteen boxes, three rolls a turn, and the Joker rules in full.             |
 | **Knucklebones** | Cult of the Lamb's dice game. Matching dice multiply; yours destroy theirs.  |
-| **Minesweeper**  | Tap to dig, hold to flag. The first dig is always safe.                      |
+| **Minesweeper**  | Tap to dig, hold to flag, tap a finished number to chord its neighbours.     |
 | **Sudoku**       | Generated on the device and graded by the technique it needs, not the clues. |
 | **Sea Salt**     | Sea Salt & Paper: collect duos, bet on STOP or LAST CHANCE.                  |
 | **Toy Battle**   | Nine boards of bases and paths. Hold regions, take medals, solo or nearby.   |
