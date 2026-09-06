@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.38
+
+- The chrome reserves the rule it draws, so no screen has to know it exists (#248)
+
 ### 1.12.37
 
 - Wallpapers: stop the picker refusing taps while the marker paints
