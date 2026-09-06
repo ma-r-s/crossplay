@@ -10836,6 +10836,70 @@ void testPicrossPickerTabsReachEveryTier() {
   if (reached != picross::kPuzzleCount)
     std::printf("  the tabs reach %d of %d puzzles\n", reached, picross::kPuzzleCount);
   CHECK(reached == picross::kPuzzleCount);
+
+  // THE BIGGEST TIER IS THE ONE THAT CAN OVERFLOW THE HIT TABLE, and overflow
+  // only LOGS -- toybox::reportOverflow writes a line and the screen ships with
+  // dead controls. So it is checked here, on the worst case rather than on the
+  // tab that happens to open first.
+  //
+  // The picker's budget is one rect for the whole grid, one per page dot, one
+  // per size tab and one for PLAY. The dots are the term that grows: the tabs
+  // added four rects at the same moment the bank grew from 137 puzzles to 199,
+  // and a page dot is a rect per page of the largest tier. This is the sum that
+  // silently exceeds kMaxInteractions the next time either number moves.
+  int widestTab = 0;
+  int mostPages = 0;
+  for (int t = 0; t < layout.tabCount; ++t) {
+    picrossui::MenuModel probeModel;
+    probeModel.progress = &progress;
+    probeModel.total = picross::kPuzzleCount;
+    probeModel.sizeTab = t;
+    Rendered probe;
+    picrossui::PickerLayout probeLayout;
+    buildPicrossMenu(probe, probeModel, probeLayout);
+    if (probeLayout.pageCount > mostPages) {
+      mostPages = probeLayout.pageCount;
+      widestTab = t;
+    }
+    if (probe.interactions.overflowed())
+      std::printf("  tab %d overflowed the hit table at %d pages\n", t, probeLayout.pageCount);
+    CHECK(!probe.interactions.overflowed());
+  }
+
+  // On that worst tab, every tab AND every page dot still answers a tap. A
+  // control that drew but registered no rect is invisible from the layout's
+  // side, which is exactly what overflow produces.
+  {
+    picrossui::MenuModel worstModel;
+    worstModel.progress = &progress;
+    worstModel.total = picross::kPuzzleCount;
+    worstModel.sizeTab = widestTab;
+    Rendered worst;
+    picrossui::PickerLayout worstLayout;
+    buildPicrossMenu(worst, worstModel, worstLayout);
+
+    std::vector<int> tabs;
+    std::vector<int> dots;
+    for (int y = 2; y < 800; y += 3)
+      for (int x = 2; x < 480; x += 3) {
+        const fui::ActionEvent e = worst.tap(x, y);
+        std::vector<int>* bucket = nullptr;
+        if (e.action == picrossui::ActionTab) bucket = &tabs;
+        if (e.action == picrossui::ActionPage) bucket = &dots;
+        if (bucket == nullptr) continue;
+        bool seen = false;
+        for (const int v : *bucket) seen = seen || v == e.value;
+        if (!seen) bucket->push_back(e.value);
+      }
+    if (static_cast<int>(tabs.size()) != worstLayout.tabCount)
+      std::printf("  on the %d-page tier only %d of %d tabs answer\n", worstLayout.pageCount,
+                  static_cast<int>(tabs.size()), worstLayout.tabCount);
+    CHECK(static_cast<int>(tabs.size()) == worstLayout.tabCount);
+    if (static_cast<int>(dots.size()) != worstLayout.pageCount)
+      std::printf("  on the %d-page tier only %d page dots answer\n", worstLayout.pageCount,
+                  static_cast<int>(dots.size()));
+    CHECK(static_cast<int>(dots.size()) == worstLayout.pageCount);
+  }
 }
 
 // THE SIZE IS ON THE TABS AND NOWHERE ELSE.
