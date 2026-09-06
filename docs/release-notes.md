@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.42
+
+- Wallpapers: hold a tile to preview it, or delete it
+
 ### 1.12.41
 
 - Wallpapers: scan a code, pick a photo on your phone, and it is on the reader
