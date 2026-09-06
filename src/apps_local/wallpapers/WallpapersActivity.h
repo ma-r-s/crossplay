@@ -19,6 +19,7 @@
 
 #include "../../activities/Activity.h"
 #include "../ui/ToyboxScreen.h"
+#include "WallpapersCore.h"
 #include "WallpapersScreens.h"
 
 class WallpapersActivity final : public Activity {
@@ -64,6 +65,13 @@ class WallpapersActivity final : public Activity {
   void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
   void loadActive();
   void computeWarning();
+  // Whether the pinned wallpaper can reach the sleep screen under the settings
+  // as they are RIGHT NOW, and the one line that says so. Both read SETTINGS
+  // live, because the two settings involved are changed elsewhere (Settings,
+  // and the web settings page) while this app is not looking. See #354.
+  wallpapers::Reach sleepReach() const;
+  bool sleepBlocked() const;
+  const char* currentSleepNote() const;
   bool setWallpaper(int index);  // copy /wallpapers/<index> -> /sleep.bmp
   int pageCount() const;         // over the whole library
   void clampPage();
@@ -95,6 +103,13 @@ class WallpapersActivity final : public Activity {
   freeink::ui::ActionId noticeActionId_ = 0;
   std::string rightLabel_;
   std::string warning_;
+  // The last selection's outcome, kept so the strip can report what it changed
+  // behind the user's back. The CHOICE, not a rendered sentence: the sentence
+  // also has to carry any standing caveat, and a caveat is only knowable from
+  // SETTINGS at paint time. Holding a string here is what let the first version
+  // suppress a caveat for a whole app session (#354, twice over).
+  bool selectedThisSession_ = false;
+  wallpapers::SleepChoice lastChoice_;
 
   // The current page's thumbnails, one per on-page slot (perPage entries;
   // trailing empty slots have ok = false).
