@@ -57,15 +57,13 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   // band, which is a label indistinguishable from one never set -- jaipur paid
   // for that one.)
   if (rightLabel != nullptr && *rightLabel != '\0') {
-    const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
-    const int16_t visibleTop = screen.frame().safeRect().y;
-    const fui::Rect band = fui::makeRect(0, static_cast<int16_t>(bandTop + visibleTop),
-                                         static_cast<int16_t>(screen.device().screen().width - toybox::kMargin),
-                                         static_cast<int16_t>(toybox::kHeaderHeight - visibleTop));
+    // The band's VISIBLE rows, asked for rather than rebuilt: ink placed over
+    // the whole band centres partly under the bezel and rides above the title
+    // beside it.
+    const fui::Rect band = toybox::headerInkRect(screen).inset(fui::Insets{0, toybox::kMargin, 0, 0});
     drawText(screen, band, rightLabel, toybox::kUiFont, fui::TextAlign::Right, toybox::kUiCut, fui::Color::White);
   }
 
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 

@@ -29,38 +29,53 @@ constexpr int kRule = 3;
 // rule therefore keeps the position it has always had, just below the band,
 // where 27 of the fork's 44 band sites were already drawing it by hand.
 constexpr int kBandRuleGap = 4;
-// What a screen must actually clear: the band, the gap AND the rule. Screens
-// measured their first gutter from kHeaderHeight alone, which is why several
-// sit their content five pixels under a line they never counted -- the rule
-// was invisible to the arithmetic because it was drawn by a separate call.
-// Measure the top gutter from this, not from kHeaderHeight.
-constexpr int kChromeHeight = kHeaderHeight + kBandRuleGap + kRule;
-
-// The first row a screen's own content may occupy. Read the next paragraph
-// before adding a safe area to it.
+// What a screen must actually clear below a band of `bandHeight`: the band, the
+// gap AND the rule. Screens measured their first gutter from kHeaderHeight
+// alone, which is why several sat their content a few pixels under a line they
+// never counted -- the rule was invisible to the arithmetic because it was
+// drawn by a separate call.
 //
-// EVERY NUMBER IN THIS FILE IS AN ABSOLUTE PANEL ROW, measured from the
-// panel's physical row 0 and NOT from the bezel's safe top. toybox::headerBand()
-// calls absoluteChrome() before it takes the band, so the band paints rows
-// 0..kHeaderHeight and its rule lands at kChromeHeight whatever the glass
-// hides; host-tests/ui pins it with testTheBandIsAbsoluteWithoutBeingAsked,
-// which asserts screen.body().y == kHeaderHeight on a BEZELLED frame. The X4
-// Pro's ten covered rows are therefore already inside the band's paint
-// (docs/bezel-insets.md: paint may bleed under the bezel, ink may not), and a
-// screen that adds DeviceContext::safeArea.top to a value derived from these
+// A function as well as a constant because the band height is a THEME TOKEN and
+// one app raises it: Solitaire runs a 56px band in landscape, so kChromeHeight
+// is not its chrome and a screen that reached for the constant anyway would be
+// wrong by exactly the amount that is invisible. Screens holding a Screen& do
+// not need either -- headerBand() reserves the whole chrome, so screen.body().y
+// already is this number. These are for the geometry functions an Activity
+// shares with its builder, which have no Screen to ask.
+constexpr int chromeBelow(const int bandHeight) { return bandHeight + kBandRuleGap + kRule; }
+constexpr int kChromeHeight = chromeBelow(kHeaderHeight);
+
+// The top gutter every toybox screen puts between its chrome and its first row:
+// the `kGutter * 3` that 41 screens hand to insetContent() after their chrome.
+constexpr int kBodyGutter = kGutter * 3;
+
+// The first row a screen's own content may occupy, for the geometry functions
+// that have no Screen to ask. Read the next two paragraphs before using it.
+//
+// DERIVED FROM chromeBelow(), NOT RESTATED BESIDE IT. headerBand() reserves
+// exactly chromeBelow(band), so a screen holding a Screen& already has this
+// number in screen.body().y after it insets by kBodyGutter -- and the two must
+// not be able to disagree. Card 248 moved the reservation from the band alone
+// to band + gap + rule; a kBodyTop written as its own sum of kHeaderHeight and
+// three gutters would have kept the OLD number silently while every
+// component-laid screen moved seven pixels down. host-tests/ui pins the two
+// paths together in testTheHandRolledBodyTopMatchesTheReservedOne, which
+// renders a screen through headerBand() + insetContent() and asserts
+// screen.body().y == kBodyTop.
+//
+// EVERY NUMBER IN THIS FILE IS AN ABSOLUTE PANEL ROW, measured from the panel's
+// physical row 0 and NOT from the bezel's safe top. headerBand() calls
+// absoluteChrome() before it takes the band, so the band paints from row 0
+// whatever the glass hides; testTheBandIsAbsoluteWithoutBeingAsked pins that on
+// a BEZELLED frame. The X4 Pro's ten covered rows are therefore already inside
+// the band's paint (docs/bezel-insets.md: paint may bleed under the bezel, ink
+// may not), and a screen that adds DeviceContext::safeArea.top to any of these
 // pushes its body ten pixels below every other app's while protecting nothing.
 // xkcd and Wallpapers both did, for as long as either app existed, and the
 // comment over each private copy of this constant claimed the opposite. Card
 // 358.
-//
-// The value is kGutter * 3 under the band, which is exactly what the 41
-// screens that call insetContent({kGutter * 3, kMargin, kMargin, kMargin})
-// after their chrome already get from screen.body(). Screens that lay their
-// body out by hand -- the shelf, hacker news, instapaper, xkcd, wallpapers --
-// use this so the hand-rolled ones and the component-laid ones land on one
-// row. host-tests/ui asserts that they do, behind the glass, in
-// testEveryAppsBodyStartsOnTheSameRow.
-constexpr int kBodyTop = kHeaderHeight + kGutter * 3;
+constexpr int bodyTopBelow(const int bandHeight) { return chromeBelow(bandHeight) + kBodyGutter; }
+constexpr int kBodyTop = bodyTopBelow(kHeaderHeight);
 constexpr int kFrame = 4;
 // The board's own border is heavier than anything drawn inside it, so the
 // playing surface reads as a single object rather than as a grid that happens

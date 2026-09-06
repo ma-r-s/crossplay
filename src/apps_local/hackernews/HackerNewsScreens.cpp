@@ -8,11 +8,13 @@
 namespace hnui {
 namespace {
 
-// The top of any body: below the header band and the rule Toybox draws under
-// it. Shared by all three screens so they line up with each other and with the
-// shelf the reader just came from. The number now lives in one place for the
-// whole fork -- see toybox::kBodyTop, which also says why nothing adds a safe
-// area to it.
+// The top of any body: below the header band AND the rule Toybox draws under
+// it, which is what kChromeHeight names. This said kHeaderHeight, which is the
+// band alone, so the sentence "below the header band and the rule" was true of
+// the comment and false of the arithmetic. Shared by all three screens so they
+// line up with each other and with the shelf the reader just came from -- and
+// taken from the fork-wide toybox::kBodyTop, which derives it from the same
+// reservation headerBand() makes and says why nothing adds a safe area to it.
 constexpr int kBodyTop = toybox::kBodyTop;
 
 // The reader's footer: one row of three controls.
@@ -102,7 +104,6 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
 
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 

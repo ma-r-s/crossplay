@@ -27,6 +27,9 @@ constexpr int kPageBarHeight = 44;
 int pageBarHeight(const bool hasPages) { return hasPages ? kPageBarHeight + toybox::kGutter : 0; }
 
 fui::Rect listBand(const fui::DeviceContext& device, const bool hasDeviceName, const bool hasPages) {
+  // From the whole chrome -- band, gap and rule -- not from the band alone,
+  // and taken from toybox::kBodyTop rather than re-summed here so it cannot
+  // drift from what headerBand() actually reserves.
   const int top = toybox::kBodyTop;
   return fui::makeRect(toybox::kMargin, top, device.width - 2 * toybox::kMargin,
                        device.height - toybox::kMargin - top - footerHeight(hasDeviceName) - pageBarHeight(hasPages));
@@ -127,7 +130,6 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     screen.target().text(toybox::inkCentred(box, toybox::kUiCut), counter, style);
   }
 
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   // Taken before the list, so the list can never grow into it.

@@ -126,7 +126,6 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
 }
 
 // The full width and height the board actually paints, frame included.

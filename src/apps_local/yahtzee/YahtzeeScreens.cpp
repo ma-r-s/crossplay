@@ -31,7 +31,6 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
@@ -447,7 +446,6 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
   // rule, and nine disagree with themselves. Yahtzee was one of the nine, and
   // it shows -- the dice sat under a bare black edge on one screen and under a
   // ruled one on the other.
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   const fui::DeviceContext device = screen.device();

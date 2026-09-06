@@ -12,12 +12,17 @@ namespace wallpapersui {
 
 namespace {
 
-// The top of the body: below the header band and the rule Toybox draws under
-// it, matching the other apps so the hint lines up with the shelf it came
-// from. Card 358: it did not. This was kHeaderHeight + kGutter, a gutter of
-// its own that cleared the rule by five pixels where every other app clears it
-// by twenty-nine, and every site below then added safe.y to it as well.
-// toybox::kBodyTop carries the reason it must be used bare.
+// The top of the body: below the header band AND the rule Toybox draws under
+// it, which is what toybox::kBodyTop derives from chromeBelow().
+//
+// This app was wrong twice, and card 358 closes both. It read
+// kHeaderHeight + kGutter -- the band alone plus one gutter, five pixels of
+// clearance under a rule it never counted, where every other app has
+// twenty-nine. And every caller below (gridGeom, buildGridChrome) then added
+// safe.y on top, while the chrome it measures from is pinned at panel row 0 by
+// absoluteChrome and already covers the rows the glass hides -- so the hint and
+// the grid started ten pixels below Hacker News' body and the shelf's list.
+// The comment here used to claim the opposite on both counts.
 constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kBodyTop);
 // A fixed strip under the chrome for the free-space advisory or the "nothing is
 // set yet" hint. Fixed so the grid's top does not jump when a hint appears.
@@ -162,7 +167,6 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
     header.subtitleText.color = fui::Color::White;
   }
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
