@@ -1,5 +1,37 @@
 # Naming the picross puzzles
 
+> ## SUPERSEDED, and kept only until Mario says otherwise
+>
+> **Everything below describes the bank this tool was built for, and that bank
+> is gone.** It held 137 janko puzzles with catalogue ids and no names, so the
+> win screen would have revealed nothing until Mario typed 137 of them; this
+> tool is where he was to type them.
+>
+> The bank is now 199 puzzles that **arrive titled**, across four sizes. The
+> title is the name, `gen_picross.py` reads it straight out of the source file,
+> and there is nothing here left to name. `gen_name_tool.py --check` detects that
+> from the bank rather than being told: it reports "superseded" and passes while
+> every shipped puzzle carries a name, and the staleness check comes back
+> automatically the moment a bank ships an unnamed one.
+>
+> `site/picross-names/data.js` is deliberately **NOT** regenerated. It still
+> describes the previous bank, and it is left untouched so that anything Mario
+> typed into the page still loads. Do not regenerate it; the tool refuses.
+>
+> **The page, `gen_name_tool.py` and this document are proposed for removal
+> together.** That is Mario's call, not a session's. Two things would have to be
+> rewritten rather than restored if a future bank needed naming again: this tool
+> draws ONE size and the bank now has four, and it keys its output by janko id
+> where the override files key by title. What is worth keeping either way is
+> `tools_local/picross/name_fit.py` and its corpus pin, which are not part of the
+> page and are used by the generator on every run.
+>
+> Two files replaced the one this produced.
+> `assets_local/picross/title-overrides.json` renames a title that does not FIT
+> the panel and is applied by the IMPORTER, so a re-import cannot undo it.
+> `assets_local/picross/name-overrides.json` replaces a title for the reveal and
+> is applied by the GENERATOR. Both are keyed by the puzzle's title.
+
 The 137 pictures in the bank have ids (`JANKO222`), not names. Card #390 item 7
 is that the win screen should show a NAME, and that Mario writes all 137 of them
 himself. This is the tool he writes them in and the file it produces.

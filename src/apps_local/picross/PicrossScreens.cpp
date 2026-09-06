@@ -13,6 +13,9 @@ namespace {
 // rather than overruns, so a byte-short buffer is a silently shortened label.
 // See ToyboxFormat.h.
 constexpr int kMistakeChars = toybox::kIntChars + toybox::literalChars("MISTAKES  ") + 1;
+// A size tab's label, "10x10". No spaces around the x: at four tabs the pill is
+// 106px and " x " would put the label at 103px of it. See drawSizeTabs.
+constexpr int kSizeChars = 2 * toybox::kIntChars + toybox::literalChars("x") + 1;
 constexpr int kGradeChars =
     toybox::kIntChars + toybox::literalChars("SOLVED WITH ") + toybox::literalChars(" MISTAKES") + 1;
 
@@ -507,22 +510,92 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
 // 1-bit e-ink has. No corner brackets (they clashed with the rounded tiles) and
 // no gutter underline (it read as belonging to the tile below).
 //
-// THE SIZE TABS ARE GONE, and their absence is the design rather than an
-// omission. They existed to answer "puzzles across three sizes" with direct
-// access instead of blind paging; the game is 10x10 and nothing else now, so
-// they were a row of one tab -- a control with nothing to choose between, which
-// is not a control, and which spent 60px of the grid's height plus a hit rect
-// to say "10x10" a second time. The static_assert below is the mechanism: bring
-// a second size back and the build stops here rather than shipping a picker
-// that silently mixes two tiers into one flat page run.
+// THE SIZE TABS ARE BACK, because the bank is four tiers again (33 at 5x5, 28
+// at 8x8, 29 at 9x9, 109 at 10x10). They answer "puzzles across four sizes"
+// with direct access instead of blind paging, and each carries its own solved
+// count, so the row doubles as "which tiers still have puzzles left". They were
+// removed while the game was 10x10-only and a row of one tab is a control with
+// nothing to choose between; four is a control.
 
 namespace {
 
-static_assert(picross::kSizeGroupCount == 1,
-              "the bank ships more than one size again, and this picker has no way to show that: "
-              "every tier would run together in one flat sequence of pages. Restore the size tabs "
-              "(they are in this file's history, on branch app/picrossfix) before widening "
-              "gen_picross.SHIPPED_SIZES.");
+// The bank is emitted size-sorted, so each size is one contiguous run and the
+// groups are recoverable by scanning for the changes. Recovered once, for the
+// tabs and for the paging.
+//
+// THE SLOTS ARE SIZED FROM picross::kSizeGroupCount, which the GENERATOR
+// derives from the bank it just wrote. They were a literal 4 with a `break`
+// underneath, and that pairing is a silent data-loss bug rather than a bound: a
+// bank producing more groups than slots hits the break, and every puzzle after
+// it is simply unreachable from the tabs -- nothing drawn wrong, nothing
+// logged, nothing to see on the screen. FOUR IS EXACTLY THE BOUNDARY THAT BUG
+// SAT ON, and this bank has four groups. Deriving the count means the array
+// cannot be too small for a sorted bank; host-tests/picross asserts the
+// sortedness AND that the recovered groups account for every puzzle in the
+// bank, so the break below is unreachable rather than merely unlikely.
+struct SizeGroups {
+  int count = 0;
+  int size[picross::kSizeGroupCount] = {};
+  int start[picross::kSizeGroupCount] = {};
+  int len[picross::kSizeGroupCount] = {};
+};
+
+SizeGroups sizeGroups() {
+  SizeGroups g;
+  for (int i = 0; i < picross::kPuzzleCount; ++i) {
+    const int s = picross::kPuzzles[i].size;
+    if (g.count == 0 || g.size[g.count - 1] != s) {
+      if (g.count >= picross::kSizeGroupCount) break;
+      g.size[g.count] = s;
+      g.start[g.count] = i;
+      g.len[g.count] = 0;
+      ++g.count;
+    }
+    ++g.len[g.count - 1];
+  }
+  return g;
+}
+
+// Which group a puzzle index falls in. Used to open the picker on the tab
+// holding the selection, so the activity never has to know where a run starts.
+int groupOf(const SizeGroups& g, const int index) {
+  for (int t = 0; t < g.count; ++t)
+    if (index >= g.start[t] && index < g.start[t] + g.len[t]) return t;
+  return 0;
+}
+
+constexpr int16_t kTabBandHeight = 60;
+constexpr int16_t kTabGap = 8;
+
+// HOW MANY SIZE RUNS THE BANK ACTUALLY HAS, counted from the bank at compile
+// time, and checked against the number the generator wrote down.
+//
+// This is the whole mechanism, and it is worth being precise about what it
+// catches. The picker recovers its groups by run-scanning for changes of size,
+// which is correct only while each size is ONE CONTIGUOUS RUN. An unsorted bank
+// -- which is exactly what appending an import to the file produces -- makes
+// every alternation a new run: more runs than there are sizes, more groups than
+// there are slots, the `break` in sizeGroups() fires, and every puzzle past that
+// point is unreachable from the tabs. Nothing draws wrong. Nothing is logged.
+//
+// Counting the runs here turns that into a build failure. kSizeGroupCount is
+// the number of DISTINCT sizes; this is the number of RUNS; they are equal if
+// and only if the bank is size-sorted.
+constexpr int countSizeRuns() {
+  int runs = 0;
+  for (int i = 0; i < picross::kPuzzleCount; ++i)
+    if (i == 0 || picross::kPuzzles[i].size != picross::kPuzzles[i - 1].size) ++runs;
+  return runs;
+}
+
+static_assert(picross::kSizeGroupCount >= 1,
+              "a bank with no sizes has no puzzles; the generator refuses that long before here");
+static_assert(countSizeRuns() == picross::kSizeGroupCount,
+              "the bank is not size-sorted: it holds more runs of size than it holds distinct "
+              "sizes. sizeGroups() run-scans for changes of size, so the extra runs overflow the "
+              "group slots, the break fires, and every puzzle after that point is unreachable "
+              "from the picker with nothing drawn wrong and nothing logged. Emit the bank through "
+              "gen_picross.sort_by_size rather than appending to it.");
 
 int clampInt(const int v, const int lo, const int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -660,6 +733,69 @@ void layOutGrid(toybox::Screen& screen, const MenuModel& model, const fui::Rect&
   }
 }
 
+// The size tabs. Each is a rounded pill carrying its size and its own solved
+// count; the active one is filled. Tapping a tab switches groups.
+//
+// THE LABEL IS "10x10", NOT "10 x 10", and the spaces are not a style choice.
+// At four tabs the band gives each pill 106px, and "10 x 10" MEASURES 103px in
+// the body cut -- one and a half pixels of air either side of a shape with a
+// 20px corner radius. It was the label while there were three tabs and it does
+// not survive a fourth. Closing the spaces takes it to 83px and gives the pill
+// eleven pixels of padding. Measured with tools_local/picross/name_fit.py
+// against the real cut, not judged from a render.
+//
+// The pill's vertical budget, from its top edge: 8px padding, the 25px label
+// ink, a 7px gap, the 13px count ink, 7px padding -- 60 in all. It was 48, which
+// left three pixels above and below the text, and kPillRadius rounds the corners
+// into exactly those pixels, so the two lines read as jammed against the bubble.
+// Grow the pill rather than shrink the type.
+//
+// `layout` is filled as this draws, the same discipline the grid keeps: the
+// width a tab was actually given is a number a test can check against
+// kTabMinWidth, and a hit rect per tab is what makes "every tier is reachable"
+// checkable rather than assumed.
+void drawSizeTabs(toybox::Screen& screen, const MenuModel& model, const SizeGroups& g, const fui::Rect& band,
+                  const int active, PickerLayout& layout) {
+  if (g.count <= 0) return;
+  const int16_t tabW = static_cast<int16_t>((band.width - (g.count - 1) * kTabGap) / g.count);
+  layout.tabCount = static_cast<int16_t>(g.count);
+  layout.tabWidth = tabW;
+  layout.tabOnScreen = static_cast<int16_t>(active);
+  for (int t = 0; t < g.count; ++t) {
+    const fui::Rect tb = fui::makeRect(static_cast<int16_t>(band.x + t * (tabW + kTabGap)), band.y, tabW, band.height);
+    const bool on = t == active;
+    screen.target().fill(tb, fui::Paint::solid(on ? fui::Color::Black : fui::Color::White),
+                         static_cast<uint8_t>(toybox::kPillRadius));
+    screen.target().stroke(tb, fui::Paint::solid(fui::Color::Black), toybox::kHairline,
+                           static_cast<uint8_t>(toybox::kPillRadius));
+    int solvedHere = 0;
+    if (model.progress != nullptr)
+      for (int i = g.start[t]; i < g.start[t] + g.len[t]; ++i)
+        if (model.progress->isSolved(i)) ++solvedHere;
+
+    const fui::Color fg = on ? fui::Color::White : fui::Color::Black;
+    char label[kSizeChars];
+    std::snprintf(label, sizeof(label), "%dx%d", g.size[t], g.size[t]);
+    fui::TextStyle ts;
+    ts.font = toybox::kUiFont;
+    ts.align = fui::TextAlign::Center;
+    ts.color = fg;
+    const fui::Rect labelBox = fui::makeRect(tb.x, tb.y, tb.width, static_cast<int16_t>(tb.height - 18));
+    screen.target().text(toybox::inkCentred(labelBox, toybox::kUiCut), label, ts);
+
+    char count[toybox::kSlashCounterChars];
+    std::snprintf(count, sizeof(count), "%d/%d", solvedHere, g.len[t]);
+    fui::TextStyle cs;
+    cs.font = toybox::kSmallFont;
+    cs.align = fui::TextAlign::Center;
+    cs.color = fg;
+    const fui::Rect countBox = fui::makeRect(tb.x, static_cast<int16_t>(tb.bottom() - 22), tb.width, 18);
+    screen.target().text(toybox::inkCentred(countBox, toybox::kTileCut), count, cs);
+
+    screen.frame().hit(tb, ActionTab, static_cast<int16_t>(t));
+  }
+}
+
 }  // namespace
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& layout) {
@@ -682,20 +818,36 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
     screen.button(play, actions);
   }
 
+  // The tabs come off the TOP, before the dots and the grid take what is left,
+  // so the grid's height is what actually remains rather than a number written
+  // for a layout that has since moved.
+  const SizeGroups groups = sizeGroups();
+  const fui::Rect tabBand = screen.takeTop(kTabBandHeight, toybox::kGutter);
   const fui::Rect dotBand = screen.takeBottom(26, toybox::kGutter);
 
   const GridGeom g = gridGeom(screen.body());
   const int perPage = g.perPage;
-  const int pageCount = picross::kPuzzleCount > 0 ? (picross::kPuzzleCount + perPage - 1) / perPage : 1;
-  // followSelection is how the picker OPENS on the puzzle PLAY would start,
-  // rather than the activity computing the page with a second copy of perPage.
-  // perPage is derived from the panel here, so a copy anywhere else is a copy
-  // that goes wrong the next time this layout changes -- which is exactly what
-  // happened to the sixteen this function used to be handed.
-  const int page = model.followSelection ? clampInt(model.selectedIndex, 0, picross::kPuzzleCount - 1) / perPage
+
+  // followSelection is how the picker OPENS on the puzzle PLAY would start. It
+  // resolves BOTH the tab and the page, and that is the point: the activity
+  // knows neither how many tiles fit a page nor where one size run ends, and a
+  // second copy of either is a copy that goes wrong the next time the layout or
+  // the bank moves. That is not hypothetical -- the page was once computed in
+  // the activity by dividing by a literal 16, and it went silently wrong the
+  // moment this band's height changed.
+  const int selected = clampInt(model.selectedIndex, 0, picross::kPuzzleCount - 1);
+  const int tab = model.followSelection ? groupOf(groups, selected) : clampInt(model.sizeTab, 0, groups.count - 1);
+
+  const int len = groups.count > 0 ? groups.len[tab] : 0;
+  const int pageCount = len > 0 ? (len + perPage - 1) / perPage : 1;
+  const int page = model.followSelection ? clampInt((selected - groups.start[tab]) / perPage, 0, pageCount - 1)
                                          : clampInt(model.page, 0, pageCount - 1);
-  const int first = page * perPage;
-  const int n = picross::kPuzzleCount - first < perPage ? picross::kPuzzleCount - first : perPage;
+
+  drawSizeTabs(screen, model, groups, tabBand, tab, layout);
+
+  const int firstInGroup = page * perPage;
+  const int first = groups.start[tab] + firstInGroup;
+  const int n = len - firstInGroup < perPage ? len - firstInGroup : perPage;
   layOutGrid(screen, model, screen.body(), g, first, n, page, pageCount, layout);
   drawPageDots(screen, dotBand, pageCount, page);
 }

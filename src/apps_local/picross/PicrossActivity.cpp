@@ -47,7 +47,16 @@ constexpr char kSavePath[] = "/.crosspoint/picross.sav";
 //     chosen from a different, larger list.
 // A v4 save read as a v5 is therefore garbage that parses. Discarded by
 // version, which is the only honest option -- there is nothing to migrate.
-constexpr uint8_t kSaveVersion = 5;
+//
+// v6 replaces the bank wholesale: a different set of 199 pictures across four
+// tiers (5, 8, 9 and 10) rather than 137 at one. Again NO FIELD BELOW WAS
+// TOUCHED and again the struct changed anyway -- `solved` grew from five words
+// to seven with kProgressWords -- and again every stored index names a puzzle
+// chosen from an entirely different list, so a v5 `index` of 40 restores one
+// player's marks onto a picture they have never seen. The tier count moved from
+// one to four as well, which is why menuTab has nothing to migrate from either.
+// Discarded by version. There is nothing here that could be carried across.
+constexpr uint8_t kSaveVersion = 6;
 
 // How many MARKS may go unwritten. A committing FILL is flushed immediately --
 // it is irreversible and unrepeatable, so losing one to a sleep is the worst
@@ -196,6 +205,19 @@ void PicrossActivity::routeBoardTap(const int x, const int y) {
 // what it drew and menuPage is copied back from that.
 void PicrossActivity::syncPicker() { menuFollowsSelection = true; }
 
+// Show size group `tab`, from a tab tap. The page resets to the first of that
+// group: keeping it would land on page 4 of a tier that has two, and the picker
+// would clamp it to the last page rather than the first, which reads as the tab
+// remembering somewhere the player has never been.
+void PicrossActivity::showTab(const int tab) {
+  if (view != View::Menu || tab == menuTab) return;
+  menuTab = tab;
+  menuPage = 0;
+  menuFollowsSelection = false;  // an explicit tab beats "open on the selection"
+  flashOnNextPaint = true;       // a wholesale content swap earns a clean full refresh
+  requestUpdate();
+}
+
 // Show picker page `page`, from a dot tap or a side key. A no-op when it is
 // already the page on screen: an e-ink full refresh for nothing is a visible
 // blink that says something happened when nothing did.
@@ -320,6 +342,9 @@ void PicrossActivity::loop() {
       if (picross::isPlayable(picked)) openPuzzle(picked);
       break;
     }
+    case ui::ActionTab:
+      showTab(action.value);
+      break;
     case ui::ActionPage:
       if (view != View::Menu || action.value == menuPage) break;
       showPage(action.value);
@@ -367,12 +392,15 @@ void PicrossActivity::render(RenderLock&&) {
       model.total = picross::kPuzzleCount;
       model.hasProgress = model.inProgressIndex == selected && model.inProgressIndex >= 0;
       model.page = menuPage;
+      model.sizeTab = menuTab;
       model.followSelection = menuFollowsSelection;
       ui::buildMenu(screen, model, pickerLayout);
       // The picker clamped whatever it was handed, and may have resolved the
-      // page from `selected` instead; keep our copy in step so the dots, the
-      // side keys and the next tap all agree with what was drawn.
+      // tab and page from `selected` instead; keep our copies in step so the
+      // dots, the tabs, the side keys and the next tap all agree with what was
+      // drawn.
       menuPage = pickerLayout.pageOnScreen;
+      menuTab = pickerLayout.tabOnScreen;
       menuFollowsSelection = false;
       break;
     }

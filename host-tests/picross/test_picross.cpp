@@ -193,7 +193,14 @@ void validateBank() {
   for (int p = 0; p < picross::kPuzzleCount; ++p) {
     const picross::Puzzle& puzzle = picross::kPuzzles[p];
     const int n = puzzle.size;
-    CHECK(n == 5 || n == 10 || n == 15);
+    // Bounded, not enumerated. A list of the tiers that happen to ship today
+    // (it was `5 || 10 || 15`) is a derived fact written as a literal: it goes
+    // red on a bank change that is perfectly correct, and it says nothing about
+    // what this suite actually requires. What it requires is that the brute
+    // force below is tractable and honest -- it walks 2^n patterns per line and
+    // reads the row bitmask as uint16_t, so n must fit both.
+    CHECK(n > 0 && n <= picross::kMaxSize);
+    CHECK(n <= 16);
 
     std::vector<Clue> rows(n), cols(n);
     for (int r = 0; r < n; ++r) rows[r] = clueFromBits(puzzle.rows[r], n);
@@ -489,27 +496,67 @@ void bankIsSizeSorted() {
   CHECK(runs == picross::kSizeGroupCount);
 }
 
-// Every puzzle names a provenance row that exists, and no row is blank where a
-// blank would read as a claim. An empty `license` and "all rights reserved" are
-// the same fact, so the empty string must never stand in for one: a picture
-// whose licence was never recorded has to SAY that, or the next reader assumes
-// it was cleared. `source` is the one field legitimately empty -- artwork drawn
-// for this fork came from nowhere.
-// The bank ships ONE size, and the picker's static_assert is the other half of
-// this: it draws no size tabs, so a second tier would run together with the
-// first in one flat sequence of pages with nothing saying so.
-void bankShipsOneSize() {
-  CHECK(picross::kSizeGroupCount == 1);
-  for (int p = 0; p < picross::kPuzzleCount; ++p) {
-    if (picross::kPuzzles[p].size != picross::kPuzzles[0].size)
-      std::printf("  puzzle %d is %dx%d, the bank's first is %dx%d\n", p, picross::kPuzzles[p].size,
-                  picross::kPuzzles[p].size, picross::kPuzzles[0].size, picross::kPuzzles[0].size);
-    CHECK(picross::kPuzzles[p].size == picross::kPuzzles[0].size);
+// EVERY TIER IS REACHABLE FROM THE PICKER, re-derived here the way the picker
+// derives it and checked against the bank it was derived from.
+//
+// The picker recovers its size tabs by run-scanning kPuzzles for changes of
+// size into an array of kSizeGroupCount slots, with a `break` when the slots run
+// out. That break is a silent data-loss bug rather than a bound: a bank that is
+// not one run per size overflows the slots, the break fires, and every puzzle
+// after that point is drawn nowhere, reported nowhere and simply absent -- with
+// nothing on the screen looking wrong. The bank ships FOUR groups, which is
+// exactly the boundary that bug once sat on.
+//
+// So this asserts the property the picker actually needs, which is stronger
+// than "sorted": the recovered runs must ACCOUNT FOR EVERY PUZZLE. A bank that
+// loses puzzles to the break has runs that sum to less than kPuzzleCount, and
+// that subtraction is the only thing that catches it.
+void bankTiersAreReachable() {
+  int count = 0;
+  int size[picross::kSizeGroupCount] = {};
+  int len[picross::kSizeGroupCount] = {};
+  for (int i = 0; i < picross::kPuzzleCount; ++i) {
+    const int s = picross::kPuzzles[i].size;
+    if (count == 0 || size[count - 1] != s) {
+      if (count >= picross::kSizeGroupCount) break;
+      size[count] = s;
+      len[count] = 0;
+      ++count;
+    }
+    ++len[count - 1];
   }
-  // And kMaxSize is that size, not a leftover from a wider bank: it sizes the
-  // save's cell grid and every clue buffer, so a stale one is silent waste in
-  // flash, in RAM and in every SaveState written to the card.
-  CHECK(picross::kMaxSize == picross::kPuzzles[0].size);
+
+  CHECK(count == picross::kSizeGroupCount);
+
+  int covered = 0;
+  for (int t = 0; t < count; ++t) {
+    // An empty tier draws a tab that opens on nothing.
+    if (len[t] <= 0) std::printf("  tier %d (%dx%d) is empty\n", t, size[t], size[t]);
+    CHECK(len[t] > 0);
+    // Ascending and DISTINCT. Sorted alone would still pass with a size that
+    // appears in two runs, which is the shape that overflows the slots.
+    if (t > 0 && size[t] <= size[t - 1])
+      std::printf("  tier %d is %dx%d, not larger than tier %d's %dx%d\n", t, size[t], size[t], t - 1, size[t - 1],
+                  size[t - 1]);
+    CHECK(t == 0 || size[t] > size[t - 1]);
+    covered += len[t];
+  }
+
+  if (covered != picross::kPuzzleCount)
+    std::printf("  the tabs reach %d of %d puzzles -- %d are unreachable\n", covered, picross::kPuzzleCount,
+                picross::kPuzzleCount - covered);
+  CHECK(covered == picross::kPuzzleCount);
+
+  // kMaxSize is the LARGEST size shipped, not a leftover from a wider bank: it
+  // sizes the save's cell grid and every clue buffer, so a stale one is silent
+  // waste in flash, in RAM and in every SaveState written to the card.
+  int widest = 0;
+  for (int p = 0; p < picross::kPuzzleCount; ++p)
+    if (picross::kPuzzles[p].size > widest) widest = picross::kPuzzles[p].size;
+  CHECK(picross::kMaxSize == widest);
+  // rows[] is uint16_t, so a picture wider than sixteen would silently lose its
+  // right-hand columns.
+  CHECK(picross::kMaxSize <= 16);
 }
 
 // The name is the reveal, and it is the only string the bank carries now that
@@ -703,7 +750,7 @@ int main() {
   validateBank();
   bankFillsItsGrid();
   bankIsSizeSorted();
-  bankShipsOneSize();
+  bankTiersAreReachable();
   bankNamesAreDrawable();
   autoMarksSatisfiedLines();
   satisfiedAgreesOnBothAxes();

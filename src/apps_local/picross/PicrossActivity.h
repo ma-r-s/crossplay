@@ -32,6 +32,7 @@ class PicrossActivity final : public Activity {
   void settleWin();
   void syncPicker();
   void showPage(int page);
+  void showTab(int tab);
   void routeBoardTap(int x, int y);
   void routeButton(int button);
   void setMode(int mode);
@@ -55,11 +56,13 @@ class PicrossActivity final : public Activity {
   // Which puzzle PLAY/RESUME would open: the in-progress one, or the next
   // unsolved. Not necessarily the one loaded in `board` while browsing.
   int selected = 0;
-  // Which page of the picker is shown. Written back from the layout after every
-  // render, so it is always the page that was actually drawn.
+  // Which page of the picker is shown, and which size tab. Both written back
+  // from the layout after every render, so they are always what was drawn.
   int menuPage = 0;
-  // Consumed by the next picker render: forget `menuPage` and open on the page
-  // holding `selected`. Set whenever the picker appears.
+  int menuTab = 0;
+  // Consumed by the next picker render: forget `menuPage` and `menuTab` and
+  // open on the tab and page holding `selected`. Set whenever the picker
+  // appears.
   bool menuFollowsSelection = true;
   // The active input mode. FILL commits (a wrong fill locks as a mistake); MARK
   // annotates freely. The two side keys select these directly.

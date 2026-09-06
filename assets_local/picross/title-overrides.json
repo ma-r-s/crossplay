@@ -1,0 +1,5 @@
+{
+  "_comment": "Our title for a puzzle whose title in the corpus does not work on the panel. Keys are the corpus title, values ours; applied by tools_local/picross/import_picross.py --rename, so a re-import reproduces the same bank rather than quietly restoring the original. A key that matches no puzzle is a hard error -- a rename that matches nothing is a rename that silently did not happen.",
+  "_widescreen_monitor": "The one over-wide name in the pack. 'Widescreen Monitor' measures 473px against the win screen's 448px band, so toybox::fittedTitle would set it a rung smaller with nothing reporting that it had. Mario's call, verbatim: Monitor.",
+  "Widescreen Monitor": "Monitor"
+}

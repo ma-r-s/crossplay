@@ -294,6 +294,38 @@ def render(band_width):
     )
 
 
+def bank_names():
+    """Every name string the shipped bank carries, in bank order.
+
+    Read straight out of the emitted header, without parse_source() and without
+    any of the janko machinery, because this is the one question that decides
+    whether this tool has a job at all.
+    """
+    src = BANK.read_text()
+    body = src.split("constexpr Puzzle kPuzzles[] = {", 1)[1].split("\n};", 1)[0]
+    return [m for m, _size, _rows in re.findall(r'\{"((?:[^"\\]|\\.)*)",\s*(\d+),\s*\{([^}]*)\}\}', body)]
+
+
+def superseded():
+    """Is there anything left for this tool to do?
+
+    THIS TOOL EXISTS TO NAME AN UNNAMED BANK. The janko import carried no titles
+    at all, so every reveal would have said nothing until Mario typed 137 names,
+    and this generated the data the page needed to let him. The bank it was
+    built for is gone: the current one arrives titled, every puzzle already has
+    the string the win screen reveals, and there is nothing here to name.
+
+    So the question this returns is not "is data.js stale" but "does the tool
+    still have a job", and it is asked of the BANK rather than asserted in a
+    comment. If a future bank ships unnamed puzzles again, this goes false, the
+    staleness check below runs exactly as it always did, and the tool is needed
+    again -- which is the property worth keeping and the reason this is a
+    function and not a deletion.
+    """
+    names = bank_names()
+    return bool(names) and all(names)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="fail if the generated file is stale")
@@ -304,6 +336,27 @@ def main():
         help="override the band width in px; the default is measure_name_band.sh's recorded answer",
     )
     args = ap.parse_args()
+
+    # Asked before anything is rendered, because rendering requires janko.txt
+    # and janko.txt is gone with the bank it described.
+    if superseded():
+        note = (
+            f"superseded: every puzzle in {BANK.relative_to(REPO)} already carries its own "
+            "name, so there is nothing for the naming tool to name.\n"
+            f"{OUT.relative_to(REPO)} is FROZEN, deliberately: it still describes the previous "
+            "bank, and it is left untouched so that anything Mario typed into the page still "
+            "loads. The page and this tool are proposed for removal together -- his call, "
+            "card #393 -- and until then neither is regenerated.\n"
+            "This stops being true, and the staleness check below runs again, the moment a "
+            "bank ships a puzzle with no name."
+        )
+        if args.check:
+            print(note)
+            return 0
+        print(note, file=sys.stderr)
+        print("Refusing to regenerate. Nothing would be gained and a rewrite would "
+              "discard the page's only record of the old bank.", file=sys.stderr)
+        return 1
 
     band = args.band if args.band is not None else read_band()
     text = render(band)
