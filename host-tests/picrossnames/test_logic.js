@@ -206,7 +206,7 @@ eq(L.mergeState({ v: 1, pos: 9999, draft: "", entries: {} }, {}, known, DATA).st
 // keeps paying for.
 //
 // So it is pinned rather than trusted. `name_fit.py --corpus` writes
-// name_fit_corpus.json (host-tests/picrossprov checks those numbers are what
+// name_fit_corpus.json (this suite's Python half checks those numbers are what
 // its own measure() computes today), and every width in it is checked here
 // against this code. Neither side can move without a red test.
 const corpus = JSON.parse(

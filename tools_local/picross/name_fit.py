@@ -244,7 +244,7 @@ def write_corpus():
     the pixel is the drift this fork keeps paying for, so they are not left to
     agree by inspection: this file is the corpus both check against.
 
-    host-tests/picrossprov asserts these numbers are still what measure()
+    host-tests/picrossnames asserts these numbers are still what measure()
     computes, so a change here that moves them goes red rather than quietly
     disagreeing with the browser. host-tests/picrossnames asserts logic.js
     reproduces them.

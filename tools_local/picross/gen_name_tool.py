@@ -45,10 +45,10 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 BANK = REPO / "src/apps_local/picross/PicrossPuzzles.h"
-# Where the designers live now. The attribution left the firmware on card
-# #390 -- 137 source URLs were ~34KB of a ~51KB bank -- so the header cannot
-# be asked who drew a picture any more, and host-tests/picrossprov fails if a
-# later session puts them back.
+# The corpus this tool was built for. IT NO LONGER EXISTS: the janko bank was
+# replaced wholesale on card #393 and janko.txt was deleted with it. Nothing
+# below that touches this path can run any more, and nothing tries -- see
+# superseded(), which returns before render() is ever reached.
 SOURCE = REPO / "assets_local/picross/janko.txt"
 FONTS = REPO / "src/apps_local/ui/fonts"
 OUT = REPO / "site/picross-names/data.js"
@@ -124,8 +124,10 @@ def parse_source():
     Keyed by the bitmap and not by a name, because since card #390 the string a
     shipped puzzle carries is Mario's name for the picture and says nothing
     about where it came from. The bitmap is the puzzle. This is deliberately the
-    same mechanism host-tests/picrossprov re-derives the credit with -- one way
-    of answering "which janko puzzle is this", not two.
+    same mechanism the credit check used to re-derive the attribution with --
+    one way of answering "which janko puzzle is this", not two. (That check,
+    host-tests/picrossprov, is gone: the bank it guarded carried a credit
+    obligation and the current one carries none.)
 
     Parsed with a GRID STATE rather than line by line: a solid row is
     "##########", which starts with a '#' and is indistinguishable from a
@@ -191,8 +193,7 @@ def load_bank():
     # The struct lost its provenance index when the attribution left the
     # firmware (card #390), and `name` now holds Mario's name for the picture --
     # empty until he writes one. Neither the janko id nor the designer is in
-    # this file any more, by design, and host-tests/picrossprov fails if either
-    # comes back.
+    # this file any more, by design.
     entries = re.findall(r'\{"((?:[^"\\]|\\.)*)",\s*(\d+),\s*\{([^}]*)\}\}', body)
     if not entries:
         raise SystemExit(f"{BANK}: no puzzles parsed -- the table's shape changed")

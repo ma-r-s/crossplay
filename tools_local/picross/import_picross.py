@@ -12,7 +12,7 @@ somebody else played -- and every one of those is third-party work.
       --author-map janko_authors.json \\
       --license 'all rights reserved' --source-template \\
         'https://www.janko.at/Raetsel/Nonogramme/{id}.a.htm' \\
-      --out /tmp/janko.txt
+      --out /tmp/corpus.txt   # OUTSIDE the tree: see the write guard below
 
 WHAT THIS SCRIPT WILL NOT DO. It will not write a corpus into this repository
 unless its licence is one of REDISTRIBUTABLE below. That is not a formality:

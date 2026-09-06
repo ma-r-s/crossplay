@@ -138,7 +138,8 @@ gives it.
 
 `gen_name_tool.py` therefore reads the bank for **what ships** and matches each
 bitmap against `janko.txt` for **where it came from**, which is exactly the
-mechanism `host-tests/picrossprov` re-derives the credit with. One way of
+mechanism the credit check re-derived the attribution with (that suite is gone
+with the bank it guarded). One way of
 answering "which janko puzzle is this", not two. A bitmap that matches no source
 picture, or more than one, is a hard error rather than a guess: a wrong key here
 would name the wrong picture and nobody would catch it by reading the file.
@@ -158,10 +159,12 @@ feedback while Mario types, because a browser cannot import Python.
 
 A restatement is a second copy of something that must agree to the pixel, which
 is the drift this fork keeps paying for -- so it is **pinned, not trusted**.
-`name_fit.py --corpus` writes `tools_local/picross/name_fit_corpus.json`;
-`host-tests/picrossprov` fails if those numbers are not what its own `measure()`
-computes today, and `host-tests/picrossnames` checks every one of them against
-this tool's. Watched failing: summing the advances instead of rounding each one
+`name_fit.py --corpus` writes `tools_local/picross/name_fit_corpus.json`, and
+`host-tests/picrossnames` carries both halves of the pin: it fails if those
+numbers are not what `measure()` computes today, and it checks every one of them
+against this tool's JavaScript. (The Python half used to live in
+`host-tests/picrossprov`, which is gone -- that suite guarded a per-puzzle CREDIT
+table, and this measurement is not attribution.) Watched failing: summing the advances instead of rounding each one
 as it accumulates -- the exact bug -- names the strings that diverge.
 
 **There is no third rule here.** No character cap and no alphabet list: a count
