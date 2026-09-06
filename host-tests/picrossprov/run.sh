@@ -146,6 +146,51 @@ if begin in doc and end in doc:
     # The claim the file makes about itself, checked rather than believed.
     check(f"{len(expected)} puzzles ship" in block, "the table states the count it lists")
 
+# --- the names, against the measurement that decides them -------------------
+#
+# The generator refuses a name that does not render at full size, but the header
+# is a file and a file can be hand-edited. These re-ask the same question of
+# what actually shipped, and they re-ask it through name_fit rather than through
+# a second copy of the rule.
+sys.path.insert(0, os.path.join(root, "tools_local", "picross"))
+import name_fit  # noqa: E402
+
+fit = name_fit.fitter()
+check(fit.band > 0, "the win screen's name band is measured", f"{fit.band}px")
+for name, _size, _rows in shipped:
+    if not name:
+        continue  # unnamed: the win screen draws no name band at all
+    landed = fit(name)
+    check(not landed.holes, f"{name!r} is drawable", f"no glyph for {landed.holes}")
+    check(landed.full_size, f"{name!r} renders at full size",
+          f"{landed.width}px against a {fit.band}px band, so fittedTitle shrinks it")
+
+# The corpus is the pin between this measurement and the naming tool's
+# JavaScript restatement of it (site/picross-names/logic.js, driven by
+# host-tests/picrossnames). If these numbers move, the two have drifted and one
+# of them is now lying to Mario while he types.
+corpus_path = os.path.join(root, "tools_local", "picross", "name_fit_corpus.json")
+if not os.path.exists(corpus_path):
+    check(False, "name_fit_corpus.json exists", "run tools_local/picross/name_fit.py --corpus")
+else:
+    import json
+
+    with open(corpus_path, encoding="utf-8") as f:
+        committed = json.load(f)
+    check(committed.get("band") == fit.band, "the corpus records the measured band",
+          f"{committed.get('band')} against {fit.band}")
+    fresh = name_fit.corpus()
+    if committed.get("widths") != fresh:
+        moved = [
+            f"{rung}/{word}: {committed['widths'][rung][word]} -> {fresh[rung][word]}"
+            for rung in fresh
+            for word in fresh[rung]
+            if committed.get("widths", {}).get(rung, {}).get(word) != fresh[rung][word]
+        ][:5]
+        check(False, "the committed corpus is what measure() computes today", "; ".join(moved))
+    else:
+        check(True, "the committed corpus is what measure() computes today")
+
 print(f"picrossprov: {checks} checks, {failed} failed")
 sys.exit(1 if failed else 0)
 PY

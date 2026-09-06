@@ -518,13 +518,21 @@ void bankShipsOneSize() {
 // empty name is not a fault -- what would be a fault is a name that cannot be
 // drawn.
 //
-// The generator refuses a bad one (gen_picross.load_names), and this asserts the
-// same properties over the header that actually ships, so a hand-edit cannot
-// slip one past: within kMaxNameLen, and made only of glyphs the display cut
-// has. A glyph it lacks is a HOLE in the word, not a box, so this is the
-// difference between a reveal reading "R  BIT" and reading "RABBIT".
+// WHAT THIS CHECKS AND WHAT IT CANNOT. A host suite has no font, so it cannot
+// ask the question that actually decides a name: does it render at FULL SIZE in
+// the win screen's 448px band? That is measured in
+// tools_local/picross/name_fit.py and re-asked of the shipped bank by
+// host-tests/picrossprov. What is checkable here is the property that does not
+// need metrics -- every character is printable ASCII, which is exactly the
+// range the toybox cuts cover, so no name carries a HOLE (a glyph the cut lacks
+// draws nothing and advances nothing, so it is a gap in the word rather than a
+// box).
+//
+// NOTE the alphabet is not a shortlist. It used to be A-Z, digits, space,
+// hyphen and apostrophe, because the cap on names was a character count and the
+// alphabet was guessed alongside it. Both are gone: a name is accepted when it
+// measures, and any printable ASCII the cut draws is fair game.
 void bankNamesAreDrawable() {
-  const char* allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -'";
   int named = 0;
   int longest = 0;
   for (int p = 0; p < picross::kPuzzleCount; ++p) {
@@ -539,9 +547,10 @@ void bankNamesAreDrawable() {
                   picross::kMaxNameLen);
     CHECK(len <= picross::kMaxNameLen);
     for (const char* ch = name; *ch != '\0'; ++ch) {
-      if (std::strchr(allowed, *ch) == nullptr)
-        std::printf("  puzzle %d is named %s, which uses %c -- not in the display cut\n", p, name, *ch);
-      CHECK(std::strchr(allowed, *ch) != nullptr);
+      const unsigned char c = static_cast<unsigned char>(*ch);
+      if (c < 0x20 || c > 0x7E)
+        std::printf("  puzzle %d is named %s, which uses byte 0x%02X -- outside printable ASCII\n", p, name, c);
+      CHECK(c >= 0x20 && c <= 0x7E);
     }
   }
   // kMaxNameLen is DERIVED by the generator from the names it emitted. If it
