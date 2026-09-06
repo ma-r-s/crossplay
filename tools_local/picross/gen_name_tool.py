@@ -94,6 +94,29 @@ def load_font(name):
     return advances, line_height
 
 
+def janko_id(name, prov):
+    """The janko.at puzzle number, as `janko-authors.json` keys it: a decimal
+    string with no leading zeros. The names file card #390 consumes is keyed by
+    this rather than by the bank's index, because a re-import renumbers the bank
+    and does not renumber janko.
+
+    Derived from the SOURCE URL, which is where the number actually comes from,
+    and cross-checked against the puzzle's own id. They agree today; if a puzzle
+    ever arrives whose id and URL disagree, or which has no janko number at all
+    (the fork's own CC0 pictures do not), this refuses rather than inventing a
+    key that would silently name the wrong picture."""
+    from_url = re.search(r"/Nonogramme/0*(\d+)\.", prov.get("source", "") or "")
+    from_name = re.fullmatch(r"JANKO0*(\d+)", name)
+    if from_url is None or from_name is None:
+        raise SystemExit(
+            f"{name}: cannot tell what its janko number is (source {prov.get('source')!r}). "
+            "The names file is keyed by that number; fix the provenance or teach this function."
+        )
+    if from_url.group(1) != from_name.group(1):
+        raise SystemExit(f"{name}: its id says {from_name.group(1)} and its source URL says {from_url.group(1)}")
+    return from_url.group(1)
+
+
 def load_bank():
     src = BANK.read_text()
     body = src.split("constexpr Puzzle kPuzzles[] = {", 1)[1].split("\n};", 1)[0]
@@ -113,7 +136,7 @@ def load_bank():
         if size != 10:
             continue  # the bank is 10x10 only from card #390; read it, do not assume it
         bits = [int(x, 0) for x in re.findall(r"0x[0-9A-Fa-f]+", rows)][:size]
-        puzzles.append({"id": name, "rows": bits, "prov": int(prov)})
+        puzzles.append({"id": name, "janko": janko_id(name, provs[int(prov)]), "rows": bits, "prov": int(prov)})
     if not puzzles:
         raise SystemExit(f"{BANK}: no 10x10 puzzles -- nothing for the tool to name")
     return puzzles, provs

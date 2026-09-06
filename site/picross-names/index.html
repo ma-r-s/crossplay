@@ -90,17 +90,17 @@
     </div>
 
     <p class="pn-done" id="doneNote" hidden>
-      All <strong id="doneTotal">137</strong> answered. <strong>Download names.txt</strong> below
-      and hand that to whoever is putting the names on the device.
+      All <strong id="doneTotal">137</strong> answered. <strong>Download janko-names.json</strong>
+      below and hand that to whoever is putting the names on the device.
     </p>
 
     <details class="pn-io">
       <summary>Save file, export, and where this lives</summary>
       <p class="pn-io-note" id="storageNote"></p>
       <div class="pn-io-row">
-        <button class="pn-btn" id="exportTxt" type="button">Download names.txt</button>
+        <button class="pn-btn" id="exportTxt" type="button">Download janko-names.json</button>
         <button class="pn-btn is-ghost" id="exportJson" type="button">Download save file</button>
-        <button class="pn-btn is-ghost" id="copyTxt" type="button">Copy names.txt</button>
+        <button class="pn-btn is-ghost" id="copyTxt" type="button">Copy janko-names.json</button>
       </div>
       <div class="pn-io-row">
         <label class="pn-btn is-ghost pn-import">
@@ -111,9 +111,10 @@
       </div>
       <p class="pn-io-note" id="ioNote" aria-live="polite"></p>
       <p class="pn-io-note">
-        Two different files. <strong>names.txt</strong> is the answer: one line
-        per puzzle, its id, a tab, and the name, with a deliberate blank for a
-        picture that has no good name. <strong>The save file</strong> is this
+        Two different files. <strong>janko-names.json</strong> is the answer,
+        in the shape the device side reads: keyed by the janko puzzle number,
+        with an empty string for a picture that has no good name and nothing at
+        all for one not answered yet. <strong>The save file</strong> is this
         tool's own state, and it is what to move between a phone and a laptop:
         load it on the other device and it merges rather than replaces.
       </p>
