@@ -178,7 +178,10 @@ SleepChoice choiceForSetWallpaper(const uint8_t sleepScreenMode, const bool quic
   // classified by the rules and not by this function's memory of them.
   const bool modeAlreadyShowsIt = drawsPinnedSleep(sleepScreenMode, /*quickResumeAfterTimeout=*/false,
                                                    /*fromTimeout=*/true, /*fromReader=*/false);
-  choice.sleepScreenMode = modeAlreadyShowsIt ? sleepScreenMode : kSleepCustom;
+  // The cast is load-bearing under g++ -Wextra: `cond ? uint8_t : SleepScreenMode`
+  // is "enumerated and non-enumerated type in conditional expression", which is
+  // an error in CI and silent under clang (see the ci-gcc-clang-gap memory).
+  choice.sleepScreenMode = modeAlreadyShowsIt ? sleepScreenMode : static_cast<uint8_t>(kSleepCustom);
   choice.tookOverMode = !modeAlreadyShowsIt && sleepScreenMode != kSleepCustom;
 
   // The timeout flag always comes off. It is not a preference about sleep
