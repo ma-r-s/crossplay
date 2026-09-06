@@ -707,7 +707,7 @@ def main():
     CURRENT.update(root=root, sid=norm_sid(data.get("session_id")), tool=data.get("tool_name") or mode)
     if mode == "pretool":
         pretool(board, data)
-    elif mode == "session_end":
+    elif mode == "session-end":
         session_end(board, data)
     elif mode == "stop":
         stop(board, data)

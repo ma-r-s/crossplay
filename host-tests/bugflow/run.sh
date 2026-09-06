@@ -579,7 +579,7 @@ board bind "$GONE" --session "held-d" --tree wt/gone | grep -q "bound to held-d"
 board show "$GONE" | grep -q "taken over from session held-c (it had ended, or was silent" && ok "and says why on the card" || bad "no takeover reason on the card"
 printf '{"session_id":"held-d","tool_name":"Bash","tool_input":{"command":"ls"}}' | python3 "$GUARD" pretool >/dev/null 2>&1
 expect "the new holder is live again (touched by its tool call)" 2 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
-printf '{"session_id":"held-d"}' | python3 "$GUARD" session_end >/dev/null 2>&1
+printf '{"session_id":"held-d"}' | python3 "$GUARD" session-end >/dev/null 2>&1
 grep -q '"ended_at"' "$ROOT/.board/sessions/held-d.json" && ok "SessionEnd marks the session ended" || bad "session_end wrote no ended_at"
 expect "an ended holder's tree is free at once"       0 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
 
