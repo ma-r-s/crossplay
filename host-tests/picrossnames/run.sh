@@ -50,7 +50,7 @@ ICONS="$ROOT/freeink-sdk/libs/assets/Icons"
 BUILD="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-picrossnames-$(cd "$ROOT" && pwd | cksum | cut -d' ' -f1)"
 mkdir -p "$BUILD"
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror \
-  -I"$SDK/include" -I"$ICONS/include" \
+  -isystem "$SDK/include" -isystem "$ICONS/include" \
   "$SDK/src/FreeInkUI.cpp" \
   "$ROOT/src/apps_local/picross/PicrossCore.cpp" \
   "$ROOT/src/apps_local/picross/PicrossScreens.cpp" \
