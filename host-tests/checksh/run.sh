@@ -2144,5 +2144,41 @@ checks=$((checks + 1))
 checks=$((checks + 1))
 grep -q 'for gcc_suite in \$gcc_suites' "$CHECK" && : || { failed=$((failed + 1)); echo "FAIL checksh  the GCC loop no longer runs the derived list"; }
 
+# --- one gate per tree -------------------------------------------------------
+#
+# Lifted between its markers and run with TAG and TMPDIR of this harness: no
+# lock proceeds and leaves this pid; a lock held by a living check.sh refuses
+# and names the pid; a lock left by a dead pid is taken over.
+python3 - "$CHECK" >"$WORK/onegate.sh" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+a = next(i for i, l in enumerate(lines) if 'one gate per tree begin' in l)
+b = next(i for i, l in enumerate(lines) if 'one gate per tree end' in l)
+print('\n'.join(lines[a + 1:b]))
+PY
+[ -s "$WORK/onegate.sh" ] || { echo "FAIL checksh  could not lift the one-gate block out of check.sh"; failed=$((failed + 1)); }
+onegate_run() {  # echoes refused|proceeded and leaves $WORK/onegate.out
+  rm -f "$WORK/onegate.refused"
+  ( cd "$WORK" && unset CHECK_OUTER_LOGS && TAG=onegate TMPDIR="$WORK" && die() { echo "$*" >"$WORK/onegate.refused"; exit 0; } && . "$WORK/onegate.sh" >"$WORK/onegate.out" 2>&1; echo "$$" >"$WORK/onegate.pid" )
+  [ -e "$WORK/onegate.refused" ] && echo refused || echo proceeded
+}
+rm -f "$WORK/xteink-check-onegate.running"
+checks=$((checks + 1)); [ "$(onegate_run)" = proceeded ] || { failed=$((failed + 1)); echo "FAIL checksh  one gate: a free tree was refused: $(cat "$WORK/onegate.refused" 2>/dev/null)"; }
+# the holder is a living check.sh: a sleeper wearing the name
+bash -c 'exec -a check.sh sleep 30' & SLEEPER=$!
+sleep 0.2
+echo "$SLEEPER" >"$WORK/xteink-check-onegate.running"
+checks=$((checks + 1)); [ "$(onegate_run)" = refused ] || { failed=$((failed + 1)); echo "FAIL checksh  one gate: a tree with a living gate was not refused"; }
+checks=$((checks + 1)); grep -q "pid $SLEEPER" "$WORK/onegate.refused" 2>/dev/null || { failed=$((failed + 1)); echo "FAIL checksh  one gate: the refusal does not name the holder's pid"; }
+kill "$SLEEPER" 2>/dev/null; wait "$SLEEPER" 2>/dev/null
+# a dead holder: the sleeper's pid, now gone
+echo "$SLEEPER" >"$WORK/xteink-check-onegate.running"
+checks=$((checks + 1)); [ "$(onegate_run)" = proceeded ] || { failed=$((failed + 1)); echo "FAIL checksh  one gate: a dead holder's lock was not taken over"; }
+# a living pid that is not a check.sh (reused pid) is taken over too
+sleep 30 & OTHER=$!
+echo "$OTHER" >"$WORK/xteink-check-onegate.running"
+checks=$((checks + 1)); [ "$(onegate_run)" = proceeded ] || { failed=$((failed + 1)); echo "FAIL checksh  one gate: a living pid that is not a gate was refused"; }
+kill "$OTHER" 2>/dev/null; wait "$OTHER" 2>/dev/null
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
