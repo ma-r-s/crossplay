@@ -8,6 +8,7 @@
 // stable and the screens change every time Mario asks for something. Two real
 // bugs this file would have caught the day they were written are pinned below.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -9966,6 +9967,264 @@ void testTheHeaderBandBottomIgnoresTheBezel() {
   }
 }
 
+// --- the BODY under the bezel -----------------------------------------------
+//
+// The band absorbs the glass. The body must not absorb it a second time.
+//
+// toybox::kHeaderHeight, kChromeHeight and kBodyTop are ABSOLUTE panel rows:
+// headerBand() calls absoluteChrome() before it takes the band, so the band
+// paints from row 0 and its bottom edge lands at kHeaderHeight whatever the
+// bezel hides -- testTheBandIsAbsoluteWithoutBeingAsked above pins exactly
+// that. The ten covered rows are therefore already inside the band's paint,
+// and a screen that adds safeArea.top to a chrome-derived top pushes its body
+// ten pixels below every other app's and buys nothing.
+//
+// xkcd and Wallpapers did, for as long as both apps had existed, and the
+// comment above each constant claimed it lined up with the shelf. NOTHING
+// here could see it: every other test in this file builds against device(),
+// whose safeArea is empty, and twice nothing is nothing. That absent coverage
+// is the defect card 358 was really about, so the checks come in two parts:
+// the alignment (all four apps on one row) and the rule that keeps it (the
+// glass may not move a body top), the second of which a screen written
+// tomorrow cannot pass by accident.
+
+// Every row a screen's own content occupies: the y of everything drawn at or
+// below kChromeHeight, which is where headerBand()'s ownership ends.
+//
+// The WHOLE list, sorted, not just the topmost. Comparing only the first row
+// would pass a screen whose first element is absolute and whose later ones add
+// safe.y -- and half a screen compensating is exactly the shape this fork keeps
+// shipping (see the two-input-paths notes). Sorted rather than positional
+// because draw order is not layout order.
+//
+// Rects rather than ink bands on purpose. toybox::inkCentred() expands a text
+// rect around its cut, so a recorded rect can start above the band it was laid
+// into -- xkcd's menu headline draws at y=102 for a band at 112. That expansion
+// is identical in both contexts, so it cancels in a comparison and would only
+// mislead an absolute assertion. The absolute row is asserted from the exported
+// geometry instead, in testEveryAppsBodyStartsOnTheSameRow.
+std::vector<int> bodyRows(const FakeTarget& target) {
+  std::vector<int> rows;
+  for (const FakeTarget::TextRun& run : target.texts) {
+    if (run.rect.y >= toybox::kChromeHeight) rows.push_back(run.rect.y);
+  }
+  for (const fui::Rect& r : target.fills) {
+    if (r.y >= toybox::kChromeHeight) rows.push_back(r.y);
+  }
+  for (const FakeTarget::Stroke& st : target.strokes) {
+    if (st.rect.y >= toybox::kChromeHeight) rows.push_back(st.rect.y);
+  }
+  for (const FakeTarget::Blit& b : target.blits) {
+    if (b.rect.y >= toybox::kChromeHeight) rows.push_back(b.rect.y);
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void render(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The rule: rendered twice, once on a bare frame and once behind the glass,
+// every body row lands in the same place. Nothing about the app's own gutter is
+// assumed, which is what lets a screen nobody has written yet be added here in
+// two lines.
+//
+// The emptiness check is not ceremony. Comparing two renders that drew NOTHING
+// below the chrome compares two empty lists and passes, so a model that fails
+// to produce a body -- a wrong fixture, a builder that early-returns -- would
+// report this rule as satisfied. That is the failure mode a guard has when its
+// subject is absent, and it is the one this suite has been bitten by before.
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void checkTheGlassDoesNotMoveTheBody(const Model& model, const char* what) {
+  Rendered bare;
+  render<Model, Build>(bare, model);
+  Rendered glassed;
+  renderWithBezel<Model, Build>(glassed, model);
+  const std::vector<int> bareRows = bodyRows(bare.target);
+  const std::vector<int> glassedRows = bodyRows(glassed.target);
+  check(!bareRows.empty(), what, __LINE__);
+  check(bareRows == glassedRows, what, __LINE__);
+}
+
+void testTheGlassNeverMovesABodyTop() {
+  fui::ListItem rows[3] = {};
+  rows[0].label = "First";
+  rows[1].label = "Second";
+  rows[2].label = "Third";
+
+  {
+    shelfui::MenuModel model;
+    model.title = "GAMES";
+    model.items = rows;
+    model.count = 3;
+    checkTheGlassDoesNotMoveTheBody<shelfui::MenuModel, shelfui::buildMenu>(
+        model, "shelf folder: the glass does not move the body");
+  }
+  {
+    hnui::ListModel model;
+    model.items = rows;
+    model.count = 3;
+    checkTheGlassDoesNotMoveTheBody<hnui::ListModel, hnui::buildList>(
+        model, "hacker news list: the glass does not move the body");
+  }
+  {
+    xkcdui::ListModel model;
+    model.items = rows;
+    model.count = 3;
+    checkTheGlassDoesNotMoveTheBody<xkcdui::ListModel, xkcdui::buildList>(
+        model, "xkcd list: the glass does not move the body");
+  }
+  {
+    // The front door, whose headline is the one run inkCentred() expands.
+    xkcdui::MenuModel model;
+    checkTheGlassDoesNotMoveTheBody<xkcdui::MenuModel, xkcdui::buildMenu>(
+        model, "xkcd menu: the glass does not move the body");
+  }
+  {
+    xkcdui::NumberModel model;
+    model.typed = "12";
+    model.firstNum = 1;
+    model.maxNum = 3281;
+    checkTheGlassDoesNotMoveTheBody<xkcdui::NumberModel, xkcdui::buildNumber>(
+        model, "xkcd number pad: the glass does not move the body");
+  }
+  {
+    wallpapersui::GridChromeModel model;
+    model.title = "WALLPAPERS";
+    model.warning = "Card is nearly full";
+    checkTheGlassDoesNotMoveTheBody<wallpapersui::GridChromeModel, wallpapersui::buildGridChrome>(
+        model, "wallpapers grid: the glass does not move the body");
+  }
+}
+
+// Moving a body top moves everything under it, and this fork has already
+// shipped a box nudged to satisfy one rule that landed on its neighbour. So:
+// what did card 358 land on?
+//
+// Wallpapers is the screen that pays. Its grid is height-constrained between
+// the hint strip and the page dots, so the fourteen pixels the fix gave back
+// to the top come out of the THUMBNAILS, not off the bottom -- gridGeom()
+// re-fits the cells into whatever height is left, which is also why a
+// collision assertion here would be untestable: the cells shrink toward 1px
+// rather than ever overlapping the dots. Verified by inflating kBodyTop by
+// 300 and watching six other suites go red while a collision check stayed
+// green.
+//
+// A floor on the cell is therefore the assertion that can actually fail. The
+// measured size behind the glass is 150x249 after the fix, down from 154x256 --
+// BOTH axes, because the cell is height-bound here and the width follows the
+// aspect, so the thumbnails lost about 5.2% of their area.
+//
+// WHAT THIS DOES NOT CATCH, so nobody reads it as more than it is: the floor
+// trips at roughly +28px of body top on height and +44px on width, so it would
+// stay GREEN if this very bug were reintroduced -- a ten-pixel push leaves the
+// cell at 145x241, comfortably inside it. It is a gross-degradation guard, not
+// a guard on this card's defect; testTheGlassNeverMovesABodyTop and
+// testEveryAppsBodyStartsOnTheSameRow are what catch that, exactly. Set from
+// the measured size minus a little slack rather than tight against it, because
+// a floor that trips on any legitimate re-tuning gets deleted rather than
+// heeded.
+void testTheWallpapersThumbnailsStayBigEnoughToRead() {
+  for (const fui::DeviceContext& ctx : {device(), bezelDevice()}) {
+    const wallpapersui::GridGeom g = wallpapersui::gridGeom(ctx);
+    CHECK(g.cellW >= 140);
+    CHECK(g.cellH >= 240);
+    // And the first row still starts under the hint strip rather than in it.
+    CHECK(wallpapersui::cellRect(g, 0).y >= toybox::kBodyTop + 30);
+    // The bottom seam, for completeness: the last caption is above the dots.
+    CHECK(wallpapersui::captionRect(g, g.perPage - 1).bottom() <= g.pageDotsY);
+  }
+}
+
+// The two paths to a body top, pinned to each other.
+//
+// A screen holding a Screen& gets its body from headerBand()'s reservation
+// plus insetContent(); a geometry function an Activity shares with its builder
+// has no Screen and reaches for toybox::kBodyTop instead. Those are two
+// expressions of one fact, and card 248 is the proof they drift: it moved the
+// reservation from the band alone to band + gap + rule, and any kBodyTop
+// written as its own sum of kHeaderHeight and three gutters would have kept the
+// old number while every component-laid screen moved seven pixels down. Nothing
+// would have gone red -- both paths are internally consistent, they just stop
+// agreeing with each other.
+//
+// So kBodyTop is DERIVED (bodyTopBelow -> chromeBelow), and this asserts the
+// derivation against what the component path actually produces. Change either
+// side alone and this is what fails.
+void testTheHandRolledBodyTopMatchesTheReservedOne() {
+  for (const fui::DeviceContext& ctx : {device(), bezelDevice()}) {
+    Rendered out;
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    fui::HeaderProps props;
+    props.title = "TITLE";
+    toybox::headerBand(screen, props);
+    screen.insetContent(fui::Insets{toybox::kBodyGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+    CHECK(screen.body().y == toybox::kBodyTop);
+  }
+  // And the derivation is the reservation's, not a second sum that happens to
+  // agree today: kBodyTop must track a band height it was not written against.
+  // 56 is Solitaire's landscape band (solitaireui::kHeaderBand), the one real
+  // case where kHeaderHeight is not the band height.
+  CHECK(toybox::bodyTopBelow(toybox::kHeaderHeight) == toybox::kBodyTop);
+  CHECK(toybox::bodyTopBelow(56) == toybox::chromeBelow(56) + toybox::kBodyGutter);
+  CHECK(toybox::bodyTopBelow(56) != toybox::kBodyTop);
+
+  // A REAL screen, not just the synthetic chrome above. The assertions so far
+  // drive headerBand() directly; this drives one of the ~41 app screens that
+  // reach insetContent({kBodyGutter, ...}) through their own chrome() helper,
+  // and reads where its first component-laid element actually landed.
+  //
+  // Without this the suite measures screen.body().y in exactly two places, both
+  // against kHeaderHeight, and no app screen's component-laid body top is
+  // measured anywhere -- so the two halves of the fork's layout could disagree
+  // with nothing to say so. takeTop() returns a rect at content_.y and consumes
+  // the gap AFTER it, so the first one is the body top exactly, and this run is
+  // drawn from a raw rect with no inkCentred() expansion.
+  for (const fui::DeviceContext& ctx : {device(), bezelDevice()}) {
+    wallpapersui::EmptyModel empty;
+    empty.title = "WALLPAPERS";
+    empty.warning = nullptr;
+    Rendered out;
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wallpapersui::buildEmpty(screen, empty);
+    const FakeTarget::TextRun* headline = out.target.find("NO WALLPAPERS");
+    CHECK(headline != nullptr);
+    if (headline != nullptr) CHECK(headline->rect.y == toybox::kBodyTop);
+  }
+}
+
+// And the alignment itself, from the geometry the Activities share rather than
+// from a render, so the number is the one the paging arithmetic uses too.
+// Asserted BEHIND THE GLASS: on a bare frame these agreed all along, which is
+// the whole reason the misalignment shipped.
+void testEveryAppsBodyStartsOnTheSameRow() {
+  const fui::DeviceContext glass = bezelDevice();
+  CHECK(shelfui::listBand(glass, true, false).y == toybox::kBodyTop);
+  CHECK(hnui::listBand(glass).y == toybox::kBodyTop);
+  CHECK(xkcdui::listBand(glass).y == toybox::kBodyTop);
+
+  // Wallpapers has no exported body rect -- its hint strip IS the top of its
+  // body, and the grid hangs a fixed distance below it -- so this one is read
+  // off the render. The warning is drawn into the hint rect unexpanded.
+  wallpapersui::GridChromeModel model;
+  model.title = "WALLPAPERS";
+  model.warning = "Card is nearly full";
+  Rendered out;
+  renderWithBezel<wallpapersui::GridChromeModel, wallpapersui::buildGridChrome>(out, model);
+  const FakeTarget::TextRun* hint = out.target.find("Card is nearly full");
+  CHECK(hint != nullptr);
+  if (hint != nullptr) CHECK(hint->rect.y == toybox::kBodyTop);
+}
+
 // The ink rule again, for the labels apps draw on the band THEMSELVES.
 //
 // The header component centres each run on its own line box, so an app whose
@@ -10402,6 +10661,10 @@ int main() {
   testTheHeaderTitleStaysOutOfTheCoveredRows();
   testTheHeaderBandBottomIgnoresTheBezel();
   testTheBandIsAbsoluteWithoutBeingAsked();
+  testTheGlassNeverMovesABodyTop();
+  testTheHandRolledBodyTopMatchesTheReservedOne();
+  testEveryAppsBodyStartsOnTheSameRow();
+  testTheWallpapersThumbnailsStayBigEnoughToRead();
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
   testTriviaDrawsNoOptionsWithoutAQuestion();

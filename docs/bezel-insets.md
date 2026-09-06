@@ -78,9 +78,35 @@ chrome down by the insets, which ate the gaps the layouts were tuned for
 Battle's helper text crowded the rule) while protecting nothing, because no
 game ever drew content in the covered rows. Cut the hidden millimetre from
 the band and recentre; do not push the screen down. Found on the device,
-not in the sim, both times. What keeps the full safe-area treatment: xkcd
-(its comic and menus reach the panel edge), the readers, and every screen
-laid out from `UITheme::getScreenSafeArea`.
+not in the sim, both times. What keeps the full safe-area treatment: xkcd's
+COMIC (`readerViewport()`, which reaches the panel edge), the readers, and
+every screen laid out from `UITheme::getScreenSafeArea`.
+
+**Not xkcd's menus, and not the Wallpapers grid, whatever this page said
+until card 358.** Both apps took their sides and their bottom off the safe
+rect, correctly, and then added `safe.y` to a body top derived from
+`kHeaderHeight` as well -- so their content started ten pixels below every
+other app's while protecting nothing, because the header band above it
+already paints over the covered rows. Twenty apps agreeing was not the
+evidence that settled it; `host-tests/ui`'s own
+`testTheBandIsAbsoluteWithoutBeingAsked` was, by asserting
+`screen.body().y == kHeaderHeight` on a BEZELLED frame. That makes
+`kHeaderHeight`, `kChromeHeight` and now `toybox::kBodyTop` absolute panel
+rows by construction, and any safe area added to one of them a double count.
+`toybox::kBodyTop` (`ToyboxMetrics.h`) is the shared constant and carries the
+whole argument. It is DERIVED, `bodyTopBelow() -> chromeBelow()`, not restated
+beside the reservation: card 248 moved `headerBand()` from reserving the band
+alone to reserving band + gap + rule, and a body top written as its own sum
+would have kept the old row while every component-laid screen moved seven
+pixels down, with nothing going red. `testTheHandRolledBodyTopMatchesTheReservedOne`
+pins the two paths to each other; the shelf, hacker news, instapaper, xkcd and wallpapers all
+name it now instead of each keeping a private copy.
+
+The reason nothing caught it for as long as either app existed: `host-tests/ui`
+builds every screen against `device()`, whose `safeArea` is empty, so twice
+nothing is nothing. `testTheGlassNeverMovesABodyTop` renders each of those
+screens on both frames and requires the same first body row, which is a rule a
+screen written tomorrow cannot pass by accident.
 
 **The band's PAINT, though, starts at the panel's physical top-left corner
 and spans the full width -- ink centring is the only thing the insets move.**
@@ -106,10 +132,13 @@ Two consequences worth keeping straight when touching that helper:
   `screen.header(props)` straight and were missed by the flip: their band
   came off the safe rect, inset on three sides, so it had a white strip
   above it AND a white column down each side, and its bottom edge sat 10px
-  below their own menus'. The paint is fixed; the bottom-edge difference is
-  not -- those eleven still lack `absoluteChrome`, and giving it to them
-  moves their content up by the top inset, which is a layout change to be
-  rendered and judged rather than smuggled into a paint fix.
+  below their own menus'.
+
+  **CLOSED by card 248.** `headerBand()` now calls `absoluteChrome()` itself,
+  unconditionally, so no screen can lack it: the bottom-edge difference this
+  paragraph described as unfixed is gone, and the eleven are absolute like
+  everything else. It also reserves the rule it draws, so `screen.body().y`
+  is the whole chrome rather than the band alone.
 
 What made the flip safe for the screens that DO honor it, in the order the
 traps were found:
@@ -220,7 +249,8 @@ Verified by rendering every app's ENTRY screen plus the shelf, both folders
 and PLAYER in the simulator (21 screens). Note what an entry screen is: a
 menu, and every menu goes through `headerBand()`. That is why the eleven
 board and result screens that did not were not among the 21 and kept a
-three-sided inset band for a fortnight. A sweep scoped to "the screen each
+three-sided inset band for a fortnight (card 248 has since made
+`headerBand()` apply the absolute chrome itself, so no screen can miss it). A sweep scoped to "the screen each
 app opens on" cannot see the screen you spend the whole game looking at.
 
 The ui host-tests could not catch any of it either, and still cannot by

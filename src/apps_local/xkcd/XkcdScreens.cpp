@@ -23,17 +23,17 @@ constexpr int16_t kMapMinSide = 6;
 constexpr int16_t kOkWidth = 56;
 
 // The top of any body: below the header band and the rule Toybox draws under
-// it. Shared by every screen here so they line up with each other.
+// it. Shared by every screen here so they line up with each other AND with the
+// shelf the reader just came from -- which, until card 358, they did not.
 //
-// From the whole chrome. kHeaderBand is the BAND's height, which is what the
-// theme token wants and not what a body top wants.
-//
-// Not with the SHELF, though, whatever this used to say: every caller adds
-// safe.y to it, and the chrome it measures from starts at panel row 0, so on
-// the X4 Pro this sits ten pixels below Hacker News' body and the shelf's list.
-// Left as it is rather than fixed blind -- see card #358 and the note in
-// WallpapersScreens.cpp, which has the same shape.
-constexpr int16_t kBodyTop = toybox::kChromeHeight + toybox::kGutter * 3;
+// Two faults, both closed here. The row is measured from the whole chrome (band
+// + gap + rule), which is what toybox::kBodyTop derives from chromeBelow();
+// kHeaderBand is the BAND's height, which is what the theme token wants and not
+// what a body top wants. And every site below used to add safe.y to it as well,
+// which put the whole app ten pixels under the rest of the fork: the chrome is
+// pinned at panel row 0 by absoluteChrome, so it already covers the rows the
+// glass hides. toybox::kBodyTop carries the argument in full.
+constexpr int16_t kBodyTop = toybox::kBodyTop;
 
 // The menu's bands, laid out once. Both the builder and the Activity need the
 // mosaic's rect, and two functions that compute it separately are the defect
@@ -57,14 +57,17 @@ constexpr int kDoorCount = 4;
 constexpr int16_t kDoorGap = 8;
 
 MenuBands menuBands(const fui::DeviceContext& device) {
-  // From the safe rect, so every band clears the bezel-covered edges along
-  // with the chrome above it.
+  // Sides and bottom from the safe rect, so the bands clear the columns the
+  // glass hides. The TOP is absolute: kBodyTop is measured from panel row 0
+  // and the header band already paints over the covered rows, so adding safe.y
+  // here only pushed the menu below every other app's body. See
+  // toybox::kBodyTop.
   const fui::Rect safe = device.safeRect();
   const int16_t left = static_cast<int16_t>(safe.x + toybox::kMargin);
   const int16_t width = static_cast<int16_t>(safe.width - toybox::kMargin * 2);
 
   MenuBands b;
-  int16_t y = static_cast<int16_t>(safe.y + kBodyTop);
+  int16_t y = kBodyTop;
   b.headline = fui::makeRect(left, y, width, 44);
   y = static_cast<int16_t>(y + 44 + 2);
   b.title = fui::makeRect(left, y, width, 28);
@@ -248,7 +251,8 @@ void buildNumber(toybox::Screen& screen, const NumberModel& model) {
   const fui::Rect safe = screen.frame().safeRect();
   const int16_t left = static_cast<int16_t>(safe.x + toybox::kMargin);
   const int16_t width = static_cast<int16_t>(safe.width - toybox::kMargin * 2);
-  const int16_t bodyTop = static_cast<int16_t>(safe.y + kBodyTop);
+  // Absolute, like every other app's: see toybox::kBodyTop.
+  const int16_t bodyTop = kBodyTop;
 
   // What has been typed, big, with the range under it so the bounds are a
   // thing you can read rather than a thing you discover by being refused.
@@ -304,7 +308,8 @@ void buildNumber(toybox::Screen& screen, const NumberModel& model) {
 
 fui::Rect listBand(const fui::DeviceContext& device) {
   const fui::Rect safe = device.safeRect();
-  const int16_t top = static_cast<int16_t>(safe.y + kBodyTop);
+  // Absolute, like every other app's: see toybox::kBodyTop.
+  const int16_t top = kBodyTop;
   const int16_t bottom = static_cast<int16_t>(safe.bottom() - toybox::kMargin - toybox::kPillHeight - toybox::kGutter);
   return fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), top,
                        static_cast<int16_t>(safe.width - toybox::kMargin * 2), static_cast<int16_t>(bottom - top));

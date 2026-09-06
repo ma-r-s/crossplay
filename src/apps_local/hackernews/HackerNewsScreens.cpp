@@ -12,8 +12,10 @@ namespace {
 // it, which is what kChromeHeight names. This said kHeaderHeight, which is the
 // band alone, so the sentence "below the header band and the rule" was true of
 // the comment and false of the arithmetic. Shared by all three screens so they
-// line up with each other and with the shelf the reader just came from.
-constexpr int kBodyTop = toybox::kChromeHeight + toybox::kGutter * 3;
+// line up with each other and with the shelf the reader just came from -- and
+// taken from the fork-wide toybox::kBodyTop, which derives it from the same
+// reservation headerBand() makes and says why nothing adds a safe area to it.
+constexpr int kBodyTop = toybox::kBodyTop;
 
 // The reader's footer: one row of three controls.
 constexpr int kFooterHeight = toybox::kPillHeight;

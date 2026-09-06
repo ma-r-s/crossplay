@@ -144,8 +144,11 @@ class Screen : public freeink::ui::Screen<kMaxInteractions> {
 // Shifting the chrome down by the insets ate the gaps those layouts were
 // tuned for (boards touched the rule, band decorations drifted) while
 // buying nothing: no game ever drew content in the covered rows. Content
-// that must clear the glass (the readers, xkcd, system lists) takes the
-// safe rect through its own path and does not use this.
+// that must clear the glass -- the readers, the system lists, and xkcd's
+// COMIC (xkcdui::readerViewport) -- takes the safe rect through its own path
+// and does not use this. Not xkcd's menus and not the Wallpapers grid: those
+// took it too until card 358, which is how both apps came to sit ten pixels
+// below every other app's body. See toybox::kBodyTop.
 inline void absoluteChrome(Screen& screen) { screen.setContentMarginAbsolute(freeink::ui::Insets{}); }
 
 // The width the header component will really give the title, computed with the
