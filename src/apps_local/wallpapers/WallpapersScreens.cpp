@@ -14,18 +14,17 @@ namespace wallpapersui {
 namespace {
 
 // The top of the body: below the header band AND the rule Toybox draws under
-// it, which is what kChromeHeight names -- kHeaderHeight is the band alone, so
-// this read as a gutter of clearance and was five pixels.
+// it, which is what toybox::kBodyTop derives from chromeBelow().
 //
-// NOT the same row as the shelf's, and the comment here used to claim it was.
-// Every caller below adds safe.y to this (see gridGeom and buildEmpty), while
-// the chrome it is measured from is pinned at panel row 0 by absoluteChrome --
-// so on the X4 Pro this body starts ten pixels lower than Hacker News' or the
-// shelf's, which do not add it. That predates card #248 and is left alone here
-// rather than fixed blind: it is an alignment BETWEEN apps, the ui suite builds
-// every screen with an empty safe area and cannot see it, and moving two apps
-// up by ten pixels is a change to look at on the panel. Card #358.
-constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter);
+// This app was wrong twice, and card 358 closes both. It read
+// kHeaderHeight + kGutter -- the band alone plus one gutter, five pixels of
+// clearance under a rule it never counted, where every other app has
+// twenty-nine. And every caller below (gridGeom, buildGridChrome) then added
+// safe.y on top, while the chrome it measures from is pinned at panel row 0 by
+// absoluteChrome and already covers the rows the glass hides -- so the hint and
+// the grid started ten pixels below Hacker News' body and the shelf's list.
+// The comment here used to claim the opposite on both counts.
+constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kBodyTop);
 // A fixed strip under the chrome for the free-space advisory or the "nothing is
 // set yet" hint. Fixed so the grid's top does not jump when a hint appears.
 constexpr int16_t kHintH = 30;
@@ -209,7 +208,9 @@ GridGeom gridGeom(const fui::DeviceContext& device) {
 
   const int16_t gridLeft = static_cast<int16_t>(safe.x + toybox::kMargin);
   const int16_t gridW = static_cast<int16_t>(safe.width - toybox::kMargin * 2);
-  const int16_t gridTop = static_cast<int16_t>(safe.y + kBodyTop + kHintH + kHintGap);
+  // Sides and bottom off the safe rect; the top absolute, because the header
+  // band already covers the rows the glass hides. See toybox::kBodyTop.
+  const int16_t gridTop = static_cast<int16_t>(kBodyTop + kHintH + kHintGap);
   const int16_t gridBottom = static_cast<int16_t>(safe.bottom() - kPageStripH - kBottomMargin);
   const int16_t gridH = static_cast<int16_t>(gridBottom - gridTop);
 
@@ -273,7 +274,8 @@ void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
   // The hint strip, at a fixed place so the grid below it never moves. One
   // line, and three things want it; the order is settled just below.
   const fui::Rect safe = screen.frame().safeRect();
-  const int16_t hintY = static_cast<int16_t>(safe.y + kBodyTop);
+  // Absolute, like every other app's: see toybox::kBodyTop.
+  const int16_t hintY = kBodyTop;
   const char* line = nullptr;
   // The sleep-screen note wins, ahead of the free-space advisory. The honest
   // statement of that trade: on a filling card with a sleep-screen note to
