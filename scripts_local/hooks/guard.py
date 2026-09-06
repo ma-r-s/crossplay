@@ -260,6 +260,50 @@ class Board:
     def is_integrator(self, sid):
         return norm_sid(sid) in self.claim_ids(self.integrator())
 
+    def tree_holders(self, tree):
+        """Open cards bound to `tree` (as `wt/<name>`), as (session, card id).
+
+        Two sessions once wrote into one worktree for an hour and ran two gates
+        against it at the same time; the identical resulting SHAs read as
+        "independently converged" and meant "there was only ever one tree"
+        (2026-09-05). The cards know who holds a tree; the guard reads them.
+        """
+        out = []
+        d = self.dir / "cards"
+        if not d.is_dir():
+            return out
+        for p in d.glob("*.json"):
+            c = read_json(p) or {}
+            if str(c.get("tree") or "").rstrip("/") != tree:
+                continue
+            if c.get("state") in ("done", "released", "parked") or not c.get("session"):
+                continue
+            out.append((norm_sid(c.get("session")), c.get("id")))
+        return out
+
+    def foreign_tree(self, sid, path_or_cwd):
+        """The `wt/<name>` under the workspace that `path_or_cwd` is inside, if a
+        card binds it to a session other than `sid`; else None."""
+        try:
+            p = pathlib.Path(path_or_cwd)
+            if not p.is_absolute():
+                p = pathlib.Path(os.getcwd()) / p
+            p = p.resolve()
+            wt = (self.root / "wt").resolve()
+            if wt not in p.parents:
+                return None
+            name = p.relative_to(wt).parts[0]
+        except (OSError, ValueError, IndexError):
+            return None
+        tree = f"wt/{name}"
+        holders = self.tree_holders(tree)
+        if not holders:
+            return None
+        me = norm_sid(sid)
+        if any(h == me for h, _ in holders) or self.is_orchestrator(sid):
+            return None
+        return (tree, holders)
+
     def note_session(self, sid, cwd):
         d = self.dir / "sessions"
         d.mkdir(parents=True, exist_ok=True)
@@ -376,6 +420,16 @@ def writes_into_tree(cmd):
     return False
 
 
+def foreign_tree_refusal(board, sid, where):
+    tree, holders = where
+    who = ", ".join(f"session {h} (card #{c})" for h, c in holders)
+    return (
+        f"Refused: {tree} is bound to {who}, and two sessions writing one tree verify nothing "
+        "(the gates each ran against a tree the other was still changing). Work in your own tree: "
+        f"./scripts/wt.sh new <name>, then {board_cmd(board.root)} bind <card> --session {norm_sid(sid)} --tree wt/<name>"
+    )
+
+
 def pretool(board, data):
     sid = data.get("session_id", "")
     tool = data.get("tool_name", "")
@@ -387,6 +441,9 @@ def pretool(board, data):
         sroot = scratch_root_of(path, root)
         if sroot is not None:
             block(scratch_refusal(board, sid, data.get("cwd"), path, sroot))
+        where = board.foreign_tree(sid, path)
+        if where:
+            block(foreign_tree_refusal(board, sid, where))
         if under_integration_tree(root, path) and not board.is_integrator(sid):
             block(
                 "Refused: that file is in firmware-next, the integration tree. Work happens in "
@@ -406,6 +463,19 @@ def pretool(board, data):
                 "Refused: a raw `pio run` bypasses the workspace build lock and can corrupt another "
                 "tree's build. Use ./scripts_local/check.sh (or dev.sh / sim-shot.sh) from your tree."
             )
+        # A write from inside another session's tree (the shell's cwd), or one
+        # that names such a tree: the same rule as firmware-next, per tree.
+        body = QUOTED.sub(" ", HEREDOC.sub(" ", cmd))
+        if WRITE_VERB.search(body) or REDIRECT.search(body):
+            candidates = [data.get("cwd") or ""]
+            candidates += [m.group(0) for m in re.finditer(r"(?:/[^\s'\"]*)?wt/[A-Za-z0-9_.-]+/?", cmd)]
+            for cand in candidates:
+                if not cand:
+                    continue
+                cpath = cand if cand.startswith("/") else str(root / cand)
+                where = board.foreign_tree(sid, cpath)
+                if where:
+                    block(foreign_tree_refusal(board, sid, where))
         if (
             writes_into_tree(cmd) and not board.is_integrator(sid)
         ):

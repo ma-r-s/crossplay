@@ -134,6 +134,17 @@ expect "a finished turn passes"                  0 stop "{\"session_id\":\"$WORK
 
 CID=$(board new "Sudoku loses the puzzle from the difficulty menu" --from sudoku --kind bug | sed 's/^#\([0-9]*\).*/\1/')
 board bind "$CID" --session "$WORKER" --tree wt/x --branch app/x >/dev/null
+echo "a tree another session holds refuses writes"
+expect "another session editing wt/x is refused"        2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+grep -q "wt/x is bound to session $WORKER (card #$CID)" "$WORK/err" && ok "the refusal names the tree, its holder and the card" || bad "refusal lacks the holder: $(head -c 200 "$WORK/err")"
+grep -q "wt.sh new" "$WORK/err" && ok "and says to cut a tree of its own" || bad "refusal lacks the remedy"
+expect "the holder still edits its tree"                0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+expect "the orchestrator may edit any tree"             0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+expect "an unbound tree is anyone's"                    0 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/free/src/a.cpp\"}}"
+expect "a write from inside the tree by another session is refused" 2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"sed -i '' src/a.cpp\"},\"cwd\":\"$ROOT/wt/x\"}"
+expect "a read from inside the tree by another session is fine"     0 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -rn foo src\"},\"cwd\":\"$ROOT/wt/x\"}"
+expect "a write naming the tree from elsewhere is refused"          2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cp /tmp/a.h $ROOT/wt/x/src/a.h\"},\"cwd\":\"$ROOT\"}"
+expect "the holder writes from inside its tree"                     0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -am x\"},\"cwd\":\"$ROOT/wt/x\"}"
 mk_transcript "I cannot see the panel from here. Let me know when you have flashed it."
 expect "hand-back with a card but no blocker refused" 2 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
 grep -q "card #$CID" "$WORK/err" && ok "refusal names the card" || bad "refusal does not name the card"
@@ -544,6 +555,9 @@ grep -q "$SP/pr.md is at the top" "$WORK/err" \
 
 echo
 echo "a held card is not bound twice"
+CID2=$(board new "Sudoku: a second card that wants the same tree" --from sudoku --kind task --anyway | sed 's/^#\([0-9]*\).*/\1/')
+if board bind "$CID2" --session "other-session" --tree wt/x >"$WORK/tree.out" 2>&1; then bad "a second card was bound to a held tree"; else grep -q "already the tree of #$CID" "$WORK/tree.out" && ok "binding a second card to a held tree is refused, naming the card" || bad "tree refusal lacks the card: $(cat "$WORK/tree.out")"; fi
+board bind "$CID2" --session "other-session" --tree wt/y | grep -q "bound to other-session" && ok "a tree of its own binds" || bad "a free tree was refused"
 HELD=$(board new "Trivia: the timer keeps running on the score screen" --from trivia --kind bug | sed 's/^#\([0-9]*\).*/\1/')
 board bind "$HELD" --session "held-a" --tree wt/one --branch app/one >/dev/null
 if board bind "$HELD" --session "other-session" --tree wt/two >"$WORK/bind.out" 2>&1; then bad "a second session bound a held card"; else grep -q "held by session held-a" "$WORK/bind.out" && grep -q "wt/one" "$WORK/bind.out" && ok "the second bind is refused and the holder, its tree and branch are named" || bad "bind refusal lacks the holder: $(cat "$WORK/bind.out")"; fi

@@ -812,6 +812,22 @@ def cmd_bind(st, a):
                 + (f" on {c['branch']}" if c.get("branch") else "")
                 + f" since {since}.\n  If that session is gone, take it over on purpose: board bind {c['id']} --session {a.session} --take"
             )
+        # And a tree another session's card holds: one card, one branch, one
+        # worktree was a convention until two sessions shared wt/gcclist for an
+        # hour (2026-09-05). --take covers this too, since it is the same call.
+        if a.tree and not getattr(a, "take", False):
+            tree = a.tree.rstrip("/")
+            others = [
+                k for k in st.list_cards()
+                if k["id"] != c["id"] and str(k.get("tree") or "").rstrip("/") == tree
+                and k.get("session") and norm_sid(k.get("session")) != sid and k["state"] not in SETTLED
+            ]
+            if others:
+                k = others[0]
+                sys.exit(
+                    f"board: {tree} is already the tree of #{k['id']} ({k['title'][:60]}), held by session {norm_sid(k['session'])}.\n"
+                    f"  One card, one branch, one worktree: ./scripts/wt.sh new <name> for yours, or --take if that session is gone."
+                )
         if held and held != sid:
             card_history(st, c, f"taken over from session {held}")
         c["session"] = sid
