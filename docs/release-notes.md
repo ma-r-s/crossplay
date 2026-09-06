@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.47
+
+- Stop copying ThemeTokens onto the render task's stack
+
 ### 1.12.46
 
 - The render task takes its stack override again, and the gate can fail
