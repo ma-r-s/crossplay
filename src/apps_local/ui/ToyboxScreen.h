@@ -238,7 +238,22 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   // already call it, and no screen in the fork insets its content before its
   // band, so there is no inset here to clobber.
   absoluteChrome(screen);
-  const fui::Rect band = screen.takeTop(screen.theme().headerHeight);
+  // Reserve the WHOLE chrome, not just the black band: the gap and the rule are
+  // painted below the band and they are pixels a screen may not draw in. This
+  // is the half of card #248 that two previous header fixes missed, because
+  // both of them were fixes to the HEADER and the header was never the wrong
+  // half. Every screen decides for itself where its content starts, and while
+  // this reserved kHeaderHeight alone, the honest way of asking -- take the
+  // body rect the chrome left and add a gutter -- still landed content five
+  // pixels under a line the arithmetic could not see. The Connections calendar
+  // and the Wallpapers grid did exactly that and were exactly that wrong.
+  //
+  // With the gap and the rule reserved, screen.body().y is the first row a
+  // screen owns, and the obvious thing is now also the correct thing. Screens
+  // that cannot hold a Screen -- the geometry functions an Activity shares with
+  // its builder for hit-testing -- use toybox::kChromeHeight, which is the same
+  // number by construction.
+  const fui::Rect band = screen.takeTop(screen.theme().headerHeight, kBandRuleGap + kRule);
   const int16_t safeTop = screen.frame().safeRect().y;
   const int16_t inkTop = band.y > safeTop ? band.y : safeTop;
   const fui::StyleSet& styles = props.styles.unset() ? screen.theme().popup : props.styles;
@@ -314,6 +329,30 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   screen.header(fitted, ink);
 }
 
+// The rect headerBand() painted, asked for rather than reconstructed.
+//
+// Four apps used to rebuild it as `screen.body().y - kHeaderHeight`, which is
+// only zero while the header reserves exactly the band and nothing else -- and
+// the header now reserves the rule under it too, because content that measures
+// its own top from kHeaderHeight is the whole of card #248. That subtraction
+// was a second copy of the chrome's geometry living in four app files, and it
+// went wrong in all four the moment the first copy moved. There is no
+// subtraction here: the band is at the panel's top-left corner because
+// headerBand() puts it there unconditionally.
+inline freeink::ui::Rect headerBandRect(Screen& screen) {
+  return freeink::ui::makeRect(0, 0, screen.device().screen().width, screen.theme().headerHeight);
+}
+
+// The part of the band an eye can actually read: the X4 Pro's glass hides the
+// top rows, and ink placed over the whole band centres partly underneath it.
+// This is the same rect headerBand() hands the header component, so a label an
+// app draws by hand lands on the title's line and not above it.
+inline freeink::ui::Rect headerInkRect(Screen& screen) {
+  const freeink::ui::Rect band = headerBandRect(screen);
+  const int16_t top = band.y > screen.frame().safeRect().y ? band.y : screen.frame().safeRect().y;
+  return freeink::ui::makeRect(band.x, top, band.width, static_cast<int16_t>(band.bottom() - top));
+}
+
 // Vertical top for an element of height h centred in the VISIBLE part of the
 // header band, for the decorations that ride it (folder marks, medal
 // tallies, face doors). Matches headerBand()'s centring.
@@ -323,20 +362,21 @@ inline int16_t bandCenterY(Screen& screen, const int16_t elementH) {
   return static_cast<int16_t>(visibleTop + (bandH - visibleTop - elementH) / 2);
 }
 
-// The rule under the header band. Full-bleed on purpose -- paint may run
-// under the bezel, content may not -- and derived from the screen's content
-// top rather than a constant, so it tracks the band wherever the screen
-// puts it. Call immediately after screen.header(...): the band was just
-// taken from the content top, so body().y is the band's bottom edge.
-inline void headerRule(Screen& screen) {
-  // Nothing: headerBand() draws the rule now, inside its own height. Kept as a
-  // no-op rather than deleted on purpose -- 27 call sites across eight apps
-  // still name it, and other sessions have branches in flight that add more.
-  // A no-op merges clean and renders correctly; deleting the symbol would turn
-  // every one of those into a build break for someone else. The dead calls go
-  // in a follow-up once those branches land.
-  (void)screen;
-}
+// The rule under the header band, kept as a no-op so a branch in flight that
+// still calls it compiles.
+//
+// It was an opt-in call placed after screen.header(...), which made the line
+// under the band a per-screen DECISION nobody was tracking: of the fork's band
+// sites, 26 called it, Solitaire drew its own by hand and the rest had no rule
+// at all -- so most games showed the line on one screen and a bare band on the
+// other two, which is what Mario saw and called random (card #248). headerBand()
+// draws it now, for every screen, and no caller can forget.
+//
+// The fork's own 25 calls are gone with this card; host-tests/chromeguard
+// refuses a new one. This symbol outlives them only so that a branch written
+// before the change goes red in a gate that names the fix, rather than failing
+// to build with an error that does not.
+inline void headerRule(Screen& screen) { (void)screen; }
 
 // Every icon this fork draws, at the one size ToyboxIcons.h generates.
 constexpr int16_t kIconSize = 32;

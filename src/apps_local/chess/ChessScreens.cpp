@@ -102,7 +102,6 @@ void toyboxChrome(toybox::Screen& screen, const char* title) {
   // Toybox's doubled line: a thinner rule set off from the band rather than
   // flush against it. Drawn straight to the target because it is one fill, not
   // a control, and it deliberately sits in the gap the header left behind.
-  toybox::headerRule(screen);
 
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
