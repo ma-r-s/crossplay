@@ -202,6 +202,16 @@ check(scripts.script_of("в") == "other", "Cyrillic is neither, and is not calle
 check(scripts.script_of("\u4e00") == "han" and scripts.script_of("\u3400") == "han",
       "CJK Extension A is han too")
 
+# General Punctuation (curly quotes, dashes, ellipsis) is ordinary English
+# typography, not a foreign script -- found live while reconverting a real
+# deck whose "meaning" field used a curly quote and got reported as "a
+# script the reader has no face for", when the built-in serif draws it fine.
+check(scripts.script_of("\u201c") == "latin", "a curly opening quote is latin")
+check(scripts.script_of("\u201d") == "latin", "and a curly closing quote")
+check(scripts.script_of("\u2014") == "latin", "an em dash is latin")
+check(scripts.script_of("\u2026") == "latin", "and the ellipsis character")
+check(scripts.script_of("\u0430") == "other", "a genuinely foreign script is still caught")
+
 # Wide means full width AND written without spaces, which together is what
 # lets the wrap break beside a character. Korean has spaces, so it is not
 # wide: breaking between syllables would split words the space rule keeps.

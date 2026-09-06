@@ -55,6 +55,29 @@ SUPPORTED = frozenset({"latin", "han", "kana", "hangul"})
 WIDE = frozenset({"han", "kana"})
 
 
+# The extra ranges the stock converter's "latin-ext" font interval builds a
+# glyph for, beyond plain ASCII/Latin-1: Latin Extended-A/B, spacing
+# modifiers, Latin Extended Additional, General Punctuation, and the Latin
+# ligatures. Mirrored from INTERVAL_PRESETS["latin-ext"] in
+# lib/EpdFont/scripts/fontconvert_sdcard.py rather than imported from it,
+# because scripts.py ships standalone into the browser installer's tools.zip
+# and that file does not.
+#
+# General Punctuation (0x2000-0x206F) is the one that matters most: it is
+# curly quotes, en/em dashes, the ellipsis -- ordinary English typography,
+# not a foreign script. Before this existed, a curly quote in an otherwise
+# plain English sentence was classified the same as Greek or Cyrillic and
+# reported as "a script the reader has no face for", when the built-in serif
+# draws it without trouble.
+_LATIN_EXT_RANGES = (
+    (0x0100, 0x024F),
+    (0x02B0, 0x02FF),
+    (0x1E00, 0x1EFF),
+    (0x2000, 0x206F),
+    (0xFB00, 0xFB06),
+)
+
+
 def script_of(ch):
     """The script of one character: latin, han, kana, hangul, or other."""
     o = ord(ch)
@@ -63,6 +86,9 @@ def script_of(ch):
     for first, last, name in _RANGES:
         if first <= o <= last:
             return name
+    for first, last in _LATIN_EXT_RANGES:
+        if first <= o <= last:
+            return "latin"
     # Greek, Cyrillic, Arabic, Hebrew, Devanagari and the rest. Not "latin",
     # because the built-in serif cannot draw them either and calling them
     # Latin is how they used to reach it silently.
