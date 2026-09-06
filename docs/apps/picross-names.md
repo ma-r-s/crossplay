@@ -134,7 +134,29 @@ awkward cases -- and fails on any difference. Taking the apostrophe out of one
 of them is caught immediately, by name, on the exact strings that diverge.
 
 `name_width.py` run with no arguments prints what the rule actually permits,
-which is the question anyone reaching for a character cap is really asking.
+which is the question anyone reaching for a character cap is really asking; run
+with a name, it judges that name.
+
+**`gen_picross.load_names` still gates on a character count** (`NAME_MAX = 9`)
+at the time of writing, so it refuses names this tool accepts -- `CAFE'S BAR`
+at ten characters and 272px, `CHRISTMAS TREE` at fourteen and 410px. Swapping it
+is two lines, and they are written out below rather than described, because the
+whole point is that the two rules stop being two:
+
+```python
+import name_width                      # beside the other imports
+
+        verdict = name_width.judge(text, _metrics())
+        if verdict["level"] != "ok":   # replaces `if len(text) > NAME_MAX:`
+            sys.exit(...)
+```
+
+with a `_metrics()` that caches `name_width.load()`. Tested against the real
+loader: it accepts `SAILBOAT`, `CAFE'S BAR`, `CHRISTMAS TREE` and
+`HOT AIR BALLOON`, and still refuses eleven `W`s (481px) and `CAT@HOME`.
+`name_width.load()` reads the font headers and `name_band.txt` directly, so
+this costs `gen_picross.py` nothing but the import -- no dependency on the site
+or on anything having been regenerated first.
 
 ### It is a width, not a count, and that is not a preference
 
