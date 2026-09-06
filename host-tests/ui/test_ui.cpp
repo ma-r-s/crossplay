@@ -10343,6 +10343,138 @@ void testPicrossPickerGroupsAndPagesBySize() {
   }
 }
 
+// Every tab, on its FIRST and LAST page, must fit the 24-rect interaction
+// buffer -- and the page dots are the reason this is not obvious. The tiles are
+// one hit rect for the whole grid (resolved geometrically), the tabs are three,
+// but the dots are ONE RECT PER PAGE, so the buffer's headroom shrinks as the
+// bank grows. A 239-puzzle bank pages a tier seven ways; a much larger import
+// would page it far more, and the failure mode is silent: past the ceiling a
+// dot draws, looks live, and routes nowhere.
+//
+// The page count is derived from the bank here rather than written down, so
+// this fails when a future import outgrows the buffer instead of when somebody
+// remembers to update a literal.
+void testPicrossPickerFitsTheInteractionBuffer() {
+  picross::Progress progress;
+  for (int tab = 0; tab < picross::kSizeGroupCount; ++tab) {
+    int pageCount = 1;
+    {
+      Rendered probe;
+      picrossui::MenuModel model;
+      model.progress = &progress;
+      model.total = picross::kPuzzleCount;
+      model.sizeTab = tab;
+      model.page = 0;
+      picrossui::PickerLayout layout;
+      buildPicrossMenu(probe, model, layout);
+      pageCount = layout.pageCount;
+    }
+    const int pages[2] = {0, pageCount - 1};
+    for (int which = 0; which < 2; ++which) {
+      Rendered out;
+      picrossui::MenuModel model;
+      model.progress = &progress;
+      model.total = picross::kPuzzleCount;
+      model.sizeTab = tab;
+      model.page = pages[which];
+      picrossui::PickerLayout layout;
+      buildPicrossMenu(out, model, layout);
+      if (out.interactions.overflowed() || out.interactions.count() > toybox::kMaxInteractions)
+        std::printf("  picker tab %d page %d of %d spends %d of %d interaction slots\n", tab, pages[which], pageCount,
+                    static_cast<int>(out.interactions.count()), static_cast<int>(toybox::kMaxInteractions));
+      CHECK(!out.interactions.overflowed());
+      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+    }
+  }
+
+  // And every page of the largest tier is actually REACHABLE: sweeping the dot
+  // band has to yield an ActionPage for each page index, not just for some.
+  int biggest = 0;
+  int biggestPages = 1;
+  for (int tab = 0; tab < picross::kSizeGroupCount; ++tab) {
+    Rendered out;
+    picrossui::MenuModel model;
+    model.progress = &progress;
+    model.total = picross::kPuzzleCount;
+    model.sizeTab = tab;
+    picrossui::PickerLayout layout;
+    buildPicrossMenu(out, model, layout);
+    if (layout.pageCount > biggestPages) {
+      biggestPages = layout.pageCount;
+      biggest = tab;
+    }
+  }
+  CHECK(biggestPages > 1);
+  Rendered out;
+  picrossui::MenuModel model;
+  model.progress = &progress;
+  model.total = picross::kPuzzleCount;
+  model.sizeTab = biggest;
+  picrossui::PickerLayout layout;
+  buildPicrossMenu(out, model, layout);
+  std::vector<bool> reached(static_cast<size_t>(biggestPages), false);
+  for (int y = 2; y < 800; y += 2)
+    for (int x = 2; x < 480; x += 2) {
+      const fui::ActionEvent e = out.tap(x, y);
+      if (e.action == picrossui::ActionPage && e.value >= 0 && e.value < biggestPages)
+        reached[static_cast<size_t>(e.value)] = true;
+    }
+  for (int p = 0; p < biggestPages; ++p) {
+    if (!reached[static_cast<size_t>(p)]) std::printf("  page %d of %d has no tap target\n", p, biggestPages);
+    CHECK(reached[static_cast<size_t>(p)]);
+  }
+}
+
+// A picture somebody else drew is CREDITED on the win screen, and one of ours
+// is not. 171 of the puzzles in the bank are used by kind permission of six
+// named designers and are not licensed to anyone (assets_local/picross/
+// PROVENANCE.md); the credit is the least this screen owes them, and a claim in
+// a provenance file that no screen actually honours is worse than no claim.
+//
+// Both puzzles are FOUND in the bank by their provenance rather than named by
+// index: a re-sorted or re-imported bank moves every index, and a test pinned
+// to one would start checking a different puzzle without failing.
+void testPicrossWinCreditsAnImportedDesigner() {
+  int imported = -1;
+  int ourOwn = -1;
+  for (int p = 0; p < picross::kPuzzleCount && (imported < 0 || ourOwn < 0); ++p) {
+    const picross::Provenance& prov = picross::provenanceOf(picross::kPuzzles[p]);
+    if (prov.source[0] != '\0') {
+      if (imported < 0) imported = p;
+    } else if (ourOwn < 0) {
+      ourOwn = p;
+    }
+  }
+  CHECK(ourOwn >= 0);
+  CHECK(imported >= 0);
+
+  char credit[128];
+  std::snprintf(credit, sizeof(credit), "PUZZLE BY %s", picross::provenanceOf(picross::kPuzzles[imported]).author);
+  {
+    Rendered out;
+    picrossui::WinModel model;
+    model.cleared = &picross::kPuzzles[imported];
+    model.total = picross::kPuzzleCount;
+    buildPicrossWin(out, model);
+    CHECK(out.target.drew(credit));
+    CHECK(out.target.drew(picross::kPuzzles[imported].name));
+  }
+  {
+    // Our own artwork has an empty source, and drawing "PUZZLE BY CrossPlay"
+    // under every warmup would be noise that also makes the real credits
+    // easier to skip over.
+    Rendered out;
+    picrossui::WinModel model;
+    model.cleared = &picross::kPuzzles[ourOwn];
+    model.total = picross::kPuzzleCount;
+    buildPicrossWin(out, model);
+    char ours[128];
+    std::snprintf(ours, sizeof(ours), "PUZZLE BY %s", picross::provenanceOf(picross::kPuzzles[ourOwn]).author);
+    CHECK(!out.target.drew(ours));
+    CHECK(out.target.drew(picross::kPuzzles[ourOwn].name));
+  }
+}
+
 // The reveal names the picture and grades the solve. Zero mistakes is PERFECT.
 void testPicrossWinRevealsNameAndGrade() {
   Rendered out;
@@ -10766,6 +10898,8 @@ int main() {
   testPicrossDrawsEveryClue();
   testPicrossPickerHidesUnsolvedNames();
   testPicrossPickerGroupsAndPagesBySize();
+  testPicrossPickerFitsTheInteractionBuffer();
+  testPicrossWinCreditsAnImportedDesigner();
   testPicrossWinRevealsNameAndGrade();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();

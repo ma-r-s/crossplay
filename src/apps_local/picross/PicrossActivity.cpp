@@ -27,7 +27,15 @@ constexpr char kSavePath[] = "/.crosspoint/picross.sav";
 // named a DIFFERENT puzzle than the one being played and restore() then
 // discarded every mark for not matching it. Nothing logged; the board simply
 // came back empty, and only on the puzzles past the 256th.
-constexpr uint8_t kSaveVersion = 3;
+//
+// v4 is the janko import. `solved` is a bitset sized by kProgressWords, which
+// is derived from kPuzzleCount, so GROWING THE BANK CHANGES THIS STRUCT even
+// though no field here was touched -- and, worse, the bank is emitted
+// size-sorted, so adding 10x10 puzzles renumbers every 15x15 and a bit that
+// survived would name a different puzzle. Solved progress from an earlier bank
+// therefore cannot be migrated, only discarded, and this bump is what discards
+// it by version instead of by a short read that says nothing.
+constexpr uint8_t kSaveVersion = 4;
 
 // How many MARKS may go unwritten. A committing FILL is flushed immediately --
 // it is irreversible and unrepeatable, so losing one to a sleep is the worst
@@ -378,7 +386,15 @@ bool PicrossActivity::loadState() {
   HalFile file;
   if (!Storage.openFileForRead("PICR", kSavePath, file)) return false;
   uint8_t version = 0;
-  if (file.read(&version, 1) != 1 || version != kSaveVersion) return false;
+  if (file.read(&version, 1) != 1) return false;
+  if (version != kSaveVersion) {
+    // Says so rather than returning a bare false: a player whose progress
+    // vanished after an update is owed a line in the log that explains it, and
+    // "the board came back empty" with nothing recorded is exactly the failure
+    // v3 was bumped for.
+    LOG_ERR("PICR", "Save is v%d, this build reads v%d -- discarding it", version, kSaveVersion);
+    return false;
+  }
   SaveState state{};
   if (file.read(reinterpret_cast<uint8_t*>(&state), sizeof(state)) != sizeof(state)) return false;
   if (!picross::isPlayable(state.index)) {

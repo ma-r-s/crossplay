@@ -14,6 +14,9 @@ namespace {
 // See ToyboxFormat.h.
 constexpr int kMistakeChars = toybox::kIntChars + toybox::literalChars("MISTAKES  ") + 1;
 constexpr int kSizeChars = 2 * toybox::kIntChars + toybox::literalChars(" x ") + 1;
+// "PUZZLE BY " plus the longest designer name the bank holds, which the
+// generator derives from the bank itself.
+constexpr int kCreditChars = toybox::literalChars("PUZZLE BY ") + picross::kMaxAuthorLen + 1;
 constexpr int kGradeChars =
     toybox::kIntChars + toybox::literalChars("SOLVED WITH ") + toybox::literalChars(" MISTAKES") + 1;
 
@@ -753,8 +756,31 @@ void buildWin(toybox::Screen& screen, const WinModel& model) {
   gradeStyle.align = fui::TextAlign::Center;
   screen.target().text(toybox::inkCentred(gradeBand, toybox::kUiCut), grade, gradeStyle);
 
+  // The designer, for a picture somebody else drew. Taken BEFORE the name band
+  // so it sits directly under the name (takeBottom stacks upward), and drawn
+  // only when the puzzle names a source: our own CC0 pictures have an empty
+  // source and would otherwise read "by CrossPlay" under every warmup.
+  //
+  // This is not decoration. 171 of the puzzles in the bank are used by kind
+  // permission of six named designers and are not licensed to anybody --
+  // assets_local/picross/PROVENANCE.md -- and the credit is the least this
+  // screen owes them. It lives on the win screen because that is where the
+  // picture is; a credit the player never reaches is a credit in name only.
+  if (model.cleared != nullptr) {
+    const picross::Provenance& prov = picross::provenanceOf(*model.cleared);
+    if (prov.source != nullptr && prov.source[0] != '\0' && prov.author != nullptr) {
+      const fui::Rect creditBand = screen.takeBottom(22, 0);
+      char credit[kCreditChars];
+      std::snprintf(credit, sizeof(credit), "PUZZLE BY %s", prov.author);
+      fui::TextStyle creditStyle;
+      creditStyle.font = toybox::kSmallFont;
+      creditStyle.align = fui::TextAlign::Center;
+      screen.target().text(toybox::inkCentred(creditBand, toybox::kTileCut), credit, creditStyle);
+    }
+  }
+
   // The revealed name, now safe to show.
-  const fui::Rect nameBand = screen.takeBottom(60, toybox::kGutter);
+  const fui::Rect nameBand = screen.takeBottom(52, toybox::kGutter);
   if (model.cleared != nullptr) {
     fui::TextStyle nameStyle;
     nameStyle.font = toybox::kDisplayFont;
