@@ -200,6 +200,24 @@ enum class Reach : uint8_t {
 };
 Reach reachOfPinnedSleep(uint8_t sleepScreenMode, bool quickResumeAfterTimeout);
 
+// Whether the hold sheet and the delete confirm get to SAY a wallpaper is on
+// the sleep screen. Not the same question as the grid's marker, and the two
+// came apart in the merge that brought #354 onto this branch.
+//
+// The marker asks "is this the pinned file", and #354 deliberately widened it:
+// loadActive() is no longer gated on sleepScreen == CUSTOM, so a wallpaper
+// wears the marker under DARK, LIGHT, BLANK and quick-resume too. The grid
+// qualifies that with the hint strip. The sheet ("This one is on your sleep
+// screen now.") and the confirm ("It stays on your sleep screen until you pick
+// another.") carry no strip and no room for one, so they ask the stronger
+// question here instead -- otherwise both assert something false under exactly
+// the settings #354 exists to expose.
+//
+// OutsideReaderOnly still counts as yes: the picture does show on an ordinary
+// sleep, and the book-cover exception is the strip's to explain, not a reason
+// to deny the sentence outright.
+bool saysOnSleepScreen(bool isMarked, Reach reach);
+
 // The sentence for the picker's hint strip when NOTHING was selected this
 // session, or nullptr when there is nothing to say. Short on purpose: the strip
 // is one fixed 30px line and a cut sentence is the defect it exists to avoid

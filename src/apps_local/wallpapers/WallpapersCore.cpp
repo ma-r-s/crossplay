@@ -154,6 +154,11 @@ Reach reachOfPinnedSleep(const uint8_t sleepScreenMode, const bool quickResumeAf
                                                                                 : Reach::OutsideReaderOnly;
 }
 
+bool saysOnSleepScreen(const bool isMarked, const Reach reach) {
+  if (!isMarked) return false;
+  return reach == Reach::Always || reach == Reach::OutsideReaderOnly;
+}
+
 const char* reachHint(const Reach reach) {
   // Every sentence names the setting the way SETTINGS names it ("Sleep Screen",
   // "Quick Resume on Timeout", english.yaml), because a hint that describes a

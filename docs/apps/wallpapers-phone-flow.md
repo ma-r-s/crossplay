@@ -158,13 +158,16 @@ generation fails). In `DARK`, `LIGHT`, `COVER`, `BLANK`, `QUICK_RESUME` and
 `TRANSPARENT_CUSTOM` it is silently ignored -- and `TRANSPARENT_CUSTOM` does not
 read `/sleep.bmp` or `/.sleep` at all, only the four `sleep-overlay` slots.
 
-**And even `CUSTOM` is not sufficient**, which is card #354 and not this card's
-to fix: `quickResumeSleepScreen == QUICK_RESUME_AFTER_TIMEOUT` short-circuits
-*above* the mode switch (`SleepActivity.cpp:500-507`) whenever `fromTimeout`,
-which is the ordinary idle sleep. So the wallpaper is only seen when the device
-is slept by hand. There is a reachable path where that flag sticks on
-permanently, and `setWallpaper` forcing `sleepScreen = CUSTOM` without the sync
-call is part of it.
+**And even `CUSTOM` is not sufficient**: `quickResumeSleepScreen ==
+QUICK_RESUME_AFTER_TIMEOUT` short-circuits *above* the mode switch
+(`SleepActivity.cpp:500-507`) whenever `fromTimeout`, which is the ordinary idle
+sleep. So the wallpaper is only seen when the device is slept by hand.
+
+**FIXED, by card #354 (PR #145), which has since merged into this branch.**
+`setWallpaper` now applies `wallpapers::choiceForSetWallpaper`, which clears the
+timeout quick-resume flag as well as moving the mode, so choosing a wallpaper no
+longer leaves it unreachable on every idle sleep. The paragraph above describes
+the defect, not the current code.
 
 That is what the hint strip is for, and it is why the strip carries a sentence
 rather than a marker: no per-cell mark can express "your settings mean none of
@@ -193,9 +196,24 @@ critic showed that is false in two ways, both verifiable in
   short-circuited entirely by quick-resume. In BLANK, COVER, or
   `TRANSPARENT_CUSTOM`, nothing the picker shows reaches the glass at all.
 
-The existing code already knows this -- `loadActive()` returns early unless the
-mode is CUSTOM (`WallpapersActivity.cpp:103`) -- and the first draft silently
-dropped that guard.
+The code at the time of writing knew this by returning early from
+`loadActive()` unless the mode was CUSTOM, and the first draft silently dropped
+that guard.
+
+**That guard is gone now, deliberately, and it is not a regression.** Card #354
+deleted it because it was wrong in both directions: it hid the marker under
+`COVER_CUSTOM`, where the wallpaper genuinely does show, and it drew the marker
+at full confidence under `CUSTOM`-plus-quick-resume, where it never does.
+`activeIndex_` is therefore now set whatever the sleep mode, and what qualifies
+it is `wallpapers::reachOfPinnedSleep` feeding the hint strip.
+
+The consequence for the screens added by card #365 (hold to preview or delete),
+which is the one thing the two cards together got wrong: the sheet and the
+delete confirm each make a flat claim about the sleep screen and carry no strip
+to qualify it, so they must not read the raw marker. They ask
+`wallpapers::saysOnSleepScreen(isMarked, reach)` instead, which is true only
+where an ordinary idle sleep actually draws the file. Neither card had this
+defect alone.
 
 **So the marker means "chosen here", which is all the app can honestly claim**,
 and the screen says the rest: when `SETTINGS.sleepScreen` is not a mode that

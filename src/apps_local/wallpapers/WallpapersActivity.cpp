@@ -841,11 +841,25 @@ void WallpapersActivity::openSheet(const int index) {
   sheetIndex_ = index;
   sheetFile_ = names_[static_cast<size_t>(index)];
   sheetName_ = wallpapers::displayName(sheetFile_).full;
-  sheetIsActive_ = index == activeIndex_;
+  // Both screens behind this SAY something about the sleep screen -- the sheet
+  // "This one is on your sleep screen now.", the confirm "It stays on your
+  // sleep screen until you pick another." -- so the flag they read has to mean
+  // the wallpaper actually REACHES the glass, not merely that it wears the
+  // grid's marker.
+  //
+  // Those used to be the same thing. #354 deliberately un-gated loadActive()
+  // from sleepScreen == CUSTOM, because the marker was wrong in both
+  // directions; activeIndex_ is now set under DARK, LIGHT, BLANK and
+  // quick-resume too, where the pinned picture never appears. The marker is
+  // qualified for the grid by the hint strip, which these two screens do not
+  // carry, so they qualify it here instead. Neither card had this alone: it is
+  // this branch's sentences meeting that card's wider activeIndex_.
+  sheetIsActive_ = wallpapers::saysOnSleepScreen(index == activeIndex_, sleepReach());
   sheetDetail_ = wallpapers::deleteConsequence(wallpapers::isBuiltInFile(sheetFile_), sheetIsActive_);
   view_ = View::Sheet;
   interactionsReady_ = false;
-  LOG_INF("WALL", "hold sheet for %s (index %d, active %d)", sheetFile_.c_str(), index, activeIndex_);
+  LOG_INF("WALL", "hold sheet for %s (index %d, active %d, blocked %d)", sheetFile_.c_str(), index, activeIndex_,
+          static_cast<int>(sleepBlocked()));
   requestUpdate();
 }
 

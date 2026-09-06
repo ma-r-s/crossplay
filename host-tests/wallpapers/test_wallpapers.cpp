@@ -432,6 +432,56 @@ int main() {
     }
   }
 
+  // WHO IS ALLOWED TO SAY "on your sleep screen", and why it is not the marker.
+  //
+  // This is the defect the merge with #354 CREATED, which neither branch had on
+  // its own. #354 deliberately un-gated loadActive() from sleepScreen ==
+  // CUSTOM, so a wallpaper now wears the grid's marker under DARK, LIGHT, BLANK
+  // and quick-resume as well -- modes where the pinned picture never reaches
+  // the glass. The grid qualifies the marker with its hint strip. The hold
+  // sheet and the delete confirm are THIS branch's screens, they carry no
+  // strip, and both make a flat claim about the sleep screen. Handed the raw
+  // marker they assert something false under exactly the settings #354 exists
+  // to expose.
+  //
+  // Asserted against reachOfPinnedSleep's own classification rather than a
+  // second copy of the mode rules, so this cannot drift away from the predicate
+  // it describes.
+  {
+    using wallpapers::Reach;
+    using wallpapers::saysOnSleepScreen;
+
+    // Not the marked wallpaper: never, whatever the settings do.
+    for (const Reach r : {Reach::Always, Reach::OutsideReaderOnly, Reach::BlockedByQuickResume, Reach::BlockedByMode}) {
+      CHECK(!saysOnSleepScreen(false, r));
+    }
+
+    // Marked and it genuinely shows.
+    CHECK(saysOnSleepScreen(true, Reach::Always));
+    // COVER_CUSTOM still counts: it shows on an ordinary sleep, and the book
+    // cover exception is the strip's to explain. Denying the sentence here
+    // would be the opposite error -- a user told their wallpaper is NOT the
+    // sleep screen while looking at it.
+    CHECK(saysOnSleepScreen(true, Reach::OutsideReaderOnly));
+
+    // Marked, and blocked. These two are the cases that go red without the fix:
+    // the marker is set, so the pre-merge `index == activeIndex_` would have
+    // said yes and put a false sentence on both screens.
+    CHECK(!saysOnSleepScreen(true, Reach::BlockedByQuickResume));
+    CHECK(!saysOnSleepScreen(true, Reach::BlockedByMode));
+
+    // Said against the predicate rather than the enum, so the two cannot
+    // disagree: the sheet may claim the sleep screen exactly when an ordinary
+    // idle sleep, outside a book, actually draws the pinned file.
+    for (uint8_t mode = 0; mode < 8; ++mode) {
+      for (int qr = 0; qr <= 1; ++qr) {
+        const Reach reach = wallpapers::reachOfPinnedSleep(mode, qr != 0);
+        const bool drawsOnIdle = wallpapers::drawsPinnedSleep(mode, qr != 0, true, false);
+        CHECK(saysOnSleepScreen(true, reach) == drawsOnIdle);
+      }
+    }
+  }
+
   // The confirm's consequence, walked over all four combinations rather than
   // the one somebody looked at -- a caveat assembled per render is a caveat
   // that can silently lose a branch (a-warning-that-can-vanish).
