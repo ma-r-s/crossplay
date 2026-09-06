@@ -729,7 +729,52 @@ def cmd_integrator(st, a):
     print(f"board: integration tree claimed by {norm_sid(a.session)}")
 
 
+STOPWORDS = frozenset(
+    "the a an is are from to of in on and or it its that this with for not no by at be as was were "
+    "has have had when then than into over under after before while still never always".split()
+)
+
+
+def title_tokens(title):
+    return {w for w in re.findall(r"[a-z0-9]+", str(title).lower()) if w not in STOPWORDS and len(w) > 1}
+
+
+def similar_open(st, title):
+    """Open cards whose title says the same thing in different words.
+
+    Two agents filed one cmake bug twenty minutes apart (#320, #321) with a
+    card about exactly that (#175) open. Token overlap against the shorter
+    title, at least three words in common: cheap, and it catches the case
+    that happens, a rewording of the same subject.
+    """
+    mine = title_tokens(title)
+    if len(mine) < 3:
+        return []
+    hits = []
+    for c in st.list_cards():
+        if c["state"] in SETTLED:
+            continue
+        theirs = title_tokens(c["title"])
+        if len(theirs) < 3:
+            continue
+        shared = len(mine & theirs)
+        if shared >= 3 and shared / min(len(mine), len(theirs)) >= 0.6:
+            hits.append(c)
+    return hits
+
+
 def cmd_new(st, a):
+    if not a.anyway:
+        dup = similar_open(st, a.title)
+        if dup:
+            lines = [f"board: this looks like an open card already on the board:"]
+            for c in dup[:3]:
+                lines.append(f"  #{c['id']} {c['state']:<9} {c['from']:<10} {c['title']}")
+            lines.append(
+                f"  add what you know to it: board note {dup[0]['id']} '<what you found>' (--body to append to the card),"
+            )
+            lines.append("  or file anyway with --anyway if it really is a different thing.")
+            sys.exit("\n".join(lines))
     with st.lock():
         c = st.create_card(
             {
@@ -952,10 +997,50 @@ def cmd_answer(st, a):
 def cmd_state(st, a):
     with st.lock():
         c = st.get_card(a.id)
+        # A settled card leaves every list an agent reads (list --open, the
+        # orchestrator's queue), and its open blockers go with it: a
+        # reconciliation pass moved 35 finished cards to released and four
+        # owed hardware checks vanished. Mario's own blockers stay in his
+        # inbox whatever the card's state, so only the others are the trap.
+        if a.state in SETTLED and not getattr(a, "with_blockers", False):
+            owed = [b for b in c["blockers"] if b["open"] and b["need"] != "mario"]
+            if owed:
+                lines = [
+                    f"board: #{c['id']} still has {len(owed)} open blocker(s) that nobody would see once it is {a.state}:"
+                ]
+                for b in owed:
+                    lines.append(f"  {b['n']} [{b['need']}] {b['ask']}")
+                lines.append(
+                    f"  answer or unblock them first (board answer {c['id']} '<choice>' --n N / board unblock {c['id']} --n N),"
+                )
+                lines.append("  or pass --with-blockers to settle the card and leave them open on purpose.")
+                sys.exit("\n".join(lines))
         c["state"] = a.state
         card_history(st, c, f"state {a.state}")
         st.save_card(c)
     print(f"#{c['id']} {a.state}")
+
+
+def cmd_note(st, a):
+    """Put what an agent learnt on the card it belongs to.
+
+    Nothing could enrich a card after `board new`: three child cards were filed
+    in one night purely to attach information to existing ones, and an agent
+    with a fresh reproduction had nowhere to put it. A note is a history line;
+    with --body it is also appended to the card's body, where show prints it.
+    """
+    with st.lock():
+        c = st.get_card(a.id)
+        text = " ".join(str(a.text).split())
+        if not text:
+            sys.exit("board: a note needs text")
+        card_history(st, c, f"note: {text}")
+        if a.body:
+            c["body"] = (c.get("body") or "").rstrip() + ("\n\n" if c.get("body") else "") + text
+        # The file store keeps history inside the card, so the note is only on
+        # disk once the card is written; on Supabase the line is already in.
+        st.save_card(c)
+    print(f"#{c['id']} noted" + (" (and appended to the body)" if a.body else ""))
 
 
 def cmd_parent(st, a):
@@ -1105,6 +1190,8 @@ def cmd_list(st, a):
     cards = st.list_cards()
     if a.open:
         cards = [c for c in cards if c["state"] not in ("done", "released", "parked")]
+    if getattr(a, "state", None):
+        cards = [c for c in cards if c["state"] == a.state]
     if not cards:
         print("board: no cards")
         return
@@ -1382,7 +1469,17 @@ def main(argv=None):
         "--default",
         help="on app mario: what happens if he never answers (a card filed there opens a mario blocker by itself)",
     )
+    s.add_argument(
+        "--anyway",
+        action="store_true",
+        help="file even if an open card's title says the same thing (the default is to stop and name it)",
+    )
     s.set_defaults(fn=cmd_new)
+    s = sub.add_parser("note", help="put what you learnt on a card: a history line, --body appends it to the card too")
+    s.add_argument("id", type=int)
+    s.add_argument("text")
+    s.add_argument("--body", action="store_true")
+    s.set_defaults(fn=cmd_note)
     s = sub.add_parser("app", help="move a card to another app")
     s.add_argument("id", type=int)
     s.add_argument("app")
@@ -1430,6 +1527,11 @@ def main(argv=None):
     s = sub.add_parser("state")
     s.add_argument("id", type=int)
     s.add_argument("state", choices=STATES)
+    s.add_argument(
+        "--with-blockers",
+        action="store_true",
+        help="settle the card even though desk/design/info blockers are still open on it",
+    )
     s.set_defaults(fn=cmd_state)
     s = sub.add_parser("parent")
     s.add_argument("id", type=int)
@@ -1448,6 +1550,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_show)
     s = sub.add_parser("list")
     s.add_argument("--open", action="store_true")
+    s.add_argument("--state", choices=STATES, help="only cards in this state")
     s.set_defaults(fn=cmd_list)
     sub.add_parser("inbox").set_defaults(fn=cmd_inbox)
     s = sub.add_parser("import")

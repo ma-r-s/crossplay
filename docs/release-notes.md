@@ -21,6 +21,23 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.37
+
+- Wallpapers: stop the picker refusing taps while the marker paints
+
+### 1.12.36
+
+- Rebuild the download-failure screen around the book
+- Trivia: report a question, filter what you get, and sync the pack (#257)
+
+### 1.12.35
+
+- Wallpapers: six fixes from the first hardware runs
+
+### 1.12.34
+
+- Tell the reader the device is working before it blocks (#306)
+
 ### 1.12.33
 
 - Wallpapers: a sleep-screen picker on the device, and a browser to make wallpapers

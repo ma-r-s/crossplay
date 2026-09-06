@@ -98,6 +98,22 @@ if [ "$behind" -eq 0 ]; then
   exit 0
 fi
 
+# CI's own emulator rebuilds ("chore: emulator rebuilt for <sha>") touch
+# site/emulator/ and nothing else, and nothing a gate verifies reads that
+# directory. Twenty-one of them landed in one day and each moved the tip under
+# whatever --committed run was in flight, withholding a verdict about code the
+# commit could not have changed. Commits that touch only site/emulator/ do not
+# count as being behind.
+rebuilds=0
+for c in $(git -C "$repo" rev-list "HEAD..$REF" 2>/dev/null); do
+  if ! git -C "$repo" diff-tree --no-commit-id --name-only -r "$c" | grep -qv '^site/emulator/'; then
+    rebuilds=$((rebuilds + 1))
+  fi
+done
+if [ "$rebuilds" -eq "$behind" ]; then
+  echo "this tree is $behind commit(s) behind $REF, all of them CI's own emulator rebuilds (site/emulator/ only); nothing a gate verifies changed."
+  exit 0
+fi
 base="$(git -C "$repo" merge-base HEAD "$REF" 2>/dev/null || true)"
 newest="$(git -C "$repo" log --format='%h %s' -1 "$REF" 2>/dev/null || true)"
 

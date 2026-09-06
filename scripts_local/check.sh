@@ -191,6 +191,32 @@ if [ "$_committed" = "1" ]; then
   if ! git fetch --quiet origin 2>/dev/null; then
     echo "  could not fetch origin; staleness below is measured against the ref as it stands"
   fi
+  # --- undo guard begin ---
+  # A branch that UNDOES trunk. Built with `git reset --soft` after trunk had
+  # moved, one branch committed its stale tree on top of the new trunk: 1190
+  # deletions, four merged pull requests gone, a live Supabase migration among
+  # them (2026-09-05) -- and its gate PASSED, because every suite that would
+  # have failed was deleted in the same commit. A green gate is not evidence
+  # when the diff can delete the tests. So: the lines this branch removes
+  # against its merge base, intersected with the lines trunk added in the
+  # sixty commits before that base. A handful is editing; dozens is a revert
+  # nobody asked for. CHECK_ALLOW_UNDO=1 says you mean it.
+  undo_base="$(git merge-base HEAD origin/xteink 2>/dev/null || true)"
+  if [ -n "$undo_base" ] && [ -z "${CHECK_ALLOW_UNDO:-}" ]; then
+    undo_from="$(git rev-parse --verify --quiet "$undo_base~60" || git rev-list --max-parents=0 "$undo_base" | tail -1)"
+    undone="$(comm -12 \
+      <(git diff "$undo_from" "$undo_base" -- . ':!site/emulator' | grep '^+[^+]' | cut -c2- | awk 'length($0) >= 12' | sort -u) \
+      <(git diff "$undo_base" HEAD -- . ':!site/emulator' | grep '^-[^-]' | cut -c2- | awk 'length($0) >= 12' | sort -u) | grep -c . || true)"
+    if [ "${undone:-0}" -ge 40 ]; then
+      echo "  this branch UNDOES trunk: $undone lines that landed on xteink shortly before it branched are removed by its own commits."
+      echo "  That is the shape of a stale tree committed on top of a moved trunk (git reset --soft, then commit), and a green"
+      echo "  gate here would prove nothing: the suites that would fail are among the deletions. Most undone, by file:"
+      git diff "$undo_base" HEAD --numstat -- . ':!site/emulator' | sort -k2 -rn | head -5 | awk '{printf "    %s (-%s)\n", $3, $2}'
+      echo "  Rebuild the branch on origin/xteink (git rebase, or cherry-pick your commits onto it). CHECK_ALLOW_UNDO=1 if you mean to revert."
+      die
+    fi
+  fi
+  # --- undo guard end ---
   # Unique paths mean a run killed hard (kill -9 skips the trap below) leaves
   # an orphan that no later run would inherit, so sweep siblings whose owning
   # process is gone: ~600MB each, and a half-populated worktree is a state
@@ -579,10 +605,26 @@ for suite in host-tests/*/; do
   "$suite/run.sh" > "$SUITE_LOG" 2>&1
   code=$?
   passed=$(grep -c "checks, 0 failed" "$SUITE_LOG" || true)
+  # --- unrun test files begin ---
+  # A test file the suite's run.sh never invokes reports the same green as one
+  # that passes: a third sub-suite once landed and this line said "ok (2
+  # sub-suite(s))". Every test_*.cpp and test_*.py in the directory must be
+  # named in run.sh, unless run.sh globs test_* and so runs whatever is there.
+  unrun=""
+  if ! grep -q 'test_\*' "$suite/run.sh"; then
+    for tf in "$suite"/test_*.cpp "$suite"/test_*.py; do
+      [ -e "$tf" ] || continue
+      grep -qF -- "$(basename "$tf")" "$suite/run.sh" || unrun="$unrun $(basename "$tf")"
+    done
+  fi
+  # --- unrun test files end ---
   if [ "$code" -ne 0 ]; then
     printf "  %-12s FAILED (exit %d, %s)\n" "$name" "$code" "$(since $T0)"
     grep -E "FAIL|error:" "$SUITE_LOG" | head -5 | sed 's/^/      /'
     infra_fault_note "$name" "$T0" "$SUITE_LOG"
+    FAILED=1
+  elif [ -n "$unrun" ]; then
+    printf "  %-12s FAILED: in the directory but never run by run.sh:%s (%s)\n" "$name" "$unrun" "$(since $T0)"
     FAILED=1
   else
     printf "  %-12s ok (%s sub-suite(s), %s)\n" "$name" "$passed" "$(since $T0)"
@@ -626,6 +668,40 @@ done
 # Skipped LOUDLY: a check that did not run must not scroll past looking like one
 # that passed.
 echo "cross-compiler"
+# --- gcc suites begin ---
+# Derived, never listed. The list this replaced named three suites while
+# nineteen compiled app sources under -Werror (card #316), and it stayed that
+# way exactly as its own comment predicted: for the other sixteen, GCC first
+# saw the code in CI, which is the gap this stage exists to close. A suite
+# qualifies when its run.sh compiles src/ or lib/ with -Werror; one that does
+# but ignores CXX would run clang here and read as GCC-green, so that shape is
+# a failure rather than a silent omission. Measured on 2026-09-05 with g++-16:
+# thirty-five suites qualify and cost 114s together (murdle 21s, toybattle
+# 17s, fittedtitle 14s, link 10s, the rest a few seconds each), so every gate
+# runs all of them rather than a guessed subset; a subset chosen by "what
+# this branch touched" would miss a header change that reaches a suite
+# through an include, which is the class this stage exists to catch.
+gcc_suites=""
+gcc_blind=""
+for gcc_dir in host-tests/*/; do
+  gcc_run="$gcc_dir/run.sh"
+  [ -f "$gcc_run" ] || continue
+  # Non-comment lines only: a suite that TALKS about compiling src/ under
+  # -Werror in a comment (this stage's own test suite did) is not one that
+  # does. The flag and the path may sit on different lines: most run.sh files
+  # keep the flags in a variable and the sources in the command.
+  gcc_body="$(grep -v '^[[:space:]]*#' "$gcc_run")"
+  printf '%s\n' "$gcc_body" | grep -q -- '-Werror' || continue
+  # An app source is src/ or lib/ by path, or through the variables the
+  # suites use for them ($LIB, $SRC) and the SDK's own sources ($SDK).
+  printf '%s\n' "$gcc_body" | grep -qE '(^|[ "])((\.\./\.\./|\$ROOT/|\$REPO/)?(src|lib)/|\$(LIB|SRC|SDK)/)' || continue
+  if grep -q 'CXX' "$gcc_run"; then
+    gcc_suites="$gcc_suites $(basename "$gcc_dir")"
+  else
+    gcc_blind="$gcc_blind $(basename "$gcc_dir")"
+  fi
+done
+# --- gcc suites end ---
 GCC=""
 for candidate in g++-16 g++-15 g++-14 g++-13; do
   command -v "$candidate" >/dev/null 2>&1 && GCC="$candidate" && break
@@ -637,7 +713,12 @@ else
   T0=$(date +%s)
   say_stage "gcc"
   gcc_failed=0
-  for gcc_suite in ui tilefit wallcaption; do
+  if [ -n "$gcc_blind" ]; then
+    printf "  %-12s FAILED: compiles app sources under -Werror but ignores CXX, so GCC never sees it:%s\n" "gcc" "$gcc_blind"
+    printf "  %-12s take the compiler from \${CXX:-c++} in that run.sh\n" ""
+    gcc_failed=1
+  fi
+  for gcc_suite in $gcc_suites; do
     if ! CXX="$GCC" "host-tests/$gcc_suite/run.sh" > "$LOGS/gcc-$gcc_suite.log" 2>&1; then
       gcc_failed=1
       printf "  %-12s FAILED under %s in host-tests/%s (%s)\n" "gcc" "$GCC" "$gcc_suite" "$(since $T0)"
@@ -645,7 +726,7 @@ else
     fi
   done
   if [ "$gcc_failed" -eq 0 ]; then
-    printf "  %-12s ok (%s, %s)\n" "gcc" "$GCC" "$(since $T0)"
+    printf "  %-12s ok (%s, %s suite(s), %s)\n" "gcc" "$GCC" "$(echo $gcc_suites | wc -w | tr -d ' ')" "$(since $T0)"
   else
     FAILED=1
   fi
@@ -700,6 +781,35 @@ if (cd "$REPO" && python3 tools_local/trivia/test_distractors.py) \
 else
   printf "  %-12s FAILED\n" "trivia"
   tail -8 "$LOGS/trivia-distractors.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
+# The pack id, its manifest, and pack.meta. The guard that matters here reads
+# as a no-op when it breaks: read_meta() returning a STALE id instead of None
+# means the device reports (pack id, index) against a pack it no longer holds,
+# and the service resolves those indices through the wrong build's index map.
+# Questions nobody reported are then deleted and the pack just comes out
+# smaller, which is why every case below is constructed rather than sampled.
+if (cd "$REPO" && python3 tools_local/trivia/test_manifest.py) \
+    > "$LOGS/trivia-manifest.log" 2>&1; then
+  printf "  %-12s ok\n" "manifest"
+else
+  printf "  %-12s FAILED\n" "manifest"
+  tail -12 "$LOGS/trivia-manifest.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
+# Reading flags back off a card. Every check in this tool is a REFUSAL, and a
+# refusal that stops refusing looks exactly like a tool that found nothing to
+# do: the run prints "0 flagged" and exits 0. The damage is downstream and
+# silent -- build_pack.py applies a verdict without review, so a wrong id
+# deletes a question nobody reported and the pack just comes out a row smaller.
+if (cd "$REPO" && python3 tools_local/trivia/test_collect_flags.py) \
+    > "$LOGS/trivia-collect.log" 2>&1; then
+  printf "  %-12s ok\n" "collect"
+else
+  printf "  %-12s FAILED\n" "collect"
+  tail -12 "$LOGS/trivia-collect.log" | sed 's/^/      /'
   FAILED=1
 fi
 

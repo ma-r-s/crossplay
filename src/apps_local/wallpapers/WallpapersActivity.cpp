@@ -26,6 +26,48 @@ namespace {
 constexpr int kMaxLibrary = 256;
 constexpr size_t kNameMax = 128;
 constexpr size_t kCopyChunk = 4096;
+
+// ---------------------------------------------------------------------------
+// The thumbnail cache.
+//
+// A thumbnail is a full 480x800 1-bit BMP read off the card and box-downscaled
+// (the renderer's 1-bit blit cannot scale). cachedPage_ resets on every
+// onEnter, so before this the app re-did that work on EVERY open and on every
+// page turn -- harmless on an empty card, and the whole cost once 21 wallpapers
+// are on it.
+//
+// Cached per wallpaper, not per set, so one changed or deleted file invalidates
+// its own thumb and nothing else. The key is the source's SIZE plus a sample of
+// its bytes plus the cell size: every device wallpaper is exactly 48062 bytes,
+// so size alone cannot see a replaced file, and a cell-size change (the hint
+// gap moved it) must invalidate everything. The sample is three 64-byte reads
+// rather than a full hash, because hashing the whole file would cost what the
+// decode costs and save nothing.
+constexpr char kThumbDir[] = "/wallpapers/.thumbs";
+constexpr uint32_t kThumbMagic = 0x31485457;  // "WTH1"
+
+struct ThumbHeader {
+  uint32_t magic;
+  uint32_t sourceBytes;
+  uint32_t sampleHash;
+  int16_t cellW, cellH, w, h, ox, oy;
+};
+
+uint32_t sampleHashOf(HalFile& f, const uint64_t size) {
+  uint32_t h = 2166136261u;
+  const uint64_t offsets[3] = {62, size / 2, size > 128 ? size - 128 : 0};
+  uint8_t buf[64];
+  for (const uint64_t off : offsets) {
+    if (!f.seekSet(static_cast<size_t>(off))) continue;
+    const int got = f.read(buf, sizeof(buf));
+    for (int i = 0; i < got; ++i) {
+      h ^= buf[i];
+      h *= 16777619u;
+    }
+  }
+  return h;
+}
+
 // The selection marker's dimensions live in WallpapersScreens.cpp beside
 // kMarkerRoom, the clearance they have to fit inside.
 
@@ -56,13 +98,33 @@ std::unique_ptr<Activity> WallpapersActivity::create(GfxRenderer& renderer, Mapp
 }
 
 void WallpapersActivity::onEnter() {
+  // Timed per phase because "the app takes ten seconds to open" is not a
+  // diagnosis, and this fork's recurring failure is fixing the thing in front
+  // of you rather than the thing that is slow. One line names the cost.
+  const uint32_t tEnter = millis();
   Activity::onEnter();
   toybox::ensureFonts(renderer);
+  const uint32_t tFonts = millis();
   Storage.mkdir(wallpapers::kLibraryDir);
   sweepPartFiles();
+  const uint32_t tSweep = millis();
   scanLibrary();
+  const uint32_t tScan = millis();
   loadActive();
-  computeWarning();
+  const uint32_t tActive = millis();
+  // The free-space probe is NOT here any more. HalStorage::freeBytes() walks the
+  // FAT cluster chain (SDCardManager::refreshFreeClusters: "seconds on a large
+  // card"), it is cached for 20s afterwards, and it was the only thing on this
+  // path that could take seconds -- which is exactly the shape Mario saw: ten
+  // seconds once, fast on every open inside the TTL, on an EMPTY card where no
+  // thumbnail work exists at all. Ten seconds of blank screen before the offer
+  // appears is the "reads as crashed" failure one layer earlier than the paint-
+  // before-block work, so the screen is painted first and the walk happens
+  // after, in loop(), with content already on the glass.
+  warning_.clear();
+  warningPending_ = true;
+  LOG_INF("WALL", "onEnter %ums: fonts=%u sweep=%u scan=%u active=%u (free-space deferred)", tActive - tEnter,
+          tFonts - tEnter, tSweep - tFonts, tScan - tSweep, tActive - tScan);
   // Open on the page holding the set wallpaper, so the border is on screen.
   cachedPage_ = -1;
   page_ = 0;
@@ -88,14 +150,15 @@ void WallpapersActivity::scanLibrary() {
     names_.emplace_back(name.get());
     if (static_cast<int>(names_.size()) >= kMaxLibrary) break;
   }
-  std::sort(names_.begin(), names_.end());
+  // A user's own wallpapers first, then the built-ins. NOT a plain sort any
+  // more, so the built-in count below counts rather than binary_searching -- a
+  // binary_search over this order would silently return wrong answers.
+  std::sort(names_.begin(), names_.end(),
+            [](const std::string& a, const std::string& b) { return wallpapers::sortsBefore(a, b); });
 
-  // How much of the built-in set is here, counted from the listing we already
-  // walked rather than with 21 more exists() calls on every scan.
   int have = 0;
-  for (size_t i = 0; i < wallpapers::builtInCount(); ++i) {
-    const std::string want = std::string(wallpapers::builtInStem(i)) + ".bmp";
-    if (std::binary_search(names_.begin(), names_.end(), want)) ++have;
+  for (const std::string& n : names_) {
+    if (wallpapers::isBuiltInFile(n)) ++have;
   }
   builtInsMissing_ = static_cast<int>(wallpapers::builtInCount()) - have;
 }
@@ -150,6 +213,7 @@ void WallpapersActivity::clampPage() {
 }
 
 bool WallpapersActivity::setWallpaper(int index) {
+  const uint32_t tSet = millis();
   if (index < 0 || index >= static_cast<int>(names_.size())) return false;
   std::string src = std::string(wallpapers::kLibraryDir) + "/" + names_[static_cast<size_t>(index)];
 
@@ -221,6 +285,28 @@ bool WallpapersActivity::setWallpaper(int index) {
     return false;
   }
 
+  // Taking a QUICK_RESUME user off that mode is the ONE thing this app does
+  // that changes the whole device rather than its own screen, and it is the only
+  // wallpaper code anywhere near the boot path -- nothing of ours executes at
+  // wake at all.
+  //
+  // main.cpp::enterDeepSleep saves a retained frame ONLY when the sleep is a
+  // quick-resume sleep, and the wake branch that restores it is also the branch
+  // that draws the LoadingIcon. Flipping the mode to CUSTOM therefore cost two
+  // things at once: the fast frame restore, and the only sign of life the user
+  // gets while the device boots (wake is a chip reset). A decorative feature
+  // must not buy itself a slower wake for the whole device.
+  //
+  // quickResumeSleepScreen is left ON so timeout sleeps -- the common case, and
+  // the one Mario was waiting on -- keep the fast path and the icon. The
+  // combination is supported: SettingsActivity::syncQuickResumeTimeoutForSleepScreen
+  // preserves an explicitly-enabled timeout flag across a sleep-screen change.
+  // The trade is that the wallpaper then shows on manual sleeps rather than on
+  // timeout ones.
+  if (SETTINGS.sleepScreen == CrossPointSettings::QUICK_RESUME) {
+    SETTINGS.quickResumeSleepScreen = CrossPointSettings::QUICK_RESUME_AFTER_TIMEOUT;
+    LOG_INF("WALL", "was QUICK_RESUME; keeping quick wake on timeout sleeps so wake does not get slower");
+  }
   SETTINGS.sleepScreen = CrossPointSettings::CUSTOM;
   SETTINGS.saveToFile();
 
@@ -231,7 +317,8 @@ bool WallpapersActivity::setWallpaper(int index) {
     marker.close();
   }
   activeIndex_ = index;
-  LOG_INF("WALL", "Set sleep wallpaper: %s", names_[static_cast<size_t>(index)].c_str());
+  LOG_INF("WALL", "Set sleep wallpaper: %s (copy+settings took %ums)", names_[static_cast<size_t>(index)].c_str(),
+          millis() - tSet);
   return true;
 }
 
@@ -309,6 +396,8 @@ void WallpapersActivity::ensureThumbsForPage() {
   const wallpapersui::GridGeom geom = wallpapersui::gridGeom(toybox::makeTarget(renderer).deviceContext());
   if (cachedPage_ == page_ && cachedPerPage_ == geom.perPage && !thumbs_.empty()) return;
 
+  const uint32_t tThumbs = millis();
+  int decoded = 0;
   thumbs_.assign(static_cast<size_t>(geom.perPage), Thumb{});
   const int base = page_ * geom.perPage;
   // specialTiles(), not a literal 1: the decode and the draw must agree about
@@ -321,10 +410,109 @@ void WallpapersActivity::ensureThumbsForPage() {
     const int idx = combined - specials;
     if (idx >= static_cast<int>(names_.size())) break;
     std::string path = std::string(wallpapers::kLibraryDir) + "/" + names_[static_cast<size_t>(idx)];
-    thumbs_[static_cast<size_t>(slot)] = decodeThumb(path, geom.cellW, geom.cellH);
+    thumbs_[static_cast<size_t>(slot)] =
+        thumbFor(names_[static_cast<size_t>(idx)], path, geom.cellW, geom.cellH, &decoded);
   }
+  LOG_INF("WALL", "thumbs page=%d decoded=%d (rest from cache) in %ums", page_, decoded, millis() - tThumbs);
   cachedPage_ = page_;
   cachedPerPage_ = geom.perPage;
+}
+
+// Cache hit or a decode plus a write. `decoded` counts only the real decodes so
+// the log says which of the two happened.
+WallpapersActivity::Thumb WallpapersActivity::thumbFor(const std::string& name, const std::string& path,
+                                                       const int16_t cellW, const int16_t cellH, int* decoded) {
+  uint64_t sourceBytes = 0;
+  uint32_t sample = 0;
+  {
+    HalFile src;
+    if (Storage.openFileForRead("WALL", path, src)) {
+      sourceBytes = static_cast<uint64_t>(src.size());
+      sample = sampleHashOf(src, sourceBytes);
+      src.close();
+    }
+  }
+
+  const std::string cachePath = std::string(kThumbDir) + "/" + name + ".thb";
+  HalFile cf;
+  if (Storage.openFileForRead("WALL", cachePath, cf)) {
+    ThumbHeader head{};
+    if (cf.read(&head, sizeof(head)) == static_cast<int>(sizeof(head)) && head.magic == kThumbMagic &&
+        head.sourceBytes == sourceBytes && head.sampleHash == sample && head.cellW == cellW && head.cellH == cellH &&
+        head.w > 0 && head.h > 0) {
+      Thumb t;
+      t.w = head.w;
+      t.h = head.h;
+      t.ox = head.ox;
+      t.oy = head.oy;
+      const size_t bytes = static_cast<size_t>((head.w + 7) / 8) * static_cast<size_t>(head.h);
+      t.bits.resize(bytes);
+      if (cf.read(t.bits.data(), bytes) == static_cast<int>(bytes)) {
+        t.ok = true;
+        cf.close();
+        return t;
+      }
+    }
+    cf.close();
+  }
+
+  if (decoded != nullptr) ++(*decoded);
+  Thumb t = decodeThumb(path, cellW, cellH);
+  if (!t.ok) return t;
+
+  // Best effort: a cache that cannot be written must never break the picture.
+  if (!Storage.exists(kThumbDir)) Storage.mkdir(kThumbDir);
+  const std::string part = cachePath + ".part";
+  HalFile out;
+  if (Storage.openFileForWrite("WALL", part, out)) {
+    ThumbHeader head{};
+    head.magic = kThumbMagic;
+    head.sourceBytes = static_cast<uint32_t>(sourceBytes);
+    head.sampleHash = sample;
+    head.cellW = cellW;
+    head.cellH = cellH;
+    head.w = t.w;
+    head.h = t.h;
+    head.ox = t.ox;
+    head.oy = t.oy;
+    const bool wrote =
+        out.write(&head, sizeof(head)) == sizeof(head) && out.write(t.bits.data(), t.bits.size()) == t.bits.size();
+    out.close();
+    if (wrote) {
+      Storage.remove(cachePath.c_str());
+      if (!Storage.rename(part.c_str(), cachePath.c_str())) Storage.remove(part.c_str());
+    } else {
+      Storage.remove(part.c_str());
+    }
+  }
+  return t;
+}
+
+// Build every thumbnail now, while the user is already watching a progress bar
+// and expects to wait. Without this the cost merely MOVES to the first open,
+// which is the screen that has to feel instant. Cancelling is honoured: a
+// half-warmed cache is not wrong, only less warm, and the rest fills in lazily.
+void WallpapersActivity::prewarmThumbs() {
+  const wallpapersui::GridGeom geom = wallpapersui::gridGeom(toybox::makeTarget(renderer).deviceContext());
+  fetchPhase_ = 2;
+  fetchDone_ = 0;
+  fetchTotal_ = static_cast<int>(names_.size());
+  const uint32_t t0 = millis();
+  int built = 0;
+  for (size_t i = 0; i < names_.size(); ++i) {
+    if (fetchCancel_) break;
+    const std::string path = std::string(wallpapers::kLibraryDir) + "/" + names_[i];
+    thumbFor(names_[i], path, geom.cellW, geom.cellH, &built);
+    fetchDone_ = static_cast<int>(i) + 1;
+    if ((i % 5) == 0 || i + 1 == names_.size()) {
+      mappedInput.update();
+      if (mappedInput.wasReleased(MappedInputManager::Button::Back)) fetchCancel_ = true;
+      requestUpdateAndWait();
+    }
+  }
+  LOG_INF("WALL", "prewarmed %d thumbnails in %ums", built, millis() - t0);
+  // The grid's own cache is per-page and still cold; let it re-read from disk.
+  cachedPage_ = -1;
 }
 
 void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
@@ -507,6 +695,7 @@ constexpr const char* kPackPart = "/wallpapers.dat.part";
 // The HAL exposes a size only through an open file, and the difference between
 // "absent" and "there but the wrong length" is the whole resume rule, so it is
 // worth the open. A short file is a torn write, and Bitmap would accept it.
+
 uint64_t fileSizeOf(const std::string& path) {
   HalFile f;
   if (!Storage.openFileForRead("WALL", path, f)) return 0;
@@ -618,6 +807,7 @@ void WallpapersActivity::runSetDownload() {
 
   fetchCancel_ = false;
   fetchDone_ = 0;
+  fetchPhase_ = 0;
   fetchTotal_ = static_cast<int>(wallpapers::kBuiltInCount);
   view_ = View::Fetching;
   interactionsReady_ = false;
@@ -680,6 +870,7 @@ void WallpapersActivity::runSetDownload() {
 
   Storage.remove(kPackPart);
   scanLibrary();
+  prewarmThumbs();
   loadActive();
   computeWarning();
   page_ = 0;
@@ -693,6 +884,9 @@ void WallpapersActivity::runSetDownload() {
 // card at exactly the right size is skipped, so a torn unpack costs seconds of
 // SD work on retry rather than another download.
 bool WallpapersActivity::unpackSet() {
+  // Second phase, same bar, its second third.
+  fetchPhase_ = 1;
+  fetchDone_ = 0;
   HalFile pack;
   if (!Storage.openFileForRead("WALL", kPackPart, pack)) {
     showNotice("CARD TROUBLE", "The download arrived but could not be read back.", "TRY AGAIN",
@@ -777,6 +971,20 @@ bool WallpapersActivity::unpackSet() {
 }
 
 void WallpapersActivity::loop() {
+  // The deferred free-space walk, once the panel already shows something.
+  // Guarded on painted_ rather than run straight from onEnter: rendering is
+  // notification-driven, so a blocking call in the same breath as
+  // requestUpdate() would run BEFORE the render task ever painted and the
+  // deferral would buy nothing (the #306 shape).
+  if (warningPending_ && painted_) {
+    warningPending_ = false;
+    const uint32_t t0 = millis();
+    computeWarning();
+    LOG_INF("WALL", "free-space probe took %ums", millis() - t0);
+    if (!warning_.empty()) requestUpdate();
+    return;
+  }
+
   // Started here rather than in the action handler: the fetch blocks for a
   // while and pumps input itself, which must not happen while a tap is still
   // being routed (the Trivia precedent, and the whole of the #306 family).
@@ -869,7 +1077,14 @@ void WallpapersActivity::loop() {
   // A grid cell? The first cell of page 0 is the + Add a wallpaper tile.
   const int slot = wallpapersui::cellAt(geom, tapX, tapY);
   if (slot < 0) return;
-  if (!surfaceRevealed()) return;  // ignore a tap on a surface not yet seen
+  if (!surfaceRevealed()) {
+    // Still refused for a REAL remap (a page turn or the library changing under
+    // the finger), never for a moved selection any more. Logged because "my tap
+    // did nothing" is otherwise indistinguishable from a dropped touch, and this
+    // is the line that tells the two apart on hardware.
+    LOG_INF("WALL", "tap refused: surface not yet seen (a real remap, not the marker)");
+    return;
+  }
   const int combined = page_ * geom.perPage + slot;
   const int specials = specialTiles();
   const int total = specials + static_cast<int>(names_.size());
@@ -889,6 +1104,7 @@ void WallpapersActivity::loop() {
 }
 
 void WallpapersActivity::render(RenderLock&&) {
+  const uint32_t tPaint = millis();
   clampPage();
   renderer.clearScreen();
   // Faces per view, not per app. The grid is a menu and wants the Jersey cut it
@@ -911,6 +1127,7 @@ void WallpapersActivity::render(RenderLock&&) {
     model.done = fetchDone_;
     model.total = fetchTotal_;
     model.cancelling = fetchCancel_;
+    model.phase = fetchPhase_;
     wallpapersui::buildFetching(surface, model);
   } else if (view_ == View::Notice) {
     wallpapersui::NoticeModel model;
@@ -957,12 +1174,16 @@ void WallpapersActivity::render(RenderLock&&) {
 
   const auto labels = mappedInput.mapLabels("Back", "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  // The offer screen draws its truchet band live, so the paint cost is worth a
+  // number rather than an assumption about a 240MHz part.
+  LOG_INF("WALL", "render view=%d took %ums", static_cast<int>(view_), millis() - tPaint);
   renderer.displayBuffer();
+  painted_ = true;
 }
 
 uint32_t WallpapersActivity::surfaceMeaning() const {
-  uint32_t m = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(page_));
-  m = paintclock::mixMeaning(m, static_cast<uint32_t>(activeIndex_ + 1));
-  m = paintclock::mixMeaning(m, static_cast<uint32_t>(view_));
-  return paintclock::mixMeaning(m, static_cast<uint32_t>(names_.size()));
+  // activeIndex_ is NOT in here. See wallpapersui::gridMeaning: the selection
+  // does not remap a single cell, so gating taps on it made the picker deaf for
+  // a whole refresh after every tap -- Mario's "touches get lost".
+  return wallpapersui::gridMeaning(page_, static_cast<int>(view_), static_cast<int>(names_.size()), specialTiles());
 }

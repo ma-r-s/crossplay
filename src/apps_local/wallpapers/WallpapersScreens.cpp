@@ -18,6 +18,13 @@ constexpr int16_t kBodyTop = static_cast<int16_t>(toybox::kHeaderHeight + toybox
 // A fixed strip under the chrome for the free-space advisory or the "nothing is
 // set yet" hint. Fixed so the grid's top does not jump when a hint appears.
 constexpr int16_t kHintH = 30;
+// Clear space between the hint and the first row of thumbnails. Without it the
+// grid began at exactly the hint's box bottom, so the sentence sat ON the
+// artwork -- Mario's words were that it is too close to the wallpapers. Taken
+// out of the grid's height (the cells are height-constrained), which costs each
+// thumbnail a few pixels and buys the sentence room to read as a caption for
+// the screen rather than a label on the first tile.
+constexpr int16_t kHintGap = 16;
 // The page-dot strip at the very bottom, reserved whether or not it is used, so
 // the grid height is the same on a one-page library as on a ten-page one.
 constexpr int16_t kPageStripH = 28;
@@ -170,7 +177,7 @@ GridGeom gridGeom(const fui::DeviceContext& device) {
 
   const int16_t gridLeft = static_cast<int16_t>(safe.x + toybox::kMargin);
   const int16_t gridW = static_cast<int16_t>(safe.width - toybox::kMargin * 2);
-  const int16_t gridTop = static_cast<int16_t>(safe.y + kBodyTop + kHintH);
+  const int16_t gridTop = static_cast<int16_t>(safe.y + kBodyTop + kHintH + kHintGap);
   const int16_t gridBottom = static_cast<int16_t>(safe.bottom() - kPageStripH - kBottomMargin);
   const int16_t gridH = static_cast<int16_t>(gridBottom - gridTop);
 
@@ -385,6 +392,24 @@ void buildOffer(toybox::Screen& screen, const OfferModel& model) {
 // DOWNLOADING. Painted from inside the blocking fetch, so it says what is
 // happening, how far along, and that Back stops it -- the three things a person
 // staring at a frozen-looking panel needs (a-silent-screen-reads-as-a-crash).
+uint32_t gridMeaning(const int page, const int view, const int libraryCount, const int specialTiles) {
+  uint32_t m = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(page));
+  m = paintclock::mixMeaning(m, static_cast<uint32_t>(view));
+  m = paintclock::mixMeaning(m, static_cast<uint32_t>(libraryCount));
+  return paintclock::mixMeaning(m, static_cast<uint32_t>(specialTiles));
+}
+
+BarSpan fetchBarSpan(const FetchingModel& model) {
+  BarSpan span;
+  const int phases = model.phaseCount < 1 ? 1 : model.phaseCount;
+  span.units = model.total > 0 ? model.total * phases : 1;
+  const int done = model.done < 0 ? 0 : (model.done > model.total ? model.total : model.done);
+  const int phase = model.phase < 0 ? 0 : (model.phase >= phases ? phases - 1 : model.phase);
+  span.at = phase * model.total + done;
+  if (span.at > span.units) span.at = span.units;
+  return span;
+}
+
 void buildFetching(toybox::Screen& screen, const FetchingModel& model) {
   chrome(screen, "WALLPAPERS", nullptr);
   const fui::Rect body = screen.body();
@@ -409,9 +434,13 @@ void buildFetching(toybox::Screen& screen, const FetchingModel& model) {
   const int16_t barY = static_cast<int16_t>(body.y + 158);
   const fui::Rect bar = fui::makeRect(left, barY, body.width, 26);
   screen.target().stroke(bar, fui::Paint::solid(fui::Color::Black), 2);
-  if (model.total > 0 && model.done > 0) {
+  // ONE sweep across BOTH phases: the download fills the first half, the unpack
+  // the second. Two phases each filling the whole bar is what made it look like
+  // it restarted.
+  if (model.total > 0) {
+    const BarSpan span = fetchBarSpan(model);
     const int16_t inner = static_cast<int16_t>(body.width - 8);
-    const int16_t filled = static_cast<int16_t>(static_cast<int>(inner) * model.done / model.total);
+    const int16_t filled = static_cast<int16_t>(static_cast<int>(inner) * span.at / span.units);
     if (filled > 0) {
       screen.target().fill(fui::makeRect(static_cast<int16_t>(left + 4), static_cast<int16_t>(barY + 4), filled, 18),
                            fui::Paint::solid(fui::Color::Black));

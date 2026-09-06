@@ -350,6 +350,21 @@ else
 fi
 # and the page talks only to that gate, never to the board directly
 grep -q '"/api/inbox"' "$ROOT/site/inbox/index.html" && ok || bad "the inbox page does not call /api/inbox"
+
+# api/trivia.js takes question reports off a device. Two of its properties are
+# invisible in the code and only a test can hold them: the device id is used to
+# build the row key and is then DROPPED, so it appears in no column; and the key
+# is per-question, so two reports from one reader cannot be joined into a
+# reading history. Both are asserted against what the stub was actually asked to
+# store, never against what the source appears to do.
+if trivia_out="$(node "$HERE/trivia_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$trivia_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "trivia_fn: $line"; done < <(printf '%s\n' "$trivia_out" | grep '^  FAIL'); }
+else
+  bad "trivia_fn.js could not run, so api/trivia.js went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$trivia_out"
+fi
 grep -q 'supabase.co\|/rest/v1/\|/auth/v1/' "$ROOT/site/inbox/index.html" && bad "the inbox page still talks to the board directly" || ok
 
 # -- the inbox fixture, spelled in three files that never see each other -------
@@ -693,6 +708,24 @@ else
 fi
 grep -q '"outputDirectory"' "$VERCEL" \
   && ok || bad "site/vercel.json declares no outputDirectory; a dashboard override can then skip the build step and the emulator is never fetched"
+
+# Only xteink deploys. Every pull request used to get a preview deployment,
+# and on the free plan a night of ten agents hit the deployment rate limit, so
+# the Vercel check went red on every PR; every agent explained it away, which
+# is how a real red gets ignored. Nobody used the previews. The ignore command
+# is run here as Vercel runs it (exit 0 skips the build, anything else builds),
+# in a repository with and without a change under site/.
+IGN="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ignoreCommand"])' "$VERCEL")"
+IGNREPO="$(mktemp -d)"; trap 'rm -rf "$IGNREPO"' EXIT; ( cd "$IGNREPO" && git init -q -b xteink && git config user.email t@t && git config user.name t \
+  && echo a > index.html && mkdir -p ../x && git add -A && git commit -qm one && echo b > index.html && git commit -qam two ) >/dev/null 2>&1
+ignore() {  # ref, "changed"|"same" -> prints build|skip
+  local rev=HEAD; [ "$2" = same ] && rev=HEAD^ && ( cd "$IGNREPO" && git commit -q --allow-empty -m empty ) >/dev/null 2>&1
+  ( cd "$IGNREPO" && VERCEL_GIT_COMMIT_REF="$1" sh -c "$IGN" ) >/dev/null 2>&1 && echo skip || echo build
+  [ "$2" = same ] && ( cd "$IGNREPO" && git reset -q --hard HEAD^ ) >/dev/null 2>&1
+}
+[ "$(ignore xteink changed)" = build ] && ok || bad "vercel.json ignoreCommand: xteink with a site change must build"
+[ "$(ignore xteink same)" = skip ] && ok || bad "vercel.json ignoreCommand: xteink with no site change must skip, as before"
+[ "$(ignore app/anything changed)" = skip ] && ok || bad "vercel.json ignoreCommand: a pull request branch must not deploy a preview"
 
 # .vercelignore exists to keep laptop-only tooling off a public URL, and both
 # halves of the fetch look exactly like that. Ignoring either leaves the build

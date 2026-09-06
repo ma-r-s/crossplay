@@ -45,6 +45,10 @@ answers>'`. Never forward a worker's wording; write the three lines
    cap are `working`: start a worker with the card, the contract, and the
    app's doc. One worker per app at a time.
 5. **Land.** Merges are pull requests; you hold the integration claim (`board
+   Before a batch, `python3 tools_local/board/overlap.py`: two open pull
+   requests that touch one file are each green alone and can be wrong
+   together, and the bug would bisect to whichever landed second. Merge one,
+   re-verify the other on the result, then merge it.
 integrator --session <your id>`) only while you resolve a conflict or
    rebuild the emulator, and release it after. **After every merge, pull:**
    `git -C firmware-next pull --ff-only origin xteink` under the claim. The

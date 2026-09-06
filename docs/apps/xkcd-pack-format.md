@@ -212,6 +212,20 @@ not scale with width.
 493 carry a second rendition. The closer renditions are the cost of being
 readable at all; the card has 131GB free.
 
+**Those numbers describe a LOCAL build, not the pack anyone has.** Measured
+against the live `xkcd-pack` prerelease on 2026-09-05: the published assets are
+`images.dat` 139,590,525 B, `index.dat` 131,176 B and `text.dat` 457,679 B,
+**140,179,380 B** in total. The published index carries the same 3279 comics
+(and its records imply an `images.dat` ending at exactly the published size, so
+it is complete and self-consistent) but only **247** of them have a closer
+rendition, against the 493 above. So the released pack was built under an
+earlier rendition policy and nothing has republished it since 2026-08-25.
+
+Nothing under `.github/workflows/` builds this pack, so that will stay true until
+someone rebuilds and uploads by hand. Board #253 is the card for it; a size
+quoted from this file is the local build's, and the number a device will actually
+download is the one measured above. Say which you mean.
+
 ## Building one
 
 ```bash
