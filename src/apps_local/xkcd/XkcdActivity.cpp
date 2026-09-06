@@ -968,7 +968,31 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
   field("safe_title", title, sizeof(title), true);
   field("alt", alt, sizeof(alt), true);
 
-  if (HttpDownloader::downloadToFile(img, kTmpPng) != HttpDownloader::OK) {
+  // THE PUMP LIVES HERE, not only in runUpdate()'s loop, and that is not
+  // belt-and-braces. InputManager::update() debounces by COMMITTING A STATE
+  // CHANGE ON A LATER CALL: the first update() that sees a new level only
+  // stamps lastDebounceTime, and the commit needs a second call more than
+  // DEBOUNCE_DELAY (5ms) afterwards. Nothing else in the firmware polls during
+  // this run -- InputManager::beginAsync() is never called anywhere in the
+  // fork -- so a pump that fires once per comic sees a press only if it is
+  // still held at the next comic, and a normal tap between two pumps is
+  // invisible to it entirely. "Back stops it" would have been a lie.
+  //
+  // HttpDownloader's abortPoll() invokes this every 50ms through the connect,
+  // the headers and the body, so Back is live for the long part of each comic.
+  // Same mechanism as runPackDownload(); the metadata fetch above still has no
+  // hook (fetchUrl takes no progress callback -- card #120).
+  const auto pump = [this](const size_t, const size_t) {
+    mappedInput.update();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) updateCancel_ = true;
+    // The pump consumes the one-shot home event before ActivityManager can see
+    // it; treat it as a cancel rather than dropping the intent.
+    if (mappedInput.wasHomeGesture()) {
+      updateCancel_ = true;
+      updateHomeCancel_ = true;
+    }
+  };
+  if (HttpDownloader::downloadToFile(img, kTmpPng, pump, &updateCancel_) != HttpDownloader::OK) {
     snprintf(whyNot, whyNotCap, "Could not download the artwork for #%u.", static_cast<unsigned>(num));
     return false;
   }
@@ -1148,8 +1172,8 @@ void XkcdActivity::runUpdate() {
   // The header patch below publishes this as the archive's maxNum, and maxNum
   // is what the next update subtracts from. See the comment there.
   uint16_t lastGot = have;
-  bool cancelled = false;
-  bool homeAfterCancel = false;
+  updateCancel_ = false;
+  updateHomeCancel_ = false;
   int attempted = 0;
   for (uint16_t n = static_cast<uint16_t>(have + 1); n <= latest; ++n) {
     if (n == 404) continue;  // not a comic, and that is the joke
@@ -1166,29 +1190,44 @@ void XkcdActivity::runUpdate() {
     // requestUpdateAndWait(), not requestUpdate(): loop() is blocked for the
     // whole run, so a deferred update never reaches the tail of
     // ActivityManager::loop() that consumes it and nothing would repaint at
-    // all. The wait is also what puts the frame on the glass BEFORE the next
-    // socket opens rather than racing it. Same shape as runPackDownload()
-    // above, and the input pump below is the same sanctioned exception to the
-    // one-pump rule: nothing else pumps while this blocks, and without it Back
-    // could not stop a catch-up that has minutes left to run.
+    // all. Same shape as runPackDownload() above.
+    //
+    // WHAT THE WAIT DOES NOT BUY, said plainly so nobody relies on it.
+    // renderTaskLoop() takes its notification at the TOP of an iteration and
+    // claims waitingTaskHandle at the BOTTOM, so a wait registered while a
+    // render is ALREADY in flight is satisfied by the frame that began before
+    // it asked. That happens here on the first pass -- onWifiChosen() left a
+    // deferred update pending and displayBuffer() is 0.3-2s -- so the caption
+    // can run one comic behind what is being fetched. Fixing it means changing
+    // that handshake in ActivityManager, which is CrossPoint's file and not
+    // ours to patch for a caption. What the wait does buy is the thing that was
+    // missing: the panel changes once per comic instead of once per run.
     ++attempted;
-    snprintf(noticeBody_, sizeof(noticeBody_), "Comic %d of %d: #%u. Back stops it.", attempted, toGet,
-             static_cast<unsigned>(n));
+    {
+      // The render task reads noticeBody_ while building this frame, and the
+      // wait above may return with one still in flight. Scoped so the lock is
+      // released before requestUpdateAndWait(), which asserts against being
+      // called under it. Same shape as HackerNewsActivity::request().
+      RenderLock lock(*this);
+      snprintf(noticeBody_, sizeof(noticeBody_), "Comic %d of %d: #%u. Back stops it.", attempted, toGet,
+               static_cast<unsigned>(n));
+    }
     requestUpdateAndWait();
+    // Between comics as well as inside the download, because the PNG decode
+    // and the index append are ours and have no callback to hang a pump on.
     mappedInput.update();
-    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) cancelled = true;
-    // The pump above consumes the one-shot home event before ActivityManager
-    // can see it; treat it as a cancel too rather than dropping the intent.
-    // The user lands on the STOPPED notice and their next Home works.
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) updateCancel_ = true;
     if (mappedInput.wasHomeGesture()) {
-      cancelled = true;
-      homeAfterCancel = true;
+      updateCancel_ = true;
+      updateHomeCancel_ = true;
     }
     // Before the fetch, not after: stopping is only worth offering if it does
     // not first sit through the download it was meant to skip.
-    if (cancelled) break;
+    if (updateCancel_) break;
 
     if (!fetchOne(n, why, sizeof(why))) {
+      // A cancel arrives here too: fetchOne()'s download is handed
+      // &updateCancel_, so Back aborts the transfer and it returns false.
       LOG_ERR("XKCD", "stopped at #%u: %s", static_cast<unsigned>(n), why);
       break;
     }
@@ -1235,18 +1274,24 @@ void XkcdActivity::runUpdate() {
       patch.close();
     }
 
-    // Reopen so the in-memory archive agrees with the files again.
+    // Reopen so the in-memory archive agrees with the files again, under the
+    // lock: requestUpdateAndWait() above can return with a render still in
+    // flight, and closeArchive() frees the three HalFiles and the index source
+    // that the Menu and List views read. Nothing reads them from the Updating
+    // view we are in, so this is the hazard closed rather than a bug fixed --
+    // but a line added to the notice would open it, and nothing would say so.
+    RenderLock lock(*this);
     closeArchive();
     archiveOpen_ = openArchive();
   }
 
   char body[192];
-  if (cancelled) {
+  if (updateCancel_) {
     // Kept, not discarded: each comic was committed as it arrived, and the
     // header above now names the last one that really did. The next update
     // starts from there.
     snprintf(body, sizeof(body), "Stopped. %d of %d kept; the rest are still there next time.%s", fetched_, toGet,
-             homeAfterCancel ? " Home works now." : "");
+             updateHomeCancel_ ? " Home works now." : "");
     showNotice("STOPPED", body);
   } else if (fetched_ == 0) {
     snprintf(body, sizeof(body), "%s", why[0] ? why : "Nothing was added.");
