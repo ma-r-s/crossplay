@@ -597,5 +597,66 @@ kill "$GATEPID" 2>/dev/null; wait "$GATEPID" 2>/dev/null
 expect "the gate gone, the tree is free"                0 pretool "{\"session_id\":\"held-e\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/gone/src/a.cpp\"}}"
 unset TMPDIR
 
+echo
+echo "who reported a card"
+# Mario asked "what have I reported?" and the board could not answer: source
+# said by what MECHANISM a card arrived, never whose observation it was. The
+# rule that matters most here is the default: a card filed without --reporter
+# must read `unknown`, NOT `session`, so a path that forgets to stamp is
+# visible instead of quietly crediting one of our own sessions.
+NOSTAMP=$(board new "Checkers: a crowned piece keeps moving like a man" --from checkers --kind bug | sed 's/^#\([0-9]*\).*/\1/')
+board show "$NOSTAMP" | grep -q "reported by unknown" \
+  && ok "a card filed without --reporter is unknown, never session" \
+  || bad "an unstamped card did not read unknown: $(board show "$NOSTAMP" | head -2)"
+MINE=$(board new "Yahtzee: the dice sit under the header rule" --from yahtzee --kind bug --reporter mario | sed 's/^#\([0-9]*\).*/\1/')
+OURS=$(board new "Yahtzee: contentTop derives from the constant, not the chrome" --from yahtzee --kind bug --reporter session --anyway | sed 's/^#\([0-9]*\).*/\1/')
+THEIRS=$(board new "Study: pairing says the bridge is invitation-only" --from study --kind bug --reporter user | sed 's/^#\([0-9]*\).*/\1/')
+board show "$MINE" | grep -q "reported by mario" && ok "--reporter mario is recorded" || bad "--reporter mario was not stored"
+board show "$THEIRS" | grep -q "reported by user" && ok "--reporter user is recorded" || bad "--reporter user was not stored"
+
+# The question he actually asked, as one command.
+board list --from-mario >"$WORK/mine.out" 2>&1
+grep -q "#$MINE " "$WORK/mine.out" && ok "--from-mario lists his card" || bad "--from-mario missed his card: $(cat "$WORK/mine.out")"
+grep -q "#$OURS " "$WORK/mine.out" && bad "--from-mario listed a session's find" || ok "and leaves a session's find out"
+grep -q "#$THEIRS " "$WORK/mine.out" && bad "--from-mario listed another person's report" || ok "and another person's report out"
+grep -q "#$NOSTAMP " "$WORK/mine.out" && bad "--from-mario listed an unstamped card" || ok "and an unstamped card out"
+board list --reporter unknown | grep -q "#$NOSTAMP " && ok "--reporter unknown finds what nobody stamped" || bad "--reporter unknown missed the unstamped card"
+board list --reporter session | grep -q "#$OURS " && ok "--reporter session finds a session's own find" || bad "--reporter session missed it"
+
+# Mario's report is frequently the CHILD of a session's card (#262 under #261,
+# #257 under #253), and `board list` prints children nested under their parent.
+# A filtered-out parent must not take its matching child with it.
+KID=$(board new "Wavelength: the front door offers a score that does not exist" --from wavelength --kind bug --reporter mario --anyway | sed 's/^#\([0-9]*\).*/\1/')
+board parent "$KID" --of "$OURS" >/dev/null
+board list --from-mario | grep -q "#$KID " && ok "a child of a session's card still shows under --from-mario" || bad "the reporter filter lost a nested card"
+
+# An empty answer from a filter is a different fact from an empty board. One
+# sentence for both is how a filter that matched nothing reads as one that was
+# never applied -- and "no cards" would say Mario has reported nothing.
+board list --reporter user >"$WORK/u.out" 2>&1
+board state "$THEIRS" done >/dev/null
+board list --reporter user | grep -q "#$THEIRS " && ok "a settled card is still attributed" || bad "settling a card lost its reporter"
+# A GitHub issue was written by a person, and that person is not Mario. The
+# sweep above filed some; nobody passed --reporter, so this is the derivation
+# doing its job rather than a caller remembering.
+board list --reporter user | grep -q "Slow Reader" \
+  && ok "a card from a GitHub issue is a user's without anyone saying so" \
+  || bad "a github-sourced card was not attributed to a user: $(board list --reporter user)"
+
+# Settle every open `user` card first, whatever earlier sections of this suite
+# left behind -- the github sweep above files its issues as `user` too, so an
+# assertion that assumed an empty set would pass or fail on section order.
+for uid in $(board list --open --reporter user | sed -n 's/^#\([0-9][0-9]*\) .*/\1/p'); do
+  board state "$uid" parked --with-blockers >/dev/null 2>&1
+done
+board list --open --reporter user >"$WORK/none.out" 2>&1
+grep -q "no cards reported by user" "$WORK/none.out" \
+  && ok "a filter that matches nothing says so, rather than 'no cards'" \
+  || bad "an empty filter reads as an empty board: $(cat "$WORK/none.out")"
+
+board new "Sudoku: the notes pad forgets a digit" --from sudoku --kind bug --reporter nobody >"$WORK/bad.out" 2>&1 \
+  && bad "an unknown reporter value was accepted" \
+  || ok "a reporter the board does not know is refused"
+
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
