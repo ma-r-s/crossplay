@@ -154,6 +154,53 @@ standing at the device.
 The log tail is usually worth more than the backtrace: a backtrace says where it
 died, the preceding lines say what it was doing.
 
+**On an X4 Pro there is never a backtrace at all.** `HalSystem`'s frame capture
+sits under the `#else` of `#if !__riscv` (`lib/hal/HalSystem.cpp`), and the X4
+Pro is Xtensa, so `Stack memory:` is empty for *every* crash on this board. It
+reads like evidence that failed to record; it is a feature that was never
+compiled in for this target. The Sticky is Xtensa too.
+
+**An empty `Panic reason:` is a finding, not a gap.** `panicMessage` is written
+only by `__wrap_panic_abort`, so empty means `panic_abort` never ran: not an
+assert, not an `abort()`, and not a failed allocation under `-fno-exceptions`
+(which aborts). Together with `isRebootFromPanic()` that leaves a CPU exception
+or a lockup -- a bad memory access -- which is most of the way to an answer.
+
+### When the report names nothing, read the coredump partition
+
+`partitions.csv` carries `coredump, data, coredump, 0xFF0000, 0x10000`, and
+nothing above reads it. It holds a real ELF core: every task's registers and
+call stack, the crashed task's name, and the exception. Card #398 was three
+crash reports with empty panic reasons and empty stacks, and one read of this
+partition named the task, the exception and the exact frame.
+
+**Read it before flashing anything -- a flash destroys it.**
+
+```bash
+# 1. off the device (esptool.py from tool-esptoolpy fails on `import rich_click`)
+~/.platformio/penv/bin/python -m esptool --port /dev/cu.usbmodemXXXX \
+    --chip esp32s3 read-flash 0xFF0000 0x10000 coredump.bin
+
+# 2. the MATCHING elf -- the version that crashed, not the current tip
+gh release download vX.Y.Z --repo ma-r-s/crossplay --pattern "crossplay-vX.Y.Z-x4pro.elf"
+
+# 3. gdb, which the toolchain does not install beside the compiler
+pio pkg install --global --tool platformio/tool-xtensa-esp-elf-gdb
+
+# 4. decode. --chip goes BEFORE the subcommand.
+PATH="$HOME/.platformio/packages/tool-xtensa-esp-elf-gdb/bin:$PATH" \
+  ~/.platformio/penv/bin/python -m esp_coredump --chip esp32s3 \
+    info_corefile --core coredump.bin --core-format raw <elf>
+```
+
+Without gdb it still reports, silently, with no stacks -- so check for
+`ERROR: GDB executable not found` before believing an empty result.
+
+**Do not trust the decoded report's own `STACK USED/FREE` column.** For card
+#398 it said `6432/1756` for a task that had overflowed. It is a high-water
+heuristic. The answer is `readelf -l core.elf`: find the crashed task's stack
+segment and compare the stack pointer against it.
+
 **Reading is non-destructive.** Two people debugging one device would otherwise
 race, and the first `curl` would win while the second saw a healthy device.
 Clearing stays on the on-device crash screen, when a human dismisses it. A
