@@ -88,6 +88,18 @@ void drawButton(toybox::Screen& screen, const fui::Rect& box, const char* label,
   screen.frame().hit(box, action);
 }
 
+// The same finger target as drawButton, stroked rather than filled: a control
+// that is clearly a control and clearly not the primary one.
+void drawOutlineButton(toybox::Screen& screen, const fui::Rect& box, const char* label, const fui::ActionId action) {
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 3);
+  fui::TextStyle style = screen.theme().smallText;
+  style.align = fui::TextAlign::Center;
+  style.color = fui::Color::Black;
+  style.maxLines = 1;
+  screen.target().text(box, label, style);
+  screen.frame().hit(box, action);
+}
+
 void drawProse(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::TextAlign align) {
   fui::TextStyle style = onPaper(screen.theme().bodyText, align);
   const int16_t lineH = screen.target().lineHeight(style.font);
@@ -306,23 +318,8 @@ void buildEmpty(toybox::Screen& screen, const EmptyModel& model) {
 
   fui::TextAreaProps detail;
   detail.text =
-      "Add wallpapers from crossplay.ma-r-s.com/wallpapers, then copy them into the "
-      "wallpapers folder on the card using File Transfer. They will show up here.\n\n"
-      "Press Back to return.";
-  detail.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
-  detail.showCaret = false;
-  screen.textArea(detail, static_cast<int16_t>(screen.body().height - toybox::kGutter));
-}
-
-void buildHelp(toybox::Screen& screen) {
-  chrome(screen, "ADD A WALLPAPER", nullptr);
-
-  fui::TextAreaProps detail;
-  detail.text =
-      "Make a wallpaper from any picture in your browser at "
-      "crossplay.ma-r-s.com/wallpapers (nothing is uploaded), then copy the file into "
-      "the wallpapers folder on the card using File Transfer. It will appear here "
-      "beside the built-in ones.\n\n"
+      "Tap + Add a wallpaper to put one here from your phone: scan the code, pick a "
+      "picture, done. The built-in set can be downloaded too.\n\n"
       "Press Back to return.";
   detail.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
   detail.showCaret = false;
@@ -394,7 +391,7 @@ void drawAltAddress(toybox::Screen& screen, const fui::Rect& box, const char* ur
 // phone went out over cellular instead, and the browser's own message ("cannot
 // reach this site") names no cause. It was in the footer for one render and came
 // out as "PHONE MUST BE ON THE SAM..." -- the failure explanation, truncated.
-constexpr const char* kProse = "Pick a photo and it lands here. Your phone has to be on this same WiFi.";
+constexpr const char* kProse = "Pick a photo and it lands here. Phone or computer, on this same WiFi.";
 constexpr const char* kFoot = "BACK STOPS";
 
 // Inherited from the Instapaper twin as `bottom() - 30, height 24`, which is
@@ -559,10 +556,21 @@ void buildOffer(toybox::Screen& screen, const OfferModel& model) {
 
   drawButton(screen, fui::makeRect(left, buttonY, width, kButtonH), "GET THEM", ActionGetSet);
 
-  // The secondary route stays a sentence, never a second button: two buttons on
-  // a "before" screen is two obvious actions, which is none.
-  drawProse(screen, fui::makeRect(left, static_cast<int16_t>(buttonY + kButtonH + 8), width, 84),
-            "Or make your own from any picture, in a browser.", fui::TextAlign::Center);
+  // The second route is now a CONTROL, outlined rather than filled.
+  //
+  // It was a sentence, on the reasoning that two buttons on a "before" screen
+  // is two obvious actions, which is none. That reasoning is sound about two
+  // EQUAL buttons and it made this feature unreachable on a factory device:
+  // an empty library shows only this screen, and its one control fetches a 1MB
+  // pack behind a 12MB floor and the WiFi picker. A person who just wants their
+  // own photo on their new reader had a sentence and no way to act on it --
+  // and ActionAddOwn was routed but drawn by NOTHING, so even a hopeful tap
+  // did nothing at all (nothing-calls-it).
+  //
+  // Outlined keeps the hierarchy the sentence was protecting: one filled
+  // button is still the obvious action, and this is plainly the other one.
+  const int16_t secondY = static_cast<int16_t>(buttonY + kButtonH + toybox::kGutter);
+  drawOutlineButton(screen, fui::makeRect(left, secondY, width, kButtonH), "USE MY OWN PHOTO", ActionAddOwn);
 }
 
 // DOWNLOADING. Painted from inside the blocking fetch, so it says what is

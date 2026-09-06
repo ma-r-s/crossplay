@@ -14,6 +14,9 @@ p{margin:0 0 14px}
 .btn{display:block;width:100%;padding:16px;border:3px solid var(--line);background:#111;color:#faf9f7;font:inherit;font-weight:700;text-align:center;cursor:pointer}
 .btn[disabled]{opacity:.4;cursor:default}
 .btn.alt{background:var(--paper);color:var(--ink)}
+.row{display:flex;gap:10px;margin:0 0 14px}
+.row button{flex:1;padding:12px;border:3px solid var(--line);background:var(--paper);color:var(--ink);font:inherit;font-weight:700;cursor:pointer}
+.row button[aria-pressed=true]{background:#111;color:#faf9f7}
 input[type=file]{display:none}
 #shot{display:none;margin:0 auto 16px;border:3px solid var(--line);width:100%;max-width:240px;height:auto;image-rendering:pixelated}
 #msg{margin:14px 0 0;min-height:1.45em;font-weight:700}
@@ -25,6 +28,11 @@ input[type=file]{display:none}
 <main>
 <p class="dim">Pick a photo. It is cropped and dithered here on your phone, then sent to the reader. Nothing leaves your network.</p>
 <canvas id="shot" width="480" height="800"></canvas>
+<div class="row" id="opts" hidden>
+  <button id="fill" aria-pressed="true">Fill</button>
+  <button id="fit" aria-pressed="false">Fit</button>
+  <button id="inv" aria-pressed="false">Invert</button>
+</div>
 <label class="btn" for="pick">Choose a photo</label>
 <input id="pick" type="file" accept="image/*">
 <p></p>
@@ -35,7 +43,8 @@ input[type=file]{display:none}
 import { pixelsToBmp, WALL_W, WALL_H } from "./js/wallconvert.js";
 const $ = (id) => document.getElementById(id);
 const shot = $("shot"), send = $("send"), msg = $("msg"), pick = $("pick");
-let bmp = null;
+const opts = $("opts"), bFill = $("fill"), bFit = $("fit"), bInv = $("inv");
+let bmp = null, img = null, fill = true, invert = false;
 
 const say = (t, dim) => { msg.textContent = t; msg.className = dim ? "dim" : ""; };
 
@@ -48,16 +57,8 @@ pick.addEventListener("change", async () => {
     // createImageBitmap decodes off the main thread and needs no secure
     // context, which matters: this page is served over plain http and always
     // will be, because the reader cannot hold a public certificate.
-    const img = await createImageBitmap(file);
-    const ctx = shot.getContext("2d", { willReadFrequently: true });
-    // Cover-crop to the panel's aspect rather than squashing: a squashed face
-    // is the one thing everybody notices.
-    const s = Math.max(WALL_W / img.width, WALL_H / img.height);
-    const w = img.width * s, h = img.height * s;
-    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, WALL_W, WALL_H);
-    ctx.drawImage(img, (WALL_W - w) / 2, (WALL_H - h) / 2, w, h);
-    const px = ctx.getImageData(0, 0, WALL_W, WALL_H);
-    bmp = pixelsToBmp(px);
+    img = await createImageBitmap(file);
+    render();
     // Paint the DITHERED result back, so the preview is what the reader will
     // actually show rather than a greyscale approximation of it.
     const out = ctx.createImageData(WALL_W, WALL_H);
@@ -72,13 +73,50 @@ pick.addEventListener("change", async () => {
       }
     }
     ctx.putImageData(out, 0, 0);
-    shot.style.display = "block";
-    send.disabled = false;
-    say("");
   } catch (e) {
     say("Could not read that picture. Try another one.");
   }
 });
+
+// Fill crops to the panel and loses the edges; Fit keeps the whole frame and
+// pads it. Hardcoding Fill threw about two thirds of a landscape photo away
+// with the subject's head off the top, and the only thing the preview let you
+// do about it was pick a different picture. The site has offered both since it
+// shipped; the device page simply had not caught up.
+function render() {
+  if (!img) return;
+  const ctx = shot.getContext("2d", { willReadFrequently: true });
+  const s = fill ? Math.max(WALL_W / img.width, WALL_H / img.height)
+                 : Math.min(WALL_W / img.width, WALL_H / img.height);
+  const w = img.width * s, h = img.height * s;
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, WALL_W, WALL_H);
+  ctx.drawImage(img, (WALL_W - w) / 2, (WALL_H - h) / 2, w, h);
+  bmp = pixelsToBmp(ctx.getImageData(0, 0, WALL_W, WALL_H), { invert });
+
+  // Paint the DITHERED result back, so the preview is what the reader will
+  // show rather than a greyscale approximation of it.
+  const out = ctx.createImageData(WALL_W, WALL_H);
+  const rowBytes = (WALL_W + 31) >> 5 << 2;
+  const data = bmp.subarray(bmp.length - rowBytes * WALL_H);
+  for (let y = 0; y < WALL_H; y++) {
+    const row = (WALL_H - 1 - y) * rowBytes;
+    for (let x = 0; x < WALL_W; x++) {
+      const on = (data[row + (x >> 3)] >> (7 - (x & 7))) & 1;
+      const v = on ? 255 : 0, i = (y * WALL_W + x) * 4;
+      out.data[i] = out.data[i + 1] = out.data[i + 2] = v; out.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+  shot.style.display = "block";
+  opts.hidden = false;
+  send.disabled = false;
+  say("");
+}
+
+const press = (el, on) => el.setAttribute("aria-pressed", on ? "true" : "false");
+bFill.addEventListener("click", () => { fill = true; press(bFill, true); press(bFit, false); render(); });
+bFit.addEventListener("click", () => { fill = false; press(bFill, false); press(bFit, true); render(); });
+bInv.addEventListener("click", () => { invert = !invert; press(bInv, invert); render(); });
 
 send.addEventListener("click", async () => {
   if (!bmp) return;
