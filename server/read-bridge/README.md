@@ -43,16 +43,21 @@ here because the reasoning still explains the shape: before approval, opening
 to `*` let strangers reach the sign-in endpoint with credentials Instapaper
 would refuse anyway, which was all risk and no capability.
 
-What has NOT been met is the other precondition, and it is the one that
-matters now. Rate limiting still lives in `bridge/ratelimit.py`, in-process,
-and its own docstring says a distributed attacker defeats it. Behind an
-allowlist that hardly mattered; open to the world it is the whole exposure,
-because sign-in is a credential-stuffing oracle by construction. **Edge rate
-limiting is the gate on opening it now, not the review.**
+The other precondition, edge rate limiting, has also been met (card #292,
+2026-09-05) -- but weaker than this file once asked for, and the difference is
+worth carrying rather than glossing. The Free plan pins the rule to 20
+requests per 10 seconds with a 10 second block, not 20 per minute blocked for
+an hour. More importantly, a per-IP edge rule was never a defence against
+DISTRIBUTED stuffing at any setting. What bounds that is `GLOBAL_LOGIN` (30
+sign-ins per minute service-wide, and there is only one of it), `LOGIN_LOCKOUT`
+per username, and Instapaper defending its own accounts. See
+`docs/bridge-security.md` and `scripts/DEPLOY-RUNBOOK.md` step 6.
 
-One thing to do rather than assume when it opens: watch a NON-OWNER sign-in
-actually succeed. That is the only evidence the approval is live, and it costs
-one attempt.
+Two things to do rather than assume when it opens. Watch a NON-OWNER sign-in
+actually succeed: that is the only evidence the approval is live. And verify
+from outside with `server/verify_open.sh` -- a deploy's exit status, a 200 on
+`/healthz` and `printenv` in the container are all compatible with the gate
+still refusing every stranger.
 
 ## Suites
 

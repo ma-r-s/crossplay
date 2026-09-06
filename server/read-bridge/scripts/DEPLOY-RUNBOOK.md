@@ -11,20 +11,37 @@ approved. The consumer key works immediately for the account that registered
 it and for nobody else. So the first deployment proves the whole path on one
 real account, and the service stays closed while it does.
 
-**Do not set `READ_ALLOWLIST=*` yet -- but the reason has changed.** Two
-conditions gated it. The review is one of them and it is DONE: Mario reports
-it was approved, recorded 2026-09-05 on board card #252. Non-owner sign-ins
-can now succeed, so an open allowlist would finally buy capability rather than
-only risk.
+**Both conditions that gated `READ_ALLOWLIST=*` are now met, and this section
+no longer says wait.** The Instapaper review was approved (Mario, 2026-09-05,
+card #252), and the Cloudflare rules exist (card #292, applied 2026-09-05).
+Step 6 is the procedure.
 
-The other condition still stands and is now the whole of it: the only real
-defence against distributed stuffing is Cloudflare-side rate limiting, and it
-does not exist. The in-process limiters in `bridge/ratelimit.py` are defeated
-by an attacker with many addresses, by construction and by their own
-docstring. Behind an allowlist that barely mattered; open to the world it is
-the entire exposure.
+**Say the strength of that second condition honestly rather than repeating
+what this file used to promise.** It asked for 20 requests per minute with a
+one hour block. What exists is **20 requests per 10 seconds with a 10 second
+block**, because `ma-r-s.com` is on the Free plan and neither number is
+settable by API or by dashboard (`docs/bridge-security.md`, Rule 1). One
+address can therefore sustain about 120 auth POSTs a minute, not 20, and is
+free again after ten seconds rather than an hour.
 
-Open it when the Cloudflare rules exist -- and in the same change, not after.
+**And the mismatch this file has always contained, which the numbers make
+worse:** a per-IP edge rule does not defend against DISTRIBUTED credential
+stuffing, which is the threat named two paragraphs above. It never could. An
+attacker with a thousand addresses is invisible to a per-IP rule at any
+setting. What actually bounds that threat is three things, none of them the
+edge rule:
+
+- `GLOBAL_LOGIN` in `bridge/app.py`: 30 sign-ins per minute across the whole
+  service, with only one of it. Many addresses do not defeat a global ceiling.
+- `LOGIN_LOCKOUT`: exponential backoff per username, counting failures rather
+  than attempts, so a spray across accounts is slowed account by account.
+- Instapaper and AnkiWeb defend their own accounts. We are not the only thing
+  between an attacker and a login, and pretending otherwise sizes our layers
+  wrong.
+
+The edge rule's real job is smaller and worth keeping: flood volume stops at
+Cloudflare instead of costing a one-worker uvicorn on an ARM box a socket and
+a scheduling slot.
 
 ## Status: published 2026-09-03 at https://read.ma-r-s.com, allowlist still CLOSED
 
@@ -44,8 +61,13 @@ code and a pollToken, `GET /api/pair/poll` answers `{"pending":true}`, and
 What remains is step 5 (nobody has signed in and paired a real reader) and
 step 6 (opening the allowlist). **`READ_ALLOWLIST` is untouched and still the
 owner's address only.** Publishing the hostname does not change who may sign
-in, and it must not: see step 6 -- whose remaining blocker is the Cloudflare
-rate limiting, no longer the Instapaper review.
+in, and it must not.
+
+Step 6 no longer has a blocker of its own: the Instapaper review landed and
+the Cloudflare rules exist. It is waiting only on the pi being powered on
+(card #347). While the box is off, all three hostnames answer **530**, which
+is Cloudflare saying the tunnel is up and the ORIGIN is not, and no allowlist
+can be applied or verified through it.
 
 The kill switch is one command, and it leaves everything else on the box
 alone:
@@ -158,18 +180,112 @@ four assumptions about Instapaper's API in `docs/apps/instapaper-plan.md`.
 Study's equivalent cost three flags and a `-232` that looked like a curve
 problem and was a missing hash. Expect to spend time here rather than none.
 
-## 6. Later: open it
+## 6. Open it (card #348, from GitHub issue #115)
 
-The app was submitted 2026-08-31 and **approval has landed** (Mario, recorded
-2026-09-05 on board card #252). So the half of this step that was waiting on
-somebody else is done, and what is left is ours: set `READ_ALLOWLIST=*` and add
-the Cloudflare rate-limiting rules IN THE SAME SITTING. Not one without the
-other -- an open allowlist without those rules is the credential-stuffing
-oracle this ordering exists to avoid.
+Both preconditions are met; see the top of this file for what the second one
+actually delivers. This step is **config, not code**. Nothing in `bridge/` is
+edited, nothing is rebuilt, and `deploy.sh` is not the route: a `.env` change
+is a recreate.
 
-Verify the approval rather than trust this line: watch a NON-OWNER sign-in
-succeed. It costs one attempt and it is the only evidence that the keys now
-work for anyone but the registering account.
+### THERE ARE THREE DOORS, NOT ONE, AND THEY HAVE THREE DIFFERENT NAMES
+
+Issue #115 reports the Study one. It is one report of a condition affecting
+all three services, because each fails closed on its own unset variable and a
+shut door is invisible to everybody who already has access:
+
+| Service   | On the pi         | Variable                                        |
+| --------- | ----------------- | ----------------------------------------------- |
+| Read      | `/srv/readbridge` | `READ_ALLOWLIST`                                |
+| Study     | `/srv/ankibridge` | `BRIDGE_ALLOWLIST`                              |
+| Get Books | `/srv/getbooks`   | `GETBOOKS_PUBLIC_USER` + `GETBOOKS_PUBLIC_PASS` |
+
+**`READ_ALLOWLIST` and `BRIDGE_ALLOWLIST` are different names for the same
+idea and this is the whole trap of this step.** Write the wrong one into the
+wrong `.env` and: the file is edited, compose is silent, the container comes
+up, the healthcheck passes, `/healthz` answers 200, and every stranger still
+reads "This bridge is invitation-only for now." Compose only warns when the
+CORRECT name is absent entirely, and it is not absent: both currently hold an
+owner address. So a wrong-name edit produces no warning, no log line, and no
+symptom Mario can see, because his own account keeps working either way.
+
+Get Books is the same shape wearing different clothes. It is **not** open by
+design: `getbooks/app.py` puts HTTP Basic auth in front of everything but
+`/healthz`, with a second, deliberately public account for the firmware. The
+pair CrossPlay ships is in `src/OpdsServerStore.cpp` (`crossplay` /
+`r4ulp-zm4cg-awjtf-z5zfj`, public on purpose: it is in a public repo and in
+every release binary). With `GETBOOKS_PUBLIC_USER`/`PASS` unset, every stock
+reader in the world gets 401 while Mario's own credentials work perfectly.
+`board pulse` counts that 401 as ALIVE, so the board would show it green.
+
+### Why `*` and not an enumerated list
+
+`*`. An enumerated list cannot serve "anyone in the world with the OS
+installed", which is the objective: there is no registration flow and no way
+onto the list except opening a GitHub issue and waiting for Mario, which is
+precisely the failure #115 reports. The list is also not the security control
+and never was -- it is a binary switch. The controls are `LOGIN_IP`,
+`GLOBAL_LOGIN` and `LOGIN_LOCKOUT`, `CLAIM_IP`/`CLAIM_USER`, the edge rule,
+and the upstreams authenticating their own accounts. Keeping a list would add
+a per-user manual edit across two files with two different variable names,
+which is a drift generator, not a defence.
+
+### Apply
+
+Edit in place on the pi, in an editor, on the box. The `.env` files belong to
+the ssh user (`deploy.sh` writes `/srv/<service>/` without sudo), so no sudo is
+needed. **REPLACE the existing line rather than appending a second one:** a
+`.env` with a key twice is legal and compose takes the last occurrence, which
+is a fine way to leave a file nobody can read confidently.
+
+    ssh orange     # then, on the box, one editor session per file:
+    #  /srv/readbridge/.env   READ_ALLOWLIST=*            (was: owner address)
+    #  /srv/ankibridge/.env   BRIDGE_ALLOWLIST=*          (was: owner address)
+    #  /srv/getbooks/.env     GETBOOKS_PUBLIC_USER=crossplay
+    #                         GETBOOKS_PUBLIC_PASS=<the pair in OpdsServerStore.cpp>
+
+**Do not `export READ_ALLOWLIST=*` in a shell.** In a `.env` file the `*` is a
+literal; in a shell it is a glob and expands to whatever files are in the
+directory, which would write a nonsense allowlist that fails closed and looks
+exactly like every other way of getting this wrong.
+
+Then recreate. **`docker compose restart` is the wrong command and it fails
+silently:** it restarts the existing container with the environment it was
+created with, so the edit appears to do nothing. `up -d` re-interpolates
+`.env`, sees a changed service config, and recreates. No `--build`: the image
+has not changed.
+
+    ssh orange 'cd /srv/readbridge && docker compose up -d'
+    ssh orange 'cd /srv/ankibridge && docker compose up -d'
+    ssh orange 'cd /srv/getbooks   && docker compose up -d'
+
+### Verify from OUTSIDE, as a stranger
+
+A deploy's exit status, a 200 on `/healthz`, a passing container healthcheck
+and `printenv` inside the box are ALL compatible with the door still shut.
+The only question worth asking is the one a stranger asks:
+
+    server/verify_open.sh          # the verdict
+    server/verify_open.sh --why    # then diagnostics, if a door is shut
+
+It posts one deliberately bogus sign-in per bridge from outside and reads the
+sentence that comes back, because the two failures look alike and mean
+opposite things:
+
+- "This bridge is invitation-only for now." -- OUR gate refused. Door shut.
+- "AnkiWeb / Instapaper did not accept that email and password." -- our gate
+  passed it through and the upstream refused a bogus key. Door OPEN.
+
+`server/verify_open_selftest.sh` proves that classifier can reach every one of
+its verdicts, including the two above, against a local stub.
+
+**One thing `verify_open.sh` cannot settle, on read-bridge only.** If the
+Instapaper application were still in owner-only mode, a non-owner xAuth
+returns 403 and the bridge prints the same "did not accept" sentence as a
+wrong password. So a green run proves OUR gate is open; only a real
+third-party Instapaper credential proves a stranger can actually finish
+signing in. Do not report the first as the second.
+
+Replying on GitHub issue #115 is Mario's, not a session's.
 
 ## Before any of it: can this machine even reach the pi?
 
@@ -187,5 +303,13 @@ name: no `~/.ssh/config` entry, and `known_hosts` holding 192.168.68.x,
 So: a failing `ssh` says nothing about the pi. Check the tunnel before
 concluding anything about the box, and read the failure carefully: a DNS error
 on `read.ma-r-s.com` means the record is gone, a TLS alert means the name is
-too deep for the zone's certificate (step 4), and a 502 means the tunnel is up
-but cannot reach the service container. Those are three different repairs.
+too deep for the zone's certificate (step 4), a **530 means the tunnel is up
+and the ORIGIN is not** (the box is off, which is where it was on 2026-09-05),
+and a 502 means the tunnel is up but cannot reach the service container. Those
+are four different repairs.
+
+**The name resolves through Tailscale, and there is no `~/.ssh/config` entry**
+-- checked 2026-09-05, because this file records a session losing time to
+exactly that. `orange` is `orange.tail77e8d2.ts.net`, `100.75.152.70`, via
+MagicDNS. So if `ssh orange` ever fails to RESOLVE rather than to connect, the
+repair is the tailnet on this Mac, not the pi and not `known_hosts`.
