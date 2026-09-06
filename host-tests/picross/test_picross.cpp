@@ -517,21 +517,6 @@ void bankRecordsItsProvenance() {
   }
 }
 
-// The credit the win screen draws must FIT the buffer it is drawn into, and
-// that buffer is sized from picross::kMaxAuthorLen. Both are derived by the
-// generator from the same bank, so this can only fail when one of them stops
-// being derived -- which is the failure worth catching, because its symptom is
-// a designer's name silently truncated on the one screen that credits them.
-void everyAuthorFitsTheCreditLine() {
-  for (int i = 0; i < picross::kProvenanceCount; ++i) {
-    const std::size_t len = std::strlen(picross::kProvenances[i].author);
-    if (len > static_cast<std::size_t>(picross::kMaxAuthorLen))
-      std::printf("  author %s is %d chars, kMaxAuthorLen is %d\n", picross::kProvenances[i].author,
-                  static_cast<int>(len), picross::kMaxAuthorLen);
-    CHECK(len <= static_cast<std::size_t>(picross::kMaxAuthorLen));
-  }
-}
-
 // rowSatisfied and colSatisfied are ONE question asked along two axes, and this
 // fork's most expensive recurring bug is repairing one of a symmetric pair and
 // leaving its twin. On a fully solved board every row AND every column must be
@@ -584,7 +569,6 @@ int main() {
   bankFillsItsGrid();
   bankIsSizeSorted();
   bankRecordsItsProvenance();
-  everyAuthorFitsTheCreditLine();
   satisfiedAgreesOnBothAxes();
   clueDerivation();
   mistakeAndWin();

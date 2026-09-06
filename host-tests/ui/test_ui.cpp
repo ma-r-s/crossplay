@@ -10459,6 +10459,45 @@ void testPicrossWinCreditsAnImportedDesigner() {
     CHECK(out.target.drew(credit));
     CHECK(out.target.drew(picross::kPuzzles[imported].name));
   }
+
+  // The LONGEST designer name in the bank, drawn WHOLE. drew() only proves the
+  // string was handed to the renderer, and the renderer is what shortens it --
+  // a credit too wide for its band passes "did it draw?" while the panel reads
+  // "PUZZLE BY Hermann Kudli...". Finding the longest name by walking the table
+  // rather than naming one keeps this pointed at the worst case a later import
+  // introduces, instead of at whoever is longest today.
+  //
+  // WHAT THIS BOUNDS, precisely: FakeTarget measures a uniform 10px per
+  // character for every font, so this is a check on the credit's LENGTH against
+  // its band width (448px, i.e. ~44 characters), not on real glyph metrics. The
+  // longest name today, "PUZZLE BY Hermann Kudlich", measures 225px in toybox_10
+  // on the real cut -- measured off a 480x800 render, not computed here, because
+  // a host suite has no font. So the guard is the one that matters for a future
+  // import (a name roughly twice as long as any in the bank now), and it is NOT
+  // a claim that this suite has seen the real typeface.
+  {
+    int longest = -1;
+    std::size_t width = 0;
+    for (int p = 0; p < picross::kPuzzleCount; ++p) {
+      const picross::Provenance& prov = picross::provenanceOf(picross::kPuzzles[p]);
+      if (prov.source[0] == '\0') continue;
+      const std::size_t len = std::strlen(prov.author);
+      if (len > width) {
+        width = len;
+        longest = p;
+      }
+    }
+    CHECK(longest >= 0);
+    char widest[128];
+    std::snprintf(widest, sizeof(widest), "PUZZLE BY %s", picross::provenanceOf(picross::kPuzzles[longest]).author);
+    Rendered out;
+    picrossui::WinModel model;
+    model.cleared = &picross::kPuzzles[longest];
+    model.total = picross::kPuzzleCount;
+    buildPicrossWin(out, model);
+    if (!drewLabelWhole(out, widest)) std::printf("  credit %s does not fit its band\n", widest);
+    CHECK(drewLabelWhole(out, widest));
+  }
   {
     // Our own artwork has an empty source, and drawing "PUZZLE BY CrossPlay"
     // under every warmup would be noise that also makes the real credits

@@ -30,9 +30,17 @@ says so rather than quietly staying accurate about a smaller and smaller share.
 
 171 puzzles -- 80 at 10x10 and 91 at 15x15 -- designed by named individuals and
 published on <https://www.janko.at/Raetsel/Nonogramme/>. Each puzzle's page
-records its author and the note *"Lizenz: Freundliche Genehmigung des Autors"*:
-by kind permission of the author. Janko is the **publisher**; not one of these
-puzzles is authored by Otto or Angela Janko.
+records its author, and 515 of the 531 pages read during the crawl also carried
+the note *"Lizenz: Freundliche Genehmigung des Autors"*: by kind permission of
+the author. **That licence line is not in `janko-authors.json`** -- the crawl
+kept only the author, because its licence and source fields were German page
+furniture split on whitespace rather than data -- so the note is a fact about
+janko.at that this repository records but cannot prove. Every puzzle's `@source`
+URL is in `janko.txt`; the page is one click away. The author half of the claim
+IS checkable here, and is.
+
+Janko is the **publisher**; not one of these puzzles is authored by Otto or
+Angela Janko.
 
 **These are not ours and not public-domain. They are used here by permission,
 and a permission is not a licence.**
@@ -57,9 +65,13 @@ permission.** It does not extend to forks, downstream copies or redistribution
 by anyone else: it was granted to this project, by these people, for this use.
 If you want to ship these puzzles you have to ask them yourself.
 
-Deleting `janko.txt` and regenerating leaves a bank that is entirely CC0 and
-carries no permission question at all. That is the supported way to fork this
-app.
+Dropping `janko.txt` from `SOURCES` in `tools_local/picross/gen_picross.py` and
+regenerating leaves a bank that is entirely CC0 and carries no permission
+question at all. That is the supported way to fork this app, and it is why the
+two origins are separate files rather than one mixed one. (Delete the file
+without editing that list and the generator stops with a missing-file error
+rather than quietly emitting a shorter bank, which is the intended order of
+events.)
 
 ### The designers
 
@@ -86,21 +98,32 @@ have denied credit to six people who are named on every page of their own work.
 
     janko.at  ->  SmilingWayne/puzzlekit  ->  puzzlekit-dataset  ->  here
 
-The grids were taken from `puzzlekit-dataset`, whose README says its data is
-"mostly from Raetsel's Janko and puzz.link". **That dataset carries no LICENSE
-file and no provenance statement of any kind.** An intermediate holds no rights
-it can pass on, so nothing about the permission above came with the data: it
-rests entirely on the project owner's own correspondence with the designers and
-with Janko. The author names and source URLs here were re-derived from janko.at
-directly rather than trusted to the dataset, for the same reason.
+`SmilingWayne/puzzlekit`'s README says its data is "mostly from Raetsel's Janko
+and puzz.link", and that sentence -- in the tool repository, pointing at two
+sites at once -- is the whole of the origin statement anywhere in the chain. The
+grids themselves were taken from **`puzzlekit-dataset`**, the split-out data
+repository, and **that one carries no LICENSE file and no provenance statement
+at all**: not the Janko sentence, not a licence, not a per-puzzle author.
+
+An intermediate holds no rights it can pass on. Nothing about the permission
+above came with the data; it rests entirely on the project owner's own
+correspondence with the designers and with Janko. The author names and source
+URLs here were re-derived from janko.at directly rather than trusted to the
+dataset, for the same reason.
 
 ## How this file is enforced rather than believed
 
-`tools_local/picross/import_picross.py` refuses to write a non-redistributable
-corpus into this repository at all unless `--permission` cites a record here
-that states who granted it, that it is not a public licence, that it does not
-extend to forks, and when. The refusal is a mechanism rather than a review
-checklist because a checklist is not a mechanism.
+`tools_local/picross/import_picross.py` refuses to write a corpus into this
+repository under a licence it does not recognise as redistributable unless
+`--permission` cites a record here that states who granted it, that it is not a
+public licence, that it does not extend to forks, and a date in `YYYY-MM-DD`
+form. The refusal is a mechanism rather than a review checklist because a
+checklist is not a mechanism.
+
+What it cannot do is know whether the licence it was handed is the true one: an
+operator who types `--license cc0-1.0` over somebody else's puzzles is not
+stopped by anything in this repository. The guard makes the honest path
+recorded, not the dishonest one impossible.
 
 `host-tests/picross` asserts every puzzle names a provenance row that exists,
 that no row leaves its author or licence blank -- an empty licence and "all
@@ -146,8 +169,13 @@ the device.
 
 ## Bank composition
 
-239 puzzles, ordered easy-first within each size: 22 at 5x5, 108 at 10x10
-(28 ours, 80 imported), 109 at 15x15 (18 ours, 91 imported). Stored as
+239 puzzles: 22 at 5x5, 108 at 10x10 (28 ours, 80 imported), 109 at 15x15
+(18 ours, 91 imported). The bank is sorted by SIZE only -- the picker's size
+tabs need each size to be one contiguous run -- and the sort is stable, so
+within a size the fork's own pictures come first, in the order `pictures.txt`
+lists them, then the import in janko catalogue-number order. Nothing anywhere
+ranks a puzzle by difficulty; size is the only difficulty signal this bank has,
+and it is the one the tabs show. Stored as
 flash-resident `uint16_t rows[kMaxSize]` bitmaps (clues are never stored, only
 derived), so `kMaxSize` must stay <= 16 for the row type to hold a full row.
 

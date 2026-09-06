@@ -13,7 +13,7 @@
  "not_judged": "10x10 batches 5,6,7 and 15x15 batches 3,4,6,7 -- 251 of the 531. Rates are measured on the 280 judged, not on the whole corpus.",
  "keep_rate_among_judged": {
   "10x10": 0.5,
-  "15x15": 0.75
+  "15x15": 0.7583
  },
  "keep": {
   "10x10": [

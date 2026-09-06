@@ -162,8 +162,14 @@ PERMISSION_MUST_MENTION = (
     ("who granted it", ("granted by", "permission from", "permission was obtained")),
     ("that it is not a licence", ("not a licence", "not a license", "no public licence", "no public license")),
     ("that it does not travel to forks", ("does not extend", "does not transfer", "not inherited", "do not inherit")),
-    ("a date", ("20",)),
 )
+
+# The date is a PATTERN, not a needle. It was the substring "20", which the
+# record it guards satisfies with the words "20x20" and "217px" -- so a
+# permission file with every date stripped out of it passed, and the check that
+# the docs describe as requiring "when" required nothing at all. An ISO date is
+# the one form that cannot be a measurement.
+PERMISSION_DATE = re.compile(r"\b(?:19|20)\d\d-\d\d-\d\d\b")
 
 
 def check_permission(ref):
@@ -189,6 +195,8 @@ def check_permission(ref):
         return "--permission cites %s, which could not be read (%s)." % (ref, exc)
     missing = [label for label, needles in PERMISSION_MUST_MENTION
                if not any(n in text for n in needles)]
+    if not PERMISSION_DATE.search(text):
+        missing.append("a date (YYYY-MM-DD)")
     if missing:
         return ("%s does not record %s. A permission record has to state who granted it, "
                 "that it is not a public licence, that it does not extend to forks, and when."
@@ -205,28 +213,39 @@ def load_selection(path):
     Whether the finished picture is legible is a judgement somebody makes by
     looking, and the only place to keep that judgement is a list of ids.
 
+    Returned as {(size_or_None, id)}, and the SIZE is half the key whenever the
+    file carries one. A corpus keyed `<id>_<W>x<H>` can hold the same number at
+    two sizes -- janko does -- so a flat set of numbers would import a puzzle at
+    a size nobody judged, which is exactly the puzzle the curation exists to
+    keep out. A group named "10x10" or "10" pins its ids to that size; a flat
+    list pins nothing and matches any size.
+
     Accepts a flat JSON list, a JSON object whose values are lists (so the
     judgement can stay grouped by size, which is how it was made), or a plain
     text file of one id per line. Ids are compared as strings, because a corpus
-    key is a string and "0222" and "222" are different keys.
+    key is a string and "0222" and "222" are different keys. Keys beginning with
+    "_" are notes, not groups.
     """
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
     try:
         payload = json.loads(text)
     except ValueError:
-        return {line.strip() for line in text.splitlines()
+        return {(None, line.strip()) for line in text.splitlines()
                 if line.strip() and not line.startswith("#")}
     if isinstance(payload, dict):
         payload = payload.get("keep", payload)
     if isinstance(payload, dict):
         chosen = set()
-        for value in payload.values():
-            if isinstance(value, list):
-                chosen.update(str(v) for v in value)
+        for group, value in payload.items():
+            if group.startswith("_") or not isinstance(value, list):
+                continue
+            match = re.match(r"^(\d+)(?:x\1)?$", str(group))
+            size = int(match.group(1)) if match else None
+            chosen.update((size, str(v)) for v in value)
         return chosen
     if isinstance(payload, list):
-        return {str(v) for v in payload}
+        return {(None, str(v)) for v in payload}
     sys.exit("%s is not a list of ids, an object of lists, or one id per line." % path)
 
 
@@ -324,7 +343,9 @@ def main():
     ap.add_argument("--author", default="unknown", help="fallback author")
     ap.add_argument(
         "--author-map",
-        help="JSON {id: [author, source, ...]} overriding --author per puzzle",
+        help="JSON mapping a corpus id to its author, overriding --author per "
+             "puzzle. The value may be the name itself, {\"author\": name}, or "
+             "[author, ...]; keys beginning with _ are ignored as notes.",
     )
     ap.add_argument(
         "--source-template",
@@ -402,11 +423,12 @@ def main():
         # The curated filter runs BEFORE the gate, not after: the gate is the
         # expensive part (exhaustive uniqueness, seconds per 15x15) and there is
         # nothing to learn from proving a puzzle that is not being imported.
-        if chosen is not None and str(ident) not in chosen:
+        if chosen is not None and (size, str(ident)) not in chosen and (None, str(ident)) not in chosen:
             skipped_unchosen += 1
             continue
         if chosen is not None:
-            found.add(str(ident))
+            found.add((size, str(ident)))
+            found.add((None, str(ident)))
         name = "%s%s" % (args.name_prefix, ident)
         # A corpus import is a long job and the gate's cost per puzzle varies by
         # orders of magnitude, so it says where it is rather than going quiet
@@ -439,7 +461,11 @@ def main():
         if args.limit and len(kept) >= args.limit:
             break
 
-    permitted = bool(args.permission) and not free
+    # A record that was cited but never checked must not stamp the banner that
+    # says "the permission is recorded in X": outside the repo the guard above
+    # never runs, so the flag alone would assert a validation that did not
+    # happen. Re-checked here so the two can never disagree.
+    permitted = bool(args.permission) and not free and check_permission(args.permission) is None
     kept.sort(key=lambda entry: (entry[1], _natural(entry[0])))
 
     with open(out, "w", encoding="utf-8") as handle:
@@ -475,13 +501,14 @@ def main():
         # run excluded, or fails the gate silently shrinks the bank, and a
         # count that only reports what was written cannot tell those apart from
         # a list that was simply shorter than it looked.
-        absent = sorted(chosen - found, key=_natural)
+        absent = sorted(chosen - found, key=lambda e: _natural(e[1]))
         print()
-        print("  %d ids asked for, %d found in the corpus at these sizes, %d written"
-              % (len(chosen), len(found), len(kept)))
+        print("  %d ids asked for, %d found in the corpus at their stated sizes, %d written"
+              % (len(chosen), len(chosen) - len(absent), len(kept)))
         if absent:
-            print("  %d asked-for ids were not in the corpus at these sizes: %s"
-                  % (len(absent), ", ".join(absent[:20]) + (" ..." if len(absent) > 20 else "")))
+            named = ["%s@%s" % (i, s if s else "any") for s, i in absent]
+            print("  %d asked-for ids were not in the corpus at that size: %s"
+                  % (len(absent), ", ".join(named[:20]) + (" ..." if len(absent) > 20 else "")))
         print("  %d corpus puzzles were skipped as not chosen" % skipped_unchosen)
 
     named = sum(1 for entry in kept if entry[3] != args.author)

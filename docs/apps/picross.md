@@ -209,7 +209,7 @@ implementation of both properties (a line-solver and a solution counter over
 picture, plus the mistake/win/clue/restore rules of `PicrossCore`.
 
 ```bash
-./host-tests/picross/run.sh        # ~1800 checks
+./host-tests/picross/run.sh        # ~18k checks over 239 puzzles, ~95s
 ```
 
 A hand-edit to the generated file, or a bad merge, fails here rather than on the
@@ -247,7 +247,10 @@ hidden until the puzzle is done -- the name especially, because the name _is_ th
 answer, which is also why the board never shows it while you play.
 
 **The name has exactly one site on screen**: the win screen (`buildWin`), under
-the grade and above the revealed picture. Nothing else in the app draws it --
+the revealed picture and above the grade. (`buildWin` takes its bands with
+`takeBottom`, which stacks UPWARD, so the source order actions / grade / credit
+/ name reads bottom-to-top; on the panel it is picture, name, designer credit,
+grade, buttons.) Nothing else in the app draws it --
 not the picker, not the board, not the status strip. That is worth knowing
 before importing a corpus with no titles: a made-up or catalogue name cannot
 spoil anything, because it is never shown to anybody who has not already seen
@@ -272,8 +275,12 @@ read as belonging to the tile below).
 
 All three sizes fit the 480px-wide portrait panel: a 15x15 lands on ~19px cells
 after its clue gutters, a 5x5 on comfortably larger ones. The bank is
-`uint16_t rows[kMaxSize]` plus a name and a size per puzzle -- well under a couple
-of kilobytes -- so it is flash-resident like the dungeon's, with no SD pack.
+`uint16_t rows[kMaxSize]` plus a name, a size and a provenance index per puzzle.
+At 239 puzzles that is about **31KB** of flash: 9.5KB of `Puzzle` table, 2KB of
+`Provenance` table and ~20KB of strings, most of the last being the 171 janko
+source URLs. It stays flash-resident like the dungeon's, with no SD pack; the
+whole firmware image sits at 79% of its 7.94MB slot with it. Adding the import
+cost 33KB of image, which is the number to weigh a further import against.
 `kMaxSize` is computed by the generator from the widest picture (15 today); the
 row type is `uint16_t`, so **a picture wider than 16 needs the row type widened**
 and is why 20x20 is not shipped.
@@ -299,6 +306,15 @@ it instead of a prediction.
 
 Solved-progress is a bitset sized from the bank (`kProgressWords` 32-bit words in
 `Progress`), not the single word the original 17 used, and the on-SD save
-(`SaveState`, version 2) carries the same array. Every reader and writer walks the
-words; a host test marks bits either side of each 32-bit boundary so the widening
-stays honest.
+(`SaveState`, **version 4**) carries the same array. Every reader and writer walks
+the words; a host test marks bits either side of each 32-bit boundary so the
+widening stays honest.
+
+**Growing the bank changes that save even when no field is touched**, so
+`kSaveVersion` is bumped every time it grows. `kProgressWords` is derived from
+`kPuzzleCount`, so the struct changes size; and the bank is emitted size-sorted,
+so adding 10x10 puzzles renumbers every 15x15 and a solved bit that survived
+would name a different puzzle. Old progress cannot be migrated, only discarded --
+v3 was the `uint8_t` index, v4 the janko import -- and the version bump is what
+discards it deliberately, with a log line, rather than by a short read that says
+nothing.

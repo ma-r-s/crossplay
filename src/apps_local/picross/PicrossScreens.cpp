@@ -769,13 +769,20 @@ void buildWin(toybox::Screen& screen, const WinModel& model) {
   if (model.cleared != nullptr) {
     const picross::Provenance& prov = picross::provenanceOf(*model.cleared);
     if (prov.source != nullptr && prov.source[0] != '\0' && prov.author != nullptr) {
-      const fui::Rect creditBand = screen.takeBottom(22, 0);
+      // The band IS the line box, and the text is placed in it directly rather
+      // than through inkCentred. inkCentred centres the CAP band and is sound
+      // only for glyphs that sit on the baseline (ToyboxTokens.h says so), and
+      // a person's name is the one string on this screen that is not all-caps:
+      // the moment a designer called Nagy or Gruyter is imported, a descender
+      // would hang out of the box. None of the six names in the bank today has
+      // one, which is exactly why this would have shipped unnoticed.
+      const fui::Rect creditBand = screen.takeBottom(toybox::kTileCut.lineHeight, 0);
       char credit[kCreditChars];
       std::snprintf(credit, sizeof(credit), "PUZZLE BY %s", prov.author);
       fui::TextStyle creditStyle;
       creditStyle.font = toybox::kSmallFont;
       creditStyle.align = fui::TextAlign::Center;
-      screen.target().text(toybox::inkCentred(creditBand, toybox::kTileCut), credit, creditStyle);
+      screen.target().text(creditBand, credit, creditStyle);
     }
   }
 

@@ -5,7 +5,8 @@
 # janko.txt, holds 171 puzzles used BY PERMISSION of six named designers and
 # not under any public licence; they are a separate file precisely so this
 # sentence can stay true of this one, and so a fork that did not receive that
-# permission can drop them by deleting one file. See PROVENANCE.md.
+# permission can drop them by removing janko.txt from gen_picross.SOURCES. See
+# PROVENANCE.md.
 #
 # The three '@@' lines below are the file-level PROVENANCE, read by the
 # generator and written into the header beside every bitmap. They are what lets

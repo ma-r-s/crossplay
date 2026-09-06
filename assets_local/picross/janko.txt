@@ -8,9 +8,15 @@
 # Each puzzle carries its own author and its own source URL, so the credit
 # survives a merge, a re-sort and a partial copy in a way a paragraph does not.
 #
-# Corpus:  /private/tmp/claude-501/-Users-mario-Projects-Personal-Code-Xteink/8e1fa5ab-84b1-46e9-9fe0-84f6e89265b4/scratchpad/corpora/puzzlekit-dataset/assets/data/Nonogram/Nonogram_dataset.json
+# Corpus:  Nonogram_dataset.json
 # Licence: all rights reserved, used by permission
 # Puzzles: 171
+#
+# The command that regenerates this file is in docs/apps/picross.md. The corpus
+# is named here by FILE rather than by the path it was read from: that path is
+# whichever scratch directory the importing session happened to use, and a
+# committed file pointing at somebody's /tmp is worse than one that does not
+# pretend to know.
 
 @@license all rights reserved, used by permission
 
