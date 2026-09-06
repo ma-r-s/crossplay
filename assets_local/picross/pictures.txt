@@ -1,12 +1,16 @@
 # Picross pictures -- ORIGINAL artwork, authored for this fork (public domain /
-# CC0). No third-party source is used IN THIS FILE.
+# CC0). No third-party source is used in this file.
 #
-# This is one of two origin files the bank is built from. The other,
-# janko.txt, holds 171 puzzles used BY PERMISSION of six named designers and
-# not under any public licence; they are a separate file precisely so this
-# sentence can stay true of this one, and so a fork that did not receive that
-# permission can drop them by removing janko.txt from gen_picross.SOURCES. See
-# PROVENANCE.md.
+# NOT SHIPPED. gen_picross.SOURCES emits janko.txt alone; this file is not in
+# that list, so none of these 68 pictures is in the bank. Mario's call, and it
+# is about the pictures rather than the count: the hand-drawn artwork "is not
+# and won't be close to good enough" beside puzzles somebody designed. He also
+# dropped 5x5 as a tier, and every 5x5 here is hand-drawn.
+#
+# It stays in the repository as the worked example of the format and because
+# deleting a generator's input destroys reproducible work for nothing. Adding
+# it back to SOURCES and regenerating emits it. See PROVENANCE.md, which
+# records the decision so this does not get helpfully re-added.
 #
 # The three '@@' lines below are the file-level PROVENANCE, read by the
 # generator and written into the header beside every bitmap. They are what lets

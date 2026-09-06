@@ -503,17 +503,16 @@ void bankRecordsItsProvenance() {
     CHECK(prov.author != nullptr && prov.author[0] != '\0');
     CHECK(prov.license != nullptr && prov.license[0] != '\0');
     CHECK(prov.source != nullptr);
-    // A picture we did not draw has to say WHERE it came from. The bank now
-    // mixes the fork's own CC0 artwork with 171 puzzles used by permission of
-    // six named designers, and for those the source URL is not a courtesy: it
-    // is the only way a reader can check the claim in PROVENANCE.md against the
-    // page that carries the author's name. So the two fields move together --
-    // anything not under our own CC0 names its source, and a blank source is
-    // legal only for artwork that came from nowhere.
-    const bool ours = std::strcmp(prov.license, "CC0-1.0") == 0;
-    if (!ours && prov.source[0] == '\0')
+    // EVERY picture in this bank came from somewhere else, so every row has to
+    // say where. All 321 are used by permission of six named designers
+    // (assets_local/picross/PROVENANCE.md); the source URL is not a courtesy,
+    // it is the only way a reader can check that claim against the page
+    // carrying the author's name. The fork's own CC0 artwork is not shipped, so
+    // "a blank source means we drew it" no longer applies to anything here and
+    // a blank source is simply an unsourced third-party picture.
+    if (prov.source[0] == '\0')
       std::printf("  provenance %d (%s, %s) has no source URL\n", i, prov.author, prov.license);
-    CHECK(ours || prov.source[0] != '\0');
+    CHECK(prov.source[0] != '\0');
   }
 }
 

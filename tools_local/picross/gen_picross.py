@@ -49,18 +49,21 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 ASSETS = os.path.join(ROOT, "assets_local", "picross")
 OUTPUT = os.path.join(ROOT, "src", "apps_local", "picross", "PicrossPuzzles.h")
 
-# The bank is built from one file PER ORIGIN, in this order, and the order is the
-# on-ramp: the fork's own hand-drawn pictures come before the imported ones
-# within every size, because sort_by_size is stable.
+# The files the bank is built from. One file per origin, and a file is shipped
+# only by being in this list.
 #
-# One file per origin rather than one file with mixed provenance lines, because
-# the two carry different RIGHTS: pictures.txt is CC0 and janko.txt is used by
-# permission (assets_local/picross/PROVENANCE.md). Deleting janko.txt from this
-# list and regenerating is the supported way for a fork to drop the puzzles it
-# did not receive permission for, and that is only a one-line operation while
-# the origins are separate files.
+# pictures.txt IS DELIBERATELY NOT HERE. It holds 68 pictures this fork drew --
+# valid, CC0, and still generated on request -- and Mario's call is that the
+# hand-drawn artwork "is not and won't be close to good enough" beside the
+# designed puzzles, so the shipped bank is the import alone. The file stays in
+# the repository because deleting a generator's input destroys reproducible
+# work for nothing; add it back to this tuple to emit it. See
+# assets_local/picross/PROVENANCE.md, which records the decision so a later
+# session does not find 68 unused puzzles and helpfully re-add them.
+#
+# A file named here that is missing is a hard error, not a shorter bank: a
+# silently smaller bank is exactly the failure this list exists to prevent.
 SOURCES = (
-    os.path.join(ASSETS, "pictures.txt"),
     os.path.join(ASSETS, "janko.txt"),
 )
 

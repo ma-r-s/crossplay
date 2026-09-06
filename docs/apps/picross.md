@@ -3,16 +3,17 @@
 Where the puzzles in Picross came from, why they can be trusted, and the one
 rule decision that shapes every screen.
 
-The short version: 239 nonograms (22 at 5x5, 108 at 10x10, 109 at 15x15), every
-one proved to have exactly one solution and to be reachable by single-line
+The short version: 321 nonograms in two tiers (137 at 10x10, 184 at 15x15),
+every one proved to have exactly one solution and to be reachable by single-line
 reasoning, by a generator that refuses to emit any that are not.
 
-**They have two origins and two sets of rights.** 68 are original artwork drawn
-for this fork and placed in the public domain. The other 171 were designed by
-six named people, published on janko.at, and are used here BY PERMISSION -- a
-permission granted to this project, not a licence, and one a fork does not
-inherit. [`assets_local/picross/PROVENANCE.md`](../../assets_local/picross/PROVENANCE.md)
-is the record; read it before copying puzzles out of this repository.
+**Every one of them is third-party work.** They were designed by six named
+people, published on janko.at, and are used here BY PERMISSION -- a permission
+granted to this project, not a licence, and one a fork does not inherit.
+[`assets_local/picross/PROVENANCE.md`](../../assets_local/picross/PROVENANCE.md)
+is the record; read it before copying puzzles out of this repository. The fork's
+own 68 hand-drawn pictures are still in `assets_local/picross/pictures.txt` and
+are deliberately NOT in the bank -- Mario's call, recorded there.
 
 ## What the game is
 
@@ -51,25 +52,29 @@ off the count-based check -- the dependency is written at `Board::rowSatisfied`.
 ## Provenance and licence
 
 The bank is built from **one file per origin**, and the generator reads them in
-order (`gen_picross.SOURCES`):
+order (`gen_picross.SOURCES`), and **a file is shipped only by being in that
+list**:
 
-| file | puzzles | origin | rights |
-|---|---|---|---|
-| `assets_local/picross/pictures.txt` | 68 | drawn for this fork | CC0 1.0 |
-| `assets_local/picross/janko.txt` | 171 | janko.at, six named designers | used by permission |
+| file | puzzles | origin | rights | in the bank |
+|---|---|---|---|---|
+| `assets_local/picross/janko.txt` | 321 | janko.at, six named designers | used by permission | yes |
+| `assets_local/picross/pictures.txt` | 68 | drawn for this fork | CC0 1.0 | **no** |
 
-Separate files rather than one mixed file, because the two carry different
-rights: **deleting `janko.txt` from `SOURCES` and regenerating leaves a bank
-that is entirely CC0**, which is the supported way for a fork to drop the
-puzzles it was not given permission for. That is only a one-line operation while
-the origins are separate. `parse()` also starts each file with fresh file-level
-defaults, so one file's `@@license` can never leak onto the other's puzzles.
+`pictures.txt` is not in `SOURCES`. Its 68 pictures are valid, pass the same
+gate and are CC0, and Mario's call is that the hand-drawn artwork "is not and
+won't be close to good enough" beside puzzles somebody designed; he also dropped
+5x5 as a tier, and every 5x5 in it is hand-drawn. The file stays as the worked
+example of the format -- adding it back to `SOURCES` is one line -- and
+`PROVENANCE.md` records the decision so it does not get helpfully re-added. A
+file named in `SOURCES` that is missing is a hard error, not a shorter bank.
 
-For the hand-drawn half: author a batch of candidates and triage them with
-`gen_picross.py --curate` (PASS/FAIL per picture, no emit); only the passers go
-into `pictures.txt`.
+`parse()` starts each file with fresh file-level defaults, so if the bank ever
+mixes origins again one file's `@@license` cannot leak onto the other's puzzles.
 
-For the imported half: the permission was obtained by the project owner from
+To author more of our own: write candidates into `pictures.txt` and triage them
+with `gen_picross.py --curate` (PASS/FAIL per picture, no emit).
+
+For the shipped puzzles: the permission was obtained by the project owner from
 the designers Yilmaz Ekici and Danilo Kusmin, and separately from Otto Janko for
 the collection, on 2026-09-05. It is **not a public licence**, it does not
 extend to forks, and it did not come with the data -- the grids travelled
@@ -128,17 +133,29 @@ picture is simply not in the data the gate looks at.
 
 So the import is **curated**, not bulk. `--ids` takes a file of corpus ids and
 imports only those; [`assets_local/picross/janko-selection.json`](../../assets_local/picross/janko-selection.json)
-is the list, with the method that produced it and the counts it rests on. 280 of
-the 531 gate-passing candidates were judged by eye at thumbnail scale, one
-question each: could the subject be named without the caption? 171 were kept
-(about half the 10x10s, about three quarters of the 15x15s). The remaining 251
-were never judged and are therefore not shipped -- padding the bank with them
-would add puzzles that solve into noise, which is exactly the failure the
-judgement exists to catch.
+is the list, with the method that produced it and the counts it rests on.
+
+**All 531 gate-passing candidates were judged**, one question each: could the
+subject be named without the caption telling you? 321 were kept -- **137 of 263
+at 10x10 (52%) and 184 of 268 at 15x15 (69%)**. Both the keeps and the drops are
+recorded, so a second opinion can disagree with a specific puzzle rather than
+with a rate.
+
+Two things make the judgement worth trusting. It is made **at the size the
+picture is actually seen**: contact sheets of 48, rendered at 9px cells for a
+10x10 and 6px for a 15x15, which is the ~90px picture the picker draws a solved
+tile at. A picture that only reads when blown up is a false keep. And the
+question stays the same one -- a puzzle that solves into an interesting-looking
+pattern nobody can name is a drop, however much structure it has.
 
 `assets_local/picross/janko-authors.json` records the author of all 531
 candidates, read from each puzzle's own page, so "every puzzle has a named
 author" can be checked rather than believed.
+
+**The 10x10 tier is a real on-ramp, not a token one**: 137 puzzles against the
+15x15's 184. The corpus is more legible at 15x15 (69% against 52%) because a
+bigger grid draws a better picture, but 10x10 passes enough of them that the
+bank does not have to open on its hardest size.
 
 ### Reproducing the imported half
 
@@ -169,7 +186,7 @@ an import setting.
 ## Verification
 
 Two implementations of "unique" and "line-solvable", in different languages,
-agreeing on all 239 puzzles. This is the app's equivalent of the dungeon bank's
+agreeing on all 321 puzzles. This is the app's equivalent of the dungeon bank's
 cross-check.
 
 **In Python, at generation time.**
@@ -209,7 +226,7 @@ implementation of both properties (a line-solver and a solution counter over
 picture, plus the mistake/win/clue/restore rules of `PicrossCore`.
 
 ```bash
-./host-tests/picross/run.sh        # ~18k checks over 239 puzzles, ~95s
+./host-tests/picross/run.sh        # ~28k checks over 321 puzzles
 ```
 
 A hand-edit to the generated file, or a bad merge, fails here rather than on the
@@ -258,8 +275,8 @@ the picture. It only has to be a decent punchline once.
 
 ## The picker: size tabs, one selection language
 
-239 puzzles is far too many for one grid, so the picker is **size-tabbed**: a row of
-`5x5 / 10x10 / 15x15` tabs across the top, each carrying its own solved count, over
+321 puzzles is far too many for one grid, so the picker is **size-tabbed**: a row of
+`10x10 / 15x15` tabs across the top, each carrying its own solved count, over
 a 4-column paged grid of that size (page dots below). It opens on the tab and page
 that contain the puzzle RESUME/PLAY would open. Chosen from three rendered variants
 (a solid grid, a list, and this tabbed grid) and a cold review of them; the tabs
@@ -273,14 +290,16 @@ read as belonging to the tile below).
 
 ## Sizes and storage
 
-All three sizes fit the 480px-wide portrait panel: a 15x15 lands on ~19px cells
-after its clue gutters, a 5x5 on comfortably larger ones. The bank is
+Both tiers fit the 480px-wide portrait panel: a 15x15 lands on ~19px cells after
+its clue gutters, a 10x10 on ~37px ones. (The code still handles 5x5, and
+`pictures.txt` has 22 of them; the tier is simply not shipped.) The bank is
 `uint16_t rows[kMaxSize]` plus a name, a size and a provenance index per puzzle.
-At 239 puzzles that is about **31KB** of flash: 9.5KB of `Puzzle` table, 2KB of
-`Provenance` table and ~20KB of strings, most of the last being the 171 janko
-source URLs. It stays flash-resident like the dungeon's, with no SD pack; the
-whole firmware image sits at 79% of its 7.94MB slot with it. Adding the import
-cost 33KB of image, which is the number to weigh a further import against.
+At 321 puzzles that is about **51KB** of flash: 13KB of `Puzzle` table, 4KB of
+`Provenance` table and ~34KB of strings, most of the last being the 321 janko
+source URLs -- a URL costs more than the picture it points at. It stays
+flash-resident like the dungeon's, with no SD pack. That is the number to weigh
+a further import against, and the URL share is where a bigger one would be
+trimmed first (a per-collection prefix plus an id would halve it).
 `kMaxSize` is computed by the generator from the widest picture (15 today); the
 row type is `uint16_t`, so **a picture wider than 16 needs the row type widened**
 and is why 20x20 is not shipped.

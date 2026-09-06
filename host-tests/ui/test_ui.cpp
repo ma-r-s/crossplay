@@ -8,6 +8,7 @@
 // stable and the screens change every time Mario asks for something. Two real
 // bugs this file would have caught the day they were written are pinned below.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -10260,19 +10261,22 @@ void testPicrossPickerHidesUnsolvedNames() {
 // puzzle index through the layout. A tap-resolution bug here opens the wrong
 // puzzle, which the sim cannot catch (it never runs InputManager).
 void testPicrossPickerGroupsAndPagesBySize() {
-  // The bank stores each size contiguously; recover the 10x10 and 15x15 starts.
-  int start10 = -1;
-  int start15 = -1;
-  for (int i = 1; i < picross::kPuzzleCount; ++i) {
-    if (picross::kPuzzles[i].size != picross::kPuzzles[i - 1].size) {
-      if (start10 < 0)
-        start10 = i;
-      else if (start15 < 0)
-        start15 = i;
+  // The bank stores each size contiguously. Recover the start of every group by
+  // scanning, exactly as the picker does, rather than naming the sizes: the
+  // bank has held two tiers and three at different times, and a test that spells
+  // "10x10" and "15x15" starts failing on a bank change that is not a bug.
+  int start[picross::kSizeGroupCount] = {};
+  int groups = 0;
+  for (int i = 0; i < picross::kPuzzleCount; ++i) {
+    if (i == 0 || picross::kPuzzles[i].size != picross::kPuzzles[i - 1].size) {
+      CHECK(groups < picross::kSizeGroupCount);
+      start[groups++] = i;
     }
   }
-  CHECK(start10 > 0);
-  CHECK(start15 > start10);
+  CHECK(groups == picross::kSizeGroupCount);
+  CHECK(groups >= 2);
+  // Tab 1 is the second tier, whatever size that is today.
+  const int start10 = start[1];
   picross::Progress progress;
 
   // Tab 1 (10x10), page 0: first tile is the group start, and the centre of
@@ -10330,15 +10334,19 @@ void testPicrossPickerGroupsAndPagesBySize() {
     model.sizeTab = 1;
     picrossui::PickerLayout layout;
     buildPicrossMenu(out, model, layout);
-    bool sawTab[3] = {false, false, false};
+    bool sawTab[picross::kSizeGroupCount] = {};
     bool sawPage = false;
     for (int y = 2; y < 800; y += 6)
       for (int x = 2; x < 480; x += 6) {
         const fui::ActionEvent e = out.tap(x, y);
-        if (e.action == picrossui::ActionTab && e.value >= 0 && e.value < 3) sawTab[e.value] = true;
+        if (e.action == picrossui::ActionTab && e.value >= 0 && e.value < picross::kSizeGroupCount)
+          sawTab[e.value] = true;
         if (e.action == picrossui::ActionPage) sawPage = true;
       }
-    CHECK(sawTab[0] && sawTab[1] && sawTab[2]);
+    for (int t = 0; t < picross::kSizeGroupCount; ++t) {
+      if (!sawTab[t]) std::printf("  tab %d of %d has no tap target\n", t, picross::kSizeGroupCount);
+      CHECK(sawTab[t]);
+    }
     CHECK(sawPage);
   }
 }
@@ -10425,69 +10433,70 @@ void testPicrossPickerFitsTheInteractionBuffer() {
   }
 }
 
-// A picture somebody else drew is CREDITED on the win screen, and one of ours
-// is not. 171 of the puzzles in the bank are used by kind permission of six
-// named designers and are not licensed to anyone (assets_local/picross/
-// PROVENANCE.md); the credit is the least this screen owes them, and a claim in
-// a provenance file that no screen actually honours is worse than no claim.
+// Every picture in the bank is CREDITED on the win screen, by name, and the
+// credit fits its band.
 //
-// Both puzzles are FOUND in the bank by their provenance rather than named by
-// index: a re-sorted or re-imported bank moves every index, and a test pinned
-// to one would start checking a different puzzle without failing.
-void testPicrossWinCreditsAnImportedDesigner() {
-  int imported = -1;
-  int ourOwn = -1;
-  for (int p = 0; p < picross::kPuzzleCount && (imported < 0 || ourOwn < 0); ++p) {
+// All 321 shipped puzzles are used by kind permission of six named designers
+// and are not licensed to anybody (assets_local/picross/PROVENANCE.md), so the
+// credit is the least this screen owes them, and a claim in a provenance file
+// that no screen honours is worse than no claim.
+//
+// buildWin draws the credit only when the puzzle names a SOURCE. Nothing in
+// this bank has an empty source -- the fork's own CC0 artwork is no longer
+// emitted -- so that guard is unreachable from the shipped data and is kept for
+// a bank that mixes origins again. What is testable, and tested here, is that
+// the condition holds for every puzzle: sweep the whole bank rather than
+// sampling, because a single row whose source went missing would silently lose
+// its designer's name and nothing else would report it.
+void testPicrossWinCreditsEveryDesigner() {
+  int longest = -1;
+  std::size_t width = 0;
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
     const picross::Provenance& prov = picross::provenanceOf(picross::kPuzzles[p]);
-    if (prov.source[0] != '\0') {
-      if (imported < 0) imported = p;
-    } else if (ourOwn < 0) {
-      ourOwn = p;
+    if (prov.source[0] == '\0') std::printf("  puzzle %s names no source\n", picross::kPuzzles[p].name);
+    CHECK(prov.source[0] != '\0');
+    const std::size_t len = std::strlen(prov.author);
+    if (len > width) {
+      width = len;
+      longest = p;
     }
   }
-  CHECK(ourOwn >= 0);
-  CHECK(imported >= 0);
+  CHECK(longest >= 0);
 
-  char credit[128];
-  std::snprintf(credit, sizeof(credit), "PUZZLE BY %s", picross::provenanceOf(picross::kPuzzles[imported]).author);
-  {
+  // One puzzle rendered per DISTINCT designer, not per puzzle: 321 renders
+  // would say nothing 6 does not, and the string is built from the author.
+  std::vector<std::string> seen;
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    const std::string author = picross::provenanceOf(picross::kPuzzles[p]).author;
+    if (std::find(seen.begin(), seen.end(), author) != seen.end()) continue;
+    seen.push_back(author);
+    char credit[128];
+    std::snprintf(credit, sizeof(credit), "PUZZLE BY %s", author.c_str());
     Rendered out;
     picrossui::WinModel model;
-    model.cleared = &picross::kPuzzles[imported];
+    model.cleared = &picross::kPuzzles[p];
     model.total = picross::kPuzzleCount;
     buildPicrossWin(out, model);
+    if (!out.target.drew(credit)) std::printf("  %s is not credited\n", credit);
     CHECK(out.target.drew(credit));
-    CHECK(out.target.drew(picross::kPuzzles[imported].name));
+    CHECK(out.target.drew(picross::kPuzzles[p].name));
   }
+  CHECK(seen.size() >= 6);
 
-  // The LONGEST designer name in the bank, drawn WHOLE. drew() only proves the
-  // string was handed to the renderer, and the renderer is what shortens it --
-  // a credit too wide for its band passes "did it draw?" while the panel reads
-  // "PUZZLE BY Hermann Kudli...". Finding the longest name by walking the table
-  // rather than naming one keeps this pointed at the worst case a later import
-  // introduces, instead of at whoever is longest today.
+  // The LONGEST designer name, drawn WHOLE. drew() only proves the string was
+  // handed to the renderer, and the renderer is what shortens it -- a credit too
+  // wide for its band passes "did it draw?" while the panel reads "PUZZLE BY
+  // Hermann Kudli...".
   //
   // WHAT THIS BOUNDS, precisely: FakeTarget measures a uniform 10px per
   // character for every font, so this is a check on the credit's LENGTH against
   // its band width (448px, i.e. ~44 characters), not on real glyph metrics. The
-  // longest name today, "PUZZLE BY Hermann Kudlich", measures 225px in toybox_10
-  // on the real cut -- measured off a 480x800 render, not computed here, because
-  // a host suite has no font. So the guard is the one that matters for a future
-  // import (a name roughly twice as long as any in the bank now), and it is NOT
-  // a claim that this suite has seen the real typeface.
+  // longest name today, "PUZZLE BY Hermann Kudlich", measures 225px in
+  // toybox_10 on the real cut -- measured off a 480x800 render, not computed
+  // here, because a host suite has no font. So the guard is the one that matters
+  // for a future import (a name roughly twice as long as any in the bank now),
+  // and it is NOT a claim that this suite has seen the real typeface.
   {
-    int longest = -1;
-    std::size_t width = 0;
-    for (int p = 0; p < picross::kPuzzleCount; ++p) {
-      const picross::Provenance& prov = picross::provenanceOf(picross::kPuzzles[p]);
-      if (prov.source[0] == '\0') continue;
-      const std::size_t len = std::strlen(prov.author);
-      if (len > width) {
-        width = len;
-        longest = p;
-      }
-    }
-    CHECK(longest >= 0);
     char widest[128];
     std::snprintf(widest, sizeof(widest), "PUZZLE BY %s", picross::provenanceOf(picross::kPuzzles[longest]).author);
     Rendered out;
@@ -10498,34 +10507,23 @@ void testPicrossWinCreditsAnImportedDesigner() {
     if (!drewLabelWhole(out, widest)) std::printf("  credit %s does not fit its band\n", widest);
     CHECK(drewLabelWhole(out, widest));
   }
-  {
-    // Our own artwork has an empty source, and drawing "PUZZLE BY CrossPlay"
-    // under every warmup would be noise that also makes the real credits
-    // easier to skip over.
-    Rendered out;
-    picrossui::WinModel model;
-    model.cleared = &picross::kPuzzles[ourOwn];
-    model.total = picross::kPuzzleCount;
-    buildPicrossWin(out, model);
-    char ours[128];
-    std::snprintf(ours, sizeof(ours), "PUZZLE BY %s", picross::provenanceOf(picross::kPuzzles[ourOwn]).author);
-    CHECK(!out.target.drew(ours));
-    CHECK(out.target.drew(picross::kPuzzles[ourOwn].name));
-  }
 }
 
 // The reveal names the picture and grades the solve. Zero mistakes is PERFECT.
 void testPicrossWinRevealsNameAndGrade() {
   Rendered out;
   picrossui::WinModel model;
-  model.cleared = &picross::kPuzzles[0];  // HEART
+  model.cleared = &picross::kPuzzles[0];
   model.mistakes = 0;
   model.solvedCount = 1;
   model.total = picross::kPuzzleCount;
   model.moreToPlay = true;
   buildPicrossWin(out, model);
   CHECK(out.target.drew("SOLVED"));
-  CHECK(out.target.drew("HEART"));
+  // The bank's own first name, not a literal: this used to spell "HEART" and
+  // went red when the hand-drawn pictures stopped being emitted, which is a
+  // bank change rather than a bug in the screen it is testing.
+  CHECK(out.target.drew(picross::kPuzzles[0].name));
   CHECK(out.target.drew("PERFECT -- NO MISTAKES"));
   CHECK(out.target.drew("NEXT"));
 
@@ -10938,7 +10936,7 @@ int main() {
   testPicrossPickerHidesUnsolvedNames();
   testPicrossPickerGroupsAndPagesBySize();
   testPicrossPickerFitsTheInteractionBuffer();
-  testPicrossWinCreditsAnImportedDesigner();
+  testPicrossWinCreditsEveryDesigner();
   testPicrossWinRevealsNameAndGrade();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
