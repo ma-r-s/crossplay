@@ -1133,22 +1133,75 @@ void XkcdActivity::runUpdate() {
     return;
   }
 
+  // How many there are to get, COUNTED rather than written down as
+  // latest - have: 404 is not a comic and the difference is off by one
+  // whenever it is in range. A denominator the reader is shown has to be
+  // derived from the same walk that produces the numerator; see the memory
+  // derived-facts-written-as-literals.
+  int toGet = 0;
+  for (uint16_t n = static_cast<uint16_t>(have + 1); n <= latest; ++n) {
+    if (n != 404) ++toGet;
+  }
+
+  fetched_ = 0;
+  // The highest number that ACTUALLY arrived, not the highest that exists.
+  // The header patch below publishes this as the archive's maxNum, and maxNum
+  // is what the next update subtracts from. See the comment there.
+  uint16_t lastGot = have;
+  bool cancelled = false;
+  bool homeAfterCancel = false;
+  int attempted = 0;
+  for (uint16_t n = static_cast<uint16_t>(have + 1); n <= latest; ++n) {
+    if (n == 404) continue;  // not a comic, and that is the joke
+
+    // SAY WHAT IS HAPPENING BEFORE EACH COMIC. fetchOne() is a metadata fetch,
+    // an artwork download and a PNG decode -- seconds each, nothing repainting
+    // inside it -- and this loop runs once per comic missed since the last
+    // update. xkcd publishes three a week, so a reader a season behind waits
+    // minutes on one frame that says "Asking xkcd.com what is new", which
+    // stopped being true at the first iteration. A screen that says nothing for
+    // minutes reads as a crash (memory a-silent-screen-reads-as-a-crash); this
+    // is the last of card #306's list still silent.
+    //
+    // requestUpdateAndWait(), not requestUpdate(): loop() is blocked for the
+    // whole run, so a deferred update never reaches the tail of
+    // ActivityManager::loop() that consumes it and nothing would repaint at
+    // all. The wait is also what puts the frame on the glass BEFORE the next
+    // socket opens rather than racing it. Same shape as runPackDownload()
+    // above, and the input pump below is the same sanctioned exception to the
+    // one-pump rule: nothing else pumps while this blocks, and without it Back
+    // could not stop a catch-up that has minutes left to run.
+    ++attempted;
+    snprintf(noticeBody_, sizeof(noticeBody_), "Comic %d of %d: #%u. Back stops it.", attempted, toGet,
+             static_cast<unsigned>(n));
+    requestUpdateAndWait();
+    mappedInput.update();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) cancelled = true;
+    // The pump above consumes the one-shot home event before ActivityManager
+    // can see it; treat it as a cancel too rather than dropping the intent.
+    // The user lands on the STOPPED notice and their next Home works.
+    if (mappedInput.wasHomeGesture()) {
+      cancelled = true;
+      homeAfterCancel = true;
+    }
+    // Before the fetch, not after: stopping is only worth offering if it does
+    // not first sit through the download it was meant to skip.
+    if (cancelled) break;
+
+    if (!fetchOne(n, why, sizeof(why))) {
+      LOG_ERR("XKCD", "stopped at #%u: %s", static_cast<unsigned>(n), why);
+      break;
+    }
+    ++fetched_;
+    lastGot = n;
+  }
+
   // The header has to be rewritten after appending, because the count and the
   // highest number both live in it. Done once at the end rather than per
   // comic: a half-finished run then leaves a pack whose header is honest about
   // fewer comics than the files hold, which reads correctly and simply misses
   // the tail. The opposite order would leave a header promising records that
   // are not there.
-  fetched_ = 0;
-  for (uint16_t n = static_cast<uint16_t>(have + 1); n <= latest; ++n) {
-    if (n == 404) continue;  // not a comic, and that is the joke
-    if (!fetchOne(n, why, sizeof(why))) {
-      LOG_ERR("XKCD", "stopped at #%u: %s", static_cast<unsigned>(n), why);
-      break;
-    }
-    ++fetched_;
-  }
-
   if (fetched_ > 0) {
     // **Not openFileForWrite.** It carries O_TRUNC, and calling it here -- with
     // a comment saying why it must not be called -- emptied index.dat before
@@ -1166,7 +1219,13 @@ void XkcdActivity::runUpdate() {
       head[1] = static_cast<uint8_t>((total >> 8) & 0xFF);
       head[2] = static_cast<uint8_t>((total >> 16) & 0xFF);
       head[3] = static_cast<uint8_t>((total >> 24) & 0xFF);
-      const uint32_t top = latest;
+      // lastGot, NOT latest. This field IS the archive's maxNum (XkcdCore reads
+      // it back from offset 12), and the next update computes what to fetch as
+      // everything above maxNum. Publishing `latest` after a run that stopped
+      // early -- a failed comic, and now a cancelled one -- claims comics the
+      // card does not hold and makes every later update answer UP TO DATE. The
+      // gap would then be unreachable short of deleting the pack.
+      const uint32_t top = lastGot;
       head[4] = static_cast<uint8_t>(top & 0xFF);
       head[5] = static_cast<uint8_t>((top >> 8) & 0xFF);
       head[6] = static_cast<uint8_t>((top >> 16) & 0xFF);
@@ -1182,7 +1241,14 @@ void XkcdActivity::runUpdate() {
   }
 
   char body[192];
-  if (fetched_ == 0) {
+  if (cancelled) {
+    // Kept, not discarded: each comic was committed as it arrived, and the
+    // header above now names the last one that really did. The next update
+    // starts from there.
+    snprintf(body, sizeof(body), "Stopped. %d of %d kept; the rest are still there next time.%s", fetched_, toGet,
+             homeAfterCancel ? " Home works now." : "");
+    showNotice("STOPPED", body);
+  } else if (fetched_ == 0) {
     snprintf(body, sizeof(body), "%s", why[0] ? why : "Nothing was added.");
     showNotice("NOTHING NEW", body);
   } else {

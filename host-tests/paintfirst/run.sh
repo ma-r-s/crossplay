@@ -229,5 +229,74 @@ else bad "a sync_.pairAbandon() in $INS is not preceded by paintBusyNow(); that 
 if reached "$(stmt "$I2" 'renderer\.displayBuffer\(\)')" "$(body "$INS" '^void InstapaperActivity::render[(]')"; then ok
 else bad "InstapaperActivity::render() has no REACHABLE displayBuffer() at function-body level"; fi
 
+# ---------------------------------------------------------------------------
+# CASE 4: xkcd's catch-up. Not a mis-ordered busy state and not a missing one:
+# the busy state is correct, it is painted before the run starts, and then the
+# app spends MINUTES on a frame that has stopped being true.
+#
+# runUpdate() fetches every comic published since the last update, one at a
+# time. Each fetchOne() is a metadata fetch, an artwork download and a PNG
+# decode -- seconds -- and xkcd publishes three a week, so a reader a season
+# behind sits through forty of them. The panel said "Asking xkcd.com what is
+# new" for the whole run, which was true for the first HTTP request and a lie
+# for the rest of the minutes. Painting once at the start does not survive a
+# loop; the frame has to keep saying which one it is on.
+#
+# Inside the loop is the assertion, and the INDENT is how that is asserted: a
+# paint hoisted above the `for` would satisfy any presence check while showing
+# the same sentence forty times, which on e-ink is a full-screen flash carrying
+# no new information -- worse than not repainting at all.
+# ---------------------------------------------------------------------------
+XKCD=src/apps_local/xkcd/XkcdActivity.cpp
+need_file "$XKCD"
+upd=$(body "$XKCD" '^void XkcdActivity::runUpdate[(]')
+
+# The caption is REWRITTEN each time round, at loop indent.
+if has_re "$(printf '^%ssnprintf\\(noticeBody_,' "$I4")" "$upd"; then ok
+else bad "runUpdate() does not rewrite noticeBody_ at loop indent; a repaint that shows the same sentence for every comic tells the reader nothing and costs a full e-ink refresh each time"; fi
+
+# ...and the repaint that publishes it is inside the loop, not hoisted above it.
+if has_re "$(stmt "$I4" 'requestUpdateAndWait\(\)')" "$upd"; then ok
+else bad "runUpdate() has no requestUpdateAndWait() at loop indent; the catch-up runs for minutes with one frame on the panel (a plain requestUpdate() cannot help here -- loop() is blocked, so the tail that consumes it is never reached)"; fi
+
+# Caption first, then the paint. The other order publishes the previous comic's
+# number and the last one is never shown at all.
+if printf '%s\n' "$upd" | ahead_re "$(printf '^%ssnprintf\\(noticeBody_,' "$I4")" "$(stmt "$I4" 'requestUpdateAndWait\(\)')"; then ok
+else bad "runUpdate() repaints before it rewrites the caption; every frame would name the comic before the one being fetched"; fi
+
+# EVERY fetchOne() is preceded by a paint. There is one today; a second added
+# without one is a second silent stretch.
+if printf '%s\n' "$upd" | preceded_within '^[[:space:]]+requestUpdateAndWait[(][)];' 'fetchOne[(]' 10; then ok
+else bad "a fetchOne() in runUpdate() is not preceded by requestUpdateAndWait(); that comic is fetched with a stale frame on the panel"; fi
+
+# Back stops it, and the check is BEFORE the fetch: a cancel that first sits
+# through the download it was meant to skip is not a cancel.
+if has_re "$(stmt "$I4" 'mappedInput\.update\(\)')" "$upd"; then ok
+else bad "runUpdate() never pumps input inside the loop, so Back cannot be seen for the whole catch-up (this is the sanctioned exception to the one-pump rule: loop() is blocked and nothing else pumps)"; fi
+
+if has_re 'wasReleased\(MappedInputManager::Button::Back\)' "$upd"; then ok
+else bad "runUpdate() does not read Back; the reader has no way out of a multi-minute catch-up"; fi
+
+if printf '%s\n' "$upd" | ahead_re "$(stmt "$I4" 'if \(cancelled\) break')" 'fetchOne\('; then ok
+else bad "runUpdate() does not break on cancel BEFORE fetchOne(); a Back that still waits out one whole comic reads as ignored"; fi
+
+# THE COST OF OFFERING A STOP, and the reason this check is in a paint suite.
+# The header patched at the end of runUpdate() IS the archive's maxNum (XkcdCore
+# reads it back from offset 12) and the next update fetches everything above it.
+# Publishing `latest` after a run that stopped early claims comics the card does
+# not hold, and every later update then answers UP TO DATE with the gap
+# unreachable. A cancel button turns that from a rare failure path into the
+# normal one. Spelling, not semantics: it catches the regression that exists,
+# and it is cheaper than proving provenance from a source scan.
+if has_re 'const uint32_t top = latest;' "$upd"; then
+  bad "runUpdate() publishes latest as the archive's maxNum; after a stopped or failed run that claims comics the card does not have, and every later update answers UP TO DATE with the missing ones unreachable"
+else ok; fi
+
+if printf '%s\n' "$upd" | ahead_re "$(stmt "$I4" '\+\+fetched_')" "$(stmt "$I4" 'lastGot = n')"; then ok
+else bad "runUpdate() does not record the last comic that actually arrived immediately after counting it; the header patch has nothing honest to publish"; fi
+
+if reached "$(stmt "$I2" 'renderer\.displayBuffer\(\)')" "$(body "$XKCD" '^void XkcdActivity::render[(]')"; then ok
+else bad "XkcdActivity::render() has no REACHABLE displayBuffer() at function-body level; every frame above would be built and never shown"; fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
