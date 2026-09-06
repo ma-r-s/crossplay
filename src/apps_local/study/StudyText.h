@@ -619,4 +619,82 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
   return y;
 }
 
+// Would this font draw `text` as the wrap will actually lay it out, with
+// nothing missing and no run left overhanging the screen?
+//
+// Two ways a face fails a card, both ending in one you cannot read. Nothing
+// painted at all -- stale or mis-built fonts, or a Latin-only face handed a
+// CJK headword -- shows as a total measured width of zero. And a single
+// unbreakable run wider than the screen: the wrap breaks on spaces and beside
+// wide-script characters, so "capricious" at headword size has nowhere to
+// break and hangs off both edges. Measured the same way the wrap breaks
+// lines, so the two cannot disagree.
+//
+// `measure(fontId, text)` is the same pixel-width function drawWrappedMarked
+// takes. `buffer`/`bufferBytes` is the caller's scratch, sized like the wrap's
+// own line buffer since the runs being measured here are the same ones.
+//
+// A wide-script character -- kana, a hanzi, CJK punctuation -- is breakable on
+// its own, which is what makes it a run of exactly one rather than part of a
+// longer word. It still has to be MEASURED as that one-glyph run: an earlier
+// version flushed the run built so far and moved on without ever copying the
+// wide character into the buffer, so a string that is nothing but wide
+// characters -- a bare kana or kanji headword, the ordinary case for every
+// Japanese and Chinese deck -- left the buffer permanently empty, nothing was
+// ever weighed, and a font that drew the card perfectly was rejected as
+// drawing nothing. Every such headword then fell back to the built-in serif,
+// which has none of them, and drew as a literal question mark.
+template <typename Measure>
+bool fitsAsDrawn(const int fontId, const char* text, const int maxWidth, Measure measure, char* buffer,
+                 const int bufferBytes) {
+  if (text == nullptr) return false;
+  int runLength = 0;
+  int painted = 0;
+  bool fits = true;
+
+  const auto runFits = [&]() {
+    if (runLength == 0) return true;
+    buffer[runLength] = '\0';
+    runLength = 0;
+    const int width = measure(fontId, buffer);
+    painted += width;
+    return width <= maxWidth;
+  };
+
+  forEachRubySegment(text, [&](const RubySegment& segment) {
+    if (!fits) return;
+    const char* const end = segment.base + segment.baseBytes;
+    for (const char* p = segment.base; p < end;) {
+      const char* at = p;
+      const uint32_t codepoint = nextCodepoint(p);
+      if (codepoint == 0) break;
+      const int bytes = static_cast<int>(p - at);
+      if (isBreakable(codepoint)) {
+        if (!runFits()) {
+          fits = false;
+          return;
+        }
+        if (bytes < bufferBytes - 1) {
+          for (int i = 0; i < bytes; ++i) buffer[runLength++] = at[i];
+        }
+        if (!runFits()) {
+          fits = false;
+          return;
+        }
+        continue;
+      }
+      if (runLength + bytes < bufferBytes) {
+        for (int i = 0; i < bytes; ++i) buffer[runLength++] = at[i];
+      }
+    }
+    // A ruby segment ends a run: the reading sits above this base, and the
+    // next base starts its own run rather than joining this one.
+    if (segment.ruby != nullptr && !runFits()) fits = false;
+  });
+
+  if (!fits) return false;
+  if (!runFits()) return false;
+  return painted > 0;
+}
+
 }  // namespace study

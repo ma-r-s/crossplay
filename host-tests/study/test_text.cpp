@@ -469,6 +469,49 @@ void run() {
     check(emitted > 0, "an over-long run still produces lines");
     check(emitted >= 2000 / static_cast<int>(sizeof(small)), "and produces all of them");
   }
+
+  // --- fitsAsDrawn: can this face actually draw this text? -------------------
+  //
+  // This is the check that reached real hardware wrong: a font that draws
+  // kana and kanji perfectly well was rejected as drawing nothing, because
+  // every character in a pure-CJK headword is a breakable one-glyph run, and
+  // the pre-fix loop flushed the (empty) buffer at a breakable codepoint and
+  // moved on without ever copying that codepoint INTO the buffer first --
+  // so a string that is nothing but breakable characters left the buffer
+  // permanently empty and nothing was ever weighed. Every kana and kanji
+  // headword on real hardware fell back to the built-in serif and drew as a
+  // literal question mark, while every host test here (which happened to
+  // test wrapping and drawing, never "can this face draw this text" on a
+  // pure-CJK string) stayed green throughout.
+  {
+    char buf[64];
+    // fontId 2 in fitsMeasure below draws nothing at all; every other id
+    // draws len(codepoints) * 10px.
+    const auto fitsMeasure = [](int fontId, const char* s) {
+      if (fontId == 2) return 0;
+      return fakeWidth(s);
+    };
+    const auto fits = [&](const char* text, int maxWidth) {
+      return study::fitsAsDrawn(1, text, maxWidth, fitsMeasure, buf, static_cast<int>(sizeof(buf)));
+    };
+
+    check(fits("\xe3\x81\x82", 500), "a single hiragana character is accepted");
+    check(fits("\xe3\x81\x82\xe3\x81\x84\xe3\x81\x86", 500), "a pure kana string is accepted");
+    check(fits("\xe4\xb8\x80", 500), "a single kanji character is accepted");
+    check(!study::fitsAsDrawn(2, "\xe3\x81\x82", 500, fitsMeasure, buf, static_cast<int>(sizeof(buf))),
+          "a font that draws nothing is still rejected");
+    // The rule this function exists for in the first place: one unbreakable
+    // Latin word wider than the screen must still be refused. A fix for the
+    // CJK case that broke this would trade one bug for another.
+    check(!fits("incontrovertible", 50), "an overlong unbreakable word is still rejected");
+    check(fits("hello world", 500), "an ordinary Latin sentence is accepted");
+    check(fits("T\xe6\x81\xa4", 500), "mixed Latin and CJK is accepted");
+    check(!fits("", 500), "empty text is rejected");
+    // A ruby-encoded string: the base must be weighed, the reading must not
+    // leak into the same measurement.
+    const std::string ruby_text = ruby("\xe7\xa7\x81", "\xe3\x82\x8f\xe3\x81\x9f\xe3\x81\x97");
+    check(fits(ruby_text.c_str(), 500), "a ruby-encoded base is accepted");
+  }
 }
 
 }  // namespace
