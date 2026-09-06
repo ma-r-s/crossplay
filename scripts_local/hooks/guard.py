@@ -45,7 +45,7 @@ HANDBACK = re.compile(
 # a file, it does not edit one). Both refused read-only commands on 2026-09-04.
 WRITE_VERB = re.compile(
     r"((?<![\w-])sed\s+-i|(?<![\w-])(tee|cp|mv|rm|touch|mkdir|ln|truncate)(?![\w-])|"
-    r"(?<![\w-])git\s+(merge|commit|checkout|reset|rebase|cherry-pick|tag(?!\s+(?:-l|-n|--list|--contains|--no-contains|--merged|--no-merged|--points-at)\b)|push|pull|switch|stash|apply|am|clean|restore)\b|"
+    r"(?<![\w-])git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+)*(merge|commit|checkout|reset|rebase|cherry-pick|tag(?!\s+(?:-l|-n|--list|--contains|--no-contains|--merged|--no-merged|--points-at)\b)|push|pull|switch|stash|apply|am|clean|restore|revert|worktree\s+(?:remove|prune|add|move)|branch\s+-[Dfdm]|update-ref|gc)\b|"
     r"(?<![\w-])pio\s+run|\bbuild\.py|\bprecompress\.py)"
 )
 QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
@@ -53,7 +53,7 @@ QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 # a tree the caller does not hold whatever the holder's liveness (a sweep once
 # committed another worker's in-progress diff with a reassuring message).
 DESTRUCTIVE = re.compile(
-    r"(?<![\w-])git\s+(?:-C\s+\S+\s+)?(worktree\s+(remove|prune|add)|branch\s+-[Dfd]|update-ref|reset\s+--hard|clean\b|checkout\s+(\.|--)|stash|commit|gc)\b"
+    r"(?<![\w-])git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+)*(worktree\s+(remove|prune|add|move)|branch\s+-[Dfdm]|update-ref|reset\s+--hard|clean\b|checkout\b|switch\b|restore\b|stash|commit|rebase|merge|pull|apply|am|cherry-pick|revert|gc)\b"
     r"|(?<![\w-])rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f?\s"
 )
 # A redirect whose TARGET is a file (2>&1 and >/dev/null are not writes into anything of ours).
@@ -271,14 +271,6 @@ class Board:
     def is_integrator(self, sid):
         return norm_sid(sid) in self.claim_ids(self.integrator())
 
-    # Chosen against two clocks. The Bash tool caps one call at ten minutes, so
-    # no session goes quiet that long from a single command; and a worker
-    # waiting on a backgrounded gate makes no tool calls at all, which is why
-    # a living gate on the tree counts as life below (tree_gate_pid) rather
-    # than this number growing to cover it. Forty-five is well past the first
-    # and does not need to cover the second.
-    IDLE_MINUTES = 45
-
     @staticmethod
     def tree_gate_pid(tree_path):
         """The pid of a check.sh still verifying `tree_path`, or None.
@@ -286,8 +278,7 @@ class Board:
         check.sh keeps ${TMPDIR:-/tmp}/xteink-check-<tag>.running with its pid
         while it runs (tag = the first eight hex of sha1 of the tree's real
         path, as check.sh computes it). A tree with a living gate is in use
-        whatever its session is doing, and an edit landing in it would make
-        that verdict meaningless while looking green.
+        whatever its holder is doing.
         """
         try:
             real = str(pathlib.Path(tree_path).resolve())
@@ -311,26 +302,6 @@ class Board:
             return None
         return pid if "check.sh" in cmd else None
 
-    def session_seen(self, sid):
-        """When the session last touched a tool, or None if the board never saw it.
-
-        The hook touches the session file on every tool call, so its mtime is
-        the last sign of life; SessionEnd (when wired) writes ended_at.
-        """
-        p = self.dir / "sessions" / f"{norm_sid(sid)}.json"
-        try:
-            st = p.stat()
-        except OSError:
-            return None
-        cur = read_json(p) or {}
-        if cur.get("ended_at"):
-            return None
-        return st.st_mtime
-
-    def session_live(self, sid):
-        seen = self.session_seen(sid)
-        return seen is not None and (time.time() - seen) < self.IDLE_MINUTES * 60
-
     def touch_session(self, sid):
         p = self.dir / "sessions" / f"{norm_sid(sid)}.json"
         try:
@@ -351,10 +322,13 @@ class Board:
             for tp in td.glob("*.json"):
                 rec = read_json(tp) or {}
                 if norm_sid(rec.get("session")) == norm_sid(sid):
-                    rec["lease_until"] = 0
+                    # The lease is the file's mtime, and this write would renew
+                    # it: write the expiry, then put the mtime back before it.
+                    rec["expired_at"] = time.time()
                     try:
                         with open(tp, "w") as f:
                             json.dump(rec, f, indent=1)
+                        os.utime(tp, (rec["expired_at"] - 1, rec["expired_at"] - 1))
                     except OSError:
                         pass
         try:
@@ -380,21 +354,21 @@ class Board:
     def leave_claimant(self, data, cmd):
         """Leave the actor's identity for a `board bind` about to run.
 
-        The CLI cannot see the agent id; the hook can. Keyed on the words after
-        `bind` in the command, which the CLI hashes from its own argv, so the
-        note is found by that call and no other. An echo of the same words
-        leaves an orphan that expires; a note never grants a tree by itself,
-        the CLI's bind does, under its lock.
+        The CLI cannot see the agent id; the hook can. Keyed on the card and
+        the tree, which both sides know verbatim (a word hash broke on
+        redirects, pipes and $VARS). Only a segment that IS a bind command
+        counts, not one that mentions the words. A note grants nothing by
+        itself; the CLI's bind does, under its lock.
         """
         for seg in re.split(r"&&|\|\||;|\|", HEREDOC.sub(" ", cmd)):
-            m = re.search(r"\bboard(?:\.py)?\s+bind\s+(.*)$", seg.strip())
+            seg = seg.strip()
+            m = re.match(r"(?:\S*python3\s+\S*board\.py|board)\s+bind\s+(\d+)\b(.*)$", seg)
             if not m:
                 continue
-            try:
-                words = shlex.split(m.group(1))
-            except ValueError:
-                words = m.group(1).split()
-            key = hashlib.sha1(" ".join(words).encode()).hexdigest()[:16]
+            t = re.search(r"--tree(?:=|\s+)[\"']?([^\s\"']+)", m.group(2))
+            if not t:
+                continue
+            key = f"{int(m.group(1))}|{t.group(1).rstrip('/').split('/')[-1]}"
             d = self.dir / "claimants"
             try:
                 d.mkdir(parents=True, exist_ok=True)
@@ -411,24 +385,19 @@ class Board:
                 pass
 
     def renew_leases(self, actor):
-        """Every tool call by an actor renews the lease of the trees it holds."""
+        """Every tool call by an actor renews the lease of the trees it holds:
+        the record's mtime IS the lease, so a renewal is a touch and cannot
+        race a takeover's write."""
         d = self.dir / "trees"
         if not d.is_dir():
             return
-        now_ = time.time()
         for p in d.glob("*.json"):
             rec = read_json(p) or {}
-            if rec.get("actor") != actor:
-                continue
-            rec["renewed_at"] = now_
-            rec["lease_until"] = now_ + self.LEASE_MINUTES * 60
-            try:
-                tmp = p.with_suffix(".json.tmp")
-                with open(tmp, "w") as f:
-                    json.dump(rec, f, indent=1)
-                os.replace(tmp, p)
-            except OSError:
-                pass
+            if rec.get("actor") == actor:
+                try:
+                    os.utime(p, None)
+                except OSError:
+                    pass
 
     def tree_name_of(self, path_or_cwd):
         """The wt/<name> a path is inside, or None. Segment-exact: wt/openbridge
@@ -445,38 +414,54 @@ class Board:
         except (OSError, ValueError, IndexError):
             return None
 
+    def lease_live(self, path, rec):
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return False
+        if rec.get("expired_at") and float(rec["expired_at"]) >= mtime:
+            return False
+        return time.time() - mtime < self.LEASE_MINUTES * 60
+
     def tree_verdict(self, actor, name):
         """None when `actor` may write into wt/<name>; else the refusal text.
 
         The default is refusal: a tree with no holder record is nobody's until
-        `board bind` says whose it is (the first design let a tree with no
-        record be anyone's, which is the original incident with a guard
-        installed). A tree whose holder is another actor is refused whether
-        that holder is live or not; taking a tree over is `board bind --take`,
-        which checks the lease, the gate and the tree's quiescence and tells
-        the displaced card. A living gate on the tree refuses everyone but the
-        holder as well.
+        `board bind` says whose it is. A tree whose holder is another actor is
+        refused whether that holder is live or not; taking a tree over is
+        `board bind --take`, which checks the lease, the gate and the tree's
+        quiescence and tells the displaced card. Anything that goes wrong in
+        this decision refuses rather than allows: the hook's usual fail-open
+        would here be the collision it exists to prevent.
         """
-        rec = self.tree_record(name)
         tree = f"wt/{name}"
-        if not rec or not rec.get("actor"):
+        try:
+            path = self.dir / "trees" / f"{name}.json"
+            rec = read_json(path)
+            if not rec or not rec.get("actor"):
+                return (
+                    f"Refused: {tree} has no holder. Bind your card to it first, then write: "
+                    f"{board_cmd(self.root)} bind <card> --session <your session id> --tree {tree}"
+                )
+            if rec["actor"] == actor:
+                return None
+            gate = self.tree_gate_pid(self.root / tree)
+            age = int((time.time() - path.stat().st_mtime) // 60)
+            live = self.lease_live(path, rec)
+            if gate is not None:
+                how = f"a check.sh is still verifying it (pid {gate}), so nobody but the holder writes until it ends"
+            elif live:
+                how = f"lease live for another {max(0, self.LEASE_MINUTES - age)} min; --take is refused until it expires"
+            else:
+                how = (f"lease expired {age - self.LEASE_MINUTES} min ago; take it over on purpose: "
+                       f"{board_cmd(self.root)} bind <card> --session <your session id> --tree {tree} --take "
+                       f"(refused while the tree has uncommitted work, unless that session has ended; look first: {board_cmd(self.root)} tree {name})")
             return (
-                f"Refused: {tree} has no holder. Bind your card to it first, then write: "
-                f"{board_cmd(self.root)} bind <card> --session <your session id> --tree {tree}"
+                f"Refused: {tree} is held by {rec['actor']} for card #{rec.get('card')}; this command would write into it. "
+                f"Two actors in one tree verify nothing. {how}. A tree of your own: ./scripts/wt.sh new <name>"
             )
-        if rec["actor"] == actor:
-            return None
-        gate = self.tree_gate_pid(self.root / tree)
-        age = int((time.time() - float(rec.get("renewed_at", 0))) // 60)
-        live = float(rec.get("lease_until", 0)) > time.time()
-        return (
-            f"Refused: {tree} is held by {rec['actor']} for card #{rec.get('card')} "
-            f"(lease {'live' if live else 'expired'}, renewed {age} min ago"
-            + (f"; a check.sh is still verifying it, pid {gate}" if gate is not None else "")
-            + "). Two actors in one tree verify nothing. A tree of your own: ./scripts/wt.sh new <name>; "
-            f"to take this one over on purpose: {board_cmd(self.root)} bind <card> --session <your session id> --tree {tree} --take "
-            "(refused while the holder is live or the tree is not quiescent; the displaced card is told)"
-        )
+        except Exception as e:  # noqa: BLE001
+            return f"Refused: the tree rule for {tree} could not be evaluated ({type(e).__name__}: {e}); refusing rather than allowing a write into a tree of unknown ownership"
 
     def note_session(self, sid, cwd):
         d = self.dir / "sessions"
@@ -633,22 +618,33 @@ def pretool(board, data):
                 "tree's build. Use ./scripts_local/check.sh (or dev.sh / sim-shot.sh) from your tree."
             )
         board.leave_claimant(data, cmd)
-        # A write into a worktree: from inside it (the shell's cwd) or naming
-        # it. Tree names are read off the RAW command, per path segment, before
-        # quotes are stripped, so `bash -c 'cd wt/x && ...'` and "wt/x" count.
-        # Destructive git verbs count as writes whatever else the command says.
-        body = QUOTED.sub(" ", HEREDOC.sub(" ", cmd))
-        # A `bash -c '...'` payload is a command too; quotes hide it from the
-        # verb search, so its inside is searched as well.
-        inner = " ".join(m.group(2) for m in re.finditer(r"\b(?:ba|z)?sh\s+-[a-zA-Z]*c\s+(['\"])(.*?)\1", HEREDOC.sub(" ", cmd), re.S))
-        probe = body + " " + inner
-        if WRITE_VERB.search(probe) or REDIRECT.search(probe) or DESTRUCTIVE.search(probe):
-            names = []
-            cwd_name = board.tree_name_of(data.get("cwd") or "")
-            if cwd_name:
-                names.append(cwd_name)
-            names += re.findall(r"(?:^|[\s\"'=(/])wt/([A-Za-z0-9_.-]+)(?=[/\s\"')]|$)", HEREDOC.sub(" ", cmd))
-            for name in dict.fromkeys(names):
+        # A write into a worktree: from the shell's cwd, from a `cd` earlier
+        # in the same command, or naming the tree. Names are read off the raw
+        # command per path segment (wt/x is not wt/x2), quotes included, so
+        # `bash -c 'cd wt/x && ...'` and "wt/x" count; a bash -c payload is
+        # searched for verbs like the command itself. Destructive git verbs
+        # count whatever else the command says.
+        stripped = HEREDOC.sub(" ", cmd)
+        inner = " ".join(m.group(2) for m in re.finditer(r"\b(?:ba|z)?sh\s+-[a-zA-Z]*c\s+(['\"])(.*?)\1", stripped, re.S))
+        cur = board.tree_name_of(data.get("cwd") or "")
+        cwd_path = pathlib.Path(data.get("cwd") or os.getcwd())
+        for seg in re.split(r"&&|\|\||;|\|", stripped + (" ; " + inner if inner else "")):
+            seg = seg.strip()
+            if not seg:
+                continue
+            m = re.match(r"cd\s+([^\s;&|]+)", seg)
+            if m:
+                target = m.group(1).strip("\"'")
+                tpath = pathlib.Path(target) if target.startswith("/") else cwd_path / target
+                cur = board.tree_name_of(str(tpath))
+                cwd_path = tpath
+                continue
+            seg_body = QUOTED.sub(" ", seg)
+            if not (WRITE_VERB.search(seg_body) or REDIRECT.search(seg_body) or DESTRUCTIVE.search(seg_body)):
+                continue
+            names = [cur] if cur else []
+            names += re.findall(r"(?:^|[\s\"'=(/])wt/([A-Za-z0-9_.-]+)(?=[/\s\"');&|]|$)", seg)
+            for name in dict.fromkeys(n for n in names if n):
                 verdict = board.tree_verdict(actor, name)
                 if verdict:
                     block(verdict)

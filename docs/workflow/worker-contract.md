@@ -67,11 +67,14 @@ are enforced by hooks and will refuse rather than remind.
   wt/<name>` before the first write: the record it leaves is what the guard
   reads, and a tree with no record refuses writes, as does a tree bound to
   another actor (a subagent is its own actor). Your tool calls renew the
-  lease; a running `check.sh` keeps the tree in use without them. Taking a
-  tree over is `board bind ... --take`, refused while the holder is live or
-  the tree has uncommitted work or an operation in progress, and the
-  displaced card is told. `board tree <name>` is the only way to call a tree
-  abandoned; a sweep that commits or removes a tree asks it first.
+  lease; a running `check.sh` keeps the tree in use without them. A session
+  hands a tree between its own conversation and its subagents by binding
+  again; two subagents of one session do not share one. Taking another
+  session's tree is `board bind ... --take`, refused while the holder is
+  live, and while the tree has uncommitted work unless that session has
+  ended; the displaced card is told. `board tree <name>` is the only way
+  to call a tree abandoned (a sweep asks it first), `board tree <name>
+  --release` lets a tree go, and settling the card releases it too.
 - **Your diff is the three-dot one.** `git diff origin/xteink...HEAD
   --name-only` (the merge base) is what your branch changes; the two-dot
   `git diff origin/xteink` lists everything trunk did since you branched and
