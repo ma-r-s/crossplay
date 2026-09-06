@@ -244,7 +244,7 @@ def render(band_width):
     puzzles, provs = load_bank()
     fonts = {}
     for slot, cut in CUTS:
-        metrics, line_height = load_font(cut)
+        metrics, line_height = load_font(cut)  # noqa: F821 -- see the note on CUTS
         fonts[slot] = {
             "cut": cut,
             "lineHeight": line_height,
