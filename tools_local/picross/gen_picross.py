@@ -42,8 +42,23 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-SOURCE = os.path.join(ROOT, "assets_local", "picross", "pictures.txt")
+ASSETS = os.path.join(ROOT, "assets_local", "picross")
 OUTPUT = os.path.join(ROOT, "src", "apps_local", "picross", "PicrossPuzzles.h")
+
+# The bank is built from one file PER ORIGIN, in this order, and the order is the
+# on-ramp: the fork's own hand-drawn pictures come before the imported ones
+# within every size, because sort_by_size is stable.
+#
+# One file per origin rather than one file with mixed provenance lines, because
+# the two carry different RIGHTS: pictures.txt is CC0 and janko.txt is used by
+# permission (assets_local/picross/PROVENANCE.md). Deleting janko.txt from this
+# list and regenerating is the supported way for a fork to drop the puzzles it
+# did not receive permission for, and that is only a one-line operation while
+# the origins are separate files.
+SOURCES = (
+    os.path.join(ASSETS, "pictures.txt"),
+    os.path.join(ASSETS, "janko.txt"),
+)
 
 
 # The provenance keys a picture may carry, and what an unset one means. `source`
@@ -440,6 +455,7 @@ def emit(puzzles):
         "sizegroups": len(sizes),
         "maxsize": maxsize,
         "longest": longest,
+        "longestauthor": max((len(a) for a, _li, _src in prov_rows), default=0),
         "maxrowruns": max_row_runs,
         "maxcolruns": max_col_runs,
         "maxrun": max_run,
@@ -477,10 +493,20 @@ def clang_format(path):
 def main():
     args = sys.argv[1:]
     do_curate = "--curate" in args
-    paths = [a for a in args if not a.startswith("--")]
-    source = paths[0] if paths else SOURCE
-    puzzles = parse(source)
-    print("read %d pictures from %s" % (len(puzzles), os.path.relpath(source, ROOT)))
+    paths = [a for a in args if not a.startswith("--")] or list(SOURCES)
+    puzzles = []
+    for source in paths:
+        # parse() starts each file with a fresh set of file-level defaults, so
+        # pictures.txt's `@@license CC0-1.0` cannot leak onto the imported bank
+        # and janko.txt's cannot leak back. That isolation is the reason the
+        # origins are separate files and is worth not losing.
+        here = parse(source)
+        puzzles.extend(here)
+        print("read %d pictures from %s" % (len(here), os.path.relpath(source, ROOT)))
+    # Names repeat ON PURPOSE across sizes -- HEART is drawn at 5x5, 10x10 and
+    # 15x15 and is the same subject each time -- so a name is not a key here and
+    # a uniqueness check over names would refuse the bank as designed.
+    print("%d pictures in the bank" % len(puzzles))
     if do_curate:
         curate(puzzles)
     else:
@@ -559,6 +585,12 @@ constexpr int kSizeGroupCount = %(sizegroups)d;
 // The longest name in the bank, so a screen sizes its buffer from this rather
 // than measuring at runtime, and the generator keeps it honest.
 constexpr int kMaxNameLen = %(longest)d;
+
+// The longest AUTHOR name in the bank, for the same reason: the win screen
+// credits the designer of an imported picture and sizes its buffer from this.
+// Derived rather than written down, because a designer added by a later import
+// would otherwise be silently truncated on the one screen that credits them.
+constexpr int kMaxAuthorLen = %(longestauthor)d;
 
 // The most clue numbers any one row or column carries, and the largest single
 // run. The clue gutters are sized from these so no clue is ever elided, and the
