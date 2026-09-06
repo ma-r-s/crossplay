@@ -2110,6 +2110,39 @@ unrun_case "every test file named is clean"            'python3 test_a.py && g++
 unrun_case "a file run.sh never names is reported"     'python3 test_a.py' " test_b.cpp"
 unrun_case "a run.sh that globs test_* runs everything" 'for f in test_*.py; do python3 "$f"; done; for c in test_*.cpp; do g++ "$c"; done' ""
 
+# --- the GCC suite list is derived, and a CXX-blind suite is a failure --------
+#
+# Lifted between its markers and run in a fixture tree of four suites: one that
+# compiles src/ under -Werror through ${CXX:-c++} (in), one that does the same
+# but hard-codes clang++ (blind), one without -Werror (out), one with -Werror on
+# its own test sources only (out).
+python3 - "$CHECK" >"$WORK/gccsuites.sh" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+a = next(i for i, l in enumerate(lines) if 'gcc suites begin' in l)
+b = next(i for i, l in enumerate(lines) if 'gcc suites end' in l)
+print('\n'.join(lines[a + 1:b]))
+PY
+[ -s "$WORK/gccsuites.sh" ] || { echo "FAIL checksh  could not lift the gcc-suites block out of check.sh"; failed=$((failed + 1)); }
+# The fixture's words are assembled from parts so that THIS file does not
+# itself match the discovery (it would: the block reads run.sh files for the
+# literal flag and path, and this suite's run.sh would then be listed as one
+# that compiles app sources, which it does not).
+GT="$WORK/gcctree"; rm -rf "$GT"; mkdir -p "$GT/host-tests"/{inlist,blind,nowerror,ownonly,viavar,talks}
+werr="-W""error"; app="../../s""rc/apps_local/x/X.cpp"; inc="-I ../../s""rc"; cxx='${CXX:-c++}'
+printf '#!/bin/bash\n%s -std=c++17 %s %s %s test.cpp -o t && ./t\n' "$cxx" "$werr" "$inc" "$app" >"$GT/host-tests/inlist/run.sh"
+printf '#!/bin/bash\nclang++ -std=c++17 %s %s %s test.cpp -o t && ./t\n' "$werr" "$inc" "$app" >"$GT/host-tests/blind/run.sh"
+printf '#!/bin/bash\n%s -std=c++17 %s %s test.cpp -o t && ./t\n' "$cxx" "$inc" "$app" >"$GT/host-tests/nowerror/run.sh"
+printf '#!/bin/bash\n%s -std=c++17 %s test.cpp -o t && ./t\n' "$cxx" "$werr" >"$GT/host-tests/ownonly/run.sh"
+# through the variables the real suites use for their sources (in), and a
+# suite whose only mention of both is a comment (out)
+printf '#!/bin/bash\nLIB=../../l""ib\n%s -std=c++17 %s -I"$LIB/GfxRenderer" "$LIB/GfxRenderer/Paint.cpp" test.cpp -o t && ./t\n' "$cxx" "$werr" >"$GT/host-tests/viavar/run.sh"
+printf '#!/bin/bash\n# this suite once compiled %s under %s and no longer does\n%s -std=c++17 test.cpp -o t && ./t\n' "$app" "$werr" "$cxx" >"$GT/host-tests/talks/run.sh"
+gcc_got="$(cd "$GT" && bash -c '. "'"$WORK"'/gccsuites.sh"; printf "in=%s|blind=%s" "$(echo $gcc_suites)" "$(echo $gcc_blind)"')"
+checks=$((checks + 1))
+[ "$gcc_got" = "in=inlist viavar|blind=blind" ] && : || { failed=$((failed + 1)); echo "FAIL checksh  gcc suites: got '$gcc_got', wanted 'in=inlist viavar|blind=blind'"; }
+checks=$((checks + 1))
+grep -q 'for gcc_suite in \$gcc_suites' "$CHECK" && : || { failed=$((failed + 1)); echo "FAIL checksh  the GCC loop no longer runs the derived list"; }
 
 # --- one gate per tree -------------------------------------------------------
 #
