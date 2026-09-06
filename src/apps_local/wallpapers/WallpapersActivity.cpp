@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../../../lib/GfxRenderer/FontCacheManager.h"
 #include "../../CrossPointSettings.h"
 #include "../../DevMode.h"
 #include "../../activities/network/WifiSelectionActivity.h"
@@ -206,7 +207,13 @@ void WallpapersActivity::computeWarning() {
 int WallpapersActivity::pageCount() const {
   const int per = wallpapersui::gridGeom(toybox::makeTarget(renderer).deviceContext()).perPage;
   if (names_.empty() || per <= 0) return 1;
-  const int total = 1 + static_cast<int>(names_.size());  // the + Add tile plus the wallpapers
+  // specialTiles(), not a literal 1. drawGrid and the hit-test both use it, and
+  // it is 2 whenever any built-in is missing -- so a literal 1 here promised
+  // fewer pages than the grid draws and the LAST wallpaper became unreachable
+  // at every library size where (1 + N) % perPage == 0. Pre-existing, but this
+  // app can now delete a built-in, which is a brand-new route from a complete
+  // library into that state.
+  const int total = specialTiles() + static_cast<int>(names_.size());
   return (total + per - 1) / per;
 }
 
@@ -780,7 +787,8 @@ void WallpapersActivity::openSheet(const int index) {
   sheetIndex_ = index;
   sheetFile_ = names_[static_cast<size_t>(index)];
   sheetName_ = wallpapers::displayName(sheetFile_).full;
-  sheetDetail_ = wallpapers::deleteConsequence(wallpapers::isBuiltInFile(sheetFile_), index == activeIndex_);
+  sheetIsActive_ = index == activeIndex_;
+  sheetDetail_ = wallpapers::deleteConsequence(wallpapers::isBuiltInFile(sheetFile_), sheetIsActive_);
   view_ = View::Sheet;
   interactionsReady_ = false;
   LOG_INF("WALL", "hold sheet for %s (index %d, active %d)", sheetFile_.c_str(), index, activeIndex_);
@@ -817,12 +825,31 @@ bool WallpapersActivity::deleteWallpaper() {
     LOG_ERR("WALL", "Card refused to delete %s", path.c_str());
     return false;
   }
-  // The thumbnail cache is keyed on the file name, so a later upload of a file
-  // with the same name would otherwise draw the DELETED picture from cache.
-  // thumbFor's staleness check compares the source's size and mtime, which a
-  // fresh 48062-byte wallpaper can match by construction.
+  // The thumbnail cache is keyed on the file NAME, so a later upload reusing the
+  // name would otherwise be drawn from the deleted picture's cache entry until
+  // something else invalidated it. thumbFor's staleness check is the source's
+  // byte count plus a three-read content sample plus the cell size -- not the
+  // mtime -- so a same-named replacement is caught by its CONTENT and this
+  // removal is belt to that brace rather than the only guard. Removing it costs
+  // one decode; leaving it costs the wrong picture.
   const std::string cache = std::string(kThumbDir) + "/" + sheetFile_ + ".thb";
   Storage.remove(cache.c_str());
+
+  // The pin marker names a file that is gone. loadActive() already fails to
+  // match it, so the grid is right today -- but a later upload with the SAME
+  // name would match it again and wear the "in use" border while /sleep.bmp
+  // still holds the deleted picture. The marker is a hint about the library;
+  // when its subject leaves the library the hint is stale, not just unmatched.
+  char marker[kNameMax] = {};
+  if (Storage.readFileToBuffer(wallpapers::kActiveMarker, marker, sizeof(marker)) > 0) {
+    for (char* c = marker; *c; ++c) {
+      if (*c == '\n' || *c == '\r') {
+        *c = '\0';
+        break;
+      }
+    }
+    if (sheetFile_ == marker) Storage.remove(wallpapers::kActiveMarker);
+  }
   LOG_INF("WALL", "deleted %s", path.c_str());
 
   // Re-derive everything from the card. builtInsMissing_ changes here whenever
@@ -856,10 +883,18 @@ void WallpapersActivity::renderPreview() {
   const int pageHeight = renderer.getScreenHeight();
   renderer.clearScreen();
 
+  // drawBitmap is a SILENT NO-OP while the font cache is scanning
+  // (GfxRenderer.cpp:1365). Asking first, because the alternative is a cleared
+  // panel with nothing on it and a `drawn = true` derived from parseHeaders
+  // rather than from the draw -- a blank screen this fork has twice had cold
+  // testers read as a crash.
+  const FontCacheManager* fonts = renderer.getFontCacheManager();
+  const bool canDraw = fonts == nullptr || !fonts->isScanning();
+
   const std::string path = std::string(wallpapers::kLibraryDir) + "/" + sheetFile_;
   HalFile file;
   bool drawn = false;
-  if (Storage.openFileForRead("WALL", path, file)) {
+  if (canDraw && Storage.openFileForRead("WALL", path, file)) {
     Bitmap bitmap(file, true);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       const int w = bitmap.getWidth();
@@ -867,6 +902,14 @@ void WallpapersActivity::renderPreview() {
       const int x = w <= pageWidth ? (pageWidth - w) / 2 : 0;
       const int y = h <= pageHeight ? (pageHeight - h) / 2 : 0;
       renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0.0f, 0.0f);
+      // The cover filter, because the sheet PROMISES "exactly as the sleep
+      // screen draws it" and renderBitmapSleepScreen inverts here
+      // (SleepActivity.cpp:631). The setting is user-reachable, and without
+      // this the one user who chose it is shown the negative of their
+      // wallpaper and told it is the real thing.
+      if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
+        renderer.invertScreen();
+      }
       drawn = true;
     }
     file.close();
@@ -889,7 +932,13 @@ void WallpapersActivity::renderPreview() {
     wallpapersui::buildNotice(surface, model);
   }
   interactionsReady_ = false;
-  renderer.displayBuffer();
+  // HALF_REFRESH, the same waveform every sleep-screen paint uses
+  // (SleepActivity.cpp:609,643). The default is FAST, and under FAST a dense
+  // 1-bit plate ghosts the screen it replaced and reads lower-contrast than the
+  // real thing -- so the preview would differ from the sleep screen in the one
+  // way a preview exists to rule out. The notice path takes it too, so the
+  // failure and the picture do not paint with different waveforms.
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   painted_ = true;
 }
 
@@ -1377,7 +1426,17 @@ void WallpapersActivity::loop() {
         requestUpdate();
         return;
       case wallpapersui::ActionConfirmDelete:
-        deleteWallpaper();
+        // A failed delete used to discard its bool and repaint the identical
+        // confirm: the panel flashed and came back unchanged, with no way to
+        // tell a card that refused from a touch that was dropped. Every other
+        // failure in this app goes through showNotice, and this is the one the
+        // user is watching hardest (a-silent-screen-reads-as-a-crash).
+        if (!deleteWallpaper()) {
+          showNotice("NOT DELETED",
+                     "The card would not remove this wallpaper, or it is already gone. It is still here.", "OK",
+                     wallpapersui::ActionDismiss);
+          return;
+        }
         interactionsReady_ = false;
         requestUpdate();
         return;
@@ -1443,11 +1502,20 @@ void WallpapersActivity::loop() {
   const int specials = specialTiles();
   const int total = specials + static_cast<int>(names_.size());
   if (combined >= total) return;
+  // The chrome tiles are not wallpapers and have no sheet, but they are on the
+  // same grid and a user who has learned "hold a tile for options" will hold the
+  // Add tile first. Neither action is destructive -- one brings up WiFi and a
+  // web server, the other a ~1MB fetch -- but both are the same failure this
+  // whole change exists to prevent: the hold firing the thing the user was
+  // reaching past. Silence is the right answer; the hold is repeatable.
+  const bool held = mappedInput.tapWasHeldLong();
   if (combined == 0) {
+    if (held) return;
     openAdd();
     return;
   }
   if (specials > 1 && combined == 1) {
+    if (held) return;
     startSetDownload();
     return;
   }
@@ -1458,7 +1526,7 @@ void WallpapersActivity::loop() {
   // the two apart, and the decision itself lives in WallpapersCore so it can be
   // asserted: the simulator never compiles lib/hal or runs InputManager, so
   // host-tests/wallpapers is the only place this is provable at all.
-  switch (wallpapers::cellAction(mappedInput.tapWasHeldLong(), idx, activeIndex_)) {
+  switch (wallpapers::cellAction(held, idx, activeIndex_)) {
     case wallpapers::CellAction::Sheet:
       openSheet(idx);
       return;
@@ -1517,10 +1585,12 @@ void WallpapersActivity::render(RenderLock&&) {
   } else if (view_ == View::Sheet) {
     wallpapersui::SheetModel model;
     model.name = sheetName_.c_str();
-    // From the NAME, never from sheetIndex_: an upload arriving while the sheet
-    // is up re-sorts names_ and every index in it means a different picture.
-    model.isActive = activeIndex_ >= 0 && activeIndex_ < static_cast<int>(names_.size()) &&
-                     names_[static_cast<size_t>(activeIndex_)] == sheetFile_;
+    // Settled in loop() by openSheet, not derived here. render() runs on the
+    // OTHER FreeRTOS task and ActivityManager holds no lock across it, so a
+    // names_[i] read in this function races scanLibrary()'s clear-and-realloc
+    // in deleteWallpaper -- a read of a freed std::string. A bool the loop task
+    // owns cannot be freed under the render task.
+    model.isActive = sheetIsActive_;
     wallpapersui::buildSheet(surface, model);
   } else if (view_ == View::Confirm) {
     wallpapersui::ConfirmModel model;

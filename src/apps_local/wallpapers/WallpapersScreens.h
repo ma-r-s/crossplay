@@ -130,6 +130,13 @@ struct SheetModel {
 };
 void buildSheet(toybox::Screen& screen, const SheetModel& model);
 
+// The sentence buildSheet draws under the name, in both its forms. Published
+// rather than typed inline, because host-tests/wallcaption measures it against
+// sheetProseRect in the real face -- and a test holding its own COPY of the
+// sentence keeps measuring the old one after the source is edited, and stays
+// green while the panel cuts it (derived-facts-written-as-literals).
+const char* sheetInstruction(bool isActive);
+
 // The confirm behind DELETE. `consequence` comes from
 // wallpapers::deleteConsequence -- built there so all four of its combinations
 // are walked by a test rather than assembled per render.

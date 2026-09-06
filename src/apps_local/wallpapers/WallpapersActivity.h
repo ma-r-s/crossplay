@@ -98,6 +98,10 @@ class WallpapersActivity final : public Activity {
   std::string sheetFile_;    // the file name, the identity that survives a re-sort
   std::string sheetName_;    // its display name, for the two screens' headline
   std::string sheetDetail_;  // the confirm's consequence sentence(s)
+  // Settled by openSheet on the LOOP task. render() runs on the other task with
+  // no lock between them, so it reads this rather than indexing names_, which
+  // deleteWallpaper clears and reallocates underneath it.
+  bool sheetIsActive_ = false;
 
   std::vector<std::string> names_;  // library file names, sorted
   int activeIndex_ = -1;            // which name is pinned, or -1

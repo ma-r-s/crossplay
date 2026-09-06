@@ -697,26 +697,46 @@ fui::Rect confirmDeleteRect(const fui::DeviceContext& device) { return stackRect
 fui::Rect sheetProseRect(const fui::DeviceContext& device) { return proseTo(device, sheetPreviewRect(device)); }
 fui::Rect confirmProseRect(const fui::DeviceContext& device) { return proseTo(device, confirmKeepRect(device)); }
 
+namespace {
+// The name, at the largest cut that holds it on two lines.
+//
+// fittedTitle, NOT a bare fitLines at the display cut. A wallpaper the user
+// added is named by its FILE, which is the one string on these screens nobody
+// chose the width of, and an ordinary phone name -- "SCREENSHOT 2026 09 05 AT
+// 14 23 07" -- overflows two lines of the display cut. A bare fitLines answers
+// that by appending U+2026, and NO Toybox cut above toybox_10 carries that
+// glyph: it draws as a HOLE, so the name stops mid-word with a gap after it on
+// the screen that is about to delete it (typography-fold). fittedTitle steps
+// the cut DOWN first and only marks at the smallest, which is the one that can
+// really draw the mark. Same rule the add screen's address arrived at.
+std::string drawSheetName(toybox::Screen& screen, const fui::Rect& box, const char* name) {
+  fui::TextStyle style = onPaper(screen.theme().titleText, fui::TextAlign::Left, 2);
+  const std::string drawn = toybox::fittedTitle(screen.target(), name, box.width, style);
+  screen.target().text(box, drawn.c_str(), style);
+  return drawn;
+}
+}  // namespace
+
+const char* sheetInstruction(const bool isActive) {
+  return isActive ? "This one is on your sleep screen now. Preview fills the panel; tap it to come back."
+                  : "Preview fills the panel exactly as the sleep screen draws it; tap it to come back.";
+}
+
 void buildSheet(toybox::Screen& screen, const SheetModel& model) {
   chrome(screen, "WALLPAPER", nullptr);
   const fui::DeviceContext device = screen.frame().device();
 
-  // The name, on two lines of the display cut. Everything on these two screens
-  // is laid out against the published rects rather than against screen.body(),
-  // for the same reason the grid is: the safety proof in host-tests/wallcaption
-  // has to read the SAME rectangles the drawing does.
-  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Left, 2);
-  const fui::Rect headBox = sheetHeadRect(device);
-  screen.target().text(headBox, toybox::fitLines(screen.target(), model.name, headBox.width, 2, head).c_str(), head);
+  // Everything on these two screens is laid out against the published rects
+  // rather than against screen.body(), for the same reason the grid is: the
+  // safety proof in host-tests/wallcaption has to read the SAME rectangles the
+  // drawing does.
+  drawSheetName(screen, sheetHeadRect(device), model.name);
 
   // What each button does, BEFORE it is pressed. Preview leaves no chrome on
   // the panel on purpose -- it is the sleep screen, and a hint band drawn over
   // it would be a preview of something the sleep screen never shows -- so the
   // way back out has to be said here instead, where there is room for it.
-  drawProse(screen, sheetProseRect(device),
-            model.isActive ? "This one is on your sleep screen now. Preview fills the panel; tap it to come back."
-                           : "Preview fills the panel exactly as the sleep screen draws it; tap it to come back.",
-            fui::TextAlign::Left);
+  drawProse(screen, sheetProseRect(device), sheetInstruction(model.isActive), fui::TextAlign::Left);
 
   drawButton(screen, sheetPreviewRect(device), "PREVIEW", ActionPreview);
   drawButton(screen, sheetDeleteRect(device), "DELETE", ActionDelete);
@@ -727,9 +747,7 @@ void buildConfirm(toybox::Screen& screen, const ConfirmModel& model) {
   chrome(screen, "DELETE WALLPAPER", nullptr);
   const fui::DeviceContext device = screen.frame().device();
 
-  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Left, 2);
-  const fui::Rect headBox = sheetHeadRect(device);
-  screen.target().text(headBox, toybox::fitLines(screen.target(), model.name, headBox.width, 2, head).c_str(), head);
+  drawSheetName(screen, sheetHeadRect(device), model.name);
 
   drawProse(screen, confirmProseRect(device), model.consequence, fui::TextAlign::Left);
 

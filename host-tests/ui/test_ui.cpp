@@ -10237,6 +10237,51 @@ void testWallpapersConfirmSaysTheCostAndOffersBoth() {
   CHECK(registered(out, wallpapersui::ActionConfirmDelete));
 }
 
+// A wallpaper the user added is named by its FILE, and the sheet must SHRINK
+// that name rather than mark it: no Toybox cut above toybox_10 carries U+2026,
+// so an ellipsis there draws as a hole and the name stops with a gap after it.
+// wallcaption proves toybox::fittedTitle behaves; this proves buildSheet CALLS
+// it, which is the half a helper-only test cannot see -- the builder used a
+// bare fitLines at the display cut until this went in.
+void testWallpapersSheetShrinksALongNameRatherThanMarkingIt() {
+  const auto runFor = [](const Rendered& out, const char* needle, fui::TextStyle& style) {
+    for (const auto& run : out.target.texts) {
+      if (run.text.find(needle) == std::string::npos) continue;
+      style = run.style;
+      return true;
+    }
+    return false;
+  };
+
+  Rendered shortName;
+  wallpapersui::SheetModel sm;
+  sm.name = "Bauhaus";
+  buildWallpapersSheet(shortName, sm);
+  fui::TextStyle shortStyle{};
+  CHECK(runFor(shortName, "Bauhaus", shortStyle));
+  CHECK(shortStyle.font == fui::FONT_SLOT_TITLE);  // a name that fits keeps the display cut
+
+  Rendered longName;
+  const char* huge = "supercalifragilisticexpialidociouswallpaperfromaphone";
+  sm.name = huge;
+  buildWallpapersSheet(longName, sm);
+  fui::TextStyle longStyle{};
+  bool found = false;
+  std::string drawn;
+  for (const auto& run : longName.target.texts) {
+    if (run.text.compare(0, 6, "superc") != 0) continue;
+    longStyle = run.style;
+    drawn = run.text;
+    found = true;
+  }
+  CHECK(found);
+  // Either it kept the whole name (by stepping down), or it marked it -- and if
+  // it marked it, only in the one cut that can draw the mark.
+  CHECK(drawn == huge || longStyle.font == fui::FONT_SLOT_SMALL);
+  // It must not still be sitting on the display cut untouched and overflowing.
+  CHECK(!(drawn == huge && longStyle.font == fui::FONT_SLOT_TITLE));
+}
+
 // The whole defence against same-pixel-different-action, asserted on the rects
 // the builders actually draw into rather than on the ones they were meant to.
 // wallcaption proves the same identity against the published helpers; this
@@ -10533,6 +10578,7 @@ int main() {
   testWallpapersSheetOffersPreviewAndDelete();
   testWallpapersSheetSaysWhenItIsTheOneInUse();
   testWallpapersConfirmSaysTheCostAndOffersBoth();
+  testWallpapersSheetShrinksALongNameRatherThanMarkingIt();
   testWallpapersConfirmReusesTheSheetsDeletePixelsForItsSafeHalf();
   testNoPaperAboveAnyHeaderBand();
   testAHandDrawnRightLabelSitsOnTheTitlesLine();

@@ -396,16 +396,84 @@ int main() {
         }
       }
 
-      // The sheet's own sentence, both forms, in its own (shorter) box.
+      // The sheet's own sentence, both forms, in its own (shorter) box. Read
+      // from wallpapersui::sheetInstruction rather than copied here: a test
+      // holding its own copy of the sentence keeps measuring the old one after
+      // the source is edited, and stays green while the panel cuts it.
       const fui::Rect sheetBox = wallpapersui::sheetProseRect(panels[p]);
       const int sheetLines = lineH > 0 ? sheetBox.height / lineH : 0;
-      const char* sheetProse[] = {
-          "Preview fills the panel exactly as the sleep screen draws it; tap it to come back.",
-          "This one is on your sleep screen now. Preview fills the panel; tap it to come back.",
+      for (int active = 0; active <= 1; ++active) {
+        const std::string line = wallpapersui::sheetInstruction(active != 0);
+        check(toybox::fitLines(target, line.c_str(), sheetBox.width, sheetLines, prose) == line,
+              std::string("the hold sheet cuts its own instruction (active=") + std::to_string(active) + ", " +
+                  labels[p] + ")");
+      }
+
+      // THE NAME, which is the one string on these screens nobody chose the
+      // width of: a wallpaper the user added is named by its FILE. fitLines
+      // appends U+2026 on overflow and the faces above toybox_10 carry no
+      // ellipsis glyph, so an over-long name does not arrive clipped -- it
+      // stops mid-word with a hole where the mark should be, on the screen
+      // that is about to delete it (typography-fold). Two lines of the title
+      // cut is what buildSheet and buildConfirm give it.
+      const fui::Rect nameBox = wallpapersui::sheetHeadRect(panels[p]);
+      check(nameBox.height >= target.lineHeight(fui::FONT_SLOT_TITLE) * 2,
+            std::string("the name box cannot hold the two title lines it is given (") + labels[p] + ")");
+      // The same call the builders make: fittedTitle, which rewrites the style
+      // to the cut it chose. That choice is what decides whether an ellipsis is
+      // drawable at all, so the test has to see it.
+      const auto fitName = [&](const char* name, fui::FontId& chose) {
+        fui::TextStyle style;
+        style.font = fui::FONT_SLOT_TITLE;
+        style.align = fui::TextAlign::Left;
+        style.maxLines = 2;
+        const std::string drawn = toybox::fittedTitle(target, name, nameBox.width, style);
+        chose = style.font;
+        return drawn;
       };
-      for (const char* line : sheetProse) {
-        check(toybox::fitLines(target, line, sheetBox.width, sheetLines, prose) == std::string(line),
-              std::string("the hold sheet cuts its own instruction (") + labels[p] + ")");
+      for (size_t i = 0; i < wallpapers::builtInCount(); ++i) {
+        const std::string full = wallpapers::displayName(std::string(wallpapers::builtInStem(i)) + ".bmp").full;
+        fui::FontId chose = fui::FONT_SLOT_TITLE;
+        check(fitName(full.c_str(), chose) == full,
+              "the hold sheet cuts a built-in's name [" + full + ", " + labels[p] + "]");
+        check(chose == fui::FONT_SLOT_TITLE,
+              "a built-in's name had to step off the display cut [" + full + ", " + labels[p] + "]");
+      }
+      // A user's own file names. The app's own uploader writes w0001.bmp, but
+      // File Transfer and a card in a laptop do not, so the ones that matter
+      // are the ones a phone or a person produces -- including the long
+      // unbreakable single word, which has no space for fitLines to break at.
+      const char* ownNames[] = {
+          "DSC_00417_final_v2.bmp",
+          "a-really-long-holiday-photo-name-from-a-phone.bmp",
+          "supercalifragilisticexpialidociouswallpaper.bmp",
+          "SCREENSHOT 2026 09 05 AT 14 23 07.bmp",
+      };
+      for (const char* file : ownNames) {
+        const std::string full = wallpapers::displayName(file).full;
+        fui::FontId chose = fui::FONT_SLOT_TITLE;
+        const std::string drawn = fitName(full.c_str(), chose);
+        const std::string at = std::string(" [") + file + ", " + labels[p] + "]";
+        // fitLines and fittedTitle return the string UNWRAPPED when it fits --
+        // the renderer's own text() does the wrapping, from style.maxLines. So
+        // "does it fit" is answered by identity, not by measuring the return as
+        // one line, and an earlier version of this block measured it as one line
+        // and reported a defect that was its own (tests-that-share-the-bug, in
+        // reverse).
+        //
+        // Nobody chose these widths, so stepping down the ladder is fine and an
+        // ellipsis at the bottom rung is fine. What is never fine is a mark in a
+        // cut that has no glyph for it: only toybox_10 (FONT_SLOT_SMALL here)
+        // carries U+2026, and above it an ellipsised name does not arrive
+        // clipped -- it stops with a HOLE after it, on the screen that is about
+        // to delete it (typography-fold).
+        const bool marked = drawn != full;
+        check(!marked || chose == fui::FONT_SLOT_SMALL,
+              "a name was ellipsised in a cut with no ellipsis glyph -- it draws as a hole" + at + " -> \"" + drawn +
+                  "\"");
+        // And whatever cut it landed on, two lines of it must fit the box the
+        // builders draw into.
+        check(target.lineHeight(chose) * 2 <= nameBox.height, "a user's wallpaper name is taller than its box" + at);
       }
 
       // And neither box may reach the control under it.
