@@ -799,6 +799,21 @@ def cmd_bind(st, a):
     with st.lock():
         c = st.get_card(a.id)
         sid = norm_sid(a.session)
+        # A card another session holds is not bound twice by accident: the
+        # orchestrator once dispatched a worker onto a card whose holder was
+        # mid-rebase on the same branch, and both did the work (2026-09-05).
+        # Taking a card over is a decision, so it has a flag and a history line.
+        held = norm_sid(c.get("session"))
+        if held and held != sid and c["state"] not in SETTLED and not getattr(a, "take", False):
+            since = next((h["at"] for h in reversed(c.get("history", [])) if str(h.get("what", "")).startswith("bound to session")), c.get("updated"))
+            sys.exit(
+                f"board: #{c['id']} is held by session {held}"
+                + (f" in {c['tree']}" if c.get("tree") else "")
+                + (f" on {c['branch']}" if c.get("branch") else "")
+                + f" since {since}.\n  If that session is gone, take it over on purpose: board bind {c['id']} --session {a.session} --take"
+            )
+        if held and held != sid:
+            card_history(st, c, f"taken over from session {held}")
         c["session"] = sid
         if a.tree:
             c["tree"] = a.tree
@@ -1493,6 +1508,7 @@ def main(argv=None):
     s.add_argument("--session", required=True)
     s.add_argument("--tree")
     s.add_argument("--branch")
+    s.add_argument("--take", action="store_true", help="bind a card another session still holds (its holder is gone, or this is the orchestrator's call)")
     s.set_defaults(fn=cmd_bind)
     s = sub.add_parser("block")
     s.add_argument("id", type=int)

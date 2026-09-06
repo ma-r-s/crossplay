@@ -543,5 +543,17 @@ grep -q "$SP/pr.md is at the top" "$WORK/err" \
   || bad "the refusal named a path the reader cannot paste: $(grep -o "$SP[^ ]*" "$WORK/err" | head -1)"
 
 echo
+echo "a held card is not bound twice"
+HELD=$(board new "Trivia: the timer keeps running on the score screen" --from trivia --kind bug | sed 's/^#\([0-9]*\).*/\1/')
+board bind "$HELD" --session "held-a" --tree wt/one --branch app/one >/dev/null
+if board bind "$HELD" --session "other-session" --tree wt/two >"$WORK/bind.out" 2>&1; then bad "a second session bound a held card"; else grep -q "held by session held-a" "$WORK/bind.out" && grep -q "wt/one" "$WORK/bind.out" && ok "the second bind is refused and the holder, its tree and branch are named" || bad "bind refusal lacks the holder: $(cat "$WORK/bind.out")"; fi
+grep -q -- "--take" "$WORK/bind.out" && ok "the refusal says how to take the card over on purpose" || bad "refusal lacks the --take remedy"
+board show "$HELD" | grep -q "session held-a" && ok "the card stayed with its holder" || bad "the card changed hands anyway"
+board bind "$HELD" --session "held-a" --tree wt/one >/dev/null 2>&1 && ok "the holder may bind its own card again" || bad "the holder was refused its own card"
+board bind "$HELD" --session "other-session" --tree wt/two --take | grep -q "bound to other-session" && ok "--take hands the card over" || bad "--take did not bind"
+board show "$HELD" | grep -q "taken over from session held-a" && ok "the takeover is a history line" || bad "no takeover line"
+board state "$HELD" done >/dev/null
+board bind "$HELD" --session "held-a" >/dev/null 2>&1 && ok "a settled card can be re-bound without --take" || bad "a settled card was treated as held"
+
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
