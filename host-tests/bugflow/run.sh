@@ -636,6 +636,19 @@ board list --from-mario | grep -q "#$KID " && ok "a child of a session's card st
 board list --reporter user >"$WORK/u.out" 2>&1
 board state "$THEIRS" done >/dev/null
 board list --reporter user | grep -q "#$THEIRS " && ok "a settled card is still attributed" || bad "settling a card lost its reporter"
+# A GitHub issue was written by a person, and that person is not Mario. The
+# sweep above filed some; nobody passed --reporter, so this is the derivation
+# doing its job rather than a caller remembering.
+board list --reporter user | grep -q "Slow Reader" \
+  && ok "a card from a GitHub issue is a user's without anyone saying so" \
+  || bad "a github-sourced card was not attributed to a user: $(board list --reporter user)"
+
+# Settle every open `user` card first, whatever earlier sections of this suite
+# left behind -- the github sweep above files its issues as `user` too, so an
+# assertion that assumed an empty set would pass or fail on section order.
+for uid in $(board list --open --reporter user | sed -n 's/^#\([0-9][0-9]*\) .*/\1/p'); do
+  board state "$uid" parked --with-blockers >/dev/null 2>&1
+done
 board list --open --reporter user >"$WORK/none.out" 2>&1
 grep -q "no cards reported by user" "$WORK/none.out" \
   && ok "a filter that matches nothing says so, rather than 'no cards'" \
