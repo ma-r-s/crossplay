@@ -81,8 +81,10 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
   header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
+  // No headerRule() here: headerBand() has drawn the rule itself since card
+  // #248, so calling it again paints the same line twice. host-tests/chromeguard
+  // is the check that says so.
   toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
 }
 
 fui::Rect cellRect(const Layout& layout, const int row, const int col) {
