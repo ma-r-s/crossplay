@@ -209,6 +209,25 @@ def _natural(key):
     return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", key)]
 
 
+def format_source(template, ident):
+    """Fill a source-URL template for one puzzle id.
+
+    `{id}` is the id as it appears in the corpus; `{id04}` is it zero-padded to
+    four digits. Both exist because janko serves its low-numbered puzzles ONLY
+    padded -- `/Nonogramme/1.a.htm` is a 404 and `/Nonogramme/0001.a.htm` is the
+    page -- so a template using `{id}` alone writes a dead link for every puzzle
+    numbered under 1000. A provenance URL that 404s is worse than none: it looks
+    like the origin was recorded and checked.
+    """
+    if not template:
+        return ""
+    try:
+        padded = "%04d" % int(ident)
+    except (TypeError, ValueError):
+        padded = str(ident)
+    return template.format(id=ident, id04=padded)
+
+
 def render(cells):
     return "\n".join("".join("#" if v else "." for v in row) for row in cells)
 
@@ -231,7 +250,8 @@ def main():
     ap.add_argument(
         "--source-template",
         default="",
-        help="per-puzzle source URL, with {id} substituted",
+        help="per-puzzle source URL; {id} is the corpus id, {id04} zero-pads it to "
+             "four digits (janko serves low ids only in padded form)",
     )
     ap.add_argument("--name-prefix", default="", help="name is <prefix><id>")
     ap.add_argument(
@@ -315,7 +335,7 @@ def main():
         tally[0] += 1
         record = authors.get(str(ident)) or authors.get(ident) or []
         author = record[0] if record else args.author
-        source = args.source_template.format(id=ident) if args.source_template else ""
+        source = format_source(args.source_template, ident)
         kept.append((name, size, cells, author, source))
         if args.limit and len(kept) >= args.limit:
             break
