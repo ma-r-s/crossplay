@@ -45,6 +45,25 @@ const DEVICES = ["x4pro", "sticky"];
 const VERSION = /^v?\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
 
+// Who the report belongs to, which the board records as `reporter` so
+// `board list --from-mario` can answer "what have I reported?".
+//
+// This form is PUBLIC -- no account, linked from the front page, and used by
+// strangers -- so a submission is `user` unless the address given is the
+// owner's. Stamping every site report as Mario's would put other people's bugs
+// on the one list whose whole value is that he can trust it, and a report with
+// no address at all is not evidence that he wrote it. `unknown` is therefore
+// only what an unstamped path lands on; this one always says something.
+const OWNER_EMAIL = (
+  process.env.BOARD_OWNER_EMAIL || "marioalejandroruizsarmiento@gmail.com"
+)
+  .trim()
+  .toLowerCase();
+
+function reporterFor(email) {
+  return email && email.trim().toLowerCase() === OWNER_EMAIL ? "mario" : "user";
+}
+
 function json(res, status, body, extra) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
@@ -197,6 +216,7 @@ async function createReport(req, res) {
     source: "site",
     device,
     version: version || null,
+    reporter: reporterFor(email),
     reporter_email: email || null,
     reporter_hash: hash,
   };

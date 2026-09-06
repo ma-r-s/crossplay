@@ -111,6 +111,43 @@ written but **not yet applied**; until `server/board/migrate.sh` has run it,
 a card that reaches `cards` by any route other than `board` gets no blocker.
 `server/board/migrate.sh --list` says whether it is still pending.
 
+## Who reported a card
+
+`source` says by what MECHANISM a card arrived -- the CLI, the site's form, a
+GitHub issue, the error trigger. It never said whose observation it was, so a
+bug Mario hit on his own device and a bug an audit found by reading code were
+both `source: session`. He asked "what have I reported?" and the answer had to
+be reconstructed from conversation, which does not scale and cannot be trusted.
+
+Every card carries a `reporter`:
+
+| value | who |
+| --- | --- |
+| `mario` | he hit it, asked for it, or ruled on it, and said so |
+| `user` | a person who is not Mario: the public report form, a GitHub issue |
+| `session` | our own side found it: an audit, a gate, a cold review, a probe, the error trigger |
+| `unknown` | nothing establishes either way |
+
+```bash
+board new "<title>" --from <app> --reporter mario|user|session
+board list --from-mario           # the question he asks
+board list --reporter unknown     # what nobody stamped
+```
+
+**The default is `unknown`, deliberately not `session`.** A path that forgets
+to stamp has to be visible rather than quietly credit one of our own sessions,
+because the only value this column has is that the list can be trusted. Two
+mechanisms answer for themselves and are derived rather than remembered: an
+error-trigger or upstream-sync card is `session`, a GitHub-issue card is
+`user`. The site's form is public, so it stamps `mario` only when the address
+given is the owner's and `user` otherwise.
+
+The 360 cards that predate the column were recovered from their own text and
+from verbatim matches against the session transcripts:
+[what-mario-reported.md](what-mario-reported.md) has the counts, the list he
+asked for, the evidence behind every `mario` row, and the six that could not
+be established.
+
 ## When the guard itself breaks
 
 It fails open, on purpose. Anything unexpected inside `guard.py` exits 0
