@@ -1,0 +1,4 @@
+{
+  "_comment": "The OVERRIDE layer over the puzzle titles, applied by tools_local/picross/gen_picross.py. The bank arrives titled and those titles are the names the win screen reveals, so this file is normally empty. It exists for the one picture Mario wants revealed under a different word from the one the corpus shipped. Keys are the source title exactly as written in nonograms.txt; a key matching no puzzle is a hard error, because a rename that silently renames nothing is how an annotation pass ends up half-applied. A bank index is NEVER a key -- the bank is emitted size-sorted and renumbers on any change.",
+  "_not_for_width": "A title that does not FIT the panel is not fixed here. It goes in title-overrides.json, which the IMPORTER applies, so the fix survives a re-import instead of being restored by the next one."
+}

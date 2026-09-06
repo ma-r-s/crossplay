@@ -193,7 +193,14 @@ void validateBank() {
   for (int p = 0; p < picross::kPuzzleCount; ++p) {
     const picross::Puzzle& puzzle = picross::kPuzzles[p];
     const int n = puzzle.size;
-    CHECK(n == 5 || n == 10 || n == 15);
+    // Bounded, not enumerated. A list of the tiers that happen to ship today
+    // (it was `5 || 10 || 15`) is a derived fact written as a literal: it goes
+    // red on a bank change that is perfectly correct, and it says nothing about
+    // what this suite actually requires. What it requires is that the brute
+    // force below is tractable and honest -- it walks 2^n patterns per line and
+    // reads the row bitmask as uint16_t, so n must fit both.
+    CHECK(n > 0 && n <= picross::kMaxSize);
+    CHECK(n <= 16);
 
     std::vector<Clue> rows(n), cols(n);
     for (int r = 0; r < n; ++r) rows[r] = clueFromBits(puzzle.rows[r], n);
@@ -489,40 +496,158 @@ void bankIsSizeSorted() {
   CHECK(runs == picross::kSizeGroupCount);
 }
 
-// Every puzzle names a provenance row that exists, and no row is blank where a
-// blank would read as a claim. An empty `license` and "all rights reserved" are
-// the same fact, so the empty string must never stand in for one: a picture
-// whose licence was never recorded has to SAY that, or the next reader assumes
-// it was cleared. `source` is the one field legitimately empty -- artwork drawn
-// for this fork came from nowhere.
-// The bank ships ONE size, and the picker's static_assert is the other half of
-// this: it draws no size tabs, so a second tier would run together with the
-// first in one flat sequence of pages with nothing saying so.
-void bankShipsOneSize() {
-  CHECK(picross::kSizeGroupCount == 1);
-  for (int p = 0; p < picross::kPuzzleCount; ++p) {
-    if (picross::kPuzzles[p].size != picross::kPuzzles[0].size)
-      std::printf("  puzzle %d is %dx%d, the bank's first is %dx%d\n", p, picross::kPuzzles[p].size,
-                  picross::kPuzzles[p].size, picross::kPuzzles[0].size, picross::kPuzzles[0].size);
-    CHECK(picross::kPuzzles[p].size == picross::kPuzzles[0].size);
+// NEXT STAYS IN THE TIER YOU ARE PLAYING.
+//
+// `nextUnsolved()` is the first unsolved in BANK ORDER and the bank is
+// size-sorted, so with four tiers it means finishing any 10x10 hands the player
+// the lowest unsolved 5x5 -- four tabs from where they were and a third of the
+// size. That was progression while the game was one tier; it is a tier change
+// now, and the win screen's NEXT is the only thing that does it. The picker is
+// how you change tier deliberately.
+void nextStaysInTier() {
+  // Derive the tiers from the bank rather than naming 5, 8, 9 and 10: this test
+  // must not need editing when SHIPPED_SIZES does.
+  int sizes[picross::kSizeGroupCount] = {};
+  int starts[picross::kSizeGroupCount] = {};
+  int lens[picross::kSizeGroupCount] = {};
+  int tiers = 0;
+  for (int i = 0; i < picross::kPuzzleCount; ++i) {
+    const int s = picross::kPuzzles[i].size;
+    if (tiers == 0 || sizes[tiers - 1] != s) {
+      if (tiers >= picross::kSizeGroupCount) break;
+      sizes[tiers] = s;
+      starts[tiers] = i;
+      lens[tiers] = 0;
+      ++tiers;
+    }
+    ++lens[tiers - 1];
   }
-  // And kMaxSize is that size, not a leftover from a wider bank: it sizes the
-  // save's cell grid and every clue buffer, so a stale one is silent waste in
-  // flash, in RAM and in every SaveState written to the card.
-  CHECK(picross::kMaxSize == picross::kPuzzles[0].size);
+  CHECK(tiers == picross::kSizeGroupCount);
+  // The bug needs more than one tier to exist at all, so say so rather than
+  // passing vacuously on a bank that cannot exhibit it.
+  CHECK(tiers > 1);
+
+  {
+    // Nothing solved: each tier's NEXT is that tier's first puzzle, NOT the
+    // bank's. Only the lowest tier gives the same answer as nextUnsolved(),
+    // which is exactly why the bug was invisible while there was one tier.
+    picross::Progress prog;
+    for (int t = 0; t < tiers; ++t) CHECK(prog.nextUnsolvedAtSize(sizes[t]) == starts[t]);
+    CHECK(prog.nextUnsolved() == starts[0]);
+    for (int t = 1; t < tiers; ++t) CHECK(prog.nextUnsolvedAtSize(sizes[t]) != prog.nextUnsolved());
+  }
+
+  {
+    // Solve the first puzzle of the top tier: NEXT moves to the second of that
+    // tier, while nextUnsolved() still points at the bottom tier.
+    picross::Progress prog;
+    const int top = tiers - 1;
+    prog.markSolved(starts[top]);
+    CHECK(prog.nextUnsolvedAtSize(sizes[top]) == starts[top] + 1);
+    CHECK(prog.nextUnsolved() == starts[0]);
+  }
+
+  {
+    // A FINISHED TIER RETURNS -1 so the caller can fall back. A NEXT that does
+    // nothing on the last puzzle of a tier is worse than one that moves on.
+    picross::Progress prog;
+    const int top = tiers - 1;
+    for (int i = starts[top]; i < starts[top] + lens[top]; ++i) prog.markSolved(i);
+    CHECK(prog.nextUnsolvedAtSize(sizes[top]) == -1);
+    // and the other tiers are untouched by that sweep
+    for (int t = 0; t < top; ++t) CHECK(prog.nextUnsolvedAtSize(sizes[t]) == starts[t]);
+  }
+
+  {
+    // Every index it ever returns is in the tier that was asked for. The whole
+    // point is the size, so check the size rather than the arithmetic.
+    picross::Progress prog;
+    for (int t = 0; t < tiers; ++t)
+      for (int k = 0; k < lens[t]; ++k) {
+        const int next = prog.nextUnsolvedAtSize(sizes[t]);
+        CHECK(next >= 0);
+        if (next < 0) break;
+        CHECK(picross::kPuzzles[next].size == sizes[t]);
+        prog.markSolved(next);
+      }
+  }
 }
 
-// The name is the reveal, and it is the only string the bank carries now that
-// the designer, the rights line and the source URL have left the firmware for
-// PROVENANCE.md. It is written by hand, so a bank is normally PART named and an
-// empty name is not a fault -- what would be a fault is a name that cannot be
-// drawn.
+// EVERY TIER IS REACHABLE FROM THE PICKER, re-derived here the way the picker
+// derives it and checked against the bank it was derived from.
+//
+// The picker recovers its size tabs by run-scanning kPuzzles for changes of
+// size into an array of kSizeGroupCount slots, with a `break` when the slots run
+// out. That break is a silent data-loss bug rather than a bound: a bank that is
+// not one run per size overflows the slots, the break fires, and every puzzle
+// after that point is drawn nowhere, reported nowhere and simply absent -- with
+// nothing on the screen looking wrong. The bank ships FOUR groups, which is
+// exactly the boundary that bug once sat on.
+//
+// So this asserts the property the picker actually needs, which is stronger
+// than "sorted": the recovered runs must ACCOUNT FOR EVERY PUZZLE. A bank that
+// loses puzzles to the break has runs that sum to less than kPuzzleCount, and
+// that subtraction is the only thing that catches it.
+void bankTiersAreReachable() {
+  int count = 0;
+  int size[picross::kSizeGroupCount] = {};
+  int len[picross::kSizeGroupCount] = {};
+  for (int i = 0; i < picross::kPuzzleCount; ++i) {
+    const int s = picross::kPuzzles[i].size;
+    if (count == 0 || size[count - 1] != s) {
+      if (count >= picross::kSizeGroupCount) break;
+      size[count] = s;
+      len[count] = 0;
+      ++count;
+    }
+    ++len[count - 1];
+  }
+
+  CHECK(count == picross::kSizeGroupCount);
+
+  int covered = 0;
+  for (int t = 0; t < count; ++t) {
+    // An empty tier draws a tab that opens on nothing.
+    if (len[t] <= 0) std::printf("  tier %d (%dx%d) is empty\n", t, size[t], size[t]);
+    CHECK(len[t] > 0);
+    // Ascending and DISTINCT. Sorted alone would still pass with a size that
+    // appears in two runs, which is the shape that overflows the slots.
+    if (t > 0 && size[t] <= size[t - 1])
+      std::printf("  tier %d is %dx%d, not larger than tier %d's %dx%d\n", t, size[t], size[t], t - 1, size[t - 1],
+                  size[t - 1]);
+    CHECK(t == 0 || size[t] > size[t - 1]);
+    covered += len[t];
+  }
+
+  if (covered != picross::kPuzzleCount)
+    std::printf("  the tabs reach %d of %d puzzles -- %d are unreachable\n", covered, picross::kPuzzleCount,
+                picross::kPuzzleCount - covered);
+  CHECK(covered == picross::kPuzzleCount);
+
+  // kMaxSize is the LARGEST size shipped, not a leftover from a wider bank: it
+  // sizes the save's cell grid and every clue buffer, so a stale one is silent
+  // waste in flash, in RAM and in every SaveState written to the card.
+  int widest = 0;
+  for (int p = 0; p < picross::kPuzzleCount; ++p)
+    if (picross::kPuzzles[p].size > widest) widest = picross::kPuzzles[p].size;
+  CHECK(picross::kMaxSize == widest);
+  // rows[] is uint16_t, so a picture wider than sixteen would silently lose its
+  // right-hand columns.
+  CHECK(picross::kMaxSize <= 16);
+}
+
+// The name is the reveal, and it is the only string the bank carries -- there is
+// no designer, no rights line and no source URL anywhere, in the firmware or
+// out of it. A name is the puzzle's TITLE in the source file, so a bank is
+// normally fully named; an empty name is still not a fault (a corpus may carry
+// an untitled picture, and the win screen then draws no name band at all). What
+// would be a fault is a name that cannot be drawn.
 //
 // WHAT THIS CHECKS AND WHAT IT CANNOT. A host suite has no font, so it cannot
 // ask the question that actually decides a name: does it render at FULL SIZE in
 // the win screen's 448px band? That is measured in
 // tools_local/picross/name_fit.py and re-asked of the shipped bank by
-// host-tests/picrossprov. What is checkable here is the property that does not
+// host-tests/picrossnames. What is checkable here is the property that does not
 // need metrics -- every character is printable ASCII, which is exactly the
 // range the toybox cuts cover, so no name carries a HOLE (a glyph the cut lacks
 // draws nothing and advances nothing, so it is a gap in the word rather than a
@@ -703,7 +828,8 @@ int main() {
   validateBank();
   bankFillsItsGrid();
   bankIsSizeSorted();
-  bankShipsOneSize();
+  bankTiersAreReachable();
+  nextStaysInTier();
   bankNamesAreDrawable();
   autoMarksSatisfiedLines();
   satisfiedAgreesOnBothAxes();

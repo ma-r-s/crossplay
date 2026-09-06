@@ -10597,17 +10597,29 @@ void testPicrossPickerHidesUnsolvedNames() {
 
   CHECK(out.target.drew("PICROSS"));
   CHECK(out.target.drew("PLAY"));
-  // Nothing on this screen is a NAME. Asserted as "every run is chrome, the
-  // button, the counter or a number" rather than as "none of the bank's names
-  // was drawn": the names are hand-written into janko-names.json, so most of
-  // the bank is unnamed at any moment and sweeping kPuzzles[i].name would be a
-  // check that passes because the data is empty. This one holds whatever Mario
-  // has typed so far.
+  // Nothing on this screen is a NAME. Asserted as an ALLOW-LIST -- every run is
+  // chrome, a button, a counter, a tile number or a size tab -- rather than as
+  // "none of the bank's names was drawn". The bank ships every puzzle titled
+  // now, so a sweep over kPuzzles[i].name would be a real check; it would also
+  // pass the moment a title happened not to be drawn for some other reason.
+  // Naming what the screen IS allowed to say catches an unexpected string
+  // whatever its source.
+  std::vector<std::string> tabLabels;
+  for (int p = 0; p < picross::kPuzzleCount; ++p) {
+    char label[16];
+    std::snprintf(label, sizeof(label), "%dx%d", picross::kPuzzles[p].size, picross::kPuzzles[p].size);
+    bool seen = false;
+    for (const std::string& l : tabLabels) seen = seen || l == label;
+    if (!seen) tabLabels.push_back(label);
+  }
   for (const FakeTarget::TextRun& run : out.target.texts) {
     if (run.text == "PICROSS" || run.text == "PLAY" || run.text == "RESUME") continue;
     if (run.text.find('/') != std::string::npos) continue;  // the n/total counter
     if (allDigits(run.text)) continue;                      // a tile's number
-    std::printf("  the picker drew %s, which is neither chrome nor a number\n", run.text.c_str());
+    bool isTab = false;
+    for (const std::string& l : tabLabels) isTab = isTab || l == run.text;
+    if (isTab) continue;  // a size tab
+    std::printf("  the picker drew %s, which is neither chrome, a number nor a size tab\n", run.text.c_str());
     CHECK(false);
   }
 
@@ -10621,10 +10633,10 @@ void testPicrossPickerHidesUnsolvedNames() {
   CHECK(layout.indexAt(layout.grid.x + 2, layout.grid.y + 2) == 0);
 }
 
-// The picker is one flat run of pages -- no size tabs, because the game is one
-// size -- and every tile hit-tests back to its own GLOBAL puzzle index through
-// the layout. A tap-resolution bug here opens the wrong puzzle, which the sim
-// cannot catch (it never runs InputManager).
+// The picker pages WITHIN the size group on screen, and every tile hit-tests
+// back to its own GLOBAL puzzle index through the layout. A tap-resolution bug
+// here opens the wrong puzzle, which the sim cannot catch (it never runs
+// InputManager).
 void testPicrossPickerPagesTheWholeBank() {
   picross::Progress progress;
 
@@ -10656,10 +10668,13 @@ void testPicrossPickerPagesTheWholeBank() {
       const int cy = layout.grid.y + r * pitch + layout.cell / 2;
       CHECK(layout.indexAt(cx, cy) == k);
     }
-    // Every puzzle in the bank is reachable: the pages cover it exactly, with
-    // no puzzle past the last page (which would be unreachable and silent).
-    CHECK(layout.pageCount * perPage >= picross::kPuzzleCount);
-    CHECK((layout.pageCount - 1) * perPage < picross::kPuzzleCount);
+    // The pages cover THIS TIER exactly, with none past the last page (which
+    // would be unreachable and silent). The tier is the first run in the bank,
+    // derived here rather than written down.
+    int tier0 = 0;
+    while (tier0 < picross::kPuzzleCount && picross::kPuzzles[tier0].size == picross::kPuzzles[0].size) ++tier0;
+    CHECK(layout.pageCount * perPage >= tier0);
+    CHECK((layout.pageCount - 1) * perPage < tier0);
   }
 
   // The LAST page starts where the arithmetic says and holds the remainder --
@@ -10677,9 +10692,11 @@ void testPicrossPickerPagesTheWholeBank() {
     model.page = last;
     picrossui::PickerLayout tail;
     buildPicrossMenu(out, model, tail);
+    int tier0 = 0;
+    while (tier0 < picross::kPuzzleCount && picross::kPuzzles[tier0].size == picross::kPuzzles[0].size) ++tier0;
     CHECK(tail.pageOnScreen == last);
     CHECK(tail.firstIndex == last * perPage);
-    CHECK(tail.firstIndex + tail.count == picross::kPuzzleCount);
+    CHECK(tail.firstIndex + tail.count == tier0);
     CHECK(tail.indexAt(tail.grid.x + 2, tail.grid.y + 2) == tail.firstIndex);
   }
 
@@ -10712,18 +10729,229 @@ void testPicrossPickerPagesTheWholeBank() {
     model.followSelection = true;
     picrossui::PickerLayout layout;
     buildPicrossMenu(out, model, layout);
+    // followSelection resolves the TAB as well as the page, so the last puzzle
+    // in the bank is on screen even though it lives in the last tier. This is
+    // the whole reason the activity does not compute either number.
     CHECK(layout.firstIndex <= target);
     CHECK(target < layout.firstIndex + layout.count);
-    CHECK(layout.pageOnScreen == target / perPage);
+    CHECK(layout.tabOnScreen == layout.tabCount - 1);
   }
 }
 
-// There is one size, so nothing on the picker or the board may still announce
-// it. "10 x 10" on every tile, in the board's status strip and across a row of
-// one tab was noise repeating a fact the player cannot change -- Mario's call.
-void testPicrossShowsNoSizeAnywhere() {
-  char size[16];
-  std::snprintf(size, sizeof(size), "%d x %d", picross::kPuzzles[0].size, picross::kPuzzles[0].size);
+// EVERY SIZE TAB IS DRAWN AND EVERY ONE ANSWERS A TAP, and between them they
+// reach every puzzle in the bank.
+//
+// This is the check that would have caught the bug this picker's group array
+// was written against: the slots were a literal 4 with a `break` under them, so
+// a bank producing a fifth run lost every puzzle after it -- unreachable from
+// the tabs, drawn nowhere, logged nowhere, with nothing on the screen looking
+// wrong. The bank ships four groups today, which is exactly that boundary.
+//
+// So it does not ask "are there tabs". It sweeps for a live ActionTab rect per
+// group, then opens each one and adds up what the pages actually hold, and
+// requires the total to be the whole bank. A tab that draws but answers nothing
+// fails the first half; a tier the pages cannot reach fails the second.
+void testPicrossPickerTabsReachEveryTier() {
+  picross::Progress progress;
+
+  Rendered out;
+  picrossui::MenuModel model;
+  model.progress = &progress;
+  model.total = picross::kPuzzleCount;
+  picrossui::PickerLayout layout;
+  buildPicrossMenu(out, model, layout);
+
+  // One tab per distinct size in the bank, and the generator's count is what
+  // the picker drew.
+  CHECK(layout.tabCount == picross::kSizeGroupCount);
+
+  // Wide enough to read and to hit. Checked against the shipped constant, not a
+  // copy of the number: "10x10" measures 83px in the body cut and the tabs land
+  // at 106px, but that margin is only there while the group count is four.
+  if (layout.tabWidth < picrossui::kTabMinWidth)
+    std::printf("  a size tab is %dpx wide, under the %dpx floor\n", layout.tabWidth, picrossui::kTabMinWidth);
+  CHECK(layout.tabWidth >= picrossui::kTabMinWidth);
+
+  // A LIVE TAP TARGET FOR EVERY TAB. Swept off the real frame rather than read
+  // back from the layout, because a rect the builder recorded and the frame
+  // never registered looks identical from the layout's side -- and the picker
+  // has a fixed interaction budget that a growing bank eats into.
+  std::vector<int> tabValues;
+  for (int y = 2; y < 800; y += 3)
+    for (int x = 2; x < 480; x += 3) {
+      const fui::ActionEvent e = out.tap(x, y);
+      if (e.action != picrossui::ActionTab) continue;
+      bool seen = false;
+      for (const int v : tabValues) seen = seen || v == e.value;
+      if (!seen) tabValues.push_back(e.value);
+    }
+  if (static_cast<int>(tabValues.size()) != layout.tabCount)
+    std::printf("  %d tabs drawn but %d answer a tap\n", layout.tabCount, static_cast<int>(tabValues.size()));
+  CHECK(static_cast<int>(tabValues.size()) == layout.tabCount);
+  for (int t = 0; t < layout.tabCount; ++t) {
+    bool found = false;
+    for (const int v : tabValues) found = found || v == t;
+    if (!found) std::printf("  tab %d has no tap target\n", t);
+    CHECK(found);
+  }
+
+  // Open each tab in turn and walk its pages, adding up the tiles actually laid
+  // out. The sum is the bank or something is unreachable.
+  int reached = 0;
+  int sizesSeen = 0;
+  int previousSize = 0;
+  for (int t = 0; t < layout.tabCount; ++t) {
+    picrossui::MenuModel tabModel;
+    tabModel.progress = &progress;
+    tabModel.total = picross::kPuzzleCount;
+    tabModel.sizeTab = t;
+
+    Rendered probe;
+    picrossui::PickerLayout first;
+    buildPicrossMenu(probe, tabModel, first);
+    CHECK(first.tabOnScreen == t);
+    // The tier this tab opened on, and it must be a NEW size: two tabs landing
+    // on the same run is the shape that overflows the group slots.
+    const int size = picross::kPuzzles[first.firstIndex].size;
+    CHECK(t == 0 || size > previousSize);
+    previousSize = size;
+    ++sizesSeen;
+
+    for (int page = 0; page < first.pageCount; ++page) {
+      Rendered sheet;
+      tabModel.page = page;
+      picrossui::PickerLayout pageLayout;
+      buildPicrossMenu(sheet, tabModel, pageLayout);
+      CHECK(pageLayout.pageOnScreen == page);
+      CHECK(pageLayout.count > 0);
+      // Every tile on this page is in this tier, and resolves to itself.
+      for (int k = 0; k < pageLayout.count; ++k) {
+        const int index = pageLayout.firstIndex + k;
+        CHECK(picross::kPuzzles[index].size == size);
+      }
+      reached += pageLayout.count;
+    }
+  }
+  CHECK(sizesSeen == picross::kSizeGroupCount);
+
+  // EVERY PAGE STARTS ITS GRID AT THE SAME Y, including a short last page.
+  //
+  // The grid is centred in the body's leftover space, and centring by the rows
+  // THIS page happens to draw would float a short last page halfway down the
+  // panel while every other page sits under the tabs -- the grid would appear
+  // to jump as you page through a tier. It is centred by the full page height
+  // instead, and this is what says so.
+  {
+    int gridTop = -1;
+    for (int t = 0; t < layout.tabCount; ++t) {
+      picrossui::MenuModel m;
+      m.progress = &progress;
+      m.total = picross::kPuzzleCount;
+      m.sizeTab = t;
+      Rendered probe;
+      picrossui::PickerLayout first;
+      buildPicrossMenu(probe, m, first);
+      for (int page = 0; page < first.pageCount; ++page) {
+        m.page = page;
+        Rendered sheet;
+        picrossui::PickerLayout pl;
+        buildPicrossMenu(sheet, m, pl);
+        if (gridTop < 0) gridTop = pl.grid.y;
+        if (pl.grid.y != gridTop)
+          std::printf("  tab %d page %d starts its grid at y=%d, not %d\n", t, page, pl.grid.y, gridTop);
+        CHECK(pl.grid.y == gridTop);
+      }
+    }
+    CHECK(gridTop > 0);
+  }
+
+  if (reached != picross::kPuzzleCount)
+    std::printf("  the tabs reach %d of %d puzzles\n", reached, picross::kPuzzleCount);
+  CHECK(reached == picross::kPuzzleCount);
+
+  // THE BIGGEST TIER IS THE ONE THAT CAN OVERFLOW THE HIT TABLE, and overflow
+  // only LOGS -- toybox::reportOverflow writes a line and the screen ships with
+  // dead controls. So it is checked here, on the worst case rather than on the
+  // tab that happens to open first.
+  //
+  // The picker's budget is one rect for the whole grid, one per page dot, one
+  // per size tab and one for PLAY. The dots are the term that grows: the tabs
+  // added four rects at the same moment the bank grew from 137 puzzles to 199,
+  // and a page dot is a rect per page of the largest tier. This is the sum that
+  // silently exceeds kMaxInteractions the next time either number moves.
+  int widestTab = 0;
+  int mostPages = 0;
+  for (int t = 0; t < layout.tabCount; ++t) {
+    picrossui::MenuModel probeModel;
+    probeModel.progress = &progress;
+    probeModel.total = picross::kPuzzleCount;
+    probeModel.sizeTab = t;
+    Rendered probe;
+    picrossui::PickerLayout probeLayout;
+    buildPicrossMenu(probe, probeModel, probeLayout);
+    if (probeLayout.pageCount > mostPages) {
+      mostPages = probeLayout.pageCount;
+      widestTab = t;
+    }
+    if (probe.interactions.overflowed())
+      std::printf("  tab %d overflowed the hit table at %d pages\n", t, probeLayout.pageCount);
+    CHECK(!probe.interactions.overflowed());
+  }
+
+  // On that worst tab, every tab AND every page dot still answers a tap. A
+  // control that drew but registered no rect is invisible from the layout's
+  // side, which is exactly what overflow produces.
+  {
+    picrossui::MenuModel worstModel;
+    worstModel.progress = &progress;
+    worstModel.total = picross::kPuzzleCount;
+    worstModel.sizeTab = widestTab;
+    Rendered worst;
+    picrossui::PickerLayout worstLayout;
+    buildPicrossMenu(worst, worstModel, worstLayout);
+
+    std::vector<int> tabs;
+    std::vector<int> dots;
+    for (int y = 2; y < 800; y += 3)
+      for (int x = 2; x < 480; x += 3) {
+        const fui::ActionEvent e = worst.tap(x, y);
+        std::vector<int>* bucket = nullptr;
+        if (e.action == picrossui::ActionTab) bucket = &tabs;
+        if (e.action == picrossui::ActionPage) bucket = &dots;
+        if (bucket == nullptr) continue;
+        bool seen = false;
+        for (const int v : *bucket) seen = seen || v == e.value;
+        if (!seen) bucket->push_back(e.value);
+      }
+    if (static_cast<int>(tabs.size()) != worstLayout.tabCount)
+      std::printf("  on the %d-page tier only %d of %d tabs answer\n", worstLayout.pageCount,
+                  static_cast<int>(tabs.size()), worstLayout.tabCount);
+    CHECK(static_cast<int>(tabs.size()) == worstLayout.tabCount);
+    if (static_cast<int>(dots.size()) != worstLayout.pageCount)
+      std::printf("  on the %d-page tier only %d page dots answer\n", worstLayout.pageCount,
+                  static_cast<int>(dots.size()));
+    CHECK(static_cast<int>(dots.size()) == worstLayout.pageCount);
+  }
+}
+
+// THE SIZE IS ON THE TABS AND NOWHERE ELSE.
+//
+// The tabs say it because it is the one thing a player picks between, and each
+// carries its own solved count so the row also answers "which tier still has
+// puzzles left". Everywhere else it is still noise: it was on every tile and in
+// the board's status strip, repeating a fact the player has already chosen and
+// cannot change from there. Mario's call, and it survives the tabs coming back.
+//
+// The tab label is "10x10" and NOT "10 x 10", which is a measurement rather
+// than a preference: at four tabs the band gives each pill 106px and "10 x 10"
+// sets 103px of it, one and a half pixels of air inside a 20px corner radius.
+// Asserted here so a later session tidying the label back to the spaced form
+// gets a red test instead of a cramped row nobody looks at closely.
+void testPicrossShowsTheSizeOnlyOnTheTabs() {
+  char spaced[16];
+  std::snprintf(spaced, sizeof(spaced), "%d x %d", picross::kPuzzles[0].size, picross::kPuzzles[0].size);
+  char tight[16];
+  std::snprintf(tight, sizeof(tight), "%dx%d", picross::kPuzzles[0].size, picross::kPuzzles[0].size);
 
   picross::Progress progress;
   Rendered menu;
@@ -10732,10 +10960,28 @@ void testPicrossShowsNoSizeAnywhere() {
   model.total = picross::kPuzzleCount;
   picrossui::PickerLayout layout;
   buildPicrossMenu(menu, model, layout);
-  if (menu.target.drew(size)) std::printf("  the picker still says %s\n", size);
-  CHECK(!menu.target.drew(size));
-  // And no tab band: ActionTab is gone, so the only actions a sweep can reach
-  // are the grid and PLAY.
+
+  // The tab for the tier on screen says its size, in the tight form.
+  if (!menu.target.drew(tight)) std::printf("  no size tab drew %s\n", tight);
+  CHECK(menu.target.drew(tight));
+  if (menu.target.drew(spaced)) std::printf("  a size tab drew the spaced %s, which overruns its pill\n", spaced);
+  CHECK(!menu.target.drew(spaced));
+
+  // A tile still shows a number, never a size: "10x10" under every one of
+  // twenty tiles is the noise that was removed and it stays removed.
+  //
+  // THE BOUND IS ONE, NOT tabCount. Each size labels exactly ONE tab -- the
+  // sizes are distinct, which bankTiersAreReachable proves -- so `<= tabCount`
+  // left room for three tiles to put the label back and still pass. A bound
+  // loose enough to admit the thing it forbids is not a bound.
+  int tightRuns = 0;
+  for (const FakeTarget::TextRun& run : menu.target.texts)
+    if (run.text == tight) ++tightRuns;
+  if (tightRuns != 1) std::printf("  %s is drawn %d times; exactly one tab carries it\n", tight, tightRuns);
+  CHECK(tightRuns == 1);
+
+  // The picker's actions are exactly the four it has: the grid, the buttons,
+  // the page dots and the tabs. Anything else is a control nobody designed.
   std::vector<int> actions;
   for (int y = 2; y < 800; y += 5)
     for (int x = 2; x < 480; x += 5) {
@@ -10746,8 +10992,11 @@ void testPicrossShowsNoSizeAnywhere() {
       if (!seen) actions.push_back(static_cast<int>(e.action));
     }
   for (const int a : actions)
-    CHECK(a == picrossui::ActionPick || a == picrossui::ActionButton || a == picrossui::ActionPage);
+    CHECK(a == picrossui::ActionPick || a == picrossui::ActionButton || a == picrossui::ActionPage ||
+          a == picrossui::ActionTab);
 
+  // THE BOARD still says nothing about size, in either form. You chose the tier
+  // on the way in; repeating it over the puzzle is the noise that was removed.
   picross::Board board = picrossMidGame();
   Rendered play;
   picrossui::BoardModel bm;
@@ -10755,8 +11004,10 @@ void testPicrossShowsNoSizeAnywhere() {
   bm.total = picross::kPuzzleCount;
   picrossui::Layout blayout;
   buildPicrossBoard(play, bm, blayout);
-  if (play.target.drew(size)) std::printf("  the board still says %s\n", size);
-  CHECK(!play.target.drew(size));
+  if (play.target.drew(spaced)) std::printf("  the board still says %s\n", spaced);
+  CHECK(!play.target.drew(spaced));
+  if (play.target.drew(tight)) std::printf("  the board still says %s\n", tight);
+  CHECK(!play.target.drew(tight));
   // The strip still carries the thing that DOES change, or the removal took the
   // wrong line with it.
   CHECK(play.target.drew("MISTAKES  1") || play.target.drew("NO MISTAKES"));
@@ -10944,11 +11195,14 @@ void testPicrossPickerFitsTheInteractionBuffer() {
   }
 }
 
-// THE WIN SCREEN NO LONGER CREDITS THE DESIGNER, and that is a decision, not a
-// regression -- Mario, having seen it: "it just looks bad". The whole
-// attribution left the firmware with it (137 source URLs were ~34KB of an ~51KB
-// bank) and now lives in assets_local/picross/PROVENANCE.md, which
-// host-tests/picrossprov checks against the shipped bitmaps.
+// THE WIN SCREEN NO LONGER CREDITS THE DESIGNER, and there is nobody to credit.
+//
+// It read "PUZZLE BY <name>" for a bank of six named designers' work. Mario,
+// having seen it: "it just looks bad", and then, on the flash it cost, "as long
+// as it doesn't reach firmware anywhere and uses space there I'm good" -- 137
+// source URLs were ~34KB of an ~51KB bank. Those puzzles are gone now, and the
+// current bank carries no attribution obligation at all: no author, no licence,
+// no source, and no file anywhere recording one.
 //
 // This asserts the absence, because the absence is the thing a later session
 // will read as an oversight and helpfully undo.
@@ -10966,10 +11220,11 @@ void testPicrossWinDrawsNoDesignerCredit() {
 
 // The reveal names the picture and grades the solve. Zero mistakes is PERFECT.
 //
-// The NAME comes from a synthetic puzzle rather than from the bank, and that is
-// deliberate: the names are being written by hand into janko-names.json, so the
-// bank is normally part-named and reading kPuzzles[0].name would make this test
-// pass or fail on how far Mario has got rather than on whether the screen works.
+// The NAME comes from a synthetic puzzle rather than from the bank, and that
+// stays deliberate even though the bank is now fully named. Reading
+// kPuzzles[0].name would tie this test to whichever picture happens to sort
+// first, so a bank change would move it for reasons that have nothing to do
+// with whether the screen draws a name and a grade.
 void testPicrossWinRevealsNameAndGrade() {
   picross::Puzzle named = picross::kPuzzles[0];
   named.name = "RABBIT";
@@ -11721,7 +11976,8 @@ int main() {
   testPicrossDrawsEveryClue();
   testPicrossPickerHidesUnsolvedNames();
   testPicrossPickerPagesTheWholeBank();
-  testPicrossShowsNoSizeAnywhere();
+  testPicrossShowsTheSizeOnlyOnTheTabs();
+  testPicrossPickerTabsReachEveryTier();
   testPicrossMistakeIsAMarkNotAFilledCell();
   testPicrossPageStepClampsAtBothEnds();
   testPicrossPickerFitsTheInteractionBuffer();

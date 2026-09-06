@@ -1,21 +1,28 @@
 # Picross pictures -- ORIGINAL artwork, authored for this fork (public domain /
 # CC0). No third-party source is used in this file.
 #
-# NOT SHIPPED. gen_picross.SOURCES emits janko.txt alone; this file is not in
-# that list, so none of these 68 pictures is in the bank. Mario's call, and it
-# is about the pictures rather than the count: the hand-drawn artwork "is not
-# and won't be close to good enough" beside puzzles somebody designed. He also
-# dropped 5x5 as a tier, and every 5x5 here is hand-drawn.
+# NOT SHIPPED. gen_picross.SOURCES names nonograms.txt alone; this file is not
+# in that list, so none of these 68 pictures is in the bank. Mario's call, and
+# it is about the pictures rather than the count: the hand-drawn artwork "is not
+# and won't be close to good enough" beside puzzles somebody designed.
 #
 # It stays in the repository as the worked example of the format and because
-# deleting a generator's input destroys reproducible work for nothing. Adding
-# it back to SOURCES and regenerating emits it. See PROVENANCE.md, which
-# records the decision so this does not get helpfully re-added.
+# deleting a generator's input destroys reproducible work for nothing. Adding it
+# back to SOURCES and regenerating emits it. DO NOT do that on the grounds that
+# 68 valid CC0 puzzles are going spare -- that is the decision above, and it has
+# been re-made once already.
 #
-# The three '@@' lines below are the file-level PROVENANCE, read by the
-# generator and written into the header beside every bitmap. They are what lets
-# a bank state its licence when it mixes origins; a single '@' line above a
-# name overrides them for that one picture. See gen_picross.py.
+# THREE THINGS THIS HEADER USED TO SAY ARE NO LONGER TRUE, and they are worth
+# naming because each was a fact about a bank that has since been replaced:
+# SOURCES was janko.txt; "he also dropped 5x5 as a tier" (5x5 SHIPS now -- it is
+# the first of four size tabs, 33 puzzles); and "see PROVENANCE.md, which
+# records the decision", a file deleted with the puzzles it credited.
+#
+# The '@@' lines below are the file-level PROVENANCE, read by gen_picross.parse
+# and used to keep one file's declaration from leaking onto another's puzzles; a
+# single '@' line above a name overrides them for that one picture. They no
+# longer reach the header -- the bank carries a name, a size and a bitmap and
+# nothing else -- so they describe THIS FILE, for a reader of this file.
 #
 # '#' is a solid cell (filled in the finished picture), '.' is empty. The line
 # before a grid is its NAME. Blank lines separate puzzles; '#'-prefixed lines
