@@ -21,8 +21,11 @@ device is to hand. A `file://` page is a laptop-only tool: getting one onto a
 phone means a checkout or an AirDrop, and doing forty of these on a phone is the
 case that has to work. A URL is the only form that opens the same on both.
 
-Everything still happens in the tab. There is no network call, no upload, and no
-server side: the puzzles are in `data.js`, the answers are in `localStorage`.
+No answer ever leaves the tab. The page fetches its own static files -- the
+stylesheet, the Jersey face, `data.js` -- and nothing else: no upload, no API,
+no server side, and deliberately no analytics script, which every other page on
+this site carries. The puzzles are in `data.js`; the answers are in
+`localStorage`.
 
 ## Where the work actually lives, and how it is lost
 
