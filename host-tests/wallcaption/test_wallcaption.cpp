@@ -421,6 +421,7 @@ int main() {
     }
     std::printf("wallcaption: widest hint \"%s\" = %dpx in a %dpx strip (%dpx spare)\n", widestHintText.c_str(),
                 widestHint, stripWidth, stripWidth - widestHint);
+  }
 
   // 6. THE HOLD SHEET'S CONTROLS, and the one destructive button behind them.
   //
@@ -609,7 +610,6 @@ int main() {
       check(wallpapersui::sheetHeadRect(panels[p]).bottom() <= sheetBox.y,
             std::string("the name overlaps the sentence under it (") + labels[p] + ")");
     }
-  }
   }
 
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,
