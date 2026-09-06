@@ -67,6 +67,60 @@ SOURCES = (
     os.path.join(ASSETS, "janko.txt"),
 )
 
+# The sizes that reach the device. Mario played a 15x15 on the panel and the
+# call is his: "it's just not gonna work". A 15x15 lands on 19px cells with a
+# 177px row-clue gutter, and on glass that is a grid you can read but not
+# reliably tap. So the game is 10x10 and nothing else.
+#
+# This is a FILTER rather than a re-import. janko.txt keeps all 321 puzzles for
+# the same reason pictures.txt stays in the tree: a generator's input is
+# reproducible work, and re-deriving the dropped tier later must not mean
+# re-crawling janko.at. Widening this tuple is the whole of putting 15x15 back
+# -- and it would also need the layout work docs/apps/picross.md describes.
+SHIPPED_SIZES = (10,)
+
+# Mario's own name for each picture, the thing the win screen reveals. This
+# REPLACES the designer/licence/URL payload that used to sit beside every
+# puzzle: the attribution is not firmware's job (it costs flash and no player
+# reads it), so it now lives in assets_local/picross/PROVENANCE.md alone, and
+# the per-puzzle string the bank does carry is the name.
+#
+# Keys are the puzzle's identity, and BOTH forms are accepted: the name in the
+# source file ("JANKO222") and the bare janko id it ends in ("222"), because
+# those are the two things a namer built against janko.txt or against the
+# puzzle's URL would naturally produce. A key matching no puzzle is a HARD
+# ERROR -- a typo that silently names nothing is exactly how an annotation pass
+# ends up half-applied with nobody the wiser.
+#
+# What is NOT accepted as a key is a bank index. The bank is emitted size-sorted
+# and renumbers whenever it changes, so an index names a different puzzle after
+# any edit.
+#
+# A puzzle with no entry ships with an EMPTY name and the win screen draws no
+# name band at all. "JANKO222" is an id, not a name, and a reveal that names the
+# picture "JANKO222" is worse than a reveal that says nothing.
+NAMES = os.path.join(ASSETS, "janko-names.json")
+
+# The credit for every shipped puzzle, generated into PROVENANCE.md between
+# these markers. See write_credits().
+CREDITS = os.path.join(ASSETS, "PROVENANCE.md")
+CREDITS_BEGIN = "<!-- BEGIN GENERATED CREDITS -->"
+CREDITS_END = "<!-- END GENERATED CREDITS -->"
+
+# What a name may contain, and it is the namer's alphabet, not a guess: A-Z,
+# digits, space, hyphen, apostrophe. The Toybox display cut has no fallback box
+# -- a glyph it lacks is a HOLE in the word (see the typography-fold memory) --
+# so a name carrying anything else is refused here rather than shipped as a gap
+# nobody sees until a device renders it.
+NAME_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -'")
+
+# The longest name the namer will hand over. The win screen shrinks a name that
+# does not fit its band (toybox::fittedTitle), so an over-long name is not
+# clipped, it is shrunk until it is unreadable -- and nothing reports that. The
+# limit is enforced at entry and re-enforced here, because a file can be edited
+# after the namer has written it.
+NAME_MAX = 9
+
 
 # The provenance keys a picture may carry, and what an unset one means. `source`
 # is empty for artwork this fork drew: there is nowhere it came from.
@@ -369,6 +423,139 @@ def cstring(text):
     return '"%s"' % "".join(out)
 
 
+def janko_id(name):
+    """The trailing digits of a source name ("JANKO222" -> "222"), or None."""
+    digits = ""
+    for ch in reversed(name):
+        if not ch.isdigit():
+            break
+        digits = ch + digits
+    return digits or None
+
+
+def load_names(source_names):
+    """Mario's per-puzzle names, keyed by source name and checked to death.
+
+    `source_names` is every puzzle name the bank is about to ship. Every key in
+    the file must match one of them, by source name or by trailing janko id.
+
+    Everything here is a HARD ERROR rather than a warning, and that is the
+    point: the failure this guards against is not a crash, it is 137 pictures
+    quietly revealing the wrong name -- or no name -- with a green build and a
+    file that looks full. A name is data Mario typed by hand, once, and nothing
+    downstream can tell a missing entry from a picture he has not reached yet.
+    """
+    if not os.path.exists(NAMES):
+        return {}
+    import json
+
+    with open(NAMES, encoding="utf-8") as f:
+        raw = json.load(f)
+    if not isinstance(raw, dict):
+        sys.exit("%s: expected a JSON object of {puzzle id: NAME}" % NAMES)
+
+    by_id = {}
+    for name in source_names:
+        by_id.setdefault(name, name)
+        ident = janko_id(name)
+        if ident is not None:
+            # A bare id is only a usable key while it names ONE puzzle. Two
+            # sources ending in the same digits would make "222" ambiguous, and
+            # resolving it to whichever came first is how a name lands on the
+            # wrong picture. Drop the short form rather than guess.
+            by_id[ident] = None if ident in by_id else name
+
+    names = {}
+    for key, value in raw.items():
+        if key.startswith("_"):
+            continue  # "_comment" and friends, the shape janko-authors.json uses
+        target = by_id.get(str(key).strip().upper())
+        if target is None:
+            sys.exit(
+                "%s: key %r names no puzzle in the shipped bank (or names more "
+                "than one). Keys are the source name ('JANKO222') or its janko "
+                "id ('222'); a bank index is never a key." % (NAMES, key)
+            )
+        if not isinstance(value, str):
+            sys.exit("%s: %r is not a string" % (NAMES, key))
+        text = value.strip().upper()
+        if not text:
+            continue  # an entry Mario has not filled in yet is simply unnamed
+        bad = sorted(set(text) - NAME_CHARS)
+        if bad:
+            sys.exit(
+                "%s: name %r for %s uses %s, which the display cut may not have "
+                "-- a missing glyph is a HOLE in the word, not a box. Allowed: "
+                "A-Z, 0-9, space, hyphen, apostrophe."
+                % (NAMES, value, key, ", ".join(repr(ch) for ch in bad))
+            )
+        if len(text) > NAME_MAX:
+            sys.exit(
+                "%s: name %r for %s is %d characters; the win screen's band "
+                "holds %d before it starts shrinking the type."
+                % (NAMES, value, key, len(text), NAME_MAX)
+            )
+        if target in names and names[target] != text:
+            sys.exit("%s: %s is named twice, %r and %r" % (NAMES, target, names[target], text))
+        names[target] = text
+    return names
+
+
+def write_credits(puzzles):
+    """Rewrite the per-puzzle credit table in PROVENANCE.md from the bank.
+
+    The attribution no longer reaches the device -- it is not firmware's job and
+    it cost ~34KB of flash in source URLs alone -- so this file is now the ONLY
+    place the credit lives, and the repository is public. A credit file that
+    silently stops matching the shipped puzzles is worse than none, so it is
+    GENERATED from the same list the header is, in the same pass, rather than
+    maintained beside it. host-tests/picrossprov re-derives the mapping from
+    janko.txt and the shipped bitmaps and checks this table against it, so a
+    hand-edit or a stale regenerate is caught rather than believed.
+    """
+    rows = [
+        "| Puzzle | Designer | Licence | Source |",
+        "| --- | --- | --- | --- |",
+    ]
+    for name, _cells, prov in puzzles:
+        rows.append(
+            "| `%s` | %s | %s | <%s> |"
+            % (
+                name,
+                prov.get("author", PROV_DEFAULT["author"]),
+                prov.get("license", PROV_DEFAULT["license"]),
+                prov.get("source", PROV_DEFAULT["source"]),
+            )
+        )
+    block = "\n".join(
+        [
+            CREDITS_BEGIN,
+            "",
+            "<!-- GENERATED by tools_local/picross/gen_picross.py. Do not edit by hand. -->",
+            "",
+            "%d puzzles ship, and every one of them is here." % len(puzzles),
+            "",
+        ]
+        + rows
+        + ["", CREDITS_END]
+    )
+
+    with open(CREDITS, encoding="utf-8") as f:
+        text = f.read()
+    if CREDITS_BEGIN not in text or CREDITS_END not in text:
+        sys.exit(
+            "%s has no %s / %s block. That block is the credit for every shipped "
+            "puzzle and nothing else carries it; add the markers back rather "
+            "than letting this run write the table nowhere."
+            % (os.path.relpath(CREDITS, ROOT), CREDITS_BEGIN, CREDITS_END)
+        )
+    head = text[: text.index(CREDITS_BEGIN)]
+    tail = text[text.index(CREDITS_END) + len(CREDITS_END) :]
+    with open(CREDITS, "w", encoding="utf-8") as f:
+        f.write(head + block + tail)
+    print("wrote the credit table in %s (%d puzzles)" % (os.path.relpath(CREDITS, ROOT), len(puzzles)))
+
+
 def sort_by_size(puzzles):
     """Order the bank by size, ascending, stable within a size.
 
@@ -392,6 +579,8 @@ def emit(puzzles, sources):
     told the imported half is this fork's own work.
     """
     puzzles = sort_by_size(puzzles)
+    names = load_names([name for name, _cells, _prov in puzzles])
+    unnamed = [name for name, _cells, _prov in puzzles if name not in names]
     maxsize = max((len(cells) for _, cells, _ in puzzles), default=5)
     hexdigits = (maxsize + 3) // 4  # 5->2, 10->3, 15->4
     emitted = []
@@ -399,12 +588,7 @@ def emit(puzzles, sources):
     max_row_runs = 0
     max_col_runs = 0
     max_run = 0
-    # One row per DISTINCT (author, licence, source), so a bank imported from
-    # one collection costs one row and not one per puzzle -- and two puzzles
-    # that share an origin cannot drift apart.
-    prov_rows = []
-    prov_index = {}
-    for name, cells, prov in puzzles:
+    for name, cells, _prov in puzzles:
         n = len(cells)
         ok, reason = evaluate(name, cells)
         if not ok:
@@ -422,54 +606,30 @@ def emit(puzzles, sources):
                     if cells[r][c]:
                         value |= 1 << c
             bits.append(value)
-        longest = max(longest, len(name))
+        display = names.get(name, "")
+        longest = max(longest, len(display))
         max_row_runs = max(max_row_runs, max(len(rc) for rc in rows))
         max_col_runs = max(max_col_runs, max(len(cc) for cc in cols))
         max_run = max(max_run, max(max(rc) for rc in rows), max(max(cc) for cc in cols))
-        key = tuple(prov.get(k, PROV_DEFAULT[k]) for k in PROV_KEYS)
-        if key not in prov_index:
-            prov_index[key] = len(prov_rows)
-            prov_rows.append(key)
         emitted.append(
-            '    {%s, %d, %d, {%s}},'
+            '    {%s, %d, {%s}},'
             % (
-                cstring(name.upper()),
+                cstring(display),
                 n,
-                prov_index[key],
                 ", ".join(("0x%0" + str(hexdigits) + "X") % b for b in bits),
             )
         )
         print("  %-16s %2dx%-2d  unique, line-solvable" % (name, n, n))
 
-    # `provenance` is a uint16_t index, so the table has to fit one. A bank with
-    # more distinct origins than that wants a wider field, not a truncated
-    # table, and saying so here is cheaper than debugging the wrap. The field
-    # was a uint8_t until a 531-puzzle import produced 532 distinct rows: every
-    # imported puzzle carries its OWN source URL, which is the field that
-    # actually identifies it, so the dedup that makes this fork's own bank one
-    # row does nothing for a collection.
-    if len(prov_rows) > 65535:
-        sys.exit(
-            "%d distinct provenances; Puzzle::provenance is a uint16_t and holds 65535. "
-            "Widen the field (and kProvenanceCount with it) before importing more."
-            % len(prov_rows)
-        )
-
-    provenances = "\n".join(
-        "    {%s, %s, %s}," % (cstring(a), cstring(li), cstring(src))
-        for a, li, src in prov_rows
-    )
     sizes = sorted({len(cells) for _, cells, _ in puzzles})
 
     header = HEADER % {
         "sources": ", ".join(os.path.relpath(p, ROOT) for p in sources),
         "count": len(emitted),
         "rows": "\n".join(emitted),
-        "provenances": provenances,
         "sizegroups": len(sizes),
         "maxsize": maxsize,
         "longest": longest,
-        "longestauthor": max((len(a) for a, _li, _src in prov_rows), default=0),
         "maxrowruns": max_row_runs,
         "maxcolruns": max_col_runs,
         "maxrun": max_run,
@@ -478,6 +638,17 @@ def emit(puzzles, sources):
         out.write(header)
     clang_format(OUTPUT)
     print("wrote %s (%d puzzles)" % (os.path.relpath(OUTPUT, ROOT), len(emitted)))
+    # The credit leaves the device with this change, so it has to land somewhere
+    # in the same pass that writes the bank. Not "somewhere later, by hand".
+    write_credits(puzzles)
+    if unnamed:
+        print(
+            "  %d of %d puzzles have no name yet; their win screen draws no name band.\n"
+            "  Names go in %s -- see load_names()."
+            % (len(unnamed), len(puzzles), os.path.relpath(NAMES, ROOT))
+        )
+    else:
+        print("  every puzzle is named")
 
 
 def clang_format(path):
@@ -520,6 +691,27 @@ def main():
     # Names repeat ON PURPOSE across sizes -- HEART is drawn at 5x5, 10x10 and
     # 15x15 and is the same subject each time -- so a name is not a key here and
     # a uniqueness check over names would refuse the bank as designed.
+    # The size filter runs BEFORE the gate, so --curate reports on what would
+    # actually ship rather than on a tier that cannot reach the device.
+    dropped = [p for p in puzzles if len(p[1]) not in SHIPPED_SIZES]
+    puzzles = [p for p in puzzles if len(p[1]) in SHIPPED_SIZES]
+    if dropped:
+        by_size = {}
+        for _name, cells, _prov in dropped:
+            by_size[len(cells)] = by_size.get(len(cells), 0) + 1
+        print(
+            "held back %d pictures whose size is not in %r: %s"
+            % (
+                len(dropped),
+                SHIPPED_SIZES,
+                ", ".join("%dx%d:%d" % (s, s, by_size[s]) for s in sorted(by_size)),
+            )
+        )
+    if not puzzles:
+        sys.exit(
+            "no pictures at %r survive the size filter -- SHIPPED_SIZES and the "
+            "sources disagree" % (SHIPPED_SIZES,)
+        )
     print("%d pictures in the bank" % len(puzzles))
     if do_curate:
         curate(puzzles)
@@ -535,11 +727,24 @@ HEADER = """#pragma once
 // %(sources)s.
 // Do not edit by hand.
 //
-// THE BANK HAS MORE THAN ONE ORIGIN AND THEY CARRY DIFFERENT RIGHTS. Every
-// puzzle indexes a kProvenances[] row naming its author, its licence and where
-// it came from; a row that is not this fork's own CC0 is used BY PERMISSION and
-// is not licensed to anybody. Read assets_local/picross/PROVENANCE.md before
-// copying puzzles out of this file.
+// THESE PUZZLES ARE THIRD-PARTY WORK, USED BY PERMISSION AND NOT LICENSED TO
+// ANYBODY. Read assets_local/picross/PROVENANCE.md before copying any of them
+// out of this file. A fork of this repository does NOT inherit the permission.
+//
+// THE ATTRIBUTION IS DELIBERATELY NOT IN THIS FILE, and its absence is not an
+// oversight -- do not "fix" it by adding the designers back. Every puzzle used
+// to carry an author, a rights string and a source URL, and the URLs alone were
+// ~34KB of an ~51KB bank: a URL cost more flash than the puzzle it pointed at,
+// on a device where flash is the scarce thing and no player ever reads it.
+// Mario's call. The full per-puzzle mapping (puzzle, designer, licence, source)
+// now lives in assets_local/picross/PROVENANCE.md, is GENERATED into that file
+// by the same run that writes this one, and is checked against this bank by
+// host-tests/picrossprov -- so the credit obligation is met, in one place, by a
+// mechanism rather than by memory.
+//
+// The one string a puzzle does carry is its NAME: the reveal on the win screen,
+// written by hand into assets_local/picross/janko-names.json. An empty name is
+// a picture nobody has named yet, and the win screen draws no name band for it.
 //
 // Only the solution bitmap is stored; the row and column clues are DERIVED from
 // it (PicrossCore::deriveClues), so the clues can never disagree with the
@@ -548,7 +753,7 @@ HEADER = """#pragma once
 //
 // rows[r] holds the solid cells of row r as a bitmask, bit c (from the left)
 // set when cell (r, c) is filled in the finished picture. Rows past `size` are
-// zero, so a 5x5 uses rows[0..4] and the low 5 bits of each.
+// zero.
 
 #include <cstdint>
 
@@ -560,31 +765,13 @@ namespace picross {
 // uint16_t, so this must stay <= 16.
 constexpr int kMaxSize = %(maxsize)d;
 
-// Where a picture came from and what may be done with it. Recorded per puzzle
-// because a bank that mixes origins -- this fork's own drawings and an imported
-// collection -- cannot state its licence any other way, and a picture whose
-// origin was not written down at import is a picture nobody can clear later.
-//
-// `source` is empty for artwork drawn for this fork: there is nowhere it came
-// from. `license` is an SPDX identifier where one exists and a plain phrase
-// where it does not; it is never empty, because "no licence recorded" and "all
-// rights reserved" are the same thing and must read as such.
-struct Provenance {
-  const char* author;
-  const char* license;
-  const char* source;
-};
-
-constexpr Provenance kProvenances[] = {
-%(provenances)s
-};
-
-constexpr int kProvenanceCount = static_cast<int>(sizeof(kProvenances) / sizeof(kProvenances[0]));
-
 struct Puzzle {
+  // Mario's name for the picture, revealed on the win screen. EMPTY for a
+  // picture nobody has named yet, and the win screen then draws no name band --
+  // a reveal that names the picture after its catalogue id would be worse than
+  // one that says nothing. See janko-names.json.
   const char* name;
-  uint8_t size;             // 5, 10 or 15
-  uint16_t provenance;      // index into kProvenances
+  uint8_t size;
   uint16_t rows[kMaxSize];  // bit c set when (row, col) is solid
 };
 
@@ -594,24 +781,21 @@ constexpr Puzzle kPuzzles[] = {
 
 constexpr int kPuzzleCount = static_cast<int>(sizeof(kPuzzles) / sizeof(kPuzzles[0]));
 
-// How many DISTINCT sizes the bank holds, and therefore how many tabs the
-// picker draws. The bank is emitted size-sorted, so each size is one contiguous
-// run and the picker's run-scan recovers exactly this many groups. It is
-// derived from the bank rather than written as a literal: a 4-slot array with a
-// silent `break` made every puzzle past the fourth run unreachable from the
-// tabs, and nothing anywhere reported it. host-tests/picross asserts the
-// sortedness this number assumes.
+// How many DISTINCT sizes the bank holds. ONE today: the game is 10x10 and
+// nothing else (Mario, on the panel: "it's just not gonna work" about 15x15),
+// so the picker draws no size tabs at all -- there is nothing to choose
+// between. It stays derived rather than written as a literal because a 4-slot
+// array with a silent `break` once made every puzzle past the fourth run
+// unreachable from the tabs with nothing anywhere reporting it, and because
+// this is the number the picker checks before deciding whether tabs exist.
+// The bank is emitted size-sorted, so each size is one contiguous run;
+// host-tests/picross asserts the sortedness this number assumes.
 constexpr int kSizeGroupCount = %(sizegroups)d;
 
 // The longest name in the bank, so a screen sizes its buffer from this rather
-// than measuring at runtime, and the generator keeps it honest.
+// than measuring at runtime, and the generator keeps it honest. Zero while no
+// picture has been named.
 constexpr int kMaxNameLen = %(longest)d;
-
-// The longest AUTHOR name in the bank, for the same reason: the win screen
-// credits the designer of an imported picture and sizes its buffer from this.
-// Derived rather than written down, because a designer added by a later import
-// would otherwise be silently truncated on the one screen that credits them.
-constexpr int kMaxAuthorLen = %(longestauthor)d;
 
 // The most clue numbers any one row or column carries, and the largest single
 // run. The clue gutters are sized from these so no clue is ever elided, and the
@@ -619,12 +803,6 @@ constexpr int kMaxAuthorLen = %(longestauthor)d;
 constexpr int kMaxRowRuns = %(maxrowruns)d;
 constexpr int kMaxColRuns = %(maxcolruns)d;
 constexpr int kMaxRun = %(maxrun)d;
-
-// The provenance of puzzle `index`. Out of range answers the first row rather
-// than reading past the table, the same way Board::load() clamps.
-constexpr const Provenance& provenanceOf(const Puzzle& puzzle) {
-  return kProvenances[puzzle.provenance < kProvenanceCount ? puzzle.provenance : 0];
-}
 
 }  // namespace picross
 """

@@ -141,6 +141,7 @@ bool Board::fill(const int row, const int col) {
   // Blank or Crossed: this is a commit.
   if (solid(row, col)) {
     cell_[row][col] = static_cast<uint8_t>(Cell::Filled);
+    autoMark();
     return true;
   }
   if (rules_ == Rules::Punish) {
@@ -152,6 +153,26 @@ bool Board::fill(const int row, const int col) {
   // branch that is the whole difference between the two rule sets.
   cell_[row][col] = static_cast<uint8_t>(Cell::Crossed);
   return true;
+}
+
+void Board::autoMark() {
+  const int n = size();
+  // Every satisfied line, not just the two through the cell just filled. Those
+  // two are the only ones a fill can CHANGE, but a line whose clue is "0" is
+  // satisfied from the start and is never the line a fill lands in -- so the
+  // local version leaves exactly the emptiest rows on the board uncrossed,
+  // which reads as the feature failing rather than as a rule. n is 10; the
+  // sweep is a hundred cells.
+  for (int r = 0; r < n; ++r) {
+    if (!rowSatisfied(r)) continue;
+    for (int c = 0; c < n; ++c)
+      if (static_cast<Cell>(cell_[r][c]) == Cell::Blank) cell_[r][c] = static_cast<uint8_t>(Cell::Crossed);
+  }
+  for (int c = 0; c < n; ++c) {
+    if (!colSatisfied(c)) continue;
+    for (int r = 0; r < n; ++r)
+      if (static_cast<Cell>(cell_[r][c]) == Cell::Blank) cell_[r][c] = static_cast<uint8_t>(Cell::Crossed);
+  }
 }
 
 bool Board::mark(const int row, const int col) {

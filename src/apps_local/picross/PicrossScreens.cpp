@@ -13,16 +13,12 @@ namespace {
 // rather than overruns, so a byte-short buffer is a silently shortened label.
 // See ToyboxFormat.h.
 constexpr int kMistakeChars = toybox::kIntChars + toybox::literalChars("MISTAKES  ") + 1;
-constexpr int kSizeChars = 2 * toybox::kIntChars + toybox::literalChars(" x ") + 1;
-// "PUZZLE BY " plus the longest designer name the bank holds, which the
-// generator derives from the bank itself.
-constexpr int kCreditChars = toybox::literalChars("PUZZLE BY ") + picross::kMaxAuthorLen + 1;
 constexpr int kGradeChars =
     toybox::kIntChars + toybox::literalChars("SOLVED WITH ") + toybox::literalChars(" MISTAKES") + 1;
 
-// The strip under the header carrying the mistake count and the board size.
-// The puzzle NAME is deliberately absent: the name is the answer, so showing it
-// while you solve would spoil the picture. It is revealed on the win screen.
+// The strip under the header carrying the mistake count. The puzzle NAME is
+// deliberately absent: the name is the answer, so showing it while you solve
+// would spoil the picture. It is revealed on the win screen.
 constexpr int kStatusStrip = 34;
 
 // A cell never grows past this, so a 5x5 stays a board rather than becoming five
@@ -110,12 +106,55 @@ void drawX(toybox::Screen& screen, const fui::Rect& cell, const fui::Color color
                        weight, paint);
 }
 
-// A CROSSED annotation is a thin X on white paper; a locked MISTAKE is a solid
-// black cell with a WHITE X knocked out of it. The mistake always carries the
-// weight of a committed cell and the mark cancelling it, so it can never be
-// mistaken for the free note the player made -- the point the critic caught in
-// the first spec, and the difference that was clearest of the three rendered
-// variants (the dither-only mistake read as an unfilled shaded cell).
+// An asterisk: six spokes from the centre, a vertical and two diagonals. Drawn
+// rather than set as a glyph, because the font's '*' sits high on the line (it
+// is a superscript mark) and a cell wants it centred, and because at a 30-odd
+// pixel cell the drawn one can be given a weight that survives e-ink.
+//
+// IT OCCUPIES EXACTLY THE X's BOX. Same reach (a quarter of the cell from the
+// centre), same 2px weight, so the mistake and the player's own mark differ by
+// GLYPH and by nothing else -- which is the distinction Mario drew, and the
+// reason the mistake no longer needs weight to be told apart.
+//
+// The six arms are what separates it from the four-armed X at this size, and
+// the arm ANGLES are the part that had to be looked at rather than reasoned
+// about. The first version put the diagonals at 63 degrees from horizontal,
+// which bunches all three strokes near the vertical: rendered at a 37px cell it
+// read as a dense double-dagger, not as an asterisk. Six even arms means 60
+// degrees apart, so the diagonals sit at 30 degrees from HORIZONTAL -- dx:dy of
+// 7:4, close enough at this size and needing no trigonometry.
+void drawAsterisk(toybox::Screen& screen, const fui::Rect& cell, const fui::Color color) {
+  const int16_t cx = static_cast<int16_t>(cell.x + cell.width / 2);
+  const int16_t cy = static_cast<int16_t>(cell.y + cell.height / 2);
+  const int16_t r = static_cast<int16_t>(cell.width / 4);
+  if (r <= 0) return;
+  const uint8_t weight = static_cast<uint8_t>(cell.width >= 26 ? 2 : 1);
+  const fui::Paint paint = fui::Paint::solid(color);
+  const int16_t dx = static_cast<int16_t>(r * 7 / 8);
+  const int16_t dy = static_cast<int16_t>(r / 2);
+  screen.target().line(fui::Point{cx, static_cast<int16_t>(cy - r)}, fui::Point{cx, static_cast<int16_t>(cy + r)},
+                       weight, paint);
+  screen.target().line(fui::Point{static_cast<int16_t>(cx - dx), static_cast<int16_t>(cy - dy)},
+                       fui::Point{static_cast<int16_t>(cx + dx), static_cast<int16_t>(cy + dy)}, weight, paint);
+  screen.target().line(fui::Point{static_cast<int16_t>(cx - dx), static_cast<int16_t>(cy + dy)},
+                       fui::Point{static_cast<int16_t>(cx + dx), static_cast<int16_t>(cy - dy)}, weight, paint);
+}
+
+// Two annotations that mean different things, and they now differ by GLYPH
+// rather than by weight:
+//
+//   X          the PLAYER's own mark: "I have reasoned that this cell is
+//              empty". Free, reversible, asserts nothing.
+//   asterisk   the GAME's record: "you filled here and you were wrong".
+//              Locked and counted.
+//
+// The mistake used to be a WHITE X on a SOLID BLACK cell, and that is what this
+// change undoes. Mario, having played it: "The x is not heavy. What's heavy is
+// the x with black background when a mistake is made." A solid cell is what the
+// picture is MADE of, so every mistake added a black square to the emerging
+// image and a board with a dozen of them showed a picture that was not the
+// puzzle's. The mark has to stay visible and countable -- it does, it is the
+// only six-armed thing on the board -- but it must not be content.
 void drawCell(toybox::Screen& screen, const fui::Rect& cell, const picross::Cell state) {
   switch (state) {
     case picross::Cell::Filled:
@@ -125,8 +164,8 @@ void drawCell(toybox::Screen& screen, const fui::Rect& cell, const picross::Cell
       drawX(screen, cell, fui::Color::Black);
       break;
     case picross::Cell::Mistake:
-      screen.target().fill(cell, fui::Paint::solid(fui::Color::Black));
-      drawX(screen, cell, fui::Color::White);
+      // No fill behind it. That is the whole of the change.
+      drawAsterisk(screen, cell, fui::Color::Black);
       break;
     case picross::Cell::Blank:
     default:
@@ -354,6 +393,14 @@ void drawPicture(toybox::Screen& screen, const picross::Puzzle& puzzle, const fu
 
 }  // namespace
 
+int stepPage(const int page, const int pageCount, const int delta) {
+  if (pageCount <= 1) return 0;
+  const int next = page + delta;
+  if (next < 0) return 0;
+  if (next >= pageCount) return pageCount - 1;
+  return next;
+}
+
 bool Layout::cellAt(const int x, const int y, int& row, int& col) const {
   if (cell <= 0) return false;
   if (x < board.x || x >= board.right() || y < board.y || y >= board.bottom()) return false;
@@ -409,12 +456,9 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   mistakeStyle.align = fui::TextAlign::Left;
   screen.target().text(toybox::inkCentred(status, toybox::kUiCut), mistakes, mistakeStyle);
 
-  char sizeLabel[kSizeChars];
-  std::snprintf(sizeLabel, sizeof(sizeLabel), "%d x %d", n, n);
-  fui::TextStyle sizeStyle;
-  sizeStyle.font = toybox::kUiFont;
-  sizeStyle.align = fui::TextAlign::Right;
-  screen.target().text(toybox::inkCentred(status, toybox::kUiCut), sizeLabel, sizeStyle);
+  // No size label here. There is one size, so "10 x 10" told the player nothing
+  // they could act on and repeated itself on every screen; Mario's call. The
+  // strip is the mistake count alone.
 
   const fui::Rect body = screen.body();
   const ClueMetrics cm = clueMetricsFor(n);
@@ -456,56 +500,29 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
       "PUZZLES", ButtonPuzzles);
 }
 
-// The picker: a size-tabbed grid of rounded tiles. Chosen from three rendered
-// variants (a SOLID grid, a LIST, and this tabbed grid) and a cold review of
-// them. The size tabs (5x5 / 10x10 / 15x15) are the only layout that answers
-// "68 puzzles across three sizes" with direct access rather than blind paging,
-// and each tab carries its own solved count so the tabs double as "which sizes
-// still have puzzles left". The selected / in-progress tile is fully INVERTED --
-// the fill-is-selected language the mode capsule and shelf rows already speak,
-// and the least ambiguous mark 1-bit e-ink has. No corner brackets (they clashed
-// with the rounded tiles) and no gutter underline (it read as belonging to the
-// tile below).
+// The picker: a paged grid of rounded tiles. Chosen from three rendered variants
+// (a SOLID grid, a LIST, and a size-tabbed grid) and a cold review of them. The
+// selected / in-progress tile is fully INVERTED -- the fill-is-selected language
+// the mode capsule and shelf rows already speak, and the least ambiguous mark
+// 1-bit e-ink has. No corner brackets (they clashed with the rounded tiles) and
+// no gutter underline (it read as belonging to the tile below).
+//
+// THE SIZE TABS ARE GONE, and their absence is the design rather than an
+// omission. They existed to answer "puzzles across three sizes" with direct
+// access instead of blind paging; the game is 10x10 and nothing else now, so
+// they were a row of one tab -- a control with nothing to choose between, which
+// is not a control, and which spent 60px of the grid's height plus a hit rect
+// to say "10x10" a second time. The static_assert below is the mechanism: bring
+// a second size back and the build stops here rather than shipping a picker
+// that silently mixes two tiers into one flat page run.
 
 namespace {
 
-// The bank is emitted size-sorted, so each size is one contiguous run and the
-// groups are recoverable by scanning for the changes. Recover their extents
-// once, for the tabs and the paging.
-//
-// The slots are sized from picross::kSizeGroupCount, which the GENERATOR
-// derives from the bank it just wrote. They were a literal 4 with a `break`
-// underneath, and that pairing is a silent data-loss bug rather than a bound:
-// a bank whose sizes are not one run each produces more groups than slots, the
-// break fires, and every puzzle after it is simply unreachable from the tabs --
-// no error, no log, nothing to see on the screen. Deriving the count means the
-// array cannot be too small for a sorted bank, and host-tests/picross asserts
-// the sortedness, so the break below is now unreachable rather than merely
-// unlikely.
-struct SizeGroups {
-  int count = 0;
-  int size[picross::kSizeGroupCount] = {};
-  int start[picross::kSizeGroupCount] = {};
-  int len[picross::kSizeGroupCount] = {};
-};
-
-SizeGroups sizeGroups() {
-  SizeGroups g;
-  for (int i = 0; i < picross::kPuzzleCount; ++i) {
-    const int s = picross::kPuzzles[i].size;
-    if (g.count == 0 || g.size[g.count - 1] != s) {
-      if (g.count >= picross::kSizeGroupCount) break;
-      g.size[g.count] = s;
-      g.start[g.count] = i;
-      g.len[g.count] = 0;
-      ++g.count;
-    }
-    ++g.len[g.count - 1];
-  }
-  return g;
-}
-
-constexpr int16_t kTabBandHeight = 60;
+static_assert(picross::kSizeGroupCount == 1,
+              "the bank ships more than one size again, and this picker has no way to show that: "
+              "every tier would run together in one flat sequence of pages. Restore the size tabs "
+              "(they are in this file's history, on branch app/picrossfix) before widening "
+              "gen_picross.SHIPPED_SIZES.");
 
 int clampInt(const int v, const int lo, const int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -568,46 +585,63 @@ void drawTile(toybox::Screen& screen, const fui::Rect& box, const int index, con
     numStyle.font = toybox::kDisplayFont;
     numStyle.align = fui::TextAlign::Center;
     numStyle.color = fg;
-    const fui::Rect numBox = fui::makeRect(box.x, box.y, box.width, static_cast<int16_t>(box.height - 20));
-    screen.target().text(toybox::inkCentred(numBox, toybox::kDisplayCut), number, numStyle);
-
-    char size[kSizeChars];
-    std::snprintf(size, sizeof(size), "%d x %d", puzzle.size, puzzle.size);
-    fui::TextStyle sizeStyle;
-    sizeStyle.font = toybox::kSmallFont;
-    sizeStyle.align = fui::TextAlign::Center;
-    sizeStyle.color = fg;
-    const fui::Rect sizeBox = fui::makeRect(box.x, static_cast<int16_t>(box.bottom() - 20), box.width, 18);
-    screen.target().text(toybox::inkCentred(sizeBox, toybox::kTileCut), size, sizeStyle);
+    // The number is centred in the WHOLE tile. It used to sit above a "10 x 10"
+    // line and was offset upward to make room for it; with the size gone, an
+    // unchanged offset would leave every number riding high for no reason.
+    screen.target().text(toybox::inkCentred(box, toybox::kDisplayCut), number, numStyle);
   }
 
   if (inProgress)
     drawPlayGlyph(screen, fui::makeRect(static_cast<int16_t>(box.x + 7), static_cast<int16_t>(box.y + 7), 9, 11), fg);
 }
 
-// Lay a 4-column grid of tiles for the puzzles [first, first+n) into `body`,
-// filling `layout` so a tap resolves back through the same geometry.
-void layOutGrid(toybox::Screen& screen, const MenuModel& model, const fui::Rect& body, const int first, const int n,
-                const int page, const int pageCount, PickerLayout& layout) {
-  const int16_t cols = 4;
-  const int16_t gap = 12;
-  const int16_t rows = static_cast<int16_t>((n + cols - 1) / cols);
-  const int16_t visibleRows = rows < 4 ? rows : 4;
-  int cell = (body.width - (cols - 1) * gap) / cols;
-  const int cellH = visibleRows > 0 ? (body.height - (visibleRows - 1) * gap) / visibleRows : cell;
-  if (cellH < cell) cell = cellH;
+// How the tile grid fits `body`: four columns, and as many rows as the height
+// actually holds.
+//
+// The rows used to be capped at four and the page at a literal sixteen, sized
+// for a body that had a 60px size-tab band above it. With the tabs gone that
+// literal would have left a band of dead paper under the last row and paged the
+// bank more times than it needs -- a number derived once, then invalidated by a
+// layout change that had no reason to know about it. Deriving it here means the
+// page count follows the panel.
+struct GridGeom {
+  int16_t cols = 4;
+  int16_t gap = 12;
+  int16_t cell = 0;
+  int16_t rows = 0;
+  int16_t perPage = 0;
+};
+
+GridGeom gridGeom(const fui::Rect& body) {
+  GridGeom g;
+  int cell = (body.width - (g.cols - 1) * g.gap) / g.cols;
+  // A tile is a thumbnail of a 10x10 picture, not a poster: past this it is all
+  // white space around a small drawing.
   if (cell > 118) cell = 118;
   if (cell < 1) cell = 1;
-  const int16_t pitch = static_cast<int16_t>(cell + gap);
-  const int16_t gridW = static_cast<int16_t>(cols * cell + (cols - 1) * gap);
-  const int16_t gridH = static_cast<int16_t>(rows * cell + (rows - 1) * gap);
+  g.cell = static_cast<int16_t>(cell);
+  int rows = (body.height + g.gap) / (cell + g.gap);
+  if (rows < 1) rows = 1;
+  g.rows = static_cast<int16_t>(rows);
+  g.perPage = static_cast<int16_t>(g.cols * g.rows);
+  return g;
+}
+
+// Lay the tiles for puzzles [first, first+n) into `body`, filling `layout` so a
+// tap resolves back through the same geometry.
+void layOutGrid(toybox::Screen& screen, const MenuModel& model, const fui::Rect& body, const GridGeom& g,
+                const int first, const int n, const int page, const int pageCount, PickerLayout& layout) {
+  const int16_t rows = static_cast<int16_t>((n + g.cols - 1) / g.cols);
+  const int16_t pitch = static_cast<int16_t>(g.cell + g.gap);
+  const int16_t gridW = static_cast<int16_t>(g.cols * g.cell + (g.cols - 1) * g.gap);
+  const int16_t gridH = static_cast<int16_t>(rows * g.cell + (rows - 1) * g.gap);
   const int16_t left = static_cast<int16_t>(body.x + (body.width - gridW) / 2);
   const int16_t top = body.y;
 
   layout.grid = fui::makeRect(left, top, gridW, gridH);
-  layout.cell = static_cast<int16_t>(cell);
-  layout.gap = gap;
-  layout.cols = cols;
+  layout.cell = g.cell;
+  layout.gap = g.gap;
+  layout.cols = g.cols;
   layout.rows = rows;
   layout.count = static_cast<int16_t>(n);
   layout.firstIndex = static_cast<int16_t>(first);
@@ -617,60 +651,12 @@ void layOutGrid(toybox::Screen& screen, const MenuModel& model, const fui::Rect&
 
   for (int k = 0; k < n; ++k) {
     const int i = first + k;
-    const int r = k / cols;
-    const int c = k % cols;
-    const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + c * pitch), static_cast<int16_t>(top + r * pitch),
-                                        static_cast<int16_t>(cell), static_cast<int16_t>(cell));
+    const int r = k / g.cols;
+    const int c = k % g.cols;
+    const fui::Rect box =
+        fui::makeRect(static_cast<int16_t>(left + c * pitch), static_cast<int16_t>(top + r * pitch), g.cell, g.cell);
     const bool solved = model.progress != nullptr && model.progress->isSolved(i);
     drawTile(screen, box, i, picross::kPuzzles[i], solved, i == model.inProgressIndex, i == model.selectedIndex);
-  }
-}
-
-// The size tabs. Each is a rounded pill carrying its size and its own solved
-// count; the active one is filled. Tapping a tab switches groups.
-//
-// The pill's vertical budget, from its top edge: 8px padding, the 25px label
-// ink, a 7px gap, the 13px count ink, 7px padding -- 60 in all. It was 48, which
-// left THREE pixels above and below the text, and kPillRadius rounds the corners
-// into exactly those pixels, so the two lines read as jammed against the bubble.
-// Grow the pill rather than shrink the type: the count is already at the tile
-// cut and the size label is the thing being read.
-void drawSizeTabs(toybox::Screen& screen, const MenuModel& model, const SizeGroups& g, const fui::Rect& band,
-                  const int active) {
-  const int16_t tabGap = 8;
-  const int16_t tabW = static_cast<int16_t>((band.width - (g.count - 1) * tabGap) / g.count);
-  for (int t = 0; t < g.count; ++t) {
-    const fui::Rect tb = fui::makeRect(static_cast<int16_t>(band.x + t * (tabW + tabGap)), band.y, tabW, band.height);
-    const bool on = t == active;
-    screen.target().fill(tb, fui::Paint::solid(on ? fui::Color::Black : fui::Color::White),
-                         static_cast<uint8_t>(toybox::kPillRadius));
-    screen.target().stroke(tb, fui::Paint::solid(fui::Color::Black), toybox::kHairline,
-                           static_cast<uint8_t>(toybox::kPillRadius));
-    int solvedHere = 0;
-    if (model.progress != nullptr)
-      for (int i = g.start[t]; i < g.start[t] + g.len[t]; ++i)
-        if (model.progress->isSolved(i)) ++solvedHere;
-
-    const fui::Color fg = on ? fui::Color::White : fui::Color::Black;
-    char label[kSizeChars];
-    std::snprintf(label, sizeof(label), "%d x %d", g.size[t], g.size[t]);
-    fui::TextStyle ts;
-    ts.font = toybox::kUiFont;
-    ts.align = fui::TextAlign::Center;
-    ts.color = fg;
-    const fui::Rect labelBox = fui::makeRect(tb.x, tb.y, tb.width, static_cast<int16_t>(tb.height - 18));
-    screen.target().text(toybox::inkCentred(labelBox, toybox::kUiCut), label, ts);
-
-    char count[toybox::kSlashCounterChars];
-    std::snprintf(count, sizeof(count), "%d/%d", solvedHere, g.len[t]);
-    fui::TextStyle cs;
-    cs.font = toybox::kSmallFont;
-    cs.align = fui::TextAlign::Center;
-    cs.color = fg;
-    const fui::Rect countBox = fui::makeRect(tb.x, static_cast<int16_t>(tb.bottom() - 22), tb.width, 18);
-    screen.target().text(toybox::inkCentred(countBox, toybox::kTileCut), count, cs);
-
-    screen.frame().hit(tb, ActionTab, static_cast<int16_t>(t));
   }
 }
 
@@ -696,21 +682,21 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
     screen.button(play, actions);
   }
 
-  const SizeGroups g = sizeGroups();
-  const int tab = clampInt(model.sizeTab, 0, g.count - 1);
-  const fui::Rect tabBand = screen.takeTop(kTabBandHeight, toybox::kGutter);
-  drawSizeTabs(screen, model, g, tabBand, tab);
-
   const fui::Rect dotBand = screen.takeBottom(26, toybox::kGutter);
 
-  const int perPage = 16;
-  const int len = g.len[tab];
-  const int pageCount = len > 0 ? (len + perPage - 1) / perPage : 1;
-  const int page = clampInt(model.page, 0, pageCount - 1);
-  const int firstInGroup = page * perPage;
-  const int first = g.start[tab] + firstInGroup;
-  const int n = len - firstInGroup < perPage ? len - firstInGroup : perPage;
-  layOutGrid(screen, model, screen.body(), first, n, page, pageCount, layout);
+  const GridGeom g = gridGeom(screen.body());
+  const int perPage = g.perPage;
+  const int pageCount = picross::kPuzzleCount > 0 ? (picross::kPuzzleCount + perPage - 1) / perPage : 1;
+  // followSelection is how the picker OPENS on the puzzle PLAY would start,
+  // rather than the activity computing the page with a second copy of perPage.
+  // perPage is derived from the panel here, so a copy anywhere else is a copy
+  // that goes wrong the next time this layout changes -- which is exactly what
+  // happened to the sixteen this function used to be handed.
+  const int page = model.followSelection ? clampInt(model.selectedIndex, 0, picross::kPuzzleCount - 1) / perPage
+                                         : clampInt(model.page, 0, pageCount - 1);
+  const int first = page * perPage;
+  const int n = picross::kPuzzleCount - first < perPage ? picross::kPuzzleCount - first : perPage;
+  layOutGrid(screen, model, screen.body(), g, first, n, page, pageCount, layout);
   drawPageDots(screen, dotBand, pageCount, page);
 }
 
@@ -756,39 +742,26 @@ void buildWin(toybox::Screen& screen, const WinModel& model) {
   gradeStyle.align = fui::TextAlign::Center;
   screen.target().text(toybox::inkCentred(gradeBand, toybox::kUiCut), grade, gradeStyle);
 
-  // The designer, for a picture somebody else drew. Taken BEFORE the name band
-  // so it sits directly under the name (takeBottom stacks upward), and drawn
-  // only when the puzzle names a source: our own CC0 pictures have an empty
-  // source and would otherwise read "by CrossPlay" under every warmup.
-  //
-  // This is not decoration. 171 of the puzzles in the bank are used by kind
-  // permission of six named designers and are not licensed to anybody --
-  // assets_local/picross/PROVENANCE.md -- and the credit is the least this
-  // screen owes them. It lives on the win screen because that is where the
-  // picture is; a credit the player never reaches is a credit in name only.
-  if (model.cleared != nullptr) {
-    const picross::Provenance& prov = picross::provenanceOf(*model.cleared);
-    if (prov.source != nullptr && prov.source[0] != '\0' && prov.author != nullptr) {
-      // The band IS the line box, and the text is placed in it directly rather
-      // than through inkCentred. inkCentred centres the CAP band and is sound
-      // only for glyphs that sit on the baseline (ToyboxTokens.h says so), and
-      // a person's name is the one string on this screen that is not all-caps:
-      // the moment a designer called Nagy or Gruyter is imported, a descender
-      // would hang out of the box. None of the six names in the bank today has
-      // one, which is exactly why this would have shipped unnoticed.
-      const fui::Rect creditBand = screen.takeBottom(toybox::kTileCut.lineHeight, 0);
-      char credit[kCreditChars];
-      std::snprintf(credit, sizeof(credit), "PUZZLE BY %s", prov.author);
-      fui::TextStyle creditStyle;
-      creditStyle.font = toybox::kSmallFont;
-      creditStyle.align = fui::TextAlign::Center;
-      screen.target().text(creditBand, credit, creditStyle);
-    }
-  }
+  // NO DESIGNER CREDIT HERE, and that is a decision rather than an oversight.
+  // It used to read "PUZZLE BY <name>" under the reveal. Mario, having seen it:
+  // "it just looks bad". The credit obligation is unchanged and is met in
+  // assets_local/picross/PROVENANCE.md, which carries the full per-puzzle
+  // mapping, is generated from the bank and is checked against it -- see the
+  // note at the top of PicrossPuzzles.h. The designer strings are no longer in
+  // the firmware at all, so there is nothing here to draw even if somebody
+  // wanted to.
 
-  // The revealed name, now safe to show.
-  const fui::Rect nameBand = screen.takeBottom(52, toybox::kGutter);
-  if (model.cleared != nullptr) {
+  // The revealed name, now safe to show -- and the WHOLE reward, which is why
+  // the picker and the board hide it.
+  //
+  // An UNNAMED puzzle draws no band at all rather than an empty one: the names
+  // are being written by hand, so a bank is normally part-named, and a blank
+  // 52px gap over every unnamed picture would read as a name that failed to
+  // render (see the a-silent-screen-reads-as-a-crash memory). No band means the
+  // picture simply gets the space.
+  const bool named = model.cleared != nullptr && model.cleared->name != nullptr && model.cleared->name[0] != '\0';
+  if (named) {
+    const fui::Rect nameBand = screen.takeBottom(52, toybox::kGutter);
     fui::TextStyle nameStyle;
     nameStyle.font = toybox::kDisplayFont;
     nameStyle.align = fui::TextAlign::Center;
