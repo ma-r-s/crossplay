@@ -45,6 +45,7 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 ROOT = os.path.dirname(os.path.dirname(HERE))
 ASSETS = os.path.join(ROOT, "assets_local", "picross")
 OUTPUT = os.path.join(ROOT, "src", "apps_local", "picross", "PicrossPuzzles.h")
@@ -107,19 +108,25 @@ CREDITS = os.path.join(ASSETS, "PROVENANCE.md")
 CREDITS_BEGIN = "<!-- BEGIN GENERATED CREDITS -->"
 CREDITS_END = "<!-- END GENERATED CREDITS -->"
 
-# What a name may contain, and it is the namer's alphabet, not a guess: A-Z,
-# digits, space, hyphen, apostrophe. The Toybox display cut has no fallback box
-# -- a glyph it lacks is a HOLE in the word (see the typography-fold memory) --
-# so a name carrying anything else is refused here rather than shipped as a gap
-# nobody sees until a device renders it.
-NAME_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -'")
-
-# The longest name the namer will hand over. The win screen shrinks a name that
-# does not fit its band (toybox::fittedTitle), so an over-long name is not
-# clipped, it is shrunk until it is unreadable -- and nothing reports that. The
-# limit is enforced at entry and re-enforced here, because a file can be edited
-# after the namer has written it.
-NAME_MAX = 9
+# A name is accepted exactly when it RENDERS AT FULL SIZE, which is measured
+# rather than approximated by a character count. tools_local/picross/name_fit.py
+# is the one place that answers it; the naming tool
+# (site/picross-names/logic.js) restates the same measurement in JavaScript for
+# live feedback and is pinned to this one by a corpus.
+#
+# THIS USED TO BE A NINE-CHARACTER CAP, and a character count is the wrong
+# instrument for a variable-width font in both directions at once: it refused
+# "CHRISTMAS TREE", which measures 410px against a 448px band and fits whole,
+# while ten capital Ws (437px) also fits and eleven does not. Every fixed count
+# is either too tight for good names or too loose for wide ones. Measuring is
+# not a stricter rule, it is the actual question.
+#
+# The alphabet is not a list here either. A name may use any printable ASCII the
+# cut draws; what is refused is a character the cut has NO GLYPH for, and
+# measure() reports those as holes rather than measuring them -- a missing glyph
+# draws nothing and advances the pen by nothing, so a broken string would
+# otherwise measure as a comfortable fit.
+import name_fit  # noqa: E402  (same directory; see sys.path below)
 
 
 # The provenance keys a picture may carry, and what an unset one means. `source`
@@ -454,6 +461,14 @@ def load_names(source_names):
     if not isinstance(raw, dict):
         sys.exit("%s: expected a JSON object of {puzzle id: NAME}" % NAMES)
 
+    fit = name_fit.fitter()
+    # Named in the error rather than written into it: the number follows the
+    # font and the band, and a literal here would be the very thing this check
+    # replaced.
+    widest_run = 1
+    while fit("W" * (widest_run + 1)).full_size and widest_run < 64:
+        widest_run += 1
+
     by_id = {}
     for name in source_names:
         by_id.setdefault(name, name)
@@ -481,19 +496,32 @@ def load_names(source_names):
         text = value.strip().upper()
         if not text:
             continue  # an entry Mario has not filled in yet is simply unnamed
-        bad = sorted(set(text) - NAME_CHARS)
-        if bad:
+        landed = fit(text)
+        if landed.holes:
             sys.exit(
-                "%s: name %r for %s uses %s, which the display cut may not have "
-                "-- a missing glyph is a HOLE in the word, not a box. Allowed: "
-                "A-Z, 0-9, space, hyphen, apostrophe."
-                % (NAMES, value, key, ", ".join(repr(ch) for ch in bad))
+                "%s: name %r for %s uses %s, which the display cut has no glyph "
+                "for. A missing glyph is a HOLE in the word, not a box -- it "
+                "draws nothing and advances the pen by nothing, so the name "
+                "would measure as a comfortable fit and render with a gap in it."
+                % (NAMES, value, key, ", ".join(repr(ch) for ch in landed.holes))
             )
-        if len(text) > NAME_MAX:
+        if not landed.full_size:
             sys.exit(
-                "%s: name %r for %s is %d characters; the win screen's band "
-                "holds %d before it starts shrinking the type."
-                % (NAMES, value, key, len(text), NAME_MAX)
+                "%s: name %r for %s measures %dpx against the win screen's %dpx "
+                "band, so toybox::fittedTitle would set it %s. It does not clip "
+                "an overlong name, it SHRINKS it, and nothing reports that -- "
+                "which is why this is an error rather than a warning. Shorter, "
+                "or narrower letters: %d capital Ws fit, and so does "
+                "\"CHRISTMAS TREE\" at fourteen characters."
+                % (
+                    NAMES,
+                    value,
+                    key,
+                    landed.width,
+                    fit.band,
+                    "at %s" % landed.rung if landed.rung else "smaller still",
+                    widest_run,
+                )
             )
         if target in names and names[target] != text:
             sys.exit("%s: %s is named twice, %r and %r" % (NAMES, target, names[target], text))
