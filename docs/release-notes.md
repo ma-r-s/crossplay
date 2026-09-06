@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.37
+
+- Wallpapers: stop the picker refusing taps while the marker paints
+
 ### 1.12.36
 
 - Rebuild the download-failure screen around the book
