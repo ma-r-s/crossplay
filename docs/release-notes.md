@@ -21,6 +21,12 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.43
+
+- Wallpapers: choose several wallpapers, and let them take turns
+- Picross: 321 janko puzzles by permission, and the fork's own artwork dropped
+- Minesweeper: tapping a satisfied number chords its neighbours
+
 ### 1.12.42
 
 - Wallpapers: hold a tile to preview it, or delete it
