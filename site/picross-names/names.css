@@ -1,0 +1,411 @@
+/* Naming the Picross puzzles.
+ *
+ * One person, 137 repetitions, probably on a phone on a sofa. So the picture
+ * and the field own the screen and everything else is either a number to
+ * glance at or a control reached for twice an hour. The site's paper-and-ink
+ * tokens come from /styles.css; only the layout is here.
+ *
+ * The lane is sized so that on a phone the picture and the field are both
+ * above the keyboard: 100dvh (not vh) because on iOS Safari vh is the tall
+ * viewport and the field would sit under the keyboard the whole session.
+ */
+
+.pn-body {
+  overflow-x: hidden;
+}
+
+/* /styles.css gives every <section> 3.5rem to 7rem of vertical padding, which
+ * is right for a marketing page and puts 224px of nothing between this
+ * picture and this field. The lane sets its own rhythm. */
+.pn section {
+  padding-block: 0;
+}
+
+.pn {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 0.75rem var(--gutter, 1rem) 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pn-boot {
+  padding: 2rem;
+  color: var(--muted);
+}
+
+/* --- the bar ------------------------------------------------------------- */
+
+.pn-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--paper);
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+
+.pn-progress {
+  height: 6px;
+  background: var(--paper-2);
+  border: 1px solid var(--edge);
+  overflow: hidden;
+}
+
+.pn-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--ink);
+  transition: width 120ms linear;
+}
+
+.pn-counts {
+  margin: 0.4rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pn-counts strong {
+  color: var(--ink);
+}
+
+.pn-sep {
+  opacity: 0.45;
+  padding: 0 0.15em;
+}
+
+.pn-saved {
+  margin: 0.15rem 0 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+  min-height: 1.1em;
+}
+
+.pn-saved.is-flash {
+  color: var(--ink);
+}
+
+/* --- the picture --------------------------------------------------------- */
+
+.pn-stage {
+  text-align: center;
+}
+
+/* A 10x10 canvas blown up. `pixelated` is the whole trick: the cells stay
+ * square-edged at any size, exactly as the panel fills them, instead of the
+ * browser smoothing a 10px image into grey mush. */
+.pn-picture {
+  display: block;
+  /* ONE dimension decides, and the other follows it, so the picture is square
+   * whichever limit binds. Setting a width and capping the height instead lets
+   * the cap win on a short screen and draws the puzzle SQUASHED -- a picture
+   * whose cells are not square is a different picture, and naming it is the
+   * whole job here.
+   *
+   * --vvh is 1% of the VISUAL viewport, kept by names.js. vh cannot answer
+   * this: on iOS it is the tall viewport, so with the keyboard up a picture
+   * sized in vh pushes the field the keyboard exists to fill straight off the
+   * bottom of the screen. The vh fallback is for a browser with no
+   * visualViewport. */
+  width: min(100%, 22rem, calc(40 * var(--vvh, 1vh)));
+  height: auto;
+  aspect-ratio: 1;
+  margin: 0 auto;
+  image-rendering: pixelated;
+  background: var(--paper-2);
+  border: 1px solid var(--edge);
+}
+
+.pn-meta {
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.pn-index {
+  font-variant-numeric: tabular-nums;
+}
+
+.pn-id {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+
+.pn-author {
+  color: var(--muted);
+}
+
+/* --- the field ----------------------------------------------------------- */
+
+.pn-field {
+  width: 100%;
+  font-family: var(--display);
+  font-size: 2rem;
+  line-height: 1.2;
+  padding: 0.5rem 0.6rem;
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.pn-field:focus {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.pn-field::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.pn-verdict {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  min-height: 2.4em;
+  color: var(--muted);
+}
+
+.pn-verdict.is-warn {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.pn-verdict.is-stop {
+  color: var(--ink);
+  font-weight: 600;
+  background: var(--paper-2);
+  border-left: 3px solid var(--ink);
+  padding: 0.25rem 0.5rem;
+}
+
+/* The 448px name band, to scale. The box is the panel's band and the type is
+ * the panel's typeface, so a name that looks cramped here looks cramped there.
+ * The VERDICT above is the measured answer; this is only the feel of it. */
+.pn-preview {
+  margin-top: 0.3rem;
+  border: 1px dashed var(--edge);
+  background: var(--paper-2);
+  height: 3.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  /* The box stands in for the panel's 448px name band, so the type inside is
+   * sized as a fraction of the box rather than in pixels: 100cqw IS 448 device
+   * pixels, whatever width the phone or the laptop gives it. Done in CSS and
+   * not in script because a measurement taken in JS is taken once, at whatever
+   * moment the layout happened to be in -- and it was 0 the first time, which
+   * silently drew every preview at the wrong scale. */
+  container-type: inline-size;
+}
+
+/* The three cuts toybox::fittedTitle can pick, at their real sizes against a
+ * 448px band. names.js puts the class of whichever one the ladder chose. */
+.pn-preview-name {
+  font-family: var(--display);
+  font-size: calc(100cqw * 30 / 448);
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.pn-preview-name.is-body {
+  font-size: calc(100cqw * 20 / 448);
+}
+
+.pn-preview-name.is-small {
+  font-size: calc(100cqw * 10 / 448);
+}
+
+/* --- actions ------------------------------------------------------------- */
+
+.pn-actions {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.pn-btn {
+  font: inherit;
+  font-size: 0.92rem;
+  padding: 0.62rem 0.8rem;
+  color: var(--paper);
+  background: var(--ink);
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  cursor: pointer;
+  /* A thumb target, not a mouse target. */
+  min-height: 2.85rem;
+}
+
+.pn-btn.is-ghost {
+  color: var(--ink);
+  background: transparent;
+}
+
+.pn-btn.is-danger {
+  border-color: var(--edge);
+  color: var(--muted);
+}
+
+.pn-btn.is-wide {
+  width: 100%;
+}
+
+.pn-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pn-import {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* --- browse -------------------------------------------------------------- */
+
+.pn-tools {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.pn-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.pn-filters button {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.6rem;
+  color: var(--ink);
+  background: transparent;
+  border: 2px solid var(--edge);
+  cursor: pointer;
+}
+
+.pn-filters button[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.pn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.2rem, 1fr));
+  gap: 0.5rem;
+}
+
+.pn-cell {
+  border: 2px solid var(--edge);
+  background: transparent;
+  padding: 0.25rem;
+  cursor: pointer;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  align-items: center;
+}
+
+.pn-cell.is-named {
+  border-color: var(--ink);
+}
+
+.pn-cell.is-nameless {
+  border-style: dashed;
+  border-color: var(--ink);
+}
+
+.pn-cell.is-current {
+  outline: 3px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.pn-cell img {
+  /* flex: none, because the cell is a column flexbox and its main axis is the
+   * HEIGHT: without it the thumbnail is shrunk vertically to make room for its
+   * label and every picture in the list is drawn as a squashed strip. */
+  flex: none;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+  background: var(--paper-2);
+}
+
+.pn-cell-label {
+  font-size: 0.66rem;
+  line-height: 1.15;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.pn-cell.is-named .pn-cell-label {
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 0.86rem;
+}
+
+/* --- save file / export -------------------------------------------------- */
+
+.pn-io {
+  border-top: 1px solid var(--edge);
+  padding-top: 0.6rem;
+  font-size: 0.86rem;
+}
+
+.pn-io summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.pn-io-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.pn-io-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+@media (min-width: 44rem) {
+  .pn {
+    max-width: 40rem;
+  }
+  .pn-picture {
+    width: min(100%, 26rem, calc(46 * var(--vvh, 1vh)));
+  }
+}
+
+/* The offer to fold an accent away. A button rather than only a shortcut,
+ * because the device this gets done on is as likely to be a phone. */
+.pn-fold {
+  font: inherit;
+  font-size: 0.8rem;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  color: var(--paper);
+  background: var(--ink);
+  border: 2px solid var(--ink);
+  cursor: pointer;
+}

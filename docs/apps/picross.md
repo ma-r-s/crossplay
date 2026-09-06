@@ -273,6 +273,15 @@ before importing a corpus with no titles: a made-up or catalogue name cannot
 spoil anything, because it is never shown to anybody who has not already seen
 the picture. It only has to be a decent punchline once.
 
+The names themselves are written by hand, one per picture, in the tool at
+`site/picross-names/`. What that tool knows about this screen -- the 448px band
+the name gets, the three cuts `fittedTitle` can set it in, and the fact that a
+character outside U+0020..U+007E draws as a HOLE in a Toybox cut rather than a
+box -- is in [naming the picross puzzles](picross-names.md), along with the
+format the names arrive in. **Anything that moves this band should re-run
+`tools_local/picross/measure_name_band.sh`**; the tool's whole "will this fit"
+answer is that one number.
+
 ## The picker: size tabs, one selection language
 
 321 puzzles is far too many for one grid, so the picker is **size-tabbed**: a row of
