@@ -279,5 +279,16 @@ check(make_images.first_image(['<img src="one.png"> <img src="two.png">']) == "o
 check(make_images.first_image(["no image here", ""]) is None, "a note with no picture has none")
 check(make_images.first_image([]) is None, "and neither does a note with no fields")
 
+# A filename containing a space -- Anki's own media names routinely have one,
+# e.g. a kana deck's stroke-order diagrams are literally "a h.png". A single
+# character class that excluded whitespace to handle the UNQUOTED case
+# correctly truncated every QUOTED filename at its first space instead: real
+# regression, found live on a real deck, where every stroke-order image
+# silently became "no picture on this note".
+check(make_images.first_image(['<img src="a h.png" />']) == "a h.png",
+      "a quoted filename containing a space is not truncated at the space")
+check(make_images.first_image(["<img src='y z.jpg'>"]) == "y z.jpg",
+      "neither is a single-quoted one")
+
 print(f"{'PASS' if failures == 0 else 'FAIL'} {checks} checks, {failures} failed")
 sys.exit(1 if failures else 0)

@@ -42,7 +42,18 @@ MAX_W, MAX_H = 448, 620
 # Anki's editor writes src="..." but a hand-written template or an imported
 # deck may write src='...' or src=... unquoted, and each of those was a note
 # whose picture was simply not found.
-IMG_RE = re.compile(r"""<img[^>]+src=["']?([^"'>\s]+)""", re.IGNORECASE)
+#
+# Three separate alternatives, not one shared character class, because a
+# quoted value and an unquoted one disagree about what a space MEANS. Anki's
+# own media filenames routinely contain one -- the stroke-order diagrams in a
+# kana deck are literally "a h.png", "a k.png" -- and a space is content
+# inside quotes but a terminator outside them. One class that excluded
+# whitespace to handle the unquoted case correctly truncated every quoted
+# filename at its first space instead: `src="a h.png"` matched `a`, not
+# `a h.png`, and every stroke-order image on the card silently became "no
+# picture on this note" rather than a picture the card checker or this script
+# could see and report.
+IMG_RE = re.compile(r"""<img[^>]+src=(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))""", re.IGNORECASE)
 
 
 def first_image(parts):
@@ -60,7 +71,7 @@ def first_image(parts):
     for raw in parts:
         match = IMG_RE.search(raw or "")
         if match:
-            return match.group(1)
+            return match.group(1) or match.group(2) or match.group(3)
     return None
 
 
