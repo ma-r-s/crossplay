@@ -21,6 +21,7 @@
 #include "../ui/ToyboxMetrics.h"
 #include "../ui/ToyboxTheme.h"
 #include "StudyStats.h"
+#include "StudyText.h"
 #include "fontIds.h"
 
 namespace {
@@ -62,40 +63,12 @@ constexpr int kSmallFontId = NOTOSERIF_12_FONT_ID;
 // bytes; 256 leaves room, and two of these are live at once.
 constexpr int kLineBytes = 256;
 
-int utf8Length(const char* p) {
-  const unsigned char c = static_cast<unsigned char>(*p);
-  if (c < 0x80) return 1;
-  if ((c & 0xE0) == 0xC0) return 2;
-  if ((c & 0xF0) == 0xE0) return 3;
-  if ((c & 0xF8) == 0xF0) return 4;
-  return 1;  // a stray continuation byte: step one, never zero, or we spin
-}
-
-uint32_t nextCodepoint(const char*& p) {
-  const unsigned char c = static_cast<unsigned char>(*p);
-  const int length = utf8Length(p);
-  uint32_t value = c;
-  if (length == 2) {
-    value = c & 0x1F;
-  } else if (length == 3) {
-    value = c & 0x0F;
-  } else if (length == 4) {
-    value = c & 0x07;
-  }
-  for (int i = 1; i < length; ++i) {
-    value = (value << 6) | (static_cast<unsigned char>(p[i]) & 0x3F);
-  }
-  p += length;
-  return value;
-}
-
-// May a line break happen either side of this character? True for spaces and
-// for CJK, which is written without spaces and breaks almost anywhere.
-bool isBreakable(const uint32_t codepoint) {
-  if (codepoint == ' ') return true;
-  return (codepoint >= 0x2E80 && codepoint <= 0x9FFF) || (codepoint >= 0xF900 && codepoint <= 0xFAFF) ||
-         (codepoint >= 0xFF00 && codepoint <= 0xFFEF);
-}
+// utf8Length, nextCodepoint, isBreakable and the wrap itself moved to
+// StudyText.h when cloze needed to know which codepoints landed on which
+// line. Brought into this file's anonymous namespace by name so the call
+// sites below read as they did.
+using study::isBreakable;
+using study::nextCodepoint;
 
 // A ByteSource over a HalFile. Every read seeks first: the deck index and the
 // record it points at are in different places, so sequential reads are the
@@ -648,7 +621,22 @@ bool StudyActivity::loadCurrent() {
     fontsReady_ = false;  // no families at all: the built-in serif draws everything
   }
   if (fontsReady_) {
-    fonts_.prewarm(renderer, note_.field(study::Field::Headword), note_.field(study::Field::Sentence));
+    // A cloze card has no headword: both of its faces are drawn at sentence
+    // size, so nothing is warmed at headword size and the question face gets
+    // a pass of its own. The two faces differ by more than the brackets when
+    // the hole carries a hint, and a hint is the one part of a cloze card
+    // written in the deck's own script.
+    if (note_.isCloze()) {
+      fonts_.prewarm(renderer, "", note_.field(study::Field::Sentence));
+      fonts_.prewarm(renderer, "", note_.field(study::Field::ClozeQuestion));
+      fonts_.prewarmRuby(renderer, note_.field(study::Field::ClozeQuestion));
+    } else {
+      fonts_.prewarm(renderer, note_.field(study::Field::Headword), note_.field(study::Field::Sentence));
+      fonts_.prewarmRuby(renderer, note_.field(study::Field::Headword));
+    }
+    // The readings on the answer face live in the same cut whichever kind of
+    // card this is.
+    fonts_.prewarmRuby(renderer, note_.field(study::Field::Sentence));
   }
 
   image_ = study::ImageRef{};
@@ -955,8 +943,9 @@ void StudyActivity::loop() {
       return;
     }
     // The way out when the chosen decks are the problem. A deck the service
-    // cannot build -- a cloze deck is the ordinary case, and nothing warns
-    // about it beforehand -- leaves a card with nothing on it, and the door
+    // cannot build -- one renamed away in Anki is the ordinary case, and
+    // nothing warns about it beforehand -- leaves a card with nothing on it,
+    // and the door
     // above only re-runs the same failing build. Without this the only escape
     // was unpairing from a browser.
     if (noDeckPickH_ > 0 && tapX >= noDeckSyncX_ && tapX < noDeckSyncX_ + noDeckSyncW_ && tapY >= noDeckPickY_ &&
@@ -1010,103 +999,86 @@ void StudyActivity::loop() {
   }
 }
 
-int StudyActivity::drawWrapped(const int fontId, int y, const int maxWidth, const char* text,
+int StudyActivity::drawWrapped(const int fontId, const int y, const int maxWidth, const char* text,
                                const bool measureOnly) const {
-  if (text == nullptr || *text == '\0') return y;
+  return drawWrappedMarked(fontId, y, maxWidth, text, 0, 0, measureOnly);
+}
 
-  const int lineHeight = renderer.getTextHeight(fontId);
-  const int screenWidth = renderer.getScreenWidth();
+int StudyActivity::drawWrappedUnderlined(const int fontId, const int y, const int maxWidth, const char* text,
+                                         const int spanStart, const int spanLength) const {
+  return drawWrappedMarked(fontId, y, maxWidth, text, spanStart, spanLength, false);
+}
+
+int StudyActivity::drawWrappedMarked(const int fontId, const int y, const int maxWidth, const char* text,
+                                     const int spanStart, const int spanLength, const bool measureOnly) const {
+  // The two buffers are the caller's so nothing here allocates and the sizes
+  // stay visible next to the stack budget they count against.
   char line[kLineBytes];
-  int lineLength = 0;
-
-  const auto flush = [&]() {
-    if (lineLength == 0) return;
-    line[lineLength] = '\0';
-    if (!measureOnly) {
-      const int textWidth = renderer.getTextWidth(fontId, line);
-      renderer.drawText(fontId, (screenWidth - textWidth) / 2, y, line, true);
-    }
-    y += lineHeight;
-    lineLength = 0;
-  };
-
-  const char* p = text;
-  while (*p != '\0') {
-    // One break unit: a whole word for Latin, a single character for CJK.
-    // Chinese is written without spaces, so a space-only rule finds no break
-    // and every sentence runs off both edges.
-    const char* unitEnd = p;
-    if (isBreakable(nextCodepoint(unitEnd))) {
-      unitEnd = p + utf8Length(p);
-    } else {
-      while (*unitEnd != '\0') {
-        const char* peek = unitEnd;
-        if (isBreakable(nextCodepoint(peek))) break;
-        unitEnd = peek;
-      }
-    }
-    const int unitBytes = static_cast<int>(unitEnd - p);
-    if (unitBytes <= 0 || unitBytes >= kLineBytes) break;
-
-    // Measure the candidate rather than counting characters: a CJK glyph is
-    // three bytes and full width, a Latin one is one byte and narrow.
-    char candidate[kLineBytes];
-    std::memcpy(candidate, line, static_cast<size_t>(lineLength));
-    std::memcpy(candidate + lineLength, p, static_cast<size_t>(unitBytes));
-    candidate[lineLength + unitBytes] = '\0';
-
-    if (lineLength > 0 && renderer.getTextWidth(fontId, candidate) > maxWidth) {
-      flush();
-      while (*p == ' ') ++p;  // a leading space after a break is the break
-      continue;
-    }
-    std::memcpy(line + lineLength, p, static_cast<size_t>(unitBytes));
-    lineLength += unitBytes;
-    p = unitEnd;
-  }
-  flush();
-  return y;
+  char scratch[kLineBytes];
+  // Zero unless this deck shipped a furigana cut, in which case the readings
+  // are drawn above their base rather than lost.
+  const int rubyFontId = fontsReady_ ? fonts_.rubyFontId() : 0;
+  return study::drawWrappedMarked(renderer, fontId, y, maxWidth, text, spanStart, spanLength, measureOnly, line,
+                                  kLineBytes, scratch, rubyFontId);
 }
 
 bool StudyActivity::fitsAsDrawn(const int fontId, const char* text, const int maxWidth) const {
-  // Two ways a face can fail a card, both ending in a card you cannot read.
-  // Nothing painted at all -- stale or mis-built fonts -- shows as total width
-  // zero. And a single unbreakable run wider than the screen: the wrap breaks
-  // on spaces and before CJK characters, so "capricious" at the 100px headword
-  // size has nowhere to break and hangs off both edges. 927 of the GRE deck's
-  // 1992 headwords did exactly that. Runs are measured the same way drawWrapped
-  // breaks them, so the two cannot disagree.
-  if (renderer.getTextWidth(fontId, text) == 0) return false;
-  char run[kLineBytes];
-  int runLength = 0;
-  const auto runFits = [&]() {
-    if (runLength == 0) return true;
-    run[runLength] = '\0';
-    runLength = 0;
-    return renderer.getTextWidth(fontId, run) <= maxWidth;
-  };
-  // The same isBreakable the wrap uses, decoded the same way. A private
-  // approximation here once treated every 3-byte character as a break, so an
-  // em-dash inside a word split the *measured* runs while the renderer drew
-  // the word whole -- the guard approved exactly the overflow it exists to
-  // stop.
-  for (const char* p = text; *p != '\0';) {
-    const char* at = p;
-    const uint32_t codepoint = nextCodepoint(p);
-    if (codepoint == 0) break;
-    if (isBreakable(codepoint)) {
-      if (!runFits()) return false;
-      continue;
-    }
-    const int bytes = static_cast<int>(p - at);
-    if (runLength + bytes < static_cast<int>(sizeof(run))) {
-      for (int i = 0; i < bytes; ++i) run[runLength++] = at[i];
-    }
+  char buffer[kLineBytes];
+  return study::fitsAsDrawn(
+      fontId, text, maxWidth, [&](const int f, const char* run) { return renderer.getTextWidth(f, run); }, buffer,
+      kLineBytes);
+}
+
+void StudyActivity::drawClozeCard(const Rect& body) {
+  const int maxWidth = renderer.getScreenWidth() - 2 * toybox::kMargin;
+  const bool answer = face_ == Face::Answer;
+  // A cloze card is a sentence with a hole in it, so it is drawn in the
+  // sentence face at sentence size -- not the headword face, which is built
+  // as large as a deck's longest single word and would fit about four words
+  // of a cloze paragraph on the screen.
+  int textFont = fontsReady_ ? fonts_.sentenceFontId() : kMeaningFontId;
+  const char* question = note_.field(study::Field::ClozeQuestion);
+  const char* revealed = note_.field(study::Field::Sentence);
+  const char* shown = answer ? revealed : question;
+
+  // Trusted per card, like the vocabulary face: a deck's custom font is often
+  // subset to the words it was built from, and a cloze card carries whole
+  // sentences of surrounding text it was never measured against. Both faces
+  // are checked, so revealing the answer cannot change the typeface.
+  if (fontsReady_ && (!fitsAsDrawn(textFont, question, maxWidth) ||
+                      (*revealed != '\0' && !fitsAsDrawn(textFont, revealed, maxWidth)))) {
+    textFont = kMeaningFontId;
   }
-  return runFits();
+
+  int y = body.y + 8;
+  if (answer) {
+    // The span the converter recorded over the revealed text. Anki paints it;
+    // here it is underlined, which is the only mark this panel has that does
+    // not cost a second font.
+    y = drawWrappedUnderlined(textFont, y, maxWidth, revealed, note_.emphasisOffset(), note_.emphasisLength());
+    // Back Extra, under a hairline, in the same relationship the vocabulary
+    // face gives the example sentence: the same rule, so the two card kinds
+    // read as one app.
+    if (!note_.empty(study::Field::Meaning)) {
+      y += 20;
+      toybox::rule(renderer, y, toybox::kHairline);
+      y += 20;
+      drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::Meaning));
+    }
+  } else {
+    drawWrapped(textFont, y, maxWidth, shown);
+  }
 }
 
 void StudyActivity::drawCard(const Rect& body) {
+  // A cloze note has no headword and no example sentence; everything below
+  // reads those two fields. Dispatched here rather than inside each block so
+  // there is one place that says which kind of card this is.
+  if (note_.isCloze()) {
+    drawClozeCard(body);
+    return;
+  }
+
   const int maxWidth = renderer.getScreenWidth() - 2 * toybox::kMargin;
   int headwordFont = fontsReady_ ? fonts_.headwordFontId() : kReadingFontId;
   int sentenceFont = fontsReady_ ? fonts_.sentenceFontId() : kMeaningFontId;
@@ -1156,7 +1128,15 @@ void StudyActivity::drawCard(const Rect& body) {
     y += 20;
     toybox::rule(renderer, y, toybox::kHairline);
     y += 20;
-    y = drawWrapped(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence));
+    // Underlined only on the answer face: on the question face the emphasis
+    // is over the very word being asked for, and drawing it there points at
+    // the answer.
+    if (answer) {
+      y = drawWrappedUnderlined(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence), note_.emphasisOffset(),
+                                note_.emphasisLength());
+    } else {
+      y = drawWrapped(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence));
+    }
     if (answer) {
       y += 6;
       y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceReading));
@@ -2250,7 +2230,7 @@ void StudyActivity::runSyncFlow() {
   }
   // An explicit "choose again" is answered first, before any pass that can
   // fail. It used to be read only after the build, so a chosen deck the
-  // bridge could not build -- an empty one, a cloze-only one, one renamed
+  // bridge could not build -- an empty one, one renamed
   // away in Anki -- ended the sync in an error before the request was ever
   // seen, and the door that sets the request was the only way out of that
   // state. The mirror this needs already exists: choseDecks means a cycle
@@ -2432,9 +2412,9 @@ void StudyActivity::runSyncFlow() {
   if (!sync_.failedDecks.empty()) {
     // The rest of the sync worked, so the reviews are away and the other
     // decks are current; saying SYNCED anyway would send the user looking
-    // for a deck that was never built. Anki refuses to convert a deck with
-    // no cards of its own and a deck of cloze notes, and a deck renamed on
-    // the desktop side is simply gone.
+    // for a deck that was never built. The converter refuses a deck with
+    // no cards of its own, and a deck renamed on the desktop side is simply
+    // gone.
     char detail[192];
     const size_t failed = sync_.failedDecks.size();
     const bool others = decksUpdated > 0 || deckCount_ > static_cast<int>(failed);

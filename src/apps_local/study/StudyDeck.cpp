@@ -11,7 +11,15 @@ constexpr uint8_t kMetaMagic[8] = {'X', 'S', 'T', 'U', 'D', 'Y', 'M', 0};
 // Bumped to 2 when meta.dat grew the learning steps. deck.dat's layout did
 // not change, but the two files are written as a set and a deck with v1 meta
 // beside v2 content is a state nobody should have to reason about.
-constexpr uint16_t kFormatVersion = 2;
+//
+// 3 added the eighth field, clozeQuestion. The converter writes 3; a card
+// converted before it stays readable, because the only difference is a field
+// that a vocabulary note leaves empty either way. Reading both is what keeps
+// a firmware update from demanding a re-convert of every deck on the card.
+constexpr uint16_t kFormatVersion = 3;
+constexpr uint16_t kMinFormatVersion = 2;
+
+bool versionSupported(const uint16_t version) { return version >= kMinFormatVersion && version <= kFormatVersion; }
 
 // meta.dat flag bits, mirroring anki_to_deck.py. See DeckMeta.
 constexpr uint16_t kMetaSentenceOnQuestion = 1 << 0;
@@ -89,7 +97,7 @@ bool StudyDeck::openMeta(ByteSource& meta) {
   uint8_t header[8 + 2 + 2 + kNumParams * 4 + 4 + 12 + 8 + 1 + 2 + kMaxLearningSteps * 8 + 1];
   if (!meta.read(0, header, sizeof(header))) return false;
   if (std::memcmp(header, kMetaMagic, sizeof(kMetaMagic)) != 0) return false;
-  if (readU16(header + 8) != kFormatVersion) return false;
+  if (!versionSupported(readU16(header + 8))) return false;
 
   // The two bytes after the version are flags. Every deck written before they
   // meant anything has zeroes there, which reads as the common case: the
@@ -140,10 +148,13 @@ bool StudyDeck::openDeck(ByteSource& deck) {
   uint8_t header[16];
   if (!deck.read(0, header, sizeof(header))) return false;
   if (std::memcmp(header, kDeckMagic, sizeof(kDeckMagic)) != 0) return false;
-  if (readU16(header + 8) != kFormatVersion) return false;
+  if (!versionSupported(readU16(header + 8))) return false;
 
+  // Seven (v2) or eight (v3). Anything else is a file this build does not know
+  // the shape of, and guessing at a record layout is how a reader draws one
+  // note's text under another note's question.
   fieldCount_ = header[10];
-  if (fieldCount_ != kFieldCount) return false;
+  if (fieldCount_ != kFieldCount && fieldCount_ != kFieldCount - 1) return false;
   const uint32_t count = readU32(header + 12);
   // The index is (count + 1) uint32s and has to fit the file. This is the one
   // sanity check that catches a truncated copy, which is the realistic failure
@@ -172,36 +183,66 @@ bool StudyDeck::loadNote(ByteSource& deck, const int index, Note& out) const {
   const uint32_t recordLength = end - start;
   // Reject rather than truncate: a clipped UTF-8 sequence draws as garbage and
   // gets blamed on the font.
-  if (recordLength + kFieldCount > kMaxNoteBytes) return false;
+  if (recordLength > kMaxNoteBytes) return false;
 
-  uint8_t record[kMaxNoteBytes];
-  if (!deck.read(start, record, recordLength)) return false;
+  // Read into the Note's own buffer and unpack in place, rather than into a
+  // kMaxNoteBytes local. The record is length-prefixed and the unpacked form
+  // is NUL-terminated, so every field trades two bytes of prefix for one of
+  // terminator: the write cursor is strictly behind the read cursor at every
+  // step, which is what makes one buffer enough.
+  //
+  // It also takes a kilobyte off the render task's deepest path, which is the
+  // reason it is written this way rather than the way that reads more
+  // plainly. scripts_local/stack-budget.sh is the gate that cares, and
+  // StudyActivity::render() sits under it.
+  if (!deck.read(start, reinterpret_cast<uint8_t*>(out.bytes_), recordLength)) return false;
 
+  // Everything the record does not carry reads as empty rather than as
+  // whatever the last note left behind: a v2 deck has no clozeQuestion, and a
+  // stale eighth field would turn every vocabulary card into a cloze card.
+  out.emphasisOffset_ = 0;
+  out.emphasisLength_ = 0;
+
+  uint8_t* const buffer = reinterpret_cast<uint8_t*>(out.bytes_);
   uint32_t in = 0;
   uint16_t outPos = 0;
-  for (int f = 0; f < kFieldCount; ++f) {
+  for (int f = 0; f < fieldCount_; ++f) {
     if (in + 2 > recordLength) return false;
-    uint16_t length = readU16(record + in);
+    uint16_t length = readU16(buffer + in);
     in += 2;
     if (in + length > recordLength) return false;
 
     // The sentence field always ends in two bytes that are the emphasis span
-    // rather than text -- (0, 0) when Anki had no <b>. Unconditional is what
-    // makes this unambiguous: see the note in anki_to_deck.py.
+    // rather than text -- (0, 0) when Anki had no <b> and no cloze hole.
+    // Unconditional is what makes this unambiguous: see the note in
+    // anki_to_deck.py.
+    uint32_t consumed = length;
     if (f == static_cast<int>(Field::Sentence)) {
       if (length < 2) return false;
-      out.emphasisOffset_ = record[in + length - 2];
-      out.emphasisLength_ = record[in + length - 1];
+      out.emphasisOffset_ = buffer[in + length - 2];
+      out.emphasisLength_ = buffer[in + length - 1];
       length -= 2;
     }
 
     out.offsets_[f] = outPos;
     out.lengths_[f] = length;
-    std::memcpy(out.bytes_ + outPos, record + in, length);
+    // memmove, not memcpy: source and destination are the same buffer. They
+    // never overlap in practice -- the write cursor trails the read cursor --
+    // but memcpy on aliasing pointers is undefined whether or not it happens
+    // to work, and this one is deliberate rather than accidental.
+    std::memmove(buffer + outPos, buffer + in, length);
     outPos = static_cast<uint16_t>(outPos + length);
-    out.bytes_[outPos++] = '\0';
-    // Advance past the field as it was written, span bytes included.
-    in += (f == static_cast<int>(Field::Sentence)) ? length + 2u : length;
+    buffer[outPos++] = '\0';
+    in += consumed;
+  }
+
+  // A v2 deck stops short of clozeQuestion. Point what it did not write at a
+  // terminator of its own rather than leaving offset zero, which is the
+  // headword: field() hands back a `const char*` and every caller reads it
+  // until the NUL, so "length is zero" is not enough to make it safe.
+  for (int f = fieldCount_; f < kFieldCount; ++f) {
+    out.offsets_[f] = static_cast<uint16_t>(outPos - 1);
+    out.lengths_[f] = 0;
   }
   return true;
 }

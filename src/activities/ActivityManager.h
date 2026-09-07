@@ -57,6 +57,7 @@ class ActivityManager {
   static void renderTaskTrampoline(void* param);
   [[noreturn]] virtual void renderTaskLoop();
   void reportRepaint(const char* activityName, uint32_t requestedAtMs, unsigned long repaintStartMs) const;
+  void reportStackHeadroom(const char* activityName);
   void noteUpdateRequested();
 
   // Set by requestUpdateAndWait(); read and cleared by the render task after render completes.
@@ -93,6 +94,11 @@ class ActivityManager {
   // itself on the cable, in a release build, without a rebuild.
   static constexpr unsigned long SLOW_REPAINT_MS = 400;
 
+  // Fewest bytes ever left unused on the render task's stack, and the screen
+  // that reached it. The stack's size is set by CROSSPOINT_RENDER_TASK_STACK,
+  // which two crashes were spent arguing about without anyone measuring this.
+  std::atomic<uint32_t> worstStackFreeBytes{UINT32_MAX};
+
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateMutex()) {
@@ -102,6 +108,12 @@ class ActivityManager {
   ~ActivityManager() { assert(false); /* should never be called */ };
 
   void begin();
+
+  // Fewest bytes ever free on the render task's stack, or UINT32_MAX before
+  // the first render. Size CROSSPOINT_RENDER_TASK_STACK from this rather than
+  // from an estimate; scripts_local/stack_budget.py only ever gives a lower
+  // bound on the true peak.
+  uint32_t stackFreeLowWater() const { return worstStackFreeBytes.load(); }
   void loop();
 
   // Will replace currentActivity and drop all activities on stack

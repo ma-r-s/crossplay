@@ -37,6 +37,9 @@ MAX_WIDTH = SCREEN_WIDTH - 2 * MARGIN
 # longest sentence in Mario's deck wraps to three.
 MAX_SENTENCE_LINES = 6
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import scripts  # noqa: E402
+
 DECK_MAGIC = b"XSTUDYD\0"
 META_MAGIC = b"XSTUDYM\0"
 META_SENTENCE_ON_QUESTION = 1 << 0
@@ -48,7 +51,21 @@ FIELD_NAMES = [
     "sentence",
     "sentenceReading",
     "sentenceMeaning",
+    # deck.dat v3. A note with text here is a cloze card; a v2 deck has no
+    # such field at all, which zip() below handles by simply running out.
+    "clozeQuestion",
 ]
+
+
+def visible(text):
+    """A field as a reader sees it: furigana readings and their markers gone.
+
+    Every width, wrap and face check below is about what lands on the panel,
+    and a reading does not land where its base does -- it is drawn above it,
+    in a different cut. Measuring the encoded form would count a reading's
+    kana against its base's width and report an overflow that cannot happen.
+    """
+    return scripts.visible_text(text)
 
 
 def read_deck(path):
@@ -102,7 +119,24 @@ def check_faces(fields, on_question):
     deck put every card's example sentence on the question face, and the
     only thing that noticed was a human reading the screen.
     """
-    headword, reading, meaning, pos, sentence, s_reading, s_meaning = fields
+    padded = list(fields) + [""] * (len(FIELD_NAMES) - len(fields))
+    padded = [visible(text) for text in padded]
+    headword, reading, meaning, pos, sentence, s_reading, s_meaning, cloze = padded
+
+    if cloze.strip():
+        # A cloze card asks with the hole and answers by filling it, so the two
+        # faces share their text on purpose and every check below that reads
+        # sharing as a leak would fire on all of them. What can still go wrong
+        # is a hole that never got made: a question identical to its answer is
+        # a card that gives itself away.
+        problems = []
+        if not sentence.strip():
+            problems.append("nothing on the answer face")
+        identical = cloze.strip() == sentence.strip()
+        if identical:
+            problems.append("the question face shows no hole: it is the answer")
+        return cloze, "\n".join(filter(None, [sentence, meaning])), problems, identical
+
     question = [headword] + ([sentence] if on_question else [])
     answer = [reading, meaning, pos, s_reading, s_meaning]
     if not on_question:
@@ -190,9 +224,12 @@ def builtin_serif_coverage(repo_root):
     return covered
 
 
-def is_cjk(ch):
-    o = ord(ch)
-    return 0x2E80 <= o <= 0x9FFF or 0xF900 <= o <= 0xFAFF or 0xFF00 <= o <= 0xFFEF
+# "Does the deck have to ship a face for this", which is the question every
+# use below is really asking. scripts.py owns the answer so this file and the
+# converter cannot drift -- they carried the same predicate and the same hole
+# in it, and the hole was Hangul.
+def needs_deck_face(ch):
+    return scripts.script_of(ch) != "latin"
 
 
 def wrap_lines(text, advances, max_width):
@@ -200,7 +237,7 @@ def wrap_lines(text, advances, max_width):
     lines, width, longest_run, run = 1, 0.0, 0, 0
     for ch in text:
         adv = advances.get(ord(ch), 0.0)
-        breakable = ch == " " or is_cjk(ch)
+        breakable = ch in (" ", "\n") or scripts.is_wide(ch)
         run = 0 if breakable else run + len(ch.encode("utf-8"))
         longest_run = max(longest_run, run)
         if width + adv > max_width and width > 0:
@@ -268,7 +305,10 @@ def main():
     first_faces = None
     for index, fields in read_deck(args.deck / "deck.dat"):
         notes += 1
-        headword, sentence = fields[0], fields[4]
+        headword, sentence = visible(fields[0]), visible(fields[4])
+        # A cloze card's question IS its sentence; naming it in a report line
+        # by an empty headword identifies nothing.
+        label = headword or (visible(fields[7]) if len(fields) > 7 else "")
 
         question, answer, face_problems, identical = check_faces(fields, on_question)
         if identical:
@@ -277,7 +317,7 @@ def main():
             first_faces = (question, answer)
         for problem in face_problems:
             problems["a card whose faces do not work as a question and an answer"].append(
-                f"note {index} {headword[:24]!r}: {problem}"
+                f"note {index} {label[:24]!r}: {problem}"
             )
 
         for family in families:
@@ -294,7 +334,7 @@ def main():
             missing_st = {
                 c
                 for c in sentence
-                if is_cjk(c) and ord(c) not in sentence_fonts[family][0]
+                if needs_deck_face(c) and ord(c) not in sentence_fonts[family][0]
             }
             if missing_hw or missing_st:
                 problems["a glyph the headword face cannot draw"].append(
@@ -307,7 +347,7 @@ def main():
         # that case, so a Japanese deck with no fonts built used to be told
         # "every card renders" and would have drawn blank on the device.
         if not families:
-            unreachable = {c for c in headword + sentence if is_cjk(c)}
+            unreachable = {c for c in headword + sentence if needs_deck_face(c)}
             if unreachable:
                 problems["a character no installed font can draw at all"].append(
                     f"note {index}: {''.join(sorted(unreachable))[:12]!r}"
@@ -323,7 +363,7 @@ def main():
         # while every line here said "0". Scope is English and Chinese, so
         # this does not chase a fix; it makes the failure visible.
         serif_drawn = [
-            fields[FIELD_NAMES.index(name)]
+            visible(fields[FIELD_NAMES.index(name)])
             for name in (
                 "reading",
                 "meaning",
@@ -332,7 +372,7 @@ def main():
                 "sentenceMeaning",
             )
         ]
-        undrawable = {c for text in serif_drawn for c in text if is_cjk(c)}
+        undrawable = {c for text in serif_drawn for c in text if needs_deck_face(c)}
         if undrawable:
             problems["a reading or meaning the reader cannot draw"].append(
                 f"note {index}: {''.join(sorted(undrawable))[:12]!r} sits in a"
@@ -342,9 +382,9 @@ def main():
 
         if serif is not None:
             for name, text in zip(FIELD_NAMES, fields):
-                if families and name in ("headword", "sentence"):
+                if families and name in ("headword", "sentence", "clozeQuestion"):
                     continue
-                bad = {c for c in text if not is_cjk(c) and ord(c) not in serif}
+                bad = {c for c in visible(text) if not needs_deck_face(c) and ord(c) not in serif}
                 if bad:
                     problems["a Latin glyph the built-in serif cannot draw"].append(
                         f"note {index} {name}: {''.join(sorted(bad))!r}"
@@ -369,7 +409,9 @@ def main():
                 f"note {index}: {worst_lines} lines"
             )
         for name, text in zip(FIELD_NAMES, fields):
-            run = max((len(w.encode("utf-8")) for w in text.split(" ")), default=0)
+            # The visible text: the wrap breaks a ruby segment off whole, so a
+            # reading is never part of the run its base sits in.
+            run = max((len(w.encode("utf-8")) for w in visible(text).split(" ")), default=0)
             if run >= LINE_BYTES:
                 problems[
                     f"an unbreakable run longer than the {LINE_BYTES}-byte line buffer"

@@ -25,6 +25,7 @@ reviewed card as brand new -- found 2026-08-25 on a deck with 6300 reviews.
 """
 
 import argparse
+import html
 import json
 import pathlib
 import re
@@ -34,10 +35,14 @@ import sys
 import unicodedata
 
 import fsrs
+import scripts
 
 DECK_MAGIC = b"XSTUDYD\0"
 META_MAGIC = b"XSTUDYM\0"
-FORMAT_VERSION = 2
+# 3 added the eighth field, clozeQuestion, and with it cloze decks. A v2 deck
+# is still readable by a v3 firmware; a v3 deck on a v2 firmware is refused at
+# the header rather than half-read, which is why the version moved at all.
+FORMAT_VERSION = 3
 
 CARD_RECORD_SIZE = 32
 NUM_PARAMS = 19
@@ -222,6 +227,20 @@ FIELD_ORDER = [
     "sentenceMeaning",
 ]
 
+# What actually goes on disk. FIELD_ORDER stays the list of slots a *profile*
+# can fill and that --map can name, because clozeQuestion is not something a
+# user maps a field onto -- it is built, from the cloze markup, by the code
+# below. Splitting the two lists is what keeps generic_profile from offering a
+# slot nobody can usefully fill.
+#
+# A note with a non-empty clozeQuestion IS a cloze card. That is the whole
+# marker: no kind byte, no second table. It costs nothing (a vocabulary note
+# writes a zero length there) and it means every tool that reads deck.dat by
+# looping over the header's `fields` count -- check_deck.py, make_fonts.py,
+# measure_layout.py -- keeps working with no change at all. A kind byte in
+# front of the lengths would have broken all three.
+DEVICE_FIELDS = FIELD_ORDER + ["clozeQuestion"]
+
 # Characters a few notes use that are typographically identical to an ASCII
 # letter but sit outside the built-in serif's coverage, so they would draw as a
 # box in the middle of a reading. Found by tools_local/study/check_deck.py
@@ -237,11 +256,148 @@ LOOKALIKES = {
     0x0320: None,  # COMBINING MINUS SIGN BELOW: a phonetic mark, not pinyin
 }
 
+# Markup that carries a line break rather than a style. Anki fields are HTML,
+# and the editor writes <div> per line and <br> per shift-return, so a card
+# with four bullet points arrives as four <div>s. Flattening those to spaces
+# ran the list into one grey paragraph -- which is what this did for its first
+# year, and which is worst on exactly the note types cloze brought in, where
+# the Back Extra is usually a list.
+BREAK_RE = re.compile(
+    r"</?(?:br|div|p|tr|h[1-6]|blockquote|pre)\s*/?>", re.IGNORECASE
+)
+LIST_ITEM_RE = re.compile(r"<li\b[^>]*>", re.IGNORECASE)
+LIST_END_RE = re.compile(r"</li\s*>", re.IGNORECASE)
+TABLE_CELL_RE = re.compile(r"</t[dh]\s*>", re.IGNORECASE)
+
+# Anki's text-to-speech tag. There is no speaker, so the tag goes -- but its
+# CONTENT is the text being spoken and is usually the answer, so it stays.
+TTS_RE = re.compile(r"\[anki:tts[^\]]*\](.*?)\[/anki:tts\]", re.DOTALL | re.IGNORECASE)
+TTS_OPEN_RE = re.compile(r"\[/?anki:tts[^\]]*\]", re.IGNORECASE)
+
+# LaTeX and MathJax. Anki renders these to images through a TeX install; there
+# is none here and there will not be one, so the delimiters are dropped and
+# the source is left. A formula you can read the source of beats a card that
+# shows "[latex]" and beats one that shows nothing.
+LATEX_RE = re.compile(
+    r"\[latex\](.*?)\[/latex\]|\[\$\$?\](.*?)\[/\$\$?\]", re.DOTALL | re.IGNORECASE
+)
+MATHJAX_RE = re.compile(r"\\[\(\[](.*?)\\[\)\]]", re.DOTALL)
+
 CLOZE_RE = re.compile(r"\{\{c\d+::")
+# The full form, with the optional hint: {{c1::answer}} or {{c1::answer::hint}}.
+# Non-greedy on both halves, which is what makes the two shapes one pattern --
+# see the walk-through in test_cloze.py. Nested cloze (a {{c2::}} inside a
+# {{c1::}}) is Anki's own corner case and is left as literal text rather than
+# half-parsed: the outer hole still works, which is the behaviour that loses
+# the least.
+CLOZE_SPAN_RE = re.compile(r"\{\{c(\d+)::(.*?)(?:::(.*?))?\}\}", re.DOTALL)
+
+# The hole, as it appears on the question face. Anki draws a blue [...]; there
+# is no colour here, so the brackets carry the whole signal and have to be
+# visible in the sentence face at 34px -- which square brackets are and an
+# ellipsis alone is not.
+CLOZE_BLANK = "[...]"
+
+# Fields that hold the note's extra material rather than its cloze text.
+# Anki's stock Cloze type calls it "Back Extra"; the shared decks that grew
+# from it use these.
+CLOZE_EXTRA_PATTERNS = ("back extra", "extra", "notes", "note", "comment", "source")
+
+
+def cloze_field_index(parts):
+    """Which of a note's fields carries the cloze markup.
+
+    The template would say so -- {{cloze:Text}} names it -- but the template
+    body is not in the tables apkg.py builds for a legacy package, and a rule
+    that works on a live collection and not on an AnkiWeb shared deck is worse
+    than no rule. The first field with markup in it is the answer in every
+    real deck: the stock type has exactly one such field, and a type with two
+    generates its cards from both, which this format cannot show anyway.
+    """
+    for index, value in enumerate(parts):
+        if CLOZE_RE.search(value):
+            return index
+    return -1
+
+
+def cloze_extra_index(parts, cloze_index, field_names):
+    """Which field is the Back Extra, by name first and position second."""
+    for pattern in CLOZE_EXTRA_PATTERNS:
+        for index, name in enumerate(field_names):
+            if pattern in name.lower() and index != cloze_index and index < len(parts):
+                if clean(parts[index]):
+                    return index
+    for index in range(len(parts)):
+        if index != cloze_index and clean(parts[index]):
+            return index
+    return -1
+
+
+def render_cloze(raw, ordinal):
+    """Build one cloze card's two faces out of the note's cloze field.
+
+    Returns (question, answer, offset, length) with the offsets in codepoints
+    into `answer`, or None when this ordinal has no hole in the text -- which
+    happens when someone edits a cloze out and Anki leaves the card behind as
+    an empty one. Skipping it is what Anki's own "Empty cards" does; showing
+    it would put a question with no hole and its own answer on one face.
+
+    The two faces follow Anki's {{cloze:}} exactly: on the question the target
+    ordinal's holes become [...] (or [hint]), and every OTHER ordinal is shown
+    filled in, because those are context this card is not testing. On the
+    answer every hole is filled and the target is the one marked.
+    """
+    if not CLOZE_SPAN_RE.search(raw):
+        return None
+
+    question_parts, answer_parts = [], []
+    prefix_raw, target_raw = None, None
+    last = 0
+    found = False
+    for match in CLOZE_SPAN_RE.finditer(raw):
+        between = raw[last : match.start()]
+        question_parts.append(between)
+        answer_parts.append(between)
+        text, hint = match.group(2), match.group(3)
+        if int(match.group(1)) == ordinal:
+            if not found:
+                # Where the answer's marked span begins, measured the way
+                # clean_sentence measures it: on the CLEANED prefix, because
+                # stripping tags moves every offset after it.
+                prefix_raw = "".join(answer_parts)
+                target_raw = text
+                found = True
+            question_parts.append(f"[{hint}]" if hint else CLOZE_BLANK)
+        else:
+            question_parts.append(text)
+        answer_parts.append(text)
+        last = match.end()
+    question_parts.append(raw[last:])
+    answer_parts.append(raw[last:])
+
+    if not found:
+        return None
+
+    question, _q_visible = rubyify(clean("".join(question_parts)), "clozeQuestion")
+    answer, visible = rubyify(clean("".join(answer_parts)), "sentence")
+    if not question or not answer:
+        return None
+
+    # Measured over the text without its readings, which is what the device
+    # counts: a Japanese cloze card whose span was counted over the encoded
+    # form would underline however many kana earlier than the hole.
+    before = scripts.ruby_base(clean(prefix_raw))
+    target = scripts.ruby_base(clean(target_raw))
+    offset = visible.find(target, max(0, len(before) - 2)) if target else -1
+    if offset < 0 or not target:
+        return question, answer, 0, 0
+    return question, answer, len(visible[:offset]), len(target)
 BOLD_RE = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
 SOUND_RE = re.compile(r"\[sound:[^\]]*\]")
-WHITESPACE_RE = re.compile(r"\s+")
+# Horizontal whitespace only: the newline is now meaningful, and a \s+ that
+# ate it put the list back on one line at the last step.
+WHITESPACE_RE = re.compile(r"[^\S\n]+")
 
 
 def open_collection(path):
@@ -255,23 +411,79 @@ def open_collection(path):
 
 
 def clean(text):
-    """Strip Anki markup down to the plain text the device renders."""
+    """Strip Anki markup down to the plain text the device renders.
+
+    Line breaks SURVIVE, as newlines. An Anki field is HTML and its structure
+    is usually the point -- a list of four things, a Back Extra of two
+    paragraphs -- and the device's wrap treats a newline as a hard break. What
+    does not survive is anything that needs a renderer this device does not
+    have: styling, colour, tables as tables, images (those go through
+    make_images.py), audio (there is no speaker) and TeX (there is no TeX).
+    """
+    text = TTS_RE.sub(r"\1", text)
+    text = TTS_OPEN_RE.sub("", text)
     text = SOUND_RE.sub("", text)
-    text = re.sub(r"<br\s*/?>", " ", text, flags=re.IGNORECASE)
-    text = re.sub(r"</div>\s*<div>", " ", text, flags=re.IGNORECASE)
+    text = LATEX_RE.sub(lambda m: m.group(1) or m.group(2) or "", text)
+    text = MATHJAX_RE.sub(r"\1", text)
+    # A list item is a line AND a bullet: without the bullet, four one-word
+    # items read as a four-line sentence.
+    text = LIST_END_RE.sub("\n", text)
+    text = LIST_ITEM_RE.sub("\n\u2022 ", text)
+    # A table cell boundary is at least a space, or two columns run together
+    # into one word.
+    text = TABLE_CELL_RE.sub(" ", text)
+    text = BREAK_RE.sub("\n", text)
     text = TAG_RE.sub("", text)
-    text = (
-        text.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-    )
+    # Every named and numeric entity, not the four that used to be hard-coded:
+    # a deck written in the Anki editor is full of &rsquo; and &#39;, and each
+    # one that survived reached the card as literal ampersand-r-s-q-u-o.
+    text = html.unescape(text)
     # NFC matters: some pinyin in this collection carries combining tone marks
     # rather than precomposed vowels, and the two forms would otherwise need
     # different glyphs in every font we ship.
     text = unicodedata.normalize("NFC", text)
     text = text.translate(LOOKALIKES)
-    return WHITESPACE_RE.sub(" ", text).strip()
+    # Collapse horizontal space within a line, and any run of blank lines to
+    # one break: the editor emits <div><br></div> for an empty line and a
+    # field can carry a dozen of them, which on a 480px-tall panel is the
+    # whole card.
+    lines = [WHITESPACE_RE.sub(" ", line).strip() for line in text.split("\n")]
+    return "\n".join(line for line in lines if line)
+
+
+# Where furigana goes, per slot.
+#
+# The device draws a reading above its base only in the two faces that have a
+# ruby cut beside them -- the headword and the sentence. Everything else is
+# drawn in the built-in serif, which has no CJK at all, so a reading there
+# would be boxes above boxes.
+#
+# The reading slots get Anki's {{kana:}}: the readings alone. That is what an
+# Anki Japanese template shows on the back, and it is the difference between
+# a reading line saying "わたしはがくせいです" and one saying
+# "私[わたし]は 学生[がくせい]です", which is not a reading, it is source.
+RUBY_ENCODED_SLOTS = {"headword", "sentence", "clozeQuestion"}
+RUBY_KANA_SLOTS = {"reading", "sentenceReading"}
+
+
+def rubyify(text, slot):
+    """Apply this slot's furigana rule. Returns (stored, visible).
+
+    `visible` is what a reader sees and what the device counts codepoints
+    over, which is what every emphasis span has to be measured against: the
+    stored form carries the readings and the markers, and an offset counted
+    over those would underline the wrong word by however many kana came
+    before it.
+    """
+    if not scripts.has_ruby(text):
+        return text, text
+    if slot in RUBY_ENCODED_SLOTS:
+        return scripts.ruby_encode(text), scripts.ruby_base(text)
+    if slot in RUBY_KANA_SLOTS:
+        kana = scripts.ruby_reading(text)
+        return kana, kana
+    base = scripts.ruby_base(text)
+    return base, base
 
 
 def clean_sentence(raw):
@@ -283,17 +495,21 @@ def clean_sentence(raw):
     """
     match = BOLD_RE.search(raw)
     if not match:
-        return clean(raw), 0, 0
-    before = clean(raw[: match.start()])
-    target = clean(match.group(1))
-    full = clean(BOLD_RE.sub(r"\1", raw))
+        stored, _visible = rubyify(clean(raw), "sentence")
+        return stored, 0, 0
+    before = scripts.ruby_base(clean(raw[: match.start()]))
+    target = scripts.ruby_base(clean(match.group(1)))
+    cleaned = clean(BOLD_RE.sub(r"\1", raw))
+    stored, full = rubyify(cleaned, "sentence")
     # Locate the cleaned target inside the cleaned whole, rather than trusting
     # the offset from the raw string: stripping tags moves everything.
     offset = full.find(target, max(0, len(before) - 2)) if target else -1
     if offset < 0 or not target:
-        return full, 0, 0
-    # Codepoints, not bytes -- that is what the renderer counts.
-    return full, len(full[:offset]), len(target)
+        return stored, 0, 0
+    # Codepoints, not bytes -- that is what the renderer counts -- and counted
+    # over `full`, the text without its readings, because that is what the
+    # renderer counts too.
+    return stored, len(full[:offset]), len(target)
 
 
 def parse_deck_config(blob):
@@ -357,6 +573,28 @@ def _varint(buf, i):
         shift += 7
 
 
+def fsrs_enabled(db):
+    """Is FSRS on for this collection?
+
+    None when the collection does not say, which is every schema-11 package
+    (an AnkiWeb shared deck) -- FSRS did not exist when that schema did, so
+    "not stated" is not the same as "off" and must not be reported as it.
+
+    This matters because the device has ONE scheduler and it is FSRS. A deck
+    whose preset runs SM-2 converts, and then schedules by FSRS with default
+    weights, which is a different answer from the one Anki would give for
+    every card. That divergence is small per card and total across a deck,
+    and it used to happen in silence.
+    """
+    row = db.execute("select val from config where key = 'fsrs'").fetchone()
+    if not row or row[0] is None:
+        return None
+    raw = row[0]
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    return str(raw).strip().lower() in ("true", "1")
+
+
 def deck_config_for(db, deck_name):
     """Find the preset a deck uses, and read its FSRS parameters."""
     row = db.execute(
@@ -374,6 +612,50 @@ def deck_config_for(db, deck_name):
         "select config from deck_config where id = ?", (config_id,)
     ).fetchone()
     return parse_deck_config(row[0]) if row else {}
+
+
+def make_note(
+    cid,
+    nt_name,
+    fields,
+    bold,
+    data,
+    due,
+    ivl,
+    ctype,
+    queue,
+    left,
+    reps,
+    lapses,
+    last_review_day,
+):
+    """One note record, however it was built. The vocabulary path and the cloze
+    path fill `fields` differently and agree on everything else, and the
+    everything-else is the scheduling state -- which is the half that must not
+    drift between them."""
+    memory = {}
+    if data:
+        try:
+            memory = json.loads(data)
+        except ValueError:
+            memory = {}
+    assert len(fields) == len(DEVICE_FIELDS), fields
+    return {
+        "ankiCardId": cid,
+        "noteType": nt_name,
+        "fields": fields,
+        "bold": bold,
+        "stability": float(memory.get("s", 0.0)),
+        "difficulty": float(memory.get("d", 0.0)),
+        "due": due,
+        "ivl": ivl,
+        "ctype": ctype,
+        "queue": queue,
+        "left": left,
+        "reps": reps,
+        "lapses": lapses,
+        "lastReviewDay": last_review_day,
+    }
 
 
 def collect_notes(db, deck_name, limit=None, override=None):
@@ -474,9 +756,16 @@ def collect_notes(db, deck_name, limit=None, override=None):
             if counts.get(ordinal, 0) <= total * 0.05
         }
 
+    # ord -> field name, per note type: the cloze path needs the names in
+    # order and `ordinals` is keyed the other way.
+    names_in_order = {
+        nt: [name for name, _ in sorted(by_name.items(), key=lambda kv: kv[1])]
+        for nt, by_name in ordinals.items()
+    }
+
     USED_PROFILES.clear()
     announced = set()
-    notes, skipped, cloze_skipped = [], 0, 0
+    notes, skipped, cloze_empty = [], 0, 0
     for (
         cid,
         flds,
@@ -494,14 +783,75 @@ def collect_notes(db, deck_name, limit=None, override=None):
         profile = PROFILES.get(nt_name)
         if profile:
             USED_PROFILES.setdefault(nt_name, dict(profile))
-        if not profile:
-            # By name, and by content: a renamed cloze type would otherwise fall
-            # through to the generic profile and put the raw markup -- answer
-            # included -- on the question face. Leaking the answer is the worst
-            # thing a flashcard converter can do.
-            if "cloze" in nt_name.lower() or CLOZE_RE.search(flds):
-                cloze_skipped += 1
+        # By name, and by content: a renamed cloze type still has to take the
+        # cloze path, because the generic profile would put the raw markup --
+        # answer included -- on the question face, and leaking the answer is
+        # the worst thing a flashcard converter can do.
+        if not profile and ("cloze" in nt_name.lower() or CLOZE_RE.search(flds)):
+            parts = flds.split("\x1f")
+            cloze_index = cloze_field_index(parts)
+            if cloze_index < 0:
+                skipped += 1
                 continue
+            # Anki numbers a cloze card's template ordinal from zero and its
+            # cloze from one, so this card is the hole {{c<ord+1>::}}.
+            rendered = render_cloze(parts[cloze_index], card_ord + 1)
+            if rendered is None:
+                cloze_empty += 1
+                continue
+            question, answer, bold_off, bold_len = rendered
+            extra_index = cloze_extra_index(
+                parts, cloze_index, names_in_order.get(nt_name, [])
+            )
+            extra = clean(parts[extra_index]) if extra_index >= 0 else ""
+            # The extra is drawn in the built-in serif, which has no CJK, so a
+            # reading there would be boxes above boxes.
+            extra, _visible = rubyify(extra, "meaning")
+            if nt_name not in announced:
+                announced.add(nt_name)
+                field_names = names_in_order.get(nt_name, [])
+                cloze_name = (
+                    field_names[cloze_index]
+                    if cloze_index < len(field_names)
+                    else f"field {cloze_index}"
+                )
+                print(
+                    f"  note type {nt_name!r} is cloze; the hole comes from"
+                    f" {cloze_name!r}"
+                    + (
+                        f", the extra from {field_names[extra_index]!r}"
+                        if 0 <= extra_index < len(field_names)
+                        else ""
+                    )
+                )
+            notes.append(
+                make_note(
+                    cid,
+                    nt_name,
+                    [
+                        "",  # headword: a cloze card's question is the sentence
+                        "",
+                        extra,
+                        "",
+                        answer,
+                        "",
+                        "",
+                        question,
+                    ],
+                    (bold_off, bold_len),
+                    data,
+                    due,
+                    ivl,
+                    ctype,
+                    queue,
+                    left,
+                    reps,
+                    lapses,
+                    last_review.get(cid, -1),
+                )
+            )
+            continue
+        if not profile:
             in_order = (
                 sorted(ordinals.get(nt_name, {}), key=ordinals[nt_name].get)
                 if nt_name in ordinals
@@ -540,51 +890,141 @@ def collect_notes(db, deck_name, limit=None, override=None):
             idx = by_ord.get(name, -1) if name else -1
             return parts[idx] if 0 <= idx < len(parts) else ""
 
-        headword = clean(get("headword"))
+        def slot(key):
+            """One slot's text, cleaned and with this slot's furigana rule."""
+            stored, _visible = rubyify(clean(get(key)), key)
+            return stored
+
+        sentence, bold_off, bold_len = clean_sentence(get("sentence"))
+        headword = slot("headword")
         if not headword:
             skipped += 1
             continue
-        sentence, bold_off, bold_len = clean_sentence(get("sentence"))
-
-        memory = {}
-        if data:
-            try:
-                memory = json.loads(data)
-            except ValueError:
-                memory = {}
+        # Where a Japanese deck actually keeps its furigana.
+        #
+        # The Japanese Support add-on writes Expression as plain kanji and
+        # Reading as the SAME WORDS with the readings attached -- 学生 and
+        # " 学生[がくせい]" -- and Anki's own card template draws the second
+        # one, through {{furigana:}}. Take the same route: when the reading
+        # field is the headword with readings on it, the headword becomes the
+        # ruby form. Without this the most common Japanese note type in
+        # existence converts with no furigana anywhere, because the field the
+        # furigana is in is not one the device draws ruby in.
+        raw_reading = clean(get("reading"))
+        if scripts.has_ruby(raw_reading) and scripts.ruby_base(raw_reading) == headword:
+            headword = scripts.ruby_encode(raw_reading)
+        raw_sentence_reading = clean(get("sentenceReading"))
+        sentence_visible = scripts.visible_text(sentence)
+        if (
+            scripts.has_ruby(raw_sentence_reading)
+            and scripts.ruby_base(raw_sentence_reading) == sentence_visible
+        ):
+            sentence = scripts.ruby_encode(raw_sentence_reading)
 
         notes.append(
-            {
-                "ankiCardId": cid,
-                "noteType": nt_name,
-                "fields": [
+            make_note(
+                cid,
+                nt_name,
+                [
                     headword,
-                    clean(get("reading")),
-                    clean(get("meaning")),
-                    clean(get("partOfSpeech")),
+                    slot("reading"),
+                    slot("meaning"),
+                    slot("partOfSpeech"),
                     sentence,
-                    clean(get("sentenceReading")),
-                    clean(get("sentenceMeaning")),
+                    slot("sentenceReading"),
+                    slot("sentenceMeaning"),
+                    "",  # clozeQuestion: empty is what makes this a vocabulary card
                 ],
-                "bold": (bold_off, bold_len),
-                "stability": float(memory.get("s", 0.0)),
-                "difficulty": float(memory.get("d", 0.0)),
-                "due": due,
-                "ivl": ivl,
-                "ctype": ctype,
-                "queue": queue,
-                "left": left,
-                "reps": reps,
-                "lapses": lapses,
-                "lastReviewDay": last_review.get(cid, -1),
-            }
+                (bold_off, bold_len),
+                data,
+                due,
+                ivl,
+                ctype,
+                queue,
+                left,
+                reps,
+                lapses,
+                last_review.get(cid, -1),
+            )
         )
-    if cloze_skipped:
+    if cloze_empty:
         print(
-            f"  {cloze_skipped} cloze card(s) skipped: a cloze front is text with a hole in it,"
-            f" and this format has nowhere to put a hole"
+            f"  {cloze_empty} empty cloze card(s) skipped: their hole is no longer in"
+            f" the text. Anki calls these empty cards and deletes them under"
+            f' Tools > "Empty Cards"'
         )
-    return notes, skipped + cloze_skipped
+    return notes, skipped + cloze_empty
+
+
+# study::kMaxNoteBytes. A record the device would refuse is a card that
+# silently does not appear, so the budget is enforced HERE, where there is
+# somewhere to print about it, rather than discovered on the reader.
+MAX_NOTE_BYTES = 1024
+
+
+def trim_to_bytes(text, budget):
+    """Cut `text` to at most `budget` UTF-8 bytes, on a codepoint boundary and
+    preferably on a word one, ending in a marker that says it was cut."""
+    if len(text.encode("utf-8")) <= budget:
+        return text
+    marker = "\u2026"
+    room = budget - len(marker.encode("utf-8"))
+    if room <= 0:
+        return ""
+    cut = text
+    while len(cut.encode("utf-8")) > room:
+        cut = cut[:-1]
+    spaced = cut.rsplit(" ", 1)[0]
+    # Only if that leaves most of the text: a Chinese sentence has no spaces
+    # and rsplit would throw the whole thing away.
+    if len(spaced) > len(cut) * 0.6:
+        cut = spaced
+    return cut.rstrip() + marker
+
+
+def enforce_note_budget(notes):
+    """Bring every record inside what StudyDeck can read.
+
+    The device rejects an oversized record outright, which shows up as a card
+    that is simply not there -- the worst failure mode available, because
+    nothing on the reader can say why. Trimming loses the tail of one long
+    note instead, visibly, and says how many it did.
+
+    Trimmed by water-filling: the longest field comes down to the second
+    longest, then both come down together, and so on. Taking the whole
+    overflow out of the single longest field is the obvious loop and it is
+    wrong for exactly the note kind this exists for -- a cloze card's question
+    and answer are the same sentence twice, so they are always the two longest
+    fields and always within a few bytes of each other, and the obvious loop
+    empties one of them completely while leaving the other untouched.
+    """
+    # Two length bytes per field, one NUL per field on the device, the two
+    # emphasis bytes that ride inside the sentence field, and one spare.
+    overhead = 3 * len(DEVICE_FIELDS) + 2 + 1
+    trimmed = 0
+    for note in notes:
+        fields = note["fields"]
+        sizes = [len(f.encode("utf-8")) for f in fields]
+        if sum(sizes) + overhead <= MAX_NOTE_BYTES:
+            continue
+        budget = MAX_NOTE_BYTES - overhead
+        # The cap that makes the fields fit: every field longer than `cap`
+        # comes down to it, everything shorter is left alone. Searched
+        # downward one byte at a time -- at most MAX_NOTE_BYTES steps over
+        # eight numbers, and only for a note that is actually over, which is
+        # cheaper than it looks and is obviously right, which the closed form
+        # was not.
+        cap = budget
+        while cap > 0 and sum(min(size, cap) for size in sizes) > budget:
+            cap -= 1
+        for i, size in enumerate(sizes):
+            if size > cap:
+                fields[i] = trim_to_bytes(fields[i], cap)
+                trimmed += 1
+        # The emphasis span points into the sentence by codepoint; once that
+        # has been cut the span can point past the end of it.
+        note["bold"] = (0, 0)
+    return trimmed
 
 
 def write_deck(notes, path):
@@ -594,14 +1034,22 @@ def write_deck(notes, path):
         payload = bytearray()
         for i, text in enumerate(note["fields"]):
             encoded = text.encode("utf-8")
-            if i == 4:
+            if i == FIELD_ORDER.index("sentence"):
                 # The two emphasis bytes ride inside the sentence field's
                 # length, so a reader that ignores them still sees valid text.
                 # Appended *unconditionally*, including as (0, 0): if they were
                 # only present when Anki had a <b>, the reader could not tell a
                 # sentence ending in two low bytes from one carrying a span,
                 # and would chop two bytes off the wrong records.
-                encoded += bytes((min(note["bold"][0], 255), min(note["bold"][1], 255)))
+                # Dropped, not clamped, when it will not fit a byte: a
+                # clamped offset points at the wrong word, and underlining the
+                # wrong word is worse than underlining none. Cloze answers are
+                # what made this reachable -- a vocabulary example sentence is
+                # never 255 codepoints long, a cloze paragraph can be.
+                off, span = note["bold"]
+                if off > 255 or span > 255:
+                    off, span = 0, 0
+                encoded += bytes((off, span))
             if len(encoded) > 0xFFFF:
                 encoded = encoded[:0xFFFF]
             payload += struct.pack("<H", len(encoded)) + encoded
@@ -610,7 +1058,7 @@ def write_deck(notes, path):
 
     with open(path, "wb") as f:
         f.write(DECK_MAGIC)
-        f.write(struct.pack("<HBBI", FORMAT_VERSION, len(FIELD_ORDER), 0, len(notes)))
+        f.write(struct.pack("<HBBI", FORMAT_VERSION, len(DEVICE_FIELDS), 0, len(notes)))
         base = len(DECK_MAGIC) + 8 + 4 * len(index)
         f.write(b"".join(struct.pack("<I", base + off) for off in index))
         f.write(blob)
@@ -770,11 +1218,6 @@ def write_meta(path, name, config, crt, rollover, flags=0):
         f.write(encoded)
 
 
-def is_cjk(ch):
-    o = ord(ch)
-    return 0x2E80 <= o <= 0x9FFF or 0xF900 <= o <= 0xFAFF or 0xFF00 <= o <= 0xFFEF
-
-
 def write_glyphs(notes, out_dir):
     """Write the codepoint sets the font pipeline subsets against.
 
@@ -790,27 +1233,57 @@ def write_glyphs(notes, out_dir):
     to the hanzi, and the pinyin needs tone-marked vowels that four of the five
     CJK faces do not carry at all.
     """
-    headword, sentence, latin = set(), set(), set()
+    headword, sentence, latin, ruby = set(), set(), set(), set()
     for note in notes:
         for i, text in enumerate(note["fields"]):
-            for ch in text:
-                if not is_cjk(ch):
-                    latin.add(ch)
-                elif i == 0:
-                    headword.add(ch)
-                else:
-                    sentence.add(ch)
+            # A field may carry furigana, and a reading is drawn at the ruby
+            # size rather than at the size of the text under it. Splitting
+            # them here is what keeps the ruby cut to the hundred-odd kana a
+            # deck actually reads with, instead of the whole sentence set at
+            # a third size.
+            for base, reading in scripts.decode_ruby(text):
+                for ch in reading:
+                    if ch >= " ":
+                        ruby.add(ch)
+                for ch in base:
+                    # The newline is a hard break, not a character to draw.
+                    # Asking the font pipeline to subset a glyph for it
+                    # produces a box on every card that has one.
+                    if ch < " ":
+                        continue
+                    # "Does the deck have to ship a face for this", not "is it
+                    # CJK". Hangul is the character that made the difference:
+                    # it is not CJK by any definition, the built-in serif
+                    # cannot draw it either, and calling it Latin sent every
+                    # Korean deck to a face with 1070 glyphs and no Hangul in
+                    # them.
+                    if scripts.script_of(ch) == "latin":
+                        latin.add(ch)
+                    elif i == 0:
+                        headword.add(ch)
+                    else:
+                        sentence.add(ch)
     # A headword character also has to render at sentence size, because the
     # word appears inside its own example sentence.
     sentence |= headword
     # Everything the app draws itself: intervals, counts, button labels.
     latin.update("0123456789dmy%+/<>?!.,:;-()[]'\" AGAINHARDGOODEASYagainhardgoodeasy")
+    # The two the converter itself writes: the bullet it turns a <li> into and
+    # the ellipsis it marks a trimmed field with. Both are in the built-in
+    # serif; neither is in a CJK face subset from a deck that happens to have
+    # no list in it, and a deck that grows one later would show a box.
+    latin.update("\u2022\u2026")
 
     sizes = {}
     for name, chars in (
         ("headword", headword),
         ("sentence", sentence),
         ("latin", latin),
+        # Written even when empty: make_fonts.py reads the file to decide
+        # whether this deck needs a ruby cut at all, and "the file is not
+        # there" and "this deck has no furigana" would otherwise look the
+        # same as "this deck was converted by an older tool".
+        ("ruby", ruby),
     ):
         path = out_dir / f"glyphs-{name}.txt"
         path.write_text("".join(sorted(chars)), encoding="utf-8")
@@ -872,15 +1345,46 @@ def main():
     if not notes:
         sys.exit(
             f"no convertible cards in '{args.deck}'. Cards convert when their note type"
-            f" has a profile ({', '.join(PROFILES)}), or generically by field order --"
-            f" only cloze cards cannot. If the generic guess picked the wrong fields,"
+            f" has a profile ({', '.join(PROFILES)}), generically by field order, or"
+            f" as cloze. If the generic guess picked the wrong fields,"
             f" name them: --map headword=Word --map meaning=Definition"
         )
     config = deck_config_for(db, args.deck)
     replayed = seed_memory_from_revlog(db, notes, config.get("params") or None)
 
+    # Said before anything is written, because the answer is a setting in Anki
+    # and the user is still at the computer.
+    uses_fsrs = fsrs_enabled(db)
+    if uses_fsrs is False:
+        print(
+            "  WARNING: FSRS is off in this collection, and the reader has no"
+            " other scheduler."
+        )
+        print(
+            "           Cards convert and their history comes with them, but"
+            " every interval the"
+        )
+        print(
+            "           reader computes will differ from the one Anki would"
+            " compute. Turn FSRS on"
+        )
+        print(
+            "           in Deck Options and the two agree again. See"
+            " docs/apps/study-anki-compatibility.md."
+        )
+    elif uses_fsrs and not config.get("params"):
+        print(
+            "  note: FSRS is on but this preset has no optimised parameters"
+            " yet, so the reader"
+        )
+        print(
+            "        uses the same defaults Anki does. Deck Options > Optimize"
+            " changes both."
+        )
+
     args.out.mkdir(parents=True, exist_ok=True)
     name = args.name or args.deck.split("::")[-1]
+    over_budget = enforce_note_budget(notes)
     blob_size = write_deck(notes, args.out / "deck.dat")
     write_cards(
         notes,
@@ -906,10 +1410,34 @@ def main():
         f" ({learned} with scheduling state{replay_note}, {skipped} skipped)"
     )
     print(f"  content   {blob_size / 1024:.0f} KB")
+    if over_budget:
+        print(
+            f"  trimmed   {over_budget} field(s) too long for one card"
+            f" ({MAX_NOTE_BYTES} bytes); the tail is marked with an ellipsis"
+        )
     print(f"  state     {len(notes) * CARD_RECORD_SIZE / 1024:.0f} KB")
+    ruby_note = f", {glyphs['ruby']} ruby" if glyphs["ruby"] else ""
     print(
-        f"  glyphs    {glyphs['headword']} headword, {glyphs['sentence']} sentence, {glyphs['latin']} latin"
+        f"  glyphs    {glyphs['headword']} headword, {glyphs['sentence']} sentence,"
+        f" {glyphs['latin']} latin{ruby_note}"
     )
+    # Which faces this deck needs, said in the converter's own voice, because
+    # the answer decides what make_fonts.py has to build -- and because a
+    # script this app cannot draw should be named here rather than discovered
+    # as a screen of empty boxes.
+    used = scripts.scripts_in(t for n in notes for t in n["fields"])
+    named = sorted(used & scripts.SUPPORTED)
+    print(f"  scripts   {', '.join(named) if named else 'latin'}")
+    unsupported = used - scripts.SUPPORTED
+    if unsupported:
+        print(
+            "  WARNING: this deck also uses a script the reader has no face"
+            " for, so those characters"
+        )
+        print(
+            "           will not be drawn at all. Supported:"
+            f" {', '.join(sorted(scripts.SUPPORTED))}."
+        )
     if config.get("params"):
         print(
             f"  FSRS      {len(config['params'])} parameters, retention {config.get('desiredRetention', 0.9):.2f}"

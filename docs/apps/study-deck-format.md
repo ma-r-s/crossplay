@@ -14,7 +14,9 @@ total. This is not a close call.
         revlog.dat      append-only review history, read back by the sync script
         meta.dat        FSRS parameters, learning steps, limits, identity
         glyphs-*.txt    the codepoints the deck uses, split by the size they
-                        are rendered at, for the font pipeline
+                        are rendered at, for the font pipeline: headword,
+                        sentence, latin, and ruby (the furigana readings,
+                        empty for a deck that has none)
 
 ## The one design rule
 
@@ -29,8 +31,8 @@ whole durability story.
 ## deck.dat
 
     magic    "XSTUDYD\0"                     8 bytes
-    version  uint16                          format version, currently 2
-    fields   uint8                           fields per note (7)
+    version  uint16                          format version, currently 3
+    fields   uint8                           fields per note (8; 7 in a v2 deck)
     flags    uint8                           reserved, 0
     count    uint32                          number of notes
     index    uint32 * (count + 1)            byte offset of each note's record,
@@ -54,10 +56,81 @@ two seeks and no scanning, and costs four bytes.
     4  sentence          example sentence, HTML stripped
     5  sentenceReading   its pinyin
     6  sentenceMeaning   its translation
+    7  clozeQuestion     a cloze card's question face; empty on every other card
+
+### Cloze, and why it needed no new machinery
+
+A cloze card is the note's text twice: field 7 with this card's hole shown as
+`[...]` (or as the hint) and every *other* ordinal filled in, and field 4 with
+every hole filled, carrying the emphasis span over what was hidden. The device
+draws field 7 on the question face and field 4, underlined, on the answer.
+Back Extra goes in `meaning`; `headword`, `reading` and the rest stay empty.
+
+**A note with a non-empty field 7 is a cloze card.** That is the whole marker.
+The obvious alternative was a kind byte in front of each record's lengths, and
+it would have broken every tool that walks deck.dat by the header's `fields`
+count -- `check_deck.py`, `make_fonts.py`, `measure_layout.py` -- for a bit of
+information a zero-length field already carries. A vocabulary note pays two
+bytes for the empty field and nothing else.
+
+Storing the text twice rather than substituting on the device is deliberate
+too: the device does no text-building at review time, the hint (which differs
+per hole and is written in the deck's own script) survives, and the format
+stays a flat list of fields. The cost is that a cloze card is the note kind
+that reaches the size limit first, which is why that limit moved -- see below.
+
+### Furigana
+
+A field may carry Japanese readings, encoded inline:
+
+    RUBY_START  base  RUBY_SEP  reading  RUBY_END      (\x1e \x1f \x1d)
+
+Three markers rather than two, so the device's wrap knows a segment is coming
+*before* it reads the base -- with only a separator and a terminator it would
+have to scan ahead at every character to find out whether the run it is in is
+a base or ordinary text, which is the work the wrap exists not to do per glyph.
+
+Control characters and not brackets, and that is load-bearing: the obvious
+encoding is to leave Anki's own `漢字[かんじ]` in the field, and it collides
+head-on with cloze, whose question face is text with `[...]` in it. A hole
+would be read as a reading and the answer printed directly above the gap
+hiding it. None of the three markers can occur in a cleaned field, because
+`clean()` drops every character below space except the newline.
+
+**Codepoint offsets count bases only.** The emphasis span, cloze's included,
+is measured over the text a reader sees -- markers and readings are not in it.
+`study::forEachRubySegment` and `scripts.decode_ruby` are the same walker in
+two languages, and `test_deck.cpp` checks that a segment's codepoint count is
+of its base alone: getting that wrong slides every span after it along by the
+length of a reading.
+
+The readings are drawn in a third cut of the deck's face at
+`kRubyPointSize`, built from `glyphs-ruby.txt` -- the readings alone, which is
+about a hundred kana rather than the deck's whole character set at a third
+size. The cut is optional: a deck with no furigana has none built, and a deck
+whose fonts predate it draws the base and loses the reading.
+
+### The size limit
+
+A record must unpack into `study::kMaxNoteBytes`, which is **1024**. It was
+512 while the largest note in Mario's deck was 421 bytes; cloze doubled what a
+sentence costs, so it doubled too. The device rejects a longer record outright
+-- a card that silently is not there, with nothing on the reader able to say
+why -- so `anki_to_deck.py` enforces the budget instead, trimming the longest
+fields down together (a cloze card's two faces are the same sentence twice, so
+taking the whole overflow out of one of them would empty it) and saying how
+many it trimmed.
+
+The extra 512 bytes are DRAM in the one `Note` the activity holds, not stack:
+`loadNote` unpacks *inside* that buffer rather than into a local of its own,
+which took a kilobyte off the render task's deepest path in the same change.
+Every field trades a two-byte length prefix for a one-byte terminator, so the
+write cursor is strictly behind the read cursor and one buffer is enough.
 
 ### The emphasis span
 
-Anki wraps the target word in the example sentence in `<b>`. There is no bold
+Anki wraps the target word in the example sentence in `<b>`, and paints a
+cloze answer in blue. There is no bold
 CJK face on this device -- a synthesised one is the antialiasing flood in
 another costume -- so the converter strips the markup and records where it was:
 the last two bytes of the `sentence` field are **not** text but a
@@ -66,7 +139,21 @@ UTF-8. The renderer can underline that span; a reader that ignores the two
 bytes still gets valid text, because the length prefix covers them.
 
 Offset and length are in **codepoints, not bytes**, because that is what the
-renderer counts when it walks a string to place glyphs.
+renderer counts when it walks a string to place glyphs. A span that will not
+fit a byte is written as `(0, 0)` rather than clamped: a clamped offset points
+at the wrong word, and underlining the wrong word is worse than underlining
+none. A vocabulary sentence never reaches 255 codepoints; a cloze paragraph
+can.
+
+The span is drawn as an underline by `study::drawWrappedMarked`
+(`StudyText.h`), which is the same wrap the unmarked text uses -- one loop,
+not two, because a mark drawn from a second copy of the wrap sits under the
+wrong word and on an e-ink card that is indistinguishable from the converter
+having marked the wrong one. A span crossing a line break is underlined on
+both lines. `host-tests/study/test_text.cpp` drives the real header with a
+recording draw target, and it is the only test in the repository that reaches
+the card face at all: `StudyActivity` needs Arduino, the HAL and a panel to
+build.
 
 ## cards.dat
 
@@ -205,10 +292,16 @@ preset does, verified by reading the weights back out of `meta.dat`.
 ## What the converter deliberately drops
 
 - **Audio.** Both `[sound:...]` fields. The X4 Pro has no speaker.
-- **Images.** `SentenceImage` is populated on some notes; deferred, not
-  refused. It would be the first thing to add if the sentences want it.
-- **Traditional characters** and the two cloze fields. Mario studies
-  simplified; carrying the rest would double the glyph set for nothing.
+- **Images** are not dropped -- `make_images.py` packs them into `images.dat`
+  and **PHOTO** shows them -- but the picture is found by looking for the
+  first `<img>` in ANY field. It read field 18 and nothing else for its first
+  year, because that is where the HSK note type keeps `SentenceImage`, so
+  every other deck in the world converted with no pictures at all and nothing
+  said why.
+- **Traditional characters** and the HSK note type's own two cloze fields.
+  Mario studies simplified; carrying the rest would double the glyph set for
+  nothing. (This is unrelated to cloze *notes*, which convert -- it is two
+  extra fields on one shared deck's note type.)
 - **Filtered-deck review history.** See `StudyFsrs.h` -- Anki does not feed
   those into memory state, so neither do we.
 
