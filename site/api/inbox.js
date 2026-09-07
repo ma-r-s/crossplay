@@ -11,9 +11,11 @@
 //
 // Operations:
 //   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card],
+//                people: [reports from people he has not read],
 //                triage: {waiting, claimed, for_mario, oldest_h, last_triaged_at, since_triage_h} or null}
 //   numbers  -> {byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
 //   answer   -> closes one blocker: {card_id, n, choice, note}
+//   seen     -> marks one report from a person as read: {card_id, note}
 
 const crypto = require("node:crypto");
 
@@ -73,15 +75,27 @@ async function rest(path, init) {
 }
 
 async function opList() {
-  const [inbox, cards, triage] = await Promise.all([
+  const [inbox, cards, people, triage] = await Promise.all([
     rest("inbox?select=*"),
     rest("cards?select=id,title,app,state,parent,updated_at&order=id.desc"),
+    // What people reported through the site and he has not read. Not blockers,
+    // and above them on the page: a stranger's report is rare and worth
+    // interrupting for, a session's routine ask is not. A board without the
+    // view yet reads as no reports rather than as a broken inbox.
+    rest(
+      "reports_from_people?mario_seen_at=is.null&select=*&order=created_at.asc",
+    ).catch(() => []),
     // How far behind triage is, for one line at the top of the page. A board
     // without the view (or a failing read) leaves the line out; the inbox
     // itself must not depend on it.
     rest("triage_backlog?select=*").catch(() => []),
   ]);
-  return { inbox: inbox || [], cards: cards || [], triage: (triage || [])[0] || null };
+  return {
+    inbox: inbox || [],
+    cards: cards || [],
+    people: people || [],
+    triage: (triage || [])[0] || null,
+  };
 }
 
 async function opNumbers() {
@@ -175,6 +189,39 @@ async function opAnswer(body) {
   return { ok: true };
 }
 
+// He read it. That is the whole act: a report from a person is not a task and
+// is not a blocker, so nothing here moves the card's state or opens anything.
+// A note, if he left one, goes on the card as history for whoever triages it.
+async function opSeen(body) {
+  const cardId = parseInt(body.card_id, 10);
+  const note = String(body.note || "")
+    .trim()
+    .slice(0, 2000);
+  if (!Number.isInteger(cardId)) throw new Error("which report?");
+  // reporter=eq.user is the guard, not a filter for convenience: mario_seen_at
+  // means "Mario has read this person's report", and setting it on one of our
+  // own cards would put a fact on the board that nothing else could explain.
+  const rows = await rest(
+    `cards?id=eq.${cardId}&reporter=eq.user&select=id`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ mario_seen_at: new Date().toISOString() }),
+    },
+  );
+  if (!rows || !rows.length)
+    throw new Error("that card is not a report from a person");
+  await rest("history", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({
+      card_id: cardId,
+      what: "Mario read the report" + (note ? `: ${note}` : ""),
+    }),
+  });
+  return { ok: true };
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return json(res, 405, { error: "POST only." });
   if (!SUPABASE_URL || !SERVICE_KEY || !PASS_HASH)
@@ -196,6 +243,7 @@ module.exports = async function handler(req, res) {
     if (body.op === "list") return json(res, 200, await opList());
     if (body.op === "numbers") return json(res, 200, await opNumbers());
     if (body.op === "answer") return json(res, 200, await opAnswer(body));
+    if (body.op === "seen") return json(res, 200, await opSeen(body));
     return json(res, 400, { error: "Unknown operation." });
   } catch (err) {
     return json(res, 502, {

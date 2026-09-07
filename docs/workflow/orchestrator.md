@@ -65,7 +65,11 @@ integrator --session <your id>`) only while you resolve a conflict or
    the card's fingerprint says how often; treat it as a bug owned by the
    service it names) and `source: site` (a stranger's report; triage it like
    an internal one, and if it needs a reply the reporter's email is on the
-   card for Mario, never for you). Pulled: `source: github` exists only
+   card for Mario, never for you). Since 2026-09-07 a `reporter: user` card
+   is also in Mario's inbox, in its own section above the asks, until he
+   marks it read: triage it normally, but never `board seen` it for him and
+   never settle it just to clear his screen. Being seen is the point of it
+   being there. Pulled: `source: github` exists only
    because you typed `board issues` in step 1, and closing is manual too,
    `board issues --close-released` once a card is released.
 8. **Upstream.** The daily sync routine opens `sync/upstream-<date>` pull

@@ -96,7 +96,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             answer = data.get("list", {"inbox": [], "cards": []})
         elif op == "numbers":
             answer = data.get("numbers", {})
+        # One branch per op, spelled `op == "<name>"`: host-tests/site checks
+        # that every operation api/inbox.js handles is answered here too, and
+        # it reads that spelling. Folding two ops into one membership test
+        # passes locally and leaves the page 400ing on the other one.
         elif op == "answer":
+            answer = {"ok": True}
+        elif op == "seen":
             answer = {"ok": True}
         else:
             self.fail(400, "Unknown operation.")

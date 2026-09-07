@@ -20,6 +20,22 @@
   .count { font-family: var(--mono); font-size: 0.85rem; color: var(--muted); }
   .count b { color: var(--ink); font-weight: 600; }
   .msg { background: var(--paper-2); border: 1px solid var(--edge); border-top: 6px solid var(--ink); border-radius: 6px; padding: 1.1rem 1.2rem 1.3rem; }
+  /* Reports from people. Rare -- four in a week -- and the one thing here
+     written by somebody outside, so they sit above the asks and are drawn
+     unlike them: inverted heading, the person's own words as the body, no
+     "if you do nothing" because nobody is waiting on an answer. The section
+     is absent, not empty, when there is nothing unread; an empty box every
+     day is how a section stops being seen. */
+  .people { margin: 0 0 1.6rem; }
+  .people-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.4rem 0.7rem; border-radius: 4px 4px 0 0; margin: 0; }
+  .people-h span { margin-left: auto; text-transform: none; letter-spacing: 0; opacity: 0.75; }
+  .report { background: var(--paper-2); border: 1px solid var(--ink); border-top: 0; padding: 0.9rem 1rem 1rem; }
+  .report + .report { border-top: 1px solid var(--edge); }
+  .report:last-of-type { border-radius: 0 0 4px 4px; }
+  .report .who { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em; color: var(--muted); }
+  .report .said { margin: 0.5rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .report .answer { margin-top: 0.9rem; }
+  .report .actions { margin-top: 0.5rem; }
   .from { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 0.8rem; }
   .msg h2 { font-size: 1.4rem; line-height: 1.25; margin: 0.4rem 0 0.9rem; font-weight: 600; }
   .row { margin: 0 0 0.7rem; }
@@ -98,6 +114,10 @@
     .login { max-width: 30rem; margin: 3rem auto 0; }
     .col { max-width: 48rem; margin-left: auto; margin-right: auto; }
     .msg { padding: 1.8rem 2.2rem 2rem; font-size: 1.12rem; line-height: 1.55; }
+    .people { margin-bottom: 2.4rem; }
+    .people-h { font-size: 0.82rem; padding: 0.5rem 1rem; }
+    .report { padding: 1.3rem 1.6rem 1.5rem; font-size: 1.08rem; line-height: 1.5; }
+    .report .who { font-size: 0.78rem; }
     .from { font-size: 0.8rem; }
     .msg h2 { font-size: 2rem; margin: 0.5rem 0 1.1rem; }
     .row { margin-bottom: 0.9rem; }
@@ -141,6 +161,8 @@
     <p class="status" id="inbox-login-status"></p>
   </section>
 
+  <section class="people col" id="inbox-people" hidden></section>
+
   <div id="inbox-view" class="col"></div>
   <p class="status col" id="inbox-status" role="status" aria-live="polite"></p>
 
@@ -162,7 +184,7 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var KEY = "crossplay-inbox-pass";
-  var pass = null, later = {}, items = [], all = [];
+  var pass = null, later = {}, items = [], all = [], people = [];
 
   function say(text, err) { var s = $("inbox-status"); s.textContent = text || ""; s.className = "status" + (err ? " err" : ""); }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -186,7 +208,7 @@
   function load() {
     say("Loading...");
     return api("list").then(function (res) {
-      items = res.inbox || []; all = res.cards || [];
+      items = res.inbox || []; all = res.cards || []; people = res.people || [];
       $("inbox-login").hidden = true;
       say("");
       render();
@@ -235,12 +257,84 @@
       .catch(function (err) { say("Could not save that: " + err.message, true); });
   }
 
+  // "3 h ago" for something that arrived today, days after that. Reports are
+  // hours old when they matter and the exact minute never changes what he does.
+  function when(iso) {
+    var h = (Date.now() - Date.parse(iso)) / 3600000;
+    if (!isFinite(h)) return "just now";
+    if (h < 1) return "under an hour ago";
+    if (h < 48) return Math.round(h) + " h ago";
+    return Math.round(h / 24) + " days ago";
+  }
+
+  // What one person wrote, in their own words. No "if you do nothing" and no
+  // "tell me how": those belong to a blocker, where a session is waiting on an
+  // answer, and nobody is waiting on this. Reply opens his mail client when
+  // they left an address; the site never sends anything on his behalf.
+  function reportCard(r) {
+    var facts = [r.kind || "report"];
+    if (r.device) facts.push(String(r.device).replace(/,/g, " and "));
+    else if (r.app && r.app !== "unknown" && r.app !== "general") facts.push(r.app);
+    if (r.version) facts.push(r.version);
+    facts.push(when(r.created_at));
+    facts.push(r.reporter_email ? r.reporter_email : "left no address");
+    var mail = r.reporter_email
+      ? '<a class="btn" href="mailto:' + encodeURIComponent(r.reporter_email) +
+        "?subject=" + encodeURIComponent("Re: your CrossPlay report (#" + r.id + ")") +
+        '">Reply</a>'
+      : "";
+    return '<article class="report" data-id="' + r.id + '">' +
+      '<p class="who">#' + r.id + " &middot; " + esc(facts.join(" \u00b7 ")) + "</p>" +
+      '<p class="said">' + esc(r.body || r.title) + "</p>" +
+      '<div class="answer"><input type="text" class="note" placeholder="What should happen with it (optional)"></div>' +
+      '<div class="actions">' + mail +
+      '<button class="btn primary read">Mark read</button></div>' +
+      "</article>";
+  }
+
+  function markRead(id, note, el) {
+    say("Saving...");
+    api("seen", { card_id: id, note: note || "" })
+      .then(function () {
+        people = people.filter(function (r) { return r.id !== id; });
+        say(note ? "Read, and your note is on the card." : "Read.");
+        render();
+      })
+      .catch(function (err) { say("Could not save that: " + err.message, true); });
+  }
+
+  function renderPeople() {
+    var box = $("inbox-people");
+    // Absent when there is nothing, never an empty box: a heading that is
+    // always there is a heading nobody reads.
+    if (!people.length) { box.hidden = true; box.innerHTML = ""; return; }
+    box.hidden = false;
+    box.innerHTML = '<p class="people-h">' +
+      people.length + (people.length === 1 ? " person wrote to you" : " people wrote to you") +
+      "<span>nobody is blocked on these</span></p>" +
+      people.map(reportCard).join("");
+    Array.prototype.forEach.call(box.querySelectorAll(".report"), function (el) {
+      var id = parseInt(el.getAttribute("data-id"), 10);
+      el.querySelector(".read").addEventListener("click", function () {
+        markRead(id, el.querySelector(".note").value.trim(), el);
+      });
+    });
+  }
+
   function render() {
     var list = pending();
     var view = $("inbox-view");
-    $("inbox-count").innerHTML = list.length ? "<b>" + list.length + "</b> to answer" : "nothing to answer";
+    renderPeople();
+    // Two counts, never one total: a report from a person and a session's ask
+    // are different work, and adding them up is how the rare one disappears
+    // into the routine one.
+    $("inbox-count").innerHTML =
+      (people.length ? "<b>" + people.length + "</b> from people &middot; " : "") +
+      (list.length ? "<b>" + list.length + "</b> to answer" : "nothing to answer");
     if (!list.length) {
-      view.innerHTML = '<div class="zero"><h2>Nothing needs you</h2><p>New messages appear here when a session is truly stuck on you.</p></div>';
+      view.innerHTML = people.length
+        ? '<div class="zero"><p>No session is waiting on you.</p></div>'
+        : '<div class="zero"><h2>Nothing needs you</h2><p>New messages appear here when a session is truly stuck on you.</p></div>';
     } else {
       var m = list[0];
       view.innerHTML =

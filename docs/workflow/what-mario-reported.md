@@ -10,6 +10,10 @@ board list --reporter session    # only what a session found
 board list --reporter unknown    # the ones nobody could establish
 ```
 
+Since 2026-09-07 `--reporter user` is not only a filter: an unread report from
+a person is the first thing `board inbox` and `site/inbox/` show him. See
+[README.md](README.md#a-report-from-a-person-is-not-a-blocker).
+
 Those flags reach `board` when this change is in `firmware-next`, which is
 what `/opt/homebrew/bin/board` resolves to and which runs behind `xteink`.
 The counts and the list below are the recovery itself and need no CLI.

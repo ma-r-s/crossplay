@@ -105,11 +105,44 @@ decision taken is not one to ask again.
 
 Two enforcers, because the CLI is not the only writer -- the site's report
 function, the inbox page and a hand-typed `UPDATE` all reach `cards` directly.
-**Only the CLI half is live.** `20260905000300_mario_inbox.sql` adds the
-triggers and backfills the cards dropped before the rule existed, and it is
-written but **not yet applied**; until `server/board/migrate.sh` has run it,
-a card that reaches `cards` by any route other than `board` gets no blocker.
-`server/board/migrate.sh --list` says whether it is still pending.
+`20260905000300_mario_inbox.sql` adds the triggers and backfills the cards
+dropped before the rule existed; it was applied on 2026-09-07, so both halves
+are live. `server/board/migrate.sh --list` says what is pending.
+
+## A report from a person is not a blocker
+
+The inbox was open `mario` blockers and nothing else, and a blocker means a
+session cannot proceed. Nobody is blocked on "nice firmware, thanks", so a
+stranger's report had **no way into the inbox at all**: `board list --reporter
+user` found them and the page he reads did not, which is a filter he has to
+remember rather than an inbox. Three sat unread for a day.
+
+Since 2026-09-07 `board inbox` and `site/inbox/` print them first, in their own
+section, above the asks:
+
+```bash
+board inbox                 # people first, then the asks
+board seen <id> [--note '<what should happen>']
+```
+
+Three decisions hold it together, and each is a rule the tests assert:
+
+- **Not a blocker.** Reusing the blocker path would have been free and would
+  have cost `inbox_latency` and `workflow_weekly.asks_to_mario` their meaning:
+  both count how long a SESSION waits on him. A report also has no honest
+  `default` and no steps.
+- **Read once, not open forever.** `state` cannot carry this. A report triaged
+  an hour after it lands leaves `reported` before he sees it; one nobody
+  triages sits in his face until it is wallpaper. `cards.mario_seen_at` is the
+  mechanism, and setting it is his act: an orchestrator that marks one read
+  has deleted the message.
+- **`unknown` is not `user`.** Most cards are `session` and `unknown` means the
+  origin could not be established. Showing those would flood exactly what this
+  fixes. A settled report (`done`, `released`, `parked`) never appears either.
+
+His note, if he leaves one, is history on the card for whoever triages it. The
+report form stores the address people give, so the page offers a mailto Reply;
+nothing is ever sent on his behalf.
 
 ## Who reported a card
 
