@@ -2,7 +2,10 @@
 //
 // api/inbox.js is the gate between a passphrase and the board's write key,
 // so the gate is what is asserted: a wrong passphrase reads nothing, a
-// right one reads, an answer writes exactly one blocker closed.
+// right one reads, an answer writes exactly one blocker closed, and marking a
+// person's report read is SCOPED to a person's report -- mario_seen_at means
+// "Mario has read this stranger's report", and the filter that keeps it true
+// is invisible in the code and only a test can hold it.
 //
 //   node host-tests/site/inbox_fn.js <repo-root>
 
@@ -41,6 +44,39 @@ global.fetch = async function (url, opts) {
           default: "unverified",
         },
       ]),
+      { status: 200 },
+    );
+  if (u.includes("/rest/v1/reports_from_people"))
+    return new Response(
+      JSON.stringify([
+        {
+          id: 9,
+          title: "the sync server never sent a code",
+          body: "the sync server never sent a code",
+          app: "instapaper",
+          kind: "bug",
+          state: "reported",
+          device: "sticky",
+          version: "1.12.11",
+          reporter_email: "someone@example.net",
+          photo_path: null,
+          created_at: "2026-09-06T09:51:36Z",
+          mario_seen_at: null,
+        },
+      ]),
+      { status: 200 },
+    );
+  // The board, not the function, is what enforces reporter=eq.user: a PATCH
+  // carrying that filter matches card 9 and nothing else, exactly as postgres
+  // would. A function that dropped the filter therefore fails here rather than
+  // succeeding against a stub that answers every id.
+  if (u.includes("/rest/v1/cards") && opts.method === "PATCH")
+    return new Response(
+      JSON.stringify(
+        u.includes("id=eq.9") && u.includes("reporter=eq.user")
+          ? [{ id: 9 }]
+          : [],
+      ),
       { status: 200 },
     );
   if (u.includes("/rest/v1/cards"))
@@ -130,6 +166,63 @@ const expect = (label, got, want) =>
     1,
   );
   expect("and every card", r.json && r.json.cards && r.json.cards.length, 1);
+  expect(
+    "and what people reported and he has not read",
+    r.json && r.json.people && r.json.people[0] && r.json.people[0].id,
+    9,
+  );
+  expect(
+    "unread only, oldest first",
+    calls.some(
+      (c) =>
+        c.url.includes("reports_from_people") &&
+        c.url.includes("mario_seen_at=is.null") &&
+        c.url.includes("order=created_at.asc"),
+    ),
+    true,
+  );
+
+  // Marking a report read is the only thing that takes it out of the one place
+  // Mario looks, so it must touch nothing else: no state change, no blocker.
+  calls = [];
+  r = await call({
+    pass: "open sesame",
+    op: "seen",
+    card_id: 9,
+    note: "replied; file it against the bridge",
+  });
+  expect("a report can be marked read", r.status, 200);
+  const seen = calls.find(
+    (c) => c.method === "PATCH" && c.url.includes("/rest/v1/cards"),
+  );
+  expect(
+    "scoped to a card a person reported",
+    seen ? seen.url.includes("reporter=eq.user") : false,
+    true,
+  );
+  expect(
+    "writing only when he read it",
+    seen ? Object.keys(JSON.parse(seen.body)).join(",") : null,
+    "mario_seen_at",
+  );
+  expect(
+    "his note goes on the card, once",
+    calls.filter(
+      (c) =>
+        c.url.includes("/rest/v1/history") &&
+        JSON.parse(c.body).what.includes("replied; file it against the bridge"),
+    ).length,
+    1,
+  );
+  expect(
+    "and no blocker is opened or closed",
+    calls.filter((c) => c.url.includes("/rest/v1/blockers")).length,
+    0,
+  );
+  r = await call({ pass: "open sesame", op: "seen", card_id: 3 });
+  expect("a card no person reported cannot be marked read", r.status, 502);
+  r = await call({ pass: "open sesame", op: "seen" });
+  expect("and neither can no card at all", r.status, 502);
 
   calls = [];
   r = await call({
