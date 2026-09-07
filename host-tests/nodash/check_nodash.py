@@ -33,6 +33,12 @@ ALLOWED = {
     "server/read-bridge/bridge/article.py",
     # This file. It has to name the character to look for it.
     "host-tests/nodash/check_nodash.py",
+    # article.py's test. A fold table and the test that feeds it the character
+    # are always a pair, and rewriting the input silently turns the assertion
+    # into one that proves nothing. This was missed twice: once when the table
+    # was restored without its test, and once by a mechanical rewrite that
+    # touched both.
+    "server/read-bridge/tests/test_api.py",
 }
 
 
