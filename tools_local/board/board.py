@@ -1277,15 +1277,42 @@ def fmt_card(c, full=False):
     line = f"#{c['id']:<4} {c['state']:<9} {c['from']:<14} {c['title']}{flag}"
     if not full:
         return line
+    # The address the report form asks for, on the line that already says who
+    # reported it. It was collected and stored from the first day the form had
+    # the field and rendered nowhere, so two people who left one -- including
+    # someone offering to send us games -- read as unreachable strangers.
+    who = c.get("reporter") or UNKNOWN_REPORTER
+    if c.get("reporter_email"):
+        who += f" <{c['reporter_email']}>"
     lines = [
         line,
-        f"  kind {c['kind']}  reported by {c.get('reporter') or UNKNOWN_REPORTER}"
+        f"  kind {c['kind']}  reported by {who}"
         f"  created {c['created']}  updated {c['updated']}",
     ]
     if c.get("tree") or c.get("branch") or c.get("session"):
         lines.append(
             f"  tree {c.get('tree')}  branch {c.get('branch')}  session {c.get('session')}"
         )
+    # Everything else a reporter took the trouble to give us. The email was not
+    # the only field collected and never shown: #389 named its board and looked
+    # 1.12.11 up in Settings > About, #207 attached a photo of the screen, and
+    # `board show` printed none of it -- the device only ever appeared as prose
+    # inside a history line. Each is omitted when absent rather than printed
+    # empty, because a blank is how a missing thing starts reading as a present
+    # one. Values are safe by construction: the function accepts a device only
+    # from a fixed list, a version only as three dotted numbers, and builds
+    # photo_path itself as photos/<id>.<ext>.
+    got = []
+    if c.get("device"):
+        got.append(f"device {c['device']}")
+    if c.get("version"):
+        got.append(f"version {c['version']}")
+    if c.get("photo_path"):
+        got.append(f"photo {c['photo_path']}")
+    if c.get("github_issue"):
+        got.append(f"issue #{c['github_issue']}")
+    if got:
+        lines.append("  " + "  ".join(got))
     d = derived(c)
     if d:
         lines.append("  derived " + json.dumps(d))
