@@ -91,7 +91,7 @@ def fixture_state():
             {
                 "bookmark_id": 102,
                 "url": "https://blog.example.org/two",
-                "title": "It’s the second — really",
+                "title": "It’s the second: really",
                 "description": "",
                 "time": 1756000100,
                 "progress": 0.0,

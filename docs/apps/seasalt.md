@@ -76,9 +76,9 @@ mermaid already took.
 
 **rulebook.** The ender reveals their hand and says one of two words.
 
-**STOP** — everybody scores the points on their cards. Nothing else happens.
+**STOP**: everybody scores the points on their cards. Nothing else happens.
 
-**LAST CHANCE** — a bet that the ender has the most points. Every opponent takes
+**LAST CHANCE**: a bet that the ender has the most points. Every opponent takes
 one more full turn (take a card, play cards), after which their hand is revealed
 and can no longer be stolen from. Then:
 

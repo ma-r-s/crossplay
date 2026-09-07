@@ -13,7 +13,7 @@
 #
 # Screenshots are '<ms>:<path>' joined by ';'. BMPs are auto-converted to PNG.
 #
-# Example — open the Apps hub by touch and photograph it:
+# Example: open the Apps hub by touch and photograph it:
 #   ./scripts/sim-shot.sh '1800:TAP:120,635;3600:QUIT' '3000:./qa-artifacts/apps.bmp'
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib-sim.sh"

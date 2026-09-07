@@ -15,8 +15,8 @@ would be hours of it. So the bulk arrives as a pack you copy to the card, and
 the device only ever converts the handful of comics published since.
 
 Both paths produce **byte-identical output**, because both run the same code.
-`tools_local/xkcd/convert.cpp` links `lib/GfxRenderer/BitmapHelpers.cpp` — the
-firmware's own Atkinson ditherer — rather than reimplementing it. A Python port
+`tools_local/xkcd/convert.cpp` links `lib/GfxRenderer/BitmapHelpers.cpp`: the
+firmware's own Atkinson ditherer: rather than reimplementing it. A Python port
 would have been twenty lines and would have drifted the first time either side
 was tuned, with the symptom being that comics from the card and comics from
 wifi look subtly different on the same screen for no reason a user could name.
@@ -31,7 +31,7 @@ page view has no horizontal axis at all and the only motion is down. 90% of the
 archive is a single screen and never moves.
 
 The closer rendition is for the comics that fit-to-width cannot render
-legible — the big near-square ones like #3266, #256 and #1110, which rotation
+legible: the big near-square ones like #3266, #256 and #1110, which rotation
 cannot help. It has to be a _second stored image_: the panel is 1-bit, and
 resampling art that is already 1-bit is mush, so the only place a second scale
 can come from is the greyscale original, which lives on the host.
@@ -96,7 +96,7 @@ Then `count` records of **40 bytes**:
 | 24     | uint16 | closer height                              |
 | 26     | uint16 | closer stride                              |
 | 28     | uint32 | offset of the closer image in `images.dat` |
-| 32..39 | —      | reserved padding, zero                     |
+| 32..39 |: | reserved padding, zero                     |
 
 Records are **fixed width and sorted by comic number**, which is the whole
 reason the strings live in a separate file: a lookup is then a binary search
@@ -128,7 +128,7 @@ scales.
 
 `title\0alt\0` per comic, at the record's `textOffset`. Both are folded to ASCII
 by the builder, because the Toybox faces are subset to ASCII and a glyph the
-font lacks draws as **nothing at all** — no box, no fallback, no log line.
+font lacks draws as **nothing at all**: no box, no fallback, no log line.
 
 That defect is not hypothetical and not confined to exotic characters: the
 subset claims `U+0020-007E` but **`+` is missing from the small face**, which is
@@ -145,7 +145,7 @@ Posture and zoom are chosen together to make that true, and it comes out true
 for 97% of the archive.
 
 `W` and `H` are the comic's width and height **at the scale its lettering
-needs** — cap height, measured on the greyscale source by connected components,
+needs**: cap height, measured on the greyscale source by connected components,
 settles that first. The device offers `SHORT = 480` and `LONG = 756`, and
 turning it swaps which one runs across. Each of `W` and `H` therefore lands in
 one of three bands, so there are **nine cases and no others**:
@@ -158,7 +158,7 @@ one of three bands, so there are **nine cases and no others**:
 
 Read one out loud: bottom-left is a comic narrow enough for the short side but
 too tall for the long one, so it goes portrait and pans down only. Top-right is
-wider than anything, but its height fits the short side — so it turns, height on
+wider than anything, but its height fits the short side, so it turns, height on
 the 480 side, length running along the 756 side, and pans across only.
 
 Three rules produce that table:
@@ -240,9 +240,9 @@ Resumable in both directions: the download cache and the pack are both rebuilt
 from whatever is already there. `--limit`, or `--first`/`--last`, makes a small
 pack for testing.
 
-It ends by checking its own two guarantees against what it actually wrote — no
+It ends by checking its own two guarantees against what it actually wrote: no
 page rendition wider than the panel, no closer view whose second column reveals
-less than half a screen — and says so rather than leaving them asserted in a
+less than half a screen, and says so rather than leaving them asserted in a
 comment.
 
 To look at what it produced, with the reader's own step positions drawn on:
