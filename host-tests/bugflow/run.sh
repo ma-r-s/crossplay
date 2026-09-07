@@ -722,6 +722,7 @@ board seen "$NOBODY" >"$WORK/seen.out" 2>&1 \
   || ok "board seen refuses a card that is not a person's report"
 grep -q "reported by unknown" "$WORK/seen.out" && ok "and names what it is instead" || bad "the refusal did not say why: $(cat "$WORK/seen.out")"
 
+
 # The other half of "not a firehose": a session's ask and a person's report
 # are two different facts, and one line for both is how the rare one
 # disappears into the routine one.
@@ -733,6 +734,16 @@ grep -q "Need from you: Ship it or hold it?" "$WORK/both.out" && ok "and the ask
 [ "$(grep -n "wrote to you" "$WORK/both.out" | cut -d: -f1)" -lt "$(grep -n "Need from you" "$WORK/both.out" | head -1 | cut -d: -f1)" ] \
   && ok "the person comes first" || bad "a session's ask was printed above a person's report"
 export BOARD_ROOT="$ROOT"
+
+# And no session may run it at all. `board seen` is the only thing that takes a
+# report out of the one place Mario looks, so a session that runs it has not
+# triaged the card, it has deleted the message. Both directions: reading the
+# board is exactly what a session should be doing with a report.
+expect "board seen from a worker refused" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board seen 425 --note done\"}}"
+grep -q "only he can say that" "$WORK/err" && ok "and says whose act it is" || bad "the refusal did not say why: $(head -c 200 "$WORK/err")"
+expect "board seen from the orchestrator refused too" 2 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board seen 425\"}}"
+expect "reading a person's report is allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board list --reporter user\"}}"
+expect "and triaging its card is allowed"     0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board state 425 triaged\"}}"
 
 echo
 echo "a CLI quietly running last week's code"

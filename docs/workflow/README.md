@@ -5,7 +5,7 @@ refuse. Three pieces:
 
 | Piece                                                 | What it is                                                                                                                                                                                                                                                                                                                           |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `scripts_local/hooks/guard.py`                        | Claude Code hooks: `pretool` refuses edits in the integration tree, raw `pio run`, messages to anyone but the orchestrator, and `board ask` from a worker; `stop` refuses a turn that ends by handing back to Mario without a blocker on the card; `session-start` prints the session id, the role, the bound card and the contract. |
+| `scripts_local/hooks/guard.py`                        | Claude Code hooks: `pretool` refuses edits in the integration tree, raw `pio run`, messages to anyone but the orchestrator, `board ask` from a worker, and `board seen` from anyone at all; `stop` refuses a turn that ends by handing back to Mario without a blocker on the card; `session-start` prints the session id, the role, the bound card and the contract. |
 | `tools_local/board/board.py`                          | The board. Cards, blockers, Mario's inbox, the orchestrator and integrator claims. The only writer of `<workspace>/.board/`, which the hooks read. `board --help` lists every command.                                                                                                                                               |
 | `docs/workflow/worker-contract.md`, `orchestrator.md` | What a worker and the orchestrator do, in the words the SessionStart hook prints.                                                                                                                                                                                                                                                    |
 
@@ -134,8 +134,9 @@ Three decisions hold it together, and each is a rule the tests assert:
 - **Read once, not open forever.** `state` cannot carry this. A report triaged
   an hour after it lands leaves `reported` before he sees it; one nobody
   triages sits in his face until it is wallpaper. `cards.mario_seen_at` is the
-  mechanism, and setting it is his act: an orchestrator that marks one read
-  has deleted the message.
+  mechanism, and setting it is his act. The guard refuses `board seen` from
+  every session, the orchestrator included: running it is not triage, it is
+  deleting the message, because nothing else would have shown him that report.
 - **`unknown` is not `user`.** Most cards are `session` and `unknown` means the
   origin could not be established. Showing those would flood exactly what this
   fixes. A settled report (`done`, `released`, `parked`) never appears either.

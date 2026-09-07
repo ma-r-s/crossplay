@@ -67,9 +67,11 @@ integrator --session <your id>`) only while you resolve a conflict or
    an internal one, and if it needs a reply the reporter's email is on the
    card for Mario, never for you). Since 2026-09-07 a `reporter: user` card
    is also in Mario's inbox, in its own section above the asks, until he
-   marks it read: triage it normally, but never `board seen` it for him and
-   never settle it just to clear his screen. Being seen is the point of it
-   being there. Pulled: `source: github` exists only
+   marks it read: triage it normally, and never settle it just to clear his
+   screen. Being seen is the point of it being there. `board seen` is refused
+   for every session, yours included -- it is the only thing that takes a
+   report out of the one place he looks, so running it is not triage, it is
+   deleting the message. Pulled: `source: github` exists only
    because you typed `board issues` in step 1, and closing is manual too,
    `board issues --close-released` once a card is released.
 8. **Upstream.** The daily sync routine opens `sync/upstream-<date>` pull
