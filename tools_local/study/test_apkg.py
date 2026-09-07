@@ -151,9 +151,17 @@ def main():
 
         # Scheduling state survived the export + convert round trip.
         cards = (deck_out / "cards.dat").read_bytes()
-        ok(len(cards) == 33 * 32, f"cards.dat is {len(cards)} bytes, wanted {33 * 32}")
+        # Derived from the notes, not repeated as a literal: cards.dat is
+        # indexed BY note index (StudyDeck::loadCard reads index * 32), so one
+        # record per deck.dat entry is the actual invariant. Written as "33"
+        # here it silently went stale the moment cloze added a card, and the
+        # count had already been updated in the two places above.
+        ok(
+            len(cards) == len(notes) * 32,
+            f"cards.dat is {len(cards)} bytes, wanted {len(notes) * 32} for {len(notes)} notes",
+        )
         with_state = 0
-        for i in range(33):
+        for i in range(len(notes)):
             stability = struct.unpack_from("<f", cards, i * 32 + 8)[0]
             if stability > 0:
                 with_state += 1
@@ -230,9 +238,15 @@ def main():
             result.returncode == 0,
             f"legacy conversion failed:\n{result.stdout}\n{result.stderr}",
         )
+        # Tied to the modern package's own count rather than repeated as a
+        # literal. Both halves of this test convert the SAME fixture deck
+        # through the same pipeline, so any number that is right for one is
+        # right for the other -- and a literal here went stale on its own when
+        # cloze turned the "1 skipped" note into a card.
         ok(
-            "33 cards" in result.stdout and "1 skipped" in result.stdout,
-            f"legacy conversion counts wrong:\n{result.stdout}",
+            f"{len(notes)} cards" in result.stdout and "0 skipped" in result.stdout,
+            f"legacy conversion counts wrong, wanted {len(notes)} cards and nothing "
+            f"skipped:\n{result.stdout}",
         )
         ok(
             "learn [1.0, 10.0]" in result.stdout,
