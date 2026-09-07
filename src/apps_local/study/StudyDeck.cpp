@@ -19,9 +19,7 @@ constexpr uint8_t kMetaMagic[8] = {'X', 'S', 'T', 'U', 'D', 'Y', 'M', 0};
 constexpr uint16_t kFormatVersion = 3;
 constexpr uint16_t kMinFormatVersion = 2;
 
-bool versionSupported(const uint16_t version) {
-  return version >= kMinFormatVersion && version <= kFormatVersion;
-}
+bool versionSupported(const uint16_t version) { return version >= kMinFormatVersion && version <= kFormatVersion; }
 
 // meta.dat flag bits, mirroring anki_to_deck.py. See DeckMeta.
 constexpr uint16_t kMetaSentenceOnQuestion = 1 << 0;

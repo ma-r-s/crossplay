@@ -60,14 +60,14 @@ inline uint32_t nextCodepoint(const char*& p) {
 // This mirrors scripts.WIDE in tools_local/study/scripts.py, which is where
 // the same question is answered for the converter.
 inline bool isWideScript(const uint32_t codepoint) {
-  return (codepoint >= 0x3000 && codepoint <= 0x303F) ||   // CJK punctuation
-         (codepoint >= 0x3040 && codepoint <= 0x30FF) ||   // kana
-         (codepoint >= 0x31F0 && codepoint <= 0x31FF) ||   // katakana extensions
-         (codepoint >= 0x2E80 && codepoint <= 0x2FDF) ||   // radicals
-         (codepoint >= 0x3400 && codepoint <= 0x4DBF) ||   // Extension A
-         (codepoint >= 0x4E00 && codepoint <= 0x9FFF) ||   // Unified
-         (codepoint >= 0xF900 && codepoint <= 0xFAFF) ||   // compatibility
-         (codepoint >= 0xFF00 && codepoint <= 0xFFEF);     // fullwidth forms
+  return (codepoint >= 0x3000 && codepoint <= 0x303F) ||  // CJK punctuation
+         (codepoint >= 0x3040 && codepoint <= 0x30FF) ||  // kana
+         (codepoint >= 0x31F0 && codepoint <= 0x31FF) ||  // katakana extensions
+         (codepoint >= 0x2E80 && codepoint <= 0x2FDF) ||  // radicals
+         (codepoint >= 0x3400 && codepoint <= 0x4DBF) ||  // Extension A
+         (codepoint >= 0x4E00 && codepoint <= 0x9FFF) ||  // Unified
+         (codepoint >= 0xF900 && codepoint <= 0xFAFF) ||  // compatibility
+         (codepoint >= 0xFF00 && codepoint <= 0xFFEF);    // fullwidth forms
 }
 
 // Kinsoku shori, the Japanese and Chinese rule about what may sit at the edge
@@ -553,9 +553,7 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
   const int rubyHeight = rubyFontId != 0 ? target.getTextHeight(rubyFontId) : 0;
 
   const auto measureBase = [&](const char* run) { return target.getTextWidth(fontId, run); };
-  const auto measureRuby = [&](const char* run) {
-    return rubyFontId != 0 ? target.getTextWidth(rubyFontId, run) : 0;
-  };
+  const auto measureRuby = [&](const char* run) { return rubyFontId != 0 ? target.getTextWidth(rubyFontId, run) : 0; };
   const auto measureLine = [&](const char* candidate) {
     return measureRubyText(candidate, measureBase, measureRuby, scratch, lineBytes);
   };

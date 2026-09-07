@@ -1132,8 +1132,8 @@ void StudyActivity::drawCard(const Rect& body) {
     // is over the very word being asked for, and drawing it there points at
     // the answer.
     if (answer) {
-      y = drawWrappedUnderlined(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence),
-                                note_.emphasisOffset(), note_.emphasisLength());
+      y = drawWrappedUnderlined(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence), note_.emphasisOffset(),
+                                note_.emphasisLength());
     } else {
       y = drawWrapped(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence));
     }

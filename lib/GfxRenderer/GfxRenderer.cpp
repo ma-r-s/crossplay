@@ -1900,8 +1900,7 @@ std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* 
     if (nlPos != std::string::npos) {
       const std::string head = remaining.substr(0, nlPos);
       if (!head.empty() || !currentLine.empty()) {
-        const std::string joined =
-            currentLine.empty() ? head : currentLine + (joinTight ? "" : " ") + head;
+        const std::string joined = currentLine.empty() ? head : currentLine + (joinTight ? "" : " ") + head;
         lines.push_back(getTextWidth(fontId, joined.c_str(), style) <= maxWidth
                             ? joined
                             : truncatedText(fontId, joined.c_str(), maxWidth, style));
