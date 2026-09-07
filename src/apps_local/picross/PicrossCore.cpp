@@ -227,4 +227,10 @@ int Progress::nextUnsolved() const {
   return kPuzzleCount - 1;
 }
 
+int Progress::nextUnsolvedAtSize(const int size) const {
+  for (int i = 0; i < kPuzzleCount; ++i)
+    if (kPuzzles[i].size == size && !isSolved(i)) return i;
+  return -1;
+}
+
 }  // namespace picross

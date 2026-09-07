@@ -3,25 +3,31 @@
 Where the puzzles in Picross came from, why they can be trusted, and the one
 rule decision that shapes every screen.
 
-The short version: 137 nonograms, all of them 10x10, every one proved to have
-exactly one solution and to be reachable by single-line reasoning, by a
-generator that refuses to emit any that are not.
+The short version: 199 nonograms across four sizes -- 33 at 5x5, 28 at 8x8, 29
+at 9x9 and 109 at 10x10 -- every one proved to have exactly one solution and to
+be reachable by single-line reasoning, by a generator that refuses to emit any
+that are not. Every one arrives with a title, and that title is the name the win
+screen reveals.
 
-**The game is 10x10 and nothing else.** It shipped with a 15x15 tier too; Mario
-played one on the panel and the call is his: *"it's just not gonna work"*. A
-15x15 lands on 19px cells with a 177px row-clue gutter, and on glass that is a
-grid you can read but not reliably tap. The 184 puzzles at that size are still
-in `janko.txt` -- a generator's input is reproducible work, and re-deriving them
-later must not mean re-crawling janko.at -- but `gen_picross.SHIPPED_SIZES` is
-`(10,)` and only what is in it reaches the device.
+**15x15 is the size that is not here.** Mario played one on the panel and the
+call is his: *"it's just not gonna work"*. A 15x15 lands on 19px cells with a
+177px row-clue gutter, and on glass that is a grid you can read but not reliably
+tap. `gen_picross.SIZES` still understands it -- the gate can prove one -- but
+`SHIPPED_SIZES` is `(5, 8, 9, 10)` and only what is in that tuple reaches the
+device.
 
-**Every one of them is third-party work.** They were designed by six named
-people, published on janko.at, and are used here BY PERMISSION -- a permission
-granted to this project, not a licence, and one a fork does not inherit.
-[`assets_local/picross/PROVENANCE.md`](../../assets_local/picross/PROVENANCE.md)
-is the record; read it before copying puzzles out of this repository. The fork's
-own 68 hand-drawn pictures are still in `assets_local/picross/pictures.txt` and
-are deliberately NOT in the bank -- Mario's call, recorded there.
+**The puzzles are not public domain and they are not this fork's own work.**
+CrossPlay's code is MIT and a fork inherits that; these pictures came to the
+project privately and are not ours to relicense, republish, or offer as a
+downloadable pack. That is the whole of what is known and the whole of what is
+claimed: there is nobody to credit and no licence to honour, so no author, no
+licence and no source URL appears in the bank, in the firmware or in this
+repository. **Do not add one.** The fork's own 68 hand-drawn pictures are still
+in `assets_local/picross/pictures.txt` and are deliberately not in the bank --
+Mario's call, that the hand-drawn artwork "is not and won't be close to good
+enough" beside designed puzzles. Nothing loads that file; it is kept as the
+worked example of the source format, and adding it to `gen_picross.SOURCES` is
+one line.
 
 ## What the game is
 
@@ -57,159 +63,120 @@ dimming and the win check stay honest with no other change. (If a future variant
 instead wants wrong fills to _stay filled_ until erased, the dimming must move
 off the count-based check -- the dependency is written at `Board::rowSatisfied`.)
 
-## Provenance and licence
+## Where the bank comes from
 
-The bank is built from **one file per origin**, and the generator reads them in
-order (`gen_picross.SOURCES`), and **a file is shipped only by being in that
-list**:
+One file, `assets_local/picross/nonograms.txt`, written by
+`tools_local/picross/import_picross.py` from the pack Mario was given and
+committed as the generator's input. A generator's input is reproducible work, so
+it lives in the tree rather than in whichever directory the importing session
+happened to read.
 
-| file | puzzles | origin | rights | in the bank |
-|---|---|---|---|---|
-| `assets_local/picross/janko.txt` | 321 read, 137 shipped | janko.at, six named designers | used by permission | yes, the 10x10s |
-| `assets_local/picross/pictures.txt` | 68 | drawn for this fork | CC0 1.0 | **no** |
+    python3 tools_local/picross/import_picross.py \
+        --corpus <pack>/nonograms_all.json --format nonogram-pack \
+        --sizes 5,8,9,10 \
+        --license unknown \
+        --rename assets_local/picross/title-overrides.json \
+        --unattributed '<why there is nobody to credit>' \
+        --out assets_local/picross/nonograms.txt
 
-`pictures.txt` is not in `SOURCES`. Its 68 pictures are valid, pass the same
-gate and are CC0, and Mario's call is that the hand-drawn artwork "is not and
-won't be close to good enough" beside puzzles somebody designed; he also dropped
-5x5 as a tier, and every 5x5 in it is hand-drawn. The file stays as the worked
-example of the format -- adding it back to `SOURCES` is one line -- and
-`PROVENANCE.md` records the decision so it does not get helpfully re-added. A
-file named in `SOURCES` that is missing is a hard error, not a shorter bank.
+**The pack is read for its SOLUTIONS ONLY.** It also carries `row_clues`,
+`col_clues` and a `line_solvable` flag, and not one of the three is read. The
+clues are derived from the picture by the generator, so they cannot disagree
+with it; line-solvability is proved by our own gate rather than believed from a
+field. A flag saying a puzzle is fine is not the same fact as this repository
+having checked, and telling those two apart is the entire point of the gate. All
+199 pass it, at every size, in both implementations.
 
-`parse()` starts each file with fresh file-level defaults, so if the bank ever
-mixes origins again one file's `@@license` cannot leak onto the other's puzzles.
+### The importer will not write an unprovenanced corpus into this repository
 
-To author more of our own: write candidates into `pictures.txt` and triage them
-with `gen_picross.py --curate` (PASS/FAIL per picture, no emit).
-
-For the shipped puzzles: the permission was obtained by the project owner from
-the designers Yilmaz Ekici and Danilo Kusmin, and separately from Otto Janko for
-the collection, on 2026-09-05. It is **not a public licence**, it does not
-extend to forks, and it did not come with the data -- the grids travelled
-janko.at -> `puzzlekit` -> `puzzlekit-dataset`, and that last carries no LICENSE
-and no provenance statement at all. `PROVENANCE.md` says all of this at length,
-and the importer will not write the file unless it does.
-
-An arbitrary two-tone image converted to clues is usually _not_ a valid nonogram
-(it has several solutions), and any collection taken from elsewhere needs its
-source and licence honoured -- the Wavelength retail-deck problem. The generator
-answers the first; the permission record and the per-puzzle provenance field
-answer the second.
-
-### The attribution is not in the firmware, and a generated table is why that is safe
-
-It used to be a field: every puzzle carried an index into a `kProvenances[]`
-table of `{author, license, source}` triples, emitted beside the bitmaps. The
-source URLs alone were ~34KB of an ~51KB bank -- a URL costing more flash than
-the puzzle it pointed at, on a device where flash is the scarce thing and where
-no player has ever read one. Mario's call was to take it out of the image
-entirely (*"as long as it doesn't reach firmware anywhere and uses space there
-I'm good"*), and the one string a puzzle carries now is its **name**.
-
-**The credit obligation did not change**, and `PROVENANCE.md` is now the only
-place it is met. So it carries the whole per-puzzle mapping -- puzzle, designer,
-licence, source URL -- rather than a summary naming the six, and that table is
-**generated by `gen_picross.py` in the same pass that writes the bank**. A
-document is the wrong place for an answer maintained by hand; it is a fine place
-for one that is generated and then checked.
-
-`host-tests/picrossprov` is the check. It re-derives the mapping independently,
-from `janko.txt` and from the **bitmaps actually emitted into the header**, and
-fails if the table is not exactly that. Matching is by bitmap rather than by
-name, which is the point of the design: the string a puzzle carries is Mario's
-name for the picture and says nothing about where it came from. The bitmap is
-the puzzle. The same suite greps the header for every designer's name and for
-`janko.at`, so a later session helpfully re-adding the attribution to flash
-fails a test rather than shipping.
-
-### Importing a corpus, and what stops one shipping
-
-`tools_local/picross/import_picross.py` converts a third-party corpus into
-`pictures.txt` format, running each candidate through the SAME `evaluate()` the
-hand-drawn pictures face (it imports it from `gen_picross`, rather than keeping
-a second copy to drift). It exists because the pictures people enjoy solving are
-_designed_, and a corpus somebody drew and somebody else played is the only
-place to find a lot of them at once.
-
-The script **refuses to write inside this repository** unless the licence it was
+`import_picross.py` refuses to write inside the tree unless the licence it was
 given is one of a short redistributable list, OR `--permission` cites a record
-inside the tree that states who granted it, that it is not a public licence,
-that it does not extend to forks, and when. A puzzle whose licence is unstated
-is all rights reserved; a file in `assets_local/` is in every clone and every
-release. The refusal is a mechanism rather than a line in a checklist, and the
-thing that opens it is a written record rather than a flag, because a flag
-records nothing for the next reader.
+inside the tree stating who granted it, that it is not a public licence, that it
+does not extend to forks, and when. An imported puzzle whose licence is unstated
+is all rights reserved, and a file in `assets_local/` is in every clone and every
+release. The refusal is a mechanism rather than a line in a checklist.
 
-The `pictures.txt` format carries the provenance itself: `@@author` /
-`@@license` / `@@source` set a file-level default from that point down, and a
-single-`@` line above a name overrides it for that one picture.
+`--unattributed` is the third state and it is the one this bank uses. It is for
+a corpus with genuinely nobody to credit and no licence to honour, and it
+**claims nothing**: it requires `--license unknown`, refuses `--permission`,
+`--author-map` and `--source-template` outright as contradictions, writes every
+author and licence as `unknown`, writes no source URL, and stamps a banner
+carrying the reason it was used. It is not a way past `--permission` for a
+corpus that has an author somebody could have asked.
 
-### The gate cannot see the picture, so the selection is a judgement
+**There is no `PROVENANCE.md` and there is no `host-tests/picrossprov`, and
+their absence is deliberate.** Both existed for the previous bank, which was six
+named designers' copyrighted work used by permission: the credit had to be
+visible and had to be kept mechanically honest against the shipped bitmaps. Those
+puzzles are gone. This bank carries no attribution obligation at all -- nobody to
+credit, no licence to honour, no mapping that can drift -- and a suite guarding a
+promise nobody is making is dead weight. An *emptied* provenance file would have
+been worse than none, because the next reader takes it for an oversight and
+tries to fill it in.
+
+### Titles, and the one Mario changed
+
+Every puzzle arrives titled and the title is its identity: it keys the override
+files, and it is the string the win screen reveals. They are unique across the
+bank.
+
+A title that does not FIT the panel is renamed in
+`assets_local/picross/title-overrides.json`, which the **importer** applies, so a
+re-import reproduces the same bank instead of quietly restoring the original. It
+holds exactly one entry. `Widescreen Monitor` measures 473px against the win
+screen's 448px band, and `toybox::fittedTitle` would have set it a rung smaller
+with nothing reporting that it had. Mario's call, verbatim: **`Monitor`**. A key
+that matches no puzzle is a hard error -- a rename that matches nothing is a
+rename that silently did not happen.
+
+`assets_local/picross/name-overrides.json` is the other layer and it is empty. It
+replaces a title with a different word for the *reveal*, and the **generator**
+applies it. Two files rather than one because they fix different problems at
+different moments, and a width fix applied after the import would be undone by
+the next one.
+
+### Importing a corpus
+
+`tools_local/picross/import_picross.py` converts a third-party corpus into the
+`pictures.txt` format, running each candidate through the SAME `evaluate()` the
+hand-drawn pictures face (it imports it from `gen_picross`, rather than keeping a
+second copy to drift). It exists because the pictures people enjoy solving are
+_designed_, and a corpus somebody drew and somebody else played is the only place
+to find a lot of them at once.
+
+A corpus that TITLES its puzzles is titled verbatim, case and all. One that does
+not gets `<prefix><id>`, upper-cased -- a catalogue id has no case to preserve.
+The two are separate paths rather than one path with an `.upper()` on the end,
+because `.upper()` over a real title destroys a decision somebody made. It used
+to sit on that line, and it would have shipped 199 shouted titles.
+
+The `pictures.txt` format carries provenance itself: `@@author` / `@@license` /
+`@@source` set a file-level default from that point down, and a single-`@` line
+above a name overrides it for that one picture. `parse()` starts each file with
+fresh file-level defaults, so if the bank ever mixes origins again one file's
+declaration cannot leak onto the other's puzzles.
+
+### The gate cannot see the picture
 
 Unique, line-solvable and fills-its-grid are all properties of **the clues**. A
 puzzle can satisfy every one of them and still solve into a scatter of blobs
 nobody can name, and no filter anywhere can tell the difference -- the finished
-picture is simply not in the data the gate looks at.
+picture is simply not in the data the gate looks at. This bank arrives already
+curated and already titled, which is the same judgement made by somebody else
+before it got here; a future bulk import still needs a human to look.
 
-So the import is **curated**, not bulk. `--ids` takes a file of corpus ids and
-imports only those; [`assets_local/picross/janko-selection.json`](../../assets_local/picross/janko-selection.json)
-is the list, with the method that produced it and the counts it rests on.
+An arbitrary two-tone image converted to clues is usually _not_ a valid nonogram
+(it has several solutions). The generator answers that; nothing answers "is this
+a good picture" except somebody looking at it.
 
-**All 531 gate-passing candidates were judged**, one question each: could the
-subject be named without the caption telling you? 321 were kept -- **137 of 263
-at 10x10 (52%) and 184 of 268 at 15x15 (69%)**; the 10x10 half is what ships.
-Both the keeps and the drops are
-recorded, so a second opinion can disagree with a specific puzzle rather than
-with a rate.
-
-Two things make the judgement worth trusting. It is made **at the size the
-picture is actually seen**: contact sheets of 48, rendered at 9px cells for a
-10x10 and 6px for a 15x15, which is the ~90px picture the picker draws a solved
-tile at. A picture that only reads when blown up is a false keep. And the
-question stays the same one -- a puzzle that solves into an interesting-looking
-pattern nobody can name is a drop, however much structure it has.
-
-`assets_local/picross/janko-authors.json` records the author of all 531
-candidates, read from each puzzle's own page, so "every puzzle has a named
-author" can be checked rather than believed.
-
-**137 puzzles at 10x10 is the whole game now.** The corpus is more legible at
-15x15 (69% against 52%) because a bigger grid draws a better picture -- that
-tension is real and it is why the tier existed -- but a grid you cannot reliably
-tap is not a game, and 137 is a bank nobody will exhaust soon.
-
-### Reproducing the imported half
-
-    python3 tools_local/picross/import_picross.py \
-        --corpus <path>/Nonogram_dataset.json --format janko-json \
-        --sizes 10,15 \
-        --ids assets_local/picross/janko-selection.json \
-        --author-map assets_local/picross/janko-authors.json \
-        --license 'all rights reserved, used by permission' \
-        --source-template 'https://www.janko.at/Raetsel/Nonogramme/{id04}.a.htm' \
-        --name-prefix JANKO \
-        --permission assets_local/picross/PROVENANCE.md \
-        --out assets_local/picross/janko.txt
-    python3 tools_local/picross/gen_picross.py
-
-`{id04}` rather than `{id}`: janko serves `0001.a.htm` and 404s on `1.a.htm`,
-and redirects the unpadded three-digit form. A provenance URL that 404s is worse
-than no URL at all, because it looks like the origin was recorded and checked.
-
-**Only 10x10 and 15x15 are imported (and only the 10x10s ship), and that is a
-layout decision.** The corpus
-also holds 393 at 20x20, 372 at 25x25 and 435 at 30x30, all excluded: at the
-densest 20x20 the row-clue gutter takes 217px of the 480px panel against a 240px
-grid, cells fall to 12px, and the satisfied-clue strikethroughs read as vertical
-smears through the row-clue digits. 15x15 at its worst is clean (19px cells, a
-177px gutter). Making the larger sizes playable is a clue-gutter redesign, not
-an import setting.
+To author more of our own: write candidates into `pictures.txt` and triage them
+with `gen_picross.py --curate` (PASS/FAIL per picture, no emit).
 
 ## Verification
 
 Two implementations of "unique" and "line-solvable", in different languages,
-agreeing on all 137 puzzles. This is the app's equivalent of the dungeon bank's
-cross-check.
+agreeing on all 199 puzzles. This is the app's equivalent of the dungeon bank's
+cross-check, and it is the reason the pack's own `line_solvable` flag is ignored.
 
 **In Python, at generation time.**
 [`tools_local/picross/gen_picross.py`](../../tools_local/picross/gen_picross.py)
@@ -224,32 +191,35 @@ derives each puzzle's clues from its picture, then:
 - requires the picture to **fill the grid it claims**: no empty first or last row,
   no empty first or last column. An uncropped drawing makes a puzzle smaller than
   its label, and the SIZE LABEL is what tells the player the difficulty tier -- a
-  15x15 whose ink only spans eight rows is a 15x8 lying about its tier. Interior
+  10x10 whose ink only spans six rows is a 10x6 lying about its tier. Interior
   empty lines stay legal (a picture may genuinely have a gap), which is the only
-  way a "0" clue should ever appear.
+  way a "0" clue should ever appear;
+- **measures every shipped name** against the win screen's band. Not just an
+  overridden one: the titles arrive with the corpus, so the widest one arrives
+  with it too, and this pack carried exactly one that was too wide. See below.
 
-It refuses to write the header unless every puzzle passes both. The clues are
-never stored, only the picture, so the clues cannot disagree with it.
+It refuses to write the header unless every puzzle passes. The clues are never
+stored, only the picture, so the clues cannot disagree with it.
 
 ```bash
 python3 tools_local/picross/gen_picross.py   # a second or two; one line per puzzle
 ```
 
-Expect designs to be rejected, on any of the three grounds. SAILBOAT and an early
-KEY admitted two pictures each; about one authored picture in five is not
-line-solvable; and a key and a crescent moon at 15x15 could not be drawn to touch
-all four edges at all, so they became ENVELOPE and STAR instead. That is the tool
-working -- a rejected drawing is cheaper than an unfair puzzle or a lying label.
+Expect designs to be rejected, on any of the grounds above. About one authored
+picture in five is not line-solvable, and a key and a crescent moon could not be
+drawn to touch all four edges at all. That is the tool working -- a rejected
+drawing is cheaper than an unfair puzzle or a lying label.
 
 **In C++, against the header that ships.**
 [`host-tests/picross/`](../../host-tests/picross/) carries a second, brute-force
 implementation of both properties (a line-solver and a solution counter over
 `2^n` patterns, obviously correct for `n <= 15`) and runs them over every stored
-picture, plus the mistake/win/clue/restore rules of `PicrossCore`.
+picture, plus the mistake/win/clue/restore rules of `PicrossCore`. It also proves
+the bank is size-sorted and that the recovered size runs **account for every
+puzzle in the bank** -- see the picker, below, for why that subtraction matters.
 
 ```bash
-./host-tests/picross/run.sh        # ~10k checks over 137 puzzles
-./host-tests/picrossprov/run.sh    # the credit table against the shipped bank
+./host-tests/picross/run.sh        # ~14.6k checks over 199 puzzles
 ```
 
 A hand-edit to the generated file, or a bad merge, fails here rather than on the
@@ -351,15 +321,22 @@ answer, which is also why the board never shows it while you play.
 the revealed picture and above the grade. Nothing else in the app draws it --
 not the picker, not the board, not the status strip.
 
-**The names are Mario's, written by hand**, into
-`assets_local/picross/janko-names.json`, keyed by the puzzle's name in
-`janko.txt` (`"JANKO222"`) or by the bare janko id that name ends in (`"222"`).
-Both forms are accepted; a **bank index is never a key**, because the bank is
-emitted size-sorted and renumbers whenever it changes. `gen_picross.load_names`
-refuses the file outright on a key that matches no puzzle, a character the cut
-has no glyph for, or a name that does not render at full size -- every one a
-hard error, because a half-applied annotation pass looks exactly like a full
-one.
+**The name is the puzzle's TITLE**, carried straight out of
+`assets_local/picross/nonograms.txt` into the bank. The previous bank had no
+titles at all, so the names were typed by hand into a file keyed by catalogue id;
+this one arrives named and there is nothing to annotate.
+`assets_local/picross/name-overrides.json` replaces a title for the reveal and is
+empty. A key that matches no puzzle is a hard error, because a half-applied
+annotation pass looks exactly like a full one, and a bank index is never a key --
+the bank is emitted size-sorted and renumbers whenever it changes.
+
+**The titles are Title Case** (`Bowling Ball`), where the previous bank's names
+were uppercase. Rendered and looked at rather than argued about: the display cut
+draws the lowercase cleanly at full size, descenders included, and the mixed case
+gives the screen a hierarchy it did not have -- the name is the reveal and the
+grade under it (`PERFECT -- NO MISTAKES`) is the footnote. When both were
+uppercase they competed. The name is the only mixed-case string in the app, and
+that is right: it is the only piece of authored content on the screen.
 
 **A name is accepted exactly when it renders at full size, and that is
 MEASURED.** `tools_local/picross/name_fit.py` is the one place that answers it:
@@ -367,6 +344,14 @@ it reads the real Jersey metrics out of `src/apps_local/ui/fonts/` and restates
 `EpdFont::getTextBounds`, against a band width measured from the real screen
 builder into `tools_local/picross/name_band.txt` (448px) rather than copied by
 hand.
+
+**EVERY SHIPPED NAME IS MEASURED, not just an overridden one**, and that changed
+with this bank. While the names were typed by hand, checking the file Mario wrote
+checked everything that could be wrong. Now the titles arrive with the corpus,
+which means the widest one arrives with it too: this pack carried exactly one
+name over the band, `Widescreen Monitor` at 473px, and nothing about it looked
+wrong anywhere. `gen_picross.emit` measures all 199 on every regenerate and fails
+by name, so the next corpus cannot introduce one silently.
 
 It is a restatement and not an approximation, and the difference points the
 unsafe way. The device reports the width of the **ink box** (`maxX - minX` in
@@ -391,119 +376,152 @@ name, it **shrinks** it, walking down the font slots until one fits, and nothing
 logs that. The failure being guarded against is not a broken screen; it is a
 reveal set two-thirds size with nobody told.
 
-**Two implementations, pinned rather than trusted.** The naming tool
-(`site/picross-names/logic.js`) cannot import Python, so it restates the same
-measurement in JavaScript for live feedback while Mario types. A second copy of
-a rule that must agree to the pixel is the drift this fork keeps paying for, so
-`tools_local/picross/name_fit_corpus.json` is the pin: `name_fit.py --corpus`
-writes it, `host-tests/picrossprov` fails if those numbers are not what
-`measure()` computes today, and `host-tests/picrossnames` drives the JavaScript
-against the same file. The two were checked against each other over 84
-measurements in three cuts and agreed on every one.
+**The band is re-measured, not read on trust.** 448 is the number every name in
+the bank was accepted against, and it lived in a file written by a script nobody
+ran again -- move `buildWin`'s layout and it silently becomes wrong while every
+check goes on reporting clean. `host-tests/picrossnames` now compiles
+`measure_name_band` against the current `PicrossScreens.cpp` on every run and
+fails if its answer is not what `name_band.txt` says. A checked-in measurement
+that nothing re-derives is a literal.
 
-He writes the names in the tool at `site/picross-names/`, which emits that exact
-file; [naming the picross puzzles](picross-names.md) is how it works and where
-his answers live while he is part-way through.
+**The corpus pins the measurement to its own recorded output.**
+`tools_local/picross/name_fit_corpus.json` records what `measure()` computed when
+it was written, and `host-tests/picrossnames` fails if those numbers move. That
+is not redundant with the band check: glyph metrics shift when a Toybox cut is
+regenerated -- a recorded, real failure in this fork -- and every accepted name
+silently changes width when they do.
 
+**The naming tool is gone.** `site/picross-names/`,
+`tools_local/picross/gen_name_tool.py` and `docs/apps/picross-names.md` were
+deleted with this bank. The page existed to type 137 names for a bank that had
+none; this one arrives titled, so it produced output nothing consumed, behind a
+live public URL, which is worse than no code. It would have needed *rewriting*
+rather than restoring in any case: it drew ONE size where the bank now has four,
+and it keyed its output by janko id where both override files key by title. It
+also carried a second, JavaScript restatement of the fit rule, pinned to the
+Python one over 84 measurements in three cuts with zero disagreements; that pin
+is now one implementation against its own corpus.
 
 **A puzzle with no name draws no name band at all**, and the picture takes the
-space. Not an empty band: the names arrive by hand, so a part-named bank is the
-normal state, and a blank 52px gap over the picture reads as a name that failed
-to render.
+space. Every puzzle in this bank has one, so the case does not arise today; it
+stays because an empty 52px gap over the picture reads as a name that failed to
+render, and that is the wrong thing to draw for a picture that simply has no
+title.
 
-## The picker: one flat run of pages
+## The picker: four size tabs over a paged grid
 
-A 4-column paged grid of rounded tiles, page dots below, opening on the page
-holding the puzzle RESUME/PLAY would start. Chosen from three rendered variants
-(a solid grid, a list, and a size-tabbed grid) and a cold review of them.
+A row of size tabs above a 4-column paged grid of rounded tiles, page dots below,
+and a PLAY/RESUME button at the foot. Chosen from three rendered variants (a
+solid grid, a list, and this tabbed grid) and a cold review of them.
 
-**The size tabs are gone, and their absence is the design.** They answered
-"puzzles across several sizes" with direct access instead of blind paging; with
-one size they were a row of one tab -- a control with nothing to choose between,
-which is not a control -- spending 60px of the grid's height and a hit rect to
-say "10x10" a second time. Losing them let the grid grow from four rows to five,
-so a page holds 20 tiles instead of 16 and the bank pages seven ways instead of
-nine. There is a `static_assert` on `kSizeGroupCount == 1` in
-`PicrossScreens.cpp`: bring a second size back and the build stops there rather
-than shipping a picker that silently runs two tiers together.
+**The tabs answer "puzzles across four sizes" with direct access instead of blind
+paging**, and each carries its own solved count, so the row doubles as "which
+tier still has puzzles left". They were removed while the game was 10x10-only,
+where they were a row of one tab -- a control with nothing to choose between,
+which is not a control. Four is a control.
+
+**The label is `10x10` and not `10 x 10`, and that is a measurement.** At four
+tabs the band gives each pill 106px, and `10 x 10` sets 103px of it in the body
+cut: one and a half pixels of air inside a 20px corner radius. It was the spaced
+form while there were three tabs and it does not survive a fourth. Closing the
+spaces takes it to 83px. Measured with `name_fit.py` against the real cut, not
+judged from a render, and `host-tests/ui` fails if the spaced form comes back.
+
+**The size appears on the tabs and nowhere else.** Not on every tile, not in the
+board's status strip: you chose the tier on the way in, and repeating it over the
+puzzle is noise about a fact you cannot change from there. Mario's call, and it
+survives the tabs coming back.
 
 **Tiles per page is derived, not written down.** `gridGeom()` computes the cell
 from the body width and the rows from the body height, and `buildMenu` reports
-what it drew in `PickerLayout::pageOnScreen`. The activity does not compute a
-page at all: it sets `MenuModel::followSelection` and reads back what the picker
-chose. It used to divide by a literal 16 -- the number that fitted under the tab
-band -- and that literal would have been wrong the moment the band went, opening
-the picker on the wrong page with nothing reporting it.
+what it drew in `PickerLayout::pageOnScreen` and `tabOnScreen`. The activity
+computes neither: it sets `MenuModel::followSelection` and reads back what the
+picker chose. It used to divide by a literal 16 -- the number that fitted under
+the tab band -- and that literal went silently wrong the moment the band moved,
+opening the picker on the wrong page with nothing reporting it. With tabs back,
+`followSelection` resolves the **tab as well as the page**, so the activity does
+not need to know where one size run ends either.
 
-**Both side keys page it.** Physically they are the moulded page-turn keys, and
-they are the only buttons the X4 Pro has; before this the dots were the only way
-through 137 puzzles, which on a page-turn key reads as broken. `stepPage()` is a
-free function for one reason: the simulator never runs `InputManager`, so
-nothing about the press is provable off-device, but the decision it feeds is.
-It clamps rather than wraps -- the reader these keys were made for stops at the
-ends of a book. On the board the same two keys still select FILL and MARK; a key
-is read against the view on screen, so neither can starve the other.
+**Both side keys page it.** Physically they are the moulded page-turn keys and
+the only buttons the X4 Pro has. `stepPage()` is a free function for one reason:
+the simulator never runs `InputManager`, so nothing about the press is provable
+off-device, but the decision it feeds is. It clamps rather than wraps -- the
+reader these keys were made for stops at the ends of a book. On the board the
+same two keys select FILL and MARK; a key is read against the view on screen.
 
-The selected / in-progress tile is **fully inverted** (solid black, white content)
--- the fill-is-selected language the mode capsule and the shelf rows already speak,
-and the least ambiguous mark 1-bit e-ink has. The earlier corner brackets were
-dropped (they clashed with the rounded tiles) and so was a gutter underline (it
-read as belonging to the tile below).
+The selected / in-progress tile is **fully inverted** (solid black, white
+content) -- the fill-is-selected language the mode capsule and the shelf rows
+already speak, and the least ambiguous mark 1-bit e-ink has.
+
+### Four is exactly the boundary the old bug sat on
+
+`kSizeGroupCount` is **derived by the generator** by run-scanning the bank it
+just wrote, and the picker's group array is sized from it. That is not tidiness.
+The slots were once a literal `4` with a `break` underneath, and that pairing is
+a silent data-loss bug rather than a bound: a bank producing more runs than slots
+hits the break, and every puzzle after it is unreachable from the tabs -- drawn
+nowhere, logged nowhere, with nothing on the screen looking wrong. A local
+evaluation bank spanning 10, 15, 20, 25 and 30 produced **five** groups and would
+have lost every 30x30. **This bank has four.**
+
+Three mechanisms, because the failure is invisible:
+
+- **A compile-time count.** `countSizeRuns()` in `PicrossScreens.cpp` walks the
+  `constexpr` bank and a `static_assert` requires the number of RUNS to equal the
+  number of distinct SIZES. Those are equal if and only if the bank is
+  size-sorted, so a **hand-edited header** stops the build instead of losing
+  puzzles. It does not catch an appended *import*: `emit()` calls
+  `sort_by_size()` unconditionally and derives the count from the sorted result
+  in the same pass, so a regenerate cannot produce a bank this would reject. The
+  generator is why the property holds; the assert is why nobody can edit it away
+  afterwards.
+- **`host-tests/picross`** re-derives the runs and requires them to be ascending,
+  distinct, and to **account for every puzzle in the bank**. That subtraction is
+  the only thing that catches a break that fired: with a three-slot array it
+  reports "the tabs reach 62 of 199 puzzles -- 137 are unreachable". It is also
+  the half that catches what the `static_assert` cannot -- a hand-edit that bumps
+  `kSizeGroupCount` to match its own damage passes the assert and fails here.
+- **`host-tests/ui`** sweeps the rendered frame for a live `ActionTab` rect per
+  group, opens each tab in turn and adds up the tiles its pages actually lay out,
+  and requires the total to be the whole bank. A tab that draws but answers
+  nothing fails the first half; a tier the pages cannot reach fails the second.
+  It also checks the width each tab was given against `kTabMinWidth`, which is a
+  runtime number and therefore cannot be a `static_assert`.
 
 ## Sizes and storage
 
 A 10x10 lands on ~37px cells after its clue gutters on the 480px-wide portrait
-panel. (The code still handles other sizes -- nothing is hardcoded to ten -- but
-`SHIPPED_SIZES` is `(10,)`.) The bank is `uint16_t rows[kMaxSize]` plus a name
-pointer and a size per puzzle: 28 bytes a row at `kMaxSize` 10, so **about 3.8KB
-of `Puzzle` table** plus the name strings, which are one shared empty literal
-until Mario has named something.
+panel; a 5x5 is capped so it stays a board rather than five enormous squares.
+Nothing is hardcoded to a size: the grid, the clue gutters and the tile
+thumbnails are all computed from `Puzzle::size`, which is why adding 8 and 9 was
+a data change and not a layout change.
 
-It was ~51KB. Two changes took it there and the second is the big one: dropping
-the 15x15s halved the count and cut `kMaxSize` from 15 to 10, and moving the
-attribution out of the firmware dropped a 4KB `Provenance` table and ~34KB of
-strings, most of that the 321 source URLs. It stays flash-resident like the
-dungeon's, with no SD pack.
+The bank is `uint16_t rows[kMaxSize]` plus a name pointer and a size per puzzle,
+so **about 5.6KB of `Puzzle` table** at 199 puzzles plus the name strings. It
+stays flash-resident like the dungeon's, with no SD pack.
 
-`kMaxSize` is computed by the generator from the widest picture SHIPPED (10
-today, not 15 -- it follows the filter); the row type is `uint16_t`, so **a
-picture wider than 16 needs the row type widened**, which is one of the reasons
-20x20 is not shipped.
+`kMaxSize` is computed by the generator from the widest picture SHIPPED (10). The
+row type is `uint16_t`, so **a picture wider than 16 needs the row type
+widened**.
 
-The bank is emitted **size-sorted**, and that stays load-bearing even with one
-size: `kSizeGroupCount` is derived by run-scanning the bank for changes of size,
-and it is what the picker's `static_assert` reads to decide that no size tabs are
-needed. An unsorted bank -- which is what appending an import
-produces -- makes every alternation a new group, fills the slots, and leaves
-every puzzle after that point unreachable from the tabs, with nothing drawn
-wrong and nothing logged. `gen_picross.sort_by_size` constructs the order and
-`host-tests/picross` re-proves it over the shipped header.
-
-The slot count used to be a literal `4`, and that was not a comfortable margin:
-a local evaluation bank spanning the sizes the source corpus actually offers
-(10, 15, 20, 25, 30) produced **`kSizeGroupCount` = 5**. Under the old array the
-fifth run had nowhere to go, the `break` under it would have fired, and every
-30x30 puzzle in the bank would have been unreachable from the picker -- drawn
-nowhere, reported nowhere, simply absent. Deriving the count from the bank is
-what makes that impossible rather than unlikely. It is the fork's
-`loop-bounds-not-derived-from-the-array` pattern with a measured number against
-it instead of a prediction.
+The bank is emitted **size-sorted**, and that is load-bearing: `kSizeGroupCount`
+is derived by run-scanning for changes of size, and an unsorted bank makes every
+alternation a new run. `gen_picross.sort_by_size` constructs the order and three
+separate mechanisms re-prove it (above).
 
 Solved-progress is a bitset sized from the bank (`kProgressWords` 32-bit words in
-`Progress`), not the single word the original 17 used, and the on-SD save
-(`SaveState`, **version 5**) carries the same array. Every reader and writer walks
-the words; a host test marks bits either side of each 32-bit boundary so the
-widening stays honest.
+`Progress`), and the on-SD save (`SaveState`, **version 6**) carries the same
+array. Every reader and writer walks the words; a host test marks bits either
+side of each 32-bit boundary so the widening stays honest.
 
-**Growing the bank changes that save even when no field is touched**, so
-`kSaveVersion` is bumped every time it grows. `kProgressWords` is derived from
+**Changing the bank changes that save even when no field is touched**, so
+`kSaveVersion` is bumped every time it does. `kProgressWords` is derived from
 `kPuzzleCount`, so the struct changes size; and the bank is emitted size-sorted,
-so adding 10x10 puzzles renumbers every 15x15 and a solved bit that survived
-would name a different puzzle. Old progress cannot be migrated, only discarded --
-v3 was the `uint8_t` index, v4 the janko import, **v5 dropping the 15x15s** --
-and the version bump is what discards it deliberately, with a log line, rather
-than by a short read that says nothing. v5 is the clearest case of the trap: not
-one field was edited, and yet `cells` lost 125 bytes (`kMaxSize` 15 to 10),
-`solved` lost six words (321 puzzles to 137), and every stored index named a
-puzzle chosen from a different, longer list. A v4 save read as a v5 is garbage
-that parses.
+so every stored index names a puzzle chosen from a different list. Old progress
+cannot be migrated, only discarded -- v3 was the `uint8_t` index, v4 the janko
+import, v5 dropping the 15x15s, **v6 replacing the bank wholesale**. v6 is the
+same trap as v5: not one field was edited, and yet `solved` grew from five words
+to seven (137 puzzles to 199) and every stored index names a picture from an
+entirely different set, so a v5 save read as a v6 would restore one player's
+marks onto a picture they have never seen. The version bump is what discards it
+deliberately, with a log line, rather than by a short read that says nothing.

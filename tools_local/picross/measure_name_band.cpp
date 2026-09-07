@@ -2,12 +2,12 @@
 //
 //     tools_local/picross/measure_name_band.sh
 //
-// The naming tool (site/picross-names/) tells Mario, while he is typing,
+// The name gate tells the generator, before a bank is written,
 // whether a name will fit on the panel. That answer is a width in pixels, and
 // a width copied by hand into a browser is a width that stops being true the
 // next time somebody moves the win screen's layout. So it is measured HERE,
 // from the real screen builder, and written to name_band.txt for
-// gen_name_tool.py to read.
+// name_fit.py to read and host-tests/picrossnames to re-derive.
 //
 // It measures rather than derives. The band is `screen.takeBottom(52, kGutter)`
 // against a content rect three layers of chrome deep, and reasoning it out from

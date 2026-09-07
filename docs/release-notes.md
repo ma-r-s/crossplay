@@ -21,6 +21,18 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.47
+
+- Stop copying ThemeTokens onto the render task's stack
+
+### 1.12.46
+
+- The render task takes its stack override again, and the gate can fail
+
+### 1.12.45
+
+- Replace the bank with Mario's 199-puzzle pack, four size tiers
+
 ### 1.12.44
 
 - Picross: 10x10 only, asterisk mistakes, auto-marking, key paging

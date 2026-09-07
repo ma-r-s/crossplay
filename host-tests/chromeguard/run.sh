@@ -183,7 +183,7 @@ with tempfile.TemporaryDirectory() as fx:
         'void doors(Screen& s) {\n'
         '  const fui::Rect band = toybox::headerBandRect(s);\n'
         '  s.frame().hit(fui::makeRect(0, 0, w, toybox::kHeaderHeight), Action, 0);\n'
-        '  tokens.headerHeight = xkcdui::kHeaderBand;\n'
+        '  tokens.headerHeight = solitaireui::kHeaderBand;\n'
         '}\n')
     # And the exempt directory really is exempt.
     ui = os.path.join(fx, 'apps_local', 'ui')

@@ -285,8 +285,16 @@ void SolitaireActivity::render(RenderLock&&) {
   // too tight -- the title's cap-centring is sized for the band, and at 48 the
   // bowl of the S and the leg of the R were sliced off by the bar's own bottom
   // edge. 56 is the smallest that clears the descender box.
-  fui::ThemeTokens tokens = toybox::themeTokens();
-  tokens.headerHeight = solitaireui::kHeaderBand;
+  // Built once, not per frame. Screen refers to this rather than copying it, so
+  // it only has to outlive the screen -- and a function-local static outlives
+  // everything, which a named local did at the cost of 2712 bytes of ThemeTokens
+  // on the render task's stack every repaint. That task overflowed on this very
+  // path in v1.12.45 (card #398).
+  static const fui::ThemeTokens tokens = [] {
+    fui::ThemeTokens t = toybox::themeTokens();
+    t.headerHeight = solitaireui::kHeaderBand;
+    return t;
+  }();
   toybox::Screen screen(frame, tokens);
 
   if (view == View::Board) {

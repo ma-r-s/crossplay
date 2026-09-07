@@ -125,9 +125,10 @@ class Screen : public freeink::ui::Screen<kMaxInteractions> {
   explicit Screen(freeink::ui::Frame<kMaxInteractions>& frame)
       : freeink::ui::Screen<kMaxInteractions>(frame, themeTokens()) {}
 
-  // A palette of the caller's own, for the two screens that raise the header
-  // band. `theme` is referred to, not copied, so it has to outlive the screen: a
-  // named local in the same render() does, which is every real use.
+  // A palette of the caller's own, for the one screen that raises the header
+  // band. `theme` is referred to, not copied, so it has to outlive the screen.
+  // Solitaire hands over a function-local static: a named local in the same
+  // render() would also do, but it costs 2712 bytes of stack per repaint.
   Screen(freeink::ui::Frame<kMaxInteractions>& frame, const freeink::ui::ThemeTokens& theme)
       : freeink::ui::Screen<kMaxInteractions>(frame, theme) {}
 

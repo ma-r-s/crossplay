@@ -850,17 +850,6 @@ else
   while IFS= read -r line; do echo "      $line"; done <<< "$fetch_out"
 fi
 
-# The Picross naming tool runs on data GENERATED from two things it cannot see
-# from a browser: the puzzle bank and the Jersey font headers. Nothing links
-# them, so a curated bank or a regenerated cut leaves a page that works
-# perfectly and names puzzles that are no longer there, or tells him a name fits
-# in a face whose widths have moved. Same failure this suite exists for.
-if gen_out="$(python3 "$ROOT/tools_local/picross/gen_name_tool.py" --check 2>&1)"; then
-  ok
-else
-  bad "site/picross-names/data.js is stale -- run tools_local/picross/gen_name_tool.py"
-  while IFS= read -r line; do echo "      $line"; done <<< "$gen_out"
-fi
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

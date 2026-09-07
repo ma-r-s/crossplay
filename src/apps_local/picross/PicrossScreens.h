@@ -22,6 +22,7 @@ enum : fui::ActionId {
   ActionPick = 3,  // value is a puzzle index, or -1 to resolve through the picker
   ActionMode = 4,  // value is Mode: which input mode a tap selects
   ActionPage = 5,  // value is a page index the picker should jump to
+  ActionTab = 6,   // value is a size-group index the picker should switch to
 };
 
 enum Button : int {
@@ -30,6 +31,15 @@ enum Button : int {
   ButtonPuzzles = 2,
   ButtonNext = 3,
 };
+
+// The narrowest a size tab may be drawn and still be read and hit.
+//
+// It lives in the header rather than beside drawSizeTabs so host-tests/ui can
+// check the width the picker ACTUALLY gave a tab against this same constant.
+// The band is `screen.body().width`, a runtime number, so this cannot be a
+// static_assert -- and a copy of the threshold in the test would be a second
+// number to keep in step, which is the drift this fork keeps paying for.
+constexpr int16_t kTabMinWidth = 96;
 
 // The active input mode. FILL is the committing action (a wrong fill LOCKS as a
 // mistake); MARK is a free annotation. The two physical side keys select these
@@ -70,14 +80,18 @@ struct MenuModel {
   int total = 0;
   // RESUME rather than PLAY on the selected tile, when it is the in-progress one.
   bool hasProgress = false;
-  // Which page of the picker to draw. The activity owns it and the picker
-  // clamps it, reporting back what it actually drew in PickerLayout.
+  // Which page of the picker to draw, and which size group is on screen. The
+  // activity owns both and the picker clamps both, reporting back what it
+  // actually drew in PickerLayout.
   int page = 0;
-  // Ignore `page` and open on the page holding `selectedIndex`. Set when the
-  // picker appears, so the highlighted tile is on screen without the activity
-  // having to know how many tiles a page holds -- that number is derived from
-  // the panel inside buildMenu, and a second copy of it elsewhere is a copy
-  // that goes stale the next time the layout moves.
+  int sizeTab = 0;
+  // Ignore `page` AND `sizeTab` and open on the tab and page holding
+  // `selectedIndex`. Set when the picker appears, so the highlighted tile is on
+  // screen without the activity having to know how many tiles a page holds or
+  // where one size ends and the next begins. Both numbers are derived from the
+  // panel and the bank inside buildMenu, and a second copy of either elsewhere
+  // is a copy that goes stale the next time the layout or the bank moves --
+  // which is exactly what happened to the literal 16 this replaced.
   bool followSelection = false;
 };
 
@@ -92,8 +106,15 @@ struct PickerLayout {
   int16_t count = 0;         // tiles actually drawn on this page
   int16_t firstIndex = 0;    // global puzzle index of the first tile on the page
   int16_t rowHeight = 0;     // list layouts: the per-row pitch (0 for grids)
-  int16_t pageCount = 1;     // total pages, for the activity to clamp paging
+  int16_t pageCount = 1;     // total pages IN THE GROUP on screen
   int16_t pageOnScreen = 0;  // the page this layout drew
+  int16_t tabOnScreen = 0;   // the size group this layout drew
+  int16_t tabCount = 0;      // size groups the picker offered, one tab each
+  // The width each tab was actually given, which is the band divided by
+  // tabCount. Reported rather than recomputed because it is the number that
+  // says whether the row is still legible, and it can only be measured at the
+  // real panel size -- host-tests/ui checks it against kTabMinWidth.
+  int16_t tabWidth = 0;
 
   // The puzzle index under logical (x, y), or -1.
   int indexAt(int x, int y) const;

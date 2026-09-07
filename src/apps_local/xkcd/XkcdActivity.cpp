@@ -1313,11 +1313,11 @@ void XkcdActivity::render(RenderLock&&) {
   interactionsReady_ = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
 
-  // A slimmer header than the portrait screens use: in landscape the usual 76
-  // would cost a sixth of the height a comic needs.
-  fui::ThemeTokens tokens = toybox::themeTokens();
-  tokens.headerHeight = xkcdui::kHeaderBand;  // the fork's standard band; see XkcdScreens.h
-  toybox::Screen screen(frame, tokens);
+  // The shared palette, and no copy of it. This screen used to take the
+  // two-argument Screen so it could set headerHeight -- from when xkcd wanted a
+  // slimmer band in landscape. The band became absolute in af1a0fa7 and the
+  // override has been assigning 76 over 76 ever since.
+  toybox::Screen screen(frame);
 
   switch (view_) {
     case View::Menu: {

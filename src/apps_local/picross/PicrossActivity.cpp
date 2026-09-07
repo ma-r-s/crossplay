@@ -47,7 +47,16 @@ constexpr char kSavePath[] = "/.crosspoint/picross.sav";
 //     chosen from a different, larger list.
 // A v4 save read as a v5 is therefore garbage that parses. Discarded by
 // version, which is the only honest option -- there is nothing to migrate.
-constexpr uint8_t kSaveVersion = 5;
+//
+// v6 replaces the bank wholesale: a different set of 199 pictures across four
+// tiers (5, 8, 9 and 10) rather than 137 at one. Again NO FIELD BELOW WAS
+// TOUCHED and again the struct changed anyway -- `solved` grew from five words
+// to seven with kProgressWords -- and again every stored index names a puzzle
+// chosen from an entirely different list, so a v5 `index` of 40 restores one
+// player's marks onto a picture they have never seen. The tier count moved from
+// one to four as well, which is why menuTab has nothing to migrate from either.
+// Discarded by version. There is nothing here that could be carried across.
+constexpr uint8_t kSaveVersion = 6;
 
 // How many MARKS may go unwritten. A committing FILL is flushed immediately --
 // it is irreversible and unrepeatable, so losing one to a sleep is the worst
@@ -114,6 +123,19 @@ void PicrossActivity::openPuzzle(const int requested) {
     flushSave();
   }
   recorded = false;
+  // THE PICKER'S IDEA OF "THE CHOSEN PUZZLE" IS THIS ONE FROM NOW ON, and
+  // forgetting to say so was a data-loss bug rather than an untidiness.
+  //
+  // `selected` drives two things. syncPicker() sets followSelection, so the
+  // picker resolves the TAB and the PAGE from it -- open a 10x10, press Back,
+  // and without this line the picker reopens on tab 0 page 0 with the tier you
+  // were browsing gone. And buildMenu's `hasProgress` is
+  // `inProgressIndex == selected`, so a stale `selected` makes the front-door
+  // button read PLAY over an in-progress board; tapping it calls openPuzzle on
+  // a DIFFERENT index, which takes the `!resume` branch above and load()s over
+  // the marks it was offering to resume. RESUME therefore only ever worked on a
+  // cold entry, and the tabs are what made the loss visible.
+  selected = index;
   // A fresh, safe resting mode on every open: the first stray tap places a
   // reversible mark, never an irreversible mistake.
   mode = ui::ModeFill;
@@ -132,7 +154,17 @@ void PicrossActivity::settleWin() {
   progress.markSolved(board.index());
   // The finished board is not worth resuming, so the save carries the next
   // puzzle instead -- and carries the progress, which is what matters.
-  board.load(progress.nextUnsolved());
+  //
+  // NEXT STAYS IN THE TIER YOU ARE PLAYING. `nextUnsolved()` is the first
+  // unsolved in BANK ORDER, and the bank is size-sorted: with one tier that was
+  // progression, with four it means finishing any 10x10 hands you the lowest
+  // unsolved 5x5 -- a third of the size, four tabs from where you were, and
+  // `selected` follows it so the picker reopens there too. NEXT means "another
+  // one of these"; changing tier is what the tabs are for. Falling back to the
+  // whole bank only when this tier is finished, because a NEXT that does
+  // nothing on the last 5x5 is worse than one that moves on.
+  const int sameTier = progress.nextUnsolvedAtSize(board.puzzle().size);
+  board.load(sameTier >= 0 ? sameTier : progress.nextUnsolved());
   selected = board.index();
   unsaved = 1;
   flushSave();
@@ -144,9 +176,23 @@ void PicrossActivity::settleWin() {
 // board.index() rather than a layout member: the layout is derived from the
 // puzzle and hashing a member would stamp the previous frame's copy
 // (surfaceMeaning runs before render). See Activity::surfaceMeaning.
+//
+// THE PICKER'S TAB AND PAGE ARE PART OF THE MEANING, and leaving them out was a
+// hole this change widened. The picker registers ONE rect for the whole tile
+// grid and resolves which tile a pixel is through `pickerLayout`, so a pixel's
+// meaning is the geometry, not the rect -- which is the case SurfaceGate exists
+// for. Switching tab or page replaces `pickerLayout.firstIndex` wholesale while
+// leaving the board index untouched, so without these two the meaning is
+// IDENTICAL across the swap, routable() falls through to `meaning ==
+// shownMeaning_`, and a tap queued against the tiles you were looking at
+// resolves against the twenty that replaced them. The page dots had the same
+// hole; four tabs multiply it, and openPuzzle() load()s, so the cost is an
+// in-progress board wiped by a puzzle nobody picked.
 uint32_t PicrossActivity::surfaceMeaning() const {
   const uint32_t withView = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(view));
-  return paintclock::mixMeaning(withView, static_cast<uint32_t>(board.index()));
+  const uint32_t withPuzzle = paintclock::mixMeaning(withView, static_cast<uint32_t>(board.index()));
+  const uint32_t withTab = paintclock::mixMeaning(withPuzzle, static_cast<uint32_t>(menuTab));
+  return paintclock::mixMeaning(withTab, static_cast<uint32_t>(menuPage));
 }
 
 void PicrossActivity::routeBoardTap(const int x, const int y) {
@@ -195,6 +241,19 @@ void PicrossActivity::routeBoardTap(const int x, const int y) {
 // disagreed silently, opening the picker on the wrong page. The picker reports
 // what it drew and menuPage is copied back from that.
 void PicrossActivity::syncPicker() { menuFollowsSelection = true; }
+
+// Show size group `tab`, from a tab tap. The page resets to the first of that
+// group: keeping it would land on page 4 of a tier that has two, and the picker
+// would clamp it to the last page rather than the first, which reads as the tab
+// remembering somewhere the player has never been.
+void PicrossActivity::showTab(const int tab) {
+  if (view != View::Menu || tab == menuTab) return;
+  menuTab = tab;
+  menuPage = 0;
+  menuFollowsSelection = false;  // an explicit tab beats "open on the selection"
+  flashOnNextPaint = true;       // a wholesale content swap earns a clean full refresh
+  requestUpdate();
+}
 
 // Show picker page `page`, from a dot tap or a side key. A no-op when it is
 // already the page on screen: an e-ink full refresh for nothing is a visible
@@ -261,10 +320,13 @@ void PicrossActivity::loop() {
   //                  player holding the device in two hands never reaches for
   //                  the capsule;
   //   on the PICKER  turn the page, which is what the keys are shaped for and
-  //                  what the reader already does with them. 137 puzzles page
-  //                  several ways and the page dots were the only way through
-  //                  them -- Mario could not change page with the buttons at
-  //                  all, which on a page-turn key reads as broken.
+  //                  what the reader already does with them. The bank pages
+  //                  many ways -- the largest tier alone is 109 puzzles -- and
+  //                  the page dots were the only way through them; Mario could
+  //                  not change page with the buttons at all, which on a
+  //                  page-turn key reads as broken. The keys page WITHIN the
+  //                  tier on screen; the tabs are touch-only, because a key
+  //                  that changed tier would skip a hundred puzzles per press.
   //
   // Both are aliases: touch does everything on both screens (the capsule, the
   // dots), which is the fork's rule for these keys. Neither view can starve the
@@ -320,6 +382,9 @@ void PicrossActivity::loop() {
       if (picross::isPlayable(picked)) openPuzzle(picked);
       break;
     }
+    case ui::ActionTab:
+      showTab(action.value);
+      break;
     case ui::ActionPage:
       if (view != View::Menu || action.value == menuPage) break;
       showPage(action.value);
@@ -367,12 +432,15 @@ void PicrossActivity::render(RenderLock&&) {
       model.total = picross::kPuzzleCount;
       model.hasProgress = model.inProgressIndex == selected && model.inProgressIndex >= 0;
       model.page = menuPage;
+      model.sizeTab = menuTab;
       model.followSelection = menuFollowsSelection;
       ui::buildMenu(screen, model, pickerLayout);
       // The picker clamped whatever it was handed, and may have resolved the
-      // page from `selected` instead; keep our copy in step so the dots, the
-      // side keys and the next tap all agree with what was drawn.
+      // tab and page from `selected` instead; keep our copies in step so the
+      // dots, the tabs, the side keys and the next tap all agree with what was
+      // drawn.
       menuPage = pickerLayout.pageOnScreen;
+      menuTab = pickerLayout.tabOnScreen;
       menuFollowsSelection = false;
       break;
     }

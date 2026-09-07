@@ -28,23 +28,31 @@
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 
-static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
-
-// x4pro_common and sticky_common raise this via -D to 32768; every other env
-// (the C3 targets, papermono) never defines it, so this default is what they
-// have always actually run with. It was a bare "8192" literal here until a
-// real device tripped the stack-canary watchpoint opening the Study deck
-// screen: platformio.ini had said 16384 (once) since v1.0.0's own crash, its
-// comments and scripts_local/stack_budget.py both referred to that number as
-// the render task's real budget, and NONE of it reached this call -- the
-// task was, and until this fix remained, always created with 8192 regardless
-// of the -D flag. stack_budget.py's own "ok, headroom 6864 of 16384" was
-// therefore comparing the call graph against a budget the binary never had;
-// the true headroom against the 8192 it did have was already negative for
-// the worst KNOWN path (Xkcd's, at 9520) before Study's screen ever ran.
+// Upstream's 8192 is a C3 number. This fork's screens draw through FreeInkUI,
+// whose deepest known path wants 9520 bytes, so the default is overridden per
+// env in platformio.ini rather than changed here, keeping upstream merges on
+// this line trivial.
+//
+// The macro must actually REACH the call below. A bare literal here ignored
+// the -D flag for all of v1.12.45 while the gate read the flag and reported
+// headroom, so the render task ran on 8192 and Study and xkcd both crashed;
+// scripts_local/stack_budget.py now fails if the macro is defined and nothing
+// consumes it.
+//
+// Held at 16384 rather than 32768. An ISR adds only its entry frame to this
+// stack, not its body -- CONFIG_FREERTOS_ISR_STACKSIZE gives interrupts their
+// own stack -- so that is one XtExcFrame plus 336 bytes of coprocessor save,
+// against 6864 bytes of headroom. And the 16KB is not free: this stack is
+// internal RAM, of which the X4 Pro has ~270KB total and ~60KB free on Home.
+//
+// Both numbers are arguments, not measurements. reportStackHeadroom() below
+// reports the real peak so the next revision of this number comes from a
+// device.
 #ifndef CROSSPOINT_RENDER_TASK_STACK
 #define CROSSPOINT_RENDER_TASK_STACK 8192
 #endif
+
+static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 
 void ActivityManager::begin() {
 #if defined(configNUM_CORES) && configNUM_CORES > 1
@@ -54,9 +62,9 @@ void ActivityManager::begin() {
 #endif
   xTaskCreatePinnedToCore(&renderTaskTrampoline, "ActivityManagerRender",
                           CROSSPOINT_RENDER_TASK_STACK,  // Stack size
-                          this,               // Parameters
-                          1,                  // Priority
-                          &renderTaskHandle,  // Task handle
+                          this,                          // Parameters
+                          1,                             // Priority
+                          &renderTaskHandle,             // Task handle
                           renderTaskCore  // Keep long renders/cover decodes off CPU 0's idle watchdog when available
   );
   assert(renderTaskHandle != nullptr && "Failed to create render task");
@@ -123,6 +131,7 @@ void ActivityManager::renderTaskLoop() {
       paintclock::panelBusy().reset();
       currentActivity->render(std::move(lock));
       reportRepaint(currentActivity->name.c_str(), requestedAtMs, repaintStartMs);
+      reportStackHeadroom(currentActivity->name.c_str());
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.
     TaskHandle_t waiter = nullptr;
@@ -134,6 +143,33 @@ void ActivityManager::renderTaskLoop() {
       xTaskNotify(waiter, 1, eIncrement);
     }
   }
+}
+
+// One line whenever a screen leaves less stack behind than any screen before
+// it, naming that screen. Read immediately after render() returns, which is
+// the deepest this task ever gets.
+//
+// This exists because CROSSPOINT_RENDER_TASK_STACK has been set twice by
+// argument and never once by measurement, and the static estimate that stood
+// in for a measurement gives a lower bound: scripts_local/stack_budget.py sums
+// the call graph the compiler can see, so anything it cannot resolve, plus the
+// interrupt entry frame every ISR pushes here, is missing from its total. It
+// certified the render task safe on a budget the binary did not have, and the
+// deepest path it knows about is not necessarily the deepest path there is.
+//
+// Only on a new worst, so a screen redrawn a hundred times prints once.
+void ActivityManager::reportStackHeadroom(const char* activityName) {
+  // ESP-IDF returns BYTES here, unlike vanilla FreeRTOS which returns words
+  // (task.h: "in bytes (as opposed to words in the standard FreeRTOS
+  // documentation)"). Scaling by sizeof(StackType_t) would report four times
+  // the free stack that exists, which is the direction that hides an overflow.
+  const uint32_t freeBytes = uxTaskGetStackHighWaterMark(nullptr);
+  uint32_t worst = worstStackFreeBytes.load();
+  while (freeBytes < worst && !worstStackFreeBytes.compare_exchange_weak(worst, freeBytes)) {
+  }
+  if (freeBytes >= worst) return;
+  LOG_INF("STACK", "%s left %u bytes free of %u", activityName, freeBytes,
+          static_cast<unsigned>(CROSSPOINT_RENDER_TASK_STACK));
 }
 
 void ActivityManager::loop() {
