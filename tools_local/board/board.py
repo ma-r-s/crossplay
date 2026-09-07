@@ -64,8 +64,8 @@ import os
 import pathlib
 import re
 import subprocess
-import textwrap
 import sys
+import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
