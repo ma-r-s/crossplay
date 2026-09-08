@@ -402,9 +402,8 @@ void buildResumePrompt(toybox::Screen& screen, const char* caption) {
   const int16_t skipH = 48;
   const int16_t gap = 16;
   const fui::Rect resumeRect =
-      fui::makeRect(static_cast<int16_t>(body.x + 44),
-                    static_cast<int16_t>(body.bottom() - 48 - skipH - gap - resumeH), static_cast<int16_t>(body.width - 88),
-                    resumeH);
+      fui::makeRect(static_cast<int16_t>(body.x + 44), static_cast<int16_t>(body.bottom() - 48 - skipH - gap - resumeH),
+                    static_cast<int16_t>(body.width - 88), resumeH);
   fui::ButtonProps resume;
   resume.label = "RESUME";
   resume.action = ActionStudy;
@@ -418,9 +417,9 @@ void buildResumePrompt(toybox::Screen& screen, const char* caption) {
   // A real target rather than relying on Back alone: Back still declines too
   // (StudyActivity's own dispatch), but a screen that offers one way forward
   // and only an off-screen way back is not offering a choice.
-  const fui::Rect skipRect = fui::makeRect(static_cast<int16_t>(body.x + 44),
-                                           static_cast<int16_t>(body.bottom() - 48 - skipH),
-                                           static_cast<int16_t>(body.width - 88), skipH);
+  const fui::Rect skipRect =
+      fui::makeRect(static_cast<int16_t>(body.x + 44), static_cast<int16_t>(body.bottom() - 48 - skipH),
+                    static_cast<int16_t>(body.width - 88), skipH);
   fui::ButtonProps skip;
   skip.label = "NOT NOW";
   skip.action = ActionStudy;

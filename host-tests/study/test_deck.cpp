@@ -239,10 +239,8 @@ void run(const std::string& dir) {
     check(!study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "a face byte past 1 is refused");
 
     study::writeResumeRecord(bytes, 3, 1, 0);
-    check(!study::parseResumeRecord(bytes, sizeof(bytes) - 1, deck.noteCount(), record),
-          "a short buffer is refused");
-    check(!study::parseResumeRecord(bytes, sizeof(bytes) + 1, deck.noteCount(), record),
-          "a long buffer is refused");
+    check(!study::parseResumeRecord(bytes, sizeof(bytes) - 1, deck.noteCount(), record), "a short buffer is refused");
+    check(!study::parseResumeRecord(bytes, sizeof(bytes) + 1, deck.noteCount(), record), "a long buffer is refused");
 
     check(!study::parseResumeRecord(bytes, sizeof(bytes), 0, record), "an empty deck refuses every index");
   }

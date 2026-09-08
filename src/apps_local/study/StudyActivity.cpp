@@ -132,8 +132,7 @@ void formatResumeAge(const int64_t savedAt, char* out, const size_t outSize) {
     struct tm parts;
     const time_t at = static_cast<time_t>(savedAt);
     localtime_r(&at, &parts);
-    static const char* kMonths[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-                                    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+    static const char* kMonths[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
     std::snprintf(out, outSize, "LEFT %d %s", parts.tm_mday, kMonths[parts.tm_mon % 12]);
   }
 }

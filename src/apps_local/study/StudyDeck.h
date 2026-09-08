@@ -210,8 +210,8 @@ inline constexpr uint32_t kResumeRecordBytes = 14;  // version + int32 index + f
 
 struct ResumeRecord {
   int32_t cardIndex = -1;
-  uint8_t face = 0;      // 0 Question, 1 Answer
-  int64_t savedAt = 0;   // epoch seconds when the record was written
+  uint8_t face = 0;     // 0 Question, 1 Answer
+  int64_t savedAt = 0;  // epoch seconds when the record was written
 };
 
 // False on a version mismatch, a malformed face byte, or an index outside
