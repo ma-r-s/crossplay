@@ -5,9 +5,18 @@ Drafted 2026-08-08, rewritten the same day after two cold reviews. Turns
 cycle, and fixes the two things that break first when the count goes up: the
 shelf runs out of screen, and the website starts lying.
 
-## What is actually true today
+**Read this as the plan it was, not as a description of today.** The cycle it
+sets out is the one still in use, and Phase 4 below is the part worth reading;
+the numbers in the next section were measured on the day and have moved since.
+GAMES holds 20 rather than 13 and APPS 6 rather than 3,
+`site/assets/shots/` is 33 PNGs rather than 28, and `.claude/skills/` no
+longer exists at all -- the per-game judgement it was to hold lives in
+`docs/apps/` and in this file.
 
-Measured against the source, not assumed. Everything here was verified.
+## What was true on 2026-08-08
+
+Measured against the source on the day, not assumed. Several of these have since
+changed, and the ones that matter are corrected in the note above.
 
 - **The GAMES folder fits 9 rows and holds 8.** Body band is 598px
   (800 - 16 margin - 112 header/gutters - 74 player footer), rows are 62px on a
@@ -309,8 +318,14 @@ Split accordingly:
 
 ## Phase 4: the critic loop
 
-Three cold critics, each starting with no builder context, because the failure
-modes differ and one agent judging all three does none well:
+A **critic** here is an LLM agent, not a person. It is a fresh session with no
+access to the plan, the diff or the conversation that produced them, which is
+what **cold** means. Wherever these docs say a cold agent or a critic found
+something, that is what found it. Where a person found something the docs say a
+person, and `docs/open-items.md` is the record of what people have found.
+
+Three cold critic agents, each starting with no builder context, because the
+failure modes differ and one agent judging all three does none well:
 
 - **Rules critic**: the freestanding core plus a driver, thousands of headless
   games, hunting illegal states, unreachable wins, unhandled draws, an

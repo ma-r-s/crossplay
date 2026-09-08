@@ -44,11 +44,11 @@ rather than by anyone reading the code and believing it.
 **1. Who holds the panel, and when?**
 
 Partly answered, and this is the hard constraint rather than an open question.
-**The board is public and only the target is hidden.** Two cold critics,
+**The board is public and only the target is hidden.** Two cold critic agents,
 briefed as players, independently killed the first design because a six-inch
 panel in one person's hands makes the board as private as the secret, and that
 person then holds four powers at once: the only one who can see it, move it,
-lock it and referee it. Four more strangers have since tried to break the
+lock it and referee it. Four more cold agents have since tried to break the
 secrecy and could not.
 
 So: **any two-team design that creates a screen only one team may look at is a
@@ -65,13 +65,14 @@ to every question of this shape has been to make the instruction social rather
 than enforced -- `GUESSERS DECIDE. NOT THE GIVER.`, `THEN HANDS OFF THE
 DEVICE.` -- and to make violations _visible_ rather than impossible, which is
 how abandons ended up counted and shown. That pattern is available here and has
-survived four rounds of strangers.
+survived four rounds of cold agents.
 
 **3. How does a game end?**
 
 Unanswered. The physical game runs to a target score rather than a round count.
 Co-op has no end at all: the session runs until somebody presses END SESSION,
-and a stranger asked for "something between 'you're done' and nothing". A target
+and a cold agent asked for "something between 'you're done' and nothing". A
+target
 score would answer both.
 
 **4. What happens to the existing all-time record?**

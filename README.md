@@ -22,7 +22,8 @@
 ![CrossPlay on the Xteink X4 Pro](site/assets/shots/og.png)
 
 The **Xteink X4 Pro** and the **Seeed reTerminal Sticky** are cheap e-ink
-devices with an 800x480 panel, capacitive touch and two physical buttons, and
+devices with an 800x480 panel, capacitive touch and two physical buttons
+(three on the Sticky, and the design targets the two both boards share), and
 [CrossPoint](https://crosspointreader.com/) already makes them good at reading.
 CrossPlay is firmware that keeps all of that and adds the other things a screen
 that holds still is good at: **20 games and 6 apps**,
@@ -39,8 +40,9 @@ in the hero, or ask for two devices and watch them find each other.
 It is the real thing rather than a video, with three things faked, all listed
 in [site/README.md](site/README.md): the network answers from a snapshot,
 Study's headword font is a smaller cut standing in for the large one, and sleep
-is off. The snapshot is why Connections is the one game that does not play in
-the browser: it fetches the day's board and nothing can be canned for it.
+is off. The snapshot is also what put Connections in the browser at all: the
+build answers its archive fetch from a 40-puzzle slice of the real thing, so
+the import lands a real pack instead of failing on an unreachable host.
 
 ## What is on it
 
@@ -90,9 +92,21 @@ Yahtzee, Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Put two
 devices next to each other and they find one another. No pairing screen, no room
 code, no account, no router, no internet.
 
-Per-game rules, state machines and the decisions behind them live in
-[docs/apps/](docs/apps/). How the two physical buttons are used, and why there
-are only two: [docs/buttons.md](docs/buttons.md).
+### Why it is shaped like this
+
+The decisions are written down rather than remembered. Each of these is the
+short version of one of them:
+
+- [docs/identity.md](docs/identity.md) -- why a screen that holds still is the
+  point rather than a limitation. The rest is downstream of it.
+- [docs/design-language.md](docs/design-language.md) -- what that means on a
+  1-bit panel, and the ink budget that governs it.
+- [docs/buttons.md](docs/buttons.md) -- how the two physical buttons are used,
+  and why there are only two.
+- [docs/games-at-scale.md](docs/games-at-scale.md) -- how a game gets built, and
+  the critic agents that tear it apart before it ships.
+- [docs/apps/](docs/apps/) -- per-game rules, state machines and the decisions
+  behind each one.
 
 ## Install it
 
@@ -127,7 +141,11 @@ reflashes over Wi-Fi with no cable. If a flash goes wrong,
 
 Once it is running, [USER_GUIDE.md](USER_GUIDE.md) is the guide to the device
 itself: the controls, the reader, the web server and what to do when something
-goes wrong.
+goes wrong. It is upstream's guide with this fork's hardware folded in, so it
+covers several boards at once: where it names Left or Right, that is the older
+X4, which had a front button row the X4 Pro dropped. Back here is a swipe and
+Confirm exists only on the Sticky, which
+[docs/buttons.md](docs/buttons.md) explains.
 
 Every release is flashed to a real X4 Pro and a real Sticky before it ships.
 That is still a small field record, so if you install it, please
@@ -142,9 +160,11 @@ Most of the shelf never touches the network. Of the parts that do:
   CrossPlay over CrossPoint does not orphan an existing sync. The address is a
   setting and can be pointed at any KOSync server.
 - **Connections, xkcd, Hacker News, Trivia, Get Books and Instapaper** fetch
-  what you ask them for, when you ask. Connections downloads each board from
-  the New York Times as you open it and CrossPlay ships none of them; Trivia's
-  question pack and xkcd's comics are downloaded once onto the card.
+  what you ask them for, when you ask. Connections downloads the published
+  puzzle archive in one go when you press the button for it, from a GitHub
+  mirror rather than from the New York Times, and CrossPlay ships none of the
+  puzzles; Trivia's question pack and xkcd's comics are downloaded once onto
+  the card.
 - **Opening a Hacker News article sends its URL to a third party.** The story
   list comes from the public [Algolia API](https://hn.algolia.com/api), and
   opening an article proxies it through [r.jina.ai](https://r.jina.ai) to get
@@ -172,7 +192,9 @@ The apps live in `src/apps_local/`, which is what keeps the merge with upstream
 close to conflict-free. Read [LOCAL_SCOPE.md](LOCAL_SCOPE.md) for what the fork
 owns and what it turns down, [docs/shelf.md](docs/shelf.md) for the shelf
 contract, and [docs/building-apps.md](docs/building-apps.md) for how an app is
-put together. `site/` is the static website and the browser build;
+put together. [docs/README.md](docs/README.md) indexes the rest, including
+[docs/workflow/](docs/workflow/), which is how the work itself is run.
+`site/` is the static website and the browser build;
 [site/README.md](site/README.md) says how to serve it.
 
 ## Credit and licence
@@ -187,8 +209,12 @@ re-implementing it. It stands on CrossPoint and the
 
 xkcd comics are by Randall Munroe, [CC BY-NC 2.5](https://xkcd.com/license.html),
 fetched by the device from [xkcd.com](https://xkcd.com). Connections puzzles are
-the New York Times'; CrossPlay ships none of them and downloads only what you
-ask for. Type is Jersey 25 and Instrument Serif, both SIL OFL.
+the New York Times'; CrossPlay ships none of them and fetches the archive, when
+you ask it to, from the community mirror at
+[Eyefyre/NYT-Connections-Answers](https://github.com/Eyefyre/NYT-Connections-Answers).
+Trivia's questions are built from the community
+[Jeopardy! clue dataset](https://github.com/jwolle1/jeopardy_clue_dataset).
+Type is Jersey 25 and Instrument Serif, both SIL OFL.
 
 Where a game on the shelf carries the name of a published game, that name is
 its owner's trademark and is used to say what the thing is; game mechanics are
@@ -197,3 +223,7 @@ Riviere and is published by Bombyx. Toy Battle was designed by Paolo Mori and
 Alessandro Zucchini and is published by Repos Production. CrossPlay implements
 the games; it is not affiliated with, endorsed by or sponsored by any of their
 owners.
+
+Every third-party notice in one place, including what is knowingly outstanding:
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). To report a security problem,
+[SECURITY.md](SECURITY.md).

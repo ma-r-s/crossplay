@@ -1,6 +1,7 @@
 # Wallpapers: from a picture on a phone to the sleep screen
 
-Design for card #349, revised after a cold critic. Covers three things Mario
+Design for card #349, revised after a cold critic agent. Covers three things
+Mario
 asked for in one conversation on 2026-09-05, which are one design and not three:
 
 1. Replacing the "+ Add a wallpaper" screen. It currently tells you to go to a

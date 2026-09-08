@@ -238,7 +238,7 @@ since the last successful sync, and whether an archive is queued.
 ## Security
 
 Inherited wholesale from the Anki bridge, because the threat model is the
-same and that one has been through a critic round and a live deployment:
+same and that one has been through a critic-agent round and a live deployment:
 Fernet at rest with the key in the environment; device tokens random 32 bytes
 stored only as hashes; per-IP and per-username rate limits on the login
 endpoint, which is a credential-stuffing oracle by construction; an

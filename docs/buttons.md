@@ -175,7 +175,7 @@ else is a button.**
 
 **And paging by button is never the only route.** The page marks stay tappable,
 and a swipe steps a page too -- it is the first thing every hand reaches for on
-a touch panel showing a page indicator or a scrollbar. Three cold testers tried
+a touch panel showing a page indicator or a scrollbar. Three cold agents tried
 it on the shelf before anything else, and a fourth tried it on Hacker News's
 story list and reported the list broken when nothing moved. Not because touch
 is better, but because the
@@ -193,7 +193,7 @@ with the line "Back is a left-EDGE swipe, so it never collides with either."
 it.** Back is a left-to-RIGHT swipe anchored in the left 25% of the width
 (`EDGE_SWIPE_SIDE_FRAC`, 120px of 480), which is the same visible gesture as a
 horizontal page-BACK and differs from it only by where the finger started.
-Nothing draws that boundary, so on the shelf a cold tester swiping back from
+Nothing draws that boundary, so on the shelf a cold agent swiping back from
 page two landed on Home, concluded that back meant exit, and went forward until
 the pages came round -- onto a page they had not noticed, whose second row was
 a different game.

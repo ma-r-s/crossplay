@@ -381,7 +381,7 @@ tapped is not itself ticked. `blockedLine` cannot see a puzzle any more, so no
 new fixture can widen the band.
 
 It used to overrule instead, and that is the worst bug this game has had. From a
-finished, correct board a cold tester tapped one false square and watched three
+finished, correct board a cold agent tapped one false square and watched three
 squares they had never touched change: the two locks that had crossed that
 square out became crosses themselves, and a third square went blank because
 those two locks were the only thing crossing it. Nothing was flagged, and
@@ -392,7 +392,7 @@ right up until a board was full enough for one tap to cost two answers.
 The crosses tell you whose they are. **The player's own is a heavy bar; one the
 grid worked out from a lock is a light one** -- same shape, two weights, the way
 a pen sits next to a pencil. They were pixel-identical before, which is why the
-same tester could not see that the squares the tap consumed were the ones
+same agent could not see that the squares the tap consumed were the ones
 holding their answers up. HOW TO SOLVE names all four states.
 
 ### The key under the grid
@@ -492,10 +492,10 @@ sentence, and it is asserted rather than eyeballed.
    how-to, the "drop this case?" sheet, the accusation, a wrong verdict, and a
    full round trip out of the app and back with the case and its marks intact.
 
-## 7. What play-testing found
+## 7. What the critic agents found
 
-Four critics, one case each across the four tiers, no access to the code or the
-answers, told to solve it and then be harsh. **All four solved their case
+Four critic agents, one case each across the four tiers, no access to the code
+or the answers, told to solve it and then be harsh. **All four solved their case
 correctly**, which is the useful confirmation: the engine is sound and the cases
 are fair. Everything below is about quality, and not one of these findings is
 visible to any assertion in `host-tests/murdle/`.
@@ -547,11 +547,11 @@ right-handed", when one suspect is right-handed, is "ROSA was at the inn".
 **9. "The body was found next to flour on the floor" (one).** "Next to" works
 for a broken step and breaks for a property of the floor.
 
-## 8. Six rounds of play-testing, and what changed
+## 8. Six rounds of critic agents, and what changed
 
 `run.sh --play <tier> <seed>` prints a case with no answer in it. Twenty
-critics across six rounds solved one each and were told to be harsh. **All
-twenty solved correctly**, every round: the engine has never produced an
+critic agents across six rounds solved one each and were told to be harsh.
+**All twenty solved correctly**, every round: the engine has never produced an
 unsolvable or ambiguous case. Everything they found was quality, and none of it
 was reachable by any assertion in the suite.
 
@@ -630,14 +630,14 @@ The fallback lives inside the attempt now, next to the thing it falls back from.
 
 ### Round six: the critics overturned round five's other half
 
-Four more play-testers, four fresh cases, one per tier and two on Hard Boiled.
+Four more critic agents, four fresh cases, one per tier and two on Hard Boiled.
 **All four solved correctly**, which makes twenty out of twenty across five
 rounds of this. Two of the three findings below were unanimous.
 
 **Naming a thing by its detail buys nothing, so only the body clue does it now.**
 Round five had extended that device from weapons to places, on the theory that
 an extra lookup is most of what separates an easy tier from a hard one. Four
-testers demolished it independently and in almost the same words -- "a seven-word
+agents demolished it independently and in almost the same words -- "a seven-word
 detour to avoid saying 'the wire'", "a pointer dereference", "clue 6 is just
 cosplaying clue 13". The reason is structural. The case file has to print every
 weapon and place with its detail attached, because printing only the crime
@@ -653,7 +653,7 @@ weapon variant that predated round five is gone too.
 "Either ANNA or OSCAR was on the dock", printed beside "the body was found in
 the place with wet footprints", is a coin flip on the only answer the case
 exists to protect, available on line two before any deduction at all. Two
-testers reported exactly that and both called it their worst finding. The
+agents reported exactly that and both called it their worst finding. The
 refusal is symmetric, which the first version of it was not: "QUINN was in the
 garden" points from the suspect at the scene rather than from the scene at the
 suspects, and names the murderer just as plainly. A negative always survives the
@@ -676,7 +676,7 @@ transitive on.
 - **Traits collide thematically across categories.** One case drew `SPADE (with
 wet mud on it)` alongside `FARM (with muddy boots)`; another drew `DOCK (with
 wet footprints)` beside `CAVE (with cold water)`. No clue licenses the
-  inference, but the draw manufactures the false lead for free, and a tester
+  inference, but the draw manufactures the false lead for free, and an agent
   pointed out the real cost: a tired player misreads the body clue as the other
   water-themed place and confidently accuses the wrong suspect. That is a wrong
   answer produced by flavour text rather than by bad reasoning. `drawCast`

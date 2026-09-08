@@ -18,7 +18,7 @@
 > [LOCAL_SCOPE.md](LOCAL_SCOPE.md) or `docs/`, not here.
 
 Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3) upstream; this
-fork targets the Xteink X4 Pro (ESP32-S3) only.
+fork targets the Xteink X4 Pro and the Seeed reTerminal Sticky, both ESP32-S3.
 Mission: Provide a lightweight, high-performance reading experience focused on EPUB rendering on constrained hardware.
 
 > **This is a personal fork.** Games and small tools live in `src/apps_local/`

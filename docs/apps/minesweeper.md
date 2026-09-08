@@ -142,8 +142,8 @@ own alone. A solitaire does not.
 
 ## What the critics found
 
-Two cold reviewers, after the game was "finished" and a 3.2M-assertion suite was
-green.
+Two cold review agents, after the game was "finished" and a 3.2M-assertion
+suite was green.
 
 **The flood was silently truncated in 41.8% of games.** Cells were deduplicated
 at push but marked revealed at pop, so a cell touched by several zeroes enqueued
