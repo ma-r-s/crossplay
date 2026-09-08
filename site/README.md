@@ -348,8 +348,12 @@ INBOX_FIXTURE=site/inbox/fixture.json python3 site/serve.py 8099
 
 `site/inbox/fixture.json` holds three open asks, forty cards and every table
 the Numbers section reads; `host-tests/site/run.sh` fails when the page starts
-reading a key the fixture lacks. Dev only: production is `api/inbox.js` and
-never runs `serve.py`, so the fixture cannot leak.
+reading a key the fixture lacks. Dev only: production answers `/api/inbox` from `api/inbox.js` and never runs
+`serve.py`. That is true of the ENDPOINT and was false of the FILE: until
+`.vercelignore` excluded it, `/inbox/fixture.json` was a public static asset
+serving real card titles and real asks. Keep it excluded, and keep its
+contents synthetic -- the repository is public, so the file is readable there
+whatever the deploy does.
 
 Changes must be _looked at_, not reasoned about -- the same rule the device
 apps follow. `pageshot.py` renders full-page and sliced captures at any width
