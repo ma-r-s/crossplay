@@ -48,7 +48,7 @@ CARD = """
     </svg><span>CrossPlay</span>
   </div>
   <h1>E-ink is good<br>at waiting.</h1>
-  <p>Games, study and comics for the Xteink X4 Pro.</p>
+  <p>Games, study and comics for the Xteink X4 Pro and the Seeed reTerminal Sticky.</p>
   <div class="meta"><span>A fork of CrossPoint</span><span>MIT</span></div>
 </div>
 <div class="panel"><img src="assets/shots/games.png" alt=""></div>
