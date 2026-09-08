@@ -546,6 +546,27 @@ for p in $topbar_pages; do
   fi
 done
 
+# check_deck.py names a deck's problems and study.js explains them, keyed by the
+# SAME STRING across a Python file and a JavaScript one with nothing between
+# them. Rename one side and the explanation silently stops rendering: the lookup
+# just misses. That happened while normalising "reader" to "device" and nothing
+# caught it, because nothing was looking.
+CHECKDECK="$ROOT/tools_local/study/check_deck.py"
+STUDYJS="$ROOT/site/study/study.js"
+if [ -f "$CHECKDECK" ] && [ -f "$STUDYJS" ]; then
+  py_keys="$(grep -oE '"a [^"]{12,}"' "$CHECKDECK" | sort -u)"
+  [ -n "$py_keys" ] && ok || bad "check_deck.py names no problems, which cannot be right"
+  # A HERE-STRING, not a pipe: a piped `while` runs in a subshell, so `bad`
+  # increments a counter the parent never sees. The FAIL line prints and the
+  # run still says 0 failed, which is a check that cannot fail.
+  while IFS= read -r k; do
+    [ -z "$k" ] && continue
+    if grep -qF "$k" "$STUDYJS"; then ok
+    else bad "check_deck.py reports $k and study.js has no explanation keyed to it"
+    fi
+  done <<< "$py_keys"
+fi
+
 # nowrap has to be SCOPED to the bar the script has taken over. Unscoped it made
 # the no-script bar worse rather than leaving it alone: links still inline and no
 # longer allowed to wrap ran to x=339 past a 320px viewport, and .topbar is

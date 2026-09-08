@@ -53,7 +53,7 @@
 
   <div class="wiz-head">
     <div>
-      <p class="eyebrow">Study <span class="eyebrow-sep">&middot;</span> Anki on the reader</p>
+      <p class="eyebrow">Study <span class="eyebrow-sep">&middot;</span> Anki on the device</p>
       <h1 class="wiz-title">Your deck, on the device.</h1>
     </div>
   </div>
@@ -107,7 +107,7 @@
           <div id="typeChoices" hidden>
             <p class="wiz-type-label">Font for the word on the card front:</p>
             <label class="study-deck-choice"><input type="radio" name="face" value="builtin" checked>
-              The reader's built-in serif</label>
+              The device's built-in serif</label>
             <label class="study-deck-choice"><input type="radio" name="face" value="bundled">
               Bigger type, sized so your longest word fits <span class="study-deck-cards">DejaVu Serif, bundled</span></label>
             <label class="study-deck-choice"><input type="radio" name="face" value="cjk">
@@ -123,7 +123,7 @@
                  bitmap the device draws, and faking it in a browser font
                  would flatter it. Say where the type actually appears. -->
             <p class="study-facts">The sample card shows what goes where, not
-              the type. Faces are drawn by the reader, so step 3 is where you
+              the type. Faces are drawn by the device, so step 3 is where you
               see the one you picked.</p>
           </div>
           <p class="study-progress" id="typeProgress" hidden></p>
@@ -145,7 +145,7 @@
         <div class="wiz-map">
           <p class="study-facts" id="sampleWhich"></p>
           <p class="wiz-type-label">
-            What goes where. On the left are the reader's slots; the menus
+            What goes where. On the left are the device's slots; the menus
             hold your deck's own field names. Change one and the card
             redraws:
           </p>
@@ -174,7 +174,7 @@
           <p>
             Not a mock-up: the firmware, compiled for the browser, your
             converted deck on its virtual SD card. Tap the panel the way you
-            would tap the reader.
+            would tap the device.
           </p>
           <div class="cta-row">
             <button class="btn primary" id="previewBoot" type="button">Boot the device</button>
@@ -197,7 +197,7 @@
     <section class="wiz-step" id="stepWrite">
       <div id="writeBody" class="wiz-write">
         <p>
-          Put the reader's SD card in this computer and write the deck into
+          Put the device's SD card in this computer and write the deck into
           its <code>study/</code> folder. Other decks are left alone; a deck
           with the same name is replaced whole, and the page asks first when
           that would erase reviews. No folder access in this browser? The zip
@@ -209,9 +209,9 @@
         </div>
         <p class="study-status-line" id="writeStatus"></p>
         <p class="wiz-after">
-          Then, on the reader: <strong>Apps &rsaquo; STUDY</strong>. After
+          Then, on the device: <strong>Apps &rsaquo; STUDY</strong>. After
           studying, press <strong>SYNC</strong> on the deck screen; the
-          reader brings your reviews back to Anki itself.
+          device brings your reviews back to Anki itself.
         </p>
       </div>
       <p class="study-placeholder" id="writePlaceholder" hidden></p>
