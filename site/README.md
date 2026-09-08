@@ -197,14 +197,14 @@ to `xteink` whose sources are newer than the artefact.
 **`vercel.json` cannot carry comments, so its three build keys are explained
 here.** All three were added together and none of them is decoration:
 
-- `"buildCommand": "node fetch-emulator.mjs"` — the fetch itself. `node` and not
+- `"buildCommand": "node fetch-emulator.mjs"`: the fetch itself. `node` and not
   `curl` or `python3`: only Node is on Vercel's documented build image.
-- `"outputDirectory": "."` — Preset "Other" already resolves the output to `.`
+- `"outputDirectory": "."`. Preset "Other" already resolves the output to `.`
   when there is no `public/`, so this changes nothing about what is served. It
   is here because an **Output Directory override left on and empty in the Vercel
   dashboard skips the build step entirely**, and that setting is invisible from
   the repository. Declaring one takes the decision away from it.
-- `"installCommand": ""` — there is no `package.json`, so there is nothing to
+- `"installCommand": ""`: there is no `package.json`, so there is nothing to
   install and no reason to let Vercel guess a package manager.
 
 **Three things that are load-bearing, each of which has an obvious-looking
@@ -212,11 +212,11 @@ wrong version:**
 
 - **Asset names are the content's hash, and old assets are never replaced.** A
   rolling filename updated in place would break every redeploy of an older
-  commit — Vercel's Redeploy button and its rollbacks both rebuild an old tree,
+  commit. Vercel's Redeploy button and its rollbacks both rebuild an old tree,
   whose manifest would name bytes that no longer exist under that name.
 - **A failed fetch fails the build, deliberately.** A failed Vercel build
   promotes nothing, so the previous deployment keeps serving. A broken publish
-  must cost a stale site, never a broken one — and it must never be survivable,
+  must cost a stale site, never a broken one, and it must never be survivable,
   because a green deploy with no emulator is invisible to every check that looks
   at the repository.
 - **The files are published brotli and hashed brotli.** Everything under
@@ -251,7 +251,7 @@ python3 tools_local/site/verify_live_emulator.py        # and then ask the live 
 
 **The files under `site/emulator/` are still tracked**, frozen at the last
 revision CI ever committed. They are the fallback for the one failure the build
-cannot catch — a `buildCommand` that never runs at all — and while they are
+cannot catch (a `buildCommand` that never runs at all) and while they are
 there, a fetch finds the right hashes on disk only until the next rebuild
 changes the manifest. Removing them from the index is a separate change, and the
 live check above is what says it is safe to make: it compares the origin against
