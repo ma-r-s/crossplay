@@ -477,6 +477,12 @@ fi
 # on the width where the button is the only navigation there is.
 TOPNAV="$ROOT/site/assets/topnav.js"
 SP_HTML="$ROOT/site/study/index.html"
+# Every page that draws a .topbar, not just the two that had one when this
+# was written. /wallpapers/ carried a stripped local copy of the menu that
+# toggled .is-open and never added .has-menu, so its button was display:none
+# at every width and the bar overflowed again -- invisible to a loop that
+# did not include the page.
+WP_HTML="$ROOT/site/wallpapers/index.html"
 [ -f "$TOPNAV" ] || { echo "FAIL site  missing $TOPNAV"; exit 1; }
 
 # Selectors only, comments and :not() contents stripped -- see css_selectors.py.
@@ -510,7 +516,7 @@ for sel in topnav-toggle topnav; do
   printf '%s\n' "$css_sels" | grep -qE "\.$sel([^A-Za-z0-9_-]|\$)" \
     && ok || bad "styles.css has no .$sel selector"
 done
-for p in "$HTML" "$SP_HTML"; do
+for p in "$HTML" "$SP_HTML" "$WP_HTML"; do
   rel="${p#"$ROOT"/}"
   grep -q 'class="topnav-toggle"' "$p" && ok || bad "$rel has no .topnav-toggle button, so its narrow bar has no navigation"
   grep -qE 'src="/?assets/topnav\.js"' "$p" && ok || bad "$rel does not load assets/topnav.js, so its menu button opens nothing"

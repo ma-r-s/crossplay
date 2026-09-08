@@ -224,14 +224,9 @@ another.addEventListener("click", () => {
   filepick.click();
 });
 
-// The shared topbar's mobile menu toggle, kept local so the page works on its
-// own without depending on a site-wide script existing.
-const navToggle = document.querySelector(".topnav-toggle");
-const nav = $("topnav");
-if (navToggle && nav) {
-  navToggle.addEventListener("click", () => {
-    const open = navToggle.getAttribute("aria-expanded") === "true";
-    navToggle.setAttribute("aria-expanded", String(!open));
-    nav.classList.toggle("is-open", !open);
-  });
-}
+// The menu is assets/topnav.js, loaded before this file. A local copy used to
+// live here "so the page works on its own"; it toggled .is-open but never
+// added .has-menu, which is the class every mobile rule in styles.css is
+// scoped to. The button was display:none at every width and INSTALL THE
+// FIRMWARE went back to 49px of text in a 50px bar -- the regression the
+// shared menu exists to prevent.

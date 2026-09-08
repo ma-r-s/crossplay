@@ -21,6 +21,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 PAGES = {
     ROOT / "index.html": "/",
     ROOT / "study" / "index.html": "/study/",
+    ROOT / "wallpapers" / "index.html": "/wallpapers/",
 }
 
 

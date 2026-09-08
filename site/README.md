@@ -269,8 +269,11 @@ that talks the protocol. Someone said on Reddit that they could not flash the
 device and had been looking for a tutorial, and a longer tutorial was not the
 answer.
 
-**The one server-side thing on this site is `api/firmware.js`, and it is not
-optional.** GitHub serves release assets from
+**`api/firmware.js` is the one server-side thing the PAGE cannot do without,
+and it is not optional.** (It is not the only function here: `site/api/` also
+holds `report.js`, `inbox.js`, `trivia.js` and `board-config.js`, which serve
+the report form and the board. Those are services the site talks to; this one
+is the Install button working at all.) GitHub serves release assets from
 `release-assets.githubusercontent.com`, which sends **no**
 `Access-Control-Allow-Origin` header at all -- so a page cannot `fetch()` a
 release asset, on this site or any other. (The site-wide COEP `require-corp`

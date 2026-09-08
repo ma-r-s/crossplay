@@ -220,6 +220,15 @@
   font-size: 1.3rem;
   margin: 0 0 1rem;
 }
+/* The shorter route, said before the numbered one rather than after it: the
+   device converts a phone photo over its own QR, so the steps below are for
+   making a wallpaper on a computer, not the only way in. */
+.wp-note {
+  max-width: 58ch;
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
 .wp-rail {
   list-style: none;
   counter-reset: step;
