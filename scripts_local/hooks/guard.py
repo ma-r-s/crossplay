@@ -49,6 +49,22 @@ WRITE_VERB = re.compile(
     r"(?<![\w-])pio\s+run|\bbuild\.py|\bprecompress\.py)"
 )
 QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
+TREE_NAME = re.compile(r"(?:^|[\s\"'=(/])wt/([A-Za-z0-9_.-]+)(?=[/\s\"');&|]|$)")
+
+
+def tree_names_in(seg):
+    """The trees one command segment writes into: those named in its unquoted
+    text, and those in quoted strings that are PATHS. A quoted string with
+    whitespace in it is a message or a format (`git commit -m 'fix for wt/x'`,
+    `printf 'note on wt/x\\n' >> notes.md`), and a tree it mentions is not a
+    tree it writes: the rule's first refusal, minutes after it went live, was
+    a printf naming a tree into a memory file. A bash -c payload is searched
+    as segments of its own, so the names inside it are still seen."""
+    names = TREE_NAME.findall(QUOTED.sub(" ", seg))
+    for q in QUOTED.findall(seg):
+        if not re.search(r"\s", q[1:-1]):
+            names += TREE_NAME.findall(q)
+    return names
 # Verbs that destroy or rewrite another actor's work in a tree; refused against
 # a tree the caller does not hold whatever the holder's liveness (a sweep once
 # committed another worker's in-progress diff with a reassuring message).
@@ -639,11 +655,14 @@ def pretool(board, data):
                 cur = board.tree_name_of(str(tpath))
                 cwd_path = tpath
                 continue
-            seg_body = QUOTED.sub(" ", seg)
+            # Quoted strings become a placeholder word, not a gap: with a gap,
+            # `git -C "wt/x" commit` read as `git -C commit` and the -C swallowed
+            # the verb, so a quoted tree path was never a write.
+            seg_body = QUOTED.sub(" q ", seg)
             if not (WRITE_VERB.search(seg_body) or REDIRECT.search(seg_body) or DESTRUCTIVE.search(seg_body)):
                 continue
             names = [cur] if cur else []
-            names += re.findall(r"(?:^|[\s\"'=(/])wt/([A-Za-z0-9_.-]+)(?=[/\s\"');&|]|$)", seg)
+            names += tree_names_in(seg)
             for name in dict.fromkeys(n for n in names if n):
                 verdict = board.tree_verdict(actor, name)
                 if verdict:
