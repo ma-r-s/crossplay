@@ -6,9 +6,10 @@ stylesheet, and the assets it names.
 **To serve it locally, `python3 site/serve.py 8099`**, not `python3 -m
 http.server`. **Looking at it** below says why.
 
-One exception, and it is deliberate: `api/firmware.js`, a single Vercel
-function that exists so the Install button can work at all. See **The Install
-button** below before touching it.
+One exception, and it is deliberate: `api/firmware.js`, the Vercel function
+that exists so the Install button can work at all. It is not the only function
+in `site/api/`, but it is the only one the page cannot do without. See **The
+Install button** below before touching it.
 
 ## When it deploys, and when it does not
 
@@ -271,9 +272,10 @@ answer.
 
 **`api/firmware.js` is the one server-side thing the PAGE cannot do without,
 and it is not optional.** (It is not the only function here: `site/api/` also
-holds `report.js`, `inbox.js`, `trivia.js` and `board-config.js`, which serve
-the report form and the board. Those are services the site talks to; this one
-is the Install button working at all.) GitHub serves release assets from
+holds `report.js` and `inbox.js` for the report form and the inbox,
+`board-config.js` for the board, and `trivia.js`, which is called by the
+FIRMWARE rather than by any page. This one is the Install button working at
+all.) GitHub serves release assets from
 `release-assets.githubusercontent.com`, which sends **no**
 `Access-Control-Allow-Origin` header at all -- so a page cannot `fetch()` a
 release asset, on this site or any other. (The site-wide COEP `require-corp`

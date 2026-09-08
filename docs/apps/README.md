@@ -65,9 +65,10 @@ The on-disk shapes. Read these before changing a writer.
 
 ## Decision records for things that shipped
 
-Written before the code, kept for the reasoning. **All of these landed.** They
-are in the present tense of the day they were drafted, and each says so at the
-top.
+Written before the code, kept for the reasoning. **All of these landed**, and
+all are in the present tense of the day they were drafted, so read "not built
+yet" here as "not built yet then". Only some carry a marker saying so at the
+top; the rest is this row.
 
 | | |
 | --- | --- |
@@ -81,6 +82,12 @@ top.
 | [`wallpapers-shuffle.md`](wallpapers-shuffle.md) | Choosing a set and letting it take turns. |
 | [`xkcd-viewing-plan.md`](xkcd-viewing-plan.md) | Reworking how comics are shown. |
 
+## Generated, not written
+
+[`study-quick-reference.pdf`](study-quick-reference.pdf) is the one file here
+that is not prose: a printable page for the Study app, produced rather than
+edited.
+
 ## Decided, and nobody is on it
 
 | | |
@@ -93,8 +100,10 @@ top.
 | --- | --- |
 | [`guesswho.md`](guesswho.md) | There is no `src/apps_local/guesswho/`. The doc talks the idea down to the reason it does not work: the faces are hashes, and hashes have no askable attributes. |
 
-## Three apps ship with no doc of their own
+## Eight things on the shelf have no doc of their own
 
-Wallpapers, xkcd and Hacker News are on the shelf and have only auxiliary
-records here: a format, a plan, a flow. Nothing says what the app is. That is a
-gap rather than a decision.
+Battleship, Connections, Solitaire, Insider, Hacker News, xkcd, Wallpapers and
+Get Books. Some have auxiliary records here (a format, a plan, a flow) and Get
+Books has nothing at all; none has a file saying what the app is. That is a gap
+rather than a decision, and the number is checkable: every name in
+`Shelf.cpp`'s `kGames` and `kApps` should have a row somewhere above.

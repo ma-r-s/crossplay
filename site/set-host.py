@@ -22,6 +22,7 @@ PAGES = {
     ROOT / "index.html": "/",
     ROOT / "study" / "index.html": "/study/",
     ROOT / "wallpapers" / "index.html": "/wallpapers/",
+    ROOT / "report" / "index.html": "/report/",
 }
 
 

@@ -8,9 +8,12 @@
 // on what a caller may do lives here and nowhere else.
 //
 // No account, no CAPTCHA. A honeypot field catches the dumb bots (they fill
-// every input; a person never sees it), sizes are capped, and one address gets
-// ten reports an hour, counted against a salted hash of the address so the
-// address itself is never stored.
+// every input; a person never sees it), sizes are capped, and ten reports an
+// hour are allowed per SALTED HASH OF THE CLIENT IP -- so the cap is per
+// network, not per address, and someone who gives no address is capped too.
+// An address, when one is given, IS stored: `reporter_email` on the card, so a
+// reply can reach them. This comment used to say the opposite and a page on
+// the site repeated it.
 //
 // `device` names one or both of the two boards the fork runs on, comma-joined
 // ("x4pro", "sticky", "x4pro,sticky"). There is no "not sure": a person
