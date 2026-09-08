@@ -89,6 +89,12 @@
     <p class="report-status" id="report-status" role="status" aria-live="polite"></p>
     <button type="submit" class="report-btn primary" id="report-send">Send</button>
   </div>
+  <p class="report-fine">It becomes a card on a board one person reads. An
+    address, if you give one, is stored with the card so a reply can reach you,
+    and is checked against the maintainer's own address so that his reports file
+    apart from yours. Submissions are rate limited. For a security problem,
+    <a href="https://github.com/ma-r-s/crossplay/blob/xteink/SECURITY.md">SECURITY.md</a>
+    says where to send it instead.</p>
 </form>
 
 <section class="report-done" id="report-done" hidden>
