@@ -272,6 +272,43 @@ api_devices="$(grep -oE 'DEVICES = \[[^]]*\]' "$ROOT/site/api/report.js" | grep 
 printf '%s' "$api_devices" | grep -qw unknown && bad "api/report.js accepts 'unknown' as a device again; a report names a board or is refused" || ok
 grep -qE 'type="radio" name="device"' "$REPORTJS" && bad "device is a radio again; it is two checkboxes, both allowed" || ok
 
+# -- the email field, and the one rule spelled in both files --------------------
+#
+# The address is how a stranger gets answered: #426 offered to send us games and
+# #389 was owed a pairing code, and both left one. Three things have to hold or
+# it stops being an address people give.
+#
+# It stays optional. The function refuses a report naming no device and files
+# one carrying no email, so a `required` here would turn a thirty-second bug
+# report into a decision about handing over an address.
+grep -qE 'id="report-email"[^>]*\brequired\b' "$REPORTJS" && bad "the email field is required; it is optional and the function stores null for an empty one" || ok
+grep -qE '<label[^>]*for="report-email"[^>]*>[^<]*<small>\(optional\)</small>' "$REPORTJS" && ok || bad "the email label no longer says (optional), so nothing on screen says it can be skipped"
+# And it says what the address is FOR. This form has no privacy statement of any
+# kind, so the hint under the field is the only place the scope is ever stated;
+# "only if you want a reply" says why you might give it and never what happens
+# to it. The hint must name THIS report, not replies in general.
+email_hint="$(sed -n '/for="report-email"/,/<\/div>/p' "$REPORTJS" | grep -oE '<p class="report-hint">[^<]*</p>' | head -1)"
+printf '%s' "$email_hint" | grep -qi 'this report' && ok || bad "the email hint does not say the address is only used to reply about THIS report: $email_hint"
+# What counts as an address is decided in two files that never see each other.
+# They disagreeing is not cosmetic: the page would post an address the function
+# then answers 400 to, which files NOTHING -- the report is refused whole over a
+# typo in an optional field. Read out of both rather than written here, so
+# changing one alone goes red.
+form_email_re="$(grep -oE '^  var EMAIL = /.*/;' "$REPORTJS" | sed -E 's/^  var EMAIL = //; s/;$//')"
+api_email_re="$(grep -oE '^const EMAIL = /.*/;' "$ROOT/site/api/report.js" | sed -E 's/^const EMAIL = //; s/;$//')"
+[ -n "$form_email_re" ] && ok || bad "report.js has no EMAIL expression, so a bad address is only caught by a 400 that files nothing"
+[ "$form_email_re" = "$api_email_re" ] && ok || bad "report.js tests an address with $form_email_re and api/report.js with $api_email_re"
+form_email_max="$(grep -oE '^  var MAX_EMAIL = [0-9]+;' "$REPORTJS" | grep -oE '[0-9]+')"
+api_email_max="$(grep -oE 'clean\(body\.email, [0-9]+\)' "$ROOT/site/api/report.js" | grep -oE '[0-9]+')"
+[ -n "$form_email_max" ] && [ "$form_email_max" = "$api_email_max" ] && ok || bad "report.js caps an address at [$form_email_max] and api/report.js at [$api_email_max]"
+# The guard has to run BEFORE the post, and has to say the way out. A person
+# whose address our expression rejects must be told they can empty the field,
+# or the optional one becomes the thing that stopped them reporting.
+sed -n '/form.addEventListener("submit"/,/fetch("\/api\/report"/p' "$REPORTJS" | grep -q 'EMAIL.test' \
+  && ok || bad "report.js posts before it checks the address, so a typo costs a round trip and files nothing"
+sed -n '/form.addEventListener("submit"/,/fetch("\/api\/report"/p' "$REPORTJS" | grep -qi 'clear it' \
+  && ok || bad "the bad-address message never says the field can be cleared, leaving no way past it"
+
 # -- the study installer's ids, spelled in two files that never see each other -
 #
 # Same failure as install.js above, on the page that was actually caught by it:

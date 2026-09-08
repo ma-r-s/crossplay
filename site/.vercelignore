@@ -15,3 +15,10 @@ README.md
 # sim-shot capture recipes: replay scripts for regenerating the screenshots,
 # consumed by scripts_local on a laptop, loaded by no page.
 recipes/
+# The inbox's dev fixture. serve.py and host-tests/site read it on a laptop; the
+# deployed page never does -- production answers /api/inbox from api/inbox.js.
+# It was served at /inbox/fixture.json (200, 22.8KB) carrying real card titles,
+# real bodies and the asks put to Mario, because this file excluded *.py and not
+# the data those scripts read. Excluding the script and shipping its input is
+# the gap: ask what a tool READS, not just what it is.
+inbox/fixture.json

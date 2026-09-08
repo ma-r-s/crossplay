@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.49
+
+- Gate against em-dashes in fork-owned files
+
 ### 1.12.48
 
 - Study: Anki cloze, rich text, Japanese/Korean support, and a CJK line-wrap fix

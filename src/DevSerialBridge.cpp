@@ -437,7 +437,7 @@ void handleLine(const char* line) {
   }
 
   if (strncmp(cmd, "SD", 2) == 0 && (cmd[2] == '\0' || cmd[2] == ' ')) {
-    // Retry the SD mount, optionally at a different SPI clock — a remote probe
+    // Retry the SD mount, optionally at a different SPI clock: a remote probe
     // for the shared-bus bring-up question (the SDK's own diagnostics print to
     // the native-USB Serial, which has no host on the Sticky).
     long hz[1];

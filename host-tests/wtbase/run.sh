@@ -158,5 +158,33 @@ OUT2="$(./scripts_local/wt.sh prune 2>&1)"
 [ -d "$WORK/wt/livetree" ] && ok "prune keeps a tree written to just now" \
   || bad "prune dropped a live tree: $OUT2"
 
+echo "wt.sh asks the board, and clears the record of what it drops"
+
+# With a board.py in the integration tree, prune asks it before calling a tree
+# abandoned: a record with a live lease keeps an aged, merged, clean tree; an
+# expired one does not. And a dropped tree's record must go WITH it, or the
+# holder's tool calls keep renewing a lease on a path that no longer exists
+# (34 such records on 2026-09-07). Records are written directly, as the guard
+# suite does; the lease is the file's mtime.
+mkdir -p "$WORK/integration/tools_local/board" "$WORK/.board/trees"
+cp "$HERE/../../tools_local/board/board.py" "$WORK/integration/tools_local/board/board.py"
+export BOARD_ROOT="$WORK"
+record() { printf '{"tree":"wt/%s","card":0,"actor":"someone:main","session":"someone","agent":"main","bound_at":"x","gen":1}' "$1" > "$WORK/.board/trees/$1.json"; }
+./scripts_local/wt.sh new heldtree >/dev/null 2>&1
+./scripts_local/wt.sh new droptree >/dev/null 2>&1
+find "$WORK/wt/heldtree" -exec touch -t 202001010000 {} + 2>/dev/null || true
+record heldtree
+OUT3="$(./scripts_local/wt.sh prune 2>&1)"
+[ -d "$WORK/wt/heldtree" ] && ok "prune keeps an aged tree whose board record is live" || bad "prune dropped a held tree: $OUT3"
+touch -t 202001010000 "$WORK/.board/trees/heldtree.json"
+OUT4="$(./scripts_local/wt.sh prune 2>&1)"
+[ ! -d "$WORK/wt/heldtree" ] && ok "and drops it once the lease has expired" || bad "prune kept an expired tree: $OUT4"
+[ -e "$WORK/.board/trees/heldtree.json" ] && bad "prune left the dropped tree's record behind" || ok "prune clears the record of the tree it dropped"
+record droptree
+./scripts_local/wt.sh drop droptree >/dev/null 2>&1
+[ ! -d "$WORK/wt/droptree" ] && ok "drop removes a merged, clean tree another session's record names" || bad "drop refused droptree"
+[ -e "$WORK/.board/trees/droptree.json" ] && bad "drop left the record behind" || ok "and clears its record"
+unset BOARD_ROOT
+
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -143,8 +143,8 @@ session, and say in the commit that you did.
 
 ### Chrome comes from FreeInkUI. Only the app's own surface is hand-drawn.
 
-Anything shaped like standard chrome — headers, rows, buttons, dialogs, lists,
-keyboards — is a FreeInkUI component, styled through
+Anything shaped like standard chrome: headers, rows, buttons, dialogs, lists,
+keyboards: is a FreeInkUI component, styled through
 [`ToyboxTheme.h`](../src/apps_local/ui/ToyboxTheme.h). Do not hand-roll it. The
 SDK is already linked into every env, and `fui::GfxRendererTarget` adapts it to
 the renderer this firmware already has, so the cost of using it is one target

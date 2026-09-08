@@ -94,7 +94,7 @@ the only RAM used is the record: **186 bytes worst case**, 107 bytes on average.
 `count` bytes, one per question, at the question's own index. Bit 0 `SEEN`,
 bit 1 `FLAGGED`. Marking a question is one seek and one byte, never a rewrite,
 so a power loss mid-write can lose at most one question's state and can never
-touch the question text — the same durability rule study follows.
+touch the question text: the same durability rule study follows.
 
 One byte per question: 49 KB for the shipped 50,000.
 

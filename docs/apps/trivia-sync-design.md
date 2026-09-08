@@ -102,7 +102,7 @@ Checked live rather than read: an empty `POST` to
 sentence. That is the evidence that matters, because the very first thing the
 handler does is return **503** when `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY`
 is missing. A 400 therefore proves the function is deployed, routed, **and**
-holds working board credentials — so a second function beside it needs no new
+holds working board credentials, so a second function beside it needs no new
 environment, no new project and no new secret.
 
 **An events table and a device-identity convention.** `docs/workflow/events.md`
@@ -139,7 +139,7 @@ is the only handle the device has that is cheap, already correct, and already
 load-bearing.
 
 **The thing C does NOT get for free, found by the critic round.** `corpus_id` is
-not a stable id: `build_pack.py:341` mints it as `sha1(norm_key(clue))[:12]` —
+not a stable id: `build_pack.py:341` mints it as `sha1(norm_key(clue))[:12]`: 
 option A's key, by another name. So "index → corpus_id" is "index → a hash of the
 clue **as it read on build day**", and a later repair moves it.
 
@@ -147,8 +147,8 @@ C still works, but only for a reason that has to be built rather than assumed:
 **the manifest is a snapshot, captured at build time, and kept.** The old pack's
 manifest holds the old id; `corpus_repaired.jsonl` holds old-id-beside-new-text
 (`assemble_pack.py:55-66`, and card #146 is exactly this). Resolution walks that
-chain. Which means the first draft's objection to option B — "the corpus has no
-such column today" — was **backwards**: the sticky column is the one thing that
+chain. Which means the first draft's objection to option B: "the corpus has no
+such column today": was **backwards**: the sticky column is the one thing that
 does exist, in a scratch file, and nowhere in git.
 
 So C's real cost is not "a manifest the builder already has the data for". It is
@@ -165,7 +165,7 @@ Three consequences worth stating plainly:
   and `assemble_pack.py` both have the corpus row in hand when they write the
   record; this is a `print` in an existing loop, not new machinery.
 - **A pack id must exist at all.** Today the header carries `flags` and `resv`,
-  both reserved zero, and no build stamp — `trivia-pack-format.md` names this as
+  both reserved zero, and no build stamp: `trivia-pack-format.md` names this as
   "the residual: length is a proxy, not an identity". See D3; the manifest carries
   the id and the device stores it beside the pack, so **no format bump is needed
   for this either.**
@@ -173,13 +173,13 @@ Three consequences worth stating plainly:
 ### The strongest argument against C, which is not weak
 
 Option B carries an immutable id inside each record. It costs a format bump and
-4 bytes x 50,000 = 200 KB on a 3.4 MB pack, about 6% — on the very download this
+4 bytes x 50,000 = 200 KB on a 3.4 MB pack, about 6%: on the very download this
 card is trying to shorten. That is why it was ranked second.
 
 But B buys one thing C does not, and the corpus finding below makes it matter
 more than it first appears: **a pack carrying its own ids is self-describing.**
 `pack_format.py` already reads a pack back out precisely because "a published
-pack.dat is the only surviving copy of its corpus" — and today what comes back
+pack.dat is the only surviving copy of its corpus", and today what comes back
 is a re-derived hash that its own module says is not a join key. With B, dumping
 a pack recovers the real ids, and a lost corpus is recoverable from any published
 pack. With C, a lost manifest is a lost join and nothing can rebuild it.
@@ -187,7 +187,7 @@ pack. With C, a lost manifest is a lost join and nothing can rebuild it.
 So the honest ranking is: **C if the manifests are kept somewhere durable, B if
 they will not be.** C is recommended because the manifest is small, is published
 in the same release as the pack it describes, and never has to be fetched by a
-device — which is a lower bar than "remember to keep a scratch directory". But
+device, which is a lower bar than "remember to keep a scratch directory". But
 that recommendation is conditional on the fix below actually being made, and if
 it is not made, B is the safer design and worth its 6%.
 
@@ -201,14 +201,14 @@ exist.** Checked rather than assumed, and the answer is uncomfortable:
 - `docs/apps/trivia-pack-format.md` says the season TSVs `build_pack.py --src`
   wants "are not in this repo and not on this machine", and that a published
   `pack.dat` is "the only surviving copy of its corpus". Card #225 says the same.
-- The rated corpus **does** exist — `wt/localrate/.rate/corpus_repaired.jsonl`,
+- The rated corpus **does** exist: `wt/localrate/.rate/corpus_repaired.jsonl`,
   50,000 rows, each carrying the `id` this design wants to join on.
 - It lives in **one gitignored scratch directory inside one worktree**
   (`.rate/` is ignored at `.gitignore:78`), and `./scripts/wt.sh prune` drops
   every merged, clean, idle tree.
 
 So the single copy of the join table this feature depends on is one prune away
-from being gone, and nothing would report an error — the reports would simply
+from being gone, and nothing would report an error: the reports would simply
 stop resolving, months later, with no way to reconstruct why.
 
 Filed as card **#326**, because the risk is real whether or not this design
@@ -269,7 +269,7 @@ agreeing, and only a stable id can tell those apart.
 
 **But "use the id only to count distinct devices" does not survive being written
 down.** To know whether this device already reported this question, something has
-to remember that it did — and a table of (device, question) IS a device history,
+to remember that it did, and a table of (device, question) IS a device history,
 whatever the column is called. Saying "we only use it for counting" is the kind
 of rule that holds until someone writes a useful query.
 
@@ -287,13 +287,13 @@ property wanted and loses exactly the one not wanted:
 - Two reports of **different questions** from the same device share nothing. The
   key is per-question, so the rows cannot be joined into a history.
 - The secret is server-side, so the keys cannot be probed offline by anyone who
-  guesses a device id — which, since the id is `sha256(MAC + a device secret)`,
+  guesses a device id, which, since the id is `sha256(MAC + a device secret)`,
   is already infeasible, but the salt means it does not have to be relied on.
 - `site/api/report.js` already does this shape with `reporterHash`, a salted
   hash of the address kept "so the address itself is never stored". Same trick,
   same reason.
 
-The alternative — **suppress the header on this path** — stays available and
+The alternative (**suppress the header on this path**) stays available and
 costs only the de-duplication. It is worth doing if the hashing above is judged
 not worth the complexity, but it should be a decision, not a default: with no
 de-duplication at all, one determined player can drown the queue by tapping
@@ -339,7 +339,7 @@ published.** It is not a card-versus-wire confusion, which was the obvious
 theory and is wrong: xkcd is not unpacked, so its two numbers are the same
 number. The live `index.dat` settles it. Its records imply an `images.dat`
 ending at exactly 139,590,525 bytes, which is exactly the published file's size,
-so the released pack is internally complete and consistent — but it carries
+so the released pack is internally complete and consistent, but it carries
 **247** comics with a closer rendition where the doc's 217 MB build has **493**.
 Same 3,279 comics, different rendition policy. The documented build exists on one
 machine and the published one is a different, earlier artifact.
@@ -362,7 +362,7 @@ content-range: bytes 0-15/6624675
 ```
 
 The CDN honours byte ranges and reports the full length. **So nothing on the
-server side blocks resuming or fetching a difference** — the only obstacle is
+server side blocks resuming or fetching a difference**: the only obstacle is
 that `HttpDownloader::downloadToFile` exposes no header parameter and removes the
 destination before the first byte. `freeink::SecureHttpClient` already has
 `addHeader` and `getHeader`, so this is a contained change to one function, not a
@@ -372,7 +372,7 @@ It also hands the freshness check a cheaper shape than a sidecar manifest: a
 16-byte Range request returns the pack's own header **and** `content-range` gives
 the total size, so one tiny request answers "how many questions and how big" with
 no new asset to publish. It does not answer "which build", because the header's
-`flags` and `resv` bytes are zero and carry no id — which is the gap a manifest
+`flags` and `resv` bytes are zero and carry no id, which is the gap a manifest
 or a format bump fills, and the reason the manifest is still recommended.
 
 ### The three packs are not the same shape
@@ -390,7 +390,7 @@ three different mechanisms:
 - **xkcd**'s _content_ appends, so its difference is usually a byte range at the
   end. Its _artifact_ does not: `xkcd-pack-format.md:38-51` says the hosted pack
   is rebuilt and `gh release upload --clobber`ed, and the closer-rendition change
-  rewrote it. A ditherer tweak rewrites every byte of a 217 MB file — exactly
+  rewrote it. A ditherer tweak rewrites every byte of a 217 MB file: exactly
   when a byte-range delta is most wanted and exactly when it stops working. It
   does already have a live incremental path (`runUpdate()` asks xkcd.com what is
   new) separate from the bulk fetch.
@@ -409,7 +409,7 @@ rather than chosen: wallpapers has nowhere to put a version, because it has no
 header. Two in-tree precedents to copy rather than invent, both already
 shipping:
 
-- `src/activities/settings/FontDownloadActivity.h` — a schema-versioned JSON
+- `src/activities/settings/FontDownloadActivity.h`: a schema-versioned JSON
   manifest (`FONTS_MANIFEST_VERSION`, rejected on mismatch) whose per-file
   entries carry `name`, `size` and **`crc32`**. It downloads the manifest to a
   temp file first, specifically so the TLS buffers are freed before parsing.
@@ -439,18 +439,18 @@ Two things that must ride along, both already known:
 - **Take the input pump too.** `src/components/BlockingFetchInput.h` already
   encodes the pump-Back-during-a-blocking-fetch policy as
   `pumpBlockingFetch(input, cancelled, goHome)`, and **only the two OPDS flows
-  use it** — trivia, xkcd and wallpapers each open-code the same five lines. Three
+  use it**: trivia, xkcd and wallpapers each open-code the same five lines. Three
   copies of a rule about cancelling a multi-minute download is exactly the
   `fix-the-twin-too` shape.
 - **No transport can resume today, and it is structural.**
   `HttpDownloader::downloadToFile` takes no header parameter, so a caller cannot
-  inject `Range` even if it wanted to — and it calls `Storage.remove()` on the
+  inject `Range` even if it wanted to, and it calls `Storage.remove()` on the
   destination **before the first byte**, and again on any failure, so there is no
   partial file to resume from. `bridge::streamToFile` likewise. **But the
   capability exists one layer down**: `freeink::SecureHttpClient` already has
   `addHeader`, `sendRequest(method, ...)` and `getHeader`, so resume is an
   optional `resumeFrom` on `HttpDownloader` plus a conditional truncate plus
-  reading `Content-Range` — a contained change, not a new stack. Nothing anywhere
+  reading `Content-Range`: a contained change, not a new stack. Nothing anywhere
   in the tree currently sends `Range`, `If-None-Match` or a `HEAD`.
 
 ### D3b. Trivia's own incremental step, and why it comes second
@@ -465,7 +465,7 @@ a second blob. The reader consults the overlay before the base.
 Why this is the right shape and not just a clever one:
 
 - **It preserves index stability by construction**, which is what keeps
-  `pack.state` valid across an update — the exact failure
+  `pack.state` valid across an update: the exact failure
   `trivia-pack-format.md` warns about ("a stale FLAGGED byte landing on an
   arbitrary question hides it from every draw with nothing on screen").
 - **It makes D1's identity permanently true.** The base pack never moves, so
@@ -477,7 +477,7 @@ Why this is the right shape and not just a clever one:
 
 **But it is phase two.** Phase one is a manifest and a sync button that can say
 what it will cost, because today `ActionGetPack` is reachable **only** from the
-empty-card and error notices — there is no way to update a pack once one exists
+empty-card and error notices: there is no way to update a pack once one exists
 at all. Fixing "cannot update" beats optimising "update is slow", and #253 says
 the same in its own order of work.
 
@@ -491,7 +491,7 @@ moment of annoyance is a report that never happens. The queue is a small file,
 
 `pack.state`'s `FLAGGED` bit stays and keeps its job (never serve me this
 again). The queue is the outbound copy. Two files because they answer different
-questions and have different lifetimes — the flag is local and permanent, the
+questions and have different lifetimes: the flag is local and permanent, the
 queue is drained.
 
 **A queued report can outlive the pack it names, and that is the one way this
@@ -542,7 +542,7 @@ The rules this fork already learned apply directly:
   say it happened. `ActionFlag` already learned this once.
 
 So: **the report control is the existing aside, offered in both modes, and only
-once the answer is showing** — the existing rule, and it is right: you cannot
+once the answer is showing**: the existing rule, and it is right: you cannot
 judge a question until you have seen what it claims.
 
 ### One tap files it; the reason is an optional second
@@ -551,8 +551,8 @@ Mario's card already reaches this conclusion and it is correct: _"a report with
 no reason is still a report, and demanding a category is how you get no
 reports."_
 
-So `HIDE` keeps its current behaviour exactly — one tap, question gone, `HIDDEN`
-notice — and the `HIDDEN` notice gains one extra control: `WHY?`. Tapping it
+So `HIDE` keeps its current behaviour exactly: one tap, question gone, `HIDDEN`
+notice, and the `HIDDEN` notice gains one extra control: `WHY?`. Tapping it
 opens a **separate reason screen** (a list, its own view, its own interaction
 budget) which amends the queued report in place. Ignoring it leaves a reasonless
 report, which is still useful.
@@ -576,7 +576,7 @@ how often a player will reach for them, not alphabetically:
 | `broken`        | BROKEN TEXT               | turns card #147's scavenger hunt into a queue                         |
 | `regional`      | ONLY A LOCAL COULD KNOW   | Mario's "regionally impossible"                                       |
 | `us`            | TOO AMERICAN              | **only when US questions are OFF**, as Mario specified                |
-| `hard` / `easy` | TOO HARD / TOO EASY       | Mario's "wrong difficulty", split — the signal is one-sided otherwise |
+| `hard` / `easy` | TOO HARD / TOO EASY       | Mario's "wrong difficulty", split: the signal is one-sided otherwise |
 
 Ten codes, at most nine ever shown at once, because two are conditional: `us`
 only when US questions are off, `giveaway` only in solo.
@@ -600,7 +600,7 @@ than by rendering, and the screenshot is still owed.
 numbers say it is close and probably fits: `kRowHeight` is 62 with a theme row
 gap, `kChromeHeight` is 76 plus the rule, and a `kPillHeight` of 52 goes to the
 way out, on the X4 Pro's 800px portrait height. Nine rows at that pitch lands
-within a few tens of pixels of the available band — which is the range where
+within a few tens of pixels of the available band, which is the range where
 this fork's `screens-overflow-silently` failure lives, and a row that does not
 fit is drawn nowhere and answers nothing rather than erroring. Subtitles would
 spend the margin outright, so the reason rows carry labels only.
@@ -613,7 +613,7 @@ because this is a list whose length is a design output rather than a given.
 **One reason is sharper than it looks.** With US questions off, `Chooser::next`
 already skips marked records (`TriviaCore.cpp:214`), so a player with the toggle
 off can only ever meet a US-centric question the pack **failed to mark**. `us` is
-therefore not a taste report at all — it repairs a bit, not a row, and it is the
+therefore not a taste report at all: it repairs a bit, not a row, and it is the
 only reason whose fix is one byte. Word the row as "THIS IS A US QUESTION"
 rather than "TOO AMERICAN", which invites the taste report the toggle already
 handles.
@@ -631,11 +631,11 @@ reason a player can file:
 | Filter                    | Where                    | Implied by    | Verdict                                                                                                                                                             |
 | ------------------------- | ------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | US questions              | SETTINGS (**shipped**)   | `us`          | done, build on it                                                                                                                                                   |
-| Hide questions I reported | nothing — already true   | all           | `FLAGGED` already does this. Say so on the screen; do not build it twice.                                                                                           |
+| Hide questions I reported | nothing: already true   | all           | `FLAGGED` already does this. Say so on the screen; do not build it twice.                                                                                           |
 | Region-locked generally | SETTINGS | `regional` | **needs a pack flag that does not exist**, and the obstacle is not the one it looks like -- see under the table. Defer. |
 | Difficulty                | front door (**shipped**) | `hard`/`easy` | done                                                                                                                                                                |
-| Category on/off           | —                        | nothing       | **the record has no category field.** `build_pack.py:300-316` reads the category to drop wordplay and category-dependent clues, then does not store it. Not a filter that can exist without a format change. Cut.                                                                  |
-| Language                  | —                        | nothing       | `trivia-sources` records Spanish barely exists. One honest setting is not a filter. Cut.                                                                            |
+| Category on/off           |: | nothing       | **the record has no category field.** `build_pack.py:300-316` reads the category to drop wordplay and category-dependent clues, then does not store it. Not a filter that can exist without a format change. Cut.                                                                  |
+| Language                  |: | nothing       | `trivia-sources` records Spanish barely exists. One honest setting is not a filter. Cut.                                                                            |
 
 So the honest answer to "what does filtering mean beyond the toggle that
 exists" is: **almost nothing new, today.** One row is already there, one is
@@ -652,7 +652,7 @@ computed and already on screen elsewhere.
 
 ### Ranked
 
-**Option 1 — one endpoint on the existing site (Vercel), recommended.**
+**Option 1: one endpoint on the existing site (Vercel), recommended.**
 
 `site/api/trivia.js`, beside `firmware.js`, `report.js`, `board-config.js`,
 `inbox.js`. `GET` returns the manifest; `POST` takes the report batch and writes
@@ -666,20 +666,20 @@ almost all of it.
   to get right, and the only one where that is true.
 - **The pi is a single ARM box behind one tunnel.** Adding a fourth service to it
   puts a game's sync behind the same box that syncs Anki and Instapaper, for no
-  benefit — trivia has no long-lived state, no credentials, and no reason to be
+  benefit: trivia has no long-lived state, no credentials, and no reason to be
   stateful at all.
 - **One real drawback, and it must not be glossed:** `crossplay.ma-r-s.com`
-  resolves to `76.76.21.21` — Vercel directly, **not proxied through
+  resolves to `76.76.21.21`. Vercel directly, **not proxied through
   Cloudflare**, unlike `read.` and `sync.` which resolve to Cloudflare
   addresses. So the zone's WAF rate-limiting rules **do not apply to it**, and
   `site/api/report.js` is protected only by its own in-function counter. Either
   proxy the hostname through Cloudflare (a dashboard change Mario makes, which
   also fixes `report.js`) or accept that the in-function limit is the only
-  limit. Given `free-plan-pins-the-rate-limit` — a 10s window is all the free
-  plan sells, so the edge was never the binding constraint anyway — accepting it
+  limit. Given `free-plan-pins-the-rate-limit`: a 10s window is all the free
+  plan sells, so the edge was never the binding constraint anyway: accepting it
   is defensible. Say it rather than imply an edge that is not there.
 
-**Option 2 — a fourth bridge on the pi (`trivia.ma-r-s.com`).** The card's own
+**Option 2: a fourth bridge on the pi (`trivia.ma-r-s.com`).** The card's own
 suggestion, and the house pattern. It is correct and it is much more machinery
 than this job needs. The pattern is not "a FastAPI app": it is a free uid
 (10004) and a pinned /24 (`172.31.86.0/24`), a `Dockerfile`, a `compose.yaml`
@@ -697,9 +697,9 @@ Worth noting in option 1's favour rather than as an aside: the bridges' rate
 limiters are **in-memory and die with the process**, so a restart resets every
 counter. `report.js` counts against the database instead, which survives. On a
 function there is no process to hold a counter in, so the durable form is the
-only one available — the constraint and the better answer coincide.
+only one available: the constraint and the better answer coincide.
 
-**Option 3 — the manifest from the GitHub API, no new endpoint at all.**
+**Option 3: the manifest from the GitHub API, no new endpoint at all.**
 `src/network/OtaUpdater.cpp` already streams `api.github.com` release JSON
 through `ReleaseJsonParser`, and an asset's `size` and `updated_at` would tell a
 device that something changed. Rejected, for two reasons rather than one: the
@@ -709,10 +709,10 @@ packs are **prereleases**, so it would need `/releases/tags/<tag>` rather than
 200-byte JSON asset published beside `pack.dat` answers both and costs one more
 `gh release upload`.
 
-**Option 4 — no service: reports stay on the card.** The manifest half genuinely
+**Option 4: no service: reports stay on the card.** The manifest half genuinely
 works this way and should be built that way under option 1 regardless. The
 report half does not: without a route off the device, reporting stays what it is
-today — a thing that needs a card reader and a person.
+today: a thing that needs a card reader and a person.
 
 ### Rate limiting and abuse
 
@@ -730,7 +730,7 @@ The endpoint is public, unauthenticated, and writes to a database. Precedent is
 - **The increment is one statement inside Postgres**, not a read followed by a
   write. As a read-then-write it was not a limiter at all: concurrent requests
   all read the same count and all wrote `count + 1`, so a burst of any size
-  advanced it by one — and a burst is the traffic it exists to stop.
+  advanced it by one, and a burst is the traffic it exists to stop.
 - **Batch caps**: at most 64 reports per request, at most 8 KB of body,
   `index < count` of the named pack **and** below a hard ceiling when the batch
   declares no count (without which any integer up to 2^53 was accepted), reason
@@ -748,7 +748,7 @@ The endpoint is public, unauthenticated, and writes to a database. Precedent is
 - **No CAPTCHA and no honeypot.** `report.js` needs a honeypot because a form
   bot fills every input; there is no form here.
 - **The reports are advisory.** Nothing auto-removes a question. A report opens
-  a queue a human reads before the next build — which is also the real abuse
+  a queue a human reads before the next build, which is also the real abuse
   answer: poisoning the queue costs an attacker effort and buys them a row a
   person will ignore.
 
@@ -764,7 +764,7 @@ would create it.
 ## What this design does not do
 
 - **It does not fix the fact that nobody can receive a new pack today.** This is
-  not a hypothetical: `docs/open-items.md:52` already records it — _"a device
+  not a hypothetical: `docs/open-items.md:52` already records it: _"a device
   that already has `/trivia/pack.dat` never re-downloads, so publishing does not
   reach an existing install; the file has to be deleted."_ Phase one of this
   design is what closes that item, and it is worth saying that the sync button's
@@ -813,7 +813,7 @@ rather than prerequisite. It is now step 0.5.
 
 **What I did not change, and why.** The critic's headline recommendation was to
 cut the service from the first cut outright, on the evidence above. That is a
-product decision — Mario asked for the sync-and-report service by name — so it
+product decision (Mario asked for the sync-and-report service by name) so it
 is his to make, not mine to cut. It is surfaced in "What Mario is being asked to
 confirm" instead, with the evidence attached. The ordering, which is a code-level
 call, I have changed: the service moved behind the extraction tool.
@@ -823,7 +823,7 @@ call, I have changed: the service moved behind the extraction tool.
 - **`bridge::request` sends a POST body with no `Content-Type`.**
   `SecureHttpClient::writeRequest` adds Host, User-Agent, Connection, optional
   auth, caller headers and Content-Length, and nothing in `BridgeHttp.cpp` adds
-  one — while the **simulator** path does (`BridgeHttp.cpp:223`, `-H
+  one, while the **simulator** path does (`BridgeHttp.cpp:223`, `-H
   'Content-Type: application/json'`). Device and sim send materially different
   requests, so this is a bug the simulator cannot show you.
   `site/api/report.js`'s `readBody()` already survives it by falling back to the
@@ -849,7 +849,7 @@ none. Two concrete breaks:
 
 - **Hand-copy**, which the format doc documents as a real case. Replace
   `pack.dat` and not `pack.meta`, and every report names the wrong pack id and
-  joins to the wrong corpus rows — undetectable server-side, invisible to the
+  joins to the wrong corpus rows: undetectable server-side, invisible to the
   player, and the outcome is good questions deleted on the strength of reports
   about other questions. **That is strictly worse than today**, where a bad
   report is a no-op.
@@ -869,7 +869,7 @@ ordering one, and costs one integer.
   cited.** `NoticeModel` carries exactly one action, drawn by `drawAction` as a
   full-width bar (`TriviaScreens.cpp:232`). Adding a second means
   `drawActionPair`, which shrinks `NEXT QUESTION` to `full - kAsideWidth - gap`
-  and **moves its centre** — so a player who learned to tap the right of that bar
+  and **moves its centre**, so a player who learned to tap the right of that bar
   to continue now opens the reason list. That is `same-pixel-different-action`,
   on the one screen the design invoked the rule to protect. Fix: `NEXT QUESTION`
   keeps the full-width bar exactly where it is, and `WHY?` goes in the aside,
@@ -878,7 +878,7 @@ ordering one, and costs one integer.
   not the 24-slot ceiling.** This fork has a recorded failure where swipe, page
   dots and RIGHT were all dead on a list (`the-shelf-opens-the-wrong-game`). Nine
   reasons over two pages with no working pager is the most likely way to get
-  zero reasons — the exact failure Mario's own "demanding a category is how you
+  zero reasons: the exact failure Mario's own "demanding a category is how you
   get no reports" warns about. Either it fits one screen or the list is cut to
   what fits. Render it before choosing.
 - **There is no un-report.** "Un-hide them all" does not retract a flushed
@@ -896,7 +896,7 @@ The pack is fetched from a GitHub release; a manifest served from the site is a
 git commit under `site/` plus a deploy (`site/vercel.json` gates on
 `git diff --quiet HEAD^ HEAD ./`), while the asset is `--clobber`ed
 independently. Nothing keeps the two in step, and the design never said who
-writes the manifest or what happens when they disagree — for the mechanism that
+writes the manifest or what happens when they disagree: for the mechanism that
 is the entire point of the card. **Publish the manifest as a release asset beside
 `pack.dat`, in the same upload**, so they cannot skew; the site function reads it
 rather than owning it.
