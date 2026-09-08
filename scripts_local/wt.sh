@@ -129,6 +129,18 @@ cmd_list() {
   done
 }
 
+# The board's record of who held a tree outlives the directory unless
+# somebody clears it: on 2026-09-07, the first day prune asked the board, 34
+# records named trees that no longer existed, each still renewed by its
+# holder's tool calls. A tree that is gone is nobody's, so drop and prune
+# clear its record themselves, right after the directory goes.
+release_record() {
+  local boardpy="$INTEGRATION/tools_local/board/board.py"
+  [ -f "$boardpy" ] || return 0
+  python3 "$boardpy" tree "$1" --release >/dev/null 2>&1 ||
+    echo "note: the board still records a holder for $1 (python3 $boardpy tree $1 --release)" >&2
+}
+
 cmd_drop() {
   local name="${1:-}"
   [ -n "$name" ] || die "usage: wt.sh drop <name>"
@@ -153,6 +165,7 @@ cmd_drop() {
 
   git -C "$INTEGRATION" worktree remove --force "$dir" || die "worktree remove failed"
   git -C "$INTEGRATION" branch -D "$branch" 2>/dev/null
+  release_record "$name"
   echo "dropped $name"
 }
 
@@ -197,11 +210,20 @@ cmd_prune() {
     if [ "$dirty" != "0" ] || [ "$unmerged" != "0" ] || [ -n "$touched" ] || pgrep -f "^$d/.pio/build/simulator_x4_pro/program" >/dev/null 2>&1; then
       kept=$((kept + 1)); continue
     fi
+    # And the board's word: a tree whose holder's lease is live, or with a gate
+    # running on it, is in use whatever the files say. Two sessions once shared
+    # one tree for an hour; a sweep once committed another worker's diff. The
+    # record is the only thing that may call a tree abandoned.
+    local boardpy="$INTEGRATION/tools_local/board/board.py"
+    if [ -f "$boardpy" ] && ! python3 "$boardpy" tree "$name" >/dev/null 2>&1; then
+      kept=$((kept + 1)); continue
+    fi
     if [ "$dry" = 1 ]; then
       echo "would drop $name ($branch: merged, clean)"
     else
       git -C "$INTEGRATION" worktree remove --force "$d" >/dev/null 2>&1 || { echo "could not remove $name" >&2; kept=$((kept + 1)); continue; }
       git -C "$INTEGRATION" branch -D "$branch" >/dev/null 2>&1
+      release_record "$name"
       echo "dropped $name ($branch: merged, clean)"
     fi
     dropped=$((dropped + 1))
