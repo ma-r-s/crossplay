@@ -159,6 +159,13 @@ expect "cd into the tree then a commit is refused (semicolon)"      2 pretool "{
 expect "a relative cd into a neighbour's tree is followed"          2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd ../free && git commit -am wip\"},\"cwd\":\"$ROOT/wt/x\"}"
 expect "git -C into another actor's tree is a write"               2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $ROOT/wt/x rebase origin/xteink\"},\"cwd\":\"$ROOT\"}"
 expect "a commit in another actor's tree is refused"               2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $ROOT/wt/x commit -am 'work preserved'\"},\"cwd\":\"$ROOT\"}"
+# A tree NAMED in a message is not a tree written to. The rule's first refusal
+# in the real workspace, minutes after it went live, was a printf whose format
+# string mentioned a tree, redirected into a memory file outside every tree.
+expect "a commit message naming another tree is not a write into it"   0 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m 'fix for wt/x'\"},\"cwd\":\"$ROOT\"}"
+expect "a printf naming a tree, into a file elsewhere, is no write into it" 0 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"printf 'note on wt/x' >> $ROOT/notes.md\"},\"cwd\":\"$ROOT\"}"
+expect "a quoted PATH into the tree is still a write"                   2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo x >> \\\"$ROOT/wt/x/a.txt\\\"\"},\"cwd\":\"$ROOT\"}"
+expect "git -C a quoted tree path is a write, whatever the message says" 2 pretool "{\"session_id\":\"other-session\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C \\\"$ROOT/wt/x\\\" commit -am 'msg about wt/y'\"},\"cwd\":\"$ROOT\"}"
 expect "removing another actor's worktree is refused"              2 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git worktree remove --force wt/x\"},\"cwd\":\"$ROOT\"}"
 expect "the holder commits from inside its tree"                    0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -am x\"},\"cwd\":\"$ROOT/wt/x\"}"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["actor"]=="'"$WORKER"':main" and d["card"]=='"$CID"', d' "$ROOT/.board/trees/x.json" && ok "bind wrote the tree record with the actor" || bad "tree record wrong or missing"
