@@ -209,6 +209,43 @@ void run(const std::string& dir) {
   check(today == 10, "day 10 plus an hour is still day 10");
   check(study::dayNumber(deck.meta(), deck.meta().collectionCreated) == 0, "the creation instant is day 0");
   check(study::dayNumber(deck.meta(), deck.meta().collectionCreated - 5) == 0, "before day zero clamps to 0");
+
+  // The "resume in progress card" record: whether a saved position is still
+  // safe to trust is the one part of that feature worth host-testing (the SD
+  // read/write around it is Arduino-only).
+  {
+    uint8_t bytes[study::kResumeRecordBytes];
+    study::writeResumeRecord(bytes, 3, 1, 1700000000);
+    study::ResumeRecord record;
+    check(study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "a valid record parses");
+    check(record.cardIndex == 3 && record.face == 1 && record.savedAt == 1700000000,
+          "the round-tripped record carries its index, face, and timestamp");
+
+    study::writeResumeRecord(bytes, 0, 0, 0);
+    check(study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "index 0 (the first card) parses");
+
+    study::writeResumeRecord(bytes, deck.noteCount(), 0, 0);
+    check(!study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record),
+          "an index at noteCount (one past the end) is refused");
+
+    study::writeResumeRecord(bytes, -1, 0, 0);
+    check(!study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "a negative index is refused");
+
+    study::writeResumeRecord(bytes, 3, 1, 0);
+    bytes[0] = study::kResumeRecordVersion + 1;
+    check(!study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "a version mismatch is refused");
+
+    study::writeResumeRecord(bytes, 3, 2, 0);
+    check(!study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "a face byte past 1 is refused");
+
+    study::writeResumeRecord(bytes, 3, 1, 0);
+    check(!study::parseResumeRecord(bytes, sizeof(bytes) - 1, deck.noteCount(), record),
+          "a short buffer is refused");
+    check(!study::parseResumeRecord(bytes, sizeof(bytes) + 1, deck.noteCount(), record),
+          "a long buffer is refused");
+
+    check(!study::parseResumeRecord(bytes, sizeof(bytes), 0, record), "an empty deck refuses every index");
+  }
 }
 
 }  // namespace

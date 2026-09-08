@@ -377,6 +377,66 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   screen.list(list, doorBand, fui::LayoutAnchor::Bottom);
 }
 
+void buildResumePrompt(toybox::Screen& screen, const char* caption) {
+  chrome(screen, "STUDY");
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  const fui::Rect body = screen.body();
+
+  fui::TextStyle hero;
+  hero.font = toybox::kDisplayFont;
+  hero.align = fui::TextAlign::Center;
+  screen.target().text(fui::makeRect(body.x, body.y + toybox::kMargin, body.width, 60), "CONTINUE?", hero);
+
+  // caption ("LEFT 12 MIN AGO") is already short by construction
+  // (formatResumeAge): the renderer appends U+2026 on overflow and the UI
+  // face has no glyph for it, so a line that does not fit does not get an
+  // ellipsis, it just stops mid-word. buildPairConfirm's caption hit exactly
+  // this.
+  fui::TextStyle sub;
+  sub.font = toybox::kUiFont;
+  sub.align = fui::TextAlign::Center;
+  sub.color = fui::Color::DarkGray;
+  screen.target().text(fui::makeRect(body.x, body.y + toybox::kMargin + 66, body.width, 32), caption, sub);
+
+  const int16_t resumeH = 56;
+  const int16_t skipH = 48;
+  const int16_t gap = 16;
+  const fui::Rect resumeRect =
+      fui::makeRect(static_cast<int16_t>(body.x + 44),
+                    static_cast<int16_t>(body.bottom() - 48 - skipH - gap - resumeH), static_cast<int16_t>(body.width - 88),
+                    resumeH);
+  fui::ButtonProps resume;
+  resume.label = "RESUME";
+  resume.action = ActionStudy;
+  resume.value = 5;
+  resume.text = sub;
+  resume.text.color = fui::Color::Black;
+  resume.text.align = fui::TextAlign::Center;
+  resume.radius = static_cast<uint8_t>(resumeH / 2);
+  screen.button(resume, resumeRect);
+
+  // A real target rather than relying on Back alone: Back still declines too
+  // (StudyActivity's own dispatch), but a screen that offers one way forward
+  // and only an off-screen way back is not offering a choice.
+  const fui::Rect skipRect = fui::makeRect(static_cast<int16_t>(body.x + 44),
+                                           static_cast<int16_t>(body.bottom() - 48 - skipH),
+                                           static_cast<int16_t>(body.width - 88), skipH);
+  fui::ButtonProps skip;
+  skip.label = "NOT NOW";
+  skip.action = ActionStudy;
+  skip.value = 6;
+  skip.text = sub;
+  skip.text.color = fui::Color::Black;
+  skip.text.align = fui::TextAlign::Center;
+  skip.radius = static_cast<uint8_t>(skipH / 2);
+  skip.styles.explicitlySet = true;
+  skip.styles.normal.background = fui::Paint::none();
+  skip.styles.normal.border = fui::Paint::solid(fui::Color::Black);
+  skip.styles.normal.borderWidth = 2;
+  skip.styles.normal.radius = static_cast<uint8_t>(skipH / 2);
+  screen.button(skip, skipRect);
+}
+
 // ---- The sync flow surface (docs/apps/study-syncflow-ui.md). The stage
 // band won the three-variant round; the ladder and line+log arrangements
 // and the STUDY_SYNCFLOW_VARIANT macro died with the choice.
