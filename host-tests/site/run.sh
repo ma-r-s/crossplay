@@ -415,6 +415,21 @@ grep -q 'supabase.co\|/rest/v1/\|/auth/v1/' "$ROOT/site/inbox/index.html" && bad
 # being JSON (every local load shows a 500 dressed as a board error).
 INBOX_HTML="$ROOT/site/inbox/index.html"
 FIXTURE="$ROOT/site/inbox/fixture.json"
+
+# The fixture is not a deployed file, and that is not what "production never
+# runs serve.py" says. On 2026-09-07 GET https://crossplay.ma-r-s.com/inbox/
+# fixture.json returned 200 and 22806 bytes of the real board -- card titles,
+# bodies, and asks put to Mario -- because outputDirectory is "." and nothing
+# excluded it. The endpoint never read it; the CDN served it. Two different
+# claims, and only the first had ever been checked.
+grep -qx "inbox/fixture.json" "$ROOT/site/.vercelignore" \
+  && ok || bad ".vercelignore does not exclude inbox/fixture.json, so the dev fixture deploys as a public file"
+# And an address in it must be a reserved example domain. This cannot prove the
+# strings are invented -- only the comment at the top of the file asks for that
+# -- but a real address is the one part of a pasted report that is mechanical.
+if bad_mail="$(grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+' "$FIXTURE" | grep -vE '@example\.(com|net|org)$' || true)"; then
+  [ -z "$bad_mail" ] && ok || bad "fixture.json carries an address outside example.com/net/org: $bad_mail"
+fi
 ops="$(grep -oE 'body\.op === "[a-z]+"' "$ROOT/site/api/inbox.js" | grep -oE '"[a-z]+"' | tr -d '"' | sort -u)"
 if [ -z "$ops" ]; then
   bad "api/inbox.js handles no operations at all"

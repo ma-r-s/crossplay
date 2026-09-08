@@ -141,9 +141,21 @@ Three decisions hold it together, and each is a rule the tests assert:
   origin could not be established. Showing those would flood exactly what this
   fixes. A settled report (`done`, `released`, `parked`) never appears either.
 
-His note, if he leaves one, is history on the card for whoever triages it. The
-report form stores the address people give, so the page offers a mailto Reply;
-nothing is ever sent on his behalf.
+His note, if he leaves one, is appended to the card's **body** and the card
+moves `reported` -> `triaged`. History alone was the first version and it was
+wrong: nothing reads history -- no view selects it, no command surfaces it, no
+step below visits it -- so a note filed there would have swapped "he never sees
+the report" for "he sees it, writes down what should happen, and nobody ever
+reads that sentence". Reading a report WITHOUT a note writes nothing on the
+card and leaves it in `reported` for the ordinary sweep. The prefix is
+`Mario, on reading this:`, spelled in `board.py` and `site/api/inbox.js` and
+compared by a test, because two writers share one body.
+
+The report form stores the address people give, so the page offers a mailto
+Reply; nothing is ever sent on his behalf. And if the view cannot be read the
+page says so where the reports would be: an inbox that shows no reports and no
+reason is the bug this section was written to fix, so that read is the one
+thing on the page that is not allowed to fail quietly.
 
 ## Who reported a card
 

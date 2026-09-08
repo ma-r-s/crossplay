@@ -27,12 +27,13 @@
      is absent, not empty, when there is nothing unread; an empty box every
      day is how a section stops being seen. */
   .people { margin: 0 0 1.6rem; }
-  .people-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.4rem 0.7rem; border-radius: 4px 4px 0 0; margin: 0; }
+  .people-h { font-size: 0.75rem; font-weight: 400; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.4rem 0.7rem; border-radius: 4px 4px 0 0; margin: 0; }
   .people-h span { margin-left: auto; text-transform: none; letter-spacing: 0; opacity: 0.75; }
   .report { background: var(--paper-2); border: 1px solid var(--ink); border-top: 0; padding: 0.9rem 1rem 1rem; }
   .report + .report { border-top: 1px solid var(--edge); }
   .report:last-of-type { border-radius: 0 0 4px 4px; }
-  .report .who { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em; color: var(--muted); }
+  .report .who { font-family: var(--mono); font-size: 0.72rem; font-weight: 400; letter-spacing: 0.04em; color: var(--muted); margin: 0; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .report .said { margin: 0.5rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .report .answer { margin-top: 0.9rem; }
   .report .actions { margin-top: 0.5rem; }
@@ -161,7 +162,7 @@
     <p class="status" id="inbox-login-status"></p>
   </section>
 
-  <section class="people col" id="inbox-people" hidden></section>
+  <section class="people col" id="inbox-people" aria-labelledby="people-h" hidden></section>
 
   <div id="inbox-view" class="col"></div>
   <p class="status col" id="inbox-status" role="status" aria-live="polite"></p>
@@ -184,7 +185,14 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var KEY = "crossplay-inbox-pass";
-  var pass = null, later = {}, items = [], all = [], people = [];
+  var pass = null, later = {}, items = [], all = [], people = [], peopleError = null;
+  // What he has typed into each report's note box but not sent. renderPeople()
+  // replaces the whole block's innerHTML, and answer(), Later and Mark read all
+  // call render() -- so typing a note into one report and marking another read
+  // destroyed the first with no message. The fixture ships three at once, so
+  // that is the normal case, not an edge. Notes live out here and are put back
+  // on every render.
+  var notes = {};
 
   function say(text, err) { var s = $("inbox-status"); s.textContent = text || ""; s.className = "status" + (err ? " err" : ""); }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -209,6 +217,7 @@
     say("Loading...");
     return api("list").then(function (res) {
       items = res.inbox || []; all = res.cards || []; people = res.people || [];
+      peopleError = res.people_error || null;
       $("inbox-login").hidden = true;
       say("");
       render();
@@ -283,21 +292,25 @@
         "?subject=" + encodeURIComponent("Re: your CrossPlay report (#" + r.id + ")") +
         '">Reply</a>'
       : "";
+    var nid = "note-" + r.id;
     return '<article class="report" data-id="' + r.id + '">' +
-      '<p class="who">#' + r.id + " &middot; " + esc(facts.join(" \u00b7 ")) + "</p>" +
+      '<h3 class="who">#' + r.id + " &middot; " + esc(facts.join(" \u00b7 ")) + "</h3>" +
       '<p class="said">' + esc(r.body || r.title) + "</p>" +
-      '<div class="answer"><input type="text" class="note" placeholder="What should happen with it (optional)"></div>' +
+      '<div class="answer"><label class="sr-only" for="' + nid + '">What should happen with report #' + r.id + '</label>' +
+      '<input type="text" class="note" id="' + nid + '" value="' + esc(notes[r.id] || "") +
+      '" placeholder="What should happen with it (optional)"></div>' +
       '<div class="actions">' + mail +
       '<button class="btn primary read">Mark read</button></div>' +
       "</article>";
   }
 
-  function markRead(id, note, el) {
+  function markRead(id, note) {
     say("Saving...");
     api("seen", { card_id: id, note: note || "" })
       .then(function () {
         people = people.filter(function (r) { return r.id !== id; });
-        say(note ? "Read, and your note is on the card." : "Read.");
+        delete notes[id];
+        say(note ? "Read, and on the card for whoever picks it up." : "Read.");
         render();
       })
       .catch(function (err) { say("Could not save that: " + err.message, true); });
@@ -305,18 +318,35 @@
 
   function renderPeople() {
     var box = $("inbox-people");
+    // A read that FAILED is not an absence of reports, and saying nothing here
+    // rebuilds the exact bug this section was written for: an inbox that shows
+    // no reports and no reason.
+    if (peopleError) {
+      box.hidden = false;
+      box.innerHTML = '<h2 class="people-h" id="people-h">Reports from people could not be read' +
+        "<span>this is not the same as none</span></h2>" +
+        '<div class="report"><p class="said">' + esc(peopleError) +
+        ". Until this reads, anything a person reported through the site is invisible here. " +
+        "If the board is missing the reports_from_people view, server/board/migrate.sh --list says so." +
+        "</p></div>";
+      return;
+    }
     // Absent when there is nothing, never an empty box: a heading that is
     // always there is a heading nobody reads.
     if (!people.length) { box.hidden = true; box.innerHTML = ""; return; }
     box.hidden = false;
-    box.innerHTML = '<p class="people-h">' +
+    box.innerHTML = '<h2 class="people-h" id="people-h">' +
       people.length + (people.length === 1 ? " person wrote to you" : " people wrote to you") +
-      "<span>nobody is blocked on these</span></p>" +
+      "<span>nobody is blocked on these</span></h2>" +
       people.map(reportCard).join("");
     Array.prototype.forEach.call(box.querySelectorAll(".report"), function (el) {
       var id = parseInt(el.getAttribute("data-id"), 10);
+      var note = el.querySelector(".note");
+      // Every keystroke is kept outside the DOM, because the next render of
+      // any other item throws this element away.
+      note.addEventListener("input", function () { notes[id] = note.value; });
       el.querySelector(".read").addEventListener("click", function () {
-        markRead(id, el.querySelector(".note").value.trim(), el);
+        markRead(id, note.value.trim());
       });
     });
   }

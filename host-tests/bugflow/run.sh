@@ -13,6 +13,10 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 GUARD="$HERE/../../scripts_local/hooks/guard.py"
 BOARD="$HERE/../../tools_local/board/board.py"
+# The repository this suite lives in, as opposed to $ROOT, the throwaway
+# workspace it builds. Two checks below compare a literal in board.py against
+# the same literal in a file that never sees it.
+ROOT_REAL="$(cd "$HERE/../.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -817,7 +821,24 @@ board seen "$THEM" --note "the pairing code never arrives; file it against the b
 board inbox >"$WORK/in.out" 2>&1
 grep -q "wrote to you" "$WORK/in.out" && bad "a report he has read came back" || ok "board seen clears a report"
 grep -q "Nothing needs you." "$WORK/in.out" && ok "and the empty inbox reads as empty again" || bad "the inbox did not go quiet: $(cat "$WORK/in.out")"
-board show "$THEM" | grep -q "the pairing code never arrives" && ok "his note lands on the card" || bad "the note was dropped"
+# History is not where triage looks: no view selects it, no command surfaces
+# it, no step of the runbook visits it. A note filed only there means he sees
+# the report once, writes down what should happen, and nobody reads it -- the
+# same message dropped one step later. The BODY is what a triager reads.
+board show "$THEM" >"$WORK/card.out" 2>&1
+grep -q "Mario, on reading this: the pairing code never arrives" "$WORK/card.out" \
+  && ok "his note lands on the card body, attributed to him" \
+  || bad "the note is not on the body: $(cat "$WORK/card.out")"
+grep -qE "^#$THEM +triaged" "$WORK/card.out" \
+  && ok "and a report he answered leaves the triage queue" \
+  || bad "an answered report is still in reported: $(head -1 "$WORK/card.out")"
+# ...and a report he read WITHOUT saying anything has not been triaged by him.
+SILENT=$(board new "the frontlight flickers at the lowest step" --from unknown --kind bug --reporter user | sed 's/^#\([0-9]*\).*/\1/')
+board seen "$SILENT" >/dev/null
+board show "$SILENT" >"$WORK/silent.out" 2>&1
+grep -q "Mario, on reading this" "$WORK/silent.out" && bad "an empty note was written onto the card" || ok "reading without a note writes nothing onto the card"
+grep -qE "^#$SILENT +reported" "$WORK/silent.out" && ok "and leaves it in the ordinary triage queue" || bad "a silent read moved the card anyway: $(head -1 "$WORK/silent.out")"
+board inbox | grep -q "#$SILENT " && bad "a report he read came back" || ok "but it still leaves his inbox"
 board seen "$NOBODY" >"$WORK/seen.out" 2>&1 \
   && bad "board seen accepted a card no person reported" \
   || ok "board seen refuses a card that is not a person's report"
@@ -872,7 +893,9 @@ fresh() { BOARD_NO_FRESHNESS="${2:-}" python3 "$HERE/fixtures/freshness.py" "$BO
 fresh oldtrunk >"$WORK/f.out" 2>&1
 grep -q "^1 " "$WORK/f.out" && ok "a checkout behind trunk counts what it is missing" || bad "the gap was not seen: $(cat "$WORK/f.out")"
 grep -q "commits behind oldtrunk" "$WORK/f.out" && ok "a gap a day old warns" || bad "an old gap did not warn: $(cat "$WORK/f.out")"
-grep -q "pull --ff-only" "$WORK/f.out" && ok "the warning carries the fix" || bad "the warning names no remedy"
+grep -q "merge --ff-only oldtrunk" "$WORK/f.out" \
+  && ok "the warning carries a fix that names the ref it measured" \
+  || bad "the warning names no remedy, or names a pull (wrong in a worktree on a feature branch): $(cat "$WORK/f.out")"
 # The other direction, and the one that decides whether this gets disabled: a
 # gap made of commits from the last minute is a tree doing its job.
 fresh newtrunk >"$WORK/f2.out" 2>&1
@@ -881,6 +904,50 @@ fresh main | grep -q "^0 0 -$" && ok "a current checkout says nothing" || bad "a
 fresh nosuchref | grep -q "^0 0 -$" && ok "a trunk ref that does not exist is silent, never an error" || bad "a missing ref was not survived"
 python3 "$HERE/fixtures/freshness.py" "$BOARD" "$WORK" oldtrunk | grep -q "^0 0 -$" && ok "a directory that is not a repository is silent" || bad "a non-repository was not survived"
 fresh oldtrunk 1 | grep -q -- "-$" && ok "BOARD_NO_FRESHNESS=1 turns the line off" || bad "the escape hatch did not work"
+
+# The path the incident actually took, and the one a direct call cannot reach.
+# `board list --reporter user` against a stale CLI is an UNRECOGNISED ARGUMENT:
+# argparse answers with sys.exit(2) from inside parse_args, so a check placed
+# after parse_args prints nothing in the single case it exists for. The first
+# version of this check was placed exactly there and no test noticed, because
+# every fixture called the functions directly.
+BOARD_NO_FRESHNESS="" python3 "$HERE/fixtures/freshness.py" "$BOARD" "$GITREPO" oldtrunk --through-main >"$WORK/m.out" 2>&1
+grep -q "unrecognized arguments" "$WORK/m.out" && ok "an unknown flag still reports itself" || bad "argparse stopped complaining: $(cat "$WORK/m.out")"
+grep -q "commits behind oldtrunk" "$WORK/m.out" \
+  && ok "and a stale CLI says so on the flag-does-not-exist path" \
+  || bad "the staleness check cannot fire in the case it was written for: $(cat "$WORK/m.out")"
+[ "$(grep -n "error:" "$WORK/m.out" | head -1 | cut -d: -f1)" -lt "$(grep -n "commits behind" "$WORK/m.out" | head -1 | cut -d: -f1)" ] \
+  && ok "printed under the error, not above the usage dump" \
+  || bad "the freshness line landed above the usage text, where it gets scrolled past"
+BOARD_NO_FRESHNESS="" python3 "$HERE/fixtures/freshness.py" "$BOARD" "$GITREPO" newtrunk --through-main 2>&1 \
+  | grep -q "commits behind" && bad "a fresh gap warned on the error path" || ok "and a fresh CLI stays quiet there too"
+
+# One list of settled states, spelled in board.py and again in the migration's
+# WHERE clause. Nothing compared them, and a card state added to one and not
+# the other would show closed reports in his inbox or hide open ones.
+SQL="$ROOT_REAL/server/board/supabase/migrations/20260907000100_reports_from_people.sql"
+PY_SETTLED=$(python3 -c "
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('board', '$BOARD')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(','.join(sorted(m.SETTLED)))")
+SQL_SETTLED=$(grep -o "state not in ([^)]*)" "$SQL" | tr -d "'" | sed "s/state not in (//;s/)//;s/ //g" | tr ',' '\n' | sort | paste -sd, -)
+[ "$PY_SETTLED" = "$SQL_SETTLED" ] \
+  && ok "board.py and the view agree on which states are settled" \
+  || bad "settled states differ: board.py has $PY_SETTLED, the view has $SQL_SETTLED"
+
+# And the prefix Mario's note is filed under, spelled in board.py and again in
+# api/inbox.js. Two writers, one card body: if they drift, a triager reading
+# one card cannot tell which sentence is his.
+JS_SAID=$(grep -o 'MARIO_SAID = "[^"]*"' "$ROOT_REAL/site/api/inbox.js" | head -1 | sed 's/.*= "//;s/"$//')
+PY_SAID=$(python3 -c "
+import importlib.util
+spec = importlib.util.spec_from_file_location('board', '$BOARD')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m.MARIO_SAID)")
+[ -n "$JS_SAID" ] && [ "$JS_SAID" = "$PY_SAID" ] \
+  && ok "the CLI and the page file his note under the same prefix" \
+  || bad "his note is prefixed '$PY_SAID' by the CLI and '$JS_SAID' by the page"
 
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

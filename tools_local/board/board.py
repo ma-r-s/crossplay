@@ -1665,13 +1665,20 @@ STALE_AFTER_H = 24
 TRUNK = "origin/xteink"
 
 
-def missing_commits(repo, trunk=TRUNK):
+def cli_repo():
+    """The checkout this CLI is running from. One function, because the test
+    that drives main() has to aim it somewhere it can make stale on purpose."""
+    return pathlib.Path(__file__).resolve().parent
+
+
+def missing_commits(repo, trunk=None):
     """(count, age in hours of the OLDEST commit this checkout lacks).
 
     (0, 0) for a checkout that is current, that has no such ref, or that is not
     a git repository at all -- this must never be the reason a board command
-    fails.
+    fails. `known_ref` tells the first of those apart from the other two.
     """
+    trunk = trunk or TRUNK
     try:
         r = subprocess.run(
             ["git", "-C", str(repo), "log", "--format=%ct", f"HEAD..{trunk}"],
@@ -1689,11 +1696,32 @@ def missing_commits(repo, trunk=TRUNK):
     return len(stamps), max(0.0, (time.time() - min(stamps)) / 3600.0)
 
 
-def stale_warning(repo, trunk=TRUNK):
+def known_ref(repo, trunk=None):
+    """Whether `trunk` resolves in this checkout at all.
+
+    Without it `board fresh` prints one sentence for "current" and for "there
+    is nothing here to compare against", which are opposite facts: the second
+    means the check is not running and nobody would know.
+    """
+    trunk = trunk or TRUNK
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", trunk],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
+def stale_warning(repo, trunk=None):
     """One line for stderr, or None. Silence means current, not unchecked --
     `board fresh` says which, and BOARD_NO_FRESHNESS=1 turns the line off."""
     if os.environ.get("BOARD_NO_FRESHNESS"):
         return None
+    trunk = trunk or TRUNK
     n, oldest = missing_commits(repo, trunk)
     if not n or oldest < STALE_AFTER_H:
         return None
@@ -1701,21 +1729,32 @@ def stale_warning(repo, trunk=TRUNK):
     return (
         f"board: this CLI is {n} commits behind {trunk}, the oldest of them "
         f"{days:.0f} days old. Flags and behaviour added since are not in it.\n"
-        f"       git -C {repo} pull --ff-only"
+        f"       git -C {repo} merge --ff-only {trunk}"
     )
 
 
 def cmd_fresh(st, a):
-    repo = pathlib.Path(__file__).resolve().parent
+    repo = cli_repo()
+    if not known_ref(repo):
+        # Not the same fact as "up to date", and saying so is the point: a
+        # check that cannot run must not read as one that passed.
+        print(f"board: cannot check -- {repo} has no {TRUNK} to compare against")
+        return
     n, oldest = missing_commits(repo)
     if not n:
-        print(f"board: up to date with {TRUNK} (or no {TRUNK} to compare against)")
-        return
-    print(
-        f"board: {n} commits behind {TRUNK}, the oldest {oldest:.0f} h old"
-        + ("  -- stale" if oldest >= STALE_AFTER_H else "  -- fresh enough")
-    )
-    print(f"       git -C {repo} pull --ff-only")
+        print(f"board: up to date with {TRUNK}")
+    else:
+        print(
+            f"board: {n} commits behind {TRUNK}, the oldest {oldest:.0f} h old"
+            + ("  -- stale" if oldest >= STALE_AFTER_H else "  -- fresh enough")
+        )
+        print(f"       git -C {repo} merge --ff-only {TRUNK}")
+    # Measured against the last fetch, never a live one: a board command must
+    # not reach the network to answer an unrelated question, and a `git fetch`
+    # in front of every `board show` would be paid hundreds of times a day.
+    # The sibling scripts_local/tree_freshness.sh takes --fetch because a gate
+    # runs once. So a gap can be UNDERSTATED here, never overstated.
+    print(f"       (against the last-fetched {TRUNK}; this never fetches)")
 
 
 def age_h(iso):
@@ -1740,7 +1779,7 @@ def ago(iso):
     return f"{int(round(h / 24))} days ago"
 
 
-def unread_reports(st):
+def unread_reports(st, cards=None):
     """What a person reported and Mario has not read yet.
 
     NOT blockers, and deliberately: a blocker means a session cannot proceed,
@@ -1753,7 +1792,7 @@ def unread_reports(st):
     """
     out = [
         c
-        for c in st.list_cards()
+        for c in (st.list_cards() if cards is None else cards)
         if (c.get("reporter") or UNKNOWN_REPORTER) == "user"
         and c["state"] not in SETTLED
         and not c.get("mario_seen_at")
@@ -1798,11 +1837,15 @@ def print_reports(people):
 
 
 def cmd_inbox(st, a):
-    people = unread_reports(st)
+    # One read of the board, two passes over it. On Supabase list_cards is a
+    # request with every card's blockers and history joined in, and calling it
+    # twice to draw one screen doubled that for nothing.
+    cards = st.list_cards()
+    people = unread_reports(st, cards)
     if people:
         print_reports(people)
     n = 0
-    for c in st.list_cards():
+    for c in cards:
         for b in c["blockers"]:
             if b["open"] and b["need"] == "mario":
                 n += 1
@@ -1825,8 +1868,23 @@ def cmd_inbox(st, a):
         print("No session is waiting on you." if people else "Nothing needs you.")
 
 
+# What Mario's note is prefixed with on the card. A triager has to be able to
+# tell his sentence from the reporter's, because the two sit in one body.
+MARIO_SAID = "Mario, on reading this:"
+
+
 def cmd_seen(st, a):
-    """Mario read a report. His note, if any, is what a session acts on."""
+    """Mario read a report, and his note goes where triage will actually see it.
+
+    The first version put the note in `history` alone. Nothing reads history:
+    no view selects it, no command surfaces it, and no step of the
+    orchestrator's runbook visits it -- `board show` is the only way and
+    nothing tells anyone to run it. That swaps one failure for a worse one: he
+    stops never seeing the report and starts seeing it once, writing down what
+    should happen, and nobody ever reading that sentence. The body is what a
+    triager reads, so the note is appended there as well, the same way
+    `board note --body` does it.
+    """
     with st.lock():
         c = st.get_card(a.id)
         if (c.get("reporter") or UNKNOWN_REPORTER) != "user":
@@ -1834,17 +1892,34 @@ def cmd_seen(st, a):
                 f"board: #{c['id']} was reported by {c.get('reporter') or UNKNOWN_REPORTER},"
                 " not by a person outside; only a person's report is read this way"
             )
-        what = "Mario read the report" + (f": {a.note}" if a.note else "")
+        note = " ".join(str(a.note).split()) if a.note else ""
+        what = "Mario read the report" + (f": {note}" if note else "")
+        card_history(st, c, what)
+        c["mario_seen_at"] = now()
+        if note:
+            c["body"] = (
+                (c.get("body") or "").rstrip()
+                + ("\n\n" if c.get("body") else "")
+                + f"{MARIO_SAID} {note}"
+            )
+            # A card he has answered is not one still waiting for triage to
+            # decide what it is. Moving it is the difference between a note
+            # filed and a note acted on; without one he has read it and said
+            # nothing, so it stays in `reported` for the ordinary sweep.
+            if c["state"] == "reported":
+                c["state"] = "triaged"
+                card_history(st, c, "state triaged")
+        # Supabase keeps history in its own table and mario_seen_at needs its
+        # own PATCH; the body and state ride along on save_card. On the file
+        # store save_card is the only write there is.
         if isinstance(st, SupaStore):
             st.mark_seen(c["id"])
-            st.add_history(c["id"], what)
-        else:
-            # One write. Marking it read through a store method would re-read
-            # the card and drop the history line just appended to this copy.
-            hist(c, what)
-            c["mario_seen_at"] = now()
-            st.save_card(c)
-    print(f"#{c['id']} read" + (f", with a note: {a.note}" if a.note else ""))
+        st.save_card(c)
+    print(
+        f"#{c['id']} read"
+        + (f", and on the card: {note}" if note else "")
+        + (" (now triaged)" if note else "")
+    )
 
 
 def cmd_import(st, a):
@@ -2044,13 +2119,36 @@ def cmd_sync(st, a):
     print(f"board: synced {made} cards, {len(files.owners())} owners")
 
 
+class Parser(argparse.ArgumentParser):
+    """argparse, plus the freshness line on the path that needs it MOST.
+
+    The incident this whole check exists for was `board list --reporter user`
+    against a CLI 332 commits behind: `--reporter` had merged and the flag was
+    an unrecognised argument. argparse answers that with `sys.exit(2)` from
+    inside parse_args, so a check placed after parse_args cannot run in the one
+    case it was written for -- it would have printed nothing, exactly as the
+    unpatched CLI did. Putting it BEFORE parse_args is not enough either: the
+    line would land above a screenful of usage text, which is the "a warning
+    400 lines above the answer" failure this workspace has read past before.
+    So it prints last, under the error, where the person is already looking.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print(f"{self.prog}: error: {message}", file=sys.stderr)
+        warn = stale_warning(cli_repo())
+        if warn:
+            print(warn, file=sys.stderr)
+        sys.exit(2)
+
+
 def main(argv=None):
-    p = argparse.ArgumentParser(
+    p = Parser(
         prog="board",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd", required=True, parser_class=Parser)
 
     sub.add_parser("init").set_defaults(fn=cmd_init)
     app_help = "the desktop app's local_... id (get_session self), so messages addressed that way reach you"
@@ -2232,7 +2330,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_tick)
 
     a = p.parse_args(argv)
-    warn = stale_warning(pathlib.Path(__file__).resolve().parent)
+    warn = stale_warning(cli_repo())
     if warn:
         print(warn, file=sys.stderr)
     st = open_store(find_root())

@@ -1,5 +1,5 @@
 {
-  "_comment": "Dev-only fixture for site/inbox/. serve.py answers POST /api/inbox from this file when INBOX_FIXTURE names it, whatever the passphrase. Shapes follow api/inbox.js: list -> {inbox, people, cards}, numbers -> the nine views. Production never reads it.",
+  "_comment": "Dev-only fixture for site/inbox/. serve.py answers POST /api/inbox from this file when INBOX_FIXTURE names it, whatever the passphrase. Shapes follow api/inbox.js: list -> {inbox, people, cards}, numbers -> the nine views. EVERY STRING HERE IS INVENTED and must stay that way: this file sits in a public repository, and it was a public URL until 2026-09-07 (.vercelignore). Copy the SHAPE of real board content, never its words.",
   "list": {
     "inbox": [
       {
@@ -47,9 +47,9 @@
     ],
     "people": [
       {
-        "id": 389,
-        "title": "Istapaoper: i didnt get a code from the sync Server to link my Sticky.",
-        "body": "Istapaoper: i didnt get a code from the sync Server to link my Sticky.",
+        "id": 401,
+        "title": "the pairing screen never showed me a code",
+        "body": "the pairing screen never showed me a code, i waited about ten minutes and then it went to sleep on me",
         "app": "unknown",
         "kind": "bug",
         "state": "reported",
@@ -61,9 +61,9 @@
         "mario_seen_at": null
       },
       {
-        "id": 425,
-        "title": "Codenames and/or Codenames Duet would be an excellent fit for this! Nice firmwar",
-        "body": "Codenames and/or Codenames Duet would be an excellent fit for this! Nice firmware, thanks for working on it!",
+        "id": 402,
+        "title": "Hearts and Spades would suit the two-player screen",
+        "body": "Hearts and Spades would suit the two-player screen really well I think! Lovely bit of firmware, thanks for making it.",
         "app": "unknown",
         "kind": "feature",
         "state": "reported",
@@ -75,9 +75,9 @@
         "mario_seen_at": null
       },
       {
-        "id": 426,
-        "title": "Given the limited space in the firmware and that you have so many different apps",
-        "body": "Given the limited space in the firmware and that you have so many different apps and games and will probably want to add more, I wonder if making them all plugins will work better instead? Then people can pick and choose what they want, and you won't have to worry about space. Might make it easier for people to add their own plugins too. If possible, Lua would probably be nicer than the JS that crosspoint uses. I'm thinking of koreader and how their plugin system makes the app so much better, customisable with so many options and games and apps, and it would be great if crossplay could be like that.\n\nSeparately, I've also been running a modified version of your firmware on my Murphy M4, and with games like Cross Clues and The Gang (with custom homebrew rules and features). Not sure if you would like me to raise PRs for those?",
+        "id": 403,
+        "title": "a thought about how the games are packaged",
+        "body": "A thought about how the games are packaged, since there are a lot of them now and the space is finite: would loading them separately work better than baking every one into the image? Then a person keeps the four they play and the rest never costs them anything, and somebody who writes their own has somewhere to put it. I have no idea how hard that is on this chip, so treat it as a question rather than a request.\n\nSeparately I have been running my own build on a different board with two games I wrote for it. Happy to send them your way if that is useful, equally happy not to.",
         "app": "unknown",
         "kind": "feature",
         "state": "reported",
