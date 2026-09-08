@@ -3,7 +3,7 @@
 Mario's ask, verbatim: "the whole UI of this sync process is horrible.
 Lets rework it after done." The door (deck screen) shipped in v1.5.2 and
 is NOT part of this; this is everything after the SYNC door is pressed.
-This is v1 of the brief, with a cold critic's round folded in (the round
+This is v1 of the brief, with a cold critic agent's round folded in (the round
 found two missed states, the safety taxonomy, two mechanical couplings,
 the Jersey/username trap, and the Sticky power-key aliasing).
 
@@ -155,8 +155,9 @@ unlabeled, matching the Image view's house precedent.
 ## What the done-done pass changed (2026-08-29)
 
 Mario's ask: work until any new user can use this, spawning a cold
-reviewer each round who reads the feature as a stranger, repeating until
-nothing worth fixing comes back. Fifteen rounds. Most of what they found
+review agent each round that reads the feature the way a stranger would,
+repeating until nothing worth fixing comes back. Fifteen rounds. Most of what
+they found
 was behaviour rather than layout, and lives in the commit messages on
 `app/studyradio`; what follows is only what changes a claim made above.
 

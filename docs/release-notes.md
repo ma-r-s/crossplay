@@ -346,8 +346,8 @@ that earned it.** Locking a guess fired while your finger was still
 down, the score drew underneath it, and lifting off landed on the
 button occupying that exact spot, which moved the game on. The
 reveal is the whole point of the round, so this was a round played
-and never seen. Four testers watched their own score exist for
-under a second and vanish.
+and never seen. Four separate play-throughs hit it: the score existed
+for under a second and was gone.
 
 **The device asks to be passed on again.** A quick second tap used
 to skip past PASS THE DEVICE entirely, which let the same player
@@ -357,9 +357,9 @@ give two clues in a row without anyone noticing.
 to move the guess, so a stray thumb changed a number the table had
 agreed on.
 
-**A button that does nothing is no longer shown.** Two testers
-tapped it in separate rounds, got no response, and concluded the
-device had frozen.
+**A button that does nothing is no longer shown.** It was tapped in
+two separate rounds, did nothing both times, and read as a frozen
+device.
 
 All four were fixed once already and lost when two versions of the
 game were reconciled. They are verified by name on the shipped

@@ -470,8 +470,19 @@
         There is no store between you and the device, no review, no account and
         no subscription. It is a binary you flash and source you can read.
       </p>
+      <p>
+        The reasoning is written down beside it:
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/identity.md">what this is for</a> for why a screen that
+        holds still is the point rather than a limitation,
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/design-language.md">the design language</a> for what that means
+        on a 1-bit panel and the ink budget that governs it,
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/buttons.md">the two buttons</a> for why there are only
+        two and what that costs, and
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/games-at-scale.md">games at scale</a> for how one gets
+        built and torn apart before it ships.
+      </p>
       <p class="untested">
-      <strong>This runs on real hardware.</strong> A tester flashed v1.2.1,
+      <strong>This runs on real hardware.</strong> A person flashed v1.2.1,
       played most of the shelf, and found three real problems; the fixes
       shipped in v1.2.2 within the week. Since v1.3.0 there is an X4 Pro
       on my own desk, joined on 2026-08-25 by a reTerminal Sticky, and
@@ -564,6 +575,15 @@
         </ul>
       </div>
       <div>
+        <h4>When it goes wrong</h4>
+        <ul>
+          <li><a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md">Installing by hand</a></li>
+          <li><a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/troubleshooting.md">Troubleshooting</a></li>
+          <li><a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/fix-bricked-xteink.md">Unbrick a device</a></li>
+          <li><a href="/report/" data-report-open>Report a problem</a></li>
+        </ul>
+      </div>
+      <div>
         <h4>Upstream</h4>
         <ul>
           <li><a href="https://crosspointreader.com/">CrossPoint</a></li>
@@ -575,10 +595,10 @@
     <div class="foot-fine">
       <h4>Credits</h4>
       <div class="foot-fine-cols">
-        <p>xkcd comics by Randall Munroe, <a href="https://xkcd.com/license.html">CC BY-NC 2.5</a>, fetched by the device from <a href="https://xkcd.com">xkcd.com</a>. Connections puzzles are the New York Times'; CrossPlay ships none of them and downloads only what you ask for.</p>
+        <p>xkcd comics by Randall Munroe, <a href="https://xkcd.com/license.html">CC BY-NC 2.5</a>, fetched by the device from <a href="https://xkcd.com">xkcd.com</a>. Connections puzzles are the New York Times'; CrossPlay ships none of them and fetches the archive, when you ask it to, from the community mirror at <a href="https://github.com/Eyefyre/NYT-Connections-Answers">Eyefyre/NYT-Connections-Answers</a>.</p>
         <p>Hacker News comes from the public <a href="https://hn.algolia.com/api">Algolia API</a>, and opening an article sends its URL through <a href="https://r.jina.ai">r.jina.ai</a> to get readable text back, which means that third party learns what you are reading.</p>
         <p>Reading positions sync to CrossPoint's own server by default, which is upstream's infrastructure rather than ours. The address is a setting and can be pointed anywhere that speaks KOSync.</p>
-        <p>Jaipur, Insider, Murdle, Battleship, Connections, Knucklebones, Toy Battle, Yahtzee, Connect Four, Wavelength and Sea Salt &amp; Paper are trademarks of their respective owners, and D&amp;Diagrams owes its puzzle form to Zachtronics' Dungeons &amp; Diagrams. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.</p>
+        <p>Where a game on the shelf carries the name of a published game, that name is its owner's trademark and is used to say what the thing is; game mechanics are not copyrightable. D&amp;Diagrams owes its puzzle form to Zachtronics' Dungeons &amp; Diagrams, and Trivia is built from a community transcription of aired Jeopardy! clues. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of their owners. Every notice is in <a href="https://github.com/ma-r-s/crossplay/blob/xteink/THIRD-PARTY-NOTICES.md">THIRD-PARTY-NOTICES.md</a>.</p>
         <p>Type is Jersey 25 and Instrument Serif, both SIL OFL.</p>
       </div>
     </div>

@@ -1,7 +1,10 @@
 # Trivia: report a question, filter what you get, sync the pack
 
-Design for board card #257, child of #253. Nothing here is built yet. This is
-the shape, the ranked alternatives, and what each one costs.
+Design for board card #257, child of #253. Written before any of it was
+built -- the shape, the ranked alternatives, and what each one costs. It has
+since shipped: sections 1 to 12 are the design as written, and the two critic
+rounds at the end were run against the design and then against the finished
+code.
 
 Mario's words on the card are the spec. Where this document departs from them
 it says so and why.
@@ -44,8 +47,9 @@ Two things are cut that he asked about, both because the data does not exist:
 needs a format change and is deferred rather than cut.
 
 **OVERRULED, and recorded because the evidence has not changed.** A cold
-reviewer wanted the service cut from the first cut; Mario heard this and chose
-to build it anyway, which is his call and not the reviewer's. The finding stands
+critic agent wanted the service cut from the first cut; Mario heard this and
+chose to build it anyway, which is his call and not the agent's. The finding
+stands
 as a prediction worth checking later: The evidence says the service is
 premature: `tools_local/trivia/verdicts.tsv` holds **one verdict in its entire
 life**, `flags.txt` (which `docs/trivia-curation.md:165` says the device writes)
@@ -922,7 +926,7 @@ deployed** -- it goes live on a site deploy. D3b's overlay is still phase two.
 
 ## The second critic round, on the code
 
-A cold reviewer read the implementation. The headline finding is the one worth
+A cold agent read the implementation. The headline finding is the one worth
 carrying out of this whole card:
 
 **It shipped switched off, and 367 host checks could not see it.** Nothing

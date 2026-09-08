@@ -385,7 +385,7 @@ tools_local/forehead/measure.py 20 'RESET EVERYTHING'   # 309px
 
 ### The simulator takes taps in PORTRAIT coordinates, always
 
-A trap that cost a tester most of a session: `sim-shot.sh` SCALES taps from the
+A trap that cost an agent most of a session: `sim-shot.sh` SCALES taps from the
 portrait 480x800 frame onto whatever is on screen -- it does not rotate them. So
 on the landscape round and results screens,
 

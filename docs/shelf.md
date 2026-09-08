@@ -82,7 +82,7 @@ an invisible line**: past 120px it paged, inside it you were on Home. A gesture
 whose meaning flips on a boundary nothing draws cannot be made discoverable. It
 can only be moved off that axis.
 
-What that cost a cold tester, in order: they swiped back from page two, landed
+What that cost a cold agent, in order: they swiped back from page two, landed
 on Home, concluded that back meant exit, and from then on tried to reach an
 earlier page by going forward until it came round. Which it did, onto a page
 they did not notice, whose second row was a different game.
@@ -93,13 +93,13 @@ step lives where it is symmetrical. Three things fall out of that:
 - It is the axis `docs/buttons.md` already prescribes for content that
   continues downward, and the same way round as Hacker News's story list and
   the reader. Learn it once.
-- It is the first thing a hand tries on a vertical list. The tester swiped
+- It is the first thing a hand tries on a vertical list. The agent swiped
   vertically before anything else, got a byte-identical screen, and read the
   list as fixed in place.
 - **A right-to-left swipe now does nothing**, and that is the price. It used to
   page forward, and a dead gesture is its own documented failure mode here. It
   is paid because keeping it would leave the forward step with a mirror image
-  that exits, which is the asymmetry the tester reported in the first place.
+  that exits, which is the asymmetry the agent reported in the first place.
 
 Seven things follow, and each was got wrong once:
 
@@ -130,13 +130,13 @@ Seven things follow, and each was got wrong once:
   **Each mark is its page's NUMBER, in a box of its own: outlined for a page you
   are not on, filled for the one you are.** That is the same language as the
   rows above it, which is what makes an indicator read as the control it also
-  is -- two cold testers found the taps by accident and used them as their only
+  is -- two cold agents found the taps by accident and used them as their only
   reliable route, and a third never tried them and reported that the list could
   not be paged at all. A single hairline capsule around the whole cluster did
   that job first and cannot do this one: a filled cell inside a capsule of that
   radius pokes out through the curve at the two ends.
 
-  They were 10px squares, and a fourth cold tester called them "the size of a
+  They were 10px squares, and a fourth cold agent called them "the size of a
   full stop". At that size the only thing saying where you are is the difference
   between a filled square and an outlined one, which is smaller than the ink of
   one letter, at the bottom of an 800px panel, while the eyes are on the rows.
@@ -147,7 +147,7 @@ Seven things follow, and each was got wrong once:
   That matters here more than on any other list, because the folder resumes on
   the page it was left on, so **the row in position two is a different game on
   each visit** -- which makes "which page is this" the question that has to be
-  answered before any tap is safe. A cold tester did not misread the bar. They
+  answered before any tap is safe. A cold agent did not misread the bar. They
   never looked at it, tapped row two expecting TRIVIA, and got CHECKERS.
 
 - **Nothing wraps.** Forward from the last page and back from the first do
@@ -160,7 +160,7 @@ Seven things follow, and each was got wrong once:
   its rows at the same eight screen positions, so a page arrived at by accident
   is indistinguishable from the page that was wanted until something opens --
   and walking forward off the last page is the one step nobody ever means. It
-  was reached by a tester who wanted the PREVIOUS page, could not find a
+  was reached by an agent who wanted the PREVIOUS page, could not find a
   backward gesture, and pressed on hoping to come round.
 
   The old argument for the wrap was that a key which stops at the end reads as

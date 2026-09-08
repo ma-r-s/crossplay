@@ -1,7 +1,8 @@
 # The sync bridge: every device syncs, nobody runs a server
 
-Status: v1, critic-reviewed (2026-08-26; all findings below are folded in,
-not appended). Decided by Mario: the bridge is a global service on his
+Status: v1, reviewed by a critic agent (2026-08-26; all findings below are
+folded in, not appended). Decided by Mario: the bridge is a global service on
+his
 Orange Pi 5, shape A (it relays to each user's AnkiWeb, storing a session
 key, never storing the password), and the device is the ONLY sync surface.
 One product question stays open for Mario in the Website slice.

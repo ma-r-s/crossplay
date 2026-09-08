@@ -3,8 +3,9 @@
 Card #305. Mario asked twice: *"didn't we agree to have a way to select multiple
 ones at the same time and for them to cycle?"*
 
-This is the design, written before the code, revised by a cold critic before a
-line was written, and corrected afterwards where the critic proved it wrong.
+This is the design, written before the code, revised by a cold critic agent
+before a line was written, and corrected afterwards where the critic proved it
+wrong.
 Vocabulary note (#313): **rotation here means cycling through wallpapers**,
 never screen orientation.
 

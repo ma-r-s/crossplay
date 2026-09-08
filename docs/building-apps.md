@@ -89,7 +89,7 @@ skip -- once the suits were on the SDK's pipeline, swapping artwork three times
 
 ### A reviewer needs a sequence, not three pretty frames
 
-An unbiased critic was given three screenshots of Solitaire and found real
+An unbiased critic agent was given three screenshots of Solitaire and found real
 defects: clipped type, a 1px stroke against 4px pips, no spacing scale. It
 found **none** of the four bugs Mario hit within minutes of playing, because
 every one of them lives in a state no still frame contained: a _selected_ card
@@ -753,7 +753,7 @@ looks -- the Home gesture and deep sleep both replace the activity, and
 still loses everything to a panic, a watchdog reset or a flat battery, and it
 makes what survives depend on which fields that one function happens to
 serialise. WAVELENGTH shipped an `onExit()` that dutifully wrote the all-time
-record and nothing about the round in progress, so a cold tester pressed Home
+record and nothing about the round in progress, so a cold agent pressed Home
 one key from Back and lost the round, the hidden number and the session score.
 Fixing `onExit()` would not have helped; the round had never been written down.
 

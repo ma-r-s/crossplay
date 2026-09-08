@@ -92,7 +92,7 @@ Two things about it are load-bearing:
 
 ## What the critics found
 
-Two cold reviewers, one on the rules and one on the look, after the game was
+Two cold review agents, one on the rules and one on the look, after the game was
 "finished". Recorded because the pattern is more useful than the list.
 
 The rules critic found three defects and four holes, and proved every one by
