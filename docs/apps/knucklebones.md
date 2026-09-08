@@ -1,8 +1,9 @@
 # Knucklebones
 
 The dice game from Cult of the Lamb. Two players, a three by three grid each,
-one die. It is the ninth game in this fork and the first built to find out what
-a repeatable game cycle actually needs, rather than to guess at it.
+one die. It was the first game built to find out what a repeatable game cycle
+actually needs, rather than to guess at it, which is where
+`docs/games-at-scale.md` came from.
 
 ## The rules, exactly
 

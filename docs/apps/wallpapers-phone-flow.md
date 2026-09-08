@@ -1,8 +1,13 @@
 # Wallpapers: from a picture on a phone to the sleep screen
 
+**Shipped in 1.12.41** ("Wallpapers: scan a code, pick a photo on your phone,
+and it is on the reader"). What follows is the design as written, in the present
+tense of the day it was drafted. `wallpapers-shuffle.md` covers the picker's
+other half, choosing a set; the two overlap where this one reaches Part 2.
+
 Design for card #349, revised after a cold critic agent. Covers three things
-Mario
-asked for in one conversation on 2026-09-05, which are one design and not three:
+Mario asked for in one conversation on 2026-09-05, which are one design and not
+three:
 
 1. Replacing the "+ Add a wallpaper" screen. It currently tells you to go to a
    website **on a computer** and copy a file across with File Transfer. He was
