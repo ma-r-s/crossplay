@@ -253,8 +253,12 @@ grep -q '<dialog[^>]*id="report-dialog"' "$HTML" && ok || bad "#report-dialog in
 grep -q 'id="report-open"' "$HTML" && ok || bad "index.html has no #report-open button"
 grep -q 'id="report-open"[^>]*data-report-open' "$HTML" && ok || bad "#report-open does not carry data-report-open, so report.js will not wire it"
 grep -q '\[data-report-open\]' "$REPORTJS" && ok || bad "report.js never looks for [data-report-open], so nothing opens the dialog"
-# Both pages mount the form and load the script and its stylesheet.
-for p in "$HTML" "$REPORTPAGE"; do
+# Found, not listed, for the same reason the .topbar loop is: a third page that
+# mounts the form must load the script and the stylesheet too, and nobody will
+# remember to add it here.
+form_pages="$(grep -rl 'data-report-mount' "$ROOT/site" --include='*.html' | sort)"
+[ -n "$form_pages" ] && ok || bad "no page in site/ mounts the report form"
+for p in $form_pages; do
   rel="${p#"$ROOT"/}"
   grep -q 'data-report-mount' "$p" && ok || bad "$rel has nowhere to mount the report form"
   grep -qE 'src="/?assets/report\.js"' "$p" && ok || bad "$rel does not load assets/report.js"
@@ -515,7 +519,7 @@ done
 # display:none at every width and the bar overflowed -- and it was invisible
 # here because this loop named two files by hand. A page that draws a .topbar
 # and is not in this list is the bug, so the list is the grep.
-topbar_pages="$(grep -rl 'class="topbar"' "$ROOT/site" --include='*.html' | sort)"
+topbar_pages="$(grep -rlE 'class="[^"]*\btopbar\b' "$ROOT/site" --include='*.html' | sort)"
 [ -n "$topbar_pages" ] && ok || bad "no page in site/ draws a .topbar, which cannot be right"
 for p in $topbar_pages; do
   rel="${p#"$ROOT"/}"

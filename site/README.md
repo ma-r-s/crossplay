@@ -8,8 +8,9 @@ http.server`. **Looking at it** below says why.
 
 One exception, and it is deliberate: `api/firmware.js`, the Vercel function
 that exists so the Install button can work at all. It is not the only function
-in `site/api/`, but it is the only one the page cannot do without. See **The
-Install button** below before touching it.
+in `site/api/` -- `/report/` is nothing without `report.js`, and the inbox
+nothing without `inbox.js` -- but it is the one the FRONT page cannot do
+without. See **The Install button** below before touching it.
 
 ## When it deploys, and when it does not
 

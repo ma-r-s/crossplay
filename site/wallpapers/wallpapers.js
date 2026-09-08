@@ -228,5 +228,6 @@ another.addEventListener("click", () => {
 // live here "so the page works on its own"; it toggled .is-open but never
 // added .has-menu, which is the class every mobile rule in styles.css is
 // scoped to. The button was display:none at every width and INSTALL THE
-// FIRMWARE went back to 49px of text in a 50px bar -- the regression the
-// shared menu exists to prevent.
+// FIRMWARE was 49px of text in a 50px bar. Not a regression: this page was
+// created hours after topnav.js and shipped with the stripped copy already in
+// it, so the bar it prevents was never prevented here.

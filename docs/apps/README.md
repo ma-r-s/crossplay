@@ -105,5 +105,7 @@ edited.
 Battleship, Connections, Solitaire, Insider, Hacker News, xkcd, Wallpapers and
 Get Books. Some have auxiliary records here (a format, a plan, a flow) and Get
 Books has nothing at all; none has a file saying what the app is. That is a gap
-rather than a decision, and the number is checkable: every name in
-`Shelf.cpp`'s `kGames` and `kApps` should have a row somewhere above.
+rather than a decision. To check the number, read `Shelf.cpp`'s `kGames` and
+`kApps` against the two sections above that say what a thing IS -- "What an app
+is" and "The rules a game implements". A format or a plan is not a doc for the
+app, which is the whole point of the gap.
