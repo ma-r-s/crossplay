@@ -1,9 +1,9 @@
 # Minesweeper
 
-Eight by ten with ten mines. The eleventh game in this fork, and the second run
-of the build cycle -- chosen because it is the least like the game that cycle was
-written from, which is the only way to find out whether a method generalises or
-just describes one case.
+Eight by ten with ten mines. It was the second game built through the cycle in
+`docs/games-at-scale.md`, chosen because it is the least like the game that
+cycle was written from: the only way to find out whether a method generalises
+or just describes one case.
 
 ## The rules, and the two that are built in
 
