@@ -201,6 +201,18 @@ else
   while IFS= read -r line; do echo "      $line"; done <<< "$report_out"
 fi
 
+# api/latest.js is where a device's update check becomes a count on the
+# board, and where a bad header must be ignored rather than trusted. Same
+# harness as report_fn.js: node, GitHub and the board stubbed.
+if latest_out="$(node "$HERE/latest_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$latest_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "latest_fn: $line"; done < <(printf '%s\n' "$latest_out" | grep '^  FAIL'); }
+else
+  bad "latest_fn.js could not run, so api/latest.js went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$latest_out"
+fi
+
 # The inbox page looks its controls up by id inside its own file. Same failure
 # as install.js: a renamed id renders fine and does nothing.
 P="$ROOT/site/inbox/index.html"

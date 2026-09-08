@@ -1,8 +1,10 @@
 // The device report's rules, tested rather than trusted. See DeviceReportCore.h.
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 #include "DeviceReportCore.h"
+#include "ReleaseSources.h"
 
 namespace {
 
@@ -376,6 +378,19 @@ void testIsOwnHost() {
   check(!devreport::isOwnHost(nullptr), "null is not ours");
 }
 
+// The update check asks the site first and GitHub second (ReleaseSources.h):
+// the first source is one the device reports to, so a check counts it on the
+// board; the second is not, and is the fallback that keeps OTA alive.
+void testReleaseSources() {
+  check(release_sources::kCount == 2, "two sources: the site, then github");
+  check(devreport::reportsTo(true, release_sources::kUrls[0]), "the first source is ours: the check is counted");
+  check(!devreport::reportsTo(true, release_sources::kUrls[1]),
+        "the second source is not: the fallback reports nothing");
+  check(std::string(release_sources::kUrls[0]) == "https://crossplay.ma-r-s.com/api/latest", "the site's /api/latest");
+  check(std::string(release_sources::kUrls[1]) == "https://api.github.com/repos/ma-r-s/crossplay/releases/latest",
+        "github's releases/latest, exactly what the check asked before");
+}
+
 void testReportsTo() {
   check(devreport::reportsTo(true, "https://books.ma-r-s.com/opds"), "on, our host: report");
   check(devreport::reportsTo(true, "https://sync.ma-r-s.com/api/sync"), "on, the sync bridge: report");
@@ -553,6 +568,7 @@ int main() {
   testHostOf();
   testIsOwnHost();
   testReportsTo();
+  testReleaseSources();
   testDelivered();
   testCrashMessage();
   testToggle();

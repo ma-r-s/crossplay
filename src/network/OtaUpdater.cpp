@@ -17,6 +17,7 @@
 
 #include "FirmwareBoardTag.h"
 #include "FirmwareFlasher.h"
+#include "ReleaseSources.h"
 
 namespace {
 // This fork's releases, not upstream's. Left pointing at CrossPoint, "check for
@@ -25,7 +26,6 @@ namespace {
 // the X4 and X3, which are ESP32-C3; this fork's devices (X4 Pro, Sticky) are
 // S3. Upstream added a guard against exactly that (crosspoint-reader#2880),
 // which says how it ends without one.
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/ma-r-s/crossplay/releases/latest";
 }  // namespace
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
@@ -36,7 +36,12 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   // on top of the TLS session's heap during the fetch; with -fno-exceptions an
   // OOM there aborts. fetchUrl handles the verified-https GET, redirects, and
   // User-Agent (see HttpDownloader).
-  ReleaseJsonParser releaseParser;
+  //
+  // Sources in order: the site, which counts the device and answers with
+  // GitHub's JSON verbatim, then GitHub itself when the site does not answer
+  // or answers nothing with a tag in it (ReleaseSources.h says why). One
+  // parser per attempt: a half-fed parser is not reset by feeding it more.
+  //
   // FORK CHANGE: upstream suffixes the asset per board (firmware-x4pro.bin)
   // because one release feeds many devices. This fork's x4pro asks for the
   // literal "firmware.bin": every unit in the field since v1.0.0 asks for
@@ -47,30 +52,51 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   // one; CROSSPOINT_RELEASE_ASSET in FirmwareBoardTag.h encodes both rules,
   // and host-tests/release pins the workflow to whatever each device asks
   // for.
-  releaseParser.setFirmwareAssetName(CROSSPOINT_RELEASE_ASSET);
-  const bool ok = HttpDownloader::fetchUrl(latestReleaseUrl, [&releaseParser](const uint8_t* data, size_t len) {
-    releaseParser.feed(reinterpret_cast<const char*>(data), len);
-    return true;
-  });
-  if (!ok) {
+  bool fetched = false;
+  bool tagged = false;
+  bool hasFirmware = false;
+  std::string tag;
+  std::string firmwareUrl;
+  size_t firmwareSize = 0;
+  for (const char* source : release_sources::kUrls) {
+    ReleaseJsonParser parser;
+    parser.setFirmwareAssetName(CROSSPOINT_RELEASE_ASSET);
+    const bool ok = HttpDownloader::fetchUrl(source, [&parser](const uint8_t* data, size_t len) {
+      parser.feed(reinterpret_cast<const char*>(data), len);
+      return true;
+    });
+    if (!ok) {
+      LOG_INF("OTA", "Release check via %s failed; next source", source);
+      continue;
+    }
+    fetched = true;
+    LOG_DBG("OTA", "Parser results from %s: tag=%s firmware=%s", source, parser.foundTag() ? "yes" : "no",
+            parser.foundFirmware() ? "yes" : "no");
+    if (!parser.foundTag()) {
+      LOG_INF("OTA", "No tag_name from %s; next source", source);
+      continue;
+    }
+    tagged = true;
+    hasFirmware = parser.foundFirmware();
+    tag = parser.getTagName();
+    firmwareUrl = parser.getFirmwareUrl();
+    firmwareSize = parser.getFirmwareSize();
+    break;
+  }
+  if (!fetched) {
     LOG_ERR("OTA", "Release check fetch failed");
     return HTTP_ERROR;
   }
-
-  LOG_DBG("OTA", "Parser results: tag=%s firmware=%s", releaseParser.foundTag() ? "yes" : "no",
-          releaseParser.foundFirmware() ? "yes" : "no");
-
-  if (!releaseParser.foundTag()) {
+  if (!tagged) {
     LOG_ERR("OTA", "No tag_name in release JSON");
     return JSON_PARSE_ERROR;
   }
-
-  if (!releaseParser.foundFirmware()) {
+  if (!hasFirmware) {
     LOG_INF("OTA", "No " CROSSPOINT_RELEASE_ASSET " asset in latest release");
     return NO_UPDATE;
   }
 
-  latestVersion = releaseParser.getTagName();
+  latestVersion = tag;
   // Tags carry a v prefix ("v1.3.3"); CROSSPOINT_VERSION does not ("1.3.3").
   // Comparing them raw meant isUpdateNewer()'s sscanf choked on the 'v' and
   // compared uninitialized ints -- every install since v1.0.0 rode on that
@@ -79,8 +105,8 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   if (!latestVersion.empty() && (latestVersion[0] == 'v' || latestVersion[0] == 'V')) {
     latestVersion.erase(0, 1);
   }
-  otaUrl = releaseParser.getFirmwareUrl();
-  otaSize = releaseParser.getFirmwareSize();
+  otaUrl = firmwareUrl;
+  otaSize = firmwareSize;
   totalSize = otaSize;
   updateAvailable = true;
 
