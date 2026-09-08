@@ -1126,17 +1126,21 @@ def cmd_tree(st, a):
             print(f"{tree}: no record to release")
             return
         me_sid = norm_sid(getattr(a, "session", None) or os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
-        if actor_session(rec["actor"]) != me_sid and tree_in_use(st.root, tree, rec):
+        # A record whose directory is gone holds nothing: the lease its holder
+        # keeps renewing guards an empty path. 34 such records sat on the board
+        # the day prune first asked it (2026-09-07), every one still "LIVE".
+        gone = not (st.root / tree).is_dir()
+        if not gone and actor_session(rec["actor"]) != me_sid and tree_in_use(st.root, tree, rec):
             sys.exit(f"board: {tree} is in use by {rec['actor']}; only that session releases it, or wait for its lease")
         clear_tree_record(st.root, tree)
         try:
             with st.lock():
                 c = st.get_card(rec.get("card"))
-                card_history(st, c, f"{tree} released (record cleared)")
+                card_history(st, c, f"{tree} released (record cleared" + (", its directory was already gone" if gone else "") + ")")
                 st.save_card(c)
         except (SystemExit, TypeError):
             pass
-        print(f"{tree}: released")
+        print(f"{tree}: released" + (" (no such directory; the record was all that was left)" if gone else ""))
         return
     gate = tree_gate_pid(st.root, tree)
     reasons = tree_quiescence(st.root, tree)
@@ -1163,7 +1167,7 @@ def cmd_trees(st, a):
         if c["state"] in SETTLED or not c.get("tree") or not c.get("session"):
             continue
         tree = c["tree"] if str(c["tree"]).startswith("wt/") else f"wt/{tree_name(c['tree'])}"
-        if tree_record(st.root, tree):
+        if tree_record(st.root, tree) or not (st.root / tree).is_dir():
             continue
         if a.seed:
             write_tree_record(st.root, tree, {
@@ -1172,6 +1176,10 @@ def cmd_trees(st, a):
             })
         made += 1
     print(f"{made} tree record(s) {'written' if a.seed else 'missing (run with --seed to write them)'}")
+    d = st.root / ".board" / "trees"
+    gone = sorted(p.name[:-5] for p in d.glob("*.json") if not (st.root / "wt" / p.name[:-5]).is_dir()) if d.is_dir() else []
+    if gone:
+        print(f"{len(gone)} record(s) name a tree that no longer exists (board tree <name> --release clears one): " + ", ".join(gone))
 
 
 def _block(st, cid, need, ask, default, by, steps=None):

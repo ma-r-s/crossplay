@@ -49,7 +49,10 @@ answers>'`. Never forward a worker's wording; write the three lines
    into `wt/<name>` like anyone else's, since a sweep from this seat once
    committed another worker's diff. Take a tree with `board bind ... --take`
    (it must be quiescent, or its session ended) or leave it. `board tree
-   <name>` before any prune. The day this lands: `board trees --seed` once,
+   <name>` before any prune. `wt.sh drop` and `prune` clear the record of
+   a tree they remove; `board trees` names any record whose tree is already
+   gone, and `board tree <name> --release` clears one whoever held it, since
+   a directory that no longer exists is nobody's. The day this lands: `board trees --seed` once,
    so every open card's tree gets a record and live workers are not refused
    from their own trees; a subagent then rebinds itself on its first refusal.
    Before a batch, `python3 tools_local/board/overlap.py`: two open pull

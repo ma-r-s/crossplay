@@ -129,6 +129,18 @@ cmd_list() {
   done
 }
 
+# The board's record of who held a tree outlives the directory unless
+# somebody clears it: on 2026-09-07, the first day prune asked the board, 34
+# records named trees that no longer existed, each still renewed by its
+# holder's tool calls. A tree that is gone is nobody's, so drop and prune
+# clear its record themselves, right after the directory goes.
+release_record() {
+  local boardpy="$INTEGRATION/tools_local/board/board.py"
+  [ -f "$boardpy" ] || return 0
+  python3 "$boardpy" tree "$1" --release >/dev/null 2>&1 ||
+    echo "note: the board still records a holder for $1 (python3 $boardpy tree $1 --release)" >&2
+}
+
 cmd_drop() {
   local name="${1:-}"
   [ -n "$name" ] || die "usage: wt.sh drop <name>"
@@ -153,6 +165,7 @@ cmd_drop() {
 
   git -C "$INTEGRATION" worktree remove --force "$dir" || die "worktree remove failed"
   git -C "$INTEGRATION" branch -D "$branch" 2>/dev/null
+  release_record "$name"
   echo "dropped $name"
 }
 
@@ -210,6 +223,7 @@ cmd_prune() {
     else
       git -C "$INTEGRATION" worktree remove --force "$d" >/dev/null 2>&1 || { echo "could not remove $name" >&2; kept=$((kept + 1)); continue; }
       git -C "$INTEGRATION" branch -D "$branch" >/dev/null 2>&1
+      release_record "$name"
       echo "dropped $name ($branch: merged, clean)"
     fi
     dropped=$((dropped + 1))

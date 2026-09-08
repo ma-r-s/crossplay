@@ -628,6 +628,16 @@ board state "$GONE2" done >/dev/null
 board bind "$GONE" --session held-f --tree wt/gone >/dev/null 2>&1
 board tree gone --release --session held-f | grep -q "released" && ok "the holder releases its tree" || bad "release refused the holder"
 [ -e "$ROOT/.board/trees/gone.json" ] && bad "release left the record" || ok "and the record is gone"
+# A record whose DIRECTORY is gone guards nothing, however live its lease: the
+# holder's tool calls keep renewing it after wt.sh removed the tree. 34 such
+# records, all LIVE, sat on the board the first day prune asked it.
+python3 - "$ROOT/.board/trees/vanished.json" <<'PY2'
+import json, sys, time
+json.dump({"tree": "wt/vanished", "card": 0, "actor": "held-q:main", "session": "held-q", "agent": "main", "bound_at": "x", "gen": 1}, open(sys.argv[1], "w"))
+PY2
+board trees | grep -q "no longer exists.*vanished" && ok "board trees names a record whose tree is gone" || bad "board trees hid the gone record: $(board trees)"
+board tree vanished --release --session held-z | grep -q "released (no such directory" && ok "a record with no directory is released by anyone, lease or not" || bad "release of a gone tree refused a stranger"
+[ -e "$ROOT/.board/trees/vanished.json" ] && bad "the gone record survived" || ok "and it is gone"
 board trees | grep -q "missing" && ok "board trees counts open cards with a tree and no record" || bad "board trees said nothing"
 board trees --seed | grep -q "written" && ok "--seed writes the missing records (the rollout step)" || bad "--seed wrote nothing"
 { board tree gone 2>&1 || true; } | grep -q "held by held-f:main" && ok "a seeded record names the session's conversation" || bad "seeded record wrong: $(board tree gone 2>&1 | head -1)"
