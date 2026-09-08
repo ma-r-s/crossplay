@@ -167,6 +167,33 @@ def budget_of(spec):
     return None, "unresolved"
 
 
+def macro_is_wired(spec):
+    """Is the macro this budget is read from actually compiled into the task?
+
+    Reading -D<spec> out of platformio.ini says what the flag is SET to, never
+    that anything consumes it. For the whole of v1.12.45 the flag said 16384,
+    this gate printed "9520 of 16384, headroom 6864" on every CI run, and
+    xTaskCreatePinnedToCore was passed a literal 8192 -- because a sync had
+    taken upstream's copy of ActivityManager.cpp wholesale and dropped the
+    fork's override with it. Study and xkcd then panicked on the first repaint
+    of their own header, and this gate was green the entire time.
+
+    So: a use has to exist. Definition lines and comments do not count, because
+    the dead state has both of those and nothing else.
+    """
+    for src in list(pathlib.Path("src").rglob("*.cpp")) + list(
+        pathlib.Path("src").rglob("*.h")
+    ):
+        for line in src.read_text(errors="replace").splitlines():
+            code = re.sub(r"//.*|/\*.*?\*/", "", line).strip()
+            if spec not in code:
+                continue
+            if re.match(rf"#\s*(ifndef|ifdef|define|undef|if)\b", code):
+                continue
+            return True, str(src)
+    return False, None
+
+
 def match(needle, pretty, frames):
     """Symbols whose readable signature contains `needle`, worst frame first."""
     hits = [sym for sym, name in pretty.items() if needle in name]
@@ -204,6 +231,18 @@ def main():
             print(f"  ?  {task:<24} stack {budget_spec!r} could not be resolved")
             failed = True
             continue
+        if isinstance(budget_spec, str) and budget_src == "platformio.ini":
+            wired, site = macro_is_wired(budget_spec)
+            if not wired:
+                print(
+                    f"  !! {task:<24} {budget_spec} is set to {budget} in "
+                    f"platformio.ini and NOTHING IN src/ USES IT, so the "
+                    f"firmware runs on the #ifndef default and every number "
+                    f"below would be measured against a stack this task does "
+                    f"not have. Pass {budget_spec} to the task's create call."
+                )
+                failed = True
+                continue
         found = match(entry, pretty, frames)
         if not found:
             # Not a warning. A task whose entry is missing is a task this run

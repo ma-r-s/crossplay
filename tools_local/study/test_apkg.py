@@ -104,18 +104,33 @@ def main():
             f"anki_to_deck failed on the unwrapped export:\n{result.stdout}\n{result.stderr}",
         )
         ok(
-            "33 cards" in result.stdout,
-            f"expected 33 converted cards in:\n{result.stdout}",
+            "34 cards" in result.stdout,
+            f"expected 34 converted cards in:\n{result.stdout}",
         )
         ok(
-            "1 skipped" in result.stdout,
-            f"expected the cloze note skipped in:\n{result.stdout}",
+            "0 skipped" in result.stdout,
+            f"expected nothing skipped in:\n{result.stdout}",
         )
 
         notes = dict(check_deck.read_deck(deck_out / "deck.dat"))
-        ok(len(notes) == 33, f"deck.dat holds {len(notes)} notes, wanted 33")
+        ok(len(notes) == 34, f"deck.dat holds {len(notes)} notes, wanted 34")
         headwords = {fields[0] for fields in notes.values()}
         ok("incontrovertible" in headwords, "a known headword is missing from deck.dat")
+
+        # The cloze note is a card now, and it is a card with a hole: the
+        # question face must not contain the word the answer face reveals.
+        cloze_notes = [f for f in notes.values() if len(f) > 7 and f[7]]
+        ok(len(cloze_notes) == 1, f"expected one cloze card, got {len(cloze_notes)}")
+        question, answer = cloze_notes[0][7], cloze_notes[0][4]
+        ok(
+            "ubiquitous" not in question,
+            f"the cloze question face gives away its answer: {question!r}",
+        )
+        ok("[...]" in question, f"the cloze question has no hole: {question!r}")
+        ok(
+            "ubiquitous" in answer,
+            f"the cloze answer face does not fill the hole: {answer!r}",
+        )
 
         # The Barron's-shaped note type: field NAMES must win over position,
         # or every answer face reads "V." instead of the definition.
@@ -136,9 +151,17 @@ def main():
 
         # Scheduling state survived the export + convert round trip.
         cards = (deck_out / "cards.dat").read_bytes()
-        ok(len(cards) == 33 * 32, f"cards.dat is {len(cards)} bytes, wanted {33 * 32}")
+        # Derived from the notes, not repeated as a literal: cards.dat is
+        # indexed BY note index (StudyDeck::loadCard reads index * 32), so one
+        # record per deck.dat entry is the actual invariant. Written as "33"
+        # here it silently went stale the moment cloze added a card, and the
+        # count had already been updated in the two places above.
+        ok(
+            len(cards) == len(notes) * 32,
+            f"cards.dat is {len(cards)} bytes, wanted {len(notes) * 32} for {len(notes)} notes",
+        )
         with_state = 0
-        for i in range(33):
+        for i in range(len(notes)):
             stability = struct.unpack_from("<f", cards, i * 32 + 8)[0]
             if stability > 0:
                 with_state += 1
@@ -215,9 +238,15 @@ def main():
             result.returncode == 0,
             f"legacy conversion failed:\n{result.stdout}\n{result.stderr}",
         )
+        # Tied to the modern package's own count rather than repeated as a
+        # literal. Both halves of this test convert the SAME fixture deck
+        # through the same pipeline, so any number that is right for one is
+        # right for the other -- and a literal here went stale on its own when
+        # cloze turned the "1 skipped" note into a card.
         ok(
-            "33 cards" in result.stdout and "1 skipped" in result.stdout,
-            f"legacy conversion counts wrong:\n{result.stdout}",
+            f"{len(notes)} cards" in result.stdout and "0 skipped" in result.stdout,
+            f"legacy conversion counts wrong, wanted {len(notes)} cards and nothing "
+            f"skipped:\n{result.stdout}",
         )
         ok(
             "learn [1.0, 10.0]" in result.stdout,

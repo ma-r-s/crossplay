@@ -77,15 +77,49 @@ them:
   `sentenceReading`, `sentenceMeaning`.
 
 - **HSK / HSK+ / Basic+** have full built-in profiles (all seven slots).
-- **Cloze decks do not convert.** The front of a cloze card is text with a
-  hole in it, and this card format has nowhere to put a hole. Cloze stays in
-  Anki.
+- **Cloze notes** convert, one card per hole, exactly as Anki generates them.
+  The question face is the note's text with this card's hole shown as `[...]`
+  -- or as the hint, when the note wrote one -- and every *other* hole filled
+  in, because those are context this card is not testing. The answer face
+  fills the hole and underlines it. Back Extra, if the note type has one,
+  goes under a rule beneath the answer.
 
-The supported scripts are English (anything the built-in Latin face covers)
-and Chinese. Other scripts -- Korean, Arabic, Cyrillic and the rest -- are out
-of scope: nothing stops the converter, but nobody has made the fonts or the
-text layout right for them, and setup will warn about every character the
-built-in face cannot draw rather than pretend.
+  Two holes sharing an ordinal (`{{c1::Berlin}} is the capital of
+  {{c1::Germany}}`) are one card with two holes, again as in Anki. A card
+  whose hole is no longer in the text is dropped and counted -- that is what
+  Anki calls an *empty card*, and deletes under **Tools > Empty Cards**.
+
+  Cloze cards are drawn in the sentence face rather than the big headword
+  face: a hole belongs in the sentence it was cut from, and a paragraph at
+  headword size fits about four words on the screen.
+
+### Which scripts work
+
+**English, Chinese, Japanese and Korean.**
+
+- **Chinese** needs the CJK faces from your Anki media folder (below), or any
+  TTF via `--font`.
+- **Japanese** works the same way, with one addition: **furigana is drawn as
+  ruby**, the reading set above the word in a smaller cut of the same face.
+  Anki's ` 漢字[かんじ]` syntax is understood wherever it appears, and the
+  Japanese Support add-on's Expression / Reading / Meaning note type is
+  handled as Anki's own template handles it -- the furigana lives in the
+  Reading field, and that is the form the headword is drawn from. Slots drawn
+  in the built-in serif get the readings alone or the kanji alone, exactly as
+  `{{kana:}}` and `{{kanji:}}` would.
+- **Korean** needs a Korean TTF via `--font`. (Hangul used to be treated as
+  Latin, which sent it to the built-in face -- 1070 glyphs and no Hangul -- so
+  a Korean deck converted with no error and no readable card. Fixed.)
+
+Arabic and Hebrew are out of scope for a reason worth stating: they need
+bidirectional layout and contextual shaping, and the renderer has neither. A
+right-to-left script drawn left to right is not a degraded card, it is a wrong
+one. Cyrillic, Greek, Devanagari and Thai are simply not done. Setup names any
+script it cannot draw rather than letting it arrive as a screen of nothing.
+
+Line breaking follows the script: between characters for Chinese and
+Japanese, with the leading half of kinsoku (a line never opens with 。 or a
+closing bracket), and at spaces for Korean and English.
 
 Scheduling state comes along: a card due in 21 days in Anki is due in 21 days
 on the reader, with the same stability and difficulty. New decks start fresh,
@@ -93,7 +127,7 @@ exactly as they would in Anki.
 
 ### Fonts
 
-- **A Chinese deck** needs real CJK faces. The converter builds
+- **A Chinese or Japanese deck** needs real CJK faces. The converter builds
   them from the TTFs in your Anki media folder -- `_simsun.ttf`, `_simhei.ttf`,
   `_msyahei.ttf`, `_kaiti.ttf`, `_fangsong.ttf` -- and the reader randomises
   the typeface per card, which stops you learning the shape of one font instead
@@ -111,6 +145,12 @@ exactly as they would in Anki.
   The size is fitted to the deck: the face is built as large as the longest
   word allows, so an English deck's `incontrovertible` fits where a Chinese
   deck's four characters would.
+
+- **A deck with furigana** gets a third, smaller cut of the same face, built
+  from the readings alone -- about a hundred kana, not the deck's whole
+  character set at a third size. Only a deck that has furigana in it pays for
+  this. A card whose fonts predate the ruby cut draws the base text and loses
+  the reading, rather than losing the sentence.
 
 - A card whose text the installed fonts cannot draw falls back to the built-in
   face on its own, per card. A wrong font install can look plain; it cannot
@@ -169,10 +209,56 @@ export.
   The times on the buttons are computed the same way Anki computes them.
 - **UNDO** (footer, question side) takes back the last answer -- one level,
   during the session.
-- **PHOTO** (header, answer side) shows the card's sentence image full screen,
-  when it has one. Tap to come back.
+- **PHOTO** (header, answer side) shows the card's picture full screen, when
+  it has one -- the first `<img>` on the note, in whichever field it sits.
+  Tap to come back.
 - The deck screen shows the last two weeks, today's due count, retention, and
   the streak.
+
+## Moving a card from another build
+
+Card text is rebuilt from Anki on every conversion. **Your practice is not in
+the card text.** It is in two files, and both are keyed by Anki card id rather
+than by position or by content:
+
+| | |
+| --- | --- |
+| `deck.dat`, `meta.dat`, `glyphs-*.txt`, `fonts/` | Card text, parameters, faces. Rewritten every conversion. |
+| `cards.dat` | Scheduling state -- each record carries the Anki card id it belongs to. |
+| `revlog.dat` | Every review, keyed by card id and the millisecond it was answered, which is Anki's own revlog primary key. |
+
+`deck_to_anki.py` reads only the last two, and reads them by card id: it never
+opens `deck.dat` at all. So days of practice done on a card written by a
+different build -- another branch, an older release, someone else's fork --
+carry over without that build's field layout, note order, fonts or rendering
+mattering in the slightest. The cards may look different afterwards. The
+schedule will not be.
+
+Check the card first, because the next step writes into your collection:
+
+```bash
+./tools_local/study/inspect_deck.py /Volumes/SDCARD/study/<deck> \
+    --collection ~/…/collection.anki2
+```
+
+It reports what wrote the card and how much practice is on it, and validates
+every record before it says anything is safe. The failure it exists for is a
+build whose records are a different size: the byte count still divides evenly,
+every field is then read from the wrong offset, and the replay cannot tell
+that from a strange review. It exits non-zero and says so rather than letting
+that reach Anki.
+
+Then, with Anki closed:
+
+```bash
+./tools_local/study/deck_to_anki.py /Volumes/SDCARD/study/<deck> ~/…/collection.anki2
+./tools_local/study/study.py setup --replace
+```
+
+The first replays the practice into Anki; the second rebuilds the deck with
+this build's converter, and the scheduling state comes back out of Anki with
+your days of work in it. The replay is idempotent, so running it twice applies
+nothing the second time.
 
 ## When something looks wrong
 
@@ -180,20 +266,30 @@ export.
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | "No deck on the card yet" on the reader  | The card has no converted deck. Run `study.py setup`.                                                                                           |
 | A headword draws in the small plain face | The installed fonts cannot draw that card, so it fell back. Re-run `setup` (it rebuilds fonts that no longer cover the deck), or pass `--font`. |
-| `no convertible cards` during setup      | Cloze-only deck, or a note type whose first field is empty. Use `--map` to name the right fields.                                               |
+| Japanese readings appear beside the word, not above it | The deck has no ruby cut. Re-run `setup`, or `make_fonts.py`, after a conversion that reported a `ruby` glyph count. |
+| Korean draws as blank | An older card, converted before Hangul was classified correctly. Re-run `setup`; the fonts are rebuilt with the `hangul` interval. |
+| `no convertible cards` during setup      | A note type whose first field is empty, or a deck whose cloze cards are all empty ones. Use `--map` to name the right fields.                   |
 | Sync says Anki is running                | Quit Anki and re-run. `--force` exists but means two writers.                                                                                   |
 | Word and meaning came out swapped        | The converter guessed fields by order. Re-run setup with `--map headword=... --map meaning=...`.                                                |
 | Reviews look doubled in Anki             | They cannot: replay is keyed by review timestamp, and rows that already exist are skipped. Run `sync` as often as you like.                     |
+| A card from another build shows no deck   | Its `deck.dat` is a format this firmware does not read, which is harmless: run `inspect_deck.py`, replay the progress, and re-convert. See "Moving a card from another build".               |
 
 ## What is deliberately not here
 
 - **Editing, adding, custom study, browsing** -- Anki does these better on a
   screen with a keyboard.
 - **Audio** -- the device has no speaker.
+- **Typing the answer** (`{{type:Field}}`) -- there is no keyboard, and a
+  soft one on an 800x480 panel that takes a second to redraw is not one
+  either. The card shows as an ordinary question and answer.
 - **A second level of undo** -- the state before the previous review is not
   kept.
 
 ## Under the hood
+
+What of Anki converts, what converts in a reduced form, and what is
+deliberately left behind -- with the reason in each case -- is
+[study-anki-compatibility.md](study-anki-compatibility.md).
 
 The on-card format, the FSRS implementation and its Anki-agreement tests, and
 the sync mechanics are documented in

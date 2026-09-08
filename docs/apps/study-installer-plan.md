@@ -25,7 +25,7 @@ no installs, no terminal, no addons:
    own cards on the rendered device before anything is written.
 4. **Honest flagging**: every character the fonts cannot draw is listed with
    the cards it lives in (check_deck's logic, given a face). Long words are
-   fitted, cloze is refused with the reason.
+   fitted, an empty cloze card is dropped with the reason.
 5. **Write to card.** Browsers without File System Access get a zip and a
    sentence about where to unpack it.
 6. **Sync back (interim loop)**: the page reads revlog.dat from the card and

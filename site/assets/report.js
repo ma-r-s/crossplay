@@ -22,6 +22,13 @@
 (function () {
   "use strict";
 
+  // Kept in step with api/report.js by hand, the way the version placeholder
+  // is not: a second spelling of one rule is the usual way two answers to the
+  // same question appear, and here disagreeing would mean the page sending an
+  // address the function then refuses.
+  var MAX_EMAIL = 200;
+  var EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
+
   var TEMPLATE = `
 <form class="report-form" id="report-form" novalidate>
   <div class="report-row report-choices">
@@ -56,7 +63,7 @@
     <div class="report-field">
       <label class="report-label" for="report-email">Your email <small>(optional)</small></label>
       <input type="email" id="report-email" name="email" autocomplete="email" placeholder="you@example.com">
-      <p class="report-hint">Only if you want a reply.</p>
+      <p class="report-hint">Only to reply about this report. Nothing else.</p>
     </div>
   </div>
 
@@ -235,6 +242,21 @@
         form.querySelector('input[name="device"]').focus();
         return;
       }
+      // Caught here rather than by the function, because the function's only
+      // way to say no is a 400 that files nothing: the text survives in the
+      // box, but the refusal lands in the status line at the foot of a long
+      // form, nowhere near the field it is about, and somebody who came to
+      // report a bug leaves having filed none. Same cap and same expression as
+      // api/report.js so the two cannot disagree about what an address is.
+      var addr = email.value.trim().slice(0, MAX_EMAIL);
+      if (addr && !EMAIL.test(addr)) {
+        say(
+          "That email does not look right. Fix it, or clear it to send without one.",
+          true,
+        );
+        email.focus();
+        return;
+      }
       send.disabled = true;
       say("Sending...");
       var body = {
@@ -242,7 +264,7 @@
         what: text,
         device: picked.join(","),
         version: version.value.trim(),
-        email: email.value.trim(),
+        email: addr,
         app: app.value,
         website: website.value,
       };

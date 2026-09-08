@@ -258,7 +258,11 @@ def convert(deck_name, mapping):
     except Exception:
         per_day = None
     images_packed = re.search(r"images: (\d+) packed", images_log)
-    cloze_line = re.search(r"(\d+) cloze card\(s\) skipped", log)
+    # Cloze decks convert now. What is still dropped is the EMPTY cloze card
+    # -- one whose hole was edited out of the text and which Anki itself
+    # deletes under Tools > "Empty Cards" -- and the page says so in those
+    # words rather than in "cloze".
+    cloze_line = re.search(r"(\d+) empty cloze card\(s\) skipped", log)
 
     return json.dumps(
         {
@@ -272,7 +276,7 @@ def convert(deck_name, mapping):
             "cards": int(counts.group(1)) if counts else None,
             "withState": int(counts.group(2)) if counts else None,
             "skipped": int(counts.group(3)) if counts else None,
-            "clozeSkipped": int(cloze_line.group(1)) if cloze_line else 0,
+            "clozeEmpty": int(cloze_line.group(1)) if cloze_line else 0,
             "imagesPacked": int(images_packed.group(1)) if images_packed else 0,
             "sample": sample,
             "samples": samples,

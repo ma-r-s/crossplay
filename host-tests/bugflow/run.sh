@@ -649,6 +649,55 @@ THEIRS=$(board new "Study: pairing says the bridge is invitation-only" --from st
 board show "$MINE" | grep -q "reported by mario" && ok "--reporter mario is recorded" || bad "--reporter mario was not stored"
 board show "$THEIRS" | grep -q "reported by user" && ok "--reporter user is recorded" || bad "--reporter user was not stored"
 
+# The address the report form has always asked for. api/report.js validated it,
+# stored it as reporter_email and used it to tell Mario's own reports from a
+# stranger's from the first day the field existed -- and `board show` printed
+# every other thing about the card and not that, so #426 (someone offering to
+# send us games) and #389 (owed a pairing code) read as unreachable strangers
+# while their addresses sat in the column. There is no CLI flag to set one: the
+# public form is the only writer, so the card is seeded the way the form's
+# function writes it.
+WROTE=$(board new "Instapaper: no code came back from the sync server" --from instapaper --kind bug --reporter user | sed 's/^#\([0-9]*\).*/\1/')
+python3 - "$ROOT/.board/cards/$WROTE.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+c = json.load(open(p))
+c["reporter_email"] = "ojuergens@gmx.de"
+json.dump(c, open(p, "w"), indent=2)
+PY
+board show "$WROTE" | grep -q "ojuergens@gmx.de" \
+  && ok "board show prints the address a reporter left" \
+  || bad "board show hides reporter_email, so nobody can answer the person: $(board show "$WROTE" | sed -n 2p)"
+board show "$WROTE" | grep -q "reported by user <ojuergens@gmx.de>" \
+  && ok "and puts it beside who reported it" \
+  || bad "the address is not on the reporter line: $(board show "$WROTE" | sed -n 2p)"
+# A card nobody left an address on must not grow an empty pair of brackets.
+board show "$THEIRS" | grep -q "reported by user  created" \
+  && ok "a card with no address says only who reported it" \
+  || bad "a card without an address gained an empty address: $(board show "$THEIRS" | sed -n 2p)"
+
+# The address was not the only thing collected and never shown. A report brings
+# the board it was made on, the version the person looked up in Settings >
+# About, and sometimes a photo of the broken screen; `board show` printed none
+# of them, so the one field that named the device did so only as prose inside a
+# history line. Same rule as the address: shown when there, absent when not.
+SENT=$(board new "Trivia: the answer row draws through the header" --from trivia --kind bug --reporter user | sed 's/^#\([0-9]*\).*/\1/')
+python3 - "$ROOT/.board/cards/$SENT.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+c = json.load(open(p))
+c.update(device="sticky", version="1.12.11", photo_path="photos/%s.jpg" % c["id"])
+json.dump(c, open(p, "w"), indent=2)
+PY
+board show "$SENT" >"$WORK/sent.out" 2>&1
+grep -q "device sticky" "$WORK/sent.out" && ok "board show names the board the report came from" || bad "the device is invisible: $(cat "$WORK/sent.out")"
+grep -q "version 1.12.11" "$WORK/sent.out" && ok "and the version the reporter looked up" || bad "the version a reporter went and found is invisible: $(cat "$WORK/sent.out")"
+grep -q "photo photos/$SENT.jpg" "$WORK/sent.out" && ok "and says a photo came with it" || bad "an attached photo is invisible, so nobody knows to look: $(cat "$WORK/sent.out")"
+# A card carrying none of them gains no empty line for them.
+board show "$THEIRS" | grep -qE "^  (device|version|photo|issue) " \
+  && bad "a card with no device, version or photo grew a line for them anyway: $(board show "$THEIRS")" \
+  || ok "a card carrying none of them shows no line for them"
+
 # The question he actually asked, as one command.
 board list --from-mario >"$WORK/mine.out" 2>&1
 grep -q "#$MINE " "$WORK/mine.out" && ok "--from-mario lists his card" || bad "--from-mario missed his card: $(cat "$WORK/mine.out")"

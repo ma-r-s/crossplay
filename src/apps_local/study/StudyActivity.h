@@ -103,6 +103,22 @@ class StudyActivity final : public Activity {
   bool cardHasImage() const { return image_.valid(); }
   void drawFooter(const Rect& footer);
   int drawWrapped(int fontId, int y, int maxWidth, const char* text, bool measureOnly = false) const;
+  // The same wrap, with one run of codepoints underlined. Anki marks a cloze
+  // answer in colour and bolds the target word in an example sentence; this
+  // panel has neither colour nor a bold CJK face, so the mark is a rule under
+  // the glyphs. `spanLength` of 0 draws exactly what drawWrapped would.
+  int drawWrappedUnderlined(int fontId, int y, int maxWidth, const char* text, int spanStart, int spanLength) const;
+  // The one body behind both. Kept private and named for what it does rather
+  // than folded into drawWrapped with two defaulted arguments: every call
+  // site says whether it is marking something, and "0, 0, false" at the end
+  // of a draw call says nothing to anybody.
+  int drawWrappedMarked(int fontId, int y, int maxWidth, const char* text, int spanStart, int spanLength,
+                        bool measureOnly) const;
+  // The cloze face, drawn instead of the vocabulary one when the note carries
+  // a cloze question. Split out because the two share only the body rect: a
+  // cloze card has no headword, no reading and no example sentence, and
+  // threading four more conditionals through drawCard hid both.
+  void drawClozeCard(const Rect& body);
 
   HalFile deckFile_;
   HalFile cardFile_;

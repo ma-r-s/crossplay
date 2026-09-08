@@ -7,6 +7,9 @@
 #include <SdCardFontRegistry.h>
 
 #include <cstdio>
+#include <cstring>
+
+#include "StudyText.h"
 
 namespace study {
 
@@ -81,6 +84,14 @@ bool StudyFonts::load(GfxRenderer& renderer, const int familyIndex) {
       manager_.loadFamilyExtraSize(describe(root_, family, kHeadwordPointSize), renderer, kHeadwordPointSize);
   const int sentence =
       manager_.loadFamilyExtraSize(describe(root_, family, kSentencePointSize), renderer, kSentencePointSize);
+  // Optional: only a deck with furigana has one built. A zero here is the
+  // ordinary answer for every deck that is not Japanese, so it is not part of
+  // the failure test below.
+  char rubyPath[128];
+  std::snprintf(rubyPath, sizeof(rubyPath), "%s/%s/%s_%u.cpfont", root_, family, family, kRubyPointSize);
+  const int ruby = Storage.exists(rubyPath)
+                       ? manager_.loadFamilyExtraSize(describe(root_, family, kRubyPointSize), renderer, kRubyPointSize)
+                       : 0;
   if (headword == 0 || sentence == 0) {
     // Debug, not error: an absent family is now a normal answer, because
     // loadPreferred walks past it to one that is there. Only having none of
@@ -93,8 +104,9 @@ bool StudyFonts::load(GfxRenderer& renderer, const int familyIndex) {
 
   headwordFontId_ = headword;
   sentenceFontId_ = sentence;
+  rubyFontId_ = ruby;
   familyIndex_ = familyIndex;
-  LOG_DBG("STUDY", "Loaded %s: headword id=%d sentence id=%d", family, headword, sentence);
+  LOG_DBG("STUDY", "Loaded %s: headword id=%d sentence id=%d ruby id=%d", family, headword, sentence, ruby);
   return true;
 }
 
@@ -113,6 +125,7 @@ void StudyFonts::unload(GfxRenderer& renderer) {
   manager_.unloadAll(renderer);
   headwordFontId_ = 0;
   sentenceFontId_ = 0;
+  rubyFontId_ = 0;
   familyIndex_ = -1;
 }
 
@@ -127,6 +140,29 @@ void StudyFonts::prewarm(GfxRenderer& renderer, const char* headword, const char
   if (sentence != nullptr && *sentence != '\0') {
     cache->prewarmCache(sentenceFontId_, sentence);
   }
+}
+
+void StudyFonts::prewarmRuby(GfxRenderer& renderer, const char* text) const {
+  FontCacheManager* cache = renderer.getFontCacheManager();
+  if (cache == nullptr || rubyFontId_ == 0 || text == nullptr || *text == '\0') return;
+  // The readings only. Handing the whole encoded string over would ask the
+  // ruby cut for every kanji in the sentence, none of which it was built
+  // with, and a prewarm of glyphs that are not there is a seek per glyph for
+  // nothing.
+  // The readings on one card, not the card. A sentence of furigana is a few
+  // dozen kana; this is several times that and it is a stack buffer, which is
+  // the one place in this app where a kilobyte is not free.
+  static constexpr int kMaxReadingBytes = 256;
+  char readings[kMaxReadingBytes];
+  int length = 0;
+  forEachRubySegment(text, [&](const RubySegment& segment) {
+    if (segment.ruby == nullptr) return;
+    if (length + segment.rubyBytes >= static_cast<int>(sizeof(readings))) return;
+    std::memcpy(readings + length, segment.ruby, static_cast<size_t>(segment.rubyBytes));
+    length += segment.rubyBytes;
+  });
+  readings[length] = '\0';
+  if (length > 0) cache->prewarmCache(rubyFontId_, readings);
 }
 
 }  // namespace study

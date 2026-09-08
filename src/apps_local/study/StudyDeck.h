@@ -36,13 +36,24 @@ class WritableByteSource : public ByteSource {
   virtual bool flush() = 0;
 };
 
-inline constexpr int kFieldCount = 7;
+// Eight since deck.dat v3 added clozeQuestion. A v2 deck has seven and is
+// still read: the eighth simply comes back empty, which is exactly what a
+// vocabulary note writes anyway.
+inline constexpr int kFieldCount = 8;
 
 // The largest note in Mario's 5001-card deck is 421 bytes; the mean is 125.
-// 512 leaves room for the seven NUL terminators and a longer deck, and a note
-// that would overflow is rejected rather than truncated -- a half-copied UTF-8
-// sequence renders as garbage and would be blamed on the font.
-inline constexpr uint32_t kMaxNoteBytes = 512;
+// 512 was room enough for that plus its terminators, and a note that would
+// overflow is rejected rather than truncated -- a half-copied UTF-8 sequence
+// renders as garbage and would be blamed on the font.
+//
+// Doubled for cloze, which stores its text twice: the question face and the
+// answer face of one card differ only at the hole, and keeping both means the
+// device does no text-building at review time. A cloze paragraph is also
+// simply longer than a vocabulary headword. The cost is 512 bytes of DRAM in
+// the one Note the activity holds -- not stack: loadNote unpacks inside this
+// buffer rather than into a local of its own, so the render task's deepest
+// path got *shorter* in the same change.
+inline constexpr uint32_t kMaxNoteBytes = 1024;
 
 enum class Field : uint8_t {
   Headword = 0,
@@ -52,6 +63,13 @@ enum class Field : uint8_t {
   Sentence,
   SentenceReading,
   SentenceMeaning,
+  // The question face of a cloze card: the note's text with this card's hole
+  // shown as [...] (or as its hint) and every other card's hole filled in,
+  // which is what Anki's {{cloze:}} does. The answer face is `Sentence`, with
+  // the hole filled and the emphasis span over what was hidden -- so a cloze
+  // card reuses the sentence face, its font, its wrapping and its per-card
+  // font fallback rather than growing a second text path.
+  ClozeQuestion,
 };
 
 // Anki allows an arbitrary number of learning steps; six is well past what
@@ -126,6 +144,12 @@ class Note {
   // so the renderer underlines instead.
   uint8_t emphasisOffset() const { return emphasisOffset_; }
   uint8_t emphasisLength() const { return emphasisLength_; }
+
+  // A cloze card, told apart by the one thing only a cloze card has. No kind
+  // byte: the field is the marker, so a deck file stays a flat list of
+  // length-prefixed fields and every tool that walks it by the header's field
+  // count keeps working.
+  bool isCloze() const { return lengths_[static_cast<int>(Field::ClozeQuestion)] > 0; }
 
  private:
   friend class StudyDeck;

@@ -795,6 +795,33 @@ else
   echo "  installer    SKIPPED: no .venv-study -- the page's Python suite did NOT run"
 fi
 
+# The converter's text rules -- cloze, and what survives an Anki field's HTML.
+# Standard library only and no Anki, so it runs even where the installer suite
+# above is skipped for want of a venv, which matters here more than anywhere:
+# every cloze rule it pins is a way to put the answer on the question face,
+# and a card that answers itself looks fine on the screen.
+if (cd "$REPO" && python3 tools_local/study/test_convert_text.py) \
+    > "$LOGS/study-convert-text.log" 2>&1; then
+  printf "  %-12s ok\n" "converttext"
+else
+  printf "  %-12s FAILED\n" "converttext"
+  tail -10 "$LOGS/study-convert-text.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
+# What inspect_deck.py refuses. It runs immediately before deck_to_anki.py,
+# which writes into the user's collection -- often the only copy of years of
+# study -- so a card whose record layout is not this one has to be caught
+# there rather than discovered afterwards.
+if (cd "$REPO" && python3 tools_local/study/test_inspect_deck.py) \
+    > "$LOGS/study-inspect.log" 2>&1; then
+  printf "  %-12s ok\n" "inspectdeck"
+else
+  printf "  %-12s FAILED\n" "inspectdeck"
+  tail -10 "$LOGS/study-inspect.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
 # The trivia option-picker. Standard library only, so it never skips: the pack
 # it guards is a published release asset, and the last regression in it (option
 # sets that told you the answer without the question) shipped and stayed

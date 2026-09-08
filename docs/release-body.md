@@ -1,6 +1,6 @@
 [Install it](https://crossplay.ma-r-s.com/#get) · [which file, and by hand](https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md) · [earlier releases](https://github.com/ma-r-s/crossplay/blob/xteink/docs/release-notes.md)
 
-### What is new in 1.12.45
+### What is new in 1.12.49
 
-- Replace the bank with Mario's 199-puzzle pack, four size tiers
+- Gate against em-dashes in fork-owned files
 
