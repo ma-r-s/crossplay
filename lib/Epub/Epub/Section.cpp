@@ -79,6 +79,17 @@ Section::Section(const std::shared_ptr<Epub>& epub, const int spineIndex, GfxRen
       renderer(renderer),
       filePath(epub->getCachePath() + "/sections/" + std::to_string(spineIndex) + ".bin") {}
 
+Section::Section(std::string htmlPath, std::string cacheDir, const int index, GfxRenderer& renderer,
+                 std::vector<std::string> sectionAnchors, const bool captureFootnotes)
+    : epub(nullptr),
+      spineIndex(index),
+      renderer(renderer),
+      filePath(cacheDir + "/sections/" + std::to_string(index) + ".bin"),
+      standaloneHtmlPath_(std::move(htmlPath)),
+      standaloneCacheDir_(std::move(cacheDir)),
+      standaloneAnchors_(std::move(sectionAnchors)),
+      captureFootnotes_(captureFootnotes) {}
+
 // Suspend any in-progress build so every section.reset() / navigation / sleep path
 // persists the pages already laid out as a partial .bin instead of discarding them
 // (no-op once a build has completed or never started).
@@ -274,14 +285,16 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
     }
   }
 
-  const auto localPath = epub->getSpineItem(spineIndex).href;
-  const auto htmlDir = epub->getCachePath() + "/html";
-  const auto htmlPath = htmlDir + "/" + std::to_string(spineIndex) + ".html";
+  const bool standalone = !epub;
+  const auto localPath = standalone ? std::string() : epub->getSpineItem(spineIndex).href;
+  const auto cacheRoot = standalone ? standaloneCacheDir_ : epub->getCachePath();
+  const auto htmlDir = cacheRoot + "/html";
+  const auto htmlPath = standalone ? standaloneHtmlPath_ : htmlDir + "/" + std::to_string(spineIndex) + ".html";
   const auto tmpHtmlPath = htmlDir + "/.tmp_" + std::to_string(spineIndex) + ".html";
 
   // Create cache directory if it doesn't exist
   {
-    const auto sectionsDir = epub->getCachePath() + "/sections";
+    const auto sectionsDir = cacheRoot + "/sections";
     Storage.mkdir(sectionsDir.c_str());
   }
 
@@ -295,6 +308,12 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
   bool htmlCached = reusedHtml;
   if (reusedHtml) {
     LOG_DBG("SCT", "Reusing cached HTML %s", htmlPath.c_str());
+  } else if (standalone) {
+    // A standalone document IS its HTML file; there is nothing to inflate it from.
+    LOG_ERR("SCT", "Standalone HTML missing: %s", htmlPath.c_str());
+    file.close();
+    Storage.remove(binTmpPath().c_str());
+    return false;
   } else {
     Storage.mkdir(htmlDir.c_str());
 
@@ -373,9 +392,9 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
   // Derive the content base directory and image cache path prefix for the parser
   const size_t lastSlash = localPath.find_last_of('/');
   ctx->contentBase = (lastSlash != std::string::npos) ? localPath.substr(0, lastSlash + 1) : "";
-  ctx->imageBasePath = epub->getCachePath() + "/img_" + std::to_string(spineIndex) + "_";
+  ctx->imageBasePath = cacheRoot + "/img_" + std::to_string(spineIndex) + "_";
 
-  if (spec.embeddedStyle) {
+  if (spec.embeddedStyle && !standalone) {
     ctx->cssParser = epub->getCssParser();
     if (ctx->cssParser) {
       const CssParser::CacheLoadResult cacheResult = ctx->cssParser->loadFromCache();
@@ -394,8 +413,8 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
   }
 
   // Collect TOC anchors for this spine so the parser can insert page breaks at chapter boundaries
-  std::vector<std::string> tocAnchors;
-  const int startTocIndex = epub->getTocIndexForSpineIndex(spineIndex);
+  std::vector<std::string> tocAnchors = standaloneAnchors_;
+  const int startTocIndex = standalone ? -1 : epub->getTocIndexForSpineIndex(spineIndex);
   if (startTocIndex >= 0) {
     for (int i = startTocIndex; i < epub->getTocItemsCount(); i++) {
       auto entry = epub->getTocItem(i);
@@ -431,7 +450,10 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
     return false;
   }
 
-  Hyphenator::setPreferredLanguage(epub->getLanguage());
+  if (!captureFootnotes_) ctx->parser->setCaptureFootnotes(false);
+  // A standalone document carries no language of its own; English is the only
+  // pack there is today.
+  Hyphenator::setPreferredLanguage(standalone ? std::string("en") : epub->getLanguage());
   build_ = std::move(ctx);
 
   if (!build_->parser->beginParse()) {
@@ -471,6 +493,7 @@ bool Section::buildSomeMore(const int maxPages) {
 }
 
 bool Section::hasHtmlCache() const {
+  if (!epub) return Storage.exists(standaloneHtmlPath_.c_str());
   const std::string htmlPath = epub->getCachePath() + "/html/" + std::to_string(spineIndex) + ".html";
   return Storage.exists(htmlPath.c_str());
 }

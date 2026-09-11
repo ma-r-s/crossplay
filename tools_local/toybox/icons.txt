@@ -340,3 +340,7 @@ wallpapers  = image
 # arrow points the way the device travels; the eye is the peek's hero.
 wl_pass = arrow-big-left   # icon_wl_pass_96
 wl_look = eye              # icon_wl_look_120
+
+# WIKIPEDIA: the globe, because the pitch is all the knowledge in the world in
+# your pocket; `book-open` reads as the reader itself.
+wikipedia   = globe

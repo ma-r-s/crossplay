@@ -79,5 +79,6 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/solitaire/SolitaireCore.cpp \
   ../../src/apps_local/solitaire/SolitaireScreens.cpp \
   ../../src/apps_local/yahtzee/YahtzeeScreens.cpp \
+  ../../src/apps_local/wikipedia/WikipediaScreens.cpp \
   test_ui.cpp -o "$BUILD_DIR/test_ui"
 "$BUILD_DIR/test_ui"

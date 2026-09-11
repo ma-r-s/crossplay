@@ -11,3 +11,6 @@ void silentRestartToReader();  // currently-open EPUB (APP_STATE.openEpubPath)
 // Reboots immediately after an activity releases exclusive raw storage. The
 // RTC target ensures setup() lands on Home instead of resuming a reader.
 void restartToHomeAfterStorageHandoff();
+// Same handoff reboot, landing in the shelf app that was open (the title the
+// shelf recorded when it opened it), or on Home if nothing was.
+void restartToAppAfterStorageHandoff();
