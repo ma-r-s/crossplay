@@ -38,6 +38,10 @@ class WikipediaActivity final : public Activity {
   // The card is the host's while the install screen shows; a deep sleep there
   // is a chip reset with the host mid-write.
   bool preventAutoSleep() override { return view_ == View::Install; }
+  // While the card is handed to a USB host nothing outside this loop may
+  // navigate: ActivityManager's home gesture would exit through onExit with
+  // no restart, and the card stays detached until someone power-cycles.
+  bool requiresExclusiveStorageLoop() const override { return view_ == View::Install; }
   // Keep laying out the open article between renders.
   bool skipLoopDelay() override;
 

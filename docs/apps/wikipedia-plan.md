@@ -68,7 +68,13 @@ mechanism that already knows how to land in the reader. Only the host
 letting go lands back in the app: Back on the install screen, and the
 thirty-minute wait running out with no host, restart to Home instead,
 because restarting into an app with no pack would show this screen again
-with the card handed over again, and Back would never reach Home. "Wikipedia is
+with the card handed over again, and Back would never reach Home. The
+screen also declares `requiresExclusiveStorageLoop()`, as the stock USB
+Drive screen does: otherwise ActivityManager's own home gesture exits it
+through `onExit` with no restart, and since `endUsbDrive()` cannot remount
+the card, every SD open on the device fails until a power cycle
+(`host-tests/wikipedia/test_usb_exclusive.py` keeps the override in place).
+"Wikipedia is
 ready" is said by the device after that check, never by the page. If
 nothing connects for thirty minutes the screen times out back to the shelf
 (the stock five minutes is shorter than finding a cable). If the card was

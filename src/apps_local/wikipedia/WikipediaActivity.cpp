@@ -589,10 +589,16 @@ void WikipediaActivity::enterInstall() {
   requestUpdate();
 }
 
+// Only reached when something outside this screen's loop ended the activity
+// while the card was handed over. endUsbDrive() cannot remount the card (the
+// SDK needs the reboot), so restart rather than leave a device where every
+// SD open fails until someone power-cycles it. A deep sleep in progress makes
+// the helper return, and its wake is a chip reset that remounts anyway.
 void WikipediaActivity::leaveInstall() {
   if (!usbActive_) return;
   Storage.endUsbDrive();
   usbActive_ = false;
+  restartToHomeAfterStorageHandoff();
 }
 
 // ------------------------------------------------------------------ loop
