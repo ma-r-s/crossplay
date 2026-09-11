@@ -452,30 +452,39 @@ int buildContents(toybox::Screen& screen, const ContentsModel& model) {
   return shown;
 }
 
-// The first-open screen. The address first and large, the sentence, then the
-// square the activity fills with the QR code, then what the cable is doing.
+// The first-open screen. The address first, the sentence, then the square
+// the activity fills with the QR code, then what the cable is doing. Every
+// box is sized from the reader's own line height: the panel showed the
+// address and both sentences cut when a 72 px box met a 40 px line.
 fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model) {
   chrome(screen, "GET WIKIPEDIA");
   const fui::Rect body = screen.body();
   const int16_t inner = static_cast<int16_t>(body.width - kMargin * 2);
-  int16_t y = static_cast<int16_t>(body.y + 28);
+  const int16_t lineHeight = screen.target().lineHeight(toybox::kBodyFont);
+  const int16_t twoLines = static_cast<int16_t>(lineHeight * 2);
+  int16_t y = static_cast<int16_t>(body.y + 20);
 
-  drawLine(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, 40}, model.url, toybox::kDisplayFont,
-           fui::TextAlign::Center);
-  y = static_cast<int16_t>(y + 52);
-  drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, 72},
+  // The one string that has to be read off the glass and typed: the reading
+  // face, bold, one line (the display cut is wider than the band at this length).
+  fui::TextStyle address = textStyle(toybox::kBodyFont, fui::TextAlign::Center);
+  address.bold = true;
+  address.maxLines = 1;
+  screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, model.url, address);
+  y = static_cast<int16_t>(y + lineHeight + 10);
+  drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines},
             "Open this in Chrome or Edge on a computer. About ten minutes.", fui::TextAlign::Center);
-  y = static_cast<int16_t>(y + 84);
+  y = static_cast<int16_t>(y + twoLines + 12);
 
   const int16_t side = 232;
   const fui::Rect qr{static_cast<int16_t>(body.x + (body.width - side) / 2), y, side, side};
-  y = static_cast<int16_t>(qr.bottom() + 28);
+  y = static_cast<int16_t>(qr.bottom() + 20);
 
   const char* status = "Then plug the reader into the computer with its cable.";
   if (model.stage == InstallModel::Stage::Connected) status = "Connected. Follow the page on the computer.";
   if (model.stage == InstallModel::Stage::Failed) status = "The card could not be shared. Try again.";
-  drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, 72}, status, fui::TextAlign::Center);
-  y = static_cast<int16_t>(y + 80);
+  drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines}, status,
+            fui::TextAlign::Center);
+  y = static_cast<int16_t>(y + twoLines + 8);
   if (model.partsLine) {
     drawLabel(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, 28}, model.partsLine,
               toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);

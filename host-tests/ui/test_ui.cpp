@@ -12201,7 +12201,20 @@ void testWikipediaInstallSaysTheAddressFirst() {
   CHECK(qr.width == qr.height && qr.width >= 200);
   const FakeTarget::TextRun* url = out.target.find("crossplay.ma-r-s.com/wikipedia");
   CHECK(url != nullptr);
-  if (url != nullptr) CHECK(url->rect.y < qr.y);
+  if (url != nullptr) {
+    CHECK(url->rect.y < qr.y);
+    // The reading face, bold, on one line: the display cut cut it on the panel.
+    CHECK(url->style.font == toybox::kBodyFont);
+    CHECK(url->style.bold);
+    CHECK(url->rect.height == out.target.lineHeight(toybox::kBodyFont));
+  }
+  // Each sentence has two lines of the reader's face, whatever its height.
+  const FakeTarget::TextRun* open = out.target.find("Open this in Chrome or Edge on a computer. About ten minutes.");
+  CHECK(open != nullptr);
+  if (open != nullptr) {
+    CHECK(open->style.maxLines == 2);
+    CHECK(open->rect.height == 2 * out.target.lineHeight(toybox::kBodyFont));
+  }
   CHECK(!out.target.drew("TRY AGAIN"));
   model.stage = wikiui::InstallModel::Stage::Failed;
   Rendered failed;
