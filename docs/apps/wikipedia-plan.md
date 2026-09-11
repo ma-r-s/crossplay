@@ -64,7 +64,11 @@ ejects the drive, or the cable comes out, the device restarts (USB drive
 mode always ends in a restart, `restartToHomeAfterStorageHandoff`), checks
 the manifest against the files, and lands back in Wikipedia on the search
 screen, not on Home; that landing is a small addition to the restart target
-mechanism that already knows how to land in the reader. "Wikipedia is
+mechanism that already knows how to land in the reader. Only the host
+letting go lands back in the app: Back on the install screen, and the
+thirty-minute wait running out with no host, restart to Home instead,
+because restarting into an app with no pack would show this screen again
+with the card handed over again, and Back would never reach Home. "Wikipedia is
 ready" is said by the device after that check, never by the page. If
 nothing connects for thirty minutes the screen times out back to the shelf
 (the stock five minutes is shorter than finding a cable). If the card was

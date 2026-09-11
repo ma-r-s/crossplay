@@ -720,21 +720,29 @@ void WikipediaActivity::loop() {
         stage_ = wikiui::InstallModel::Stage::Failed;
         requestUpdate();
       }
+      // No host in half an hour: the card is still handed over, so a restart
+      // is the only way to remount it. Home, not this app: coming back here
+      // would begin the handoff again and a device with no pack would reboot
+      // into its own install screen every half hour.
       if (stage_ == wikiui::InstallModel::Stage::Waiting && millis() - stageAt_ >= kHostWaitMs) {
         restartRequested_ = true;
         Storage.endUsbDrive();
         usbActive_ = false;
-        restartToAppAfterStorageHandoff();
+        restartToHomeAfterStorageHandoff();
         return;
       }
     }
+    // Back means "not now". Only the host letting go (above) comes back into
+    // this app; Back here restarting into the app would land on this screen
+    // again, with the card handed over again, and nothing the user does would
+    // ever reach Home.
     if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture()) {
       restartRequested_ = true;
       if (usbActive_) {
         Storage.endUsbDrive();
         usbActive_ = false;
       }
-      restartToAppAfterStorageHandoff();
+      restartToHomeAfterStorageHandoff();
       return;
     }
     fui::InputSnapshot input;
