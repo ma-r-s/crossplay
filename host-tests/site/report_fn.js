@@ -166,12 +166,37 @@ const expect = (label, got, want) =>
     "user",
   );
   expect(
-    "the address is stored hashed, not raw",
+    "reporter_hash is a hash of the IP, and carries none of it in the clear",
     typeof row.reporter_hash === "string" &&
       row.reporter_hash.length === 64 &&
       !row.reporter_hash.includes("203.0"),
     true,
   );
+
+  // x-forwarded-for is append-only, so the FIRST entry is whatever the caller
+  // chose. Two requests that differ only in that prefix must land in the same
+  // rate bucket, or anyone can pick their own and the ten-an-hour cap is a
+  // suggestion. api/trivia.js has asserted this since it was written; this
+  // file took the first hop until card #444.
+  {
+    const bucketFor = async (xff) => {
+      calls = [];
+      await call("POST", good, null, { "x-forwarded-for": xff });
+      const seen = calls.find((c) => c.url.includes("reporter_hash=eq."));
+      if (seen) return seen.url.split("reporter_hash=eq.")[1].split("&")[0];
+      const posted = calls.find(
+        (c) => c.method === "POST" && c.url.endsWith("/rest/v1/cards?select=id"),
+      );
+      return posted ? JSON.parse(posted.body).reporter_hash : null;
+    };
+    const honest = await bucketFor("203.0.113.7");
+    const spoofed = await bucketFor("1.2.3.4, 203.0.113.7");
+    expect(
+      "the rate bucket is the last hop, not the caller's claim",
+      Boolean(honest) && honest === spoofed,
+      true,
+    );
+  }
 
   calls = [];
   r = await call(
