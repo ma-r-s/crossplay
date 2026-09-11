@@ -587,7 +587,11 @@ class Rules(unittest.TestCase):
             ('the " Peter the Great of Turkey", Mahmud', 'the "Peter the Great of Turkey", Mahmud'),
             ("meaning \" beech \". The ' Right2Water ' campaign", "meaning \"beech\". The 'Right2Water' campaign"),
             ("' Ali-Shir Nava'i (9 February 1441)", "'Ali-Shir Nava'i (9 February 1441)"),
-            ("Harvey McGregor 's \" Contract Code \", a Law", "Harvey McGregor 's \"Contract Code\", a Law"),
+            ("Harvey McGregor 's \" Contract Code \", a Law", "Harvey McGregor's \"Contract Code\", a Law"),
+            (
+                "Breath of the Wild 's world , and Zelda \u2019s conventions ; a 12\" single . Done ?",
+                "Breath of the Wild's world, and Zelda\u2019s conventions; a 12\" single. Done?",
+            ),
             (
                 "A pinata (/ p \u026a n j a t a /, Spanish pronunciation:) is a container",
                 "A pinata is a container",

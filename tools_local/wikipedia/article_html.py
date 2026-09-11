@@ -243,6 +243,22 @@ def _close_quote_gaps(text):
     return "".join(out), n
 
 
+# The source pads every inline element, so a possessive after an italic
+# title or a link arrives as "Zelda 's" and a comma after one as "Hyrule ,":
+# 2.5 of the former per article in the essentials. An apostrophe and its
+# clitic close up against the word before; a comma, full stop, semicolon or
+# question mark closes up when followed by space or the end. A colon does not
+# ("3 : 1" is a ratio), nor an inch mark after a digit.
+_CLITIC_GAP = re.compile(r"(?<=[\w)\]\"\u201d])[ \u00a0]+(['\u2019])(s|d|ll|re|ve|m|t)\b")
+_PUNCT_GAP = re.compile(r"(?<=\S)[ \u00a0]+([,.;!?])(?=\s|$)")
+
+
+def _close_inline_gaps(text):
+    text, a = _CLITIC_GAP.subn(r"\1\2", text)
+    text, b = _PUNCT_GAP.subn(r"\1", text)
+    return text, a + b
+
+
 def strip_undrawable(text, stats, lead=False):
     """Removes what the serif cannot draw, and the remnants the source left
     behind; tidies only when it removed something, so untouched text stays
@@ -300,6 +316,10 @@ def strip_undrawable(text, stats, lead=False):
     if n:
         removed += 1
         stats["quote_gaps_closed"] = stats.get("quote_gaps_closed", 0) + n
+    text, n = _close_inline_gaps(text)
+    if n:
+        removed += 1
+        stats["inline_gaps_closed"] = stats.get("inline_gaps_closed", 0) + n
     if removed:
         for rx, rep in _TIDY:
             text = rx.sub(rep, text)
