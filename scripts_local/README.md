@@ -131,8 +131,19 @@ Developer Mode shows an address and six digits:
 
 ```bash
 ./scripts_local/wifi-flash.sh --pair 123456   # once per dev-mode session
-./scripts_local/wifi-flash.sh                 # every flash after that
+./scripts_local/wifi-flash.sh                 # every flash after that (the image check.sh last built)
+./scripts_local/wifi-flash.sh --build         # change, compile x4pro, flash: about three minutes on a quiet workspace
+./scripts_local/check.sh --flash              # the same, queued behind other trees' builds under the firmware lock
 ./scripts_local/wifi-flash.sh --disable       # close the device again
+```
+
+A fix that has to reach the panel does not wait for the full gate: `--build`
+compiles the one env and flashes it (it refuses only when another tree's
+build holds the lock right then), and `check.sh --flash` takes the lock and
+waits its turn. Neither runs a host suite, and `--flash` says so with the
+token `flashed`, never `green`; run the gate before you land.
+
+```bash
 ```
 
 It is a runtime setting present in every build including releases, so flashing a

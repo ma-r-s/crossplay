@@ -11,7 +11,13 @@ until you turn it off again.
 ./scripts_local/wifi-flash.sh                 # x4pro build, finds the device
 ./scripts_local/wifi-flash.sh --env sticky
 ./scripts_local/wifi-flash.sh --ip 192.168.1.42 --build
+./scripts_local/check.sh --flash              # build x4pro under the workspace lock, then flash
 ```
+
+`--build` compiles the one env in place and is the shortest path from a
+change to the panel (about three minutes); it refuses if another tree's
+device build holds the lock at that moment. `check.sh --flash` queues behind
+that lock instead. Neither is a gate: no host suite runs.
 
 Turning it off is itself a wireless flash:
 

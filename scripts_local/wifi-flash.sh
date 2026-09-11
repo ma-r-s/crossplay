@@ -296,9 +296,17 @@ echo "uploading $SIZE bytes ..."
 # both the upload and raw paths with no way to tell them apart, and taking the
 # upload path here dereferences null and resets the device; PUT makes that path
 # structurally unreachable. See docs/developer-mode.md.
-curl -fsS --max-time 600 -X PUT "http://$IP/api/dev/upload" \
+# A stalled upload (a weak signal, a device whose loop is blocked) fails in
+# twenty seconds under 8 KB/s rather than sitting on --max-time: on 2026-09-11
+# one sat for ten minutes, and the device's own web server sat with it, since
+# a body that never finishes holds its loop.
+RSSI="$(printf '%s' "$STATUS" | sed -n 's/.*"rssi":\(-\{0,1\}[0-9]*\).*/\1/p')"
+if [ -n "$RSSI" ] && [ "$RSSI" -lt -70 ]; then
+  echo "warning: the device's Wi-Fi signal is weak ($RSSI dBm); the upload may crawl or stall. Closer to the router helps." >&2
+fi
+curl -fsS --max-time 600 --speed-limit 8000 --speed-time 20 -X PUT "http://$IP/api/dev/upload" \
   -H "X-Dev-Token: $TOKEN" -H "Content-Type: application/octet-stream" \
-  --data-binary "@$FW" >/dev/null || { echo "error: upload failed" >&2; exit 1; }
+  --data-binary "@$FW" >/dev/null || { echo "error: upload failed (stalled or refused)${RSSI:+; signal $RSSI dBm}" >&2; exit 1; }
 echo "uploaded."
 
 # -- flash -------------------------------------------------------------------

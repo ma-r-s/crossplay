@@ -52,6 +52,9 @@ are enforced by hooks and will refuse rather than remind.
   to Mario. To show him something: identify it by MAC, `wifi-flash.sh` your
   build, drive it with `drive.py --ip`, and record one `mario` blocker saying
   what to look at. `desk` means a person's eyes or fingers, never a cable.
+  A fix he is waiting on goes `wifi-flash.sh --build` or `check.sh --flash`
+  (one env, about three minutes), not through the full gate first; the gate
+  runs before you land, not before he sees it.
 - **If CrossPoint owns it, it is not ours to fix.** Mario, 2026-09-04:
   *"stuff that crosspoint owns is not ours to fix. If the change is not
   CrossPlay specific it is dismissed."* Dismissed -- not filed, not parked for
