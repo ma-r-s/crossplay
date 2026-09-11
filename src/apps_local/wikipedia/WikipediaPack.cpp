@@ -2,6 +2,7 @@
 
 #include <Logging.h>
 #include <Memory.h>
+#include <esp_random.h>
 #include <zstd.h>
 
 #include <algorithm>
@@ -207,7 +208,10 @@ bool Pack::random(IndexEntry& out) {
   for (int i = 0; i < shards; ++i) blocks = manifest_.shards[i].firstBlock + manifest_.shards[i].blocks;
   if (blocks == 0) blocks = dir_.count();
   if (blocks == 0) return false;
-  // xorshift over a seed that moves every call; the first seed is the block count itself.
+  // xorshift over a seed that moves every call. The first seed comes from the
+  // hardware RNG: seeded from the block count, every session's first RANDOM
+  // was the same article (Ecumenism, on the panel and in the simulator alike).
+  if (seed_ == 0) seed_ = esp_random() ^ 0x9E3779B9u;
   if (seed_ == 0) seed_ = 0x9E3779B9u ^ blocks;
   for (int attempt = 0; attempt < 8; ++attempt) {
     seed_ ^= seed_ << 13;
