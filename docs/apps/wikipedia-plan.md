@@ -215,6 +215,12 @@ a grid on its own page left the first page turn a third empty, which reads
 as the article having ended. Below 24 KB headings flow with the text,
 because the median article would otherwise fan into near-empty pages.
 
+The twenty-page gate: `tools_local/wikipedia/twenty.sh 318 <out>` opens
+the app in the simulator, photographs twenty random articles from whatever
+pack is on `fs_agent/wikipedia`, and composes them on one sheet. Every text
+rule the builder has (padded possessives, hyphens, respellings, dead links)
+was found on that sheet and on nothing smaller.
+
 Links are underlined words, and only words whose article the pack carries
 are links: the builder drops the rest to plain text once it knows every
 title in the pack, so the reader never taps a promise the card cannot keep.
