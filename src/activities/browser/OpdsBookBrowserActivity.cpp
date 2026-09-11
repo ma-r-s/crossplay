@@ -1052,6 +1052,10 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
     }
     state = BrowserState::LOADING;
     statusMessage = tr(STR_LOADING);
+    // Paint before the blocking fetch: upstream's refetch (#3377) arrived
+    // without it, and the fork's paintfirst suite refuses a fetchFeed() that
+    // no repaint precedes.
+    requestUpdate(true);
     fetchFeed(currentPath);
     return;
   } else {

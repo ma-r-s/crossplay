@@ -2351,7 +2351,9 @@ void CrossPointWebServer::handleDevScreen() {
 // ---------------------------------------------------------------------------
 
 void CrossPointWebServer::handleWallpaperPage() const {
-  sendHtmlContent(server.get(), WallpaperPageHtml, sizeof(WallpaperPageHtml));
+  // sendStaticContent since upstream #2560: the same generated page, now
+  // with its ETag so a browser's conditional GET gets a 304.
+  sendStaticContent(server.get(), WallpaperPageHtml, sizeof(WallpaperPageHtml), WallpaperPageHtmlETag, "text/html");
 }
 
 void CrossPointWebServer::handleWallpaperScript() const {
