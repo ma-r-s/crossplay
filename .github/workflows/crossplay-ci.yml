@@ -375,6 +375,17 @@ jobs:
         with:
           path: ~/.platformio
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      # PlatformIO's tool-cppcheck binary links against libpcre3, which the
+      # ubuntu-latest runner stopped shipping; without it `pio check` reports
+      # "Failed to execute check command! Exited with code 127" for every
+      # file, which reads like a broken analysis and is a missing library.
+      # Upstream's ci.yml carries the same step for the same reason.
+      - name: Install cppcheck runtime dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpcre3
 
       - name: cppcheck, high severity blocks
         run: pio check --fail-on-defect high
