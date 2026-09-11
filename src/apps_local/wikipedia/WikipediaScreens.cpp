@@ -96,11 +96,20 @@ fui::StyleSet bandOutlineStyles() {
 // reader cut rather than Jersey: the activity binds the reader's faces so the
 // title has real cuts to step through, and three slots is all there are.
 void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel = nullptr,
-            const fui::ActionId trailingAction = 0, const bool back = false, const bool reading = false) {
+            const fui::ActionId trailingAction = 0, const bool back = false, const bool reading = false,
+            const freeink::Icon* trailingIcon = nullptr) {
   fui::HeaderProps header;
   header.title = title;
   header.borderEdges = fui::EdgesNone;
   header.sidePadding = screen.theme().headerSidePadding;
+  if (trailingIcon) {
+    // An icon, square like the chevron: a word in the reader's small cut took
+    // 151 of the band's 448 and left a one-word title cut.
+    header.trailingIcon = fui::bitmapFromIcon(*trailingIcon);
+    header.trailingAction = trailingAction;
+    header.trailingStyles = bandOutlineStyles();
+    header.trailingRadius = toybox::kPillRadius / 2;
+  }
   if (back) {
     header.leadingIcon = fui::bitmapFromIcon(icon_wiki_back_32);
     header.leadingAction = ActionPrevious;
@@ -361,7 +370,8 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
 }
 
 fui::Rect buildArticleChrome(toybox::Screen& screen, const ArticleChromeModel& model) {
-  chrome(screen, model.title, model.contents ? "CONTENTS" : nullptr, ActionContents, model.back, true);
+  chrome(screen, model.title, nullptr, ActionContents, model.back, true,
+         model.contents ? &icon_wiki_contents_32 : nullptr);
   const fui::Rect body = screen.body();
   return fui::Rect{body.x, body.y, body.width, static_cast<int16_t>(body.height - footerHeight(screen))};
 }

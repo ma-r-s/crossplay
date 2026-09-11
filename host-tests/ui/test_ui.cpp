@@ -12091,13 +12091,12 @@ void testWikipediaArticleChromeLeavesThePageItsRoom() {
   Rendered out;
   const fui::Rect page = buildWikiArticleChrome(out, model, footer);
   CHECK(out.target.drew("Photosynthesis"));
-  CHECK(out.target.drew("CONTENTS"));
   CHECK(out.target.drew("12 of 87"));
   CHECK(out.target.drew("Light-dependent reactions"));
   CHECK(page.y >= toybox::kChromeHeight);
   CHECK(page.height > 600);
-  const FakeTarget::TextRun* contents = out.target.find("CONTENTS");
-  CHECK(contents != nullptr && tapRun(out, contents).action == wikiui::ActionContents);
+  // CONTENTS is the list icon in a square at the band's right end.
+  CHECK(out.tap(480 - 16 - 30, toybox::kHeaderHeight / 2).action == wikiui::ActionContents);
   const FakeTarget::TextRun* footerRun = out.target.find("12 of 87");
   CHECK(footerRun != nullptr);
   if (footerRun != nullptr) {

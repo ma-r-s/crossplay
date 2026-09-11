@@ -182,7 +182,9 @@ words, in the gutter above the glass, a hairline with a solid band along it
 as far as the page has come.
 
 The band has a chevron at the left, the way back (the previous article, or
-the search), and CONTENTS at the right. The title is bold in the reader's
+the search), and the list icon at the right, which is CONTENTS (a word in
+the reader's small cut took 151 of the band's 448 pixels and left a
+one-word title cut). The title is bold in the reader's
 own face: at the reading size when it fits one line, otherwise two lines of
 the reader's 12, the most the band's 66 visible rows hold. A title longer
 than that (past 56 bytes, "List of ..." territory) is the running head's
