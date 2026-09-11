@@ -593,6 +593,14 @@ class Rules(unittest.TestCase):
                 "Breath of the Wild's world, and Zelda\u2019s conventions; a 12\" single. Done?",
             ),
             (
+                "a Protestant -led group in the post- Civil War South, pre- and post-war, two- or three-day",
+                "a Protestant-led group in the post-Civil War South, pre- and post-war, two- or three-day",
+            ),
+            (
+                "The Tamils (TAM-ilz, TAHM-), also known; Chaos (KAY-oss) is; Foo (US-based) is",
+                "The Tamils, also known; Chaos (KAY-oss) is; Foo (US-based) is",
+            ),
+            (
                 "A pinata (/ p \u026a n j a t a /, Spanish pronunciation:) is a container",
                 "A pinata is a container",
             ),

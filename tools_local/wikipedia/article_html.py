@@ -251,12 +251,27 @@ def _close_quote_gaps(text):
 # ("3 : 1" is a ratio), nor an inch mark after a digit.
 _CLITIC_GAP = re.compile(r"(?<=[\w)\]\"\u201d])[ \u00a0]+(['\u2019])(s|d|ll|re|ve|m|t)\b")
 _PUNCT_GAP = re.compile(r"(?<=\S)[ \u00a0]+([,.;!?])(?=\s|$)")
+# "Protestant -led", "post- Civil War": a hyphen padded on one side after a
+# link or an italic (0.8 and 0.5 per article). "pre- and post-war" is the
+# one idiom that keeps its space, so a hyphen before "and" or "or" stays.
+_HYPHEN_BEFORE = re.compile(r"(?<=\w)[ \u00a0]+-(?=\w)")
+_HYPHEN_AFTER = re.compile(r"(?<=\w)-[ \u00a0]+(?=(?!(?:and|or)\b)\w)")
+# Wikipedia's respelling, "(TAM-ilz, TAHM-)": syllables in capitals joined by
+# hyphens, two of them or one ending in a hyphen, and nothing else in the
+# parentheses. "(US-based)" is one plain token and stays.
+_RESPELL_TOKEN = r"[A-Z]{1,6}(?:-[a-z]{1,8})*-?"
+_RESPELL = re.compile(
+    r"[ \u00a0]*\((?:" + _RESPELL_TOKEN + r"(?:,? " + _RESPELL_TOKEN + r")+|[A-Z]{1,6}(?:-[a-z]{1,8})*-)\)"
+)
 
 
 def _close_inline_gaps(text):
     text, a = _CLITIC_GAP.subn(r"\1\2", text)
     text, b = _PUNCT_GAP.subn(r"\1", text)
-    return text, a + b
+    text, c = _HYPHEN_BEFORE.subn("-", text)
+    text, d = _HYPHEN_AFTER.subn("-", text)
+    text, e = _RESPELL.subn("", text)
+    return text, a + b + c + d + e
 
 
 def strip_undrawable(text, stats, lead=False):
