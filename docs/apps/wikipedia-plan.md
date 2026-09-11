@@ -137,19 +137,25 @@ download plus the card-in-the-computer instructions.
 
 ### Search, the app's home
 
-Once a pack is on the card the app opens on search. A field at the top with
-the fork's touch keyboard already up. As you type, up to eight titles appear
-under the field; tap one and the article opens. Matching is by prefix, case
-and accents folded, redirects included ("nyc" finds New York City, "colour"
-finds Color). There is no full-text search; nobody who shipped on this class
-of device had one, and the title index answers in one card read.
+Once a pack is on the card the app opens on its home: a field at the top,
+and under it the doors back in. Tap the field and the fork's touch keyboard
+rises (the doors stay above it; a boxed X at the field's end clears the
+query, or puts the keyboard down when there is none). As you type, up to
+eight titles appear under the field; tap one and the article opens. Matching
+is by prefix, case and accents folded, redirects included ("nyc" finds New
+York City, "colour" finds Color). There is no full-text search; nobody who
+shipped on this class of device had one, and the title index answers in one
+card read.
 
-With the field empty the screen shows "Continue: <the article you were in>",
-a RANDOM button, because a random article is half the joy of Wikipedia and
-it costs one lookup, and the recent trail: the last articles opened, as
-many as fit above the keyboard or the glass, never the one CONTINUE already
-names. The state keeps ten. The last line says how many articles are on the
-card and the date of the snapshot, in the app's own caps.
+The doors: CONTINUE, a filled black card naming the article you were in,
+the loudest thing on the page (dimmed, and not a target, before anything has
+been opened: "Open any article and it waits here."); RANDOM ARTICLE, an
+outlined bar, because a random article is half the joy of Wikipedia and it
+costs one lookup; and RECENT, the trail of the last articles opened, as many
+as fit above the count line, never the one CONTINUE already names. The state
+keeps ten. The last line says how many articles are on the card and the
+date of the snapshot, in the app's own caps. This arrangement was chosen
+from three rendered ones (below, "After the second critic").
 
 No title is ever cut. A match, a recent article or a section heading too
 wide for its row wraps, and the row grows to hold it; the field's prompt
@@ -159,27 +165,36 @@ never look alike.
 ### The article
 
 It looks like a page of a book, because it is laid out by the book engine:
-the reader's serif at the reader's font size, line spacing and alignment,
-page turns by the same tap zones and side buttons as a book, the same header
-band with the title. When the reader's alignment is justified the article
-turns hyphenation on regardless of the book setting: Wikipedia prose is
-link-heavy, and a justified line that cannot break "educational" is a river.
-The footer is a book's running foot: the section you are in at the left,
-"12 of 87" at the right ("page 12" while a first layout is still counting).
+the reader's serif at the reader's font size and line spacing, page turns
+by the same tap zones and side buttons as a book, the same header band with
+the title. Two things are the app's and not the reader's setting: the prose
+is ragged right (link-dense, name-dense text on a 28-character measure
+makes rivers a fifth of the measure wide when justified, hyphenation on or
+off; two cold reviews found them), and hyphenation is on. The footer is a
+book's running foot: the section you are in at the left, "12 of 87" at the
+right ("page 12" while a first layout is still counting), and under the
+words, in the gutter above the glass, a hairline with a solid band along it
+as far as the page has come.
 
 The band has a chevron at the left, the way back (the previous article, or
-the search), and CONTENTS at the right. Both are set in the small reading
-cut rather than Jersey, and that is a decision, not an oversight: the band
-binds readerFaces so a long or accented title steps down through real
-reading cuts, three slots is all a screen has, and the reader's own screens
-are the one place the fork lets its chrome speak in the reader's face.
+the search), and CONTENTS at the right. The title is bold in the reader's
+own face: at the reading size when it fits one line, otherwise two lines of
+the reader's 12, the most the band's 66 visible rows hold. A title longer
+than that (past 56 bytes, "List of ..." territory) is the running head's
+one permitted cut, and the page then keeps its own h1 so the whole title is
+on the glass. Every title-bearing slot in the app is the reader's face,
+because the toybox reading cuts stop at Latin-1 and "Chișinău" drew as
+"Chiinu" in them; the pill is set in the small reader cut rather than
+Jersey for the same reason, three slots being all a screen has.
 
 Order on the page: the title, the lead paragraphs, then QUICK FACTS (the
-infobox as a two-column grid of key and value), then the sections. In an
-article over about 24 KB every top-level section starts on a fresh page; the
-layout engine does that natively when told which headings are section
-anchors, and it is what gives a 40-page article its rhythm and makes a
-Contents jump land cleanly. Below that size headings flow with the text,
+infobox as a two-column grid of key and value) flowing on from the lead,
+then the sections. In an article over about 24 KB every prose section
+starts on a fresh page; the layout engine does that natively when told which
+headings are section anchors, and it is what gives a 40-page article its
+rhythm and makes a Contents jump land cleanly. Quick facts is not an anchor:
+a grid on its own page left the first page turn a third empty, which reads
+as the article having ended. Below 24 KB headings flow with the text,
 because the median article would otherwise fan into near-empty pages.
 
 Links are underlined words. Tap one and that article opens; Back returns to
@@ -192,8 +207,8 @@ CONTENTS, top right in the header, opens an overlay list of the section
 headings, each with the page it starts on once the layout has reached it;
 tap one to jump. TOP (page 1) and QUICK FACTS head the list, and the section
 the page is in is set bold with a bar in the margin. On a 100-section
-article the list is windowed, twelve rows or as many as fit, and the line
-under it says which rows these are and where the rest is.
+article the list is windowed, as many rows as fit, and the line under it
+says which rows these are and where the rest is.
 
 There is no per-article refresh over Wi-Fi in v1 (GET THE LATEST VERSION
 was in the first draft and is cut; see "After the critic"): a refreshed
@@ -468,6 +483,28 @@ nits). What changed, in every variant, before the choice was made:
   parenthetical with a native script is now cut segment by segment so the
   dates survive.
 - **Not changed, and why.** The pill on the article band stays in the small
-  reading cut (above, "The article"). A short article's sections still flow
+  reader cut (above, "The article"). A short article's sections still flow
   (the 24 KB rule, above). The band's pill hugging the glass is the shared
   headerBand's, not this app's.
+
+**The choice.** With those fixed in all three, a cold selector picked the
+third arrangement, "reading first": its filled CONTINUE card is the only
+element on any of the homes that says which action matters, and the action
+it names is reading; the keyboard rising on a tap is the gesture every text
+field teaches, where a keyboard always up is a third of the screen in a
+third typeface; and the progress rule tells a child how far in they are
+without a number. What was given up: the first arrangement's zero-tap
+typing, the second's page area (recovered by moving the rule into the
+gutter). The selector's own findings, all fixed: the rule had cost a line
+of prose; the empty CONTINUE vanished; the X read as a typed letter; the
+prose had rivers even hyphenated (ragged right now); the first page turn
+met a third of a page of nothing (Quick facts flows); the contents capped
+at twelve rows while a thirteenth fit. Not fixed: the link underline
+through descenders (the reader's, upstream's), the chevron's hairline
+weight, and the knocked-out serif on the black card, which the simulator
+cannot judge and hardware has to.
+
+**The twenty-article gate, second run.** Six of twenty band titles were
+elided with the h1 stripped from the page, and "Chișinău" had lost two
+letters in the band: the two title findings above, both fixed, and the
+gate is the reason they were found.
