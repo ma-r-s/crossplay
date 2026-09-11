@@ -196,8 +196,14 @@ Well-formed, and only this:
 
 Elements: `html body h1 h2 h3 h4 p b i a ul li table tr th td`. Attributes:
 `id` on `h2` only, `href` on `a`. An `href` is a display title (spaces, not
-underscores, no percent encoding, no fragment); the app resolves it through
-the title index. Nothing else: no `style`, no `span`, no `div`, no images,
+underscores, no percent encoding, no fragment) that the pack answers to: one
+of its articles or one of its redirects. The builder turns every other link
+into its own text once all the pack's titles are known, so no link in a pack
+is dead by construction (a pack is a subset of Wikipedia; underlined, the
+links it cannot keep read as promises, and every one ended in a NOT FOUND
+notice on the panel). The app still resolves an `href` through the title
+index, because a part of the pack may not have arrived yet (NOT YET). Nothing
+else: no `style`, no `span`, no `div`, no images,
 no `dl` and no `ol` (the layout engine treats `dl/dt/dd` as inline text and
 numbers no lists, so ordered lists are paragraphs carrying their number).
 Character references are the five XML ones.

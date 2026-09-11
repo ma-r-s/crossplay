@@ -58,6 +58,7 @@ class WikipediaActivity final : public Activity {
   // A title longer than this does not fit the band whole; the page keeps its h1.
   static constexpr size_t kBandTitleBytes = 56;
   static constexpr unsigned long kHostWaitMs = 30UL * 60UL * 1000UL;
+  static constexpr unsigned long kCableOutMs = 2000;
 
   void go(View next);
   void routeAction(int action, int value);
@@ -132,6 +133,7 @@ class WikipediaActivity final : public Activity {
   wikiui::InstallModel::Stage stage_ = wikiui::InstallModel::Stage::Waiting;
   unsigned long stageAt_ = 0;
   bool usbActive_ = false;
+  unsigned long cableOutAt_ = 0;
   bool restartRequested_ = false;
 
   // notice

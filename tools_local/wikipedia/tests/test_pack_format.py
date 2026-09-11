@@ -191,6 +191,24 @@ class Fixture(unittest.TestCase):
             seen += s["blocks"]
         self.assertEqual(seen, m["blocks"])
 
+    def test_boundary_at_the_last_article_opens_no_tier(self):
+        # essentials=<every article>: the writer used to open a second tier at
+        # that boundary with nothing in it and name it "all".
+        d = os.path.join(self.tmp, "whole")
+        m, _ = build(
+            self.articles,
+            d,
+            self.redirects,
+            tiers=[("essentials", len(self.articles))],
+            shard_bytes=60_000,
+        )
+        self.assertEqual([t["name"] for t in m["tiers"]], ["essentials"])
+        self.assertEqual(m["tiers"][0]["articles"], len(self.articles))
+        self.assertEqual(m["tiers"][0]["shards"], len(m["shards"]))
+        self.assertEqual([t["file"] for t in m["titles"]], ["titles.0.idx"])
+        self.assertTrue(all(s["tier"] == 0 for s in m["shards"]))
+        self.assertFalse(os.path.exists(os.path.join(d, "titles.1.idx")))
+
     def test_tiers(self):
         m = self.manifest
         self.assertEqual([t["name"] for t in m["tiers"]], ["essentials", "all"])

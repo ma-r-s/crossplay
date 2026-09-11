@@ -465,11 +465,25 @@ fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model) {
   int16_t y = static_cast<int16_t>(body.y + 20);
 
   // The one string that has to be read off the glass and typed: the reading
-  // face, bold, one line (the display cut is wider than the band at this length).
+  // face, bold. It has no space to wrap at, so one line of it ended in an
+  // ellipsis on the panel ("crossplay.ma-r-s.com/wikipe..."); the host goes
+  // on one line and the path on the next, each whole.
   fui::TextStyle address = textStyle(toybox::kBodyFont, fui::TextAlign::Center);
   address.bold = true;
   address.maxLines = 1;
-  screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, model.url, address);
+  const char* slash = model.url == nullptr ? nullptr : strchr(model.url, '/');
+  if (slash != nullptr && slash != model.url) {
+    char host[64];
+    const size_t n = static_cast<size_t>(slash - model.url) < sizeof(host) - 1 ? static_cast<size_t>(slash - model.url)
+                                                                               : sizeof(host) - 1;
+    memcpy(host, model.url, n);
+    host[n] = '\0';
+    screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, host, address);
+    y = static_cast<int16_t>(y + lineHeight);
+    screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, slash, address);
+  } else {
+    screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, model.url, address);
+  }
   y = static_cast<int16_t>(y + lineHeight + 10);
   drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines},
             "Open this in Chrome or Edge on a computer. About ten minutes.", fui::TextAlign::Center);

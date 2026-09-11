@@ -20,6 +20,7 @@ Standard library only; the pack tool has no dependencies.
 """
 
 import json
+import html
 import re
 import urllib.parse
 
@@ -707,6 +708,34 @@ _PARTICLES = frozenset(
 )
 _ROMAN = re.compile(r"^[IVXLC]+$")
 _PERSON_FIELDS = frozenset(("born", "died", "birth name", "birth date", "date of birth"))
+
+
+_LINK = re.compile(rb'<a href="([^"]*)">(.*?)</a>', re.S)
+
+
+def strip_unknown_links(xhtml, known, stats=None):
+    """Links whose target is not in the pack become their own text.
+
+    A pack is a subset of Wikipedia, so most of an article's links point at
+    pages it does not carry; underlined, they read as a promise the reader
+    cannot keep (every one of them ended in a NOT FOUND notice on the panel).
+    `known` is every title the pack answers to: its articles and its
+    redirects. Called once all of them are known, so it is the pack, not the
+    row, that decides. Bytes in, bytes out: the article body is already
+    encoded by then.
+    """
+
+    def keep(m):
+        target = html.unescape(m.group(1).decode("utf-8"))
+        if target in known:
+            if stats is not None:
+                stats["links_in_pack"] = stats.get("links_in_pack", 0) + 1
+            return m.group(0)
+        if stats is not None:
+            stats["links_outside_pack"] = stats.get("links_outside_pack", 0) + 1
+        return m.group(2)
+
+    return _LINK.sub(keep, xhtml)
 
 
 def person_alias(row):

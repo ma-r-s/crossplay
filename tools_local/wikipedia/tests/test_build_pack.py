@@ -1,9 +1,11 @@
 """build_pack.py end to end on the fixture: ordering, tiers, redirects,
 the summary, and a pack the reader opens."""
 
+import html
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -15,6 +17,7 @@ TOOL = os.path.dirname(HERE)
 sys.path.insert(0, TOOL)
 
 import build_pack  # noqa: E402
+from article_html import article_xhtml  # noqa: E402
 import pack_format as pf  # noqa: E402
 import vital  # noqa: E402
 from fold import fold_bytes  # noqa: E402
@@ -134,6 +137,49 @@ class Build(unittest.TestCase):
         self.assertTrue(e.redirect)
         self.assertEqual(p.article(e.locator).title, self.names[0])
         p.close()
+
+    def test_tier_all_is_one_tier(self):
+        out, summary, _ = self.run_build("--no-vital", "--tier", "essentials=all")
+        self.assertEqual([t["name"] for t in summary["tiers"]], ["essentials"])
+        self.assertEqual(summary["tiers"][0]["articles"], len(self.names))
+        self.assertFalse(os.path.exists(os.path.join(out, "titles.1.idx")))
+
+    def test_links_only_to_articles_in_the_pack(self):
+        # A link to a page the pack does not carry is plain text; every href
+        # left in the pack resolves through its own index. The fixture's rows
+        # link only outward, so one of those targets is made a redirect of the
+        # pack, which is the other way a title can be known.
+        target = None
+        for row in self.rows:
+            _, _, xhtml = article_xhtml(row, {})
+            for m in re.finditer(rb'<a href="([^"]*)">', xhtml):
+                candidate = html.unescape(m.group(1).decode("utf-8"))
+                if candidate not in self.names:
+                    target = candidate
+                    break
+            if target:
+                break
+        self.assertTrue(target)
+        redirects = os.path.join(self.tmp, "redirects.tsv")
+        with open(redirects, "w", encoding="utf-8") as f:
+            f.write(target + "\t" + self.names[0] + "\n")
+        out, summary, _ = self.run_build("--no-vital", "--redirects", redirects)
+        self.assertGreater(summary["links_outside_pack"], 0)
+        self.assertGreater(summary["links_in_pack"], 0)
+        pack = pf.Pack(out)
+        try:
+            hrefs = 0
+            for name in self.names:
+                e = pack.lookup(name)
+                self.assertIsNotNone(e, name)
+                body = pack.article(e.locator).xhtml
+                for m in re.finditer(rb'<a href="([^"]*)">', body):
+                    hrefs += 1
+                    target = html.unescape(m.group(1).decode("utf-8"))
+                    self.assertIsNotNone(pack.lookup(target), target)
+            self.assertEqual(hrefs, summary["links_in_pack"])
+        finally:
+            pack.close()
 
     def test_limit(self):
         out, summary, _ = self.run_build("--no-vital", "--limit", "12")

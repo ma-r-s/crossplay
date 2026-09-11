@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <FontCacheManager.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -705,6 +706,9 @@ void WikipediaActivity::routeAction(const int action, const int value) {
 }
 
 void WikipediaActivity::loop() {
+  // The half megabyte an article needs, read once the search screen is on
+  // the panel rather than before it: the open used to wait on it.
+  if (packOpen_ && interactionsReady_ && !pack_.isWarm()) pack_.warm();
   if (view_ == View::Install) {
     if (restartRequested_) return;
     const auto state = Storage.usbDriveState();
@@ -725,6 +729,27 @@ void WikipediaActivity::loop() {
         Storage.disconnectUsbDriveHost();
         stage_ = wikiui::InstallModel::Stage::Failed;
         requestUpdate();
+      }
+      // The cable pulled without an eject: the USB stack keeps saying
+      // "mounted" (nothing on this bus tells it the plug is gone), so the
+      // screen said Connected forever and every tap did nothing, until the
+      // power button. The board's USB-detect line knows. Two seconds, so a
+      // glitch on the line is not a restart; then back into the app on
+      // whatever parts the page had written, which it names on its screen.
+      if (stage_ == wikiui::InstallModel::Stage::Connected) {
+        if (gpio.isUsbConnected()) {
+          cableOutAt_ = 0;
+        } else if (cableOutAt_ == 0) {
+          cableOutAt_ = millis();
+        } else if (millis() - cableOutAt_ >= kCableOutMs) {
+          LOG_INF(kTag, "cable out without an eject; restarting on what arrived");
+          restartRequested_ = true;
+          Storage.endUsbDrive();
+          usbActive_ = false;
+          delay(20);
+          restartToAppAfterStorageHandoff();
+          return;
+        }
       }
       // No host in half an hour: the card is still handed over, so a restart
       // is the only way to remount it. Home, not this app: coming back here

@@ -596,7 +596,11 @@ class PackWriter:
         self._flush_batch()
         self._close_shard()
         self.finished = True
+        # A boundary at the last article opens a tier nothing lands in; it is
+        # not a tier, and "all" is only a name for what lies past the named ones.
         tiers_used = self.tier + 1
+        while tiers_used > 1 and not any(e[4] == tiers_used - 1 for e in self.entries):
+            tiers_used -= 1
 
         path = os.path.join(self.out_dir, "blocks.dir")
         with open(path, "wb") as f:
@@ -641,7 +645,7 @@ class PackWriter:
         tiers = []
         articles_through = 0
         for t in range(tiers_used):
-            name = self.tier_names[t] if t < tiers_used - 1 else "all"
+            name = self.tier_names[t] if t < len(self.tier_names) else "all"
             in_tier = sum(1 for e in self.entries if e[4] == t and e[2] == 0)
             articles_through += in_tier
             shards = [s for s in self.shards if s["tier"] <= t]

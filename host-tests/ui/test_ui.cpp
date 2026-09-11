@@ -12197,15 +12197,20 @@ void testWikipediaInstallSaysTheAddressFirst() {
   Rendered out;
   const fui::Rect qr = buildWikiInstall(out, model);
   CHECK(out.target.drew("GET WIKIPEDIA"));
-  CHECK(out.target.drew("crossplay.ma-r-s.com/wikipedia"));
+  // The address has no space to wrap at, so as one run it ended in an
+  // ellipsis on the panel: the host and the path are two whole lines.
+  CHECK(!out.target.drew("crossplay.ma-r-s.com/wikipedia"));
   CHECK(qr.width == qr.height && qr.width >= 200);
-  const FakeTarget::TextRun* url = out.target.find("crossplay.ma-r-s.com/wikipedia");
-  CHECK(url != nullptr);
-  if (url != nullptr) {
+  const FakeTarget::TextRun* url = out.target.find("crossplay.ma-r-s.com");
+  const FakeTarget::TextRun* path = out.target.find("/wikipedia");
+  CHECK(url != nullptr && path != nullptr);
+  if (url != nullptr && path != nullptr) {
     CHECK(url->rect.y < qr.y);
-    // The reading face, bold, on one line: the display cut cut it on the panel.
-    CHECK(url->style.font == toybox::kBodyFont);
-    CHECK(url->style.bold);
+    CHECK(path->rect.y == url->rect.y + out.target.lineHeight(toybox::kBodyFont));
+    // The reading face, bold, one line each.
+    CHECK(url->style.font == toybox::kBodyFont && path->style.font == toybox::kBodyFont);
+    CHECK(url->style.bold && path->style.bold);
+    CHECK(url->style.maxLines == 1 && path->style.maxLines == 1);
     CHECK(url->rect.height == out.target.lineHeight(toybox::kBodyFont));
   }
   // Each sentence has two lines of the reader's face, whatever its height.

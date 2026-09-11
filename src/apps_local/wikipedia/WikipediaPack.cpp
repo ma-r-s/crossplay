@@ -60,6 +60,7 @@ bool FileSource::read(const uint32_t offset, void* dst, const uint32_t length) {
 Pack::~Pack() { close(); }
 
 void Pack::close() {
+  warm_ = false;
   if (dctx_) {
     ZSTD_freeDCtx(static_cast<ZSTD_DCtx*>(dctx_));
     dctx_ = nullptr;
@@ -82,15 +83,23 @@ void Pack::close() {
 bool Pack::open() {
   close();
   if (!loadManifest()) return false;
-  if (!loadDict() || !loadDirectory() || !loadIndexes()) {
+  if (!loadIndexes()) {
     close();
     return false;
   }
   checkShards();
   open_ = true;
   LOG_INF(kTag, "pack %s %s: %u articles, %u blocks, %d/%d shards on the card", manifest_.pack.c_str(),
-          manifest_.snapshot.c_str(), static_cast<unsigned>(manifest_.articles), static_cast<unsigned>(dir_.count()),
-          shardsPresent_, shardsTotal());
+          manifest_.snapshot.c_str(), static_cast<unsigned>(manifest_.articles),
+          static_cast<unsigned>(manifest_.blocks), shardsPresent_, shardsTotal());
+  return true;
+}
+
+bool Pack::warm() {
+  if (warm_) return true;
+  if (!open_) return false;
+  if (!loadDict() || !loadDirectory()) return false;
+  warm_ = true;
   return true;
 }
 
@@ -177,6 +186,7 @@ int Pack::essentialShards() const {
 }
 
 bool Pack::onCard(const uint32_t locator) const {
+  if (!ensureWarm()) return false;
   BlockRecord rec;
   if (!dir_.record(locatorBlock(locator), rec)) return false;
   return rec.shard < shardPresent_.size() && shardPresent_[rec.shard];
@@ -202,6 +212,7 @@ int Pack::prefix(const std::string& query, const int max, std::vector<IndexEntry
 }
 
 bool Pack::random(IndexEntry& out) {
+  if (!ensureWarm()) return false;
   // Blocks of the essentials: everything the first tier's shards hold.
   uint32_t blocks = 0;
   const int shards = std::min(essentialShards(), shardsTotal());
@@ -235,6 +246,10 @@ bool Pack::random(IndexEntry& out) {
 }
 
 bool Pack::readBlock(const uint32_t block, std::vector<uint8_t>& raw, const char** error) {
+  if (!ensureWarm()) {
+    *error = "no directory";
+    return false;
+  }
   BlockRecord rec;
   if (!dir_.record(block, rec)) {
     *error = "no such block";

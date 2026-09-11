@@ -51,6 +51,12 @@ class Pack {
   bool open();
   void close();
   bool isOpen() const { return open_; }
+  // The dictionary and the block directory (half a megabyte off the card)
+  // are not needed until an article is read; open() leaves them for warm(),
+  // which the activity calls once the search screen is on the panel. Any
+  // reader of a block warms on its own if it comes first.
+  bool warm();
+  bool isWarm() const { return warm_; }
   const Manifest& manifest() const { return manifest_; }
   int shardsPresent() const { return shardsPresent_; }
   int shardsTotal() const { return static_cast<int>(manifest_.shards.size()); }
@@ -81,8 +87,11 @@ class Pack {
   bool loadIndexes();
   void checkShards();
   bool readBlock(uint32_t block, std::vector<uint8_t>& raw, const char** error);
+  // warm() from a const reader: the loads change nothing a caller can see.
+  bool ensureWarm() const { return warm_ || const_cast<Pack*>(this)->warm(); }
 
   bool open_ = false;
+  bool warm_ = false;
   Manifest manifest_;
   BlocksDir dir_;
   std::vector<uint8_t> dict_;

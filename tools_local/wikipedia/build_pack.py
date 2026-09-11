@@ -40,7 +40,7 @@ sys.path.insert(0, HERE)
 
 import pack_format as pf  # noqa: E402
 import vital  # noqa: E402
-from article_html import article_xhtml, person_alias  # noqa: E402
+from article_html import article_xhtml, person_alias, strip_unknown_links  # noqa: E402
 from fold import fold, fold_bytes  # noqa: E402
 
 
@@ -200,12 +200,20 @@ def main(argv=None):
     tiers = []
     for spec in args.tier:
         name, _, n = spec.partition("=")
+        # name=all: every article is in this tier. The essentials build reads
+        # rows already filtered to the Vital list, and the two whose names
+        # differ from the list's spelling used to form a second tier of their
+        # own: a 4 KB shard the page never copied and the reader counted as a
+        # missing part.
+        if n == "all":
+            tiers.append((name, len(order)))
+            continue
         if not n.isdigit() or int(n) <= 0:
-            sys.exit(f"--tier {spec}: want name=N")
+            sys.exit(f"--tier {spec}: want name=N or name=all")
         tiers.append((name, int(n)))
     if not args.tier and 0 < matched < len(order):
         tiers = [("essentials", matched)]
-    tiers = [(n, c) for n, c in tiers if c < len(order)]
+    tiers = [(n, c) for n, c in tiers if c <= len(order)]
 
     os.makedirs(args.out, exist_ok=True)
     writer = pf.PackWriter(
@@ -230,13 +238,18 @@ def main(argv=None):
     )
     say(f"dictionary: {dict_bytes:,} bytes")
 
+    # Every title the pack answers to, before any article is written: a link
+    # to anything else is dropped to plain text, so no link in a pack is dead.
+    redirects = read_redirects(args.redirects)
+    known = set(articles)
+    known.update(title for title, target in redirects if target in articles)
     say(f"writing {len(order):,} articles")
     for i, title in enumerate(order):
         headings, xhtml = articles[title]
+        xhtml = strip_unknown_links(xhtml, known, stats)
         writer.add_article(title, headings, xhtml)
         if (i + 1) % 5000 == 0:
             say(f"  {i + 1:,} written, {len(writer.shards)} shards closed")
-    redirects = read_redirects(args.redirects)
     kept = dropped = 0
     for title, target in redirects:
         if target in writer.by_title and writer.add_redirect(title, target):
@@ -260,6 +273,8 @@ def main(argv=None):
         "duplicates_dropped": stats.get("duplicates_dropped", 0),
         "titles_too_long": stats.get("titles_too_long", 0),
         "articles": manifest["articles"],
+        "links_in_pack": stats.get("links_in_pack", 0),
+        "links_outside_pack": stats.get("links_outside_pack", 0),
         "vital_known": len(levels),
         "vital_matched": matched,
         "redirects_kept": kept,

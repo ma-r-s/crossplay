@@ -214,7 +214,10 @@ a grid on its own page left the first page turn a third empty, which reads
 as the article having ended. Below 24 KB headings flow with the text,
 because the median article would otherwise fan into near-empty pages.
 
-Links are underlined words. Tap one and that article opens; Back returns to
+Links are underlined words, and only words whose article the pack carries
+are links: the builder drops the rest to plain text once it knows every
+title in the pack, so the reader never taps a promise the card cannot keep.
+Tap one and that article opens; Back returns to
 the exact page you left. The history is eight deep, like following a trail
 of thought and coming back. A link into an article that is not on the card
 yet (a partial copy, or a title the pack does not have) shows one line, "Not

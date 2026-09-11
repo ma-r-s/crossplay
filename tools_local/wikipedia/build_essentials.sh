@@ -44,6 +44,8 @@ else
 fi
 
 echo "== building the pack into $OUT" >&2
+# essentials=all: the rows are already the Vital list, so every article is
+# in the essentials tier, whatever the list spells its name.
 python3 "$HERE/build_pack.py" --rows "$ROWS" --out "$OUT" --vital "$VITAL" \
-  --summary-json "$OUT/../essentials-summary.json"
+  --tier essentials=all --summary-json "$OUT/../essentials-summary.json"
 python3 "$HERE/pack_format.py" verify "$OUT"
