@@ -217,6 +217,12 @@ a grid on its own page left the first page turn a third empty, which reads
 as the article having ended. Below 24 KB headings flow with the text,
 because the median article would otherwise fan into near-empty pages.
 
+Getting a newer pack: the count line at the foot of the main page
+("49,715 ARTICLES, MAY 2026 · GET NEWER") is a door to the install screen,
+so a complete pack is no dead end. The page then copies only the parts
+that changed, and the reader, seeing a different `built`, drops its
+article cache.
+
 The twenty-page gate: `tools_local/wikipedia/twenty.sh 318 <out>` opens
 the app in the simulator, photographs twenty random articles from whatever
 pack is on `fs_agent/wikipedia`, and composes them on one sheet. Every text

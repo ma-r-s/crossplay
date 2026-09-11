@@ -12007,6 +12007,9 @@ void testWikipediaSearchRowsCarryTheirIndex() {
     }
     const FakeTarget::TextRun* parts = out.target.find("3 OF 46 PARTS ON THE CARD");
     CHECK(parts != nullptr && tapRun(out, parts).action == wikiui::ActionInstall);
+    // The count line is the way to a newer pack too, complete or not.
+    const FakeTarget::TextRun* countLine = out.target.find(home.footer);
+    CHECK(countLine != nullptr && tapRun(out, countLine).action == wikiui::ActionInstall);
   }
   // More matches than the panel holds: the last line says so, above the keys.
   wikiui::SearchModel more = model;
@@ -12054,6 +12057,9 @@ void testWikipediaSearchRowsCarryTheirIndex() {
     if (waits != nullptr) CHECK(tapRun(out, waits).action != wikiui::ActionContinue);
     CHECK(out.target.drew("RANDOM ARTICLE"));
     CHECK(!out.target.drew("X"));
+    // A complete pack is no dead end: the count line opens the install screen.
+    const FakeTarget::TextRun* door = out.target.find(fresh.footer);
+    CHECK(door != nullptr && tapRun(out, door).action == wikiui::ActionInstall);
   }
   // The keyboard up with nothing typed: the doors stay, and the boxed X at
   // the field's end is what puts the keyboard down.

@@ -52,6 +52,7 @@ struct Manifest {
   int format = 0;
   std::string pack;
   std::string snapshot;
+  std::string built;  // the build, not the data: two builds of one snapshot differ
   uint32_t articles = 0;
   uint32_t entries = 0;
   uint32_t blocks = 0;

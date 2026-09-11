@@ -122,14 +122,18 @@ void WikipediaActivity::onEnter() {
     withCommas(count, sizeof(count), pack_.manifest().articles);
     char when[32];
     snapshotWords(when, sizeof(when), pack_.manifest().snapshot);
-    footer_ = std::string(count) + " ARTICLES, " + when;
+    // "... GET NEWER": the line is a door to the install screen (a newer
+    // pack is copied over this one, changed parts only).
+    footer_ = std::string(count) + " ARTICLES, " + when + "  \xc2\xb7  GET NEWER";
     if (pack_.shardsPresent() < pack_.shardsTotal()) {
       char line[64];
       snprintf(line, sizeof(line), "%d OF %d PARTS ON THE CARD", pack_.shardsPresent(), pack_.shardsTotal());
       partsLine_ = line;
     }
-    // A cache laid out from another snapshot must not answer for this one.
-    const std::string marker = pack_.manifest().pack + " " + pack_.manifest().snapshot;
+    // A cache laid out from another pack must not answer for this one: the
+    // build too, since one snapshot was built three times in one evening and
+    // the article behind a locator moved each time.
+    const std::string marker = pack_.manifest().pack + " " + pack_.manifest().snapshot + " " + pack_.manifest().built;
     if (readSmallFile(kCacheMarker) != marker) {
       const std::string lru = readSmallFile(kLruPath);
       size_t pos = 0;

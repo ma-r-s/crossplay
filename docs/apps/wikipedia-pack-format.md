@@ -97,7 +97,9 @@ copy in flight keeps its own build after the stable name moves to the next
 one, and no cache between the page and the host can hand back a previous
 build's part under the same name (which happened on 2026-09-11: `dict.zst`,
 same name and size after a rebuild, "arrived damaged twice"). `built` is
-what tells two builds of one snapshot apart. The reader ignores both.
+what tells two builds of one snapshot apart: the page compares it when a
+checksum disagrees, and the reader keys its article cache on it (a locator
+names a different article in each build). The reader ignores `base`.
 
 `entries` counts title-index entries over all index files (articles plus
 redirects). `blocks` is the block count in `blocks.dir`. A tier is a prefix

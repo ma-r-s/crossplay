@@ -209,7 +209,8 @@ void testFold(const char* vectorsPath) {
 }
 
 void testManifest() {
-  const char* json = R"({"format":1,"pack":"en","snapshot":"2026-05-13","articles":12,"entries":15,"blocks":3,
+  const char* json =
+      R"({"format":1,"pack":"en","snapshot":"2026-05-13","built":"2026-09-11T21:11:33Z","articles":12,"entries":15,"blocks":3,
     "dict":{"file":"dict.zst","bytes":110000,"sha256":"a"},
     "blocksdir":{"file":"blocks.dir","bytes":60,"sha256":"b"},
     "titles":[{"file":"titles.0.idx","tier":0,"entries":10,"bytes":4200,"sha256":"c"},
@@ -224,6 +225,7 @@ void testManifest() {
   CHECK(m.format == 1);
   CHECK(m.pack == "en");
   CHECK(m.snapshot == "2026-05-13");
+  CHECK(m.built == "2026-09-11T21:11:33Z");
   CHECK(m.articles == 12);
   CHECK(m.entries == 15);
   CHECK(m.blocks == 3);
@@ -243,6 +245,7 @@ void testManifest() {
   CHECK(parseManifest(esc, strlen(esc), e));
   CHECK(e.pack == "a\"b");
   CHECK(e.snapshot == "\xC3\xA9");
+  CHECK(e.built.empty());
 }
 
 void testBlocksDir() {

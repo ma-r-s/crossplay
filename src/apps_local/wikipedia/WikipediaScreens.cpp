@@ -293,13 +293,18 @@ int16_t drawRecent(toybox::Screen& screen, const SearchModel& model, int16_t y, 
 // What is on the card, in the app's own voice, on the last line above the
 // keyboard or the glass, with a hairline so it reads as the page's foot and
 // not as a key.
+// The count line is also the way to a newer pack: a tap opens the install
+// screen, and the page then copies only the parts that changed. With a
+// complete pack the app had no way back to that screen at all.
 void drawCountLine(toybox::Screen& screen, const int16_t bottom, const char* text) {
   const fui::Rect body = screen.body();
   hairline(screen, static_cast<int16_t>(bottom - kCountLine));
+  const fui::Rect row{body.x, static_cast<int16_t>(bottom - kCountLine), body.width, kCountLine};
   drawLabel(screen,
             fui::Rect{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(bottom - kCountLine + 4),
                       static_cast<int16_t>(body.width - kMargin * 2), static_cast<int16_t>(kCountLine - 8)},
             text, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+  screen.frame().hit(row, ActionInstall);
 }
 
 int16_t footerHeight(toybox::Screen& screen) {
@@ -365,8 +370,11 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
     if (box.bottom() <= list) drawAction(screen, box, "RANDOM ARTICLE", ActionRandom, false);
     y = static_cast<int16_t>(box.bottom() + 20);
   }
-  drawRecent(screen, model, y, list);
+  // The count line before the recent trail: the frame holds 24 targets and
+  // registers the rest silently, so with the keyboard up the door to a newer
+  // pack must be in before the rows that may not fit.
   drawCountLine(screen, bottom, model.footer);
+  drawRecent(screen, model, y, list);
 }
 
 fui::Rect buildArticleChrome(toybox::Screen& screen, const ArticleChromeModel& model) {

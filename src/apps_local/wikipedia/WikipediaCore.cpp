@@ -268,6 +268,7 @@ bool parseManifest(const char* json, const size_t len, Manifest& out) {
   if (out.format != 1) return false;
   if (const auto* v = root.get("pack")) out.pack = v->asStr();
   if (const auto* v = root.get("snapshot")) out.snapshot = v->asStr();
+  if (const auto* v = root.get("built")) out.built = v->asStr();
   if (const auto* v = root.get("articles")) out.articles = static_cast<uint32_t>(v->asU64());
   if (const auto* v = root.get("entries")) out.entries = static_cast<uint32_t>(v->asU64());
   if (const auto* v = root.get("blocks")) out.blocks = static_cast<uint32_t>(v->asU64());
