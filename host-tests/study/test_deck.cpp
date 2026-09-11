@@ -210,39 +210,62 @@ void run(const std::string& dir) {
   check(study::dayNumber(deck.meta(), deck.meta().collectionCreated) == 0, "the creation instant is day 0");
   check(study::dayNumber(deck.meta(), deck.meta().collectionCreated - 5) == 0, "before day zero clamps to 0");
 
-  // The "resume in progress card" record: whether a saved position is still
-  // safe to trust is the one part of that feature worth host-testing (the SD
-  // read/write around it is Arduino-only).
+  // The resume record: whether it is well formed, and whether the card it
+  // names is still the card at that position. The SD read/write around it is
+  // Arduino-only; the scheduler's own rule (the card goes first only if the
+  // queue holds it) lives in takeNext().
   {
     uint8_t bytes[study::kResumeRecordBytes];
-    study::writeResumeRecord(bytes, 3, 1, 1700000000);
+    study::writeResumeRecord(bytes, 1700000000123, 3, 1);
     study::ResumeRecord record;
     check(study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "a valid record parses");
-    check(record.cardIndex == 3 && record.face == 1 && record.savedAt == 1700000000,
-          "the round-tripped record carries its index, face, and timestamp");
+    check(record.ankiCardId == 1700000000123 && record.cardIndex == 3 && record.face == 1,
+          "the round-tripped record carries its Anki id, index and face");
 
     study::writeResumeRecord(bytes, 0, 0, 0);
     check(study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "index 0 (the first card) parses");
 
-    study::writeResumeRecord(bytes, deck.noteCount(), 0, 0);
+    study::writeResumeRecord(bytes, 7, deck.noteCount(), 0);
     check(!study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record),
           "an index at noteCount (one past the end) is refused");
 
-    study::writeResumeRecord(bytes, -1, 0, 0);
+    study::writeResumeRecord(bytes, 7, -1, 0);
     check(!study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "a negative index is refused");
 
-    study::writeResumeRecord(bytes, 3, 1, 0);
+    study::writeResumeRecord(bytes, 7, 3, 1);
     bytes[0] = study::kResumeRecordVersion + 1;
     check(!study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "a version mismatch is refused");
+    bytes[0] = 2;
+    check(!study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record),
+          "the prompt-era record (version 2, a position and a timestamp) is refused, not misread");
 
-    study::writeResumeRecord(bytes, 3, 2, 0);
+    study::writeResumeRecord(bytes, 7, 3, 2);
     check(!study::parseResumeRecord(bytes, sizeof(bytes), deck.noteCount(), record), "a face byte past 1 is refused");
 
-    study::writeResumeRecord(bytes, 3, 1, 0);
+    study::writeResumeRecord(bytes, 7, 3, 1);
     check(!study::parseResumeRecord(bytes, sizeof(bytes) - 1, deck.noteCount(), record), "a short buffer is refused");
     check(!study::parseResumeRecord(bytes, sizeof(bytes) + 1, deck.noteCount(), record), "a long buffer is refused");
-
     check(!study::parseResumeRecord(bytes, sizeof(bytes), 0, record), "an empty deck refuses every index");
+  }
+
+  // Identity: the record names a card, the index is only where it was.
+  {
+    const int64_t ids[] = {11, 22, 33, 44, 55};
+    const auto idAt = [&](int i) { return ids[i]; };
+    study::ResumeRecord r;
+    r.ankiCardId = 33;
+    r.cardIndex = 2;
+    check(study::resolveResumeIndex(r, 5, idAt) == 2, "the card still at its position resolves to it");
+    r.cardIndex = 0;
+    check(study::resolveResumeIndex(r, 5, idAt) == 2,
+          "a deck reordered since the save is searched, and the card found");
+    r.ankiCardId = 99;
+    check(study::resolveResumeIndex(r, 5, idAt) == -1, "a card the deck no longer has is nobody's to resume");
+    r.ankiCardId = 0;
+    r.cardIndex = 4;
+    check(study::resolveResumeIndex(r, 5, idAt) == 4, "a deck without Anki ids is trusted by position alone");
+    r.cardIndex = 5;
+    check(study::resolveResumeIndex(r, 5, idAt) == -1, "and never past its end");
   }
 }
 

@@ -194,53 +194,68 @@ class StudyDeck {
 // timezone conversation.
 int dayNumber(const DeckMeta& meta, int64_t nowEpochSeconds);
 
-// The card left open across a leave or a sleep, when the "resume in progress
-// card" option is on. Kept freestanding, with the SD read/write in
-// StudyActivity.cpp (Arduino-only), so the one part worth getting wrong --
-// whether a saved position is still safe to trust -- is host-tested.
+// The card left open across a leave or a sleep. Kept freestanding, with the
+// SD read/write in StudyActivity.cpp (Arduino-only), so the two parts worth
+// getting wrong are host-tested: whether a saved record is well formed, and
+// whether the card it names is still the card at that position.
 //
-// Version 2 adds savedAt (epoch seconds), so the resume prompt can say how
-// long ago the card was left rather than just naming it. Bumping the version
-// rather than growing the old layout in place means a v1 file left on an SD
-// card by an older build is refused outright -- read as "no timestamp" it
-// would print an epoch-zero date, which is a worse failure than just not
-// resuming.
-inline constexpr uint8_t kResumeRecordVersion = 2;
-inline constexpr uint32_t kResumeRecordBytes = 14;  // version + int32 index + face + int64 savedAt
+// There is no prompt. An unanswered card writes nothing, and the queue is
+// rebuilt in file order with the answered cards gone, so the card that was on
+// screen is the next one the scheduler hands out anyway; asking "continue?"
+// asked about a card that "not now" would show regardless. The one thing the
+// deck cannot restore is the face, so that is what the record is for, and it
+// names the card by its Anki id: a deck re-synced in between can reorder
+// cards.dat, and a position alone would resume a different card with no way
+// to tell. Version 3; older records are refused and the queue does its job.
+inline constexpr uint8_t kResumeRecordVersion = 3;
+inline constexpr uint32_t kResumeRecordBytes = 14;  // version + int64 ankiCardId + int32 index + face
 
 struct ResumeRecord {
+  int64_t ankiCardId = 0;  // 0 when the deck was built without Anki ids; then the index is all there is
   int32_t cardIndex = -1;
-  uint8_t face = 0;     // 0 Question, 1 Answer
-  int64_t savedAt = 0;  // epoch seconds when the record was written
+  uint8_t face = 0;  // 0 Question, 1 Answer
 };
 
 // False on a version mismatch, a malformed face byte, or an index outside
-// [0, noteCount) -- a deck re-synced since the save was written can shrink or
-// reorder cards.dat, and trusting a stale index would resume the wrong note or
-// read past it. The caller falls back to its normal fresh-queue pick in every
-// one of those cases, same as it would with no saved record at all.
+// [0, noteCount). The caller then behaves as with no record at all.
 inline bool parseResumeRecord(const uint8_t* bytes, uint32_t length, int noteCount, ResumeRecord& out) {
   if (length != kResumeRecordBytes) return false;
   if (bytes[0] != kResumeRecordVersion) return false;
+  int64_t id;
+  std::memcpy(&id, bytes + 1, sizeof(id));
   int32_t index;
-  std::memcpy(&index, bytes + 1, sizeof(index));
-  const uint8_t face = bytes[5];
+  std::memcpy(&index, bytes + 9, sizeof(index));
+  const uint8_t face = bytes[13];
   if (face > 1) return false;
   if (index < 0 || index >= noteCount) return false;
-  int64_t savedAt;
-  std::memcpy(&savedAt, bytes + 6, sizeof(savedAt));
+  out.ankiCardId = id;
   out.cardIndex = index;
   out.face = face;
-  out.savedAt = savedAt;
   return true;
 }
 
 // Serializes exactly kResumeRecordBytes bytes, the inverse of parseResumeRecord.
-inline void writeResumeRecord(uint8_t* bytes, int32_t cardIndex, uint8_t face, int64_t savedAt) {
+inline void writeResumeRecord(uint8_t* bytes, int64_t ankiCardId, int32_t cardIndex, uint8_t face) {
   bytes[0] = kResumeRecordVersion;
-  std::memcpy(bytes + 1, &cardIndex, sizeof(cardIndex));
-  bytes[5] = face;
-  std::memcpy(bytes + 6, &savedAt, sizeof(savedAt));
+  std::memcpy(bytes + 1, &ankiCardId, sizeof(ankiCardId));
+  std::memcpy(bytes + 9, &cardIndex, sizeof(cardIndex));
+  bytes[13] = face;
+}
+
+// The index the record really names, or -1. `idAt(index)` reads the Anki id
+// of the card at a position (0 when it cannot). A record without an id (a
+// deck built from plain text) can only be trusted by position; with an id,
+// the position is a hint: checked first, then the deck is searched, and a
+// card that is nowhere any more is nobody's to resume.
+template <typename IdAt>
+inline int resolveResumeIndex(const ResumeRecord& record, int noteCount, IdAt idAt) {
+  if (record.cardIndex < 0 || record.cardIndex >= noteCount) return -1;
+  if (record.ankiCardId == 0) return record.cardIndex;
+  if (idAt(record.cardIndex) == record.ankiCardId) return record.cardIndex;
+  for (int i = 0; i < noteCount; ++i) {
+    if (i != record.cardIndex && idAt(i) == record.ankiCardId) return i;
+  }
+  return -1;
 }
 
 }  // namespace study
