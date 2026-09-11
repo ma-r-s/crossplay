@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.51
+
+- Study: offer to resume the card left open across a leave or a sleep
+
 ### 1.12.50
 
 - Count every device that checks for an update: the OTA check asks the site first
