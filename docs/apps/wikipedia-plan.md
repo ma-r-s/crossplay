@@ -299,8 +299,14 @@ page serves "get a newer one".
    in the simulator with a seeded card, then on Mario's Developer Mode unit.
 3. Install flow: QR screen, USB drive, restart-to-app; the site page.
 4. On-demand fetch: GET THE LATEST VERSION and the missing-article GET IT.
-5. Full pack build, R2, release.
-6. Later: the monthly patch overlay.
+5. **Twenty random articles, screenshotted on the panel and looked at one by
+   one.** Mario, 2026-09-11: this is the gate nobody remembers, and it is
+   where the readability insights come from. Not a sample of the good ones:
+   random locators, whatever comes out, every screenshot opened and judged
+   for the pitch, "all the knowledge in the universe in your e-reader, in
+   your pocket, no internet". Fix what looks wrong, render again.
+6. Full pack build, R2, release.
+7. Later: the monthly patch overlay.
 
 ## Open risks, stated
 
