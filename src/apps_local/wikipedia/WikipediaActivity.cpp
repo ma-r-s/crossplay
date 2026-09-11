@@ -861,13 +861,13 @@ void WikipediaActivity::loop() {
       if (link) {
         wikipedia::IndexEntry entry;
         if (!pack_.find(link->href, entry)) {
-          LOG_INF(kTag, "link \"%s\": no such article", link->href.c_str());
+          LOG_INF(kTag, "link \"%s\": no such article", link->href);
           noticeAbout("NOT FOUND", tr(STR_WIKI_NO_ARTICLE_FMT), link->href);
         } else if (!pack_.onCard(entry.locator)) {
-          LOG_INF(kTag, "link \"%s\": not on the card", link->href.c_str());
+          LOG_INF(kTag, "link \"%s\": not on the card", link->href);
           noticeAbout("NOT YET", tr(STR_WIKI_NOT_ON_CARD_FMT), link->href);
         } else {
-          LOG_INF(kTag, "link \"%s\" -> %lu", link->href.c_str(), static_cast<unsigned long>(entry.locator));
+          LOG_INF(kTag, "link \"%s\" -> %lu", link->href, static_cast<unsigned long>(entry.locator));
           pushHistory();
           openLocator(entry.locator, 0, "");
         }
