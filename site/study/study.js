@@ -12,7 +12,7 @@
     return document.getElementById(id);
   };
 
-  // Left column: the reader's slots. The menus hold the deck's own field
+  // Left column: the device's slots. The menus hold the deck's own field
   // names. The label used to describe the opposite, which read as nonsense
   // on a deck with no "Part of speech".
   var SLOTS = [
@@ -278,13 +278,13 @@ worker.onmessage = function (event) {
         " usually means one field is filling both. Check the dropdowns."
       );
     },
-    "a reading or meaning the reader cannot draw": function (n) {
+    "a reading or meaning the device cannot draw": function (n) {
       return (
         n +
         (n === 1 ? " card has a reading" : " cards have readings") +
-        " or meanings in a script the reader draws only in its built-in" +
+        " or meanings in a script the device draws only in its built-in" +
         " type, which covers Latin letters. Those lines arrive blank. The" +
-        " reader supports English and Chinese decks; other scripts are not" +
+        " device supports English and Chinese decks; other scripts are not" +
         " supported."
       );
     },
@@ -292,7 +292,7 @@ worker.onmessage = function (event) {
       return (
         n +
         (n === 1 ? " card uses characters" : " cards use characters") +
-        " the reader has no font for, and would come out blank. Pick a font" +
+        " the device has no font for, and would come out blank. Pick a font" +
         " file below that covers this language."
       );
     },
@@ -307,7 +307,7 @@ worker.onmessage = function (event) {
       return (
         n +
         (n === 1 ? " card uses a character" : " cards use characters") +
-        " outside the reader's built-in type. Those characters go missing."
+        " outside the device's built-in type. Those characters go missing."
       );
     },
     "headword too wide for the screen": function (n) {
@@ -423,7 +423,7 @@ worker.onmessage = function (event) {
             : "their note type could not be read."),
       );
     }
-    // What the package carried that the reader cannot use. Silence here read
+    // What the package carried that the device cannot use. Silence here read
     // as "nothing was lost" for a deck whose answers were all photographs.
     if (opened && opened.pictures > 0 && !result.imagesPacked) {
       // States the fact and not the consequence. The page knows how many
@@ -431,7 +431,7 @@ worker.onmessage = function (event) {
       // reference one, because the packer reports that only as prose in the
       // log. The old wording asserted "cards ... arrive blank" for a deck
       // where the log said 0 packed, 0 unreadable and 33 cards without one --
-      // three numbers that cannot produce a blank card between them. A reader
+      // three numbers that cannot produce a blank card between them. A device
       // comparing the two had no way to tell which was lying.
       notes.push(
         opened.pictures +
@@ -443,7 +443,7 @@ worker.onmessage = function (event) {
     }
     if (opened && opened.audio > 0) {
       notes.push(
-        opened.audio + " sound(s) are dropped: the reader has no speaker.",
+        opened.audio + " sound(s) are dropped: the device has no speaker.",
       );
     }
     // Everything above is true of the DECK and stays true whatever font is
@@ -995,7 +995,7 @@ worker.onmessage = function (event) {
               (bytes / 1024 / 1024).toFixed(1) +
               " MB under study/" +
               slug +
-              "/. Eject the card, put it in the reader: Apps > STUDY.",
+              "/. Eject the card, put it in the device: Apps > STUDY.",
           );
         } catch (e) {
           setWriteStatus("Writing failed: " + (e.message || e));

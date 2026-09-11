@@ -1,6 +1,6 @@
 // The wallpaper uploader, browser half. Decodes the dropped picture with a
 // canvas, fits it to the panel, hands the pixels to the pure pipeline in
-// convert.js, previews the 1-bit result exactly as the reader will show it, and
+// convert.js, previews the 1-bit result exactly as the device will show it, and
 // offers the .bmp for download. Nothing is uploaded: every byte stays in this
 // tab.
 
@@ -136,7 +136,7 @@ function render() {
   state.bits = bits;
 
   // Preview: paint the 1-bit result back to black/white so what is on screen is
-  // exactly what the reader will show, not the smoothed source.
+  // exactly what the device will show, not the smoothed source.
   preview.width = w;
   preview.height = h;
   preview.style.width = state.orient === "landscape" ? "350px" : "210px";
