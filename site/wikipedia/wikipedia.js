@@ -183,7 +183,7 @@ function renderRoute() {
   $("pickText").textContent =
     r.id === "essentials"
       ? r.instruction +
-        " Open Wikipedia on the reader; its screen says Connected once the card is on the cable. Then press the button and pick the drive that appeared."
+        " On the reader, open Apps, then Wikipedia: it shows this page's address, and its screen says Connected once the computer has the card. Then press the button and pick the drive that just appeared; on a Mac it is called NO NAME."
       : r.instruction + " Then press the button and pick the card.";
   if (!canPickFolders) renderFileList();
 }
