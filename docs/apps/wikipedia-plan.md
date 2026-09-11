@@ -139,13 +139,18 @@ download plus the card-in-the-computer instructions.
 
 Once a pack is on the card the app opens on its home: a field at the top,
 and under it the doors back in. Tap the field and the fork's touch keyboard
-rises (the doors stay above it; a boxed X at the field's end clears the
-query, or puts the keyboard down when there is none). As you type, up to
-eight titles appear under the field; tap one and the article opens. Matching
-is by prefix, case and accents folded, redirects included ("nyc" finds New
-York City, "colour" finds Color). There is no full-text search; nobody who
-shipped on this class of device had one, and the title index answers in one
-card read.
+rises (the doors stay above it; a boxed X at the field's end closes the
+search, text and keyboard both; GO puts the keyboard down and leaves the
+matches). As you type, up to eight titles appear under the field, and KEEP
+TYPING FOR MORE when there are more; tap one and the article opens.
+Matching is by prefix, case and accents folded, redirects included ("nyc"
+finds New York City, "colour" finds Color). The source rows carry no
+redirect list, so the builder makes the one entry every printed index has:
+"Mozart, Wolfgang Amadeus" for every person (a Born or Died in the
+infobox) with a plain name, so "mozart", "beethoven" and "einstein" find
+the people and not only the coefficients. There is no full-text search;
+nobody who shipped on this class of device had one, and the title index
+answers in one card read.
 
 The doors: CONTINUE, a filled black card naming the article you were in,
 the loudest thing on the page (dimmed, and not a target, before anything has
@@ -503,6 +508,20 @@ at twelve rows while a thirteenth fit. Not fixed: the link underline
 through descenders (the reader's, upstream's), the chevron's hairline
 weight, and the knocked-out serif on the black card, which the simulator
 cannot judge and hardware has to.
+
+**The cold user test (2026-09-11).** An agent used the app in the
+simulator for half an hour, 19 runs and 90 screenshots (session scratchpad
+`user-test.md`). What it changed: the surname entries above; GO no longer
+opens the first match; the X closes the search; NOT FOUND and NOT YET name
+the title (and the link tap is logged, which nothing was); KEEP TYPING FOR
+MORE; the page on the CONTINUE card; swipes turn pages; the converter drops
+the TeX the dataset writes beside every formula, names a lone Greek letter
+("h nu"), and omits navboxes. What it did not change: page-turn taps can
+land on links (a touch reader's nature; the side buttons never miss, and the
+notice now says what was tapped), a hold reads as a tap (the fork's input
+layer), duplicate section names in the source, and one screen lag seen once
+in five runs and never again. Its delights are in the report; the one that
+matters is "it reads like a book page, not a web page".
 
 **The twenty-article gate, second run.** Six of twenty band titles were
 elided with the h1 stripped from the page, and "Chișinău" had lost two
