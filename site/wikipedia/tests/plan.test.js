@@ -30,6 +30,7 @@ import {
   formatBytes,
   formatRate,
   formatDuration,
+  formatSnapshot,
 } from "../plan.js";
 
 const SHA = "a".repeat(64);
@@ -184,7 +185,7 @@ test("the two routes carry the plan's wording, essentials first", () => {
   // No em-dashes, no exclamation marks, no enthusiasm: the site's voice.
   for (const r of ROUTES) {
     for (const v of Object.values(r)) {
-      assert.doesNotMatch(v, /[—!]/, r.id);
+      assert.doesNotMatch(v, /[\u2014!]/, r.id);
     }
   }
 });
@@ -443,4 +444,11 @@ test("rates and durations", () => {
   assert.equal(formatDuration(3600), "about 1 hour");
   assert.equal(formatDuration(3900), "about 1 hour 5 minutes");
   assert.equal(formatDuration(7260), "about 2 hours 1 minute");
+});
+
+test("the snapshot prints as a month and a year", () => {
+  assert.equal(formatSnapshot("2026-05-13"), "May 2026");
+  assert.equal(formatSnapshot("2026-12"), "December 2026");
+  assert.equal(formatSnapshot("2026-13-01"), "2026-13-01");
+  assert.equal(formatSnapshot("latest"), "latest");
 });

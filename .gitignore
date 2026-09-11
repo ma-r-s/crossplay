@@ -88,3 +88,11 @@ flake.*
 # scratch snapshots copied out of a live rating run; derived, large, not history
 .panel/
 wallpapers.dat
+
+# The Wikipedia page's mock pack: 12 MB of seeded noise that
+# site/wikipedia/mock/make_mock.py regenerates byte for byte. The manifest it
+# writes is committed; the data it names is not.
+site/wikipedia/mock/*.zst
+site/wikipedia/mock/*.idx
+site/wikipedia/mock/*.dir
+site/wikipedia/mock/shards/

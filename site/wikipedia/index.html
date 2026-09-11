@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wikipedia on the reader &middot; CrossPlay</title>
+<meta name="description" content="Put Wikipedia on the reader's card from this page: the essentials over the cable in about ten minutes, or all of it with the card in the computer. The page copies straight onto the card and checks every part.">
+<meta property="og:title" content="Wikipedia on the reader">
+<meta property="og:description" content="The essentials over the cable in about ten minutes, or all of Wikipedia with the card in the computer. One button; the page checks every part.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://crossplay.ma-r-s.com/wikipedia/">
+<meta property="og:image" content="https://crossplay.ma-r-s.com/assets/shots/og.png">
+<meta property="og:site_name" content="CrossPlay">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/wikipedia/wikipedia.css">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#111110">
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="topbar">
+  <a class="wordmark" href="/">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="1.6" fill="currentColor" />
+      <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square">
+        <path d="M2.6 10.4V2.6h7.8" />
+        <path d="M29.4 10.4V2.6h-7.8" />
+        <path d="M2.6 21.6v7.8h7.8" />
+        <path d="M29.4 21.6v7.8h-7.8" />
+      </g>
+    </svg>
+    <span>CrossPlay</span>
+  </a>
+  <button class="topnav-toggle" type="button"
+          aria-expanded="false" aria-controls="topnav">Menu</button>
+  <nav class="topnav" id="topnav" aria-label="Sections">
+    <a href="/#get">Install the firmware</a>
+    <a class="topnav-out" href="https://github.com/ma-r-s/crossplay">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" width="15" height="15">
+        <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+      </svg>
+      <span>GitHub</span>
+    </a>
+  </nav>
+</div>
+
+<main id="main" class="wk-main">
+  <div class="wk-head">
+    <p class="eyebrow">Wikipedia <span class="eyebrow-sep">&middot;</span> on the reader</p>
+    <h1 class="wk-title">All of Wikipedia, on the card.</h1>
+    <p class="wk-lede">
+      Open Wikipedia on the reader and it shows this page's address. Pick a
+      route, choose the card, and the page copies the articles straight onto
+      it, checking every part as it goes. <span id="packLine"></span>
+    </p>
+  </div>
+
+  <p class="wk-error" id="loadError" hidden></p>
+
+  <!-- The two routes. The plan's wording, verbatim: docs/apps/wikipedia-plan.md,
+       "The page". The first is selected. -->
+  <fieldset class="wk-routes" id="routes">
+    <legend class="wk-step-label">Which way</legend>
+
+    <label class="wk-route" for="routeEssentials">
+      <input type="radio" name="route" id="routeEssentials" value="essentials" checked>
+      <span class="wk-route-art" aria-hidden="true">
+        <!-- The reader on its cable to a computer. -->
+        <svg viewBox="0 0 88 72" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
+          <rect x="4" y="6" width="26" height="46" rx="2" />
+          <rect x="9" y="11" width="16" height="30" />
+          <path d="M17 52v8h27" />
+          <path d="M44 60h6" stroke-width="5" />
+          <rect x="52" y="30" width="32" height="22" />
+          <path d="M48 58h40" />
+        </svg>
+      </span>
+      <span class="wk-route-body">
+        <span class="wk-route-title">The essentials, with the cable.</span>
+        <span class="wk-route-time">About ten minutes.</span>
+        <span class="wk-route-how">Plug the reader into the computer with its cable.</span>
+        <span class="wk-route-meta" id="routeEssentialsMeta"></span>
+      </span>
+    </label>
+
+    <label class="wk-route" for="routeAll">
+      <input type="radio" name="route" id="routeAll" value="all">
+      <span class="wk-route-art" aria-hidden="true">
+        <!-- The card, out of the reader, going into a slot. -->
+        <svg viewBox="0 0 88 72" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
+          <path d="M8 12h14l6 6v34H8z" />
+          <path d="M13 18v6M18 18v6M23 20v4" />
+          <path d="M34 34h16" />
+          <path d="M46 28l6 6-6 6" />
+          <rect x="56" y="14" width="28" height="44" />
+          <path d="M62 30h16" stroke-width="5" />
+        </svg>
+      </span>
+      <span class="wk-route-body">
+        <span class="wk-route-title">All of Wikipedia, with the card in the computer.</span>
+        <span class="wk-route-time">About fifteen minutes.</span>
+        <span class="wk-route-how">Take the card out of the reader and put it in the computer, in its slot or in a card reader.</span>
+        <span class="wk-route-meta" id="routeAllMeta"></span>
+      </span>
+    </label>
+  </fieldset>
+
+  <!-- Step 1: the card ------------------------------------------------------ -->
+  <section class="wk-step" id="stepPick">
+    <p class="wk-step-label"><span class="wk-num">1</span> <span id="pickLabel">Choose the reader</span></p>
+    <p class="wk-step-text" id="pickText"></p>
+    <div class="cta-row">
+      <button class="btn primary" id="pickBtn" type="button" disabled>Choose the reader</button>
+    </div>
+    <p class="wk-status" id="pickStatus" role="status" aria-live="polite"></p>
+  </section>
+
+  <!-- Step 2: the copy ------------------------------------------------------- -->
+  <section class="wk-step" id="stepCopy" hidden>
+    <p class="wk-step-label"><span class="wk-num">2</span> The copy</p>
+    <div class="wk-bar" id="bar" role="progressbar" aria-label="Copied" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="barFill"></span></div>
+    <div class="wk-meter">
+      <span id="bytesLine"></span>
+      <span id="rateLine"></span>
+      <span id="leftLine"></span>
+    </div>
+    <p class="wk-status" id="copyStatus" role="status" aria-live="polite"></p>
+    <p class="wk-fine" id="copyFine">
+      You can start reading on the reader after part 1. Interruptions are
+      fine: unplug, come back, it continues where it stopped.
+    </p>
+
+    <div class="wk-pause" id="pauseBox" hidden>
+      <p class="wk-pause-head">This is taking longer than twenty minutes.</p>
+      <p id="pauseText"></p>
+      <div class="cta-row">
+        <button class="btn primary" id="switchBtn" type="button"></button>
+        <button class="btn" id="keepBtn" type="button">Keep going anyway</button>
+      </div>
+    </div>
+
+    <div class="wk-stop" id="stopBox" hidden>
+      <p class="wk-stop-head" id="stopHead">The copy stopped.</p>
+      <p id="stopText"></p>
+      <div class="cta-row">
+        <button class="btn primary" id="resumeBtn" type="button">Resume</button>
+        <button class="btn" id="repickBtn" type="button">Choose it again</button>
+      </div>
+    </div>
+
+    <div class="wk-done" id="doneBox" hidden>
+      <p class="wk-done-line" id="doneLine"></p>
+      <p class="wk-done-why" id="doneWhy"></p>
+    </div>
+  </section>
+
+  <!-- A browser without a folder picker: the same files, by hand ------------ -->
+  <section class="wk-step wk-byhand" id="unsupported" hidden>
+    <p class="wk-step-label">By hand</p>
+    <p>
+      This browser cannot write to the card from a page. Chrome and Edge can,
+      and there the copy is one button and it checks every part. Here the
+      files are plain downloads, so take the card out of the reader and put it
+      in the computer, in its slot or in a card reader.
+    </p>
+    <ol class="wk-files" id="fileList"></ol>
+    <p>
+      Make a folder called <code>wikipedia</code> at the root of the card.
+      Put <code>dict.zst</code>, <code>titles.idx</code> and
+      <code>blocks.dir</code> in it, the parts in a folder called
+      <code>shards</code> inside it, and <code>manifest.json</code> last: the
+      reader treats the pack as present the moment it sees the manifest, so
+      it goes in after everything it names. Then put the card back in the
+      reader and open Wikipedia.
+    </p>
+  </section>
+
+  <p class="wk-foot">
+    The articles are Wikipedia's, under
+    <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>,
+    packed for a screen that holds still. Nothing about you leaves this tab;
+    the page asks the pack's host for the files and writes them to the card
+    you chose, and touches nothing else on it.
+  </p>
+</main>
+
+<script src="/assets/topnav.js"></script>
+<script type="module" src="/wikipedia/wikipedia.js"></script>
+</body>
+</html>

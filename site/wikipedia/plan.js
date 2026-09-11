@@ -379,3 +379,16 @@ export function formatDuration(seconds) {
 export function formatCount(n) {
   return Number(n).toLocaleString("en-US");
 }
+
+// "2026-05-13" as the app's settings row says it: "May 2026". Anything that
+// is not a date of that shape is printed as it came.
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+export function formatSnapshot(snapshot) {
+  const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(String(snapshot));
+  if (!m) return String(snapshot);
+  const month = MONTHS[Number(m[2]) - 1];
+  return month ? month + " " + m[1] : String(snapshot);
+}
