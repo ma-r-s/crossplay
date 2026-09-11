@@ -186,7 +186,7 @@ Links are underlined words. Tap one and that article opens; Back returns to
 the exact page you left. The history is eight deep, like following a trail
 of thought and coming back. A link into an article that is not on the card
 yet (a partial copy, or a title the pack does not have) shows one line, "Not
-on the card yet", with GET IT if Wi-Fi is reachable.
+on the card yet", and BACK; fetching it over Wi-Fi is v2.
 
 CONTENTS, top right in the header, opens an overlay list of the section
 headings, each with the page it starts on once the layout has reached it;
@@ -195,11 +195,9 @@ the page is in is set bold with a bar in the margin. On a 100-section
 article the list is windowed, twelve rows or as many as fit, and the line
 under it says which rows these are and where the rest is.
 
-The article's menu has one more thing: GET THE LATEST VERSION. It brings up
-the reader's Wi-Fi picker if needed, fetches the current article, and
-replaces the copy; the footer date changes. That is the whole of "update"
-for v1, and it is the version of update that matches how people read: the
-article in front of you is current, the ones you never open do not matter.
+There is no per-article refresh over Wi-Fi in v1 (GET THE LATEST VERSION
+was in the first draft and is cut; see "After the critic"): a refreshed
+article from the text API would lose its links and infobox.
 
 ### Getting a newer Wikipedia
 
@@ -349,7 +347,8 @@ page serves "get a newer one".
 2. Device: pack reading, search, article, CONTENTS, links, history. Verified
    in the simulator with a seeded card, then on Mario's Developer Mode unit.
 3. Install flow: QR screen, USB drive, restart-to-app; the site page.
-4. On-demand fetch: GET THE LATEST VERSION and the missing-article GET IT.
+4. On-demand fetch: GET THE LATEST VERSION and the missing-article GET IT
+   (cut from v1; stays here as the v2 slot).
 5. **Twenty random articles, screenshotted on the panel and looked at one by
    one.** Mario, 2026-09-11: this is the gate nobody remembers, and it is
    where the readability insights come from. Not a sample of the good ones:
