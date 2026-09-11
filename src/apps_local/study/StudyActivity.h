@@ -61,11 +61,7 @@ class StudyActivity final : public Activity {
   // whatever sentence the flow is on, the pairing QR, and the on-device
   // "Paired to <account> -- confirm?" gate (which closes both directions of
   // the pairing race; see docs/apps/study-sync-bridge-plan.md).
-  // ResumePrompt: shown at onEnter() when a card was left open last time,
-  // offering to go straight back to it (RESUME) or Back to the deck screen
-  // as normal, before either the fresh queue or the resumed card is on
-  // screen.
-  enum class View : uint8_t { Deck, Card, Image, NoDeck, SyncFlow, PairQr, PairConfirm, DeckPicker, ResumePrompt };
+  enum class View : uint8_t { Deck, Card, Image, NoDeck, SyncFlow, PairQr, PairConfirm, DeckPicker };
   enum class Face : uint8_t { Question, Answer };
 
   bool openDeck();
@@ -87,20 +83,15 @@ class StudyActivity final : public Activity {
   bool openDeckAt(int index);
   void closeDeck();
   void switchDeck();
-  // The card left open last time, if any. saveResumeState() runs
-  // unconditionally from onExit() when a card is on screen; loadResumeState()
-  // runs from onEnter() and, on success, note_/card_/fonts_/image_ are
-  // already loaded (via loadCurrent()) and View::ResumePrompt is shown before
-  // the card itself is. See study::parseResumeRecord (StudyDeck.h) for the
-  // validation the load side trusts.
+  // The card left open last time, if any. saveResumeState() runs from
+  // onExit(): the card on screen and its face, by Anki id, or nothing when no
+  // card is up. armResume() runs from onEnter() and only remembers which
+  // index to hand out first; takeNext() does that once, if the scheduler has
+  // the card in its queue, and restores the face. No screen asks: the queue
+  // would have shown that card next anyway (StudyDeck.h says why).
   void saveResumeState() const;
-  bool loadResumeState();
-  // Declining is authoritative: the offer was for THIS card, and leaving the
-  // record around would ask again next time over whatever the deck screen's
-  // own session produces instead, unrelated to the card it once named. Shared
-  // by the ResumePrompt's NOT NOW button and its Back handling in loop() so
-  // the two cannot drift apart.
-  void declineResumePrompt();
+  void armResume();
+  int64_t cardIdAt(int index);
   bool takeNext();
   // Take back the last answer. One level only: "I meant Good, not Again" is the
   // case that matters, and a deeper stack would need the queue's whole history
@@ -220,8 +211,10 @@ class StudyActivity final : public Activity {
   // The open deck's directory, /study/<name>; empty until a deck is open.
   char deckDir_[64] = "";  // "/study/" + a 40-char slug, with room to spare
 
-  // "LEFT 12 MIN AGO", set by loadResumeState() for View::ResumePrompt to draw.
-  char resumeCaption_[40] = "";
+  // Armed by armResume(): the queue index to hand out first, once, and the
+  // face it was left on. -1 when there is nothing to resume.
+  int resumeIndex_ = -1;
+  Face resumeFace_ = Face::Question;
 
   int currentIndex_ = -1;
   int today_ = 0;
