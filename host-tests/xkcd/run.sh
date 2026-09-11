@@ -21,3 +21,8 @@ SRC=../../src/apps_local/xkcd
 # fiddly would drift, which is the same reason the pack and the device share
 # one ditherer.
 ./test_layout.py
+
+# Every negated Storage.mkdir() in the fork's apps is guarded by exists():
+# SdFat's mkdir refuses an existing directory, and xkcd once read that as
+# an unwritable card (card #475).
+./test_mkdir_guard.py

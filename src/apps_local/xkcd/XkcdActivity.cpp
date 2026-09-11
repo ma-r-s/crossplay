@@ -786,7 +786,10 @@ void XkcdActivity::runPackDownload() {
       {"images.dat", "the comics"},
   };
 
-  if (!Storage.mkdir(kDir)) {
+  // exists() first: SdFat's mkdir refuses a directory that is already there
+  // (it opens the entry O_CREAT | O_EXCL), so a bare mkdir worked once and
+  // then told every retry that the card was not writable (card #475).
+  if (!Storage.exists(kDir) && !Storage.mkdir(kDir)) {
     showNotice("NO ROOM", "Could not create /xkcd on the card. Is the card in, and writable?");
     return;
   }
