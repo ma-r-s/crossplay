@@ -227,7 +227,7 @@ owns that; `build_pack.py` and `redistract.py` both import it, because the
 version that shipped and the version that got fixed were once two copies.
 
 **The type is the HEAD of the phrase, not the first word after "this".** That
-one line is where a cold player's 70% came from: "this **musical** river" typed
+one line is where a cold agent's 70% came from: "this **musical** river" typed
 as `musical` and drew the Lion King, a piano and the Beatles against the Danube;
 "this **large** rodent" typed as `large` and drew two lakes and the Spanish
 Armada against a porcupine; "this **country** squire" typed as `country`, which

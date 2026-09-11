@@ -293,7 +293,7 @@ def main():
         "a card whose faces do not work as a question and an answer": [],
         "the question and the answer are the same text, deck-wide": [],
         "a character no installed font can draw at all": [],
-        "a reading or meaning the reader cannot draw": [],
+        "a reading or meaning the device cannot draw": [],
         "a glyph the headword face cannot draw": [],
         "a Latin glyph the built-in serif cannot draw": [],
         "headword too wide for the screen": [],
@@ -374,7 +374,7 @@ def main():
         ]
         undrawable = {c for text in serif_drawn for c in text if needs_deck_face(c)}
         if undrawable:
-            problems["a reading or meaning the reader cannot draw"].append(
+            problems["a reading or meaning the device cannot draw"].append(
                 f"note {index}: {''.join(sorted(undrawable))[:12]!r} sits in a"
                 " field the reader draws in its built-in face, which has no"
                 " such characters"

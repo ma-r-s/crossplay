@@ -347,6 +347,28 @@ had read them.
 
 ---
 
+## 3. Multiplayer
+
+`GameId::Jaipur`. The wire state is the `Game` struct itself: 64 bytes,
+trivially copyable, well inside LinkPlay's 192-byte cap, and asserted to have no
+padding because every byte of it is compared, saved and transmitted. A layout
+with padding has bytes no field owns, and those are whatever the stack left
+there.
+
+**The deck does not travel.** `Game::seed` does, and both devices rebuild the
+same 52-card shuffle and the same bonus stacks from it (`cardAt`,
+`bonusValueAt`). That is what keeps a hidden-information game inside one packet:
+sending the whole board would mean sending both hands.
+
+**Which is the point of `Observation`.** The struct a player -- or an AI -- is
+handed does not have a field for the opponent's hand composition, only
+`opponentHandSize`, a number. An AI built on it cannot cheat by construction
+rather than by discipline, and the same shape is what a device is allowed to
+draw. `unseen` is the honest substitute: the deck plus their hand as one
+multiset, which is what a person at the table actually knows.
+
+---
+
 ## 4. The opponent
 
 `JaipurBrain` takes an `Observation`, never a `Game`. That is the whole design:
@@ -546,11 +568,12 @@ price and the pips -- and in every case it is centred in the space the text
 leaves rather than anchored to an edge.
 
 The opponent's move is reported on the line under the rule, and the turn comes
-straight back to you. A tap-to-continue beat was built and removed after one
-play-test: their move went into the capsule and waited to be acknowledged, which
-put a press between the player and every single one of their own turns. What you
-lose without it is that a fast player can miss the line; what you gain is that
-the game never stops. The board itself shows what changed anyway.
+straight back to you. A tap-to-continue beat was built and removed after Mario
+played it: their move went into the capsule and waited to be
+acknowledged, which put a press between the player and every single one of
+their own turns. What you lose without it is that a fast player can miss the
+line; what you gain is that the game never stops. The board itself shows what
+changed anyway.
 
 ### The running strip
 

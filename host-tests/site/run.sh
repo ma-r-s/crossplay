@@ -201,6 +201,18 @@ else
   while IFS= read -r line; do echo "      $line"; done <<< "$report_out"
 fi
 
+# api/latest.js is where a device's update check becomes a count on the
+# board, and where a bad header must be ignored rather than trusted. Same
+# harness as report_fn.js: node, GitHub and the board stubbed.
+if latest_out="$(node "$HERE/latest_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$latest_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "latest_fn: $line"; done < <(printf '%s\n' "$latest_out" | grep '^  FAIL'); }
+else
+  bad "latest_fn.js could not run, so api/latest.js went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$latest_out"
+fi
+
 # The inbox page looks its controls up by id inside its own file. Same failure
 # as install.js: a renamed id renders fine and does nothing.
 P="$ROOT/site/inbox/index.html"
@@ -253,8 +265,12 @@ grep -q '<dialog[^>]*id="report-dialog"' "$HTML" && ok || bad "#report-dialog in
 grep -q 'id="report-open"' "$HTML" && ok || bad "index.html has no #report-open button"
 grep -q 'id="report-open"[^>]*data-report-open' "$HTML" && ok || bad "#report-open does not carry data-report-open, so report.js will not wire it"
 grep -q '\[data-report-open\]' "$REPORTJS" && ok || bad "report.js never looks for [data-report-open], so nothing opens the dialog"
-# Both pages mount the form and load the script and its stylesheet.
-for p in "$HTML" "$REPORTPAGE"; do
+# Found, not listed, for the same reason the .topbar loop is: a third page that
+# mounts the form must load the script and the stylesheet too, and nobody will
+# remember to add it here.
+form_pages="$(grep -rl 'data-report-mount' "$ROOT/site" --include='*.html' | sort)"
+[ -n "$form_pages" ] && ok || bad "no page in site/ mounts the report form"
+for p in $form_pages; do
   rel="${p#"$ROOT"/}"
   grep -q 'data-report-mount' "$p" && ok || bad "$rel has nowhere to mount the report form"
   grep -qE 'src="/?assets/report\.js"' "$p" && ok || bad "$rel does not load assets/report.js"
@@ -525,7 +541,14 @@ for sel in topnav-toggle topnav; do
   printf '%s\n' "$css_sels" | grep -qE "\.$sel([^A-Za-z0-9_-]|\$)" \
     && ok || bad "styles.css has no .$sel selector"
 done
-for p in "$HTML" "$SP_HTML"; do
+# FOUND, not listed. /wallpapers/ shipped with a stripped local copy of the menu
+# that toggled .is-open and never added .has-menu, so its button was
+# display:none at every width and the bar overflowed -- and it was invisible
+# here because this loop named two files by hand. A page that draws a .topbar
+# and is not in this list is the bug, so the list is the grep.
+topbar_pages="$(grep -rlE 'class="[^"]*\btopbar\b' "$ROOT/site" --include='*.html' | sort)"
+[ -n "$topbar_pages" ] && ok || bad "no page in site/ draws a .topbar, which cannot be right"
+for p in $topbar_pages; do
   rel="${p#"$ROOT"/}"
   grep -q 'class="topnav-toggle"' "$p" && ok || bad "$rel has no .topnav-toggle button, so its narrow bar has no navigation"
   grep -qE 'src="/?assets/topnav\.js"' "$p" && ok || bad "$rel does not load assets/topnav.js, so its menu button opens nothing"
@@ -537,6 +560,27 @@ for p in "$HTML" "$SP_HTML"; do
     grep -q "id=\"$ctl\"" "$p" && ok || bad "$rel's menu button controls #$ctl and no such element exists"
   fi
 done
+
+# check_deck.py names a deck's problems and study.js explains them, keyed by the
+# SAME STRING across a Python file and a JavaScript one with nothing between
+# them. Rename one side and the explanation silently stops rendering: the lookup
+# just misses. That happened while normalising "reader" to "device" and nothing
+# caught it, because nothing was looking.
+CHECKDECK="$ROOT/tools_local/study/check_deck.py"
+STUDYJS="$ROOT/site/study/study.js"
+if [ -f "$CHECKDECK" ] && [ -f "$STUDYJS" ]; then
+  py_keys="$(grep -oE '"a [^"]{12,}"' "$CHECKDECK" | sort -u)"
+  [ -n "$py_keys" ] && ok || bad "check_deck.py names no problems, which cannot be right"
+  # A HERE-STRING, not a pipe: a piped `while` runs in a subshell, so `bad`
+  # increments a counter the parent never sees. The FAIL line prints and the
+  # run still says 0 failed, which is a check that cannot fail.
+  while IFS= read -r k; do
+    [ -z "$k" ] && continue
+    if grep -qF "$k" "$STUDYJS"; then ok
+    else bad "check_deck.py reports $k and study.js has no explanation keyed to it"
+    fi
+  done <<< "$py_keys"
+fi
 
 # nowrap has to be SCOPED to the bar the script has taken over. Unscoped it made
 # the no-script bar worse rather than leaving it alone: links still inline and no

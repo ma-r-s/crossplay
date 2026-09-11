@@ -61,8 +61,11 @@ timeout).
 A device never makes a request just to report: it never brings the radio up
 for the board, and it never spends a request on it. Instead every request
 the firmware makes to one of CrossPlay's own services (Get Books, the Anki
-bridge, the Instapaper bridge) carries three headers, and the service posts
-what they say alongside the event it was going to post anyway:
+bridge, the Instapaper bridge, and since the release that carried card
+449 the update check, which asks the site's `/api/latest` before it asks
+GitHub) carries three headers,
+and the service posts what they say alongside the event it was going to
+post anyway:
 
 ```
 User-Agent: CrossPlay-ESP32-1.12.13
@@ -134,7 +137,10 @@ endpoint:
   `error` twins) gets `device` from the header (over the service's own hash
   when both exist), `board` from the header, `version` from the User-Agent,
   and `battery_pct`, `heap_min_kb`, `uptime_h` copied into `props` when the
-  report carried them.
+  report carried them. The site's update-check proxy (`site/api/latest.js`)
+  posts `site`/`update-check` the same way, with `props.latest` the tag it
+  offered, and only for a request that carried a valid device id: a browser
+  or a curl gets the JSON and is not counted.
 - **A report with `crash`** posts one more event, `{"service":"firmware",
   "event":"crash","level":"error","device":..,"version":<crash.version>,
   "board":..,"props":{"message":<crash.message>,"backtrace":<crash.backtrace>,
@@ -164,10 +170,14 @@ report counts beside it, 7 days), `events_daily` (30 days, by service and
 event), `service_users` (7 days). The inbox page shows them under "Numbers",
 next to GitHub's own download counts per release.
 
-A device is counted when it uses a service. One that only plays games and
-never searches a book or syncs a deck is not on the board at all, and that
-is the design, not a gap: "devices heard from" means devices that used
-something. Downloads per release, from GitHub, is the number for the rest.
+A device is counted when it uses a service, and since the release that
+carried card 449 when it checks for an update (Settings > Update, the one request nearly every
+device makes; `src/network/ReleaseSources.h`). One that only plays games,
+never searches a book, syncs a deck or checks for an update is not on the
+board at all, and that is the design, not a gap: "devices heard from"
+means devices that did something. Downloads per release, from GitHub, is a
+number for the rest, and a poor one: a release cut minutes after another
+gets the same six to sixteen downloads, which is scanners and CI.
 The views are in `20260903000200_events.sql` as written and
 `20260904001100_devices_from_usage.sql` as they read now.
 

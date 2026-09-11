@@ -12,6 +12,7 @@ Welcome to the **CrossPlay** firmware, a fork of CrossPoint for the Xteink X4 Pr
     - [First Launch](#first-launch)
   - [3. Screens](#3-screens)
     - [3.1 Home Screen](#31-home-screen)
+      - [3.1.1 Games and Apps (CrossPlay)](#311-games-and-apps-crossplay)
     - [3.2 Reading Mode](#32-reading-mode)
     - [3.3 Browse Files Screen](#33-browse-files-screen)
     - [3.4 Recent Books Screen](#34-recent-books-screen)
@@ -54,22 +55,35 @@ Welcome to the **CrossPlay** firmware, a fork of CrossPoint for the Xteink X4 Pr
 
 ## 1. Hardware Overview
 
-The device utilises the standard buttons on the Xteink X4 (in the same layout as the manufacturer firmware, by default):
-
 ### Button Layout
 
-| Location        | Buttons                                              |
-| --------------- | ---------------------------------------------------- |
-| **Bottom Edge** | **Back**, **Confirm**, **Left**, **Right**           |
-| **Right Side**  | **Power**, **Side Up**, **Side Down**, **Reset** |
+**On the Xteink X4 Pro there are two buttons, a Power key and a capacitive
+Home key.** The X4 Pro dropped the front button row the older C3 X4 had, so the
+Back, Confirm, Left and Right *buttons* are unassigned in its board profile and
+cannot fire. Back and Home still exist as gestures. Anything below that names
+those four as buttons applies to the older X4.
 
-Button layout can be customized in the **[Controls Settings](#363-controls)**.
+| Device                      | Buttons                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Xteink X4 Pro**           | Two side keys (previous page / next page), **Power**, and a capacitive **Home** key below the panel                   |
+| **Seeed reTerminal Sticky** | The same two side keys, plus one **Confirm/Power** key: a click confirms, a hold sleeps                               |
+| **Xteink X4** (upstream)    | **Back**, **Confirm**, **Left**, **Right** on the bottom edge, plus **Power**, **Side Up**, **Side Down**, **Reset**   |
+
+Everything else is touch. **Back is a left-to-right swipe** from the left
+quarter of the panel. **Home** is a tap on the capacitive key below the panel on
+the X4 Pro, and a bottom-edge up-swipe on a board without one; it leaves any app
+from anywhere. The reasoning, and what the two-key budget forbids, is in
+[docs/buttons.md](docs/buttons.md).
+
+**[Controls Settings](#363-controls)** remaps the front button row, so it
+appears only on a board that has one. The X4 Pro and the Sticky are touch
+devices and do not show it.
 
 ### Taking a Screenshot
 
 When the Power button and the lower side button (Side Down) are pressed at the same time, it will take a screenshot and save it in the folder `screenshots/`.
 
-Alternatively, while reading a book, press the **Confirm** button to open the reader menu and select **Take screenshot**.
+Alternatively, while reading a book, open the reader menu and select **Take screenshot** -- by tapping the centre of the page on the X4 Pro, or with the **Confirm** button on a device that has one.
 
 ### Frontlight (X4 Pro only)
 
@@ -107,7 +121,23 @@ Upon turning the device on for the first time, you will be placed on the **[Home
 
 ### 3.1 Home Screen
 
-The Home screen is the main entry point to the firmware. From here you can navigate to **[Reading Mode](#4-reading-mode)** with the most recently read book, the **[Browse Files](#33-browse-files-screen)** screen, the **[Recent Books](#34-recent-books-screen)** screen, the **[File Transfer](#35-file-transfer-screen)** screen, or **[Settings](#36-settings)**.
+The Home screen is the main entry point to the firmware. From here you can navigate to **[Reading Mode](#4-reading-mode)** with the most recently read book, the **[Browse Files](#33-browse-files-screen)** screen, the **[Recent Books](#34-recent-books-screen)** screen, the **[File Transfer](#35-file-transfer-screen)** screen, **[Settings](#36-settings)**, or the two CrossPlay adds: **Games** and **Apps**.
+
+### 3.1.1 Games and Apps (CrossPlay)
+
+**Games** and **Apps** on the Home screen open the shelf, which pages
+vertically: swipe up for the next page, down for the previous, and the header
+says which page you are on. A row opens that game or app; Back (the
+left-to-right swipe) closes it and returns you here.
+
+Nine of the games also play between two devices over **PLAY NEARBY**, with no
+pairing screen and nothing to type. Put two devices next to each other and they
+find one another.
+
+What is on the shelf and how each thing works is per-app: the list is in the
+[README](README.md), and the rules, state machines and design decisions behind
+each one are in [docs/apps/](docs/apps/). None of this exists upstream; it is
+what the fork adds on top of the reader.
 
 ### 3.2 Reading Mode
 

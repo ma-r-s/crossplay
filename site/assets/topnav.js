@@ -9,7 +9,8 @@
  *
  * The class comes from here rather than living in the markup so that a page
  * whose scripts failed keeps the plain inline bar instead of a button that
- * opens nothing. Both pages that have a .topbar load this file; a page without
+ * opens nothing. Every page that has a .topbar loads this file, and
+ * host-tests/site/run.sh greps for them rather than listing them; a page without
  * one is left alone.
  */
 (function () {

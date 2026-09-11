@@ -337,6 +337,15 @@ html.report-open {
   font-size: 1.25rem;
   margin-bottom: 1.75rem;
 }
+/* Small print, under the form rather than above it: what happens to a report
+   is worth saying and is not worth a paragraph before the box it describes. */
+.report-fine {
+  margin-top: 1.75rem;
+  max-width: 46ch;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
 .report-back {
   display: inline-block;
   margin-top: 2rem;

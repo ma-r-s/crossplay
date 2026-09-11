@@ -24,8 +24,8 @@
         "app": "wavelength",
         "kind": "feature",
         "state": "review",
-        "body": "The prototype's prompt pairs were typed from the retail Wavelength deck during the design round, and nothing in the repository records permission to ship them. The game is otherwise done: two cold critics played it to the end, the board is public as agreed, and the four ideas the critic rounds killed stay dead.\nsince: 120 original pairs written on app/wavelength-deck and reviewed; three rewritten for being too close to retail wording",
-        "ask": "Two decks exist and one has to ship in v1.13. The retail deck is the 96 pairs typed from the box, funnier, and not ours; shipping it means a credit line in About and a risk nobody here can size. The original deck is 120 pairs written on app/wavelength-deck, reviewed twice, three pairs rewritten for reading like the retail ones, and it is ours outright. Playtests split: the retail pairs got more laughs, the original pairs produced fewer stalls where the psychic could not place the clue at all. Which deck ships, or should both ship with retail behind a toggle that defaults off?",
+        "body": "The prototype's prompt pairs were typed from the retail Wavelength deck during the design round, and nothing in the repository records permission to ship them. The game is otherwise done: two cold critic agents played it to the end, the board is public as agreed, and the four ideas the critic rounds killed stay dead.\nsince: 120 original pairs written on app/wavelength-deck and reviewed; three rewritten for being too close to retail wording",
+        "ask": "Two decks exist and one has to ship in v1.13. The retail deck is the 96 pairs typed from the box, funnier, and not ours; shipping it means a credit line in About and a risk nobody here can size. The original deck is 120 pairs written on app/wavelength-deck, reviewed twice, three pairs rewritten for reading like the retail ones, and it is ours outright. Agent play-throughs split: the retail pairs got more laughs, the original pairs produced fewer stalls where the psychic could not place the clue at all. Which deck ships, or should both ship with retail behind a toggle that defaults off?",
         "default": "v1.13 ships the original deck; the retail pairs stay on a branch that never merges.",
         "steps": null,
         "created_at": "2026-09-02T19:20:00Z"
@@ -380,7 +380,7 @@
       },
       {
         "id": 104,
-        "title": "What two cold critics found after \"finished\"",
+        "title": "What two cold critic agents found after \"finished\"",
         "app": "knucklebones",
         "state": "done",
         "parent": null,

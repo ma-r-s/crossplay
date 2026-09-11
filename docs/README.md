@@ -12,6 +12,11 @@ CrossPoint stay cheap: `activity-manager.md`, `comparison.md`, `dictionary.md`,
 README, moved here when the fork took the `README.md` filename, and its
 internal links were re-based when it moved.
 
+`comparison.md` is upstream's too, and it is a snapshot rather than a current
+statement: it compares a named CrossPoint version against the stock XTOS
+firmware, says nothing about this fork, and nothing updates it. Read it as
+history.
+
 **A shared filename is not a byline, and this paragraph used to claim it was.**
 It said those files were "untouched", and several are not. The fork has edited
 `activity-manager.md`, `i18n.md`, `translators.md`, `troubleshooting.md`,
@@ -125,3 +130,16 @@ D&Diagrams, `connectfour.md`, `chess.md`). Auxiliary records keep a
 qualifying suffix (`study-deck-format.md`, `xkcd-viewing-plan.md`). Not every
 app has a doc; one earns a doc when something about it would be rediscovered
 the hard way otherwise.
+
+**How the work itself is run lives in [workflow/](workflow/)**: the board and
+its cards, the orchestrator's runbook, the contract every worker session holds
+to, and the record of what Mario himself reported as against what our own side
+found. It is the directory that answers "who found this", which the rest of
+these docs assume rather than state.
+
+**Who found what, everywhere in `docs/`.** A **critic**, a **critic agent** or a
+**cold agent** is an LLM session with no builder context, not a person.
+`games-at-scale.md` defines that loop. Where a person found something the docs
+say a person, and `open-items.md` is the record of what people found. These
+files are also written _to_ Mario rather than _by_ him, which is why they say
+"Mario's rule" and not "my rule": a decision credited to him is one he made.

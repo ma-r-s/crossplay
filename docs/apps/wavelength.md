@@ -15,10 +15,11 @@ about hardware.
 
 **The board is public and only the target is hidden.**
 
-Two cold critics, briefed as players rather than reviewers, independently found
-the same fatal flaw in the first design: a six-inch greyscale panel held in one
-person's hands makes the board, the marker and the ends as private as the
-secret, and that person then holds four powers at once, being the only one who
+Two cold critic agents, briefed as players rather than reviewers, independently
+found the same fatal flaw in the first design: a six-inch greyscale panel held
+in one person's hands makes the board, the marker and the ends as private as
+the secret, and that person then holds four powers at once, being the only one
+who
 can see it, move it, lock it and referee it. In the physical game the dial sits
 in the middle of the table and you can put your hand on it.
 
@@ -155,7 +156,7 @@ bounded the mark still moved. Two paths to one control, one fixed, looks exactly
 like a fix that worked. They are gone; so is `dialDirectionAt`, which the sweep
 had left used by nothing but its own test.
 
- A cold player tapped near the
+ A cold agent tapped near the
 top of the strip expecting to jump there, moved one slot, and faced ten refreshes
 to cross the board. A held finger sweeps the marker along under it and stops
 where the finger stops. It is a sweep, not a runaway repeat,
@@ -185,7 +186,7 @@ by accident:
   target has been seen the footer dims to LOOK FIRST, using the same
   `disabledStepperStyles()` the front door uses for END SESSION, and a bare tap
   on the peek pad relabels it PRESS AND HOLD IT. Drawn solid black and silent,
-  it read as a dead device: a cold player tapped both controls twice each and
+  it read as a dead device: a cold agent tapped both controls twice each and
   stopped playing. A difference of KIND, not degree -- a subtler cue gets
   rationalised away inside twenty minutes. The LOCK carried the same nudge until
   it stopped being a hold; an ordinary button does not need one.
@@ -338,7 +339,7 @@ table has been tapping all round answers out to x=226, so the commit control sat
 directly under it. Two faults followed. Nothing on the panel stated the
 duration, which makes a hold a guessing game rather than a safeguard; and firing
 mid-contact drew the reveal under a finger that was still down, so the lift-off
-pressed whatever the new screen put there and four cold testers advanced past
+pressed whatever the new screen put there and four cold agents advanced past
 their own score.
 
 The bar is now `LOCK IT IN`, carries `ActionLock`, and is routed on the touch

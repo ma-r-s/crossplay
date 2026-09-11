@@ -3,9 +3,14 @@
 Static. No build step, no framework, no dependencies. `index.html`, one
 stylesheet, and the assets it names.
 
-One exception, and it is deliberate: `api/firmware.js`, a single Vercel
-function that exists so the Install button can work at all. See **The Install
-button** below before touching it.
+**To serve it locally, `python3 site/serve.py 8099`**, not `python3 -m
+http.server`. **Looking at it** below says why.
+
+One exception, and it is deliberate: `api/firmware.js`, the Vercel function
+that exists so the Install button can work at all. It is not the only function
+in `site/api/` -- `/report/` is nothing without `report.js`, and the inbox
+nothing without `inbox.js` -- but it is the one the FRONT page cannot do
+without. See **The Install button** below before touching it.
 
 ## When it deploys, and when it does not
 
@@ -266,8 +271,12 @@ that talks the protocol. Someone said on Reddit that they could not flash the
 device and had been looking for a tutorial, and a longer tutorial was not the
 answer.
 
-**The one server-side thing on this site is `api/firmware.js`, and it is not
-optional.** GitHub serves release assets from
+**`api/firmware.js` is the one server-side thing the PAGE cannot do without,
+and it is not optional.** (It is not the only function here: `site/api/` also
+holds `report.js` and `inbox.js` for the report form and the inbox,
+`board-config.js` for the board, and `trivia.js`, which is called by the
+FIRMWARE rather than by any page. This one is the Install button working at
+all.) GitHub serves release assets from
 `release-assets.githubusercontent.com`, which sends **no**
 `Access-Control-Allow-Origin` header at all -- so a page cannot `fetch()` a
 release asset, on this site or any other. (The site-wide COEP `require-corp`
@@ -373,9 +382,10 @@ panel:
 - **The network.** `src/http_canned.cpp` replaces `HttpDownloader` and answers
   from `/canned` on the preloaded card. The bodies are real, curled from the
   real endpoints on the day the card was built: the Algolia front page, one
-  story and one article's text. Connections fetches its board at runtime and
-  nothing is canned for it, so the daily grid does not work in the browser. A URL with
-  no canned answer fails like an unreachable host and logs itself.
+  story and one article's text, plus a 40-puzzle slice of the published
+  Connections archive cut by `tools_local/wasm/connections_subset.py`, so the
+  archive import lands a real pack here rather than failing outright. A URL
+  with no canned answer fails like an unreachable host and logs itself.
 - **Study's font.** `StudyFonts` wants KaiTi at 50pt and 17pt; the 50pt cut is
   5.5MB and the 17pt one is 714KB, so the card ships the small file under both
   names. The deck, the scheduler and the glyphs are genuine; the headword is
@@ -417,7 +427,7 @@ pio run -e simulator_x4_pro -t compiledb && source ../.emsdk/emsdk_env.sh && pyt
 **It is not committed any more.** It used to be, and that cost 111 revisions of
 `crossplay.wasm`, ~357MB of history and about 20MB a day forever, on a
 repository whose working tree is ~104MB. See **How the emulator reaches
-production** below before changing anything about how it is built or shipped.
+production** above before changing anything about how it is built or shipped.
 
 ## Assets
 

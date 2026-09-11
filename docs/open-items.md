@@ -15,7 +15,7 @@ Ordered by what would embarrass the project soonest, not by effort.
 
 Added 2026-09-01, revised the same evening after a cold review of the
 measurement. `tools_local/trivia/distractors.py` rewrote the option picker
-after a cold player answered 30 of 42 four-option sets without knowing the
+after a cold agent answered 30 of 42 four-option sets without knowing the
 fact.
 
 **Closed, and counted on every stored option rather than sampled:** two options
@@ -47,18 +47,18 @@ flat across the five levels (72.7% to 82.5%).
   toward the fix. It sees a country named outright, never "the Swiss city" or
   "the Kremlin".
 - **Nothing measures whether a wrong option is FAIR.** Four real rivers is what
-  the picker is FOR. The 42-set human read is the only instrument that found
+  the picker is FOR. The 42-set agent read is the only instrument that found
   the problem and the one to repeat after any change here.
 - **The new pack is built but NOT published.** Mario authorises the
   `trivia-pack` prerelease himself. And **a device that already has
   `/trivia/pack.dat` never re-downloads**, so publishing does not reach an
   existing install; the file has to be deleted.
 
-## Someone has now run this on a physical device, once
+## What running it on real hardware found, and who has one now
 
-Updated 2026-08-14. A tester flashed v1.2.1 to an X4 Pro and played most of the
-shelf. That closes the "nobody has ever booted it" version of this item; what
-follows replaces it.
+Updated 2026-08-14. A person -- not an agent -- flashed v1.2.1 to an X4 Pro and
+played most of the shelf. That closes the "nobody has ever booted it" version
+of this item; what follows replaces it.
 
 **What one session on real hardware found**, none of which any test caught:
 

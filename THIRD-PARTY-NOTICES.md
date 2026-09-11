@@ -62,6 +62,13 @@ snapshot of the front page, one thread's comments and two articles so the app
 can be tried offline; the device itself fetches live from the public
 [Algolia API](https://hn.algolia.com/api).
 
+**Trivia** questions are built from the
+[Jeopardy! clue dataset](https://github.com/jwolle1/jeopardy_clue_dataset), a
+community transcription of aired clues. JEOPARDY! is a trademark of Jeopardy
+Productions, Inc.; CrossPlay is not affiliated with, endorsed by or sponsored by
+them, and the app is not the show. How the pack is cut and ranked is
+[docs/trivia-curation.md](docs/trivia-curation.md).
+
 **Alice's Adventures in Wonderland** by Lewis Carroll, on the browser demo's SD
 card, from [Project Gutenberg](https://www.gutenberg.org/ebooks/11). Public
 domain.

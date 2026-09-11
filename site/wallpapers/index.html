@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wallpapers for your reader &middot; CrossPlay</title>
-<meta name="description" content="Turn any picture into a sleep-screen wallpaper for the reader. It is dithered to the panel's 1-bit screen right here in your browser, nothing is uploaded, and you drop the file straight onto the card.">
-<meta property="og:title" content="Wallpapers for your reader">
+<title>Wallpapers for your device &middot; CrossPlay</title>
+<meta name="description" content="Turn any picture into a sleep-screen wallpaper for the device. It is dithered to the panel's 1-bit screen right here in your browser, nothing is uploaded, and you drop the file straight onto the card.">
+<meta property="og:title" content="Wallpapers for your device">
 <meta property="og:description" content="Drop a picture, get a device-ready wallpaper. Everything happens in this tab; nothing is uploaded anywhere.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://crossplay.ma-r-s.com/wallpapers/">
@@ -52,9 +52,9 @@
 <main id="main" class="wp-main">
   <div class="wp-head">
     <p class="eyebrow">Wallpapers <span class="eyebrow-sep">&middot;</span> sleep screen</p>
-    <h1 class="wp-title">Any picture, on your reader's sleep screen.</h1>
+    <h1 class="wp-title">Any picture, on your device's sleep screen.</h1>
     <p class="wp-lede">
-      Drop a photo or a poster and it is dithered to the reader's 1-bit screen
+      Drop a photo or a poster and it is dithered to the device's 1-bit screen
       right here, in this tab. Nothing is uploaded. You get a small
       <code>.bmp</code> to drop onto the card, and the Wallpapers app on the
       device picks it up.
@@ -103,23 +103,30 @@
     <div class="wp-preview">
       <div class="wp-frame">
         <canvas class="wp-canvas" id="preview" width="480" height="800" hidden></canvas>
-        <div class="wp-empty-note" id="emptyNote">Your wallpaper will preview here, exactly as the reader will show it.</div>
+        <div class="wp-empty-note" id="emptyNote">Your wallpaper will preview here, exactly as the device will show it.</div>
       </div>
       <p class="wp-preview-cap" id="previewCap">480 &times; 800 &middot; 1-bit</p>
     </div>
   </div>
 
   <section class="wp-steps">
-    <h2>Getting it onto the reader</h2>
+    <h2>Getting it onto the device</h2>
+    <p class="wp-note">If the photo is already on your phone, you do not need
+      this page: open <strong>Apps &rsaquo; Wallpapers</strong> on the device,
+      tap <strong>+ Add a wallpaper</strong>, and scan the code. Your phone
+      crops and dithers the picture and sends it over, so both have to be on
+      the same Wi-Fi and nothing leaves your network. This page is the same job
+      from a computer, and it hands you the <code>.bmp</code> to keep.</p>
     <ol class="wp-rail">
       <li><p>Download the wallpaper above. It is a small <code>.bmp</code> sized to the screen.</p></li>
-      <li><p>On the reader, open <strong>File Transfer</strong> from the home screen and follow it to the address it shows in your browser. (Or plug the reader in over USB.)</p></li>
-      <li><p>Copy the <code>.bmp</code> into the <code>wallpapers</code> folder on the card. The reader makes that folder the first time you open the Wallpapers app.</p></li>
-      <li><p>Open <strong>Apps &rsaquo; Wallpapers</strong> on the reader, tap your wallpaper, and it becomes the sleep screen.</p></li>
+      <li><p>On the device, open <strong>File Transfer</strong> from the home screen and follow it to the address it shows in your browser. (Or plug the device in over USB.)</p></li>
+      <li><p>Copy the <code>.bmp</code> into the <code>wallpapers</code> folder on the card. The device makes that folder the first time you open the Wallpapers app.</p></li>
+      <li><p>Open <strong>Apps &rsaquo; Wallpapers</strong> on the device, tap your wallpaper, and it becomes the sleep screen.</p></li>
     </ol>
   </section>
 </main>
 
+<script src="/assets/topnav.js"></script>
 <script type="module" src="/wallpapers/wallpapers.js"></script>
 </body>
 </html>

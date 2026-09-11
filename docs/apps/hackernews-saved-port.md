@@ -1,5 +1,11 @@
 # Finishing the Hacker News saved-articles feature
 
+**LANDED. This is the plan as it was written, kept for the reasoning.** The
+screens and the Activity it describes as uncommitted are committed:
+`HackerNewsActivity.h` carries `openSavedArticle()` and `hn::Library library_`,
+and the shipped shelf has since had bugs of its own fixed in the release notes.
+Read the present tense below as the state on the day it was drafted.
+
 The storage half is committed and tested. The screens and the Activity are not,
 and this is what the next attempt needs to know before it starts. It replaces an
 earlier `PORT-NOTES.md` on branch `app/hn-saved`, which was right about the

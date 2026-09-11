@@ -1,8 +1,8 @@
 # Sudoku
 
-The sixteenth game. Classic 9x9, generated on the device, graded by the hardest
-technique it actually requires. Solitaire: no link layer, and that is a decision
-rather than an omission.
+Classic 9x9, generated on the device and graded by the hardest technique it
+actually requires. Solitaire: no link layer, and that is a decision rather than
+an omission.
 
 Four layers, as usual: `SudokuCore` (the rules, freestanding), `SudokuGame`
 (what the player touches, freestanding, and also the save), `SudokuScreens`

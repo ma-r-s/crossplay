@@ -10,7 +10,7 @@ first.
 ## Layer 0 -- the options, which are not curation but read like it
 
 A question can be perfectly curated and still be free. On the pack shipped as
-`trivia-pack` in August, a cold reader given 42 four-option sets answered **30
+`trivia-pack` in August, a cold agent given 42 four-option sets answered **30
 of them without knowing the fact**, from the options alone. That is not a
 question-quality problem and no verdict file can fix it.
 
@@ -56,7 +56,7 @@ region row is the most independent of the sampled ones.
 list is longer than the numbers: it knows about 90 families of thing and
 nothing else, it cannot tell a hard wrong option from an unfair one, two thirds
 of clues name no year for it to check, and half its period rule is the same
-hand-written table the picker uses. The 42-set human read is still the
+hand-written table the picker uses. The 42-set agent read is still the
 instrument that found the problem, and nothing here replaces it.
 
 How the options are built is in
@@ -310,7 +310,7 @@ python3 tools_local/trivia/assemble_pack.py \
 # 3. The gate. All 21 must pass; the pack is not shippable at 20/21.
 python3 tools_local/trivia/test_pack.py .rate/out/pack.jsonl
 
-# 4. What a cold player could exploit without knowing anything.
+# 4. What a cold agent could exploit without knowing anything.
 python3 tools_local/trivia/audit_options.py .rate/out/pack.jsonl
 
 # 5. The one difficulty check the ratings cannot satisfy by construction.

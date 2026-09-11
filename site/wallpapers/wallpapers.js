@@ -1,6 +1,6 @@
 // The wallpaper uploader, browser half. Decodes the dropped picture with a
 // canvas, fits it to the panel, hands the pixels to the pure pipeline in
-// convert.js, previews the 1-bit result exactly as the reader will show it, and
+// convert.js, previews the 1-bit result exactly as the device will show it, and
 // offers the .bmp for download. Nothing is uploaded: every byte stays in this
 // tab.
 
@@ -136,7 +136,7 @@ function render() {
   state.bits = bits;
 
   // Preview: paint the 1-bit result back to black/white so what is on screen is
-  // exactly what the reader will show, not the smoothed source.
+  // exactly what the device will show, not the smoothed source.
   preview.width = w;
   preview.height = h;
   preview.style.width = state.orient === "landscape" ? "350px" : "210px";
@@ -224,14 +224,10 @@ another.addEventListener("click", () => {
   filepick.click();
 });
 
-// The shared topbar's mobile menu toggle, kept local so the page works on its
-// own without depending on a site-wide script existing.
-const navToggle = document.querySelector(".topnav-toggle");
-const nav = $("topnav");
-if (navToggle && nav) {
-  navToggle.addEventListener("click", () => {
-    const open = navToggle.getAttribute("aria-expanded") === "true";
-    navToggle.setAttribute("aria-expanded", String(!open));
-    nav.classList.toggle("is-open", !open);
-  });
-}
+// The menu is assets/topnav.js, loaded before this file. A local copy used to
+// live here "so the page works on its own"; it toggled .is-open but never
+// added .has-menu, which is the class every mobile rule in styles.css is
+// scoped to. The button was display:none at every width and INSTALL THE
+// FIRMWARE was 49px of text in a 50px bar. Not a regression: this page was
+// created hours after topnav.js and shipped with the stripped copy already in
+// it, so the bar it prevents was never prevented here.
