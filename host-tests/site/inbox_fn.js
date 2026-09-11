@@ -195,6 +195,7 @@ const expect = (label, got, want) =>
   r = await call({ pass: "open sesame", op: "numbers" });
   expect("numbers answers", r.status, 200);
   [
+    "devices_heard_from",
     "devices_by_version",
     "daily_active_devices",
     "battery_by_version",

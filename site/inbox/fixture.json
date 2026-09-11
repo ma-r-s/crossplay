@@ -1,5 +1,5 @@
 {
-  "_comment": "Dev-only fixture for site/inbox/. serve.py answers POST /api/inbox from this file when INBOX_FIXTURE names it, whatever the passphrase. Shapes follow api/inbox.js: list -> {inbox, cards}, numbers -> the nine views. Production never reads it.",
+  "_comment": "Dev-only fixture for site/inbox/. serve.py answers POST /api/inbox from this file when INBOX_FIXTURE names it, whatever the passphrase. Shapes follow api/inbox.js: list -> {inbox, cards}, numbers -> the ten views. Production never reads it.",
   "list": {
     "inbox": [
       {
@@ -377,6 +377,7 @@
     }
   },
   "numbers": {
+    "heard": { "h24": 9, "d7": 41, "d30": 51, "d90": 51 },
     "byVersion": [
       {
         "board": "sticky",

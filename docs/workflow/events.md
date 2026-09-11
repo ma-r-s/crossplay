@@ -159,8 +159,12 @@ Each service says `device report via <service>: crash on <version>` or
 
 ## Reading the numbers
 
-Signed-in users (the inbox page) read five views over the events that carry
-a device: `devices_by_version` (distinct devices per board and version, over
+Signed-in users (the inbox page) read six views over the events that carry
+a device: `devices_heard_from` (the headline, one row: distinct devices in
+the last 24 hours, 7, 30 and 90 days; 90 is all the raw rows the board
+keeps, and a per-version table summed over its rows is NOT this number,
+since a device that updated inside the window sits in two rows),
+`devices_by_version` (distinct devices per board and version, over
 every event with a device and a version in the last 7 days),
 `daily_active_devices` (distinct devices per day, 30 days),
 `battery_by_version` (board, version, the average `battery_pct` of the

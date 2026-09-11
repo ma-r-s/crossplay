@@ -12,7 +12,7 @@
 // Operations:
 //   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card],
 //                triage: {waiting, claimed, for_mario, oldest_h, last_triaged_at, since_triage_h} or null}
-//   numbers  -> {byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
+//   numbers  -> {heard, byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
 //   answer   -> closes one blocker: {card_id, n, choice, note}
 
 const crypto = require("node:crypto");
@@ -87,6 +87,7 @@ async function opList() {
 async function opNumbers() {
   const q = (p) => rest(p).catch(() => []);
   const [
+    heard,
     byVersion,
     daily,
     battery,
@@ -98,6 +99,8 @@ async function opNumbers() {
     latency,
     byApp,
   ] = await Promise.all([
+    // The headline: distinct devices heard from, per window. One row.
+    q("devices_heard_from?select=*"),
     q("devices_by_version?select=*"),
     q("daily_active_devices?select=*"),
     q("battery_by_version?select=*"),
@@ -112,6 +115,7 @@ async function opNumbers() {
     q("open_cards_by_app?select=*"),
   ]);
   return {
+    heard: (heard || [])[0] || null,
     byVersion,
     daily,
     battery,
