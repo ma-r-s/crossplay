@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.52
+
+- Sync CrossPoint develop (20 commits)
+
 ### 1.12.51
 
 - Study: offer to resume the card left open across a leave or a sleep
