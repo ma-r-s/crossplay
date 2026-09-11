@@ -12008,6 +12008,16 @@ void testWikipediaSearchRowsCarryTheirIndex() {
     const FakeTarget::TextRun* parts = out.target.find("3 OF 46 PARTS ON THE CARD");
     CHECK(parts != nullptr && tapRun(out, parts).action == wikiui::ActionInstall);
   }
+  // More matches than the panel holds: the last line says so, above the keys.
+  wikiui::SearchModel more = model;
+  more.moreResults = true;
+  {
+    Rendered out;
+    buildWikiSearch(out, more);
+    const FakeTarget::TextRun* keep = out.target.find("KEEP TYPING FOR MORE");
+    CHECK(keep != nullptr);
+    if (keep != nullptr) CHECK(keep->rect.bottom() <= 800 - 252);
+  }
   // A title is never elided: one too wide for the row wraps, and the row grows
   // to hold it, so the match under it starts lower.
   wikiui::SearchModel wide;

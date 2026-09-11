@@ -239,14 +239,17 @@ void drawResults(toybox::Screen& screen, const SearchModel& model, int16_t y, co
                         static_cast<int16_t>(body.width - kMargin * 2), 60},
               "No article with that name");
   }
+  // The list looks complete when it is not ("Where did Tokyo go?"): when
+  // there are more matches than the panel holds, the last line says so,
+  // and its room comes off the rows rather than the other way round.
+  const int16_t rows = static_cast<int16_t>(model.moreResults ? bottom - kCaptionHeight - 4 : bottom);
   int drawn = 0;
   for (int i = 0; i < model.resultCount && i < kMaxResults; ++i) {
-    const int16_t h = drawTitleRow(screen, y, bottom, model.results[i].title, ActionResult, i, true);
+    const int16_t h = drawTitleRow(screen, y, rows, model.results[i].title, ActionResult, i, true);
     if (h == 0) break;
     y = static_cast<int16_t>(y + h);
     ++drawn;
   }
-  // The list looks complete when it is not; say so ("Where did Tokyo go?").
   if ((model.moreResults || drawn < model.resultCount) && y + kCaptionHeight <= bottom) {
     drawCaption(screen, fui::Rect{body.x, static_cast<int16_t>(y + 4), body.width, kCaptionHeight},
                 "KEEP TYPING FOR MORE");
