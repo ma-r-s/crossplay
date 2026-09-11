@@ -43,6 +43,26 @@ global.fetch = async function (url, opts) {
       ]),
       { status: 200 },
     );
+  if (u.includes("/rest/v1/cards") && u.includes("source=eq.site"))
+    return new Response(
+      JSON.stringify([
+        {
+          id: 9,
+          title: "Backlight?",
+          app: "unknown",
+          state: "reported",
+          device: "x4pro",
+          version: "1.12.50",
+          reporter: "user",
+          reporter_email: "someone@example.test",
+          photo_path: "reports/9.jpg",
+          created_at: "2026-09-10T18:00:00Z",
+        },
+      ]),
+      { status: 200 },
+    );
+  if (u.includes("/storage/v1/object/sign/reports/9.jpg") && opts.method === "POST")
+    return new Response(JSON.stringify({ signedURL: "/object/sign/reports/9.jpg?token=abc" }), { status: 200 });
   if (u.includes("/rest/v1/cards"))
     return new Response(
       JSON.stringify([
@@ -130,6 +150,13 @@ const expect = (label, got, want) =>
     1,
   );
   expect("and every card", r.json && r.json.cards && r.json.cards.length, 1);
+  expect("and what people wrote in the box, apart from the cards", r.json && r.json.reports && r.json.reports.length, 1);
+  expect("with who sent it", r.json.reports[0].reporter_email, "someone@example.test");
+  expect(
+    "and a link to the photo, signed here so the key stays here",
+    r.json.reports[0].photo_url,
+    process.env.SUPABASE_URL.replace(/\/+$/, "") + "/storage/v1/object/sign/reports/9.jpg?token=abc",
+  );
 
   calls = [];
   r = await call({
@@ -195,6 +222,12 @@ const expect = (label, got, want) =>
   r = await call({ pass: "open sesame", op: "numbers" });
   expect("numbers answers", r.status, 200);
   [
+    "devices_heard_from",
+    "devices_new",
+    "versions_now",
+    "devices_now",
+    "field_7d",
+    "crashes_7d",
     "devices_by_version",
     "daily_active_devices",
     "battery_by_version",

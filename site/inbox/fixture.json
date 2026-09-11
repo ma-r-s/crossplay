@@ -1,6 +1,34 @@
 {
-  "_comment": "Dev-only fixture for site/inbox/. serve.py answers POST /api/inbox from this file when INBOX_FIXTURE names it, whatever the passphrase. Shapes follow api/inbox.js: list -> {inbox, cards}, numbers -> the nine views. Production never reads it.",
+  "_comment": "Dev-only fixture for site/inbox/. serve.py answers POST /api/inbox from this file when INBOX_FIXTURE names it, whatever the passphrase. Shapes follow api/inbox.js: list -> {inbox, cards}, numbers -> the views the page reads. Production never reads it.",
   "list": {
+    "reports": [
+      {
+        "id": 460,
+        "title": "hi i love the efforts on the crossplay its super cool",
+        "app": "unknown",
+        "state": "reported",
+        "device": "x4pro",
+        "version": "",
+        "reporter": "user",
+        "reporter_email": "reader@example.test",
+        "photo_path": null,
+        "photo_url": null,
+        "created_at": "2026-09-10T18:02:00Z"
+      },
+      {
+        "id": 434,
+        "title": "I can't find backlight setting in Crossplay",
+        "app": "unknown",
+        "state": "reported",
+        "device": "x4pro",
+        "version": "1.12.48",
+        "reporter": "user",
+        "reporter_email": "",
+        "photo_path": "reports/434.jpg",
+        "photo_url": "https://example.test/storage/v1/object/sign/reports/434.jpg?token=fixture",
+        "created_at": "2026-09-07T09:10:00Z"
+      }
+    ],
     "inbox": [
       {
         "blocker_id": 41,
@@ -377,6 +405,22 @@
     }
   },
   "numbers": {
+    "heard": { "h24": 15, "d7": 51, "d30": 51, "d90": 51 },
+    "fresh": { "this_week": 9, "last_week": 6 },
+    "now": [
+      { "version": "1.12.50", "board": "x4pro", "devices": 21 },
+      { "version": "1.12.48", "board": "x4pro", "devices": 6 },
+      { "version": "1.12.50", "board": "sticky", "devices": 5 }
+    ],
+    "devices": [
+      { "device": "a2c219f7e1c9a0b4d8f2c6e3b7a1d5f9c0e4b8a2d6f0c4e8b2a6d0f4c8e2b6a0", "board": "sticky", "version": "1.12.50", "since": "2026-09-11T01:54:00Z", "first_seen": "2026-09-11T01:54:00Z", "last_seen": "2026-09-11T02:30:00Z", "versions_run": 1 },
+      { "device": "d42c28cb0e5a9f3b7c1d6e2a8f4b0c9d5e1a7f3b9c5d1e7a3f9b5c1d7e3a9f5b", "board": "x4pro", "version": "1.12.50", "since": "2026-09-09T23:24:00Z", "first_seen": "2026-09-04T23:19:00Z", "last_seen": "2026-09-10T21:00:00Z", "versions_run": 4 }
+    ],
+    "field": { "crashed": 18, "update_failed": 1, "updated": 15 },
+    "crashes": [
+      { "message": "panic without a recorded reason (reset: panic; last log: XKCD)", "devices": 10, "times": 10, "last": "2026-09-10T20:00:00Z" },
+      { "message": "abort() was called at PC 0x4037e6eb on core 0 (reset: panic)", "devices": 1, "times": 1, "last": "2026-09-09T11:00:00Z" }
+    ],
     "byVersion": [
       {
         "board": "sticky",
