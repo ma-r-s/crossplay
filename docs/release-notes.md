@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.54
+
+- Xkcd: a retry no longer says the card is not writable (#475)
+
 ### 1.12.53
 
 - Study: resume the open card silently and by its Anki id, no prompt
