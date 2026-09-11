@@ -12,7 +12,7 @@
 // Operations:
 //   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card],
 //                triage: {waiting, claimed, for_mario, oldest_h, last_triaged_at, since_triage_h} or null}
-//   numbers  -> {byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
+//   numbers  -> {heard, fresh, now, devices, field, crashes, byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
 //   answer   -> closes one blocker: {card_id, n, choice, note}
 
 const crypto = require("node:crypto");
@@ -72,21 +72,65 @@ async function rest(path, init) {
   return text ? JSON.parse(text) : null;
 }
 
+// A photo lives in the board's private bucket. A link the browser can open
+// is a signed URL, good for an hour, made here with the service key so the
+// key never reaches the page. No link when the bucket will not sign.
+async function photoUrl(path) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${path}`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ expiresIn: 3600 }),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j && j.signedURL ? `${SUPABASE_URL}/storage/v1${j.signedURL}` : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function opList() {
-  const [inbox, cards, triage] = await Promise.all([
+  const [inbox, cards, triage, reports] = await Promise.all([
     rest("inbox?select=*"),
     rest("cards?select=id,title,app,state,parent,updated_at&order=id.desc"),
     // How far behind triage is, for one line at the top of the page. A board
     // without the view (or a failing read) leaves the line out; the inbox
     // itself must not depend on it.
     rest("triage_backlog?select=*").catch(() => []),
+    // What people wrote in the box on the site, latest first, with who sent
+    // it. Mario, 2026-09-10: these are cards like any other on the board,
+    // which is how they got buried between every other card.
+    rest(
+      "cards?select=id,title,app,state,device,version,reporter,reporter_email,photo_path,created_at&source=eq.site&order=created_at.desc&limit=50",
+    ).catch(() => []),
   ]);
-  return { inbox: inbox || [], cards: cards || [], triage: (triage || [])[0] || null };
+  const withPhotos = await Promise.all(
+    (reports || []).map(async (c) =>
+      Object.assign({}, c, { photo_url: c.photo_path ? await photoUrl(c.photo_path) : null }),
+    ),
+  );
+  return {
+    inbox: inbox || [],
+    cards: cards || [],
+    triage: (triage || [])[0] || null,
+    reports: withPhotos,
+  };
 }
 
 async function opNumbers() {
   const q = (p) => rest(p).catch(() => []);
   const [
+    heard,
+    fresh,
+    now,
+    devices,
+    field,
+    crashes,
     byVersion,
     daily,
     battery,
@@ -98,6 +142,15 @@ async function opNumbers() {
     latency,
     byApp,
   ] = await Promise.all([
+    // The owner's facts first (20260910000200_owner_views.sql): distinct
+    // devices per window, growth, what runs right now with each device once,
+    // every device once, and whether the firmware hurt anyone this week.
+    q("devices_heard_from?select=*"),
+    q("devices_new?select=*"),
+    q("versions_now?select=*"),
+    q("devices_now?select=*"),
+    q("field_7d?select=*"),
+    q("crashes_7d?select=*"),
     q("devices_by_version?select=*"),
     q("daily_active_devices?select=*"),
     q("battery_by_version?select=*"),
@@ -112,6 +165,12 @@ async function opNumbers() {
     q("open_cards_by_app?select=*"),
   ]);
   return {
+    heard: (heard || [])[0] || null,
+    fresh: (fresh || [])[0] || null,
+    now,
+    devices,
+    field: (field || [])[0] || null,
+    crashes,
     byVersion,
     daily,
     battery,

@@ -159,16 +159,27 @@ Each service says `device report via <service>: crash on <version>` or
 
 ## Reading the numbers
 
-Signed-in users (the inbox page) read five views over the events that carry
-a device: `devices_by_version` (distinct devices per board and version, over
+Signed-in users (the inbox page) lead with the owner's facts, one view
+each (`20260910000200_owner_views.sql`): `devices_heard_from` (distinct
+devices in the last 24 hours, 7, 30 and 90 days, one row), `devices_new`
+(first heard this week and the week before), `devices_now` (every device
+once, at the version it last reported, with when it arrived there; 30
+days), `versions_now` (the same devices grouped, so the table's sum IS the
+device count), `field_7d` (devices that crashed, failed an install, or
+installed fine) and `crashes_7d` (panics by reason, devices first). A
+per-version table summed over its rows is NOT a device count: a device
+that updated inside the window sits in two rows, and the page showed that
+sum until 2026-09-10. Under the fold, the workshop's views:
+`devices_by_version` (distinct devices per board and version, over
 every event with a device and a version in the last 7 days),
 `daily_active_devices` (distinct devices per day, 30 days),
 `battery_by_version` (board, version, the average `battery_pct` of the
 events a device carried, averaged per device first so a reader that syncs
 ten times a day weighs the same as one that syncs once, with the device and
 report counts beside it, 7 days), `events_daily` (30 days, by service and
-event), `service_users` (7 days). The inbox page shows them under "Numbers",
-next to GitHub's own download counts per release.
+event), `service_users` (7 days). The inbox page shows them under "The
+workshop". GitHub's download counts are not on the page: they are not
+users (eleven releases cut in one day each got 6 to 16).
 
 A device is counted when it uses a service, and since the release that
 carried card 449 when it checks for an update (Settings > Update, the one request nearly every
