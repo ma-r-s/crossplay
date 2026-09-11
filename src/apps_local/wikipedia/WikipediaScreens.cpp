@@ -346,7 +346,7 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
                 "CONTINUE", toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut, ink);
       if (live && model.continuePage > 0) {
         // Where it lands, so the card says what it does before it is pressed.
-        char page[16];
+        char page[24];
         snprintf(page, sizeof(page), "PAGE %d", model.continuePage);
         drawLabel(screen,
                   fui::Rect{static_cast<int16_t>(card.right() - 14 - 160), static_cast<int16_t>(card.y + 12), 160, 24},
@@ -427,7 +427,7 @@ int buildContents(toybox::Screen& screen, const ContentsModel& model) {
     }
     drawTitle(screen, fui::Rect{textX, y, textWidth, fit.height}, model.headings[i], font, fit);
     if (model.pages && model.pages[i] >= 0) {
-      char number[8];
+      char number[16];
       snprintf(number, sizeof(number), "%d", model.pages[i] + 1);
       drawLine(screen, fui::Rect{static_cast<int16_t>(row.right() - kMargin - numberWidth), y, numberWidth, fit.height},
                number, toybox::kSmallFont, fui::TextAlign::Right);
@@ -440,7 +440,7 @@ int buildContents(toybox::Screen& screen, const ContentsModel& model) {
   // The window's place in the list, and where the rest is. Paged by the side
   // buttons or by tapping the line.
   if (model.first > 0 || model.first + shown < model.count) {
-    char where[32];
+    char where[48];
     snprintf(where, sizeof(where), "%d-%d of %d", model.first + 1, model.first + shown, model.count);
     const fui::Rect line{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.bottom() - 34),
                          static_cast<int16_t>(body.width - kMargin * 2), 30};

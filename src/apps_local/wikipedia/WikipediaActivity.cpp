@@ -791,35 +791,34 @@ void WikipediaActivity::loop() {
         }
       }
     }
-    // A swipe turns the page too, as the reader's swipe mode does; the
-    // left-edge swipe is Back and was handled above.
+    // A vertical swipe turns the page too, the way the shelf and Hacker News
+    // page; a horizontal one is not read here, because the left-edge swipe
+    // IS Button::Back and a second reading of it would be a second Back.
     const auto swipe = mappedInput.wasSwipe();
-    if (swipe == MappedInputManager::SwipeDir::Left) {
+    if (swipe == MappedInputManager::SwipeDir::Up) {
       turnPage(1);
       return;
     }
-    if (swipe == MappedInputManager::SwipeDir::Right && !mappedInput.wasBackGesture()) {
+    if (swipe == MappedInputManager::SwipeDir::Down) {
       turnPage(-1);
       return;
     }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Left) ||
-        mappedInput.wasPressed(MappedInputManager::Button::PageBack) ||
+    // The two side buttons, as the reader maps them; the X4 Pro has no
+    // Confirm, Left or Right (docs/buttons.md).
+    if (mappedInput.wasPressed(MappedInputManager::Button::PageBack) ||
         mappedInput.wasPressed(MappedInputManager::Button::Up)) {
       turnPage(-1);
       return;
     }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Right) ||
-        mappedInput.wasPressed(MappedInputManager::Button::PageForward) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Down) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::PageForward) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Down)) {
       turnPage(1);
       return;
     }
   } else if (view_ == View::Contents) {
     const int rows = wikiui::kContentsRows;
     const int count = static_cast<int>(article_.headings.size()) + 1;
-    if (mappedInput.wasPressed(MappedInputManager::Button::Down) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
       const int step = contentsShown_ > 0 ? contentsShown_ : rows;
       if (contentsFirst_ + step < count) {
         contentsFirst_ += step;
@@ -827,8 +826,7 @@ void WikipediaActivity::loop() {
       }
       return;
     }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Up) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
       if (contentsFirst_ > 0) {
         contentsFirst_ = std::max(0, contentsFirst_ - rows);
         requestUpdate();

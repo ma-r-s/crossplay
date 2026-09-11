@@ -3,6 +3,7 @@
 // argv[1], optional: fold_vectors.tsv from the builder (input TAB expected),
 // which is the proof the C++ fold and the Python fold are one function.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -400,6 +401,6 @@ int main(const int argc, char** argv) {
   testBlock();
   testIndex();
   testState();
-  std::printf("%d checks, %d failures\n", checks, failures);
+  std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;
 }

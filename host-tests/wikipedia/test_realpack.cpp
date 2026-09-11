@@ -225,7 +225,7 @@ int main(const int argc, char** argv) {
 
   ZSTD_freeDDict(ddict);
   ZSTD_freeDCtx(dctx);
-  std::printf("real pack: %d articles and %d redirects agree with the writer; %d checks, %d failures\n", articles,
+  std::printf("real pack: %d articles and %d redirects agree with the writer; %d checks, %d failed\n", articles,
               redirects, checks, failures);
   return failures == 0 ? 0 : 1;
 }
