@@ -346,10 +346,16 @@ is pruned to the last 32 articles.
 Vital Articles JSON and one monthly `pageview_complete` file; `article_html.py`
 makes the XHTML; `pack_format.py` is the writer and a reference reader (the
 Trivia pack's shape, so the format is executable); `zstd --train` makes the
-dictionary. One run writes the full pack and cuts the tiers. Publishing is a
-directory of shards plus the manifest on Cloudflare R2 (no egress fees; the
-`cf` CLI is already authenticated here), mirrored as release assets if we
-want a second home.
+dictionary. One run writes the full pack and cuts the tiers. Publishing is
+`server/packs/scripts/publish_pack.sh`: the directory of shards plus the
+manifest goes to the Orange Pi beside the packs already there, and the
+stable name (`https://packs.ma-r-s.com/wikipedia/en/`) is flipped to it.
+The host is the pi behind its own Cloudflare Tunnel, deployed like the
+bridges (`server/packs/`); Mario's call on 2026-09-11, over R2, because it
+is how every other service here runs and it costs nothing. The essentials'
+files are under Cloudflare's 512 MB per-file cache limit, so with a cache
+rule on the host the edge serves them; the full pack would be the one to
+move to R2 if its downloads ever weigh on the uplink.
 
 ### The site: `site/wikipedia/`
 
@@ -377,7 +383,7 @@ page serves "get a newer one".
    random locators, whatever comes out, every screenshot opened and judged
    for the pitch, "all the knowledge in the universe in your e-reader, in
    your pocket, no internet". Fix what looks wrong, render again.
-6. Full pack build, R2, release.
+6. Full pack build and publish, release.
 7. Later: the monthly patch overlay.
 
 ## Open risks, stated

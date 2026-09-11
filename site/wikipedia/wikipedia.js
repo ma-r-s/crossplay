@@ -38,12 +38,12 @@ import {
   formatSnapshot,
 } from "./plan.js";
 
-// Where the pack lives. A placeholder until the shards are published on
-// Cloudflare R2. Whatever host it ends up on must answer CORS for this page's
-// origin (GET and HEAD, with Content-Length); without that every fetch fails
-// as the browser's opaque "Failed to fetch" and the page can only say the
-// connection dropped.
-const PACK_BASE_URL = "https://packs.crossplay.ma-r-s.com/wikipedia/en/";
+// Where the pack lives: the Orange Pi behind its own Cloudflare Tunnel
+// (server/packs/), a stable name that points at the current snapshot. The
+// host answers CORS for any origin (GET and HEAD, with Content-Length and
+// Range); without that every fetch fails as the browser's opaque "Failed to
+// fetch" and the page can only say the connection dropped.
+const PACK_BASE_URL = "https://packs.ma-r-s.com/wikipedia/en/";
 
 // Bytes handed to the card per write. Fetch delivers pieces of 16 to 64 KB;
 // writing each one is a round trip to the browser's file process, and 2 MB

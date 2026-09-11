@@ -1,0 +1,79 @@
+# The pack host: plain files behind a Cloudflare Tunnel, the way the bridges
+# are deployed (docs: README.md beside this). No host ports, its own subnet,
+# the container read-only and unprivileged. It serves nothing but bytes, but
+# it is reachable from the public internet and shares a box with Immich,
+# Jellyfin and the *arr stack, so it gets the same walls as its siblings.
+
+networks:
+  packs:
+    name: packs
+    ipam:
+      config:
+        # Pinned so scripts/firewall.sh has a stable subnet to match on.
+        # Siblings: getbooks .83, ankibridge .84, readbridge .85.
+        - subnet: 172.31.86.0/24
+
+services:
+  packs:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    container_name: packs
+    restart: unless-stopped
+    networks: [packs]
+    # Not published on the host: cloudflared reaches it over this network.
+    expose:
+      - "8080"
+    dns:
+      - 1.1.1.1
+      - 9.9.9.9
+    volumes:
+      - ./data:/srv/packs:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    read_only: true
+    tmpfs:
+      # nginx's pid file and its client/proxy temp dirs live here in the
+      # unprivileged image.
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 64
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: packs-cloudflared
+    restart: unless-stopped
+    networks: [packs]
+    dns:
+      - 1.1.1.1
+      - 9.9.9.9
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - packs
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 64
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

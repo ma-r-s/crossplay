@@ -573,13 +573,15 @@ above forbid one anyway). Three files carry it and a fourth is vendored:
 - `wikipedia/sha256.js` is a streaming SHA-256 (MIT, written here), because
   `crypto.subtle.digest` is one-shot and a shard is a gigabyte.
 
-**`PACK_BASE_URL` at the top of `wikipedia.js` is where the pack lives.** It
-is a placeholder until the shards are on Cloudflare R2, and whatever bucket
-they land in must answer CORS for this page's origin (GET and HEAD, exposing
-Content-Length): without that every fetch fails as the browser's opaque
-"Failed to fetch", which the page can only report as a dropped connection.
-That is the one thing about this page that cannot be verified from this
-repository.
+**`PACK_BASE_URL` at the top of `wikipedia.js` is where the pack lives:**
+`https://packs.ma-r-s.com/wikipedia/en/`, the Orange Pi behind its own
+Cloudflare Tunnel (`server/packs/`), a stable name pointing at the current
+snapshot. The host answers CORS for any origin (GET, HEAD and OPTIONS,
+exposing Content-Length and Content-Range, Range accepted); without that
+every fetch fails as the browser's opaque "Failed to fetch", which the page
+can only report as a dropped connection. Verified with curl against the
+live host on 2026-09-11; the page's own copy onto a card is the one thing
+that needs a hand on a folder picker.
 
 **What it writes, and in what order.** `wikipedia/` in the chosen folder;
 `dict.zst`, `titles.idx`, `blocks.dir`, then the shards in order up to the
