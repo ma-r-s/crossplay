@@ -804,8 +804,13 @@ void WikipediaActivity::loop() {
         }
         return;
       case View::Article:
+        // The edge swipe leaves the article for the main page; the band's
+        // chevron is the one that walks the trail back (Mario, 2026-09-11:
+        // "the back gesture and the back arrow do different things").
         saveState();
-        popHistory();
+        history_.clear();
+        closeArticle();
+        go(View::Search);
         return;
       case View::Contents:
         go(View::Article);

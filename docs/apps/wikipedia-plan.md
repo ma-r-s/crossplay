@@ -192,8 +192,10 @@ right ("page 12" while a first layout is still counting), and under the
 words, in the gutter above the glass, a hairline with a solid band along it
 as far as the page has come.
 
-The band has a chevron at the left, the way back (the previous article, or
-the search), and the list icon at the right, which is CONTENTS (a word in
+The band has a chevron at the left, the way back along the trail (the
+previous article, or the main page when there is none; the edge swipe is
+the other way out, straight to the main page), and the list icon at the
+right, which is CONTENTS (a word in
 the reader's small cut took 151 of the band's 448 pixels and left a
 one-word title cut). The title is bold in the reader's
 own face: at the reading size when it fits one line, otherwise two lines of
@@ -224,9 +226,10 @@ was found on that sheet and on nothing smaller.
 Links are underlined words, and only words whose article the pack carries
 are links: the builder drops the rest to plain text once it knows every
 title in the pack, so the reader never taps a promise the card cannot keep.
-Tap one and that article opens; Back returns to
+Tap one and that article opens; the chevron returns to
 the exact page you left. The history is eight deep, like following a trail
-of thought and coming back. A link into an article that is not on the card
+of thought and coming back; the edge swipe drops the trail and goes to the
+main page. A link into an article that is not on the card
 yet (a partial copy, or a title the pack does not have) shows one line, "Not
 on the card yet", and BACK; fetching it over Wi-Fi is v2.
 
@@ -500,7 +503,10 @@ nits). What changed, in every variant, before the choice was made:
   with it the count line. The count line is reserved first and the trail
   gets what is left; the article CONTINUE names is left out of it.
 - **Nothing on the article said how to go back.** A chevron on the band's
-  left is the previous article or the search; the edge swipe still works.
+  left walks the trail back: the previous article, or the main page when
+  there is none. The edge swipe leaves the article for the main page in one
+  move (Mario, after the install: "the back gesture and the back arrow do
+  different things").
 - **The keyboard up with nothing typed was a blank panel** in the two
   arrangements that raise it on a tap: the doors now stay above the keys,
   and the X puts the keyboard down.
