@@ -1,0 +1,9 @@
+{
+  "name": "zstd",
+  "version": "1.5.7",
+  "description": "Vendored zstd decompressor only (single-file amalgamation), for the Wikipedia pack on the card",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  }
+}
