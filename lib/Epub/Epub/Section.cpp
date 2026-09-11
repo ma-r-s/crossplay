@@ -150,7 +150,17 @@ void Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for visible-offset LUT (patched later)
 }
 
-bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
+// A standalone document has no images to render, whatever the reader's
+// setting says; the spec written into its cache and compared against it is
+// the one with images off, so the setting cannot invalidate the layout.
+ReaderRenderSpec Section::effectiveSpec(const ReaderRenderSpec& requested) const {
+  ReaderRenderSpec spec = requested;
+  if (!epub) spec.imageRendering = 2;
+  return spec;
+}
+
+bool Section::loadSectionFile(const ReaderRenderSpec& requested) {
+  const ReaderRenderSpec spec = effectiveSpec(requested);
   if (!Storage.openFileForRead("SCT", filePath, file)) {
     return false;
   }
@@ -266,7 +276,8 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   return buildComplete_;
 }
 
-bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void()>& popupFn) {
+bool Section::startBuild(const ReaderRenderSpec& requested, const std::function<void()>& popupFn) {
+  const ReaderRenderSpec spec = effectiveSpec(requested);
   if (build_) {
     LOG_ERR("SCT", "startBuild called while a build is already active");
     return false;

@@ -36,8 +36,8 @@
 #include "trivia/TriviaActivity.h"
 #include "ui/ToyboxIcons.h"
 #include "wallpapers/WallpapersActivity.h"
-#include "wikipedia/WikipediaActivity.h"
 #include "wavelength/WavelengthActivity.h"
+#include "wikipedia/WikipediaActivity.h"
 #include "xkcd/XkcdActivity.h"
 #include "yahtzee/YahtzeeActivity.h"
 

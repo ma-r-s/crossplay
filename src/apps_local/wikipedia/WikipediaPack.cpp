@@ -324,8 +324,8 @@ bool Pack::writeInstallJson(const int64_t freeBytes, const char* firmwareVersion
     snprintf(buf, sizeof(buf),
              "{\"device\":\"%s\",\"firmware\":\"%s\",\"free\":%s,\"pack\":\"%s\",\"snapshot\":\"%s\","
              "\"shardsPresent\":%d,\"shardsTotal\":%d}\n",
-             deviceName, firmwareVersion, freeField, manifest_.pack.c_str(), manifest_.snapshot.c_str(),
-             shardsPresent_, shardsTotal());
+             deviceName, firmwareVersion, freeField, manifest_.pack.c_str(), manifest_.snapshot.c_str(), shardsPresent_,
+             shardsTotal());
   } else {
     snprintf(buf, sizeof(buf),
              "{\"device\":\"%s\",\"firmware\":\"%s\",\"free\":%s,\"pack\":null,\"snapshot\":null,"

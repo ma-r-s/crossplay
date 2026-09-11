@@ -21,6 +21,9 @@ class Section {
   HalFile file;
 
   void writeSectionFileHeader(const ReaderRenderSpec& spec);
+  // The spec a build and its cache really use: a standalone document forces
+  // images off.
+  ReaderRenderSpec effectiveSpec(const ReaderRenderSpec& requested) const;
   uint32_t onPageComplete(std::unique_ptr<Page> page);
 
   // Page-offset table entry, kept in RAM while an incremental build is running so
@@ -92,8 +95,8 @@ class Section {
   explicit Section(const std::shared_ptr<Epub>& epub, int spineIndex, GfxRenderer& renderer);
   // A standalone document: htmlPath is an existing XHTML file, cacheDir receives
   // sections/<index>.bin, and every id in sectionAnchors starts a fresh page.
-  // No zip, no CSS, no images (imageRendering must be 2 in the spec), and no
-  // footnote entries unless captureFootnotes. The Wikipedia app lays out an
+  // No zip, no CSS, no images (the section forces that in the spec it uses),
+  // and no footnote entries unless captureFootnotes. The Wikipedia app lays out an
   // article this way; nothing else about the section changes.
   Section(std::string htmlPath, std::string cacheDir, int index, GfxRenderer& renderer,
           std::vector<std::string> sectionAnchors, bool captureFootnotes);

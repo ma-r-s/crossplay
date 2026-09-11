@@ -140,13 +140,28 @@ std::string unescape(const std::string& s) {
     }
     const char e = s[++i];
     switch (e) {
-      case 't': out.push_back('\t'); break;
-      case 'n': out.push_back('\n'); break;
-      case 'r': out.push_back('\r'); break;
-      case 'f': out.push_back('\f'); break;
-      case 'v': out.push_back('\v'); break;
-      case '\\': out.push_back('\\'); break;
-      default: out.push_back('\\'); out.push_back(e); break;
+      case 't':
+        out.push_back('\t');
+        break;
+      case 'n':
+        out.push_back('\n');
+        break;
+      case 'r':
+        out.push_back('\r');
+        break;
+      case 'f':
+        out.push_back('\f');
+        break;
+      case 'v':
+        out.push_back('\v');
+        break;
+      case '\\':
+        out.push_back('\\');
+        break;
+      default:
+        out.push_back('\\');
+        out.push_back(e);
+        break;
     }
   }
   return out;
@@ -183,7 +198,8 @@ void testFold(const char* vectorsPath) {
     ++vectors;
     if (fold(input) != expected) {
       ++wrong;
-      if (wrong <= 5) std::printf("  fold(%s) = %s, builder says %s\n", input.c_str(), fold(input).c_str(), expected.c_str());
+      if (wrong <= 5)
+        std::printf("  fold(%s) = %s, builder says %s\n", input.c_str(), fold(input).c_str(), expected.c_str());
     }
   }
   CHECK(vectors >= 100);
@@ -220,7 +236,8 @@ void testManifest() {
   CHECK(!parseManifest("nonsense", 8, bad));
   CHECK(!parseManifest("{\"format\":1}", 12, bad));
   // Escapes in strings survive.
-  const char* esc = R"({"format":1,"pack":"a\"b","snapshot":"é","dict":{"file":"d"},"blocksdir":{"file":"b"},"titles":[{"file":"t"}],"shards":[{"file":"s"}]})";
+  const char* esc =
+      R"({"format":1,"pack":"a\"b","snapshot":"é","dict":{"file":"d"},"blocksdir":{"file":"b"},"titles":[{"file":"t"}],"shards":[{"file":"s"}]})";
   Manifest e;
   CHECK(parseManifest(esc, strlen(esc), e));
   CHECK(e.pack == "a\"b");
@@ -305,7 +322,8 @@ void testIndex() {
   std::vector<Title> titles;
   // Enough titles to span several 4 KB blocks, plus the shapes that matter.
   for (int i = 0; i < 900; ++i) {
-    titles.push_back({"Article number " + std::to_string(i), makeLocator(static_cast<uint32_t>(i / 12), i % 12), false});
+    titles.push_back(
+        {"Article number " + std::to_string(i), makeLocator(static_cast<uint32_t>(i / 12), i % 12), false});
   }
   titles.push_back({"New York City", makeLocator(7000, 1), false});
   titles.push_back({"NYC", makeLocator(7000, 1), true});

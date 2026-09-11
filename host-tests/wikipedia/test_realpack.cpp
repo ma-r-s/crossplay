@@ -131,7 +131,8 @@ int main(const int argc, char** argv) {
     const auto& shard = shards[rec.shard];
     if (static_cast<size_t>(rec.offset) + rec.csize > shard.size()) return false;
     raw.resize(rec.usize);
-    const size_t got = ZSTD_decompress_usingDDict(dctx, raw.data(), raw.size(), shard.data() + rec.offset, rec.csize, ddict);
+    const size_t got =
+        ZSTD_decompress_usingDDict(dctx, raw.data(), raw.size(), shard.data() + rec.offset, rec.csize, ddict);
     if (ZSTD_isError(got)) {
       std::printf("  block %u: %s\n", static_cast<unsigned>(block), ZSTD_getErrorName(got));
       return false;

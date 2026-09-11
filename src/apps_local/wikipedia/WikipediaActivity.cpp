@@ -477,7 +477,6 @@ void WikipediaActivity::renderArticle(toybox::Screen& screen) {
 
   if (!section_) {
     ReaderRenderSpec spec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
-    spec.imageRendering = 2;
     spec.embeddedStyle = false;
     // Ragged right, whatever the reader's setting for books: Wikipedia prose
     // is link-dense and name-dense on a 28-character measure, and two cold

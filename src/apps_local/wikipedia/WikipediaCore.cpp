@@ -28,7 +28,7 @@ struct JsonValue {
   bool boolean = false;
   double number = 0;
   std::string str;
-  std::vector<JsonValue> items;                          // Array
+  std::vector<JsonValue> items;                           // Array
   std::vector<std::pair<std::string, JsonValue>> fields;  // Object
 
   const JsonValue* get(const char* key) const {
