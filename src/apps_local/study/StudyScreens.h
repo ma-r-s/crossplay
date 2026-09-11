@@ -86,13 +86,6 @@ struct DeckModel {
 
 void buildDeck(toybox::Screen& screen, const DeckModel& model);
 
-// Shown at onEnter() when a card was left open last time. RESUME (action
-// ActionStudy, value 5) reveals it; NOT NOW (value 6) declines, same as
-// Back. `caption` is the already-formatted "LEFT 12 MIN AGO" (StudyActivity
-// computes it -- it needs a wall clock, which this header stays free of so
-// host-tests/ui can build the screen deterministically).
-void buildResumePrompt(toybox::Screen& screen, const char* caption);
-
 // ---- The sync flow surface (docs/apps/study-syncflow-ui.md).
 //
 // One screen, two faces: the stage ladder while the flow runs, the verdict

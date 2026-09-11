@@ -109,9 +109,13 @@ bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData
   return readCanned(url, onData);
 }
 
+// The trailing bool is upstream's downgradeRedirectsToHttp (#3377): a TLS
+// concern, meaningless for a canned response, but the definition must match
+// the declaration or the browser build stops at this file, as it did on the
+// 2026-09-11 sync.
 HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& url, const std::string& destPath,
                                                              ProgressCallback progress, bool* cancelFlag,
-                                                             const std::string&, const std::string&) {
+                                                             const std::string&, const std::string&, bool) {
   HalFile out;
   if (!Storage.openFileForWrite("HTTPCAN", destPath.c_str(), out)) return FILE_ERROR;
   size_t written = 0;
