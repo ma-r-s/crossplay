@@ -39,23 +39,37 @@ two routes, and the pack is built so both write the same files in the same
 order.
 
 The shelf tile says WIKIPEDIA. Opening it with no pack on the card shows one
-screen: a QR code in the middle, under it "Scan this with your phone. It
-takes about ten minutes.", and the address in small type for people without
-a scanner. Nothing to configure, nothing to choose on the device.
+screen: the address in large type, `crossplay.ma-r-s.com/wikipedia`, then
+"Open this in Chrome or Edge on a computer. About ten minutes.", and a QR
+code under it for a phone. The phone page is one sentence and a SEND THIS TO
+MY COMPUTER button (the Web Share API, mail as the fallback), because no
+phone browser can write the card; the computer is where the copy happens,
+and the page says "Chrome or Edge" as a requirement, first, not as a
+footnote. Nothing to configure, nothing to choose on the device.
 
 Behind that screen the device has already put its card on the USB port, the
 way Settings > USB Drive does (the same `Storage.beginUsbDrive()` call; the
 QR renderer is `QrUtils::drawQrCode`, already used by Study, Instapaper and
 Wallpapers), so the cable route needs nothing more from the user than the
-cable. When the cable goes in the screen changes to "Connected. Follow the
-page on the computer." When the computer ejects the drive, or the cable
-comes out, the device restarts (USB drive mode always ends in a restart,
-`restartToHomeAfterStorageHandoff`) and lands back in Wikipedia on the
-search screen, not on Home; that landing is a small addition to the restart
-target mechanism that already knows how to land in the reader. If nothing
-connects for a few minutes the screen times out back to the shelf, exactly
-like the USB Drive screen does. If the card was taken out for the other
-route, the app simply finds the pack on the next open.
+cable. Right before it hands the card over, the device writes
+`/wikipedia/install.json`: free bytes on the card, firmware version, the
+pack already installed if any and how many of its parts are there. That
+file is what the page looks for to know it has the right drive, what fits,
+and whether this is a first install or "get a newer one". When the cable
+goes in the screen changes to "Connected. Follow the page on the computer."
+The screen keeps the device awake for as long as it is showing (the stock
+USB Drive screen does not, and deep-sleeps ten minutes into a copy with the
+host mid-write; ours overrides `preventAutoSleep`). When the computer
+ejects the drive, or the cable comes out, the device restarts (USB drive
+mode always ends in a restart, `restartToHomeAfterStorageHandoff`), checks
+the manifest against the files, and lands back in Wikipedia on the search
+screen, not on Home; that landing is a small addition to the restart target
+mechanism that already knows how to land in the reader. "Wikipedia is
+ready" is said by the device after that check, never by the page. If
+nothing connects for thirty minutes the screen times out back to the shelf
+(the stock five minutes is shorter than finding a cable). If the card was
+taken out for the other route, the app simply finds the pack on the next
+open.
 
 ### The page: crossplay.ma-r-s.com/wikipedia
 
@@ -64,11 +78,9 @@ picture each, the first one selected:
 
 - **The essentials, with the cable. About ten minutes.** "Plug the reader
   into the computer with its cable." You get the 50,000 articles Wikipedia
-  itself ranks as vital, full text, about 450 MB. (If the hardware spike
-  measures the device's port at 1 MB/s or better, this card also carries
-  the first paragraph of every other article, another 1 GB, and the wording
-  becomes "every article, and the 50,000 most important ones in full".
-  Under 1 MB/s it does not, and the rule holds.)
+  itself ranks as vital, full text, about 460 MB including their own title
+  index (the index is split by tier, so the essentials carry no dead
+  weight for articles they do not have).
 - **All of Wikipedia, with the card in the computer. About fifteen minutes.**
   "Take the card out of the reader and put it in the computer, in its slot or
   in a card reader." 7.2 million articles, 11.5 GB. The page shows the
@@ -78,17 +90,30 @@ picture each, the first one selected:
 Then two steps, the same for both routes:
 
 1. "Choose the reader" or "Choose the card": one button that opens the
-   browser's folder picker. The page checks the chosen drive for the
-   `/.crosspoint/` folder every CrossPlay card has and says "That is not the
-   reader's card" if it is missing. Nothing else on the card is touched.
+   browser's folder picker. The page names the drive to pick (the card's
+   volume label, from `install.json` when the device wrote one), checks the
+   chosen drive for `/wikipedia/install.json` or, failing that, the
+   `/.crosspoint/` folder every CrossPlay card has, and says which drive to
+   pick instead if it is neither. It greys out a tier that does not fit the
+   free space the device reported. Nothing else on the card is touched, and
+   it writes `.metadata_never_index` and `.fseventsd/no_log` at the root so
+   the Mac does not index the card while the copy runs.
 2. One progress bar with the measured time left. "You can start reading on
    the reader after part 1." Interruptions are fine: unplug, come back, it
-   continues where it stopped, because the parts are files with hashes.
+   continues where it stopped. Resume is by size: a file that exists at its
+   manifest size is complete, because the browser only reveals a file after
+   its close succeeded; nothing is read back through the slow port. Hashes
+   are computed on the download stream as it is written, and every block
+   inside a shard carries zstd's own checksum, which the device verifies on
+   decode, so a bad block is one article's error line and never a
+   three-hour verification.
 
-When it is done the page says the one thing left to do for the route taken:
-"Eject the reader, then unplug it" (the eject is what makes the device
-restart into Wikipedia, so the reader's screen changing is the signal that
-it worked) or "Put the card back in the reader and open Wikipedia".
+When it is done the page says the one thing left to do for the route taken,
+with a picture for the operating system it is running on: on a Mac "click
+the eject arrow next to the card in Finder, then unplug"; on Windows
+"unplug it"; or "put the card back in the reader and open Wikipedia". The
+page cannot eject a drive itself; the File System Access API has no such
+call, and the plan used to pretend otherwise.
 
 What makes the two routes one product rather than two:
 
@@ -157,9 +182,13 @@ article in front of you is current, the ones you never open do not matter.
 ### Getting a newer Wikipedia
 
 The app's settings row says "Wikipedia from August 2026" and offers GET A
-NEWER ONE, which brings back the QR screen: same page, same three steps, the
+NEWER ONE, which brings back the install screen: same page, same steps, the
 new pack copies over the old one part by part and the old one keeps working
-until the new manifest is complete. No bulk update rides on Wi-Fi, because at
+until the new manifest is complete. In v1 that snapshot date is the whole
+update story; the per-article refresh over Wi-Fi (GET THE LATEST VERSION,
+GET IT) is cut from v1 (see "After the critic") because a refreshed article
+from the text API would lose its links and infobox, and a faithful one
+needs the preprocessor ported to the device. No bulk update rides on Wi-Fi, because at
 the measured 95 to 150 KB/s of TLS on this board a pack is a day of
 download. A monthly patch overlay over Wi-Fi (per-article zstd patches,
 measured at 300 to 500 MB a month) is the v2 of this screen.
@@ -324,3 +353,52 @@ page serves "get a newer one".
   before an on-demand fetch; refuse on unknown with its own sentence.
 - The cache directory is named `epub_<hash>` by `Epub`; either accept it or
   add the small explicit-path constructor to `Section`.
+
+## After the critic (2026-09-11)
+
+A cold review of this plan produced 27 findings (workspace
+`wikipedia-research/plan-critique.md`). What changed, in the plan above and
+in the format:
+
+- **Three blockers fixed.** The install screen keeps the device awake and
+  waits thirty minutes (the stock USB Drive screen deep-sleeps at ten
+  minutes with the host mid-write). The address comes first and the QR
+  second, with "Chrome or Edge on a computer" said up front, and the phone
+  page only sends the link onward. And the build strips runs of letters the
+  reader's serif cannot draw (10% of leads carry a native name in Chinese,
+  Arabic, Cyrillic or Greek that would render as a row of boxes): a
+  parenthetical in the lead that holds one is removed whole, elsewhere the
+  run and its "Script:" label go, and the builder prints how many.
+- **Cut from v1.** The leads-only tier (a second pack with a second index and
+  a stub behaviour nobody asked for), and the on-demand refresh (see above).
+- **The pack.** Shards are 256 MB, not 1 GB, so a browser's swap file and
+  read-back after close stay bounded and a resume loses little. The title
+  index is split per tier. The lead's first mention of the title is bold
+  (the source has no inline styling; this one is recoverable and it is the
+  Wikipedia convention people recognise). Ordered lists carry their
+  numbers as text. "Simple table" means what the engine draws without
+  stacking: at most four columns, at most 32 words and 512 bytes a cell.
+  The infobox is a QUICK FACTS section of `<p><b>Key</b> value</p>` rows,
+  listed in CONTENTS.
+- **The reader.** `Section` gets an explicit-path constructor (html path,
+  cache directory, section anchors), which is the only way the anchors that
+  make a heading start a fresh page reach the parser, and it makes `Section`
+  host-testable. A heading starts a fresh page only in articles over about
+  24 KB; below that the median article would fan into near-empty pages. The
+  per-page link cap rises from 32 to 96 and footnote capture is switched
+  off for this path (every internal link was also being recorded as a
+  footnote, 288 bytes each, for a popup this app does not have). The article
+  cache lives under `/.crosspoint/wikipedia/<locator>-<revision>/`, so a
+  replaced article can never hit an old layout. The footer shows the page
+  number and section while the layout is still building and "of N" once it
+  is complete. RANDOM draws from the essentials shard.
+- **Measured, not asserted, in phase 0.** Write-plus-close of a 256 MB file
+  through the device from a Mac and from Windows; a fifteen-minute USB
+  session under load; sustained plain-HTTP download to the card with
+  power-save off (the number that decides whether "get the essentials over
+  Wi-Fi, no computer" can ever meet the twenty-minute rule; at the research's
+  95 to 150 KB/s it is an hour, so it stays out until measured).
+- **Rejected.** Hashing shards on the page after writing (reads 11.5 GB back
+  through a 1 MB/s port); a `dl` infobox (the engine treats it as inline);
+  "the same pack cut at different points" for the leads tier (it was a
+  different pack).
