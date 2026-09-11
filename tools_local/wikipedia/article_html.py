@@ -81,8 +81,12 @@ SUBJECT_STOPWORDS = frozenset(("the", "a", "an", "list", "of", "in", "on", "and"
 
 _CONTROL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f￾￿\ud800-\udfff]")
 _CITE = re.compile(r"\[\d+\]")
+# The page number a citation carried, left behind once the mark went:
+# "principles.: 6 The scope".
+_CITE_PAGE = re.compile(r"(?<=[.,;!?])\s?:\s?\d+(?:[\u2013-]\d+)?(?=\s|$)")
 _WS = re.compile(r"\s+")
-_PAREN = re.compile(r" ?\([^()]*\)")
+# One level of nesting, so "(UK: OH-s(h)ee-AH-nee-<schwa>)" is one parenthetical.
+_PAREN = re.compile(r" ?\((?:[^()]|\([^()]*\))*\)")
 
 _run_re = None
 _labelled_run_re = None
@@ -139,6 +143,7 @@ def clean_text(s):
         return ""
     s = _CONTROL.sub("", s)
     s = _CITE.sub("", s)
+    s = _CITE_PAGE.sub("", s)
     return _WS.sub(" ", s).strip()
 
 

@@ -592,6 +592,10 @@ class Rules(unittest.TestCase):
                 "A pinata (/ p \u026a n j a t a /, Spanish pronunciation:) is a container",
                 "A pinata is a container",
             ),
+            (
+                "Oceania (UK: OH-s(h)ee-AH-nee-\u0259, -AY-, US: OH-shee-A(H)N-ee-\u0259) is a region",
+                "Oceania is a region",
+            ),
         ]
         for src, want in cases:
             self.assertEqual(ah.strip_undrawable(src, {}, lead=True), want, src)
@@ -602,6 +606,11 @@ class Rules(unittest.TestCase):
             "Ratio 3:1, at 10:30, see Note: this. It's the dog's 'best' day.",
         ]:
             self.assertEqual(ah.strip_undrawable(src, {}, lead=True), src)
+
+    def test_citation_page_remnant(self):
+        self.assertEqual(ah.clean_text("principles.: 6 The scope of"), "principles. The scope of")
+        self.assertEqual(ah.clean_text("in 1990,: 12-14 and later"), "in 1990, and later")
+        self.assertEqual(ah.clean_text("ratio of 3:1 and at 10:30"), "ratio of 3:1 and at 10:30")
 
     def test_fact_value(self):
         self.assertEqual(
