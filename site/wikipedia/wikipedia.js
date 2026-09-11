@@ -58,6 +58,16 @@ const WRITE_CHUNK = 2 * 1024 * 1024;
 const params = new URLSearchParams(location.search);
 const MOCK = params.get("mock") === "1";
 const baseUrl = MOCK ? new URL("./mock/", location.href).href : PACK_BASE_URL;
+
+// Every part's URL carries its own checksum, so a rebuilt pack is a new URL
+// to every cache between here and the host. Without it, dict.zst (same name,
+// same 110,000 bytes, different bytes after a rebuild) came back from the
+// edge as the previous build's and the page called it damaged, twice, on the
+// evening of 2026-09-11. The static host ignores the query.
+function fileUrl(f) {
+  const sha = typeof f.sha256 === "string" ? f.sha256 : "";
+  return baseUrl + f.file + (sha ? "?v=" + sha.slice(0, 12) : "");
+}
 const mockRate = MOCK ? Number(params.get("rate")) || 0 : 0;
 const budgetS =
   MOCK && params.get("minutes")
@@ -195,7 +205,7 @@ function renderFileList() {
   for (const f of downloadList(state.manifest, currentRoute().tier)) {
     const li = document.createElement("li");
     const a = document.createElement("a");
-    a.href = baseUrl + f.file;
+    a.href = fileUrl(f);
     a.setAttribute("download", f.file.split("/").pop());
     a.textContent = f.file;
     li.appendChild(a);
@@ -372,7 +382,7 @@ async function copyOne(dir, step, meter) {
   try {
     let resp;
     try {
-      resp = await fetch(baseUrl + step.file, {
+      resp = await fetch(fileUrl(step), {
         signal: state.abort.signal,
         cache: "no-store",
       });
