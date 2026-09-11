@@ -109,6 +109,10 @@ WikipediaActivity::~WikipediaActivity() = default;
 
 void WikipediaActivity::onEnter() {
   Activity::onEnter();
+  // The shelf registers the toybox faces on the way in, but the restart after
+  // a storage handoff (and a wake) lands here directly: on the panel every
+  // Jersey string on the home was missing, the serif prose intact.
+  toybox::ensureFonts(renderer);
   keyboardShown_ = false;
   packOpen_ = pack_.open();
   if (packOpen_) {
