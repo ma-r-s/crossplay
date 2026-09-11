@@ -183,7 +183,10 @@ const expect = (label, got, want) =>
   );
 
   // Marking a report read is the only thing that takes it out of the one place
-  // Mario looks, so it must touch nothing else: no state change, no blocker.
+  // Mario looks. WITH a note the note must land where triage reads it, so the
+  // body grows and an untriaged card moves on; WITHOUT one nothing but the
+  // timestamp may move. Both are asserted below -- widening this to whatever
+  // the code happens to write would lose the guarantee it exists for.
   calls = [];
   r = await call({
     pass: "open sesame",
@@ -201,9 +204,9 @@ const expect = (label, got, want) =>
     true,
   );
   expect(
-    "writing only when he read it",
-    seen ? Object.keys(JSON.parse(seen.body)).join(",") : null,
-    "mario_seen_at",
+    "a note lands in the body and triages the card",
+    seen ? Object.keys(JSON.parse(seen.body)).sort().join(",") : null,
+    "body,mario_seen_at,state",
   );
   expect(
     "his note goes on the card, once",
@@ -219,6 +222,18 @@ const expect = (label, got, want) =>
     calls.filter((c) => c.url.includes("/rest/v1/blockers")).length,
     0,
   );
+  calls = [];
+  r = await call({ pass: "open sesame", op: "seen", card_id: 9 });
+  expect("a report can be marked read with no note", r.status, 200);
+  const bare = calls.find(
+    (c) => c.method === "PATCH" && c.url.includes("/rest/v1/cards"),
+  );
+  expect(
+    "a bare read writes only the timestamp",
+    bare ? Object.keys(JSON.parse(bare.body)).join(",") : null,
+    "mario_seen_at",
+  );
+
   r = await call({ pass: "open sesame", op: "seen", card_id: 3 });
   expect("a card no person reported cannot be marked read", r.status, 502);
   r = await call({ pass: "open sesame", op: "seen" });
