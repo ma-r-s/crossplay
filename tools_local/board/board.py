@@ -29,11 +29,13 @@ file store so the hooks never need the network.
     board unblock <id> [--n N]
     board ask <id> --ask "..." --default "..." [--steps "1. ...\n2. ..."]   orchestrator only; steps for a thing to do
     board answer <id> "<choice>" [--note "..."]
+    board seen <id> [--note "..."]                     Mario read a report from a person; clears it from his inbox
     board state <id> reported|triaged|working|review|merged|released|done|parked
     board owner <app> [--session <sid>] [--tree wt/x]  who owns an app (lookup with no flags)
     board route <id>                                   which session a card goes to
     board tick                                         the issue sweep, then the open board
     board show <id> | board list [--open] | board inbox | board import <file.md>
+    board fresh                                        is this CLI running the code that is on trunk
     board sync                                         copy the file store into Supabase, once
 
 Session ids are the ones the SessionStart hook prints; nothing else identifies
@@ -44,6 +46,13 @@ A card on app `mario` is an inbox item by construction: filing one there, or
 moving one there, opens a `mario` blocker asking the card's title, because the
 inbox lists open `mario` blockers and Mario reads nothing else. --default says
 what happens if he never answers; without one it says so honestly.
+
+A report from a person is NOT a blocker. `board inbox` prints those first, in
+their own section, because nobody is blocked on "nice firmware, thanks" and
+they have no honest default -- and because a stranger's report had no way into
+the inbox at all until 2026-09-07. Each one interrupts him exactly once:
+`board seen <id>` records that he read it. See
+server/board/supabase/migrations/20260907000100_reports_from_people.sql.
 """
 
 import argparse
@@ -57,6 +66,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -193,6 +203,7 @@ class FileStore:
             "body": fields.get("body", ""),
             "state": fields.get("state", "reported"),
             "reporter": fields.get("reporter", UNKNOWN_REPORTER),
+            "mario_seen_at": fields.get("mario_seen_at"),
             "created": fields.get("created") or now(),
             "updated": now(),
             "tree": fields.get("tree"),
@@ -371,6 +382,7 @@ class SupaStore:
             "version": row.get("version"),
             "reporter": row.get("reporter") or UNKNOWN_REPORTER,
             "reporter_email": row.get("reporter_email"),
+            "mario_seen_at": row.get("mario_seen_at"),
             "photo_path": row.get("photo_path"),
             "github_issue": row.get("github_issue"),
             "parent": row.get("parent"),
@@ -454,6 +466,15 @@ class SupaStore:
         self._req("PATCH", f"cards?id=eq.{c['id']}", body, prefer="return=minimal")
         if c.get("session"):
             self.mirror.save_card(dict(c))
+
+    def mark_seen(self, cid):
+        self._req(
+            "PATCH",
+            f"cards?id=eq.{int(cid)}",
+            {"mario_seen_at": now()},
+            prefer="return=minimal",
+        )
+        return self.get_card(cid)
 
     def add_history(self, cid, what):
         self._req(
@@ -1623,9 +1644,208 @@ def cmd_list(st, a):
             print("    " + fmt_card(k))
 
 
+# How stale the CLI you are running is.
+#
+# `board` is /opt/homebrew/bin/board resolving into the integration tree, so it
+# runs whatever that tree has checked out. On 2026-09-07 that was 332 commits
+# behind trunk, which meant `board list --reporter` -- merged the night before
+# and the whole point of the reporter column -- did not exist on the command
+# line, and nothing said so: the flag was simply an unrecognised argument. A
+# tool quietly running last week's code is the same shape as a generated file
+# judged by the wrong metrics, and both fail by looking normal.
+#
+# Behind by a few commits is the normal state of an integration tree while
+# other trees land work, so the threshold is TIME, not count: a warning fires
+# only once the oldest commit this CLI is missing is more than a day old. The
+# sibling guard is scripts_local/tree_freshness.sh, which asks the same
+# question about the tree a GATE is judging; read its "IF THIS BECOMES NOISE"
+# note before changing either. A qualifier that is always on is one people
+# scroll past, which is the failure both exist to prevent.
+STALE_AFTER_H = 24
+TRUNK = "origin/xteink"
+
+
+def cli_repo():
+    """The checkout this CLI is running from. One function, because the test
+    that drives main() has to aim it somewhere it can make stale on purpose."""
+    return pathlib.Path(__file__).resolve().parent
+
+
+def missing_commits(repo, trunk=None):
+    """(count, age in hours of the OLDEST commit this checkout lacks).
+
+    (0, 0) for a checkout that is current, that has no such ref, or that is not
+    a git repository at all -- this must never be the reason a board command
+    fails. `known_ref` tells the first of those apart from the other two.
+    """
+    trunk = trunk or TRUNK
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo), "log", "--format=%ct", f"HEAD..{trunk}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 0, 0.0
+    if r.returncode != 0:
+        return 0, 0.0
+    stamps = [int(x) for x in r.stdout.split() if x.isdigit()]
+    if not stamps:
+        return 0, 0.0
+    return len(stamps), max(0.0, (time.time() - min(stamps)) / 3600.0)
+
+
+def known_ref(repo, trunk=None):
+    """Whether `trunk` resolves in this checkout at all.
+
+    Without it `board fresh` prints one sentence for "current" and for "there
+    is nothing here to compare against", which are opposite facts: the second
+    means the check is not running and nobody would know.
+    """
+    trunk = trunk or TRUNK
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", trunk],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
+def stale_warning(repo, trunk=None):
+    """One line for stderr, or None. Silence means current, not unchecked --
+    `board fresh` says which, and BOARD_NO_FRESHNESS=1 turns the line off."""
+    if os.environ.get("BOARD_NO_FRESHNESS"):
+        return None
+    trunk = trunk or TRUNK
+    n, oldest = missing_commits(repo, trunk)
+    if not n or oldest < STALE_AFTER_H:
+        return None
+    days = oldest / 24
+    return (
+        f"board: this CLI is {n} commits behind {trunk}, the oldest of them "
+        f"{days:.0f} days old. Flags and behaviour added since are not in it.\n"
+        f"       git -C {repo} merge --ff-only {trunk}"
+    )
+
+
+def cmd_fresh(st, a):
+    repo = cli_repo()
+    if not known_ref(repo):
+        # Not the same fact as "up to date", and saying so is the point: a
+        # check that cannot run must not read as one that passed.
+        print(f"board: cannot check -- {repo} has no {TRUNK} to compare against")
+        return
+    n, oldest = missing_commits(repo)
+    if not n:
+        print(f"board: up to date with {TRUNK}")
+    else:
+        print(
+            f"board: {n} commits behind {TRUNK}, the oldest {oldest:.0f} h old"
+            + ("  -- stale" if oldest >= STALE_AFTER_H else "  -- fresh enough")
+        )
+        print(f"       git -C {repo} merge --ff-only {TRUNK}")
+    # Measured against the last fetch, never a live one: a board command must
+    # not reach the network to answer an unrelated question, and a `git fetch`
+    # in front of every `board show` would be paid hundreds of times a day.
+    # The sibling scripts_local/tree_freshness.sh takes --fetch because a gate
+    # runs once. So a gap can be UNDERSTATED here, never overstated.
+    print(f"       (against the last-fetched {TRUNK}; this never fetches)")
+
+
+def age_h(iso):
+    """Hours since an ISO timestamp, or None if it cannot be read."""
+    try:
+        t = dt.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=dt.timezone.utc)
+    return (dt.datetime.now(dt.timezone.utc) - t).total_seconds() / 3600.0
+
+
+def ago(iso):
+    h = age_h(iso)
+    if h is None:
+        return "just now"
+    if h < 1:
+        return "under an hour ago"
+    if h < 48:
+        return f"{int(round(h))} h ago"
+    return f"{int(round(h / 24))} days ago"
+
+
+def unread_reports(st, cards=None):
+    """What a person reported and Mario has not read yet.
+
+    NOT blockers, and deliberately: a blocker means a session cannot proceed,
+    and nobody is blocked on "nice firmware, thanks". `state` alone cannot
+    carry this either -- a report triaged an hour after it lands would leave
+    `reported` before he ever saw it, and one nobody triages would sit in his
+    face until it became wallpaper. So each report interrupts exactly once and
+    `board seen` is the act that ends it. The rest of the reasoning is in
+    server/board/supabase/migrations/20260907000100_reports_from_people.sql.
+    """
+    out = [
+        c
+        for c in (st.list_cards() if cards is None else cards)
+        if (c.get("reporter") or UNKNOWN_REPORTER) == "user"
+        and c["state"] not in SETTLED
+        and not c.get("mario_seen_at")
+    ]
+    out.sort(key=lambda c: c.get("created") or "")
+    return out
+
+
+def print_reports(people):
+    """The section that comes first, because it is the rarest thing here."""
+    n = len(people)
+    print(f"{n} {'person' if n == 1 else 'people'} wrote to you")
+    print("  Nobody is blocked on these. Each one shows once, then it is read.")
+    print()
+    for c in people:
+        facts = [c.get("kind") or "report"]
+        # The board the person holds, which the report form always asks for.
+        # The app is the form's own guess and is "unknown" on most reports, so
+        # it earns a place on the line only when it says something.
+        if c.get("device"):
+            facts.append(str(c["device"]).replace(",", " and "))
+        elif c["from"] not in ("unknown", "general"):
+            facts.append(c["from"])
+        if c.get("version"):
+            facts.append(c["version"])
+        facts.append(ago(c.get("created")))
+        facts.append(
+            f"reply to {c['reporter_email']}"
+            if c.get("reporter_email")
+            else "left no address"
+        )
+        print(f"  #{c['id']}  " + " · ".join(str(f) for f in facts))
+        lines = []
+        for para in str(c.get("body") or c["title"]).splitlines():
+            lines.extend(textwrap.wrap(para, 74) or [""])
+        for line in lines[:8]:
+            print(f"    {line}" if line else "")
+        if len(lines) > 8:
+            print(f"    ... {len(lines) - 8} more lines: board show {c['id']}")
+        print(f"  Read it: board seen {c['id']} --note '<what should happen>'")
+        print()
+
+
 def cmd_inbox(st, a):
+    # One read of the board, two passes over it. On Supabase list_cards is a
+    # request with every card's blockers and history joined in, and calling it
+    # twice to draw one screen doubled that for nothing.
+    cards = st.list_cards()
+    people = unread_reports(st, cards)
+    if people:
+        print_reports(people)
     n = 0
-    for c in st.list_cards():
+    for c in cards:
         for b in c["blockers"]:
             if b["open"] and b["need"] == "mario":
                 n += 1
@@ -1643,7 +1863,63 @@ def cmd_inbox(st, a):
                 print(f"  Answer: board answer {c['id']} '<choice>' --n {b['n']}")
                 print()
     if not n:
-        print("Nothing needs you.")
+        # Two different facts, and one sentence for both would say "nothing
+        # needs you" on a screen that just showed him three people's reports.
+        print("No session is waiting on you." if people else "Nothing needs you.")
+
+
+# What Mario's note is prefixed with on the card. A triager has to be able to
+# tell his sentence from the reporter's, because the two sit in one body.
+MARIO_SAID = "Mario, on reading this:"
+
+
+def cmd_seen(st, a):
+    """Mario read a report, and his note goes where triage will actually see it.
+
+    The first version put the note in `history` alone. Nothing reads history:
+    no view selects it, no command surfaces it, and no step of the
+    orchestrator's runbook visits it -- `board show` is the only way and
+    nothing tells anyone to run it. That swaps one failure for a worse one: he
+    stops never seeing the report and starts seeing it once, writing down what
+    should happen, and nobody ever reading that sentence. The body is what a
+    triager reads, so the note is appended there as well, the same way
+    `board note --body` does it.
+    """
+    with st.lock():
+        c = st.get_card(a.id)
+        if (c.get("reporter") or UNKNOWN_REPORTER) != "user":
+            sys.exit(
+                f"board: #{c['id']} was reported by {c.get('reporter') or UNKNOWN_REPORTER},"
+                " not by a person outside; only a person's report is read this way"
+            )
+        note = " ".join(str(a.note).split()) if a.note else ""
+        what = "Mario read the report" + (f": {note}" if note else "")
+        card_history(st, c, what)
+        c["mario_seen_at"] = now()
+        if note:
+            c["body"] = (
+                (c.get("body") or "").rstrip()
+                + ("\n\n" if c.get("body") else "")
+                + f"{MARIO_SAID} {note}"
+            )
+            # A card he has answered is not one still waiting for triage to
+            # decide what it is. Moving it is the difference between a note
+            # filed and a note acted on; without one he has read it and said
+            # nothing, so it stays in `reported` for the ordinary sweep.
+            if c["state"] == "reported":
+                c["state"] = "triaged"
+                card_history(st, c, "state triaged")
+        # Supabase keeps history in its own table and mario_seen_at needs its
+        # own PATCH; the body and state ride along on save_card. On the file
+        # store save_card is the only write there is.
+        if isinstance(st, SupaStore):
+            st.mark_seen(c["id"])
+        st.save_card(c)
+    print(
+        f"#{c['id']} read"
+        + (f", and on the card: {note}" if note else "")
+        + (" (now triaged)" if note else "")
+    )
 
 
 def cmd_import(st, a):
@@ -1843,13 +2119,36 @@ def cmd_sync(st, a):
     print(f"board: synced {made} cards, {len(files.owners())} owners")
 
 
+class Parser(argparse.ArgumentParser):
+    """argparse, plus the freshness line on the path that needs it MOST.
+
+    The incident this whole check exists for was `board list --reporter user`
+    against a CLI 332 commits behind: `--reporter` had merged and the flag was
+    an unrecognised argument. argparse answers that with `sys.exit(2)` from
+    inside parse_args, so a check placed after parse_args cannot run in the one
+    case it was written for -- it would have printed nothing, exactly as the
+    unpatched CLI did. Putting it BEFORE parse_args is not enough either: the
+    line would land above a screenful of usage text, which is the "a warning
+    400 lines above the answer" failure this workspace has read past before.
+    So it prints last, under the error, where the person is already looking.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print(f"{self.prog}: error: {message}", file=sys.stderr)
+        warn = stale_warning(cli_repo())
+        if warn:
+            print(warn, file=sys.stderr)
+        sys.exit(2)
+
+
 def main(argv=None):
-    p = argparse.ArgumentParser(
+    p = Parser(
         prog="board",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd", required=True, parser_class=Parser)
 
     sub.add_parser("init").set_defaults(fn=cmd_init)
     app_help = "the desktop app's local_... id (get_session self), so messages addressed that way reach you"
@@ -1965,6 +2264,15 @@ def main(argv=None):
     )
     s.add_argument("--note")
     s.set_defaults(fn=cmd_answer)
+    s = sub.add_parser(
+        "seen", help="Mario read a report from a person; it leaves his inbox"
+    )
+    s.add_argument("id", type=int)
+    s.add_argument(
+        "--note",
+        help="what he said should happen; it goes on the card for whoever triages it",
+    )
+    s.set_defaults(fn=cmd_seen)
     s = sub.add_parser("state")
     s.add_argument("id", type=int)
     s.add_argument("state", choices=STATES)
@@ -2003,6 +2311,9 @@ def main(argv=None):
     )
     s.set_defaults(fn=cmd_list)
     sub.add_parser("inbox").set_defaults(fn=cmd_inbox)
+    sub.add_parser(
+        "fresh", help="is this CLI running the code that is on trunk"
+    ).set_defaults(fn=cmd_fresh)
     s = sub.add_parser("import")
     s.add_argument("file")
     s.add_argument("--kind", choices=["bug", "feature", "task"], default="task")
@@ -2019,6 +2330,9 @@ def main(argv=None):
     s.set_defaults(fn=cmd_tick)
 
     a = p.parse_args(argv)
+    warn = stale_warning(cli_repo())
+    if warn:
+        print(warn, file=sys.stderr)
     st = open_store(find_root())
     a.fn(st, a)
 

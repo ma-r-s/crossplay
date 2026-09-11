@@ -11,9 +11,11 @@
 //
 // Operations:
 //   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card],
+//                people: [reports from people he has not read],
 //                triage: {waiting, claimed, for_mario, oldest_h, last_triaged_at, since_triage_h} or null}
 //   numbers  -> {heard, fresh, now, devices, field, crashes, byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
 //   answer   -> closes one blocker: {card_id, n, choice, note}
+//   seen     -> marks one report from a person as read: {card_id, note}
 
 const crypto = require("node:crypto");
 
@@ -95,30 +97,45 @@ async function photoUrl(path) {
 }
 
 async function opList() {
-  const [inbox, cards, triage, reports] = await Promise.all([
+  const [inbox, cards, people, triage] = await Promise.all([
     rest("inbox?select=*"),
     rest("cards?select=id,title,app,state,parent,updated_at&order=id.desc"),
+    // What people reported through the site and he has not read. Not blockers,
+    // and above them on the page: a stranger's report is rare and worth
+    // interrupting for, a session's routine ask is not.
+    //
+    // This read is NOT allowed to fail quietly. The first version caught the
+    // error and returned [], which is the original bug rebuilt: an inbox that
+    // shows no reports and says nothing about why is exactly what he asked to
+    // have fixed, and a dropped migration would have looked like a quiet week.
+    // The error is carried instead, and the page prints it where the reports
+    // would be. `triage` below still degrades, because that is one decorative
+    // line and this is the content.
+    rest(
+      "reports_from_people?mario_seen_at=is.null&select=*&order=created_at.asc",
+    ).then(
+      (rows) => ({ rows: rows || [] }),
+      (err) => ({ rows: [], error: err.message || "the board did not answer" }),
+    ),
     // How far behind triage is, for one line at the top of the page. A board
     // without the view (or a failing read) leaves the line out; the inbox
     // itself must not depend on it.
     rest("triage_backlog?select=*").catch(() => []),
-    // What people wrote in the box on the site, latest first, with who sent
-    // it. Mario, 2026-09-10: these are cards like any other on the board,
-    // which is how they got buried between every other card.
-    rest(
-      "cards?select=id,title,app,state,device,version,reporter,reporter_email,photo_path,created_at&source=eq.site&order=created_at.desc&limit=50",
-    ).catch(() => []),
   ]);
-  const withPhotos = await Promise.all(
-    (reports || []).map(async (c) =>
-      Object.assign({}, c, { photo_url: c.photo_path ? await photoUrl(c.photo_path) : null }),
+  // Mario, 2026-09-11: "I need a way to see everything they sent, including
+  // images." The photo rides as a signed link, made here so the key stays
+  // here; a report without one gets null and the page shows no picture.
+  const rows = await Promise.all(
+    (people.rows || []).map(async (r) =>
+      Object.assign({}, r, { photo_url: r.photo_path ? await photoUrl(r.photo_path) : null }),
     ),
   );
   return {
     inbox: inbox || [],
     cards: cards || [],
+    people: rows,
+    people_error: people.error || null,
     triage: (triage || [])[0] || null,
-    reports: withPhotos,
   };
 }
 
@@ -234,6 +251,67 @@ async function opAnswer(body) {
   return { ok: true };
 }
 
+// He read it, and if he said what should happen that sentence has to land
+// where triage looks. History is not that place: no view selects it, no
+// command surfaces it, no step of the orchestrator's runbook visits it. A note
+// filed only there swaps "he never sees the report" for "he sees it, writes
+// down what to do, and nobody ever reads it". So the note is appended to the
+// card's BODY, and a card he has answered moves out of `reported` -- it no
+// longer needs a triager to decide what it is. With no note he has read it and
+// said nothing, so it stays where it was for the ordinary sweep.
+//
+// Mirrors `board seen` in tools_local/board/board.py; the prefix is spelled
+// the same in both, and host-tests/bugflow checks that it is.
+const MARIO_SAID = "Mario, on reading this:";
+
+async function opSeen(body) {
+  const cardId = parseInt(body.card_id, 10);
+  const note = String(body.note || "")
+    .trim()
+    .slice(0, 2000)
+    .replace(/\s+/g, " ");
+  if (!Number.isInteger(cardId)) throw new Error("which report?");
+  // reporter=eq.user is the guard, not a filter for convenience: mario_seen_at
+  // means "Mario has read this person's report", and setting it on one of our
+  // own cards would put a fact on the board that nothing else could explain.
+  // It is on the read AND on the write, so neither half can be reached alone.
+  const found = await rest(
+    `cards?id=eq.${cardId}&reporter=eq.user&select=id,body,state`,
+  );
+  if (!found || !found.length)
+    throw new Error("that card is not a report from a person");
+  const card = found[0];
+  const patch = { mario_seen_at: new Date().toISOString() };
+  if (note) {
+    patch.body =
+      ((card.body || "").replace(/\s+$/, "") + (card.body ? "\n\n" : "")) +
+      `${MARIO_SAID} ${note}`;
+    if (card.state === "reported") patch.state = "triaged";
+  }
+  const rows = await rest(`cards?id=eq.${cardId}&reporter=eq.user&select=id`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(patch),
+  });
+  if (!rows || !rows.length)
+    throw new Error("that card is not a report from a person");
+  await rest("history", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({
+      card_id: cardId,
+      what: "Mario read the report" + (note ? `: ${note}` : ""),
+    }),
+  });
+  if (note && patch.state)
+    await rest("history", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ card_id: cardId, what: "state triaged" }),
+    });
+  return { ok: true };
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return json(res, 405, { error: "POST only." });
   if (!SUPABASE_URL || !SERVICE_KEY || !PASS_HASH)
@@ -255,6 +333,7 @@ module.exports = async function handler(req, res) {
     if (body.op === "list") return json(res, 200, await opList());
     if (body.op === "numbers") return json(res, 200, await opNumbers());
     if (body.op === "answer") return json(res, 200, await opAnswer(body));
+    if (body.op === "seen") return json(res, 200, await opSeen(body));
     return json(res, 400, { error: "Unknown operation." });
   } catch (err) {
     return json(res, 502, {

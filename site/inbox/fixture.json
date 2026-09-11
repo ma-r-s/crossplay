@@ -1,34 +1,6 @@
 {
-  "_comment": "Dev-only fixture for site/inbox/. serve.py answers POST /api/inbox from this file when INBOX_FIXTURE names it, whatever the passphrase. Shapes follow api/inbox.js: list -> {inbox, cards}, numbers -> the views the page reads. Production never reads it.",
+  "_comment": "Dev-only fixture for site/inbox/. serve.py answers POST /api/inbox from this file when INBOX_FIXTURE names it, whatever the passphrase. Shapes follow api/inbox.js: list -> {inbox, people, cards}, numbers -> the nine views. EVERY STRING HERE IS INVENTED and must stay that way: this file sits in a public repository, and it was a public URL until 2026-09-07 (.vercelignore). Copy the SHAPE of real board content, never its words.",
   "list": {
-    "reports": [
-      {
-        "id": 460,
-        "title": "hi i love the efforts on the crossplay its super cool",
-        "app": "unknown",
-        "state": "reported",
-        "device": "x4pro",
-        "version": "",
-        "reporter": "user",
-        "reporter_email": "reader@example.test",
-        "photo_path": null,
-        "photo_url": null,
-        "created_at": "2026-09-10T18:02:00Z"
-      },
-      {
-        "id": 434,
-        "title": "I can't find backlight setting in Crossplay",
-        "app": "unknown",
-        "state": "reported",
-        "device": "x4pro",
-        "version": "1.12.48",
-        "reporter": "user",
-        "reporter_email": "",
-        "photo_path": "reports/434.jpg",
-        "photo_url": "https://example.test/storage/v1/object/sign/reports/434.jpg?token=fixture",
-        "created_at": "2026-09-07T09:10:00Z"
-      }
-    ],
     "inbox": [
       {
         "blocker_id": 41,
@@ -71,6 +43,50 @@
         "default": "It ships as Trivia.",
         "steps": null,
         "created_at": "2026-09-03T11:20:00Z"
+      }
+    ],
+    "people": [
+      {
+        "id": 401,
+        "title": "the pairing screen never showed me a code",
+        "body": "the pairing screen never showed me a code, i waited about ten minutes and then it went to sleep on me",
+        "app": "unknown",
+        "kind": "bug",
+        "state": "reported",
+        "device": "sticky",
+        "version": "1.12.11",
+        "reporter_email": "someone@example.net",
+        "photo_path": null,
+        "created_at": "2026-09-06T09:51:36Z",
+        "mario_seen_at": null
+      },
+      {
+        "id": 402,
+        "title": "Hearts and Spades would suit the two-player screen",
+        "body": "Hearts and Spades would suit the two-player screen really well I think! Lovely bit of firmware, thanks for making it.",
+        "app": "unknown",
+        "kind": "feature",
+        "state": "reported",
+        "device": "x4pro,sticky",
+        "version": null,
+        "reporter_email": null,
+        "photo_path": null,
+        "created_at": "2026-09-07T12:01:22Z",
+        "mario_seen_at": null
+      },
+      {
+        "id": 403,
+        "title": "a thought about how the games are packaged",
+        "body": "A thought about how the games are packaged, since there are a lot of them now and the space is finite: would loading them separately work better than baking every one into the image? Then a person keeps the four they play and the rest never costs them anything, and somebody who writes their own has somewhere to put it. I have no idea how hard that is on this chip, so treat it as a question rather than a request.\n\nSeparately I have been running my own build on a different board with two games I wrote for it. Happy to send them your way if that is useful, equally happy not to.",
+        "app": "unknown",
+        "kind": "feature",
+        "state": "reported",
+        "device": "x4pro,sticky",
+        "version": null,
+        "reporter_email": "another@example.org",
+        "photo_path": null,
+        "created_at": "2026-09-07T12:19:15Z",
+        "mario_seen_at": null
       }
     ],
     "cards": [
