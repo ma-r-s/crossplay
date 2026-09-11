@@ -101,14 +101,26 @@ def _runs():
     return _run_re, _labelled_run_re
 
 
+# Source remnants: the dataset already dropped pronunciation spans and native
+# scripts from some leads, leaving "(German:; 6 January 1850" and "Fernandel ()",
+# and it pads every quotation with spaces: the " beech ", lit. ' uncle '.
+_EMPTY_LABEL = re.compile(
+    r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)])"
+)
+_EMPTY_PAREN = re.compile(r"\s?\(\s*\)")
+# IPA between slashes or brackets, when the serif cannot draw it.
+_SLASHED = re.compile(r" ?/[^/]{1,80}/")
+_BRACKETED = re.compile(r" ?\[[^\[\]]{1,80}\]")
+
 _TIDY = (
-    (re.compile(r"\(\s*[,;:.]\s*"), "("),
+    (re.compile(r"\(\s*[,;:]\s*"), "("),
     (re.compile(r"\s*[,;:]\s*\)"), ")"),
     (re.compile(r"\(\s*\)"), ""),
     (re.compile(r"\[\s*\]"), ""),
-    (re.compile(r"\s+([,;:.!?)])"), r"\1"),
+    (re.compile(r"\s+([,;:!?)])"), r"\1"),
+    (re.compile(r"\s+\.(?![A-Za-z0-9])"), "."),
     (re.compile(r"\(\s+"), "("),
-    (re.compile(r"([,;:])(?:\s*[,;:])+"), r"\1"),
+    (re.compile(r"(?:[,;:]\s*)+([,;:])"), r"\1"),
     (re.compile(r"\s{2,}"), " "),
 )
 
@@ -130,35 +142,103 @@ def clean_text(s):
     return _WS.sub(" ", s).strip()
 
 
+def _close_quote_gaps(text):
+    """"the \" beech \"." to "the \"beech\".": a quote after whitespace opens,
+    and the gap after it goes; the next quote closes, and the gap before it
+    goes. An inch mark ("a 12\" single") follows a digit and is left alone.
+    Returns (text, gaps closed)."""
+    out = []
+    n = 0
+    i = 0
+    inside = None
+    length = len(text)
+    while i < length:
+        c = text[i]
+        if c in "\"'":
+            before = text[i - 1] if i else " "
+            if inside == c:
+                # closing: drop the whitespace already emitted before it
+                while out and out[-1].isspace():
+                    out.pop()
+                    n += 1
+                out.append(c)
+                inside = None
+                i += 1
+                continue
+            after = text[i + 1] if i + 1 < length else " "
+            opens = before.isspace() or before in "(["
+            if c == "'" and not after.isspace():
+                opens = False  # an apostrophe: 's, 'n', 'best'
+            if inside is None and opens:
+                out.append(c)
+                i += 1
+                while i < length and text[i].isspace():
+                    i += 1
+                    n += 1
+                inside = c
+                continue
+        out.append(c)
+        i += 1
+    return "".join(out), n
+
+
 def strip_undrawable(text, stats, lead=False):
-    """Removes what the serif cannot draw; tidies only when it removed
-    something, so untouched text stays byte-for-byte."""
+    """Removes what the serif cannot draw, and the remnants the source left
+    behind; tidies only when it removed something, so untouched text stays
+    byte-for-byte. In a lead, a parenthetical is cut segment by segment
+    (";" separated) so "(Ottoman Turkish: <arabic>; 20 July 1785 - 1 July
+    1839)" keeps its dates."""
     if not text:
         return text
     run_re, labelled_re = _runs()
-    if not run_re.search(text):
-        return text
     removed = 0
-    if lead:
 
-        def paren(m):
-            nonlocal removed
-            if run_re.search(m.group(0)):
-                removed += 1
-                stats["parentheticals_removed"] = (
-                    stats.get("parentheticals_removed", 0) + 1
-                )
-                return ""
-            return m.group(0)
+    def drop_span(m):
+        nonlocal removed
+        whole = m.group(0)
+        if not run_re.search(whole):
+            return whole
+        removed += 1
+        stats["spans_removed"] = stats.get("spans_removed", 0) + 1
+        return ""
 
-        for _ in range(3):
-            new = _PAREN.sub(paren, text)
-            if new == text:
-                break
-            text = new
-    text, n = labelled_re.subn("", text)
-    removed += n
-    stats["runs_removed"] = stats.get("runs_removed", 0) + n
+    def paren(m):
+        nonlocal removed
+        whole = m.group(0)
+        if not run_re.search(whole):
+            return whole
+        removed += 1
+        stats["parentheticals_removed"] = stats.get("parentheticals_removed", 0) + 1
+        open_at = whole.index("(")
+        body = whole[open_at + 1 : -1]
+        kept = [seg.strip() for seg in body.split(";") if not run_re.search(seg)]
+        kept = [seg for seg in kept if seg]
+        if not kept:
+            return ""
+        return whole[:open_at] + "(" + "; ".join(kept) + ")"
+
+    if run_re.search(text):
+        text = _SLASHED.sub(drop_span, text)
+        text = _BRACKETED.sub(drop_span, text)
+        if lead:
+            for _ in range(3):
+                new = _PAREN.sub(paren, text)
+                if new == text:
+                    break
+                text = new
+        if run_re.search(text):
+            text, n = labelled_re.subn("", text)
+            removed += n
+            stats["runs_removed"] = stats.get("runs_removed", 0) + n
+    for rx in (_EMPTY_LABEL, _EMPTY_PAREN):
+        text, n = rx.subn("", text)
+        if n:
+            removed += n
+            stats["remnants_removed"] = stats.get("remnants_removed", 0) + n
+    text, n = _close_quote_gaps(text)
+    if n:
+        removed += 1
+        stats["quote_gaps_closed"] = stats.get("quote_gaps_closed", 0) + n
     if removed:
         for rx, rep in _TIDY:
             text = rx.sub(rep, text)
@@ -192,6 +272,28 @@ def link_target(url):
     if low.startswith(SKIP_NAMESPACES):
         return None
     return title
+
+
+# Infobox values arrive with their line breaks already collapsed to spaces:
+# "13 June 1645 (aged 60-61) Higo Province". The age is computed against the
+# snapshot and wrong from the next day; the place gets its comma back after
+# a date, and one item after another gets one after its parenthesis.
+_AGE = re.compile(r"\s*\(aged?\s+\d+(?:\s*[\u2013-]\s*\d+)?\)")
+_DATE_THEN_PLACE = re.compile(
+    r"(\b(?:\d{1,2} [A-Z][a-z]+ \d{4}|[A-Z][a-z]+ \d{1,2}, \d{4}|\d{4}))\s+(?=[A-Z])"
+)
+_PAREN_THEN_ITEM = re.compile(r"\)\s+(?=[A-Z])")
+_DATE_KEYS = frozenset(("born", "died", "birth date", "death date"))
+
+
+def fact_value(name, value):
+    if not value:
+        return value
+    value = _AGE.sub("", value)
+    if name.lower() in _DATE_KEYS:
+        value = _DATE_THEN_PLACE.sub(r"\1, ", value)
+    value = _PAREN_THEN_ITEM.sub("), ", value)
+    return value.strip()
 
 
 def cut_words(text, n):
@@ -483,7 +585,8 @@ class _Doc:
         def add(name, value):
             name = strip_undrawable(clean_text(name), self.stats)
             value = cut_words(
-                strip_undrawable(clean_text(value), self.stats), FACT_WORDS
+                fact_value(name, strip_undrawable(clean_text(value), self.stats)),
+                FACT_WORDS,
             )
             if name and value and (name, value) not in seen:
                 seen.add((name, value))

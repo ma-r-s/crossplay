@@ -539,7 +539,7 @@ class Rules(unittest.TestCase):
             },
             name="Suk Suk",
         )
-        self.assertIn("<p><b>Suk Suk</b> is a film.</p>", x)
+        self.assertIn("<p><b>Suk Suk</b> (lit. 'uncle') is a film.</p>", x)
         self.assertEqual(st["parentheticals_removed"], 1)
         secs = [
             {
@@ -561,6 +561,66 @@ class Rules(unittest.TestCase):
         self.assertIn("<p>Tokyo (Tōkyō) is written in kanji.</p>", x)
         self.assertIn("<p>was the name.</p>", x)
         self.assertEqual(st["runs_removed"], 3)
+
+    def test_lead_parenthetical_keeps_its_dates(self):
+        st = {}
+        got = ah.strip_undrawable(
+            "Mahmud II (Ottoman Turkish: \u0645\u062d\u0645\u0648\u062f, romanized: X; "
+            "20 July 1785 - 1 July 1839) was the sultan",
+            st,
+            lead=True,
+        )
+        self.assertEqual(got, "Mahmud II (20 July 1785 - 1 July 1839) was the sultan")
+        self.assertEqual(st["parentheticals_removed"], 1)
+
+    def test_source_remnants(self):
+        cases = [
+            (
+                "Sobhuza II KBE (Swazi:; also known as Mona; 22 July 1899) was",
+                "Sobhuza II KBE (also known as Mona; 22 July 1899) was",
+            ),
+            (
+                "Contandin (French pronunciation:; 8 May 1903), known as Fernandel (), was",
+                "Contandin (8 May 1903), known as Fernandel, was",
+            ),
+            ("Paju (Korean pronunciation:) is a city", "Paju is a city"),
+            ('the " Peter the Great of Turkey", Mahmud', 'the "Peter the Great of Turkey", Mahmud'),
+            ("meaning \" beech \". The ' Right2Water ' campaign", "meaning \"beech\". The 'Right2Water' campaign"),
+            ("' Ali-Shir Nava'i (9 February 1441)", "'Ali-Shir Nava'i (9 February 1441)"),
+            ("Harvey McGregor 's \" Contract Code \", a Law", "Harvey McGregor 's \"Contract Code\", a Law"),
+            (
+                "A pinata (/ p \u026a n j a t a /, Spanish pronunciation:) is a container",
+                "A pinata is a container",
+            ),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(src, {}, lead=True), want, src)
+        # Left alone: a period that starts a word, an inch mark, an apostrophe,
+        # a clock time, a label with a value.
+        for src in [
+            "The .NET Framework (.NET) is a thing; rock 'n' roll, a 12\" single.",
+            "Ratio 3:1, at 10:30, see Note: this. It's the dog's 'best' day.",
+        ]:
+            self.assertEqual(ah.strip_undrawable(src, {}, lead=True), src)
+
+    def test_fact_value(self):
+        self.assertEqual(
+            ah.fact_value("Died", "13 June 1645 (aged 60\u201361) Higo Province, Japan"),
+            "13 June 1645, Higo Province, Japan",
+        )
+        self.assertEqual(
+            ah.fact_value("Born", "Mala Helfgott 1930 (age 95 \u2013 96) Piotrkow Trybunalski"),
+            "Mala Helfgott 1930, Piotrkow Trybunalski",
+        )
+        self.assertEqual(
+            ah.fact_value("Children", "Mikinosuke (adopted) Kurotaro (adopted) Iori (adopted)"),
+            "Mikinosuke (adopted), Kurotaro (adopted), Iori (adopted)",
+        )
+        self.assertEqual(ah.fact_value("Notable work", "1990 World Cup"), "1990 World Cup")
+        self.assertEqual(
+            ah.fact_value("Education", "Graz University of Technology (dropped out)"),
+            "Graz University of Technology (dropped out)",
+        )
 
     def test_link_text_with_undrawable_run(self):
         p = {
