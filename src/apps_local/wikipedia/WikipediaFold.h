@@ -212,6 +212,13 @@ inline bool isFoldSpace(uint32_t cp) {
   return cp == ' ' || cp == '_' || (cp >= 0x09 && cp <= 0x0D);
 }
 
+inline bool isAscii(const char* in, size_t inLen) {
+  for (size_t i = 0; i < inLen; i++) {
+    if (static_cast<unsigned char>(in[i]) >= 0x80) return false;
+  }
+  return true;
+}
+
 }  // namespace fold_detail
 
 // Folds a display title into its sort and lookup key. `in` need not be
@@ -221,6 +228,24 @@ inline void foldTitle(const char* in, size_t inLen, char* out, size_t outCap, si
   using namespace fold_detail;
   size_t o = 0;
   bool pendingSpace = false;
+  if (isAscii(in, inLen)) {
+    // 92% of titles: lowercase and the whitespace rule, byte by byte.
+    for (size_t i = 0; i < inLen; i++) {
+      unsigned char c = static_cast<unsigned char>(in[i]);
+      if (isFoldSpace(c)) {
+        if (o > 0) pendingSpace = true;
+        continue;
+      }
+      if (o + (pendingSpace ? 1 : 0) + 1 > outCap) break;
+      if (pendingSpace) {
+        out[o++] = ' ';
+        pendingSpace = false;
+      }
+      out[o++] = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : static_cast<char>(c);
+    }
+    *outLen = o;
+    return;
+  }
   size_t i = 0;
   while (i < inLen) {
     uint32_t cp;
