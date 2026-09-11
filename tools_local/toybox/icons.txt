@@ -344,3 +344,7 @@ wl_look = eye              # icon_wl_look_120
 # WIKIPEDIA: the globe, because the pitch is all the knowledge in the world in
 # your pocket; `book-open` reads as the reader itself.
 wikipedia   = globe
+
+# The article band's way back: the previous article, or the search. Left of
+# the title, where every reader puts it.
+wiki_back   = chevron-left

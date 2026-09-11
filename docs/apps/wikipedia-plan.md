@@ -145,22 +145,42 @@ finds Color). There is no full-text search; nobody who shipped on this class
 of device had one, and the title index answers in one card read.
 
 With the field empty the screen shows "Continue: <the article you were in>",
-the last ten articles, and a RANDOM button, because a random article is half
-the joy of Wikipedia and it costs one lookup. The footer says how many
-articles are on the card and the date of the snapshot.
+a RANDOM button, because a random article is half the joy of Wikipedia and
+it costs one lookup, and the recent trail: the last articles opened, as
+many as fit above the keyboard or the glass, never the one CONTINUE already
+names. The state keeps ten. The last line says how many articles are on the
+card and the date of the snapshot, in the app's own caps.
+
+No title is ever cut. A match, a recent article or a section heading too
+wide for its row wraps, and the row grows to hold it; the field's prompt
+("SEARCH WIKIPEDIA") is in Jersey caps so an empty field and a typed one
+never look alike.
 
 ### The article
 
 It looks like a page of a book, because it is laid out by the book engine:
-the reader's serif at the reader's font size and margins, page turns by the
-same tap zones and side buttons as a book, the same header band with the
-title. The footer says "12 of 87" and the name of the section you are in.
+the reader's serif at the reader's font size, line spacing and alignment,
+page turns by the same tap zones and side buttons as a book, the same header
+band with the title. When the reader's alignment is justified the article
+turns hyphenation on regardless of the book setting: Wikipedia prose is
+link-heavy, and a justified line that cannot break "educational" is a river.
+The footer is a book's running foot: the section you are in at the left,
+"12 of 87" at the right ("page 12" while a first layout is still counting).
+
+The band has a chevron at the left, the way back (the previous article, or
+the search), and CONTENTS at the right. Both are set in the small reading
+cut rather than Jersey, and that is a decision, not an oversight: the band
+binds readerFaces so a long or accented title steps down through real
+reading cuts, three slots is all a screen has, and the reader's own screens
+are the one place the fork lets its chrome speak in the reader's face.
 
 Order on the page: the title, the lead paragraphs, then QUICK FACTS (the
-infobox as a two-column list of key and value), then the sections. Every
-top-level section starts on a fresh page; the layout engine does that natively
-when told which headings are section anchors, and it is what gives a
-40-page article its rhythm and makes a Contents jump land cleanly.
+infobox as a two-column grid of key and value), then the sections. In an
+article over about 24 KB every top-level section starts on a fresh page; the
+layout engine does that natively when told which headings are section
+anchors, and it is what gives a 40-page article its rhythm and makes a
+Contents jump land cleanly. Below that size headings flow with the text,
+because the median article would otherwise fan into near-empty pages.
 
 Links are underlined words. Tap one and that article opens; Back returns to
 the exact page you left. The history is eight deep, like following a trail
@@ -169,9 +189,11 @@ yet (a partial copy, or a title the pack does not have) shows one line, "Not
 on the card yet", with GET IT if Wi-Fi is reachable.
 
 CONTENTS, top right in the header, opens an overlay list of the section
-headings; tap one to jump. It also has TOP and QUICK FACTS at the head of the
-list. On a 100-section article the list scrolls; it is windowed the way the
-reader's chapter list is.
+headings, each with the page it starts on once the layout has reached it;
+tap one to jump. TOP (page 1) and QUICK FACTS head the list, and the section
+the page is in is set bold with a bar in the margin. On a 100-section
+article the list is windowed, twelve rows or as many as fit, and the line
+under it says which rows these are and where the rest is.
 
 The article's menu has one more thing: GET THE LATEST VERSION. It brings up
 the reader's Wi-Fi picker if needed, fetches the current article, and
@@ -402,3 +424,51 @@ in the format:
   through a 1 MB/s port); a `dl` infobox (the engine treats it as inline);
   "the same pack cut at different points" for the leads tier (it was a
   different pack).
+
+## After the second critic: the three arrangements (2026-09-11)
+
+The three home and footer arrangements were rendered side by side and a
+cold reviewer went over the composites, the per-variant screens, the logs and
+the code (session scratchpad `variants-critique.md`: fifteen findings, nine
+nits). What changed, in every variant, before the choice was made:
+
+- **The footer ran off the glass.** A 28-pixel constant under a line box
+  taller than that put the small cut's descenders on row 799, and in the
+  third arrangement through its own rule. The footer is now sized from the
+  cut's line height and ends a gutter above the glass; the ui suite holds
+  it there.
+- **Justified prose without hyphenation.** Rivers a fifth of the measure
+  wide under every long link word. Hyphenation is on for articles when the
+  reader's alignment is justified (the setting stays the reader's for
+  books).
+- **Titles were elided everywhere.** The results, the trail, the contents
+  rows and the continue card all cut with an ellipsis, against the fork's
+  rule. Rows now grow to the wrapped title; the two-column recent grid of
+  the third arrangement could not hold a title at any cut and is gone.
+- **The contents marker sat under the first letter** (Insets are top,
+  right, bottom, left; the extra went to the right edge). The row you are
+  in is bold with a full-height bar in the margin, every row carries its
+  page, and TOP heads the list.
+- **The trail promised ten and silently dropped what did not fit**, and
+  with it the count line. The count line is reserved first and the trail
+  gets what is left; the article CONTINUE names is left out of it.
+- **Nothing on the article said how to go back.** A chevron on the band's
+  left is the previous article or the search; the edge swipe still works.
+- **The keyboard up with nothing typed was a blank panel** in the two
+  arrangements that raise it on a tap: the doors now stay above the keys,
+  and the X puts the keyboard down.
+- **The card line was Jersey lowercase**, the only lowercase Jersey in the
+  fork. It, the parts line and the field's prompt are caps now.
+- **Infobox values ran together** ("13 June 1645 (aged 60-61) Higo
+  Province"): the age, computed against the snapshot, goes; Born and Died
+  get a comma between date and place; one item after another gets one after
+  its parenthesis.
+- **The source itself leaves remnants**: "(German:; 6 January", "Fernandel
+  ()", 303,000 quotations padded with spaces (the " beech "). The builder
+  closes them (see the builder's `strip_undrawable`), and a lead
+  parenthetical with a native script is now cut segment by segment so the
+  dates survive.
+- **Not changed, and why.** The pill on the article band stays in the small
+  reading cut (above, "The article"). A short article's sections still flow
+  (the 24 KB rule, above). The band's pill hugging the glass is the shared
+  headerBand's, not this app's.

@@ -53,10 +53,11 @@ void withCommas(char* out, const size_t cap, const uint32_t n) {
   out[o] = '\0';
 }
 
-// "2026-05-13" -> "May 2026"
+// "2026-05-13" -> "MAY 2026". Caps, because the line is set in Jersey, which
+// has no lowercase voice anywhere else in the fork.
 void snapshotWords(char* out, const size_t cap, const std::string& snapshot) {
-  static const char* const kMonths[] = {"January", "February", "March",     "April",   "May",      "June",
-                                        "July",    "August",   "September", "October", "November", "December"};
+  static const char* const kMonths[] = {"JANUARY", "FEBRUARY", "MARCH",     "APRIL",   "MAY",      "JUNE",
+                                        "JULY",    "AUGUST",   "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"};
   int year = 0, month = 0;
   if (sscanf(snapshot.c_str(), "%d-%d", &year, &month) == 2 && month >= 1 && month <= 12) {
     snprintf(out, cap, "%s %d", kMonths[month - 1], year);
@@ -120,10 +121,10 @@ void WikipediaActivity::onEnter() {
     withCommas(count, sizeof(count), pack_.manifest().articles);
     char when[32];
     snapshotWords(when, sizeof(when), pack_.manifest().snapshot);
-    footer_ = std::string(count) + " articles, " + when;
+    footer_ = std::string(count) + " ARTICLES, " + when;
     if (pack_.shardsPresent() < pack_.shardsTotal()) {
       char line[64];
-      snprintf(line, sizeof(line), "%d of %d parts on the card", pack_.shardsPresent(), pack_.shardsTotal());
+      snprintf(line, sizeof(line), "%d OF %d PARTS ON THE CARD", pack_.shardsPresent(), pack_.shardsTotal());
       partsLine_ = line;
     }
     // A cache laid out from another snapshot must not answer for this one.
@@ -472,13 +473,16 @@ void WikipediaActivity::renderArticle(toybox::Screen& screen) {
     ReaderRenderSpec spec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
     spec.imageRendering = 2;
     spec.embeddedStyle = false;
+    // Wikipedia prose is link-heavy, and a justified line that cannot break
+    // "educational" is a river; the reader's own setting stays for books.
+    if (spec.paragraphAlignment == CrossPointSettings::JUSTIFIED) spec.hyphenationEnabled = true;
     std::vector<std::string> anchors;
     if (article_.xhtml.size() > kFreshPageBytes) {
       anchors.reserve(article_.headings.size());
       for (size_t i = 0; i < article_.headings.size(); ++i) anchors.push_back("s" + std::to_string(i + 1));
     }
-    section_ = makeUniqueNoThrow<Section>(cacheDir_ + "/article.html", cacheDir_, 0, renderer, std::move(anchors),
-                                          false);
+    section_ =
+        makeUniqueNoThrow<Section>(cacheDir_ + "/article.html", cacheDir_, 0, renderer, std::move(anchors), false);
     if (!section_) {
       LOG_ERR(kTag, "OOM: Section");
       buildFailed_ = true;
@@ -509,13 +513,15 @@ void WikipediaActivity::renderArticle(toybox::Screen& screen) {
   // The footer, once the layout has said which page this is.
   char left[32] = "";
   char right[96] = "";
+  // A section read back from its cache is complete without ever having built.
+  const bool total = section_ && !buildFailed_ && (!section_->isBuilding() || section_->isBuildComplete());
   if (section_ && !buildFailed_) {
     refreshHeadingPages();
     const int shown = section_->currentPage + 1;
-    if (section_->isBuildComplete()) {
+    if (total) {
       snprintf(left, sizeof(left), "%d of %d", shown, section_->pageCount);
     } else {
-      snprintf(left, sizeof(left), "%d", shown);
+      snprintf(left, sizeof(left), "page %d", shown);
     }
     const int h = headingForPage(section_->currentPage);
     if (h >= 0 && h < static_cast<int>(article_.headings.size())) {
@@ -527,7 +533,7 @@ void WikipediaActivity::renderArticle(toybox::Screen& screen) {
   footer.right = right;
   if (section_ && !buildFailed_) {
     footer.page = section_->currentPage + 1;
-    footer.total = section_->isBuildComplete() ? section_->pageCount : 0;
+    footer.total = total ? section_->pageCount : 0;
   }
   wikiui::buildArticleFooter(screen, footer);
 }
@@ -587,9 +593,10 @@ void WikipediaActivity::routeAction(const int action, const int value) {
       }
       return;
     case wikiui::ActionRecent:
-      if (value >= 0 && value < static_cast<int>(state_.recent.size())) {
+      if (value >= 0 && value < wikiui::kMaxRecent && recentRows_[value] >= 0 &&
+          recentRows_[value] < static_cast<int>(state_.recent.size())) {
         history_.clear();
-        openLocator(state_.recent[value].locator, 0, "");
+        openLocator(state_.recent[recentRows_[value]].locator, 0, "");
       }
       return;
     case wikiui::ActionContinue:
@@ -619,16 +626,23 @@ void WikipediaActivity::routeAction(const int action, const int value) {
     case wikiui::ActionContents:
       if (view_ == View::Article && !article_.headings.empty()) {
         refreshHeadingPages();
-        const int h = section_ ? headingForPage(section_->currentPage) : 0;
-        contentsFirst_ = h > 0 ? (h / wikiui::kContentsRows) * wikiui::kContentsRows : 0;
+        // Row 0 is TOP; heading h is row h + 1. Open on the window holding
+        // the section the page is in.
+        const int row = (section_ ? headingForPage(section_->currentPage) : -1) + 1;
+        contentsFirst_ = (row / wikiui::kContentsRows) * wikiui::kContentsRows;
         go(View::Contents);
       }
       return;
     case wikiui::ActionHeading:
-      if (value >= 0 && value < static_cast<int>(article_.headings.size())) {
-        pendingAnchor_ = "s" + std::to_string(value + 1);
-        if (value < static_cast<int>(headingPages_.size()) && headingPages_[value] >= 0) {
-          targetPage_ = headingPages_[value];
+      if (value == 0) {
+        targetPage_ = 0;
+        pendingAnchor_.clear();
+        go(View::Article);
+      } else if (value > 0 && value <= static_cast<int>(article_.headings.size())) {
+        const int h = value - 1;
+        pendingAnchor_ = "s" + std::to_string(h + 1);
+        if (h < static_cast<int>(headingPages_.size()) && headingPages_[h] >= 0) {
+          targetPage_ = headingPages_[h];
           pendingAnchor_.clear();
         }
         go(View::Article);
@@ -638,12 +652,17 @@ void WikipediaActivity::routeAction(const int action, const int value) {
       go(View::Article);
       return;
     case wikiui::ActionMore: {
-      const int rows = wikiui::kContentsRows;
-      const int count = static_cast<int>(article_.headings.size());
-      contentsFirst_ = contentsFirst_ + rows < count ? contentsFirst_ + rows : 0;
+      // The next window starts after what the last render fitted.
+      const int count = static_cast<int>(article_.headings.size()) + 1;
+      const int step = contentsShown_ > 0 ? contentsShown_ : wikiui::kContentsRows;
+      contentsFirst_ = contentsFirst_ + step < count ? contentsFirst_ + step : 0;
       requestUpdate();
       return;
     }
+    case wikiui::ActionPrevious:
+      saveState();
+      popHistory();
+      return;
     case wikiui::ActionRetry:
       enterInstall();
       return;
@@ -746,8 +765,8 @@ void WikipediaActivity::loop() {
     // Under the render lock, as the reader does: render() lays out on the
     // other task, and two callers inside one expat parser end in a mismatched
     // tag that no document contains.
-    if (section_ && section_->isBuilding() && !section_->isBuildComplete() && !buildFailed_ &&
-        !RenderLock::peek() && ESP.getFreeHeap() > kBuildMinHeap) {
+    if (section_ && section_->isBuilding() && !section_->isBuildComplete() && !buildFailed_ && !RenderLock::peek() &&
+        ESP.getFreeHeap() > kBuildMinHeap) {
       RenderLock lock;
       if (section_->isBuilding() && !section_->isBuildComplete()) {
         if (!section_->buildSomeMore(2)) {
@@ -772,11 +791,12 @@ void WikipediaActivity::loop() {
     }
   } else if (view_ == View::Contents) {
     const int rows = wikiui::kContentsRows;
-    const int count = static_cast<int>(article_.headings.size());
+    const int count = static_cast<int>(article_.headings.size()) + 1;
     if (mappedInput.wasPressed(MappedInputManager::Button::Down) ||
         mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-      if (contentsFirst_ + rows < count) {
-        contentsFirst_ += rows;
+      const int step = contentsShown_ > 0 ? contentsShown_ : rows;
+      if (contentsFirst_ + step < count) {
+        contentsFirst_ += step;
         requestUpdate();
       }
       return;
@@ -866,8 +886,15 @@ void WikipediaActivity::render(RenderLock&&) {
       }
       model.noMatch = !query_.empty() && results_.empty();
       model.continueTitle = state_.current.title.empty() ? nullptr : state_.current.title.c_str();
-      model.recentCount = static_cast<int>(std::min<size_t>(state_.recent.size(), wikiui::kMaxRecent));
-      for (int i = 0; i < model.recentCount; ++i) model.recent[i].title = state_.recent[i].title.c_str();
+      // The trail leaves out the article CONTINUE already names; VALUE is the
+      // row in state_.recent, so the activity keeps the map.
+      model.recentCount = 0;
+      for (size_t i = 0; i < state_.recent.size() && model.recentCount < wikiui::kMaxRecent; ++i) {
+        if (!state_.current.title.empty() && state_.recent[i].locator == state_.current.locator) continue;
+        model.recent[model.recentCount].title = state_.recent[i].title.c_str();
+        recentRows_[model.recentCount] = static_cast<int>(i);
+        ++model.recentCount;
+      }
       model.footer = footer_.c_str();
       model.partsLine = partsLine_.empty() ? nullptr : partsLine_.c_str();
       if (keyboardShown_) {
@@ -881,16 +908,26 @@ void WikipediaActivity::render(RenderLock&&) {
       renderArticle(screen);
       break;
     case View::Contents: {
+      // TOP first (page 1), then every section with its page once the layout
+      // has reached it.
       std::vector<const char*> names;
-      names.reserve(article_.headings.size());
-      for (const auto& h : article_.headings) names.push_back(h.c_str());
+      std::vector<int> pages;
+      names.reserve(article_.headings.size() + 1);
+      pages.reserve(article_.headings.size() + 1);
+      names.push_back("Top");
+      pages.push_back(0);
+      for (size_t i = 0; i < article_.headings.size(); ++i) {
+        names.push_back(article_.headings[i].c_str());
+        pages.push_back(i < headingPages_.size() ? headingPages_[i] : -1);
+      }
       wikiui::ContentsModel model;
       model.title = article_.title.c_str();
       model.headings = names.data();
+      model.pages = pages.data();
       model.count = static_cast<int>(names.size());
-      model.current = section_ ? headingForPage(section_->currentPage) : -1;
+      model.current = (section_ ? headingForPage(section_->currentPage) : -1) + 1;
       model.first = contentsFirst_;
-      wikiui::buildContents(screen, model);
+      contentsShown_ = wikiui::buildContents(screen, model);
       break;
     }
     case View::Install: {

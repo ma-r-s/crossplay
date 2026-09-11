@@ -48,9 +48,9 @@
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
 #include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
+#include "../../src/apps_local/wikipedia/WikipediaScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
 #include "../../src/apps_local/yahtzee/YahtzeeScreens.h"
-#include "../../src/apps_local/wikipedia/WikipediaScreens.h"
 
 namespace fui = freeink::ui;
 
@@ -11924,12 +11924,12 @@ fui::Rect buildWikiArticleChrome(Rendered& out, const wikiui::ArticleChromeModel
   return page;
 }
 
-void buildWikiContents(Rendered& out, const wikiui::ContentsModel& model) {
+int buildWikiContents(Rendered& out, const wikiui::ContentsModel& model) {
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
-  wikiui::buildContents(screen, model);
+  return wikiui::buildContents(screen, model);
 }
 
 fui::Rect buildWikiInstall(Rendered& out, const wikiui::InstallModel& model) {
@@ -11949,12 +11949,14 @@ fui::ActionEvent tapRun(Rendered& out, const FakeTarget::TextRun* run) {
 void testWikipediaSearchRowsCarryTheirIndex() {
   wikiui::SearchModel model;
   model.query = "new y";
-  static const char* kTitles[wikiui::kMaxResults] = {"New Year",       "New York",         "New York City",
-                                                     "New York Giants", "New York Knicks",  "New York Mets",
+  static const char* kTitles[wikiui::kMaxResults] = {"New Year",        "New York",        "New York City",
+                                                     "New York Giants", "New York Knicks", "New York Mets",
                                                      "New York Times",  "New Yorker"};
   for (int i = 0; i < wikiui::kMaxResults; ++i) model.results[i].title = kTitles[i];
   model.resultCount = wikiui::kMaxResults;
-  model.keyboardHeight = 300;
+  // The keyboard's real height on the panel: rows of a thumb's height fit
+  // eight matches above it and not one more.
+  model.keyboardHeight = 252;
   {
     Rendered out;
     buildWikiSearch(out, model);
@@ -11966,7 +11968,7 @@ void testWikipediaSearchRowsCarryTheirIndex() {
       const FakeTarget::TextRun* row = out.target.find(kTitles[i]);
       CHECK(row != nullptr);
       if (row == nullptr) continue;
-      CHECK(row->rect.bottom() <= 800 - 300);
+      CHECK(row->rect.bottom() <= 800 - 252);
       const fui::ActionEvent event = tapRun(out, row);
       CHECK(event.action == wikiui::ActionResult);
       CHECK(event.value == i);
@@ -11981,17 +11983,20 @@ void testWikipediaSearchRowsCarryTheirIndex() {
   home.recent[0].title = "Photosynthesis";
   home.recent[1].title = "Ray Charles";
   home.recentCount = 2;
-  home.footer = "7,238,251 articles, May 2026";
-  home.partsLine = "3 of 46 parts on the card";
-  home.keyboardHeight = 300;
+  home.footer = "7,238,251 ARTICLES, MAY 2026";
+  home.partsLine = "3 OF 46 PARTS ON THE CARD";
+  home.keyboardHeight = 252;
   {
     Rendered out;
     buildWikiSearch(out, home);
-    CHECK(out.target.drew("Search Wikipedia"));
+    CHECK(out.target.drew("SEARCH WIKIPEDIA"));
     CHECK(out.target.drew("RANDOM ARTICLE"));
-    CHECK(out.target.drew("CONTINUE"));
+    CHECK(out.target.drew("CONTINUE") || out.target.drew("CONTINUE READING"));
     CHECK(out.target.drew("RECENT"));
-    CHECK(out.target.drew("7,238,251 articles, May 2026"));
+    CHECK(out.target.drew("7,238,251 ARTICLES, MAY 2026"));
+    const FakeTarget::TextRun* count = out.target.find("7,238,251 ARTICLES, MAY 2026");
+    CHECK(count != nullptr);
+    if (count != nullptr) CHECK(count->rect.bottom() <= 800 - 252);
     const FakeTarget::TextRun* random = out.target.find("RANDOM ARTICLE");
     CHECK(random != nullptr && tapRun(out, random).action == wikiui::ActionRandom);
     const FakeTarget::TextRun* recent = out.target.find("Ray Charles");
@@ -12000,8 +12005,31 @@ void testWikipediaSearchRowsCarryTheirIndex() {
       const fui::ActionEvent event = tapRun(out, recent);
       CHECK(event.action == wikiui::ActionRecent && event.value == 1);
     }
-    const FakeTarget::TextRun* parts = out.target.find("3 of 46 parts on the card");
+    const FakeTarget::TextRun* parts = out.target.find("3 OF 46 PARTS ON THE CARD");
     CHECK(parts != nullptr && tapRun(out, parts).action == wikiui::ActionInstall);
+  }
+  // A title is never elided: one too wide for the row wraps, and the row grows
+  // to hold it, so the match under it starts lower.
+  wikiui::SearchModel wide;
+  wide.query = "list";
+  wide.results[0].title = "List of countries and dependencies by population density (United Nations)";
+  wide.results[1].title = "List of lists";
+  wide.resultCount = 2;
+  wide.keyboardHeight = 252;
+  {
+    Rendered out;
+    buildWikiSearch(out, wide);
+    const FakeTarget::TextRun* longRow = out.target.find(wide.results[0].title);
+    const FakeTarget::TextRun* nextRow = out.target.find("List of lists");
+    CHECK(longRow != nullptr && nextRow != nullptr);
+    if (longRow != nullptr && nextRow != nullptr) {
+      CHECK(longRow->style.maxLines == 2);
+      CHECK(longRow->rect.height == 2 * out.target.lineHeight(toybox::kBodyFont));
+      CHECK(out.target.measureText(longRow->style.font, longRow->text.c_str(), longRow->style).width >
+            longRow->rect.width);
+      CHECK(nextRow->rect.y > longRow->rect.bottom());
+      CHECK(nextRow->style.maxLines == 1);
+    }
   }
   // A query with nothing under it says so instead of showing an empty panel.
   wikiui::SearchModel miss;
@@ -12035,25 +12063,53 @@ void testWikipediaArticleChromeLeavesThePageItsRoom() {
   CHECK(contents != nullptr && tapRun(out, contents).action == wikiui::ActionContents);
   const FakeTarget::TextRun* footerRun = out.target.find("12 of 87");
   CHECK(footerRun != nullptr);
-  if (footerRun != nullptr) CHECK(footerRun->rect.y >= page.bottom());
+  if (footerRun != nullptr) {
+    CHECK(footerRun->rect.y >= page.bottom());
+    // The footer's line box ends above the glass: the small cut's descenders
+    // once ran off row 799 of the panel.
+    CHECK(footerRun->rect.height == out.target.lineHeight(toybox::kSmallFont));
+    CHECK(footerRun->rect.bottom() <= 800 - toybox::kGutter);
+  }
+  // The band's leading chevron is the way back.
+  CHECK(out.tap(6 + 20, toybox::kHeaderHeight / 2).action == wikiui::ActionPrevious);
 }
 
 void testWikipediaContentsRowsCarryTheHeading() {
-  static const char* kHeadings[] = {"Quick facts", "Overview", "Light-dependent reactions", "Carbon fixation",
-                                    "History", "Evolution", "Research", "See also", "Gallery", "Notes",
-                                    "Sources", "Bibliography", "External links", "Fourteenth"};
+  static const char* kHeadings[] = {"Quick facts",     "Overview",  "Light-dependent reactions",
+                                    "Carbon fixation", "History",   "Evolution",
+                                    "Research",        "See also",  "Gallery",
+                                    "Notes",           "Sources",   "Bibliography",
+                                    "External links",  "Fourteenth"};
+  static const int kPages[] = {0, 1, 3, 6, 9, 12, 15, 18, 21, 24, -1, -1, -1, -1};
   wikiui::ContentsModel model;
   model.title = "Photosynthesis";
   model.headings = kHeadings;
+  model.pages = kPages;
   model.count = 14;
   model.current = 2;
   Rendered out;
-  buildWikiContents(out, model);
+  const int shown = buildWikiContents(out, model);
+  CHECK(shown == 12);
   CHECK(out.target.drew("CLOSE"));
   CHECK(out.target.drew("Carbon fixation"));
   CHECK(!out.target.drew("Fourteenth"));  // the thirteenth and on wait for the next window
-  CHECK(out.target.drew("1 of 2"));
+  CHECK(out.target.drew("1-12 of 14"));
   CHECK(out.target.drew("MORE >"));
+  // Each row carries its page, 1-based, and none while the layout has not
+  // reached it; the section the page is in is set in the bold slot, clear of
+  // the bar in the margin.
+  CHECK(out.target.drew("4"));
+  CHECK(out.target.drew("25"));
+  CHECK(!out.target.drew("0"));
+  const FakeTarget::TextRun* here = out.target.find("Light-dependent reactions");
+  const FakeTarget::TextRun* other = out.target.find("Overview");
+  CHECK(here != nullptr && other != nullptr);
+  if (here != nullptr && other != nullptr) {
+    CHECK(here->style.font == toybox::kDisplayFont);
+    CHECK(other->style.font == toybox::kBodyFont);
+    CHECK(here->rect.x >= 32);
+    CHECK(here->rect.x == other->rect.x);
+  }
   const FakeTarget::TextRun* more = out.target.find("MORE >");
   CHECK(more != nullptr && tapRun(out, more).action == wikiui::ActionMore);
   const FakeTarget::TextRun* row = out.target.find("Carbon fixation");

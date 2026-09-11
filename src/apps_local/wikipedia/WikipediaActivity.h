@@ -116,6 +116,10 @@ class WikipediaActivity final : public Activity {
   std::vector<Visit> history_;
   bool buildFailed_ = false;
   int contentsFirst_ = 0;
+  int contentsShown_ = 0;  // rows the last contents render fitted
+  // Row of state_.recent behind each drawn recent row (the trail skips the
+  // article CONTINUE names).
+  int recentRows_[wikiui::kMaxRecent] = {};
 
   // install
   wikiui::InstallModel::Stage stage_ = wikiui::InstallModel::Stage::Waiting;

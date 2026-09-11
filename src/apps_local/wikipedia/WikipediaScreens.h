@@ -28,9 +28,10 @@ enum : fui::ActionId {
   ActionInstall = 9,   // the search screen's "get Wikipedia" row
   ActionRetry = 10,
   ActionBack = 11,
-  ActionClear = 12,  // clear the query
-  ActionField = 13,  // the field itself: raises the keyboard where it is hidden
-  ActionMore = 14,   // the contents list's next window
+  ActionClear = 12,     // clear the query
+  ActionField = 13,     // the field itself: raises the keyboard where it is hidden
+  ActionMore = 14,      // the contents list's next window
+  ActionPrevious = 15,  // the article band's way back: the previous article, or the search
 };
 
 constexpr int kMaxResults = 8;
@@ -65,13 +66,14 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model);
 struct ArticleChromeModel {
   const char* title = "";
   bool contents = true;
+  bool back = true;  // the band's leading chevron
 };
 
 // Draws the band; returns the rect the page is rendered into, above the footer.
 fui::Rect buildArticleChrome(toybox::Screen& screen, const ArticleChromeModel& model);
 
 struct ArticleFooterModel {
-  const char* left = "";   // "12" while building, "12 of 87" once complete
+  const char* left = "";   // "page 12" while building, "12 of 87" once complete
   const char* right = "";  // the section the page is in
   int page = 0;            // 1-based, for a progress rule
   int total = 0;           // 0 until the layout is complete
@@ -83,12 +85,15 @@ void buildArticleFooter(toybox::Screen& screen, const ArticleFooterModel& model)
 struct ContentsModel {
   const char* title = "";
   const char* const* headings = nullptr;
+  const int* pages = nullptr;  // 0-based page of each row, -1 while the layout has not reached it
   int count = 0;
   int current = -1;  // the heading the page is in, marked
   int first = 0;     // window start
 };
 
-void buildContents(toybox::Screen& screen, const ContentsModel& model);
+// Rows are as tall as their heading needs, so a window holds however many fit;
+// returns that count, which is what the next window starts after.
+int buildContents(toybox::Screen& screen, const ContentsModel& model);
 
 struct InstallModel {
   enum class Stage : uint8_t { Waiting, Connected, Failed };
