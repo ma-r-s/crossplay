@@ -29,6 +29,8 @@ enum : fui::ActionId {
   ActionRetry = 10,
   ActionBack = 11,
   ActionClear = 12,  // clear the query
+  ActionField = 13,  // the field itself: raises the keyboard where it is hidden
+  ActionMore = 14,   // the contents list's next window
 };
 
 constexpr int kMaxResults = 8;
@@ -53,7 +55,8 @@ struct SearchModel {
   // A pack that is only partly on the card: "3 of 46 parts on the card", with
   // the row that goes back to the install screen. Null when complete.
   const char* partsLine = nullptr;
-  // Height the activity needs at the bottom for the keyboard.
+  // Height the activity reserves at the bottom for the keyboard; 0 when it is
+  // not showing.
   int16_t keyboardHeight = 0;
 };
 
@@ -61,13 +64,21 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model);
 
 struct ArticleChromeModel {
   const char* title = "";
-  const char* footerLeft = "";   // "12" while building, "12 of 87" once complete
-  const char* footerRight = "";  // the section the page is in
   bool contents = true;
 };
 
-// Draws the band and the footer; returns the rect the page is rendered into.
+// Draws the band; returns the rect the page is rendered into, above the footer.
 fui::Rect buildArticleChrome(toybox::Screen& screen, const ArticleChromeModel& model);
+
+struct ArticleFooterModel {
+  const char* left = "";   // "12" while building, "12 of 87" once complete
+  const char* right = "";  // the section the page is in
+  int page = 0;            // 1-based, for a progress rule
+  int total = 0;           // 0 until the layout is complete
+};
+
+// Drawn after the layout has settled which page is shown, under the page rect.
+void buildArticleFooter(toybox::Screen& screen, const ArticleFooterModel& model);
 
 struct ContentsModel {
   const char* title = "";

@@ -185,7 +185,7 @@ def link_target(url):
     if frag.startswith("cite_note") or frag.startswith("cite_ref"):
         return None
     path = path.split("?", 1)[0]
-    title = _WS.sub(" ", urllib.parse.unquote(path).replace("_", " ")).strip()
+    title = clean_text(_WS.sub(" ", urllib.parse.unquote(path).replace("_", " "))).strip()
     if not title:
         return None
     low = title.lower()
@@ -329,7 +329,10 @@ class _Doc:
             if not isinstance(it, dict):
                 continue
             body = self.inline(it) if it.get("value") else ""
-            nested = self.capture(it.get("has_parts"), depth)
+            # A section nested inside an item is not a top-level section: one
+            # level down, so it draws as a lower heading and never as an h2
+            # with an id the CONTENTS list would name.
+            nested = self.capture(it.get("has_parts"), depth + 1)
             if body or nested:
                 rendered.append((body, nested))
         if not rendered:
@@ -355,7 +358,7 @@ class _Doc:
                     self.out.append("<p><b>" + body + "</b></p>")
                 else:
                     self.out.append("<p>" + body + "</p>")
-            self.parts(it.get("has_parts"), depth)
+            self.parts(it.get("has_parts"), depth + 1)
 
     def table(self, part):
         refs = part.get("table_references") or []
@@ -442,7 +445,7 @@ class _Doc:
                 continue
             flush_loose()
             if t == "section":
-                name = p.get("name") or ""
+                name = str(p.get("name") or "")
                 if fold(name) in SKIP_SECTIONS:
                     self.stats["sections_skipped"] = (
                         self.stats.get("sections_skipped", 0) + 1

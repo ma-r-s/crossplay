@@ -772,12 +772,17 @@ class Pack:
         return m[0]
 
     def prefix(self, query, limit=8):
+        """Up to `limit` matches over every index file, merged in fold order.
+        Each file contributes up to `limit` of its own before the merge, so a
+        full first tier cannot crowd out the second."""
         key = fold_bytes(query)
         found = []
         for idx in self.indexes:
+            taken = 0
             for e in idx.scan(key, prefix=True):
                 found.append(e)
-                if len(found) >= limit * len(self.indexes) + limit:
+                taken += 1
+                if taken >= limit:
                     break
         found.sort(key=lambda e: (fold_bytes(e.title), e.title.encode("utf-8")))
         return found[:limit]

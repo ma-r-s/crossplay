@@ -78,7 +78,7 @@ def convert_rows(paths, stats, limit=None):
             continue
         try:
             title, headings, xhtml = article_xhtml(row, stats)
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             stats["rows_refused"] = stats.get("rows_refused", 0) + 1
             say(f"refused row {n}: {e}")
             continue

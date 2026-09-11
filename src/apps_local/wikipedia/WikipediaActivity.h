@@ -95,6 +95,9 @@ class WikipediaActivity final : public Activity {
   std::vector<wikipedia::IndexEntry> results_;
   bool shifted_ = false;
   bool symbols_ = false;
+  // Whether the keyboard is drawn. Variant 1 keeps it up; the others raise it
+  // on a tap of the field and drop it when the query is cleared.
+  bool keyboardShown_ = true;
   freeink::ui::InteractionBuffer<56> kbInteractions_;
   paintclock::RevealGate kbGate_;
 

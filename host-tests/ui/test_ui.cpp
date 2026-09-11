@@ -11913,12 +11913,15 @@ void buildWikiSearch(Rendered& out, const wikiui::SearchModel& model) {
   wikiui::buildSearch(screen, model);
 }
 
-fui::Rect buildWikiArticleChrome(Rendered& out, const wikiui::ArticleChromeModel& model) {
+fui::Rect buildWikiArticleChrome(Rendered& out, const wikiui::ArticleChromeModel& model,
+                                 const wikiui::ArticleFooterModel& footer) {
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
-  return wikiui::buildArticleChrome(screen, model);
+  const fui::Rect page = wikiui::buildArticleChrome(screen, model);
+  wikiui::buildArticleFooter(screen, footer);
+  return page;
 }
 
 void buildWikiContents(Rendered& out, const wikiui::ContentsModel& model) {
@@ -12017,10 +12020,11 @@ void testWikipediaSearchRowsCarryTheirIndex() {
 void testWikipediaArticleChromeLeavesThePageItsRoom() {
   wikiui::ArticleChromeModel model;
   model.title = "Photosynthesis";
-  model.footerLeft = "12 of 87";
-  model.footerRight = "Light-dependent reactions";
+  wikiui::ArticleFooterModel footer;
+  footer.left = "12 of 87";
+  footer.right = "Light-dependent reactions";
   Rendered out;
-  const fui::Rect page = buildWikiArticleChrome(out, model);
+  const fui::Rect page = buildWikiArticleChrome(out, model, footer);
   CHECK(out.target.drew("Photosynthesis"));
   CHECK(out.target.drew("CONTENTS"));
   CHECK(out.target.drew("12 of 87"));

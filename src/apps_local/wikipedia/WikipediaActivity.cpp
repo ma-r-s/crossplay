@@ -32,6 +32,10 @@ constexpr const char* kLruPath = "/.crosspoint/wikipedia/lru";
 constexpr const char* kInstallUrl = "https://crossplay.ma-r-s.com/wikipedia";
 constexpr const char* kInstallUrlShown = "crossplay.ma-r-s.com/wikipedia";
 constexpr int kCachedArticles = 32;
+#ifndef WIKIPEDIA_VARIANT
+#define WIKIPEDIA_VARIANT 1
+#endif
+constexpr bool kKeyboardAlwaysUp = WIKIPEDIA_VARIANT == 1;
 constexpr int16_t kPageSide = 18;
 constexpr int16_t kPageTop = 6;
 constexpr size_t kBuildMinHeap = 40 * 1024;
@@ -108,6 +112,7 @@ WikipediaActivity::~WikipediaActivity() = default;
 
 void WikipediaActivity::onEnter() {
   Activity::onEnter();
+  keyboardShown_ = kKeyboardAlwaysUp;
   packOpen_ = pack_.open();
   if (packOpen_) {
     pack_.loadState(state_);
@@ -307,10 +312,22 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
   {
     HalFile file;
     if (Storage.exists(html.c_str()) && Storage.openFileForRead(kTag, html.c_str(), file)) {
-      fresh = file.size() != article_.xhtml.size();
+      // Staged without its h1 (below), so a match is "smaller by that much";
+      // any other size means a different article or a torn write.
+      const size_t h1 = article_.xhtml.find("<h1>");
+      const size_t h1End = h1 == std::string::npos ? std::string::npos : article_.xhtml.find("</h1>", h1);
+      const size_t stripped = h1End == std::string::npos ? 0 : h1End + 5 - h1;
+      fresh = file.size() != article_.xhtml.size() - stripped;
     }
   }
-  if (fresh && !writeFile(html.c_str(), article_.xhtml)) return false;
+  if (fresh) {
+    // The band carries the title; the h1 inside the page would say it twice.
+    std::string staged = article_.xhtml;
+    const size_t h1 = staged.find("<h1>");
+    const size_t h1End = h1 == std::string::npos ? std::string::npos : staged.find("</h1>", h1);
+    if (h1End != std::string::npos) staged.erase(h1, h1End + 5 - h1);
+    if (!writeFile(html.c_str(), staged)) return false;
+  }
   // Most recently used first; the tail is pruned.
   std::string lru = readSmallFile(kLruPath);
   const std::string id = std::to_string(locator);
@@ -441,25 +458,8 @@ int WikipediaActivity::headingForPage(const int page) const {
 }
 
 void WikipediaActivity::renderArticle(toybox::Screen& screen) {
-  char left[32] = "";
-  char right[96] = "";
-  if (section_) {
-    refreshHeadingPages();
-    const int shown = section_->currentPage + 1;
-    if (section_->isBuildComplete()) {
-      snprintf(left, sizeof(left), "%d of %d", shown, section_->pageCount);
-    } else {
-      snprintf(left, sizeof(left), "%d", shown);
-    }
-    const int h = headingForPage(section_->currentPage);
-    if (h >= 0 && h < static_cast<int>(article_.headings.size())) {
-      snprintf(right, sizeof(right), "%s", article_.headings[h].c_str());
-    }
-  }
   wikiui::ArticleChromeModel model;
   model.title = article_.title.c_str();
-  model.footerLeft = left;
-  model.footerRight = right;
   model.contents = !article_.headings.empty();
   const fui::Rect body = wikiui::buildArticleChrome(screen, model);
 
@@ -506,8 +506,30 @@ void WikipediaActivity::renderArticle(toybox::Screen& screen) {
       page->render(renderer, fontId, pageX, pageY);
     }
   }
-  // The footer was drawn before the page count was known on first open; the
-  // next render carries the right numbers, and the trickle asks for one.
+  // The footer, once the layout has said which page this is.
+  char left[32] = "";
+  char right[96] = "";
+  if (section_ && !buildFailed_) {
+    refreshHeadingPages();
+    const int shown = section_->currentPage + 1;
+    if (section_->isBuildComplete()) {
+      snprintf(left, sizeof(left), "%d of %d", shown, section_->pageCount);
+    } else {
+      snprintf(left, sizeof(left), "%d", shown);
+    }
+    const int h = headingForPage(section_->currentPage);
+    if (h >= 0 && h < static_cast<int>(article_.headings.size())) {
+      snprintf(right, sizeof(right), "%s", article_.headings[h].c_str());
+    }
+  }
+  wikiui::ArticleFooterModel footer;
+  footer.left = left;
+  footer.right = right;
+  if (section_ && !buildFailed_) {
+    footer.page = section_->currentPage + 1;
+    footer.total = section_->isBuildComplete() ? section_->pageCount : 0;
+  }
+  wikiui::buildArticleFooter(screen, footer);
 }
 
 void WikipediaActivity::saveState() {
@@ -581,7 +603,15 @@ void WikipediaActivity::routeAction(const int action, const int value) {
     case wikiui::ActionClear:
       query_.clear();
       results_.clear();
+      keyboardShown_ = kKeyboardAlwaysUp;
       requestUpdate();
+      return;
+    case wikiui::ActionField:
+      if (!keyboardShown_) {
+        keyboardShown_ = true;
+        kbGate_.arm();
+        requestUpdate();
+      }
       return;
     case wikiui::ActionInstall:
       enterInstall();
@@ -607,6 +637,13 @@ void WikipediaActivity::routeAction(const int action, const int value) {
     case wikiui::ActionClose:
       go(View::Article);
       return;
+    case wikiui::ActionMore: {
+      const int rows = wikiui::kContentsRows;
+      const int count = static_cast<int>(article_.headings.size());
+      contentsFirst_ = contentsFirst_ + rows < count ? contentsFirst_ + rows : 0;
+      requestUpdate();
+      return;
+    }
     case wikiui::ActionRetry:
       enterInstall();
       return;
@@ -679,6 +716,10 @@ void WikipediaActivity::loop() {
         if (!query_.empty()) {
           query_.clear();
           results_.clear();
+          keyboardShown_ = kKeyboardAlwaysUp;
+          requestUpdate();
+        } else if (keyboardShown_ && !kKeyboardAlwaysUp) {
+          keyboardShown_ = false;
           requestUpdate();
         } else {
           shelf::leave(renderer, mappedInput);
@@ -758,7 +799,7 @@ void WikipediaActivity::loop() {
   input.touchX = static_cast<int16_t>(tapX);
   input.touchY = static_cast<int16_t>(tapY);
 
-  if (view_ == View::Search && kbGate_.revealed()) {
+  if (view_ == View::Search && keyboardShown_ && kbGate_.revealed()) {
     const fui::ActionEvent key = kbInteractions_.routePublished(input);
     if (key.action == wikiui::ActionKey) {
       handleKey(static_cast<int>(key.value));
@@ -823,8 +864,10 @@ void WikipediaActivity::render(RenderLock&&) {
       for (int i = 0; i < model.recentCount; ++i) model.recent[i].title = state_.recent[i].title.c_str();
       model.footer = footer_.c_str();
       model.partsLine = partsLine_.empty() ? nullptr : partsLine_.c_str();
-      const fui::Rect kb = keyboardRect();
-      model.keyboardHeight = static_cast<int16_t>(renderer.getScreenHeight() - kb.y + 8);
+      if (keyboardShown_) {
+        const fui::Rect kb = keyboardRect();
+        model.keyboardHeight = static_cast<int16_t>(renderer.getScreenHeight() - kb.y + 8);
+      }
       wikiui::buildSearch(screen, model);
       break;
     }
@@ -865,6 +908,6 @@ void WikipediaActivity::render(RenderLock&&) {
   }
   interactionsReady_ = true;
   toybox::reportOverflow(interactions_, "Wikipedia");
-  if (view_ == View::Search) drawKeyboard();
+  if (view_ == View::Search && keyboardShown_) drawKeyboard();
   renderer.displayBuffer();
 }

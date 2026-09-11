@@ -95,7 +95,7 @@ def main(argv=None):
                     n = record.get("name")
                     if want is not None and n not in want:
                         continue
-                    out.write(json.dumps(as_row(record), ensure_ascii=False) + "\n")
+                    out.write(json.dumps(as_row(record), ensure_ascii=False, default=str) + "\n")
                     written += 1
                     seen.add(n)
             print(
