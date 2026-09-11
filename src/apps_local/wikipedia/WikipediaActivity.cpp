@@ -13,6 +13,7 @@
 
 #include "../../CrossPointSettings.h"
 #include "../../SilentRestart.h"
+#include "../../activities/RenderLock.h"
 #include "../../activities/reader/EpubReaderUtils.h"
 #include "../../components/UITheme.h"
 #include "../../fontIds.h"
@@ -335,6 +336,9 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
 }
 
 bool WikipediaActivity::openLocator(const uint32_t locator, const int page, const std::string& anchor) {
+  // The render task may be mid-layout on the old section; the lock is what the
+  // reader takes before touching its own.
+  RenderLock lock;
   closeArticle();
   if (!stageArticle(locator)) {
     showNotice("SORRY", tr(STR_WIKI_OPEN_FAILED), "BACK", wikiui::ActionBack);
@@ -386,6 +390,7 @@ bool WikipediaActivity::ensureBuilt() {
 }
 
 void WikipediaActivity::turnPage(const int delta) {
+  RenderLock lock;
   if (!section_) return;
   int next = section_->currentPage + delta;
   if (next < 0) next = 0;
@@ -697,12 +702,18 @@ void WikipediaActivity::loop() {
   if (view_ == View::Article) {
     // The rest of the article lays out between renders, a couple of pages a
     // tick, so a page turn is a seek rather than a wait.
+    // Under the render lock, as the reader does: render() lays out on the
+    // other task, and two callers inside one expat parser end in a mismatched
+    // tag that no document contains.
     if (section_ && section_->isBuilding() && !section_->isBuildComplete() && !buildFailed_ &&
-        ESP.getFreeHeap() > kBuildMinHeap) {
-      if (!section_->buildSomeMore(2)) {
-        buildFailed_ = true;
-      } else if (section_->isBuildComplete()) {
-        requestUpdate();
+        !RenderLock::peek() && ESP.getFreeHeap() > kBuildMinHeap) {
+      RenderLock lock;
+      if (section_->isBuilding() && !section_->isBuildComplete()) {
+        if (!section_->buildSomeMore(2)) {
+          buildFailed_ = true;
+        } else if (section_->isBuildComplete()) {
+          requestUpdate();
+        }
       }
     }
     if (mappedInput.wasPressed(MappedInputManager::Button::Left) ||

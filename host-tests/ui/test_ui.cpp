@@ -50,6 +50,7 @@
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
 #include "../../src/apps_local/yahtzee/YahtzeeScreens.h"
+#include "../../src/apps_local/wikipedia/WikipediaScreens.h"
 
 namespace fui = freeink::ui;
 
@@ -11902,6 +11903,182 @@ void testWavelengthIconsClearOfText() {
   }
 }
 
+// ------------------------------------------------------------------ Wikipedia
+
+void buildWikiSearch(Rendered& out, const wikiui::SearchModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wikiui::buildSearch(screen, model);
+}
+
+fui::Rect buildWikiArticleChrome(Rendered& out, const wikiui::ArticleChromeModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  return wikiui::buildArticleChrome(screen, model);
+}
+
+void buildWikiContents(Rendered& out, const wikiui::ContentsModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wikiui::buildContents(screen, model);
+}
+
+fui::Rect buildWikiInstall(Rendered& out, const wikiui::InstallModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  return wikiui::buildInstall(screen, model);
+}
+
+fui::ActionEvent tapRun(Rendered& out, const FakeTarget::TextRun* run) {
+  return out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+}
+
+// The home with nothing typed: the doors back in. With a query: the matches,
+// each carrying its row, and the eighth still on the panel above the keyboard.
+void testWikipediaSearchRowsCarryTheirIndex() {
+  wikiui::SearchModel model;
+  model.query = "new y";
+  static const char* kTitles[wikiui::kMaxResults] = {"New Year",       "New York",         "New York City",
+                                                     "New York Giants", "New York Knicks",  "New York Mets",
+                                                     "New York Times",  "New Yorker"};
+  for (int i = 0; i < wikiui::kMaxResults; ++i) model.results[i].title = kTitles[i];
+  model.resultCount = wikiui::kMaxResults;
+  model.keyboardHeight = 300;
+  {
+    Rendered out;
+    buildWikiSearch(out, model);
+    CHECK(out.target.drew("WIKIPEDIA"));
+    CHECK(out.target.drew("new y"));
+    CHECK(out.target.drew("New Yorker"));
+    CHECK(!out.target.drew("RANDOM ARTICLE"));
+    for (int i = 0; i < wikiui::kMaxResults; ++i) {
+      const FakeTarget::TextRun* row = out.target.find(kTitles[i]);
+      CHECK(row != nullptr);
+      if (row == nullptr) continue;
+      CHECK(row->rect.bottom() <= 800 - 300);
+      const fui::ActionEvent event = tapRun(out, row);
+      CHECK(event.action == wikiui::ActionResult);
+      CHECK(event.value == i);
+    }
+    const FakeTarget::TextRun* clear = out.target.find("X");
+    CHECK(clear != nullptr);
+    if (clear != nullptr) CHECK(tapRun(out, clear).action == wikiui::ActionClear);
+  }
+  // Nothing typed.
+  wikiui::SearchModel home;
+  home.continueTitle = "Photosynthesis";
+  home.recent[0].title = "Photosynthesis";
+  home.recent[1].title = "Ray Charles";
+  home.recentCount = 2;
+  home.footer = "7,238,251 articles, May 2026";
+  home.partsLine = "3 of 46 parts on the card";
+  home.keyboardHeight = 300;
+  {
+    Rendered out;
+    buildWikiSearch(out, home);
+    CHECK(out.target.drew("Search Wikipedia"));
+    CHECK(out.target.drew("RANDOM ARTICLE"));
+    CHECK(out.target.drew("CONTINUE"));
+    CHECK(out.target.drew("RECENT"));
+    CHECK(out.target.drew("7,238,251 articles, May 2026"));
+    const FakeTarget::TextRun* random = out.target.find("RANDOM ARTICLE");
+    CHECK(random != nullptr && tapRun(out, random).action == wikiui::ActionRandom);
+    const FakeTarget::TextRun* recent = out.target.find("Ray Charles");
+    CHECK(recent != nullptr);
+    if (recent != nullptr) {
+      const fui::ActionEvent event = tapRun(out, recent);
+      CHECK(event.action == wikiui::ActionRecent && event.value == 1);
+    }
+    const FakeTarget::TextRun* parts = out.target.find("3 of 46 parts on the card");
+    CHECK(parts != nullptr && tapRun(out, parts).action == wikiui::ActionInstall);
+  }
+  // A query with nothing under it says so instead of showing an empty panel.
+  wikiui::SearchModel miss;
+  miss.query = "qzx";
+  miss.noMatch = true;
+  miss.keyboardHeight = 300;
+  {
+    Rendered out;
+    buildWikiSearch(out, miss);
+    CHECK(out.target.drew("No article with that name"));
+  }
+}
+
+// The band carries CONTENTS, the footer the page and the section, and the
+// rect handed back for the page clears both.
+void testWikipediaArticleChromeLeavesThePageItsRoom() {
+  wikiui::ArticleChromeModel model;
+  model.title = "Photosynthesis";
+  model.footerLeft = "12 of 87";
+  model.footerRight = "Light-dependent reactions";
+  Rendered out;
+  const fui::Rect page = buildWikiArticleChrome(out, model);
+  CHECK(out.target.drew("Photosynthesis"));
+  CHECK(out.target.drew("CONTENTS"));
+  CHECK(out.target.drew("12 of 87"));
+  CHECK(out.target.drew("Light-dependent reactions"));
+  CHECK(page.y >= toybox::kChromeHeight);
+  CHECK(page.height > 600);
+  const FakeTarget::TextRun* contents = out.target.find("CONTENTS");
+  CHECK(contents != nullptr && tapRun(out, contents).action == wikiui::ActionContents);
+  const FakeTarget::TextRun* footer = out.target.find("12 of 87");
+  CHECK(footer != nullptr);
+  if (footer != nullptr) CHECK(footer->rect.y >= page.bottom());
+}
+
+void testWikipediaContentsRowsCarryTheHeading() {
+  static const char* kHeadings[] = {"Quick facts", "Overview", "Light-dependent reactions", "Carbon fixation",
+                                    "History", "Evolution", "Research", "See also", "Gallery", "Notes",
+                                    "Sources", "Bibliography", "External links", "Fourteenth"};
+  wikiui::ContentsModel model;
+  model.title = "Photosynthesis";
+  model.headings = kHeadings;
+  model.count = 14;
+  model.current = 2;
+  Rendered out;
+  buildWikiContents(out, model);
+  CHECK(out.target.drew("CLOSE"));
+  CHECK(out.target.drew("Carbon fixation"));
+  CHECK(!out.target.drew("Fourteenth"));  // the thirteenth and on wait for the next window
+  CHECK(out.target.drew("1 of 2"));
+  const FakeTarget::TextRun* row = out.target.find("Carbon fixation");
+  CHECK(row != nullptr);
+  if (row != nullptr) {
+    const fui::ActionEvent event = tapRun(out, row);
+    CHECK(event.action == wikiui::ActionHeading && event.value == 3);
+  }
+  const FakeTarget::TextRun* close = out.target.find("CLOSE");
+  CHECK(close != nullptr && tapRun(out, close).action == wikiui::ActionClose);
+}
+
+// The address first, a square for the code, and the cable's state in words.
+void testWikipediaInstallSaysTheAddressFirst() {
+  wikiui::InstallModel model;
+  model.url = "crossplay.ma-r-s.com/wikipedia";
+  Rendered out;
+  const fui::Rect qr = buildWikiInstall(out, model);
+  CHECK(out.target.drew("GET WIKIPEDIA"));
+  CHECK(out.target.drew("crossplay.ma-r-s.com/wikipedia"));
+  CHECK(qr.width == qr.height && qr.width >= 200);
+  const FakeTarget::TextRun* url = out.target.find("crossplay.ma-r-s.com/wikipedia");
+  CHECK(url != nullptr);
+  if (url != nullptr) CHECK(url->rect.y < qr.y);
+  CHECK(!out.target.drew("TRY AGAIN"));
+  model.stage = wikiui::InstallModel::Stage::Failed;
+  Rendered failed;
+  buildWikiInstall(failed, model);
+  const FakeTarget::TextRun* retry = failed.target.find("TRY AGAIN");
+  CHECK(retry != nullptr && tapRun(failed, retry).action == wikiui::ActionRetry);
+}
+
 int main() {
   testWallpapersGridHasTwoColumns();
   testWallpapersCellsStayOnScreen();
@@ -11933,6 +12110,10 @@ int main() {
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
   testTriviaDrawsNoOptionsWithoutAQuestion();
+  testWikipediaSearchRowsCarryTheirIndex();
+  testWikipediaArticleChromeLeavesThePageItsRoom();
+  testWikipediaContentsRowsCarryTheHeading();
+  testWikipediaInstallSaysTheAddressFirst();
   testTriviaSettingsShowsTheToggleAndItsState();
   testTriviaSettingsRowsCarryTheirIndex();
   testTriviaMenuRowsCarryTheirOwnAction();

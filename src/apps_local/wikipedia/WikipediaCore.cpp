@@ -81,9 +81,16 @@ class JsonReader {
     return false;
   }
   static void appendUtf8(std::string& s, const uint32_t cp) {
-    char buf[4];
-    const size_t n = encodeUtf8(cp, buf, sizeof(buf));
-    s.append(buf, n);
+    if (cp < 0x80) {
+      s.push_back(static_cast<char>(cp));
+    } else if (cp < 0x800) {
+      s.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+      s.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else {
+      s.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+      s.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+      s.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
   }
   bool string(std::string& out) {
     if (!consume('"')) return false;

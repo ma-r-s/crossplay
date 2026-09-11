@@ -8,6 +8,8 @@ namespace {
 
 constexpr int16_t kMargin = 16;
 constexpr int16_t kRowHeight = 44;
+// Result rows are tighter: eight of them plus the field must clear the keyboard.
+constexpr int16_t kResultRowHeight = 40;
 constexpr int16_t kFieldHeight = 52;
 constexpr int16_t kFooterHeight = 28;
 
@@ -103,7 +105,9 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
   const int16_t bottom = static_cast<int16_t>(body.bottom() - model.keyboardHeight);
 
   // The field: a box with the query, or the hint in it.
-  const fui::Rect field{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.y + 10),
+  // toybox::kGutter below the band's rule, which the chrome probe holds every
+  // screen to; the field's stroke is the first ink under the band.
+  const fui::Rect field{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.y + toybox::kGutter + 2),
                         static_cast<int16_t>(body.width - kMargin * 2), kFieldHeight};
   screen.target().stroke(field, fui::Paint::solid(fui::Color::Black), 2);
   const bool empty = model.query == nullptr || model.query[0] == '\0';
@@ -133,9 +137,10 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
                 "No article with that name");
     }
     for (int i = 0; i < model.resultCount && i < kMaxResults; ++i) {
-      if (y + kRowHeight > bottom) break;
-      drawTitleRow(screen, rowRect(y), model.results[i], ActionResult, i, true);
-      y = static_cast<int16_t>(y + kRowHeight);
+      if (y + kResultRowHeight > bottom) break;
+      const fui::Rect row{body.x, y, rowWidth, kResultRowHeight};
+      drawTitleRow(screen, row, model.results[i], ActionResult, i, true);
+      y = static_cast<int16_t>(y + kResultRowHeight);
     }
     return;
   }

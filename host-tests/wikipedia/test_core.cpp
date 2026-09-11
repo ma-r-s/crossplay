@@ -129,6 +129,29 @@ std::vector<uint8_t> buildIndex(std::vector<Title> titles, const uint32_t blockB
   return file;
 }
 
+// The vectors file spells control characters as \t \n \r \f \v and a
+// backslash as \\, so a tab can be a test input without breaking the TSV.
+std::string unescape(const std::string& s) {
+  std::string out;
+  for (size_t i = 0; i < s.size(); ++i) {
+    if (s[i] != '\\' || i + 1 >= s.size()) {
+      out.push_back(s[i]);
+      continue;
+    }
+    const char e = s[++i];
+    switch (e) {
+      case 't': out.push_back('\t'); break;
+      case 'n': out.push_back('\n'); break;
+      case 'r': out.push_back('\r'); break;
+      case 'f': out.push_back('\f'); break;
+      case 'v': out.push_back('\v'); break;
+      case '\\': out.push_back('\\'); break;
+      default: out.push_back('\\'); out.push_back(e); break;
+    }
+  }
+  return out;
+}
+
 void testFold(const char* vectorsPath) {
   CHECK(fold("New York City") == "new york city");
   CHECK(fold("  New__York  ") == "new york");
@@ -155,8 +178,8 @@ void testFold(const char* vectorsPath) {
     if (line.empty() || line[0] == '#') continue;
     const size_t tab = line.find('\t');
     if (tab == std::string::npos) continue;
-    const std::string input = line.substr(0, tab);
-    const std::string expected = line.substr(tab + 1);
+    const std::string input = unescape(line.substr(0, tab));
+    const std::string expected = unescape(line.substr(tab + 1));
     ++vectors;
     if (fold(input) != expected) {
       ++wrong;
