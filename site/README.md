@@ -355,7 +355,8 @@ when `INBOX_FIXTURE` names one, whatever passphrase is typed:
 INBOX_FIXTURE=site/inbox/fixture.json python3 site/serve.py 8099
 ```
 
-`site/inbox/fixture.json` holds three open asks, forty cards and every table
+`site/inbox/fixture.json` holds three unread reports from people, three open
+asks, forty cards and every table
 the Numbers section reads; `host-tests/site/run.sh` fails when the page starts
 reading a key the fixture lacks. Dev only: production answers `/api/inbox` from `api/inbox.js` and never runs
 `serve.py`. That is true of the ENDPOINT and was false of the FILE: until

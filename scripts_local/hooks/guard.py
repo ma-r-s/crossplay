@@ -680,6 +680,20 @@ def pretool(board, data):
                 "Refused: only the orchestrator asks Mario. Record what you need on your card: "
                 f"{board_cmd(root)} block <card> --session {norm_sid(sid)} --need <desk|design|info|mario> --ask '...' --default '...'"
             )
+        # `board seen` records that MARIO read a person's report, and it is the
+        # only thing that takes one out of his inbox. A session that runs it has
+        # not triaged the card: it has deleted the message, because nothing else
+        # was ever going to show that report to him. The rule is here rather
+        # than in the runbook for the same reason as every other rule in this
+        # file -- a session does not remember it, it hits it.
+        if re.search(r"board(\.py)?\s+seen\b", HEREDOC.sub(" ", cmd)):
+            block(
+                "Refused: `board seen` says Mario has READ a person's report, and only he can say "
+                "that. Marking one read is not triage -- it takes the report out of the one place "
+                "he looks, and nothing else would have shown it to him. Work the card as usual "
+                f"({board_cmd(root)} state <id> triaged) and leave it unread; he clears it himself "
+                "from crossplay.ma-r-s.com/inbox/ with one tap."
+            )
         return
 
     if tool in ("SendMessage", "mcp__ccd_session_mgmt__send_message"):
