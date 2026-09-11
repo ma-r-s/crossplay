@@ -12,12 +12,16 @@
  * worth reading before changing anything here. Two deliberate differences:
  *
  *   * It writes the merged image at offset 0 -- bootloader, partition table
- *     and app in one write -- rather than dropping the app into the spare OTA
+ *     and app in one go -- rather than dropping the app into the spare OTA
  *     slot. This fork changed its partition table (7.94MB slots, see
  *     partitions.csv) and ONLY a write at 0 lays down the new table. An OTA
  *     write leaves the device on whatever table it was last flashed with,
  *     which is the 6.25MB one, forever. Every install this button makes is a
- *     fresh, correct one; updates afterwards go over Wi-Fi.
+ *     fresh, correct one; updates afterwards go over Wi-Fi. The one range it
+ *     does NOT write is the NVS partition (partsToWrite below): the image
+ *     carries it as blank padding, and writing that erased the device's
+ *     settings, its Wi-Fi and the secret behind its id on the board, so
+ *     every reinstall looked like a new device.
  *   * It is one file with no framework, because the site is one file with no
  *     framework.
  *
@@ -223,6 +227,44 @@
     }
   }
 
+  // The parts of the image to write, around the NVS partition. The release
+  // image is bootloader, partition table and app merged raw, and the merge
+  // pads the gap between table and app with 0xFF. The NVS partition sits in
+  // that gap, so writing the whole image erased it on every install: the
+  // secret behind the device's id on the board (docs/workflow/events.md),
+  // its Wi-Fi and its settings, gone each time, and the device came back as
+  // a new one. 98 installs and 51 ids in one week, found 2026-09-10.
+  //
+  // So the table the image carries is read (32-byte entries at 0x8000:
+  // magic AA 50, type, subtype, offset, size, label, flags; type 1 subtype
+  // 2 is nvs) and the write skips exactly that range. Everything else is
+  // still written, otadata included: it is blank in the image, and blank is
+  // what makes the fresh app0 boot instead of whatever slot the last OTA
+  // left selected. An image with no readable nvs entry is written whole.
+  function partsToWrite(bytes) {
+    var TABLE = 0x8000;
+    var ENTRY = 32;
+    var MAX = 0xc00;
+    var nvs = null;
+    var last = Math.min(bytes.length, TABLE + MAX);
+    for (var off = TABLE; off + ENTRY <= last; off += ENTRY) {
+      if (bytes[off] !== 0xaa || bytes[off + 1] !== 0x50) break;
+      var type = bytes[off + 2];
+      var sub = bytes[off + 3];
+      var start = (bytes[off + 4] | (bytes[off + 5] << 8) | (bytes[off + 6] << 16) | (bytes[off + 7] << 24)) >>> 0;
+      var size = (bytes[off + 8] | (bytes[off + 9] << 8) | (bytes[off + 10] << 16) | (bytes[off + 11] << 24)) >>> 0;
+      if (type === 1 && sub === 2 && start > TABLE && size > 0) {
+        nvs = { start: start, end: start + size };
+        break;
+      }
+    }
+    if (!nvs || nvs.end > bytes.length) return [{ address: 0, data: bytes }];
+    return [
+      { address: 0, data: bytes.subarray(0, nvs.start) },
+      { address: nvs.end, data: bytes.subarray(nvs.end) },
+    ];
+  }
+
   /* --- the flash --------------------------------------------------------- */
 
   function friendly(err) {
@@ -302,8 +344,14 @@
         }
         say("Writing firmware -- do not unplug", "busy");
         progress(0);
+        var parts = partsToWrite(bytes);
+        if (parts.length === 2) {
+          note("Keeping the NVS partition: your settings, Wi-Fi and the device's id survive this install.");
+        }
         return loader.writeFlash({
-          fileArray: [{ data: loader.ui8ToBstr(bytes), address: 0 }],
+          fileArray: parts.map(function (p) {
+            return { data: loader.ui8ToBstr(p.data), address: p.address };
+          }),
           // The image was merged with -fm/-fs/-ff keep, so the header already
           // carries the mode, size and frequency this build was configured
           // with. Passing anything else here would rewrite them with a second
