@@ -20,8 +20,10 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 
 out="$(node --test "$ROOT"/site/wikipedia/tests/*.test.js 2>&1)"
 status=$?
-pass="$(printf '%s\n' "$out" | sed -nE 's/^ℹ pass ([0-9]+)$/\1/p' | tail -1)"
-fail="$(printf '%s\n' "$out" | sed -nE 's/^ℹ fail ([0-9]+)$/\1/p' | tail -1)"
+# node's spec reporter says "ℹ pass 27" on a terminal; its TAP reporter, which
+# is what a CI runner's non-tty stdout gets, says "# pass 27". Both count.
+pass="$(printf '%s\n' "$out" | sed -nE 's/^(ℹ|#) pass ([0-9]+)$/\2/p' | tail -1)"
+fail="$(printf '%s\n' "$out" | sed -nE 's/^(ℹ|#) fail ([0-9]+)$/\2/p' | tail -1)"
 # A run that reports nothing is not a pass: a missing node, a syntax error in
 # a test file or an empty glob all print no tally, and status alone would
 # read a crashed runner as green on some node versions.
