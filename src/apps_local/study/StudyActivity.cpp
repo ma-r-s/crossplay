@@ -109,6 +109,34 @@ uint32_t nextRandom(uint32_t& state) {
   return state;
 }
 
+// "LEFT 12 MIN AGO", for the resume prompt. Minutes and hours rather than a
+// clock time while it is recent: the question the prompt answers is "how
+// stale is this", and a relative answer says that directly where "14:32"
+// would make the reader do the subtraction. Same month-name idiom
+// buildDeckModel() uses for LAST SYNC once a card is more than a week stale.
+void formatResumeAge(const int64_t savedAt, char* out, const size_t outSize) {
+  const int64_t now = static_cast<int64_t>(time(nullptr));
+  const int64_t elapsed = now > savedAt ? now - savedAt : 0;
+  if (elapsed < 60) {
+    std::snprintf(out, outSize, "LEFT JUST NOW");
+  } else if (elapsed < 3600) {
+    const int minutes = static_cast<int>(elapsed / 60);
+    std::snprintf(out, outSize, "LEFT %d MIN%s AGO", minutes, minutes == 1 ? "" : "S");
+  } else if (elapsed < 86400) {
+    const int hours = static_cast<int>(elapsed / 3600);
+    std::snprintf(out, outSize, "LEFT %d HOUR%s AGO", hours, hours == 1 ? "" : "S");
+  } else if (elapsed < 86400 * 7) {
+    const int days = static_cast<int>(elapsed / 86400);
+    std::snprintf(out, outSize, "LEFT %d DAY%s AGO", days, days == 1 ? "" : "S");
+  } else {
+    struct tm parts;
+    const time_t at = static_cast<time_t>(savedAt);
+    localtime_r(&at, &parts);
+    static const char* kMonths[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+    std::snprintf(out, outSize, "LEFT %d %s", parts.tm_mday, kMonths[parts.tm_mon % 12]);
+  }
+}
+
 }  // namespace
 
 std::unique_ptr<Activity> StudyActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
@@ -122,6 +150,11 @@ void StudyActivity::onEnter() {
   if (findDeckDirs() && openDeckAt(deckIndex_)) {
     beginDeckSession();
     view_ = View::Deck;
+    // Offer the card that was open last time rather than landing on it
+    // outright: loadResumeState() already did the loading (note_/card_/
+    // fonts_/image_, via the same loadCurrent() takeNext() uses), so RESUME
+    // on this prompt is just a view switch.
+    if (loadResumeState()) view_ = View::ResumePrompt;
   } else {
     LOG_ERR("STUDY", "No deck under %s -- run tools_local/study/study.py setup", kStudyRoot);
   }
@@ -292,6 +325,7 @@ void StudyActivity::onExit() {
     delay(30);
     silentRestart();  // on touch boards: stops SNTP and the radio in place
   }
+  if (deckDir_[0] != '\0') saveResumeState();
   if (cardSource_) cardSource_->flush();
   revlogFile_.flush();
   fonts_.unload(renderer);
@@ -399,6 +433,57 @@ bool StudyActivity::openDeckAt(const int index) {
     lastFile.write(deckNames_[index], std::strlen(deckNames_[index]));
   }
   return openDeck();
+}
+
+void StudyActivity::saveResumeState() const {
+  char path[80];
+  std::snprintf(path, sizeof(path), "%s/.resume", deckDir_);
+  if (view_ == View::ResumePrompt) {
+    // The prompt itself was still on screen -- whatever it is offering was
+    // already written last time and has not been answered yet, so leave it
+    // exactly as it is rather than losing it to a sleep taken mid-prompt.
+    return;
+  }
+  if (view_ != View::Card) {
+    // Nothing open worth resuming -- and a stale record here would otherwise
+    // outlive the card it names, the same "still unfinished" caution
+    // Picross applies before offering a resume.
+    Storage.remove(path);
+    return;
+  }
+  uint8_t bytes[study::kResumeRecordBytes];
+  study::writeResumeRecord(bytes, static_cast<int32_t>(currentIndex_), face_ == Face::Answer ? 1 : 0,
+                           static_cast<int64_t>(time(nullptr)));
+  HalFile file;
+  if (!Storage.openFileForWrite("STUDY", path, file)) return;
+  file.write(bytes, sizeof(bytes));
+}
+
+bool StudyActivity::loadResumeState() {
+  char path[80];
+  std::snprintf(path, sizeof(path), "%s/.resume", deckDir_);
+  HalFile file;
+  if (!Storage.openFileForRead("STUDY", path, file)) return false;
+  uint8_t bytes[study::kResumeRecordBytes];
+  if (file.read(bytes, sizeof(bytes)) != static_cast<int>(sizeof(bytes))) return false;
+  study::ResumeRecord record;
+  if (!study::parseResumeRecord(bytes, sizeof(bytes), deck_.noteCount(), record)) return false;
+  currentIndex_ = record.cardIndex;
+  // loadCurrent() does the real work (note_/card_/fonts_/image_), the same
+  // path takeNext() uses -- but it always lands on the question face, so the
+  // saved face is reapplied after.
+  if (!loadCurrent()) return false;
+  face_ = record.face == 1 ? Face::Answer : Face::Question;
+  formatResumeAge(record.savedAt, resumeCaption_, sizeof(resumeCaption_));
+  return true;
+}
+
+void StudyActivity::declineResumePrompt() {
+  char path[80];
+  std::snprintf(path, sizeof(path), "%s/.resume", deckDir_);
+  Storage.remove(path);
+  view_ = View::Deck;
+  requestUpdate();
 }
 
 bool StudyActivity::openDeck() {
@@ -866,6 +951,10 @@ void StudyActivity::loop() {
       requestUpdate();
       return;
     }
+    if (view_ == View::ResumePrompt) {
+      declineResumePrompt();
+      return;
+    }
     if (view_ == View::Card) {
       // Back walks up, never out: a review session returns to the deck
       // screen. The session state stays; the next START REVIEWING re-scans
@@ -892,7 +981,7 @@ void StudyActivity::loop() {
   int tapY = 0;
   if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
 
-  if (view_ == View::Deck) {
+  if (view_ == View::Deck || view_ == View::ResumePrompt) {
     // Hit-testing comes from the buffer the screen filled while drawing, so a
     // region can never drift from the pixels that drew it.
     if (!interactionsReady_) return;
@@ -1460,6 +1549,19 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
     beginSync();
     return;
   }
+  if (event.value == 5) {
+    // The ResumePrompt's RESUME button. loadResumeState() already loaded
+    // note_/card_/fonts_/image_ back in onEnter(); revealing the card is the
+    // whole action.
+    view_ = View::Card;
+    requestUpdate();
+    return;
+  }
+  if (event.value == 6) {
+    // The ResumePrompt's NOT NOW button -- same decline as Back.
+    declineResumePrompt();
+    return;
+  }
   // Re-scan rather than resuming a stale queue: a session can end, the user can
   // sit on this screen past the rollover hour, and what was due then is not
   // what is due now.
@@ -1552,6 +1654,24 @@ void StudyActivity::render(RenderLock&&) {
     const bool backLive =
         flow_.verdict != studyui::SyncVerdictKind::None || flow_.safety >= studyui::SyncSafety::ReviewsSafe;
     const auto labels = mappedInput.mapLabels(backLive ? "Back" : "", "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
+  if (view_ == View::ResumePrompt) {
+    fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+    const fui::InputSnapshot noInput{};
+    interactionsReady_ = false;
+    toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
+    toybox::Screen screen(frame);
+
+    studyui::buildResumePrompt(screen, resumeCaption_);
+
+    interactionsReady_ = true;
+    toybox::reportOverflow(interactions_, "Study resume prompt");
+
+    const auto labels = mappedInput.mapLabels("Back", "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;

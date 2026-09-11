@@ -14,6 +14,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include "StudyFsrs.h"
 
@@ -192,5 +193,54 @@ class StudyDeck {
 // lets a due date computed here and one computed on the phone agree without any
 // timezone conversation.
 int dayNumber(const DeckMeta& meta, int64_t nowEpochSeconds);
+
+// The card left open across a leave or a sleep, when the "resume in progress
+// card" option is on. Kept freestanding, with the SD read/write in
+// StudyActivity.cpp (Arduino-only), so the one part worth getting wrong --
+// whether a saved position is still safe to trust -- is host-tested.
+//
+// Version 2 adds savedAt (epoch seconds), so the resume prompt can say how
+// long ago the card was left rather than just naming it. Bumping the version
+// rather than growing the old layout in place means a v1 file left on an SD
+// card by an older build is refused outright -- read as "no timestamp" it
+// would print an epoch-zero date, which is a worse failure than just not
+// resuming.
+inline constexpr uint8_t kResumeRecordVersion = 2;
+inline constexpr uint32_t kResumeRecordBytes = 14;  // version + int32 index + face + int64 savedAt
+
+struct ResumeRecord {
+  int32_t cardIndex = -1;
+  uint8_t face = 0;     // 0 Question, 1 Answer
+  int64_t savedAt = 0;  // epoch seconds when the record was written
+};
+
+// False on a version mismatch, a malformed face byte, or an index outside
+// [0, noteCount) -- a deck re-synced since the save was written can shrink or
+// reorder cards.dat, and trusting a stale index would resume the wrong note or
+// read past it. The caller falls back to its normal fresh-queue pick in every
+// one of those cases, same as it would with no saved record at all.
+inline bool parseResumeRecord(const uint8_t* bytes, uint32_t length, int noteCount, ResumeRecord& out) {
+  if (length != kResumeRecordBytes) return false;
+  if (bytes[0] != kResumeRecordVersion) return false;
+  int32_t index;
+  std::memcpy(&index, bytes + 1, sizeof(index));
+  const uint8_t face = bytes[5];
+  if (face > 1) return false;
+  if (index < 0 || index >= noteCount) return false;
+  int64_t savedAt;
+  std::memcpy(&savedAt, bytes + 6, sizeof(savedAt));
+  out.cardIndex = index;
+  out.face = face;
+  out.savedAt = savedAt;
+  return true;
+}
+
+// Serializes exactly kResumeRecordBytes bytes, the inverse of parseResumeRecord.
+inline void writeResumeRecord(uint8_t* bytes, int32_t cardIndex, uint8_t face, int64_t savedAt) {
+  bytes[0] = kResumeRecordVersion;
+  std::memcpy(bytes + 1, &cardIndex, sizeof(cardIndex));
+  bytes[5] = face;
+  std::memcpy(bytes + 6, &savedAt, sizeof(savedAt));
+}
 
 }  // namespace study
