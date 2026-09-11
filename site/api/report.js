@@ -17,9 +17,9 @@
 // so Mario's own reports file as `mario` rather than `user`. This comment used
 // to claim the address was never stored, and a page on the site repeated it.
 //
-// The bucket is NOT trustworthy: clientIp() below takes the first
-// x-forwarded-for hop, which the caller sets. api/trivia.js takes the last and
-// says why, with a test. Card #444.
+// The bucket is the LAST x-forwarded-for hop, the one the nearest trusted
+// proxy wrote. It took the first until card #444, which let a caller pick its
+// own bucket by sending the header.
 //
 // `device` names one or both of the two boards the fork runs on, comma-joined
 // ("x4pro", "sticky", "x4pro,sticky"). There is no "not sure": a person
@@ -98,8 +98,16 @@ async function readBody(req, limit) {
 }
 
 function clientIp(req) {
+  // The LAST entry, not the first. x-forwarded-for is append-only as a request
+  // crosses proxies, so the first element is whatever the CALLER put there --
+  // letting anyone choose their own rate-limit bucket by sending a header. The
+  // last is the one the nearest trusted proxy wrote. api/trivia.js has said
+  // this since it was written; this file took the first hop until card #444.
   const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string" && fwd.length) return fwd.split(",")[0].trim();
+  if (typeof fwd === "string" && fwd.length) {
+    const hops = fwd.split(",").map((h) => h.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
   return (req.socket && req.socket.remoteAddress) || "0.0.0.0";
 }
 
