@@ -49,8 +49,10 @@ struct SearchModel {
   const char* query = "";
   Row results[kMaxResults];
   int resultCount = 0;
-  bool noMatch = false;  // a non-empty query with nothing under it
+  bool noMatch = false;      // a non-empty query with nothing under it
+  bool moreResults = false;  // more matches than the panel's worth: keep typing
   const char* continueTitle = nullptr;
+  int continuePage = 0;  // 1-based page CONTINUE lands on; 0 when unknown
   Row recent[kMaxRecent];
   int recentCount = 0;
   const char* footer = "";  // "7,238,251 articles, May 2026"

@@ -85,6 +85,58 @@ _CITE = re.compile(r"\[\d+\]")
 # "principles.: 6 The scope".
 _CITE_PAGE = re.compile(r"(?<=[.,;!?])\s?:\s?\d+(?:[\u2013-]\d+)?(?=\s|$)")
 _WS = re.compile(r"\s+")
+# A Greek letter standing alone is a symbol ("frequency \u03bd"), and the
+# reader's serif has no Greek; a Greek word beside other Greek is a run the
+# stripper handles. Names, not transliteration: "h nu" reads as the physics.
+_GREEK_NAMES = {
+    "\u03b1": "alpha", "\u03b2": "beta", "\u03b3": "gamma", "\u03b4": "delta",
+    "\u03b5": "epsilon", "\u03b6": "zeta", "\u03b7": "eta", "\u03b8": "theta",
+    "\u03b9": "iota", "\u03ba": "kappa", "\u03bb": "lambda", "\u03bc": "mu",
+    "\u03bd": "nu", "\u03be": "xi", "\u03c0": "pi", "\u03c1": "rho",
+    "\u03c3": "sigma", "\u03c4": "tau", "\u03c5": "upsilon", "\u03c6": "phi",
+    "\u03c7": "chi", "\u03c8": "psi", "\u03c9": "omega",
+    "\u0393": "Gamma", "\u0394": "Delta", "\u0398": "Theta", "\u039b": "Lambda",
+    "\u039e": "Xi", "\u03a0": "Pi", "\u03a3": "Sigma", "\u03a6": "Phi",
+    "\u03a8": "Psi", "\u03a9": "Omega",
+}
+_GREEK_ALONE = re.compile(
+    "(?<![A-Za-z\u0370-\u03ff\u1f00-\u1fff])([\u0391-\u03a9\u03b1-\u03c9])"
+    "(?![A-Za-z\u0370-\u03ff\u1f00-\u1fff])"
+)
+
+
+def _strip_tex(s):
+    """The dataset writes every formula twice: its words, then the TeX in
+    "{\\displaystyle ...}". The TeX goes, braces balanced."""
+    out = []
+    i = 0
+    n = len(s)
+    while True:
+        j = s.find("{\\displaystyle", i)
+        if j < 0:
+            out.append(s[i:])
+            break
+        k = j
+        depth = 0
+        while k < n:
+            if s[k] == "{":
+                depth += 1
+            elif s[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        if k >= n:
+            out.append(s[i:])
+            break
+        head = s[i:j]
+        if head.endswith(" "):
+            head = head[:-1]
+        out.append(head)
+        i = k + 1
+    return "".join(out)
+
+_NAVBOX = re.compile(r"This box:|\bview\s+talk\s+edit\b|\bv\s*[\u00b7.]\s*t\s*[\u00b7.]\s*e\b")
 # One level of nesting, so "(UK: OH-s(h)ee-AH-nee-<schwa>)" is one parenthetical.
 _PAREN = re.compile(r" ?\((?:[^()]|\([^()]*\))*\)")
 
@@ -142,8 +194,11 @@ def clean_text(s):
     if not s:
         return ""
     s = _CONTROL.sub("", s)
+    if "\\displaystyle" in s:
+        s = _strip_tex(s)
     s = _CITE.sub("", s)
     s = _CITE_PAGE.sub("", s)
+    s = _GREEK_ALONE.sub(lambda m: _GREEK_NAMES.get(m.group(1), m.group(1)), s)
     return _WS.sub(" ", s).strip()
 
 
@@ -506,6 +561,12 @@ class _Doc:
             grid.append((is_header, cells))
         if max(len(c) for _, c in grid) > TABLE_MAX_COLS:
             return TABLE_OMITTED
+        # A navbox is a table of links to other pages with its own controls in
+        # it; on this device it is three columns of "This box: view talk edit".
+        for _, cells in grid:
+            for c in cells:
+                if _NAVBOX.search(c):
+                    return TABLE_OMITTED
         for _, cells in grid:
             for c in cells:
                 if (
@@ -634,6 +695,62 @@ class _Doc:
         for name, value in fields:
             self.out.append("<tr><th>" + esc(name) + "</th><td>" + esc(value) + "</td></tr>")
         self.out.append("</table>")
+
+
+# "Wolfgang Amadeus Mozart" is found by "mozart" only through an index entry
+# that starts with the surname. The pack has no redirect list, so the builder
+# makes the one every printed index has: "Mozart, Wolfgang Amadeus".
+_NAME_WORD = re.compile(r"^[A-Z\u00c0-\u024f][A-Za-z\u00c0-\u024f'\u2019.-]*$")
+_PARTICLES = frozenset(
+    ("van", "von", "de", "da", "del", "della", "der", "di", "du", "la", "le",
+     "of", "the", "al", "bin", "ibn", "y", "e", "af", "zu", "ter", "ten", "den")
+)
+_ROMAN = re.compile(r"^[IVXLC]+$")
+_PERSON_FIELDS = frozenset(("born", "died", "birth name", "birth date", "date of birth"))
+
+
+def person_alias(row):
+    """"Surname, Given names" for a row whose infobox says it is a person
+    (a Born or Died field) and whose title is a plain two- to four-word
+    name; None otherwise."""
+    title = clean_text(row.get("name") or "")
+    words = title.split(" ")
+    if not 2 <= len(words) <= 4:
+        return None
+    if any(ch in title for ch in "(),0123456789:/"):
+        return None
+    last = words[-1]
+    if not _NAME_WORD.match(last) or len(last) < 3 or _ROMAN.match(last):
+        return None
+    if last.rstrip(".").lower() in ("jr", "sr"):
+        return None
+    if not _NAME_WORD.match(words[0]):
+        return None
+    for w in words[1:-1]:
+        if not (_NAME_WORD.match(w) or w.lower() in _PARTICLES):
+            return None
+    found = False
+
+    def walk(p):
+        nonlocal found
+        if found:
+            return
+        if isinstance(p, list):
+            for c in p:
+                walk(c)
+        elif isinstance(p, dict):
+            name = p.get("name")
+            if p.get("type") in ("field", "list") and isinstance(name, str):
+                if name.strip().lower() in _PERSON_FIELDS:
+                    found = True
+                    return
+            for c in p.get("has_parts") or []:
+                walk(c)
+
+    walk(_parse(row.get("infoboxes")))
+    if not found:
+        return None
+    return last + ", " + " ".join(words[:-1])
 
 
 def heading_bytes(text):

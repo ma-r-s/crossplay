@@ -40,7 +40,7 @@ sys.path.insert(0, HERE)
 
 import pack_format as pf  # noqa: E402
 import vital  # noqa: E402
-from article_html import article_xhtml  # noqa: E402
+from article_html import article_xhtml, person_alias  # noqa: E402
 from fold import fold, fold_bytes  # noqa: E402
 
 
@@ -67,6 +67,7 @@ def convert_rows(paths, stats, limit=None):
     to the latest date_modified."""
     articles = {}
     stamps = {}
+    aliases = {}
     n = 0
     for row in read_rows(paths):
         n += 1
@@ -92,9 +93,13 @@ def convert_rows(paths, stats, limit=None):
                 continue
         articles[title] = (headings, xhtml)
         stamps[title] = stamp
+        alias = person_alias(row)
+        if alias:
+            aliases[title] = alias
         if n % 1000 == 0:
             say(f"  {n:,} rows, {len(articles):,} articles")
     stats["snapshot"] = max(stamps.values(), default="")[:10] or None
+    stats["aliases"] = aliases
     return articles
 
 
@@ -238,6 +243,12 @@ def main(argv=None):
             kept += 1
         else:
             dropped += 1
+    # "Mozart, Wolfgang Amadeus": the surname entry every printed index has,
+    # so a person is found by the name people know.
+    names = 0
+    for target, alias in stats.pop("aliases", {}).items():
+        if target in writer.by_title and writer.add_redirect(alias, target):
+            names += 1
     manifest = writer.finish()
 
     raw = writer.raw_bytes
@@ -253,6 +264,7 @@ def main(argv=None):
         "vital_matched": matched,
         "redirects_kept": kept,
         "redirects_dropped": dropped,
+        "name_entries": names,
         "entries": manifest["entries"],
         "blocks": manifest["blocks"],
         "shards": len(manifest["shards"]),

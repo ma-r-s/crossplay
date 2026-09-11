@@ -58,6 +58,8 @@ class WikipediaActivity final : public Activity {
   void go(View next);
   void routeAction(int action, int value);
   void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
+  // A notice that names the title it is about: "There is no article called "X"".
+  void noticeAbout(const char* headline, const char* fmt, const std::string& title);
 
   // search
   void refreshResults();

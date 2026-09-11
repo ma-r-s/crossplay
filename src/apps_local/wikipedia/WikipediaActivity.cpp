@@ -179,7 +179,8 @@ void WikipediaActivity::showNotice(const char* headline, const char* body, const
 void WikipediaActivity::refreshResults() {
   results_.clear();
   if (query_.empty() || !packOpen_) return;
-  pack_.prefix(query_, wikiui::kMaxResults, results_);
+  // One past the panel's worth, so the screen can say there are more.
+  pack_.prefix(query_, wikiui::kMaxResults + 1, results_);
 }
 
 void WikipediaActivity::handleKey(const int value) {
@@ -196,12 +197,11 @@ void WikipediaActivity::handleKey(const int value) {
     case fui::QWERTY_KEY_LANG:
       return;
     case fui::QWERTY_KEY_ENTER:
-      if (!results_.empty()) {
-        openLocator(results_.front().locator, 0, "");
-        return;
-      }
-      if (!query_.empty()) openTitle(query_);
-      return;
+      // GO means "done typing": the keyboard goes down and the matches get
+      // the panel. It used to open the first match, which for "albert" was
+      // Albert A. Michelson.
+      keyboardShown_ = false;
+      break;
     case fui::QWERTY_KEY_BACKSPACE: {
       if (query_.empty()) break;
       size_t pos = query_.size() - 1;
@@ -223,14 +223,22 @@ void WikipediaActivity::handleKey(const int value) {
   requestUpdate();
 }
 
+void WikipediaActivity::noticeAbout(const char* headline, const char* fmt, const std::string& title) {
+  char body[200];
+  snprintf(body, sizeof(body), fmt, title.c_str());
+  showNotice(headline, body, "BACK", wikiui::ActionBack);
+}
+
 void WikipediaActivity::openTitle(const std::string& title) {
   wikipedia::IndexEntry entry;
   if (!pack_.find(title, entry)) {
-    showNotice("NOT FOUND", tr(STR_WIKI_NO_MATCH), "BACK", wikiui::ActionBack);
+    LOG_INF(kTag, "no article called \"%s\"", title.c_str());
+    noticeAbout("NOT FOUND", tr(STR_WIKI_NO_ARTICLE_FMT), title);
     return;
   }
   if (!pack_.onCard(entry.locator)) {
-    showNotice("NOT YET", tr(STR_WIKI_NOT_ON_CARD), "BACK", wikiui::ActionBack);
+    LOG_INF(kTag, "\"%s\" is not on the card", title.c_str());
+    noticeAbout("NOT YET", tr(STR_WIKI_NOT_ON_CARD_FMT), title);
     return;
   }
   openLocator(entry.locator, 0, "");
@@ -592,7 +600,8 @@ void WikipediaActivity::routeAction(const int action, const int value) {
       if (value >= 0 && value < static_cast<int>(results_.size())) {
         const auto entry = results_[value];
         if (!pack_.onCard(entry.locator)) {
-          showNotice("NOT YET", tr(STR_WIKI_NOT_ON_CARD), "BACK", wikiui::ActionBack);
+          LOG_INF(kTag, "\"%s\" is not on the card", entry.title.c_str());
+          noticeAbout("NOT YET", tr(STR_WIKI_NOT_ON_CARD_FMT), entry.title);
         } else {
           history_.clear();
           openLocator(entry.locator, 0, "");
@@ -615,8 +624,8 @@ void WikipediaActivity::routeAction(const int action, const int value) {
       openRandom();
       return;
     case wikiui::ActionClear:
-      // With text: clear it. With none: the keyboard goes down.
-      if (query_.empty()) keyboardShown_ = false;
+      // The X closes the search: the text goes and the keyboard with it.
+      keyboardShown_ = false;
       query_.clear();
       results_.clear();
       requestUpdate();
@@ -783,6 +792,17 @@ void WikipediaActivity::loop() {
         }
       }
     }
+    // A swipe turns the page too, as the reader's swipe mode does; the
+    // left-edge swipe is Back and was handled above.
+    const auto swipe = mappedInput.wasSwipe();
+    if (swipe == MappedInputManager::SwipeDir::Left) {
+      turnPage(1);
+      return;
+    }
+    if (swipe == MappedInputManager::SwipeDir::Right && !mappedInput.wasBackGesture()) {
+      turnPage(-1);
+      return;
+    }
     if (mappedInput.wasPressed(MappedInputManager::Button::Left) ||
         mappedInput.wasPressed(MappedInputManager::Button::PageBack) ||
         mappedInput.wasPressed(MappedInputManager::Button::Up)) {
@@ -841,10 +861,13 @@ void WikipediaActivity::loop() {
       if (link) {
         wikipedia::IndexEntry entry;
         if (!pack_.find(link->href, entry)) {
-          showNotice("NOT FOUND", tr(STR_WIKI_NO_MATCH), "BACK", wikiui::ActionBack);
+          LOG_INF(kTag, "link \"%s\": no such article", link->href.c_str());
+          noticeAbout("NOT FOUND", tr(STR_WIKI_NO_ARTICLE_FMT), link->href);
         } else if (!pack_.onCard(entry.locator)) {
-          showNotice("NOT YET", tr(STR_WIKI_NOT_ON_CARD), "BACK", wikiui::ActionBack);
+          LOG_INF(kTag, "link \"%s\": not on the card", link->href.c_str());
+          noticeAbout("NOT YET", tr(STR_WIKI_NOT_ON_CARD_FMT), link->href);
         } else {
+          LOG_INF(kTag, "link \"%s\" -> %lu", link->href.c_str(), static_cast<unsigned long>(entry.locator));
           pushHistory();
           openLocator(entry.locator, 0, "");
         }
@@ -898,7 +921,9 @@ void WikipediaActivity::render(RenderLock&&) {
         model.results[i].redirect = results_[i].redirect;
       }
       model.noMatch = !query_.empty() && results_.empty();
+      model.moreResults = results_.size() > static_cast<size_t>(wikiui::kMaxResults);
       model.continueTitle = state_.current.title.empty() ? nullptr : state_.current.title.c_str();
+      model.continuePage = state_.current.title.empty() ? 0 : state_.currentPage + 1;
       // The trail leaves out the article CONTINUE already names; VALUE is the
       // row in state_.recent, so the activity keeps the map.
       model.recentCount = 0;

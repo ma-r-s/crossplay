@@ -122,7 +122,10 @@ class Build(unittest.TestCase):
         )
         self.assertEqual(summary["redirects_kept"], 1)
         self.assertEqual(summary["redirects_dropped"], 2)
-        self.assertEqual(summary["entries"], len(self.names) + 1)
+        # One redirect kept, plus a "Surname, Given" entry for every row whose
+        # infobox says it is a person.
+        self.assertGreaterEqual(summary["name_entries"], 1)
+        self.assertEqual(summary["entries"], len(self.names) + 1 + summary["name_entries"])
         self.assertEqual(summary["tiers"][0]["articles"], 7)
         self.assertGreater(summary["shards"], 2)
         p = pf.Pack(out)

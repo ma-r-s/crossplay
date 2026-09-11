@@ -239,10 +239,17 @@ void drawResults(toybox::Screen& screen, const SearchModel& model, int16_t y, co
                         static_cast<int16_t>(body.width - kMargin * 2), 60},
               "No article with that name");
   }
+  int drawn = 0;
   for (int i = 0; i < model.resultCount && i < kMaxResults; ++i) {
     const int16_t h = drawTitleRow(screen, y, bottom, model.results[i].title, ActionResult, i, true);
     if (h == 0) break;
     y = static_cast<int16_t>(y + h);
+    ++drawn;
+  }
+  // The list looks complete when it is not; say so ("Where did Tokyo go?").
+  if ((model.moreResults || drawn < model.resultCount) && y + kCaptionHeight <= bottom) {
+    drawCaption(screen, fui::Rect{body.x, static_cast<int16_t>(y + 4), body.width, kCaptionHeight},
+                "KEEP TYPING FOR MORE");
   }
 }
 
@@ -325,6 +332,14 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
                            live ? fui::Paint::solid(fui::Color::Black) : fui::Paint::dither(fui::Color::LightGray));
       drawLabel(screen, fui::Rect{static_cast<int16_t>(card.x + 14), static_cast<int16_t>(card.y + 12), 220, 24},
                 "CONTINUE", toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut, ink);
+      if (live && model.continuePage > 0) {
+        // Where it lands, so the card says what it does before it is pressed.
+        char page[16];
+        snprintf(page, sizeof(page), "PAGE %d", model.continuePage);
+        drawLabel(screen,
+                  fui::Rect{static_cast<int16_t>(card.right() - 14 - 160), static_cast<int16_t>(card.y + 12), 160, 24},
+                  page, toybox::kSmallFont, fui::TextAlign::Right, toybox::kButtonCut, ink);
+      }
       drawTitle(screen,
                 fui::Rect{static_cast<int16_t>(card.x + 14), static_cast<int16_t>(card.y + 42),
                           static_cast<int16_t>(inner - 28), textHeight},

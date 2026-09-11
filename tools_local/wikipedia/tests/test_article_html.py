@@ -612,6 +612,51 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.clean_text("in 1990,: 12-14 and later"), "in 1990, and later")
         self.assertEqual(ah.clean_text("ratio of 3:1 and at 10:30"), "ratio of 3:1 and at 10:30")
 
+    def test_math_and_greek(self):
+        self.assertEqual(
+            ah.clean_text("in which n 2 {\\displaystyle n_{2}} is the density"),
+            "in which n 2 is the density",
+        )
+        self.assertEqual(
+            ah.clean_text("= h 4 n 2 A 21, {\\displaystyle \\varepsilon ={\\frac {h\\nu }{4\\pi }}n_{2}A_{21},} where"),
+            "= h 4 n 2 A 21, where",
+        )
+        self.assertEqual(ah.clean_text("at frequency \u03bd may"), "at frequency nu may")
+        self.assertEqual(ah.clean_text("Ancient Greek: \u1f08\u03b8\u1fc6\u03bd\u03b1\u03b9 was"),
+                         "Ancient Greek: \u1f08\u03b8\u1fc6\u03bd\u03b1\u03b9 was")
+
+    def test_navbox_omitted(self):
+        tables = [
+            {
+                "identifier": "t1",
+                "rows": [
+                    [{"value": "Life timeline"}, {"value": "Life timeline"}],
+                    [{"value": "This box: view\ntalk\nedit"}, {"value": "This box: view\ntalk\nedit"}],
+                ],
+            }
+        ]
+        secs = [
+            {
+                "type": "section",
+                "name": "Evolution",
+                "has_parts": [{"type": "paragraph", "value": "Then."}, {"type": "table", "identifier": "t1"}],
+            }
+        ]
+        _, _, x, st = self.convert(name="Test", sections=json.dumps(secs), tables=json.dumps(tables))
+        self.assertNotIn("<table>", x)
+        self.assertEqual(st["tables_omitted"], 1)
+
+    def test_person_alias(self):
+        born = json.dumps([{"type": "infobox", "has_parts": [{"type": "field", "name": "Born", "value": "1756"}]}])
+        self.assertEqual(ah.person_alias({"name": "Wolfgang Amadeus Mozart", "infoboxes": born}),
+                         "Mozart, Wolfgang Amadeus")
+        self.assertEqual(ah.person_alias({"name": "Ludwig van Beethoven", "infoboxes": born}),
+                         "Beethoven, Ludwig van")
+        self.assertIsNone(ah.person_alias({"name": "Mahmud II", "infoboxes": born}))
+        self.assertIsNone(ah.person_alias({"name": "Einstein coefficients", "infoboxes": "[]"}))
+        self.assertIsNone(ah.person_alias({"name": "Tokyo", "infoboxes": born}))
+        self.assertIsNone(ah.person_alias({"name": "Battle of Hastings (1066)", "infoboxes": born}))
+
     def test_fact_value(self):
         self.assertEqual(
             ah.fact_value("Died", "13 June 1645 (aged 60\u201361) Higo Province, Japan"),
