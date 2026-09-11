@@ -11991,7 +11991,7 @@ void testWikipediaSearchRowsCarryTheirIndex() {
     buildWikiSearch(out, home);
     CHECK(out.target.drew("SEARCH WIKIPEDIA"));
     CHECK(out.target.drew("RANDOM ARTICLE"));
-    CHECK(out.target.drew("CONTINUE") || out.target.drew("CONTINUE READING"));
+    CHECK(out.target.drew("CONTINUE"));
     CHECK(out.target.drew("RECENT"));
     CHECK(out.target.drew("7,238,251 ARTICLES, MAY 2026"));
     const FakeTarget::TextRun* count = out.target.find("7,238,251 ARTICLES, MAY 2026");
@@ -12030,6 +12030,33 @@ void testWikipediaSearchRowsCarryTheirIndex() {
       CHECK(nextRow->rect.y > longRow->rect.bottom());
       CHECK(nextRow->style.maxLines == 1);
     }
+  }
+  // Nothing read yet: the card is there, dimmed, and not a target.
+  wikiui::SearchModel fresh;
+  fresh.footer = "49,715 ARTICLES, MAY 2026";
+  {
+    Rendered out;
+    buildWikiSearch(out, fresh);
+    CHECK(out.target.drew("CONTINUE"));
+    CHECK(out.target.drew("Open any article and it waits here."));
+    const FakeTarget::TextRun* waits = out.target.find("Open any article and it waits here.");
+    CHECK(waits != nullptr);
+    if (waits != nullptr) CHECK(tapRun(out, waits).action != wikiui::ActionContinue);
+    CHECK(out.target.drew("RANDOM ARTICLE"));
+    CHECK(!out.target.drew("X"));
+  }
+  // The keyboard up with nothing typed: the doors stay, and the boxed X at
+  // the field's end is what puts the keyboard down.
+  wikiui::SearchModel raised;
+  raised.continueTitle = "Photosynthesis";
+  raised.keyboardHeight = 252;
+  {
+    Rendered out;
+    buildWikiSearch(out, raised);
+    CHECK(out.target.drew("RANDOM ARTICLE"));
+    const FakeTarget::TextRun* x = out.target.find("X");
+    CHECK(x != nullptr);
+    if (x != nullptr) CHECK(tapRun(out, x).action == wikiui::ActionClear);
   }
   // A query with nothing under it says so instead of showing an empty panel.
   wikiui::SearchModel miss;
@@ -12072,29 +12099,61 @@ void testWikipediaArticleChromeLeavesThePageItsRoom() {
   }
   // The band's leading chevron is the way back.
   CHECK(out.tap(6 + 20, toybox::kHeaderHeight / 2).action == wikiui::ActionPrevious);
+  // The title is bold at the reading size when it fits one line; a longer one
+  // is two lines of the small cut, drawn whole.
+  const FakeTarget::TextRun* title = out.target.find("Photosynthesis");
+  CHECK(title != nullptr);
+  if (title != nullptr) {
+    CHECK(title->style.bold);
+    CHECK(title->style.maxLines == 1);
+    CHECK(title->style.font == toybox::kDisplayFont);
+  }
+  wikiui::ArticleChromeModel wide;
+  wide.title = "Transition from Ming to Qing (1618)";
+  Rendered two;
+  buildWikiArticleChrome(two, wide, footer);
+  const FakeTarget::TextRun* wideRun = two.target.find(wide.title);
+  CHECK(wideRun != nullptr);
+  if (wideRun != nullptr) {
+    CHECK(two.target.measureText(wideRun->style.font, wideRun->text.c_str(), wideRun->style).width >
+          wideRun->rect.width);
+    CHECK(wideRun->style.maxLines == 2);
+    CHECK(wideRun->style.font == toybox::kSmallFont);
+    CHECK(wideRun->style.bold);
+  }
 }
 
 void testWikipediaContentsRowsCarryTheHeading() {
-  static const char* kHeadings[] = {"Quick facts",     "Overview",  "Light-dependent reactions",
-                                    "Carbon fixation", "History",   "Evolution",
-                                    "Research",        "See also",  "Gallery",
-                                    "Notes",           "Sources",   "Bibliography",
-                                    "External links",  "Fourteenth"};
-  static const int kPages[] = {0, 1, 3, 6, 9, 12, 15, 18, 21, 24, -1, -1, -1, -1};
+  static const char* kHeadings[] = {"Quick facts",     "Overview",    "Light-dependent reactions",
+                                    "Carbon fixation", "History",     "Evolution",
+                                    "Research",        "See also",    "Gallery",
+                                    "Notes",           "Sources",     "Bibliography",
+                                    "External links",  "Fourteenth",  "Fifteenth",
+                                    "Sixteenth",       "Seventeenth", "Eighteenth",
+                                    "Nineteenth",      "Twentieth"};
+  static const int kPages[] = {0, 1, 3, 6, 9, 12, 15, 18, 21, 24, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
   wikiui::ContentsModel model;
   model.title = "Photosynthesis";
   model.headings = kHeadings;
   model.pages = kPages;
-  model.count = 14;
+  model.count = 20;
   model.current = 2;
   Rendered out;
+  // As many rows as fit above the window line, and not one more: the rest
+  // wait for the next window.
   const int shown = buildWikiContents(out, model);
-  CHECK(shown == 12);
+  CHECK(shown >= 12 && shown < 20);
   CHECK(out.target.drew("CLOSE"));
   CHECK(out.target.drew("Carbon fixation"));
-  CHECK(!out.target.drew("Fourteenth"));  // the thirteenth and on wait for the next window
-  CHECK(out.target.drew("1-12 of 14"));
+  CHECK(out.target.drew(kHeadings[shown - 1]));
+  CHECK(!out.target.drew(kHeadings[shown]));
+  char where[32];
+  snprintf(where, sizeof(where), "1-%d of 20", shown);
+  CHECK(out.target.drew(where));
   CHECK(out.target.drew("MORE >"));
+  const FakeTarget::TextRun* lastRow = out.target.find(kHeadings[shown - 1]);
+  CHECK(lastRow != nullptr);
+  if (lastRow != nullptr) CHECK(lastRow->rect.bottom() <= 800 - 40);
   // Each row carries its page, 1-based, and none while the layout has not
   // reached it; the section the page is in is set in the bold slot, clear of
   // the bar in the margin.

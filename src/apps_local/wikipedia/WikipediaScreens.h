@@ -36,7 +36,8 @@ enum : fui::ActionId {
 
 constexpr int kMaxResults = 8;
 constexpr int kMaxRecent = 10;
-// Rows of the contents list drawn at once; the model says where the window starts.
+// The contents list draws as many rows as fit; this is the step the activity
+// pages by before a first render has told it how many that was.
 constexpr int kContentsRows = 12;
 
 struct Row {

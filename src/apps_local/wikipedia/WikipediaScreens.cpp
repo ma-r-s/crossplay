@@ -5,18 +5,11 @@
 
 #include "../ui/ToyboxIcons.h"
 
-// Three arrangements of the home and the article chrome, rendered side by side
-// before one is kept (docs/building-apps.md, "Offer designs by rendering
-// them"). The switch is deleted with the losers in the same commit.
-//   1  Field and keyboard: the keyboard is always up; matches, or the doors
-//      back in, sit between the field and the keys.
-//   2  Doors: the keyboard rises only when the field is tapped; the home is
-//      CONTINUE as a card, RANDOM as a bar, RECENT as a list.
-//   3  Reading first: like 2, but CONTINUE is a filled card and the article
-//      footer is a progress rule.
-#ifndef WIKIPEDIA_VARIANT
-#define WIKIPEDIA_VARIANT 1
-#endif
+// The home is "reading first", chosen from three rendered arrangements
+// (docs/apps/wikipedia-plan.md, "After the second critic"): the keyboard rises
+// on a tap of the field, CONTINUE is a filled card and the loudest thing on
+// the page, RANDOM an outlined bar, RECENT a list, and the article's foot
+// carries a progress rule.
 
 namespace wikiui {
 namespace {
@@ -94,14 +87,20 @@ fui::StyleSet bandOutlineStyles() {
   return styles;
 }
 
-// The band. On the article and contents screens the pill is set in the small
-// reading cut rather than Jersey: those screens bind readerFaces so a title
-// steps down through real reading cuts, and three slots is all there are.
+// The band. `reading` marks a band that carries an article's title, bold in
+// the reader's face: one line at the reading size when it fits, otherwise two
+// lines of the reader's 12, which is the most the band's 66 visible rows can
+// hold (two lines at the reading size are 80). A title longer than two such
+// lines is the running head's one permitted cut, and the page then keeps its
+// own h1 (see stageArticle). On those screens the pill is set in the small
+// reader cut rather than Jersey: the activity binds the reader's faces so the
+// title has real cuts to step through, and three slots is all there are.
 void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel = nullptr,
-            const fui::ActionId trailingAction = 0, const bool back = false) {
+            const fui::ActionId trailingAction = 0, const bool back = false, const bool reading = false) {
   fui::HeaderProps header;
   header.title = title;
   header.borderEdges = fui::EdgesNone;
+  header.sidePadding = screen.theme().headerSidePadding;
   if (back) {
     header.leadingIcon = fui::bitmapFromIcon(icon_wiki_back_32);
     header.leadingAction = ActionPrevious;
@@ -112,9 +111,23 @@ void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel
     header.trailingLabel = trailingLabel;
     header.trailingAction = trailingAction;
     header.trailingStyles = bandOutlineStyles();
+    // The small slot, not the theme's smallText (which is the body slot): a
+    // "CONTENTS" pill at the reading size took 128 of the band's 448 and left
+    // the title 200.
     header.trailingText = screen.theme().smallText;
+    header.trailingText.font = toybox::kSmallFont;
     header.trailingText.color = fui::Color::White;
     header.trailingRadius = toybox::kPillRadius / 2;
+  }
+  if (reading) {
+    header.titleText = screen.theme().titleText;
+    header.titleText.align = screen.theme().headerTitleAlign;
+    header.titleText.bold = true;
+    const int16_t width = toybox::headerTitleWidth(screen, toybox::headerInkRect(screen), header);
+    if (screen.target().measureText(header.titleText.font, title, header.titleText).width > width) {
+      header.titleText.font = toybox::kSmallFont;
+      header.titleText.maxLines = 2;
+    }
   }
   toybox::headerBand(screen, header);
 }
@@ -197,7 +210,7 @@ fui::Rect drawField(toybox::Screen& screen, const SearchModel& model, const bool
                         static_cast<int16_t>(body.width - kMargin * 2), kFieldHeight};
   screen.target().stroke(field, fui::Paint::solid(fui::Color::Black), 2);
   const bool empty = model.query == nullptr || model.query[0] == '\0';
-  const int16_t right = static_cast<int16_t>(clear ? 48 + 4 : 12);
+  const int16_t right = static_cast<int16_t>(clear ? 52 + 4 : 12);
   const fui::Rect text = field.inset(fui::Insets{0, right, 0, 12});
   if (empty) {
     drawLabel(screen, text, "SEARCH WIKIPEDIA", toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
@@ -206,10 +219,13 @@ fui::Rect drawField(toybox::Screen& screen, const SearchModel& model, const bool
   }
   screen.frame().hit(field, ActionField);
   if (clear) {
-    // A small clear box at the field's right edge, inside its stroke.
-    const fui::Rect box{static_cast<int16_t>(field.right() - 48), field.y, 48, field.height};
+    // A boxed X at the field's right end, so it reads as a control and not as
+    // a letter somebody typed; the whole end of the field is its target.
+    const fui::Rect box{static_cast<int16_t>(field.right() - 44), static_cast<int16_t>(field.y + 8), 36,
+                        static_cast<int16_t>(field.height - 16)};
+    screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 2);
     drawLabel(screen, box, "X", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
-    screen.frame().hit(box, ActionClear);
+    screen.frame().hit(fui::Rect{static_cast<int16_t>(field.right() - 52), field.y, 52, field.height}, ActionClear);
   }
   return field;
 }
@@ -269,22 +285,22 @@ void drawCountLine(toybox::Screen& screen, const int16_t bottom, const char* tex
 
 int16_t footerHeight(toybox::Screen& screen) {
   const int16_t lineHeight = screen.target().lineHeight(toybox::kSmallFont);
-  return static_cast<int16_t>(kFooterPad + lineHeight + (WIKIPEDIA_VARIANT == 3 ? 10 : 0) + toybox::kGutter);
+  return static_cast<int16_t>(kFooterPad + lineHeight + toybox::kGutter);
 }
 
 }  // namespace
 
-#if WIKIPEDIA_VARIANT == 1
-
-// The home. The keyboard is always up; between the field and the keys sit the
-// matches, or the doors back in.
+// The home. Nothing typed: the doors (CONTINUE, RANDOM ARTICLE, the recent
+// trail) above the count line, and above the keyboard when that is up. With
+// a query: the matches.
 void buildSearch(toybox::Screen& screen, const SearchModel& model) {
   chrome(screen, "WIKIPEDIA");
   const fui::Rect body = screen.body();
   const int16_t bottom = static_cast<int16_t>(body.bottom() - model.keyboardHeight);
   const bool empty = model.query == nullptr || model.query[0] == '\0';
-  const fui::Rect field = drawField(screen, model, !empty);
+  const fui::Rect field = drawField(screen, model, !empty || model.keyboardHeight > 0);
   int16_t y = static_cast<int16_t>(field.bottom() + toybox::kGutter);
+  const int16_t inner = static_cast<int16_t>(body.width - kMargin * 2);
 
   if (!empty) {
     drawResults(screen, model, y, bottom);
@@ -293,101 +309,27 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
   // The count line is reserved first; the trail gets what is left.
   const int16_t list = static_cast<int16_t>(bottom - kCountLine);
   y = drawPartsRow(screen, model, y);
-  if (model.continueTitle) {
-    drawCaption(screen, fui::Rect{body.x, y, body.width, kCaptionHeight}, "CONTINUE");
-    y = static_cast<int16_t>(y + kCaptionHeight);
-    y = static_cast<int16_t>(y + drawTitleRow(screen, y, list, model.continueTitle, ActionContinue, 0, false));
-  }
   {
-    const fui::Rect box{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(y + 4),
-                        static_cast<int16_t>(body.width - kMargin * 2), 48};
-    if (box.bottom() <= list) drawAction(screen, box, "RANDOM ARTICLE", ActionRandom, false);
-    y = static_cast<int16_t>(box.bottom() + toybox::kGutter);
-  }
-  drawRecent(screen, model, y, list);
-  drawCountLine(screen, bottom, model.footer);
-}
-
-#elif WIKIPEDIA_VARIANT == 2
-
-// Doors. The keyboard rises when the field is tapped; until then the home is
-// three doors: the article you were in, a random one, and the recent trail.
-// With the keyboard up and nothing typed the doors stay, above the keys.
-void buildSearch(toybox::Screen& screen, const SearchModel& model) {
-  chrome(screen, "WIKIPEDIA");
-  const fui::Rect body = screen.body();
-  const int16_t bottom = static_cast<int16_t>(body.bottom() - model.keyboardHeight);
-  const bool empty = model.query == nullptr || model.query[0] == '\0';
-  const fui::Rect field = drawField(screen, model, !empty || model.keyboardHeight > 0);
-  int16_t y = static_cast<int16_t>(field.bottom() + toybox::kGutter);
-  const int16_t inner = static_cast<int16_t>(body.width - kMargin * 2);
-
-  if (!empty) {
-    drawResults(screen, model, y, bottom);
-    return;
-  }
-  const int16_t list = static_cast<int16_t>(bottom - kCountLine);
-  y = drawPartsRow(screen, model, y);
-  if (model.continueTitle) {
-    // A card: caption, then the title, the whole card tappable.
-    const TitleFit fit = fitTitle(screen, static_cast<int16_t>(inner - 28), model.continueTitle, toybox::kBodyFont);
-    const int16_t textHeight = static_cast<int16_t>(fit.lines * screen.target().lineHeight(toybox::kBodyFont));
-    const fui::Rect card{static_cast<int16_t>(body.x + kMargin), y, inner,
-                         static_cast<int16_t>(10 + 24 + 6 + textHeight + 14)};
-    if (card.bottom() <= list) {
-      screen.target().stroke(card, fui::Paint::solid(fui::Color::Black), 2);
-      drawLabel(screen, fui::Rect{static_cast<int16_t>(card.x + 14), static_cast<int16_t>(card.y + 10), 220, 24},
-                "CONTINUE READING", toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
-      drawTitle(screen,
-                fui::Rect{static_cast<int16_t>(card.x + 14), static_cast<int16_t>(card.y + 40),
-                          static_cast<int16_t>(inner - 28), textHeight},
-                model.continueTitle, toybox::kBodyFont, fit);
-      screen.frame().hit(card, ActionContinue);
-      y = static_cast<int16_t>(card.bottom() + toybox::kGutter);
-    }
-  }
-  {
-    const fui::Rect box{static_cast<int16_t>(body.x + kMargin), y, inner, 56};
-    if (box.bottom() <= list) drawAction(screen, box, "RANDOM ARTICLE", ActionRandom, false);
-    y = static_cast<int16_t>(box.bottom() + 20);
-  }
-  drawRecent(screen, model, y, list);
-  drawCountLine(screen, bottom, model.footer);
-}
-
-#else
-
-// Reading first. Like the doors, but CONTINUE is a filled card that says where
-// you are, the loudest thing on the page.
-void buildSearch(toybox::Screen& screen, const SearchModel& model) {
-  chrome(screen, "WIKIPEDIA");
-  const fui::Rect body = screen.body();
-  const int16_t bottom = static_cast<int16_t>(body.bottom() - model.keyboardHeight);
-  const bool empty = model.query == nullptr || model.query[0] == '\0';
-  const fui::Rect field = drawField(screen, model, !empty || model.keyboardHeight > 0);
-  int16_t y = static_cast<int16_t>(field.bottom() + toybox::kGutter);
-  const int16_t inner = static_cast<int16_t>(body.width - kMargin * 2);
-
-  if (!empty) {
-    drawResults(screen, model, y, bottom);
-    return;
-  }
-  const int16_t list = static_cast<int16_t>(bottom - kCountLine);
-  y = drawPartsRow(screen, model, y);
-  if (model.continueTitle) {
-    const TitleFit fit = fitTitle(screen, static_cast<int16_t>(inner - 28), model.continueTitle, toybox::kBodyFont);
+    // The card: filled, the loudest thing on the page, when there is an
+    // article to go back to. Dimmed, not gone, when there is none yet, so the
+    // page keeps its shape from the first open on.
+    const char* title = model.continueTitle ? model.continueTitle : "Open any article and it waits here.";
+    const TitleFit fit = fitTitle(screen, static_cast<int16_t>(inner - 28), title, toybox::kBodyFont);
     const int16_t textHeight = static_cast<int16_t>(fit.lines * screen.target().lineHeight(toybox::kBodyFont));
     const fui::Rect card{static_cast<int16_t>(body.x + kMargin), y, inner,
                          static_cast<int16_t>(12 + 24 + 6 + textHeight + 16)};
     if (card.bottom() <= list) {
-      screen.target().fill(card, fui::Paint::solid(fui::Color::Black));
+      const bool live = model.continueTitle != nullptr;
+      const fui::Color ink = live ? fui::Color::White : fui::Color::Black;
+      screen.target().fill(card,
+                           live ? fui::Paint::solid(fui::Color::Black) : fui::Paint::dither(fui::Color::LightGray));
       drawLabel(screen, fui::Rect{static_cast<int16_t>(card.x + 14), static_cast<int16_t>(card.y + 12), 220, 24},
-                "CONTINUE", toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut, fui::Color::White);
+                "CONTINUE", toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut, ink);
       drawTitle(screen,
                 fui::Rect{static_cast<int16_t>(card.x + 14), static_cast<int16_t>(card.y + 42),
                           static_cast<int16_t>(inner - 28), textHeight},
-                model.continueTitle, toybox::kBodyFont, fit, fui::Color::White);
-      screen.frame().hit(card, ActionContinue);
+                title, toybox::kBodyFont, fit, ink);
+      if (live) screen.frame().hit(card, ActionContinue);
       y = static_cast<int16_t>(card.bottom() + toybox::kGutter);
     }
   }
@@ -400,18 +342,17 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
   drawCountLine(screen, bottom, model.footer);
 }
 
-#endif
-
 fui::Rect buildArticleChrome(toybox::Screen& screen, const ArticleChromeModel& model) {
-  chrome(screen, model.title, model.contents ? "CONTENTS" : nullptr, ActionContents, model.back);
+  chrome(screen, model.title, model.contents ? "CONTENTS" : nullptr, ActionContents, model.back, true);
   const fui::Rect body = screen.body();
   return fui::Rect{body.x, body.y, body.width, static_cast<int16_t>(body.height - footerHeight(screen))};
 }
 
 // The section the page is in at the left, the page at the right, as a book's
 // running foot. The words are one line box tall, kFooterPad under the page,
-// and end toybox::kGutter above the glass; the third arrangement adds a
-// progress rule under them, filled once the total is known.
+// and end toybox::kGutter above the glass; the progress rule lives in that
+// gutter, so it costs the page nothing: a hairline track, and a solid band
+// along it as far as the page has come, once the total is known.
 void buildArticleFooter(toybox::Screen& screen, const ArticleFooterModel& model) {
   const fui::Rect body = screen.body();
   const int16_t lineHeight = screen.target().lineHeight(toybox::kSmallFont);
@@ -424,19 +365,18 @@ void buildArticleFooter(toybox::Screen& screen, const ArticleFooterModel& model)
            toybox::kSmallFont);
   drawLine(screen, fui::Rect{static_cast<int16_t>(foot.right() - pageWidth), textY, pageWidth, lineHeight}, model.left,
            toybox::kSmallFont, fui::TextAlign::Right);
-#if WIKIPEDIA_VARIANT == 3
-  const int16_t ruleY = static_cast<int16_t>(textY + lineHeight + 4);
-  screen.target().fill(fui::Rect{foot.x, ruleY, foot.width, 2}, fui::Paint::solid(fui::Color::Black));
+  const int16_t trackY = static_cast<int16_t>(textY + lineHeight + 5);
+  screen.target().fill(fui::Rect{foot.x, trackY, foot.width, toybox::kHairline}, fui::Paint::solid(fui::Color::Black));
   if (model.total > 0 && model.page > 0) {
-    const int16_t filled = static_cast<int16_t>(static_cast<int32_t>(foot.width) * model.page / model.total);
-    screen.target().fill(fui::Rect{foot.x, static_cast<int16_t>(ruleY - 2), filled, 6},
+    int16_t filled = static_cast<int16_t>(static_cast<int32_t>(foot.width) * model.page / model.total);
+    if (filled < 8) filled = 8;
+    screen.target().fill(fui::Rect{foot.x, static_cast<int16_t>(trackY - 2), filled, 5},
                          fui::Paint::solid(fui::Color::Black));
   }
-#endif
 }
 
 int buildContents(toybox::Screen& screen, const ContentsModel& model) {
-  chrome(screen, model.title, "CLOSE", ActionClose);
+  chrome(screen, model.title, "CLOSE", ActionClose, false, true);
   const fui::Rect body = screen.body();
   int16_t y = static_cast<int16_t>(body.y + 8);
   // Room for the window line under the rows.
@@ -445,7 +385,7 @@ int buildContents(toybox::Screen& screen, const ContentsModel& model) {
   const int16_t textX = static_cast<int16_t>(body.x + kMargin + 16);
   const int16_t textWidth = static_cast<int16_t>(body.width - kMargin * 2 - 16 - numberWidth - 8);
   int shown = 0;
-  for (int i = model.first; i < model.count && shown < kContentsRows; ++i) {
+  for (int i = model.first; i < model.count; ++i) {
     // The section you are in is set bold, with a bar in the margin.
     const bool here = i == model.current;
     const fui::FontId font = here ? toybox::kDisplayFont : toybox::kBodyFont;
@@ -476,9 +416,9 @@ int buildContents(toybox::Screen& screen, const ContentsModel& model) {
     snprintf(where, sizeof(where), "%d-%d of %d", model.first + 1, model.first + shown, model.count);
     const fui::Rect line{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.bottom() - 34),
                          static_cast<int16_t>(body.width - kMargin * 2), 30};
-    drawLabel(screen, line, where, toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
-    drawLabel(screen, line, model.first + shown < model.count ? "MORE >" : "< FIRST", toybox::kSmallFont,
-              fui::TextAlign::Right, toybox::kButtonCut);
+    drawLine(screen, line, where, toybox::kSmallFont);
+    drawLine(screen, line, model.first + shown < model.count ? "MORE >" : "< FIRST", toybox::kSmallFont,
+             fui::TextAlign::Right);
     screen.frame().hit(line, ActionMore);
   }
   return shown;

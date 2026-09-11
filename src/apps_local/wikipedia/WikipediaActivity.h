@@ -51,6 +51,8 @@ class WikipediaActivity final : public Activity {
   // Below this many bytes of XHTML, headings flow with the text; above it each
   // top-level heading starts a fresh page.
   static constexpr size_t kFreshPageBytes = 24 * 1024;
+  // A title longer than this does not fit the band whole; the page keeps its h1.
+  static constexpr size_t kBandTitleBytes = 56;
   static constexpr unsigned long kHostWaitMs = 30UL * 60UL * 1000UL;
 
   void go(View next);
@@ -95,9 +97,8 @@ class WikipediaActivity final : public Activity {
   std::vector<wikipedia::IndexEntry> results_;
   bool shifted_ = false;
   bool symbols_ = false;
-  // Whether the keyboard is drawn. Variant 1 keeps it up; the others raise it
-  // on a tap of the field and drop it when the query is cleared.
-  bool keyboardShown_ = true;
+  // The keyboard rises on a tap of the field and goes down with the X or Back.
+  bool keyboardShown_ = false;
   freeink::ui::InteractionBuffer<56> kbInteractions_;
   paintclock::RevealGate kbGate_;
 

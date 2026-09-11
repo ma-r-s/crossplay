@@ -32,10 +32,6 @@ constexpr const char* kLruPath = "/.crosspoint/wikipedia/lru";
 constexpr const char* kInstallUrl = "https://crossplay.ma-r-s.com/wikipedia";
 constexpr const char* kInstallUrlShown = "crossplay.ma-r-s.com/wikipedia";
 constexpr int kCachedArticles = 32;
-#ifndef WIKIPEDIA_VARIANT
-#define WIKIPEDIA_VARIANT 1
-#endif
-constexpr bool kKeyboardAlwaysUp = WIKIPEDIA_VARIANT == 1;
 constexpr int16_t kPageSide = 18;
 constexpr int16_t kPageTop = 6;
 constexpr size_t kBuildMinHeap = 40 * 1024;
@@ -113,7 +109,7 @@ WikipediaActivity::~WikipediaActivity() = default;
 
 void WikipediaActivity::onEnter() {
   Activity::onEnter();
-  keyboardShown_ = kKeyboardAlwaysUp;
+  keyboardShown_ = false;
   packOpen_ = pack_.open();
   if (packOpen_) {
     pack_.loadState(state_);
@@ -309,24 +305,26 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
   cacheDir_ = std::string(kCacheRoot) + "/" + std::to_string(locator);
   if (!ensureDir("/.crosspoint") || !ensureDir(kCacheRoot) || !ensureDir(cacheDir_.c_str())) return false;
   const std::string html = cacheDir_ + "/article.html";
+  // The band carries the title, so the h1 inside the page would say it twice;
+  // it stays only for a title the band cannot hold whole (two lines of the
+  // reader's 12, about 56 characters), which is the running head's one
+  // permitted cut.
+  const bool keepH1 = article_.title.size() > kBandTitleBytes;
+  const size_t h1 = keepH1 ? std::string::npos : article_.xhtml.find("<h1>");
+  const size_t h1End = h1 == std::string::npos ? std::string::npos : article_.xhtml.find("</h1>", h1);
+  const size_t stripped = h1End == std::string::npos ? 0 : h1End + 5 - h1;
   bool fresh = true;
   {
     HalFile file;
     if (Storage.exists(html.c_str()) && Storage.openFileForRead(kTag, html.c_str(), file)) {
-      // Staged without its h1 (below), so a match is "smaller by that much";
-      // any other size means a different article or a torn write.
-      const size_t h1 = article_.xhtml.find("<h1>");
-      const size_t h1End = h1 == std::string::npos ? std::string::npos : article_.xhtml.find("</h1>", h1);
-      const size_t stripped = h1End == std::string::npos ? 0 : h1End + 5 - h1;
+      // Staged without its h1, so a match is "smaller by that much"; any
+      // other size means a different article or a torn write.
       fresh = file.size() != article_.xhtml.size() - stripped;
     }
   }
   if (fresh) {
-    // The band carries the title; the h1 inside the page would say it twice.
     std::string staged = article_.xhtml;
-    const size_t h1 = staged.find("<h1>");
-    const size_t h1End = h1 == std::string::npos ? std::string::npos : staged.find("</h1>", h1);
-    if (h1End != std::string::npos) staged.erase(h1, h1End + 5 - h1);
+    if (stripped) staged.erase(h1, stripped);
     if (!writeFile(html.c_str(), staged)) return false;
   }
   // Most recently used first; the tail is pruned.
@@ -473,13 +471,22 @@ void WikipediaActivity::renderArticle(toybox::Screen& screen) {
     ReaderRenderSpec spec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
     spec.imageRendering = 2;
     spec.embeddedStyle = false;
-    // Wikipedia prose is link-heavy, and a justified line that cannot break
-    // "educational" is a river; the reader's own setting stays for books.
-    if (spec.paragraphAlignment == CrossPointSettings::JUSTIFIED) spec.hyphenationEnabled = true;
+    // Ragged right, whatever the reader's setting for books: Wikipedia prose
+    // is link-dense and name-dense on a 28-character measure, and two cold
+    // reviews found rivers a fifth of the measure wide even with hyphenation
+    // on. Hyphenation stays on; it tidies a ragged edge too.
+    spec.paragraphAlignment = CrossPointSettings::LEFT_ALIGN;
+    spec.hyphenationEnabled = true;
+    // In a long article every prose section starts a fresh page. Quick facts
+    // flows on after the lead: a grid on its own page left the first page
+    // turn a third empty, which reads as the article having ended.
     std::vector<std::string> anchors;
     if (article_.xhtml.size() > kFreshPageBytes) {
       anchors.reserve(article_.headings.size());
-      for (size_t i = 0; i < article_.headings.size(); ++i) anchors.push_back("s" + std::to_string(i + 1));
+      for (size_t i = 0; i < article_.headings.size(); ++i) {
+        if (article_.headings[i] == "Quick facts") continue;
+        anchors.push_back("s" + std::to_string(i + 1));
+      }
     }
     section_ =
         makeUniqueNoThrow<Section>(cacheDir_ + "/article.html", cacheDir_, 0, renderer, std::move(anchors), false);
@@ -608,9 +615,10 @@ void WikipediaActivity::routeAction(const int action, const int value) {
       openRandom();
       return;
     case wikiui::ActionClear:
+      // With text: clear it. With none: the keyboard goes down.
+      if (query_.empty()) keyboardShown_ = false;
       query_.clear();
       results_.clear();
-      keyboardShown_ = kKeyboardAlwaysUp;
       requestUpdate();
       return;
     case wikiui::ActionField:
@@ -735,9 +743,8 @@ void WikipediaActivity::loop() {
         if (!query_.empty()) {
           query_.clear();
           results_.clear();
-          keyboardShown_ = kKeyboardAlwaysUp;
           requestUpdate();
-        } else if (keyboardShown_ && !kKeyboardAlwaysUp) {
+        } else if (keyboardShown_) {
           keyboardShown_ = false;
           requestUpdate();
         } else {
@@ -862,15 +869,21 @@ void WikipediaActivity::loop() {
 
 void WikipediaActivity::render(RenderLock&&) {
   renderer.clearScreen();
-  // Titles are somebody else's words, accents and all, so every slot that
-  // shows one is a reading cut: the article and contents bands take
-  // readerFaces (bold reading for the band, so "Émile Zola" fits the ladder
-  // and never reaches a face without the glyph), the rest readingChromeFaces
-  // (Jersey for the app's own captions and buttons, the reading serif for the
-  // field, the matches and the recent trail).
+  // Titles are somebody else's words, and the toybox reading cuts stop at
+  // Latin-1: the band showed "Chisinau" without its s-comma and a-breve. So
+  // every slot that shows a title is the reader's own face, the one the page
+  // is set in, whose coverage is what the builder's drawable class came from.
+  // The article and contents bands: the reader's 12 for the footer and page
+  // numbers, the reader's face for the rows and the band (bold by style); the
+  // rest: Jersey for the app's own captions and buttons, the reader's face
+  // for the field, the matches and the trail.
+  const int readerFont = SETTINGS.getReaderFontId();
+  const int readerSmall =
+      SETTINGS.fontFamily == CrossPointSettings::NOTOSANS ? NOTOSANS_12_FONT_ID : NOTOSERIF_12_FONT_ID;
   const bool prose = view_ == View::Article || view_ == View::Contents;
-  fui::GfxRendererTarget target =
-      toybox::makeTarget(renderer, prose ? toybox::readerFaces() : toybox::readingChromeFaces());
+  const toybox::Faces faces = prose ? toybox::Faces{readerSmall, readerFont, readerFont}
+                                    : toybox::Faces{toybox::kButtonFontId, readerFont, toybox::kDisplayFontId};
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer, faces);
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
   toybox::Screen screen(frame);
