@@ -227,6 +227,34 @@ else
   bad "site/inbox/index.html is missing"
 fi
 
+# -- the Wikipedia page's ids, spelled in two files that never see each other --
+#
+# Same failure as study.js above: wikipedia.js finds every control with a
+# $("id") helper, and a renamed id renders fine and does nothing. The route
+# radios are reached through radio()/meta() helpers whose literals are $("...")
+# calls too, so they are covered by the same sed.
+WP="$ROOT/site/wikipedia/index.html"
+WJ="$ROOT/site/wikipedia/wikipedia.js"
+for f in "$WP" "$WJ"; do
+  [ -f "$f" ] || { bad "site/wikipedia is missing $(basename "$f")"; }
+done
+wiki_ids="$(sed -nE 's/.*\$\(["'"'"']([A-Za-z][A-Za-z0-9_-]*)["'"'"']\).*/\1/p' "$WJ" | sort -u)"
+if [ -z "$wiki_ids" ]; then
+  bad "wikipedia.js looks up no element ids at all"
+else
+  ok
+  for id in $wiki_ids; do
+    grep -q "id=\"$id\"" "$WP" && ok || bad "wikipedia.js asks for #$id and wikipedia/index.html has no such element"
+  done
+fi
+# The page must reach the pack through one constant, and the manifest must be
+# written LAST: the device treats a pack as present the moment it sees it.
+grep -q '^const PACK_BASE_URL = "https://' "$WJ" && ok || bad "wikipedia.js has no PACK_BASE_URL constant at the top"
+last_write="$(grep -nE 'writeText\(wiki, "manifest.json"|copyOne\(wiki, step' "$WJ" | tail -1)"
+printf '%s' "$last_write" | grep -q 'manifest.json' && ok || bad "wikipedia.js does not write manifest.json after the last copy"
+# ?mock=1 must be the ONLY thing that points the page away from the pack host.
+[ "$(grep -c 'params.get("mock")' "$WJ")" -eq 1 ] && ok || bad "wikipedia.js reads the mock switch more or less than once"
+
 # -- the report form, one script drawn into two pages --------------------------
 #
 # assets/report.js draws the form into whichever page carries a mount point and
