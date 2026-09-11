@@ -12033,9 +12033,9 @@ void testWikipediaArticleChromeLeavesThePageItsRoom() {
   CHECK(page.height > 600);
   const FakeTarget::TextRun* contents = out.target.find("CONTENTS");
   CHECK(contents != nullptr && tapRun(out, contents).action == wikiui::ActionContents);
-  const FakeTarget::TextRun* footer = out.target.find("12 of 87");
-  CHECK(footer != nullptr);
-  if (footer != nullptr) CHECK(footer->rect.y >= page.bottom());
+  const FakeTarget::TextRun* footerRun = out.target.find("12 of 87");
+  CHECK(footerRun != nullptr);
+  if (footerRun != nullptr) CHECK(footerRun->rect.y >= page.bottom());
 }
 
 void testWikipediaContentsRowsCarryTheHeading() {
@@ -12053,6 +12053,9 @@ void testWikipediaContentsRowsCarryTheHeading() {
   CHECK(out.target.drew("Carbon fixation"));
   CHECK(!out.target.drew("Fourteenth"));  // the thirteenth and on wait for the next window
   CHECK(out.target.drew("1 of 2"));
+  CHECK(out.target.drew("MORE >"));
+  const FakeTarget::TextRun* more = out.target.find("MORE >");
+  CHECK(more != nullptr && tapRun(out, more).action == wikiui::ActionMore);
   const FakeTarget::TextRun* row = out.target.find("Carbon fixation");
   CHECK(row != nullptr);
   if (row != nullptr) {

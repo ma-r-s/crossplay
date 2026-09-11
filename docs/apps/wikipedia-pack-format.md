@@ -184,7 +184,7 @@ Well-formed, and only this:
   <h1>Title</h1>
   <p><b>Title</b> is ... with <a href="Other Title">links</a> ...</p>
   <h2 id="s1">Quick facts</h2>                               only with an infobox
-  <p><b>Key</b> Value</p> ...
+  <table><tr><th>Key</th><td>Value</td></tr> ...</table>
   <h2 id="s2">First section</h2>
   <p>...</p> <ul><li>...</li></ul>
   <p>1. first item</p> <p>2. second item</p>                  an ordered list
@@ -210,7 +210,9 @@ Rules the builder applies, each one visible on the panel:
   convention readers recognise.
 - **Quick facts** come after the lead paragraphs and before the first real
   section, as Wikipedia's own mobile view orders them: one
-  `<p><b>Key</b> Value</p>` per field, a value cut at 40 words with "..."
+  two-column grid, one `<tr><th>Key</th><td>Value</td></tr>` per field, a
+  value cut at 28 words with "..." (the engine's grid stacks past 32 words a
+  cell; a justified `<p><b>Key</b> value</p>` pulled the two apart)
   (three ASCII periods; the ellipsis glyph is not in every cut).
 - **Simple tables only.** Simple means what the engine draws without
   stacking: at most four columns, and every cell at most 32 words and 512

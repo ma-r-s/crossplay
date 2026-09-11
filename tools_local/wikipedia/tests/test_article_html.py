@@ -104,11 +104,15 @@ def check_document(tc, row, title, headings, xhtml):
         tc.assertEqual(top[first_h2].text, ah.QUICK_FACTS)
         for el in top[1:first_h2]:
             tc.assertNotIn(el.tag, ("h2", "h3", "h4"), f"{title}: {el.tag} before Quick facts")
-        for el in top[first_h2 + 1 :]:
+        facts = top[first_h2 + 1]
+        tc.assertEqual(facts.tag, "table", f"{title}: Quick facts is a grid")
+        for tr in facts:
+            tc.assertEqual(tr.tag, "tr")
+            tc.assertEqual([c.tag for c in tr], ["th", "td"], f"{title}: a fact is key then value")
+        for el in top[first_h2 + 2 :]:
             if el.tag == "h2":
                 break
-            tc.assertEqual(el.tag, "p")
-            tc.assertEqual(el[0].tag, "b", f"{title}: fact without a bold key")
+            tc.assertNotEqual(el.tag, "table", f"{title}: one grid of facts, then the article")
     for el in root.iter("li"):
         tc.assertIsNotNone(el)
     for el in root.iter("table"):
@@ -357,10 +361,11 @@ class Rules(unittest.TestCase):
         )
         self.assertEqual(h, ["Quick facts", "History"])
         self.assertIn(
-            '<h2 id="s1">Quick facts</h2><p><b>Born</b> 1900</p><p><b>Members</b> A; B</p><p><b>Long</b> ',
+            '<h2 id="s1">Quick facts</h2><table><tr><th>Born</th><td>1900</td></tr>'
+            "<tr><th>Members</th><td>A; B</td></tr><tr><th>Long</th><td>",
             x,
         )
-        self.assertIn(" ".join(f"w{i}" for i in range(40)) + "...</p>", x)
+        self.assertIn(" ".join(f"w{i}" for i in range(28)) + "...</td></tr></table>", x)
         self.assertIn('<h2 id="s2">History</h2>', x)
         self.assertNotIn("Empty", x)
         self.assertLess(x.index("Quick facts"), x.index("History"))

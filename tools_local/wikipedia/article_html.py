@@ -28,7 +28,7 @@ from glyphs import drawable_class
 
 WIKI = "https://en.wikipedia.org/wiki/"
 QUICK_FACTS = "Quick facts"
-FACT_WORDS = 40
+FACT_WORDS = 28  # under the layout engine's 32-word cell cap, so the grid never stacks
 TABLE_MAX_COLS = 4
 TABLE_CELL_WORDS = 32
 TABLE_CELL_BYTES = 512
@@ -518,8 +518,14 @@ class _Doc:
         self.stats["facts"] = self.stats.get("facts", 0) + len(fields)
         self.headings.append(QUICK_FACTS)
         self.out.append('<h2 id="s%d">%s</h2>' % (len(self.headings), QUICK_FACTS))
+        # A two-column grid rather than "<p><b>Key</b> value</p>" rows: the
+        # engine justifies a paragraph, and a key and a two-word value pulled
+        # to opposite margins read as a broken line. In a grid each cell wraps
+        # on its own.
+        self.out.append("<table>")
         for name, value in fields:
-            self.out.append("<p><b>" + esc(name) + "</b> " + esc(value) + "</p>")
+            self.out.append("<tr><th>" + esc(name) + "</th><td>" + esc(value) + "</td></tr>")
+        self.out.append("</table>")
 
 
 def heading_bytes(text):

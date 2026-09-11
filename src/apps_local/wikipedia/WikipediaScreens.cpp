@@ -350,14 +350,17 @@ void buildArticleFooter(toybox::Screen& screen, const ArticleFooterModel& model)
   const fui::Rect body = screen.body();
   const fui::Rect foot{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.bottom() - kFooterHeight),
                        static_cast<int16_t>(body.width - kMargin * 2), kFooterHeight};
+  // The words sit above the rule with their descenders clear of it: the text
+  // box ends where the rule's band begins.
   const int16_t half = static_cast<int16_t>(foot.width * 2 / 3);
-  drawLine(screen, fui::Rect{foot.x, foot.y, half, static_cast<int16_t>(foot.height - 8)}, model.right,
+  const int16_t textHeight = static_cast<int16_t>(foot.height - 10);
+  drawLine(screen, fui::Rect{foot.x, static_cast<int16_t>(foot.y - 6), half, textHeight}, model.right,
            toybox::kSmallFont);
   drawLine(screen,
-           fui::Rect{static_cast<int16_t>(foot.x + half), foot.y, static_cast<int16_t>(foot.width - half),
-                     static_cast<int16_t>(foot.height - 8)},
+           fui::Rect{static_cast<int16_t>(foot.x + half), static_cast<int16_t>(foot.y - 6),
+                     static_cast<int16_t>(foot.width - half), textHeight},
            model.left, toybox::kSmallFont, fui::TextAlign::Right);
-  const fui::Rect rule{foot.x, static_cast<int16_t>(foot.bottom() - 4), foot.width, 2};
+  const fui::Rect rule{foot.x, static_cast<int16_t>(foot.bottom() - 3), foot.width, 2};
   screen.target().fill(rule, fui::Paint::solid(fui::Color::Black));
   if (model.total > 0 && model.page > 0) {
     const int16_t filled = static_cast<int16_t>(static_cast<int32_t>(foot.width) * model.page / model.total);
@@ -400,13 +403,15 @@ void buildContents(toybox::Screen& screen, const ContentsModel& model) {
   // The window's place in the list, and where the rest is. Paged by the side
   // buttons or by tapping the line.
   if (model.count > kContentsRows) {
-    char more[48];
+    char where[24];
     const int pages = (model.count + kContentsRows - 1) / kContentsRows;
     const int page = model.first / kContentsRows + 1;
-    snprintf(more, sizeof(more), "%d of %d %s", page, pages, page < pages ? "  MORE >" : "");
+    snprintf(where, sizeof(where), "%d of %d", page, pages);
     const fui::Rect line{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.bottom() - 34),
                          static_cast<int16_t>(body.width - kMargin * 2), 30};
-    drawLabel(screen, line, more, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+    drawLabel(screen, line, where, toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
+    drawLabel(screen, line, page < pages ? "MORE >" : "< FIRST", toybox::kSmallFont, fui::TextAlign::Right,
+              toybox::kButtonCut);
     screen.frame().hit(line, ActionMore);
   }
 }

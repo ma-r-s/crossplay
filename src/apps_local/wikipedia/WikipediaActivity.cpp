@@ -842,9 +842,15 @@ void WikipediaActivity::loop() {
 
 void WikipediaActivity::render(RenderLock&&) {
   renderer.clearScreen();
+  // Titles are somebody else's words, accents and all, so every slot that
+  // shows one is a reading cut: the article and contents bands take
+  // readerFaces (bold reading for the band, so "Émile Zola" fits the ladder
+  // and never reaches a face without the glyph), the rest readingChromeFaces
+  // (Jersey for the app's own captions and buttons, the reading serif for the
+  // field, the matches and the recent trail).
   const bool prose = view_ == View::Article || view_ == View::Contents;
   fui::GfxRendererTarget target =
-      toybox::makeTarget(renderer, prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces());
+      toybox::makeTarget(renderer, prose ? toybox::readerFaces() : toybox::readingChromeFaces());
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
   toybox::Screen screen(frame);
