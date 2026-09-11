@@ -52,8 +52,9 @@ way Settings > USB Drive does (the same `Storage.beginUsbDrive()` call; the
 QR renderer is `QrUtils::drawQrCode`, already used by Study, Instapaper and
 Wallpapers), so the cable route needs nothing more from the user than the
 cable. Right before it hands the card over, the device writes
-`/wikipedia/install.json`: free bytes on the card, firmware version, the
-pack already installed if any and how many of its parts are there. That
+`/wikipedia/install.json`: firmware version, the pack already installed if
+any and how many of its parts are there (not the free space: counting it
+walks the FAT for seconds, and the page sizes the copy from the manifest). That
 file is what the page looks for to know it has the right drive, what fits,
 and whether this is a first install or "get a newer one". When the cable
 goes in the screen changes to "Connected. Follow the page on the computer."

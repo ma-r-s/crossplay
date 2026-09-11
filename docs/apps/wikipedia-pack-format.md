@@ -334,14 +334,17 @@ can find the right drive, know what fits, and know what is already there:
 {
   "device": "X4 Pro",
   "firmware": "1.13.0",
-  "free": 14200000000,
+  "free": null,
   "pack": "en",
   "snapshot": "2026-05-13",
   "shardsPresent": 3
 }
 ```
 
-`free` is null when the card could not answer (the app never guesses).
+`free` is null: counting free space walks the whole FAT (seven seconds on a
+16 GB card, before the install screen could draw), and the page sizes the
+copy from the manifest, so the device stopped asking. The field stays for a
+device that can answer cheaply; the app never guesses.
 `pack`, `snapshot` and `shardsPresent` are null when no manifest is on the
 card.
 

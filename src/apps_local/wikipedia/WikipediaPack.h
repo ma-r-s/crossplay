@@ -76,8 +76,9 @@ class Pack {
 
   bool loadState(State& state) const;
   bool saveState(const State& state) const;
-  // What the install page reads to find the drive and size the copy. `freeBytes`
-  // negative means the card could not answer.
+  // What the install page may read to know the drive and what is already on
+  // it. `freeBytes` negative writes null: the count walks the whole FAT, so
+  // the install screen no longer asks.
   bool writeInstallJson(int64_t freeBytes, const char* firmwareVersion, const char* deviceName) const;
 
  private:

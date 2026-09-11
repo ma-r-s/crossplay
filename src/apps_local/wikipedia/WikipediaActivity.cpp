@@ -568,10 +568,11 @@ void WikipediaActivity::pruneCache() {}
 
 void WikipediaActivity::enterInstall() {
   // Everything the page needs to know, written before the card changes hands;
-  // then no file of ours stays open while the host owns the card.
-  uint64_t free = 0;
-  const bool freeKnown = Storage.freeBytes(free);
-  pack_.writeInstallJson(freeKnown ? static_cast<int64_t>(free) : -1, CROSSPOINT_VERSION, "X4 Pro");
+  // then no file of ours stays open while the host owns the card. Not the
+  // free space: counting it walks the whole FAT (seven seconds on a 16 GB
+  // card, before this screen could draw a thing), and the page sizes the copy
+  // from the manifest and never reads the number.
+  pack_.writeInstallJson(-1, CROSSPOINT_VERSION, "X4 Pro");
   closeArticle();
   if (packOpen_) saveState();
   pack_.close();
