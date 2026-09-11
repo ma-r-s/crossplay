@@ -16,6 +16,7 @@ import {
   routeById,
   otherRoute,
   parseManifest,
+  partUrl,
   tierByName,
   filesForTier,
   tierTotalBytes,
@@ -78,7 +79,10 @@ test("a good manifest parses, from text or object, and drops what it does not us
   assert.equal(m.snapshot, "2026-05-13");
   assert.equal(m.shards.length, 4);
   assert.equal(m.tiers.length, 2);
-  assert.equal(m.built, undefined);
+  // built is kept (it tells two builds apart); counts the page never reads are not.
+  assert.equal(m.built, manifest().built);
+  assert.equal(m.entries, undefined);
+  assert.equal(m.blocks, undefined);
   assert.deepEqual(parseManifest(manifest()), m);
 });
 
@@ -145,6 +149,29 @@ test("a manifest with the wrong shape is refused with one plain sentence", () =>
       what,
     );
   }
+});
+
+test("a part's URL keys on its checksum and follows the build's own directory", () => {
+  const m = parseManifest(manifest());
+  assert.equal(m.base, "");
+  const at = "https://packs.example/wikipedia/en/";
+  const url = partUrl(m, at, m.dict);
+  assert.equal(url, at + "dict.zst?v=" + m.dict.sha256.slice(0, 12));
+  assert.equal(partUrl(m, at, { file: "manifest.json", sha256: "" }), at + "manifest.json");
+  const abs = parseManifest({ ...manifest(), base: "https://packs.example/wikipedia/en-2026-05-b3" });
+  assert.equal(abs.base, "https://packs.example/wikipedia/en-2026-05-b3/");
+  assert.equal(
+    partUrl(abs, at, abs.shards[0]),
+    "https://packs.example/wikipedia/en-2026-05-b3/" + abs.shards[0].file + "?v=" + abs.shards[0].sha256.slice(0, 12),
+  );
+  const rel = parseManifest({ ...manifest(), base: "../en-2026-05-b3/" });
+  assert.equal(partUrl(rel, at, rel.dict), "https://packs.example/wikipedia/en-2026-05-b3/dict.zst?v=" + rel.dict.sha256.slice(0, 12));
+  const stamped = parseManifest({ ...manifest(), built: "2026-09-11T21:11:33Z" });
+  assert.equal(stamped.built, "2026-09-11T21:11:33Z");
+  assert.equal(m.built, manifest().built);
+  const unstamped = { ...manifest() };
+  delete unstamped.built;
+  assert.equal(parseManifest(unstamped).built, "");
 });
 
 test("tiers are found by name", () => {

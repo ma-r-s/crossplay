@@ -45,6 +45,7 @@ is dead weight for it.
   "pack": "en",
   "snapshot": "2026-05-13",
   "built": "2026-09-11T02:00:00Z",
+  "base": "https://packs.ma-r-s.com/wikipedia/en-2026-05-b3/",
   "articles": 7238251,
   "entries": 19217771,
   "blocks": 180000,
@@ -87,6 +88,16 @@ is dead weight for it.
   ]
 }
 ```
+
+`base` is not written by the builder: the publisher adds it to the copy it
+serves at the stable name, pointing at the directory that build's parts live
+in (`server/packs/scripts/publish_pack.sh`). The page fetches parts from
+there, with the first twelve hex of each part's `sha256` as a query, so a
+copy in flight keeps its own build after the stable name moves to the next
+one, and no cache between the page and the host can hand back a previous
+build's part under the same name (which happened on 2026-09-11: `dict.zst`,
+same name and size after a rebuild, "arrived damaged twice"). `built` is
+what tells two builds of one snapshot apart. The reader ignores both.
 
 `entries` counts title-index entries over all index files (articles plus
 redirects). `blocks` is the block count in `blocks.dir`. A tier is a prefix

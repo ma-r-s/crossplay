@@ -36,6 +36,7 @@ import {
   formatDuration,
   formatCount,
   formatSnapshot,
+  partUrl,
 } from "./plan.js";
 
 // Where the pack lives: the Orange Pi behind its own Cloudflare Tunnel
@@ -65,8 +66,21 @@ const baseUrl = MOCK ? new URL("./mock/", location.href).href : PACK_BASE_URL;
 // edge as the previous build's and the page called it damaged, twice, on the
 // evening of 2026-09-11. The static host ignores the query.
 function fileUrl(f) {
-  const sha = typeof f.sha256 === "string" ? f.sha256 : "";
-  return baseUrl + f.file + (sha ? "?v=" + sha.slice(0, 12) : "");
+  return partUrl(state.manifest, baseUrl, f);
+}
+
+// The manifest as the host has it right now, or null. Asked for once, when a
+// part's checksum disagrees: a rebuild published while this copy ran means
+// the manifest in hand names parts the host no longer serves at these
+// addresses, and that is the pack moving on, not a damaged transfer.
+async function freshManifest() {
+  try {
+    const resp = await fetch(baseUrl + "manifest.json", { cache: "no-store" });
+    if (!resp.ok) return null;
+    return parseManifest(await resp.text());
+  } catch (e) {
+    return null;
+  }
 }
 const mockRate = MOCK ? Number(params.get("rate")) || 0 : 0;
 const budgetS =
@@ -87,6 +101,7 @@ function meta(id) {
 
 const state = {
   manifest: null,
+  replanned: false, // the pack moved on under one copy already; the next time it is a reload
   manifestText: "",
   route: "essentials",
   root: null, // the card, a FileSystemDirectoryHandle
@@ -539,11 +554,24 @@ async function run() {
           meter.at(done, 0);
           if (await copyOne(wiki, step, meter)) break;
           await removeFile(wiki, step.file).catch(() => {});
+          if (attempt === 0) {
+            const fresh = await freshManifest();
+            if (fresh && fresh.built !== m.built) {
+              throw new PackError(
+                "updated",
+                "The pack on the host was updated while this copy ran (built " +
+                  (fresh.built || "later") +
+                  " instead of " +
+                  (m.built || "earlier") +
+                  ").",
+              );
+            }
+          }
           if (attempt >= 1) {
             throw new PackError(
               "damaged",
               step.file +
-                " arrived damaged twice: its checksum does not match the manifest. Try again later; if it keeps happening, the published pack is broken and this page cannot fix that.",
+                " arrived damaged twice: its checksum does not match the manifest. Reload this page and choose the reader again; what already matches on the card is kept. If it keeps happening, the published pack is broken and this page cannot fix that.",
             );
           }
         }
@@ -752,6 +780,22 @@ function stop(e, file) {
       text += " Make room on it, then press Resume.";
     } else if (e.kind === "damaged") {
       head = "A part arrived damaged.";
+    } else if (e.kind === "updated") {
+      // Once: read the new manifest, plan again over what is on the card
+      // (matching parts are kept), and carry on without a hand.
+      head = "The pack was updated.";
+      text += state.replanned
+        ? " Reload this page and choose the reader again to continue with the new one."
+        : " Continuing with the new one; parts on the card that still match are kept.";
+      if (!state.replanned) {
+        state.replanned = true;
+        setTimeout(async () => {
+          await loadManifest();
+          run();
+        }, 0);
+        setCopyStatus(text);
+        return;
+      }
     }
   } else if (isCardError(e)) {
     head = "The card went away.";

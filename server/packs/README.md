@@ -18,6 +18,12 @@ beside the old and flips the link; shards are cached at the edge for a day
 and the manifest never, so a new pack is seen within the day and every shard
 is checked against the sha256 the manifest carries.
 
+Each build keeps its own directory (`en-<snapshot>-b<n>`), and the published
+manifest carries `base`, the URL of that directory, so a page that loaded it
+keeps fetching its own build after the stable name moves on; part URLs carry
+the part's checksum as a query, so nothing needs purging at the edge. Old
+directories can be removed by hand after a day.
+
 The Cloudflare side (tunnel, ingress `packs.ma-r-s.com -> http://packs:8080`,
 proxied CNAME) was created with the `cf` CLI's OAuth token against the REST
 API; the connector token lives in `/srv/packs/.env` (mode 600) and nowhere

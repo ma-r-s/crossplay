@@ -6,6 +6,7 @@
 // What lives here, in the order the page uses it:
 //   parseManifest      the published manifest.json, checked field by field
 //   ROUTES             the two routes and their wording, from docs/apps/wikipedia-plan.md
+//   partUrl            where a part is fetched from: the build's own directory, checksum-keyed
 //   filesForTier       which files a tier needs, in the order they are written
 //   makePlan           which of those to copy, verify or skip, given what is on the card
 //   RollingRate        MB/s over the last ten seconds, for the progress line
@@ -107,17 +108,40 @@ export function parseManifest(input) {
       bytes: t.bytes,
     };
   });
+  // `built` tells two manifests apart (a rebuild keeps pack and snapshot);
+  // `base` is where this build's parts live, written by the publisher so a
+  // copy in flight keeps fetching its own build after the stable name moves
+  // on. Both optional: a manifest the builder wrote has neither.
+  const built = typeof m.built === "string" ? m.built : "";
+  let base = "";
+  if (typeof m.base === "string" && m.base) {
+    if (!/^(https?:\/\/|[A-Za-z0-9_./-]+)/.test(m.base)) fail("base");
+    base = m.base.endsWith("/") ? m.base : m.base + "/";
+  }
   return {
     format: 1,
     pack: m.pack,
     snapshot: m.snapshot,
     articles: m.articles,
+    built,
+    base,
     dict,
     titles,
     blocksdir,
     shards,
     tiers,
   };
+}
+
+// The URL a part is fetched from: the build's own directory when the
+// manifest names one (absolute, or relative to where the manifest came
+// from), else beside the manifest; and the first twelve hex of the part's
+// checksum as a query, so a rebuilt part is a new URL to every cache between
+// the page and the host. A static host ignores the query.
+export function partUrl(manifest, manifestBase, f) {
+  const dir = manifest && manifest.base ? new URL(manifest.base, manifestBase).href : manifestBase;
+  const sha = f && typeof f.sha256 === "string" ? f.sha256 : "";
+  return dir + f.file + (sha ? "?v=" + sha.slice(0, 12) : "");
 }
 
 export function tierByName(manifest, name) {
