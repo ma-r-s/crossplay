@@ -74,7 +74,15 @@ export function parseManifest(input) {
   if (typeof m.snapshot !== "string" || !m.snapshot) fail("snapshot");
   if (!isInt(m.articles)) fail("articles");
   const dict = checkFile(m.dict, "dict");
-  const titles = checkFile(m.titles, "titles");
+  // One title index per tier (titles.0.idx, titles.1.idx, ...), in tier
+  // order: the spec's shape, so the essentials are readable with their own
+  // titles before the rest of the shards exist on the card.
+  if (!Array.isArray(m.titles) || m.titles.length === 0) fail("titles");
+  const titles = m.titles.map((t, i) => {
+    const f = checkFile(t, "titles[" + i + "]");
+    if (!isInt(t.tier)) fail("titles[" + i + "].tier");
+    return { ...f, tier: t.tier };
+  });
   const blocksdir = checkFile(m.blocksdir, "blocksdir");
   if (!Array.isArray(m.shards) || m.shards.length === 0) fail("shards");
   const shards = m.shards.map((s, i) => {
@@ -159,20 +167,28 @@ export function otherRoute(id) {
 
 // --- files and the plan -----------------------------------------------------
 
-// Every file a tier needs, in the order the page writes them: the three small
-// ones first, then the shards in importance order up to the tier's cut. The
-// manifest is not in this list; it is written last, by itself, because its
-// presence is what tells the device a pack is there.
+// Every file a tier needs, in the order the page writes them, which is the
+// spec's: dict.zst, blocks.dir, then for each tier up to the one wanted its
+// title index followed by its shards. So after the first tier the essentials
+// are complete and readable with their own titles, and nothing written for
+// them is dead weight. The manifest is not in this list; it is written last,
+// by itself, because its presence is what tells the device a pack is there.
 export function filesForTier(manifest, tierName) {
-  const tier = tierByName(manifest, tierName);
-  if (!tier) throw new Error("The pack has no tier called " + tierName + ".");
+  const wanted = manifest.tiers.findIndex((t) => t.name === tierName);
+  if (wanted < 0) throw new Error("The pack has no tier called " + tierName + ".");
   const out = [
     { ...manifest.dict, kind: "dict" },
-    { ...manifest.titles, kind: "titles" },
     { ...manifest.blocksdir, kind: "blocksdir" },
   ];
-  for (let i = 0; i < tier.shards; i++) {
-    out.push({ ...manifest.shards[i], kind: "shard", shard: i });
+  let from = 0;
+  for (let k = 0; k <= wanted; k++) {
+    const index = manifest.titles.find((t) => t.tier === k);
+    if (index) out.push({ ...index, kind: "titles" });
+    const upTo = manifest.tiers[k].shards;
+    for (let i = from; i < upTo; i++) {
+      out.push({ ...manifest.shards[i], kind: "shard", shard: i });
+    }
+    from = upTo;
   }
   return out;
 }

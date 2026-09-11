@@ -56,7 +56,10 @@ function manifest(overrides = {}) {
     entries: 19217771,
     blocks: 4000,
     dict: { file: "dict.zst", bytes: 110000, sha256: SHA },
-    titles: { file: "titles.idx", bytes: 30 * MB, sha256: SHA },
+    titles: [
+      { file: "titles.0.idx", tier: 0, bytes: 1 * MB, sha256: SHA },
+      { file: "titles.1.idx", tier: 1, bytes: 29 * MB, sha256: SHA },
+    ],
     blocksdir: { file: "blocks.dir", bytes: 64000, sha256: SHA },
     shards,
     tiers: [
@@ -192,35 +195,40 @@ test("the two routes carry the plan's wording, essentials first", () => {
 
 // --- files and the plan -----------------------------------------------------
 
-test("a tier's files come in write order: dict, titles, blocks.dir, then shards", () => {
+test("a tier's files come in the spec's write order: dict, blocks.dir, then each tier's index and shards", () => {
   const m = parseManifest(manifest());
+  // The essentials never need the second index: their own titles come first.
   const ess = filesForTier(m, "essentials").map((f) => f.file);
   assert.deepEqual(ess, [
     "dict.zst",
-    "titles.idx",
     "blocks.dir",
+    "titles.0.idx",
     "shards/000.blk",
   ]);
   const all = filesForTier(m, "all").map((f) => f.file);
   assert.deepEqual(all, [
     "dict.zst",
-    "titles.idx",
     "blocks.dir",
+    "titles.0.idx",
     "shards/000.blk",
+    "titles.1.idx",
     "shards/001.blk",
     "shards/002.blk",
     "shards/003.blk",
   ]);
   assert.equal(filesForTier(m, "all")[3].kind, "shard");
   assert.equal(filesForTier(m, "all")[3].shard, 0);
+  assert.equal(filesForTier(m, "all")[4].kind, "titles");
   assert.throws(() => filesForTier(m, "nope"), /no tier called nope/);
 });
 
 test("the tier total is the sum of its files, and the manifest is last in the download list", () => {
   const m = parseManifest(manifest());
+  // The essentials carry only their own index; the second one rides with
+  // the rest of the shards.
   assert.equal(
     tierTotalBytes(m, "essentials"),
-    110000 + 30 * MB + 64000 + 100 * MB,
+    110000 + 1 * MB + 64000 + 100 * MB,
   );
   assert.equal(tierTotalBytes(m, "all"), 110000 + 30 * MB + 64000 + 400 * MB);
   const list = downloadList(m, "essentials").map((f) => f.file);
@@ -231,7 +239,7 @@ test("the tier total is the sum of its files, and the manifest is last in the do
 test("an empty card: everything is copied", () => {
   const m = parseManifest(manifest());
   const p = makePlan(m, "all", {}, {});
-  assert.equal(p.steps.length, 7);
+  assert.equal(p.steps.length, 8);
   assert.ok(p.steps.every((s) => s.action === "copy"));
   assert.equal(p.bytesToCopy, p.bytesTotal);
   assert.equal(p.bytesSkipped, 0);
@@ -242,7 +250,7 @@ test("a file of the right size with a matching marker is skipped; a wrong size i
   const m = parseManifest(manifest());
   const existing = {
     "dict.zst": { bytes: 110000 },
-    "titles.idx": { bytes: 30 * MB - 1 }, // short: an interrupted hand copy
+    "titles.0.idx": { bytes: 1 * MB - 1 }, // short: an interrupted hand copy
     "shards/000.blk": { bytes: 100 * MB },
     "shards/001.blk": { bytes: 100 * MB },
   };
@@ -253,7 +261,7 @@ test("a file of the right size with a matching marker is skipped; a wrong size i
   const p = makePlan(m, "all", existing, markers);
   const byFile = Object.fromEntries(p.steps.map((s) => [s.file, s.action]));
   assert.equal(byFile["dict.zst"], "skip");
-  assert.equal(byFile["titles.idx"], "copy");
+  assert.equal(byFile["titles.0.idx"], "copy");
   assert.equal(byFile["blocks.dir"], "copy");
   assert.equal(byFile["shards/000.blk"], "skip");
   assert.equal(

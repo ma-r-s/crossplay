@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A pretend pack, so the Wikipedia page can be looked at from a laptop.
 
-Writes the files manifest.json names beside this script: dict.zst, titles.idx,
+Writes the files manifest.json names beside this script: dict.zst, titles.N.idx,
 blocks.dir and three shards, all deterministic noise from a fixed seed, and a
 manifest with their real sizes and sha256s. The page uses it when opened with
 ?mock=1 (see site/wikipedia/wikipedia.js). Sizes are chosen so the copy is
@@ -26,7 +26,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 
 FILES = [
     ("dict.zst", 110_000),
-    ("titles.idx", 6_000_000),
+    ("titles.0.idx", 1_000_000),
+    ("titles.1.idx", 5_000_000),
     ("blocks.dir", 48_000),
     ("shards/000.blk", 2_000_000),
     ("shards/001.blk", 2_000_000),
@@ -50,7 +51,7 @@ def main():
         shards.append({**e, "firstBlock": i * 30, "blocks": 30})
     small = (
         entries["dict.zst"]["bytes"]
-        + entries["titles.idx"]["bytes"]
+        + entries["titles.0.idx"]["bytes"]
         + entries["blocks.dir"]["bytes"]
     )
     manifest = {
@@ -62,7 +63,10 @@ def main():
         "entries": 19217771,
         "blocks": 90,
         "dict": entries["dict.zst"],
-        "titles": entries["titles.idx"],
+        "titles": [
+            {**entries["titles.0.idx"], "tier": 0},
+            {**entries["titles.1.idx"], "tier": 1},
+        ],
         "blocksdir": entries["blocks.dir"],
         "shards": shards,
         "tiers": [
@@ -76,7 +80,9 @@ def main():
                 "name": "all",
                 "shards": 3,
                 "articles": 7238251,
-                "bytes": small + sum(s["bytes"] for s in shards),
+                "bytes": small
+                + entries["titles.1.idx"]["bytes"]
+                + sum(s["bytes"] for s in shards),
             },
         ],
     }
