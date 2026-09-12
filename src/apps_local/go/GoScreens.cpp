@@ -484,7 +484,7 @@ void buildCount(toybox::Screen& screen, const CountModel& model) {
   const fui::Rect bottom = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
   fui::ButtonProps accept;
   accept.label = model.youAccepted ? "WAITING" : "ACCEPT";
-  accept.action = model.youAccepted ? fui::NO_ACTION : ActionAccept;
+  accept.action = model.youAccepted ? fui::NO_ACTION : static_cast<fui::ActionId>(ActionAccept);
   accept.enabled = !model.youAccepted;
   accept.borderEdges = fui::EdgesNone;
   screen.button(accept, fui::makeRect(bottom.x, bottom.y, static_cast<int16_t>(bottom.width - 152), bottom.height));
