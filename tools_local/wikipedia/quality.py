@@ -222,7 +222,7 @@ DETECTORS = [
         "words",
         "comma_glue",
         "para",
-        re.compile(r"[a-z]{3,},[A-Za-z]{3,}"),
+        re.compile(r"(?<!alpha)(?<!beta)(?<!gamma)(?<!delta)(?<!omega)(?<!sigma)(?<!kappa)(?<!theta)(?<!lambda)[a-z]{3,},[A-Za-z]{3,}"),
         "a comma with no space after it",
     ),
     ("words", "double_punct", "para", re.compile(r"[,;:]{2}|[,;] ?[,;]|, \.|; \.|\?\?|!!"), "doubled punctuation"),
@@ -356,7 +356,7 @@ DETECTORS = [
         "stray_markup",
         "text",
         re.compile(
-            r"\{\{(?![a-z0-9 ,]{1,12}\})|(?<!\})\}\}(?![,}])|\[\[|\]\]|<ref\b|&lt;|&gt;|&nbsp;|&amp;|&#\d+;|&[a-z]{2,8};"
+            r"\{\{(?![a-z0-9 ,]{1,12}\})|\[\[|\]\]|<ref\b|&lt;|&gt;|&nbsp;|&amp;|&#\d+;|&[a-z]{2,8};"
         ),
         "wikitext or HTML that should not be in the text",
     ),

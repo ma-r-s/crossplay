@@ -877,6 +877,38 @@ class Rules(unittest.TestCase):
         self.assertNotIn("Arabic", x)
         self.assertNotIn("  ", x)
 
+    def test_round_eight_seams(self):
+        # From the fourth cold read: a comma inserted after a botanical
+        # authority's parenthesis, and a comma left after "pl." when the
+        # Arabic plural went.
+        self.assertEqual(ah.fact_value("Species", "Phytelephas tenuicaulis (Barfod) A.J.Hend."), "Phytelephas tenuicaulis (Barfod) A.J.Hend.")
+        self.assertEqual(ah.fact_value("Born", "3 May 1959 (aged 45) Chicago"), "3 May 1959, Chicago")
+        self.assertEqual(
+            ah.strip_undrawable("A madhhab (Arabic: \u0645\u0630\u0647\u0628, romanized: madhhab, lit. 'way to act', pl. \u0645\u0630\u0627\u0647\u0628, madh\u0101hib) refers", {}, lead=True),
+            "A madhhab (Arabic: madhhab, lit. 'way to act', pl. madh\u0101hib) refers",
+        )
+
+    def test_round_seven_remnants(self):
+        # a colon padded at the end of a phrase closes, a ratio keeps its
+        # spaces even when the paragraph had gaps to close; "({})" is nothing
+        # after two passes; an environment the dump left outside a block
+        # goes whole; a citation template's error goes.
+        cases = [
+            ("The responsibilities include : water. The Mayor : is here, a ratio of 3 : 1 and m/z : 291.0 (Greek: \u03b1\u03bb\u03c6\u03b1)",
+             "The responsibilities include: water. The Mayor: is here, a ratio of 3 : 1 and m/z: 291.0 (Greek: alpha)"),
+            ("curly brackets ({}) and (,) here", "curly brackets and here"),
+            ("B 1 B 2 B n {\\begin{array}{cccc}&&\\dots &\\\\&&\\dots &\\end{array}}\\right. Let us consider", "B 1 B 2 B n Let us consider"),
+            (": ISBN / Date incompatibility (help) Next", "Next"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        # a listed table row: a cell that is only a label goes, spaces settle
+        tables = [{"identifier": "t1", "headers": [[{"value": "Letter"}, {"value": "Cyrillic"}, {"value": "Phonemic Value (IPA)"}, {"value": "2021"}, {"value": "2018"}]],
+                   "rows": [[{"value": "A"}, {"value": "\u0430"}, {"value": "\u2205"}, {"value": "x"}, {"value": "y"}]]}]
+        secs = [{"type": "section", "name": "Letters", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
+        self.assertIn("<p><b>A</b>; Cyrillic: a; Phonemic Value (IPA): empty set; 2021: x; 2018: y</p>", x)
+
     def test_infobox_images_names_and_glued_lists(self):
         boxes = [{"type": "infobox", "name": "Infobox settlement", "has_parts": [
             {"type": "section", "name": "City", "has_parts": [

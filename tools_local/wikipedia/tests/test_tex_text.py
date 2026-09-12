@@ -42,6 +42,7 @@ class Render(unittest.TestCase):
             (r"\binom {n}{k}", "C(n, k)"),
             (r"\sqrt[3]{x}", "root(3, x)"),
             (r"x_{i+1}", "x_(i + 1)"),
+            (r"x_{i}\in X_{i}{\text{ for every }}i\in \{1,\dots ,n\}", "x_i in X_i for every i in {1, ..., n}"),
         ]
         for tex, want in cases:
             text, complete = tex_text.render(tex)

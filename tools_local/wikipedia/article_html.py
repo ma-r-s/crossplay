@@ -103,6 +103,8 @@ _CITE_PAGE = re.compile(r"(?<=[.,;!?])(?:\s?:\s?[A-Z]?\d+(?:[\u2013-]\d+)?(?:,\s
 _COMMA_GLUE = re.compile(r"(?<=[a-z]),(?=[A-Za-z]{2,})")
 # "A_{1}^{\\complement }\\quad": TeX the dump left outside any block
 _TEX_LOOSE = re.compile(r"(?:\\[A-Za-z]+\s*|[A-Za-z]?[_^]\{[^{}]*\}\s*){2,}")
+_TEX_ENV = re.compile(r"\{?\\begin\{([a-z*]+)\}.*?\\end\{\1\}\}?\s*(?:\\right\.)?", re.S)
+_TEMPLATE_ERROR = re.compile(r"\s*(?::\s*)?(?:ISBN / Date incompatibility|Check date values in: [^()]*|Cite \w+ requires [^()]*)\s*\(help\)")
 _WS = re.compile(r"\s+")
 # A Greek letter standing alone is a symbol ("frequency \u03bd"), and the
 # reader's serif has no Greek; a Greek word beside other Greek is a run the
@@ -292,7 +294,7 @@ _TIDY = (
     (re.compile(r"\s*[,;:]\s*\)"), ")"),
     (re.compile(r"\(\s*\)"), ""),
     (re.compile(r"\[\s*\]"), ""),
-    (re.compile(r"\s+([,;:?)]|!(?!=))"), r"\1"),  # "a != 0" keeps its space
+    (re.compile(r"\s+([,;?)]|!(?!=)|:(?!\s?\d))"), r"\1"),  # "a != 0" and "3 : 1" keep their spaces
     (re.compile(r"\s+\.(?![A-Za-z0-9])"), "."),
     (re.compile(r"\(\s+"), "("),
     (re.compile(r"(?:[,;:]\s*)+([,;:])"), r"\1"),
@@ -339,7 +341,10 @@ def clean_text(s):
     if "style" in s and _TEX_OPEN.search(s):
         s = _render_tex(s)
     if "\\" in s:
+        s = _TEX_ENV.sub("", s)
         s = _TEX_LOOSE.sub("", s)  # TeX the dump left outside any block
+    if "(help)" in s:
+        s = _TEMPLATE_ERROR.sub("", s)
     if "{{" in s:
         s = _TEMPLATE.sub("", s)
     s = _CITE.sub("", s)
@@ -422,7 +427,7 @@ _CLITIC_GAP = re.compile(r"(?<=[\w)\]\"\u201d])[ \u00a0]+(['\u2019])(s|d|ll|re|v
 _PUNCT_GAP = re.compile(r"(?<=\S)[ \u00a0]+([,.;!?])(?=\s|$)")
 # "epsilon : Permittivity": a colon padded between two words (a ratio,
 # "3 : 1", keeps its spaces)
-_COLON_GAP = re.compile(r"(?<=[A-Za-z\u00c0-\u024f]) :(?= [A-Za-z\u00c0-\u024f])")
+_COLON_GAP = re.compile(r"(?<=[A-Za-z\u00c0-\u024f)]) :(?=\s|$)|(?<=[A-Za-z\u00c0-\u024f]) :(?= [A-Za-z\u00c0-\u024f])")
 # "Protestant -led", "post- Civil War": a hyphen padded on one side after a
 # link or an italic (0.8 and 0.5 per article). "pre- and post-war" is the
 # one idiom that keeps its space, so a hyphen before "and" or "or" stays.
@@ -621,7 +626,16 @@ def _plain(word):
 
 
 _MARK_LABEL = re.compile(r"(?<![A-Za-z])[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}:\s*" + _MARK + r"\s*,?\s*(?=(?:romani[sz]ed|translit\w*|pinyin|lit\.|literally|IPA)\b)")
-_MARK_COMMA = re.compile(_MARK + r"\s*,\s*(?=[A-Z])")
+# "pl. <run>, madhāhib" reads "pl. madhāhib": after an abbreviation the
+# romanisation may be lowercase
+_MARK_COMMA = re.compile(r"(\b(?:pl|sing|lit|abbr|orig|trans|cf)\.\s*)?" + _MARK + r"\s*,\s*(?=(\S)?)")
+
+
+def _mark_comma(m):
+    nxt = m.group(2) or ""
+    if m.group(1) or nxt.isupper():
+        return (m.group(1) or "") + " "
+    return m.group(0)
 _MARK_COLON = re.compile(r":\s*" + _MARK + r"\s*,\s*")
 _MARK_ANY = re.compile(r"\s*" + _MARK + r"\s*")
 
@@ -636,7 +650,7 @@ def _settle_marks(text):
     label."""
     text = _MARK_ROMAN.sub(" ", text)
     text = _MARK_LABEL.sub("", text)
-    text = _MARK_COMMA.sub(" ", text)
+    text = _MARK_COMMA.sub(_mark_comma, text)
     text = _MARK_COLON.sub(": ", text)
     text = _MARK_ANY.sub(" ", text)
     return text
@@ -685,9 +699,11 @@ def strip_undrawable(text, stats, lead=False):
                 continue
             rest = _settle_marks(run_re.sub(_MARK, seg))
             rest = _EMPTY_LABEL_END.sub("", rest).strip(" ,:")
-            # "romanized: Theophrastos" is two words and the whole point;
+            # "romanized: Theophrastos" is two words and the whole point, and
+            # "Moskva" alone is the romanisation of the word that went;
             # "from" alone, or "from or", is what a removal left behind
-            if len(rest.split()) >= 2 and not all(w.lower().strip(".,") in _FUNCTION_WORDS for w in rest.split()):
+            words = rest.split()
+            if words and (len(words) >= 2 or words[0][:1].isupper()) and not all(w.lower().strip(".,") in _FUNCTION_WORDS for w in words):
                 kept.append(re.sub(r"  +", " ", rest))
         if not kept:
             return ""
@@ -785,9 +801,14 @@ def scrub_artifacts(text):
     if not text or not _SCRUB_HINT.search(text):
         return text, 0
     n = 0
-    for rx, rep in _SCRUB:
-        text, k = rx.subn(rep, text)
-        n += k
+    for _ in range(3):
+        k_all = 0
+        for rx, rep in _SCRUB:
+            text, k = rx.subn(rep, text)
+            k_all += k
+        n += k_all
+        if not k_all:
+            break
     if text.count("(") != text.count(")"):
         text, k = _balance(text, "(", ")")
         n += k
@@ -862,7 +883,19 @@ _AGE = re.compile(r"\s*\(aged?\s+\d+(?:\s*[\u2013-]\s*\d+)?\)")
 _DATE_THEN_PLACE = re.compile(
     r"(\b(?:\d{1,2} [A-Z][a-z]+ \d{4}|[A-Z][a-z]+ \d{1,2}, \d{4}|\d{4}))\s+(?=[A-Z])"
 )
-_PAREN_THEN_ITEM = re.compile(r"\)\s+(?=[A-Z])")
+# "(aged 45) Chicago" reads "(aged 45), Chicago"; "(Barfod) A.J.Hend.", a
+# botanical authority, keeps its shape: only a parenthesis that ends in a
+# digit is a date's
+_PAREN_THEN_ITEM = re.compile(r"\(([^()]*)\)\s+(?=([A-Z][A-Za-z.]*))")
+
+
+def _paren_then_item(m):
+    inner, nxt = m.group(1), m.group(2)
+    # "(Barfod) A.J.Hend.": a capitalised name in the parenthesis followed by
+    # an initial is a botanical authority and keeps its shape
+    if inner[:1].isupper() and " " not in inner and re.match(r"[A-Z]\.", nxt):
+        return m.group(0)
+    return "(" + inner + "), "
 _DATE_KEYS = frozenset(("born", "died", "birth date", "death date"))
 
 
@@ -950,7 +983,7 @@ def fact_value(name, value):
     value = _DEGREE_GAP.sub("\u00b0", value)
     if name.lower() in _DATE_KEYS:
         value = _DATE_THEN_PLACE.sub(r"\1, ", value)
-    value = _PAREN_THEN_ITEM.sub("), ", value)
+    value = _PAREN_THEN_ITEM.sub(_paren_then_item, value)
     return value.strip()
 
 
@@ -1215,11 +1248,12 @@ class _Doc:
                 # arrives as the same text in every column: say it once
                 cells = cells[:1]
             for j, c in enumerate(cells):
-                c = cut_words(c, TABLE_ROW_CELL_WORDS)
+                c = cut_words(c.strip(), TABLE_ROW_CELL_WORDS)
                 if len(c.split(" ")) >= TABLE_ROW_CELL_WORDS:
                     c, _ = scrub_artifacts(c)  # a cut can leave a parenthesis open
-                if not c:
-                    continue
+                c = re.sub(r"  +", " ", c).strip()
+                if not c or c.endswith(":"):
+                    continue  # empty, or a label whose script went
                 label = labels[j] if j < len(labels) else ""
                 if _REF_COLUMN.match(label):
                     continue
@@ -1230,7 +1264,7 @@ class _Doc:
                 else:
                     parts.append(esc(c))
             if parts:
-                out.append("<p>" + "; ".join(parts) + "</p>")
+                out.append("<p>" + re.sub(r"  +", " ", "; ".join(parts)) + "</p>")
         if len(body) > TABLE_ROWS_LISTED:
             out.append("<p><i>(%d more rows)</i></p>" % (len(body) - TABLE_ROWS_LISTED))
         if out:
