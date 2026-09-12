@@ -47,8 +47,34 @@ constexpr uint8_t kNoPoint = 255;
 // screen for a result the ruleset exists to avoid. An odd number of half points
 // against an even number cannot come out level.
 //
-// Held in halves so the core needs no floating point at all.
-constexpr int16_t kKomiHalves = 15;
+// Held in halves so the core needs no floating point at all. It is the DEFAULT
+// rather than a constant: a handicap game reduces it, and the level ladder is
+// built out of handicap and komi. Every komi this app sets is odd in halves, so
+// no game it can produce is a draw. `settlesEveryGame()` holds that to account.
+constexpr int16_t kDefaultKomiHalves = 15;
+
+// The most handicap stones a nine by nine board is worth giving. Beyond five the
+// opening is entirely pre-placed and there is no game left to play.
+constexpr int kMaxHandicap = 5;
+
+// Whether a komi can produce a tie on this board. Area is a whole number of
+// points, so only an odd number of half points settles every game.
+constexpr bool settlesEveryGame(const int16_t komiHalves) { return (komiHalves % 2) != 0; }
+
+// The longest a game may run before it is counted whether or not anybody
+// passed. **[house rule]**
+//
+// Chinese rules with FULL positional superko terminate on their own, but the
+// ring below remembers eight positions rather than every one, so a long enough
+// cycle is not forbidden -- and an opponent that refuses to pass while it is
+// losing (which is the correct behaviour, see GoEngine.h) will happily play
+// into one. A self-play game ran past four hundred moves during testing.
+//
+// Four hundred is five times the board. A real nine by nine game is forty to
+// ninety moves and a human cannot reach this by playing; it exists so that a
+// game on a device with a sleep timer cannot fail to end. Checkers carries the
+// same kind of rule for the same reason.
+constexpr uint16_t kMoveLimit = 400;
 
 // How many recent positions the superko rule looks back over.
 //
@@ -69,9 +95,7 @@ constexpr bool isStone(const uint8_t point) { return point == kBlack || point ==
 constexpr int rowOf(const int point) { return point / kSize; }
 constexpr int colOf(const int point) { return point % kSize; }
 constexpr int pointAt(const int row, const int col) { return row * kSize + col; }
-constexpr bool onBoard(const int row, const int col) {
-  return row >= 0 && row < kSize && col >= 0 && col < kSize;
-}
+constexpr bool onBoard(const int row, const int col) { return row >= 0 && row < kSize && col >= 0 && col < kSize; }
 
 // The four orthogonal neighbours of a point, written into `out`, returning how
 // many there were. Corners have two, edges three.
@@ -90,7 +114,7 @@ struct Game {
   uint8_t point[kPoints];
 
   // Stones the players have agreed are dead, as a bit a point. Meaningless
-  // until `phase` is Scoring; see GoFlow.h for why this is an agreement rather
+  // until `stage` is Scoring; see GoFlow.h for why this is an agreement rather
   // than a computation.
   uint8_t dead[(kPoints + 7) / 8];
 
@@ -100,21 +124,30 @@ struct Game {
 
   uint16_t capturedBy[3];  // indexed by colour; [0] is unused
 
+  // Komi in half points, to White. In the game rather than in a constant because
+  // the difficulty ladder is made of handicap and komi: see GoEngine.h.
+  int16_t komiHalves;
+
   uint16_t moveNumber;
   uint8_t toMove;
+  // How many stones Black was given before the first move. Zero is an even
+  // game. Kept so the board can say so and the result can be read honestly.
+  uint8_t handicap;
   uint8_t ko;        // the point simple ko forbids, or kNoPoint
   uint8_t passes;    // consecutive passes; two ends the game
   uint8_t lastMove;  // the move just played, for the marker on the board
   uint8_t recentCount;
-  uint8_t phase;  // go::Phase, held as a byte so the struct stays trivially copyable
+  uint8_t stage;  // go::Stage, held as a byte so the struct stays trivially copyable
 };
 
-// Where a game is in its life. Not the same thing as whose turn it is.
-enum class Phase : uint8_t {
+// Where a game is in its life. Not the same thing as whose turn it is, which
+// is GoFlow.h's Phase: this one is Playing / Scoring / Over and changes three
+// times a game, that one is Yours / Theirs / Finished and changes every move.
+enum class Stage : uint8_t {
   // Stones are going down.
   Playing,
   // Both players passed. Dead stones are being agreed, and only then is there
-  // a score. This phase is the whole reason casual Go is hard to ship.
+  // a score. This stage is the whole reason casual Go is hard to ship.
   Scoring,
   // Counted, and the result is fixed.
   Over,
@@ -122,8 +155,16 @@ enum class Phase : uint8_t {
 
 enum class Outcome : uint8_t { Running, BlackWins, WhiteWins };
 
-// A fresh game. Black moves first; there is no handicap on 9x9 here.
-void reset(Game& game);
+// A fresh game. With no handicap Black moves first; with one, Black's stones are
+// already on the board and WHITE moves first, which is what a handicap is.
+//
+// `handicap` is 0 or 2..kMaxHandicap. One stone is not a handicap, it is Black
+// playing first, which is the even game.
+void reset(Game& game, int handicap = 0, int16_t komiHalves = kDefaultKomiHalves);
+
+// Where the handicap stones go, in the order they are added. The 3-3 points and
+// the centre, which is where every nine by nine handicap is set.
+int handicapPoints(int handicap, uint8_t out[kMaxHandicap]);
 
 // Whether `colour` may play at `point` right now. Points are 0..80; `kPass` is
 // always legal and answers true.

@@ -75,20 +75,47 @@ int neighbours(const int point, uint8_t out[4]) {
   return count;
 }
 
-void reset(Game& game) {
+int handicapPoints(const int handicap, uint8_t out[kMaxHandicap]) {
+  if (handicap < 2) return 0;
+  const int wanted = handicap > kMaxHandicap ? kMaxHandicap : handicap;
+  // Two opposite 3-3s first, then the other two, then the centre. That is the
+  // order every ruleset sets a nine by nine handicap in, and the first two being
+  // opposite corners is what keeps a two-stone game balanced across the board
+  // rather than heavy on one side.
+  static const uint8_t kOrder[kMaxHandicap] = {
+      static_cast<uint8_t>(pointAt(6, 2)), static_cast<uint8_t>(pointAt(2, 6)), static_cast<uint8_t>(pointAt(2, 2)),
+      static_cast<uint8_t>(pointAt(6, 6)), static_cast<uint8_t>(pointAt(4, 4)),
+  };
+  for (int i = 0; i < wanted; ++i) out[i] = kOrder[i];
+  return wanted;
+}
+
+void reset(Game& game, const int handicap, const int16_t komiHalves) {
   for (int i = 0; i < kPoints; ++i) game.point[i] = kEmpty;
   clearMask(game.dead);
   for (int i = 0; i < kHistory; ++i) game.recent[i] = 0;
   game.capturedBy[0] = 0;
   game.capturedBy[kBlack] = 0;
   game.capturedBy[kWhite] = 0;
+  game.komiHalves = komiHalves;
   game.moveNumber = 0;
   game.toMove = kBlack;
+  game.handicap = 0;
   game.ko = kNoPoint;
   game.passes = 0;
   game.lastMove = kNoPoint;
   game.recentCount = 0;
-  game.phase = static_cast<uint8_t>(Phase::Playing);
+  game.stage = static_cast<uint8_t>(Stage::Playing);
+
+  uint8_t stones[kMaxHandicap];
+  const int placed = handicapPoints(handicap, stones);
+  if (placed == 0) return;
+  for (int i = 0; i < placed; ++i) game.point[stones[i]] = kBlack;
+  game.handicap = static_cast<uint8_t>(placed);
+  // The stones are placed, not played: there is no last move, no capture and no
+  // move number, and it is White to play. A handicap where Black also moved
+  // first would be a stone and a half.
+  game.toMove = kWhite;
 }
 
 void group(const Game& game, const int point, uint8_t stones[kMaskBytes], int& size, int& liberties) {
@@ -172,7 +199,7 @@ bool legal(const Game& game, const int point, const uint8_t colour) {
 }
 
 bool play(Game& game, const int point) {
-  if (game.phase != static_cast<uint8_t>(Phase::Playing)) return false;
+  if (game.stage != static_cast<uint8_t>(Stage::Playing)) return false;
 
   if (point == kPass) {
     rememberPosition(game);
@@ -180,7 +207,7 @@ bool play(Game& game, const int point) {
     game.ko = kNoPoint;
     game.lastMove = kPass;
     ++game.moveNumber;
-    if (++game.passes >= 2) game.phase = static_cast<uint8_t>(Phase::Scoring);
+    if (++game.passes >= 2 || game.moveNumber >= kMoveLimit) game.stage = static_cast<uint8_t>(Stage::Scoring);
     return true;
   }
 
@@ -219,6 +246,7 @@ bool play(Game& game, const int point) {
   game.passes = 0;
   game.lastMove = static_cast<uint8_t>(point);
   ++game.moveNumber;
+  if (game.moveNumber >= kMoveLimit) game.stage = static_cast<uint8_t>(Stage::Scoring);
   return true;
 }
 
@@ -329,12 +357,12 @@ Score score(const Game& game) {
     if (owner[i] == kBlack) result.blackHalves = static_cast<int16_t>(result.blackHalves + 2);
     if (owner[i] == kWhite) result.whiteHalves = static_cast<int16_t>(result.whiteHalves + 2);
   }
-  result.whiteHalves = static_cast<int16_t>(result.whiteHalves + kKomiHalves);
+  result.whiteHalves = static_cast<int16_t>(result.whiteHalves + game.komiHalves);
   return result;
 }
 
 Outcome outcome(const Game& game) {
-  if (game.phase != static_cast<uint8_t>(Phase::Over)) return Outcome::Running;
+  if (game.stage != static_cast<uint8_t>(Stage::Over)) return Outcome::Running;
   const Score counted = score(game);
   return counted.blackHalves > counted.whiteHalves ? Outcome::BlackWins : Outcome::WhiteWins;
 }

@@ -246,6 +246,19 @@ toybattle = share-2
 # game, and every game here is played with one), `brain` (mush at 32px).
 sudoku      = hash
 
+# GO. Nine dots in a three by three: stones standing ON the crossings, which is
+# the one thing about this board that is not true of any other board on the
+# shelf -- every other game here puts its pieces INSIDE squares. `grip` is that
+# arrangement and nothing else.
+#
+# It has to survive its neighbours, and the circle family is crowded:
+# `circle-dot` is checkers and `circle-small` beside it is the same silhouette
+# one size down. Rejected: `grid-3x3` and `hash` (lines, and `hash` is sudoku),
+# `chart-scatter` (its axes read as a chart), `target` and `donut` (concentric
+# rings, which is checkers' mark with more strokes), `atom` and `orbit` (a
+# diagram of a different subject).
+go          = grip
+
 # PICROSS. The reward is a revealed PICTURE, so `image` -- a framed picture --
 # rather than another grid. `grid-2x2`/`hash` are already spoken for and read as
 # the same boxed lattice; `pencil`/`paintbrush` are tools, which this file bans
