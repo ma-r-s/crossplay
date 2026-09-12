@@ -899,6 +899,34 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
         self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
 
+    def test_round_fifteen_sixth_read(self):
+        # A sixth cold read: the s of a cricket "50s" is not a second; a label
+        # before "also Romanized as" is empty; "Population (2006), total" is
+        # "Population (2006)"; consecutive facts with one name are one row; a
+        # footnote digit on a group and a footnote as a nameless value go; a
+        # bare year after a birth name gets its comma, a month does not; a
+        # loan arrow at the front of a cell reads "to"; "2002.They" is glued.
+        self.assertEqual(ah.fact_value("Stat", "100s/50s 0/0 0/2"), "100s/50s 0/0 0/2")
+        self.assertEqual(ah.fact_value("Molar mass", "750.658 g·mol −1 and 3 m 2"), "750.658 g·mol⁻¹ and 3 m²")
+        self.assertEqual(
+            ah.strip_undrawable(ah.clean_text("Hareh Shun Dasht (Persian: هره شون دشت, also Romanized as Hareh Shūn Dasht; also known as X) is"), {}, lead=True),
+            "Hareh Shun Dasht (also Romanized as Hareh Shūn Dasht; also known as X) is",
+        )
+        self.assertEqual(ah.fact_value("Born", "Harry Louis Kirkpatrick III 1951, Beckley"), "Harry Louis Kirkpatrick III, 1951, Beckley")
+        self.assertEqual(ah.fact_value("Born", "13 June 1645, Higo Province"), "13 June 1645, Higo Province")
+        self.assertEqual(ah.fact_value("Team", "-> Kent (on loan)"), "to Kent (on loan)")
+        self.assertEqual(ah.clean_text("were released on January 3, 2002.They reported that"), "were released on January 3, 2002. They reported that")
+        row = {"name": "Mia Rogers", "infoboxes": [{"name": "Infobox", "has_parts": [
+            {"type": "section", "name": "Playing career 1", "has_parts": [{"type": "field", "name": "Years", "value": "2017–present"}]},
+            {"type": "section", "name": "Career statistics", "has_parts": [{"type": "field", "value": "Matches 14 39"}, {"type": "field", "value": "Runs scored 46 462"}, {"type": "field", "value": "1 Playing statistics correct to the end of 2023."}]},
+            {"type": "section", "name": "Population (2006)", "has_parts": [{"type": "field", "name": "Total", "value": "1,234"}, {"type": "field", "name": "Density", "value": "3/km2"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Years</th><td>2017–present</td></tr>", x)
+        self.assertIn("<tr><th>Career statistics</th><td>Matches 14 39; Runs scored 46 462</td></tr>", x)
+        self.assertIn("<tr><th>Population (2006)</th><td>1,234</td></tr><tr><th>Population (2006), density</th><td>3/km2</td></tr>", x)
+        self.assertNotIn("Playing statistics", x)
+
     def test_round_fourteen_fifth_read(self):
         # A fifth cold read: "6 ft 3 1/2 in" is not six cubic feet; a taxon
         # row keeps its authority; an address joins its links with commas; a
@@ -1300,7 +1328,7 @@ class Rules(unittest.TestCase):
         )
         self.assertEqual(
             ah.fact_value("Born", "Mala Helfgott 1930 (age 95 \u2013 96) Piotrkow Trybunalski"),
-            "Mala Helfgott 1930, Piotrkow Trybunalski",
+            "Mala Helfgott, 1930, Piotrkow Trybunalski",
         )
         self.assertEqual(
             ah.fact_value("Children", "Mikinosuke (adopted) Kurotaro (adopted) Iori (adopted)"),

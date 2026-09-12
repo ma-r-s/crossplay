@@ -381,7 +381,7 @@ _LABEL_HEAD = r"(?:[A-Z][A-Za-z.]*|lit\\.|pl\\.|romani[sz]ed|pinyin|born|n\\u00e
 # ... and stands at the start of its segment: after "(", ";" or ","
 _SEGMENT_START = r"(?:^|(?<=[(\[;,])|(?<=[(\[;,] ))"
 _EMPTY_LABEL = re.compile(
-    _SEGMENT_START + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|[A-Z][a-z]+(?:[ -][A-Za-z]+){0,2}:\s|lit\.\s|literally\s|romani[sz]ed:|pinyin:|IPA:|translit)"
+    _SEGMENT_START + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|[A-Z][a-z]+(?:[ -][A-Za-z]+){0,2}:\s|lit\.\s|literally\s|[Rr]omani[sz]ed[: ]|pinyin:|IPA:|translit|also [Rr]omani[sz]ed)"
 )
 # the same at the end of a parenthetical's segment ("from Sanskrit: , IPA:")
 _EMPTY_LABEL_END = re.compile(
@@ -434,7 +434,7 @@ def esc_attr(s):
 
 # "lasted 28 days.The truce": the source lost the space where a citation
 # stood. Three letters before the period so "e.g.The" and initials stay.
-_SENTENCE_GLUE = re.compile(r"([a-z]{3,}[.!?])([A-Z][a-z]{2,})")
+_SENTENCE_GLUE = re.compile(r"([a-z]{3,}[.!?]|\d{4}\.)([A-Z][a-z]{2,})")
 # "Bonaparte, 1835Tribe Acanthurini": nested list items the source ran together
 _YEAR_GLUE = re.compile(r"\b((?:1[5-9]|20)\d\d)(?=[A-Z][a-z]{2,})")
 # "{{ cite journal }}: CS1 maint: DOI inactive as of June 2024 (link)": a
@@ -1126,6 +1126,14 @@ def _paren_then_item(m):
         return m.group(0)  # "(118 mi) W of Sydney"
     return "(" + inner + "), "
 _DATE_KEYS = frozenset(("born", "died", "birth date", "death date"))
+_MONTH_WORDS = frozenset(m.lower() for m in ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December", "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Sept", "Oct", "Nov", "Dec"))
+
+
+def _word_then_year(m):
+    w = m.group(1)
+    if w.lower() in _MONTH_WORDS or w.lower() in _DATE_LEAD_WORDS or not w[:1].isupper():
+        return m.group(0)
+    return w + ", "
 
 
 _NAME_GROUP = re.compile(r"\bnames?$", re.I)  # "Korean name", "Chinese name": every row carries it
@@ -1190,6 +1198,7 @@ def _spell_iso_date(s):
 _FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion", "NFPA 704 (fire diamond)", "NFPA 704"))
 _FACT_JUNK_VALUE = re.compile(r"^[\W_]*$|^\* ")
 _NAMELESS_FACT = re.compile(r"\d|^In office|^Term|^Reign")
+_FOOTNOTE_VALUE = re.compile(r"^\d [A-Z][a-z]+ [a-z]")  # "1 Playing statistics correct to ..."
 # "C 20 H 8 Br 2" in a formula row: the subscripts the dump spaced out
 _FORMULA_ROW = re.compile(r"formula", re.I)
 _ELEMENT_COUNT = re.compile(r"(?<=[A-Za-z\)\]]) (\d{1,3})(?=[A-Z(\[\s]|$)")
@@ -1228,8 +1237,8 @@ def _ion_charge(m):
 
 def _unit_exponent(m):
     head = m.string[: m.start()]
-    unit = re.search(r"[A-Za-z]+$", head)
-    if unit and _UNIT_BEFORE.search(unit.group(0)):
+    unit = re.search(r"(?:^|(?<=[\s(\u00b7/]))([A-Za-z]+)$", head)  # a unit stands alone: "5 m 2", "g\u00b7mol -1"; not "50s 0"
+    if unit and _UNIT_BEFORE.search(unit.group(1)) and not m.string.startswith("/", m.end()):
         return m.group(1).translate(_SUPER)
     return m.group(0)
 
@@ -1253,6 +1262,8 @@ def fact_value(name, value):
     value = _YEAR_TWICE.sub(r"\1", value)
     value = _SLASH_GAP.sub(" / ", value)
     value = _spell_iso_date(value)
+    if value.startswith("-> "):
+        value = "to " + value[3:]  # a loan arrow at the front of a cell
     value = re.sub(r"\b([A-Z]):(?=\d)", r"\1: ", value)
     if "\u00b0" in value:
         value = _DECIMAL_COORDS.sub("", value)
@@ -1265,6 +1276,7 @@ def fact_value(name, value):
     value = _UNIT_EXPONENT.sub(_unit_exponent, value)
     value = _DEGREE_GAP.sub("\u00b0", value)
     if name.lower() in _DATE_KEYS:
+        value = re.sub(r"\b([A-Za-z]+) (?=(?:c\. )?\d{4}\b)", _word_then_year, value)  # "Kirkpatrick III 1951"
         value = _DATE_THEN_PLACE.sub(r"\1, ", value)
     value = _PAREN_THEN_ITEM.sub(_paren_then_item, value)
     return value.strip()
@@ -1569,6 +1581,8 @@ class _Doc:
                 if not parts and re.match(r"^\d+\.$", c):
                     c = c[:-1]  # "1." then "; Date: ..." read as "1.;"
                 c = _spell_iso_date(c)
+                if c.startswith("-> "):
+                    c = "to " + c[3:]
                 if not c or c.endswith(":"):
                     continue  # empty, or a label whose script went
                 label = labels[j] if j < len(labels) else ""
@@ -1707,7 +1721,7 @@ class _Doc:
             if t == "section":
                 # "President of Austria", "Area", "Population": the group a
                 # field belongs to, which the flat grid would otherwise lose
-                name = clean_text(str(p.get("name") or ""))
+                name = _NAME_FOOTNOTE.sub("", clean_text(str(p.get("name") or "")))
                 if name and any(isinstance(c, dict) and c.get("type") == "image" for c in p.get("has_parts") or []):
                     has_image[name] = True
                 # a group is a short label; a "section" whose name is a whole
@@ -1738,6 +1752,8 @@ class _Doc:
                 if not fname:
                     # "In office 1945 - 1950" under its office; a caption in a
                     # section that holds an image is the image's, not a fact
+                    if _FOOTNOTE_VALUE.match(value):
+                        return
                     if group and (not has_image.get(group) or any(c.isdigit() for c in value)) and _NAMELESS_FACT.search(value):
                         add(group, value)
                 elif group and fname.strip().lower() in _GENERIC_FIELDS:
@@ -1748,7 +1764,7 @@ class _Doc:
                             if prev.lower().startswith(("population", "pop.", "area")):
                                 g = _NAME_FOOTNOTE.sub("", prev)
                                 break
-                    add(g + ", " + key, value)
+                    add(g if key == "total" and g.lower().startswith(("population", "pop.")) else g + ", " + key, value)
                 else:
                     recent.append(fname.strip())
                     add(fname, value, group)
@@ -1775,6 +1791,13 @@ class _Doc:
             (group + ", " + name if name in dup and group else name, value)
             for name, value, group in fields
         ]
+        merged = []
+        for name, value in fields:
+            if merged and merged[-1][0] == name:
+                merged[-1] = (name, cut_words(merged[-1][1] + "; " + value, FACT_WORDS))
+            else:
+                merged.append((name, value))
+        fields = merged
         self.stats["facts"] = self.stats.get("facts", 0) + len(fields)
         self.headings.append(QUICK_FACTS)
         self.out.append('<h2 id="s%d">%s</h2>' % (len(self.headings), QUICK_FACTS))
