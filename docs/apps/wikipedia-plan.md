@@ -432,7 +432,7 @@ what MathML would have shown for that TeX; otherwise the words stay and
 the TeX goes. Counted per build (formulas_rendered, formulas_unmatched);
 96% of formulas render on the essentials.
 
-Twenty-two rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
+Twenty-six rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
 onward): each one a census or a detector report or a cold reviewer's
 read of thirty random articles, every finding checked against the dump's
 own text before a rule was written, the essentials rebuilt and republished
@@ -488,6 +488,18 @@ label, and nothing more goes into flash. A font on the card stays a
 possible later card, measured on the device for page-turn cost first. The full pack does
 not publish until the gate passes on the essentials built from the same
 rules.
+
+**The gate's budget (2026-09-12).** The gate used to demand that every
+artifact class be empty, and no pack built from this dump has ever reached
+that: the dump's own text carries code samples with braces, set notation
+with `{{`, and an article about emoticons containing `:-(`. That condition
+would have made `refresh.sh` build for three hours and publish nothing on
+the next dump. `quality.py --max-artifact-articles N` now asks whether a
+pack is no worse than the one already shipped, prints `ARTIFACT SCORE`
+either way, and keeps the old behaviour when the flag is absent (which is
+what the per-round gates used). `refresh.sh` carries 25 per tier against 15
+measured on the packs published that day. A pack that scores worse is not
+published and the live one stays.
 
 ### The site: `site/wikipedia/`
 
