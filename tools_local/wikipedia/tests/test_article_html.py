@@ -731,7 +731,9 @@ class Rules(unittest.TestCase):
             ("comes from the Greek word \u1f55\u03b2\u03bf\u03c2 or \u1f51\u03b2\u03cc\u03c2 meaning hump and \u1f40\u03b4\u03bf\u03cd\u03c2, meaning tooth.", "comes from the Greek word hybos meaning hump and odous, meaning tooth."),
             ("(from Greek \u1f08\u03c1\u03b9\u03b8\u03bc\u03bf\u03af, Arithmoi, lit. 'numbers'; Biblical Hebrew: \u05d1\u05b0\u05bc\u05de\u05b4\u05d3\u05b0\u05d1\u05b7\u05bc\u05e8, B\u0259m\u012b\u1e0fbar, lit. 'In desert'; Latin: Liber Numeri) is", "(from Greek Arithmoi, lit. 'numbers'; Biblical Hebrew: Bem\u012bdbar, lit. 'In desert'; Latin: Liber Numeri) is"),
             ("Seventeen Moments (Russian: \u0421\u0435\u043c\u043d\u0430\u0434\u0446\u0430\u0442\u044c, romanized: Semnadtsat') is a series about \u041c\u043e\u0441\u043a\u0432\u0430 and (\u0422\u043e\u043b\u0441\u0442\u043e\u0439).", "Seventeen Moments (Russian: Semnadtsat') is a series about Moskva and (Tolstoy)."),
-            ("The pentathlon (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The pentathlon (Greek: pentathlon) was"),
+            # the romanisation is the English word itself: the aside says nothing
+            ("The pentathlon (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The pentathlon was"),
+            ("The contest (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The contest (Greek: pentathlon) was"),
         ]
         for src, want in cases:
             self.assertEqual(ah.strip_undrawable(src, {}, lead=True), want, src)
@@ -876,6 +878,42 @@ class Rules(unittest.TestCase):
         self.assertIn('("the quarter") and U+0374 <a href="Greek">GREEK</a> sign.', x)
         self.assertNotIn("Arabic", x)
         self.assertNotIn("  ", x)
+
+    def test_round_ten_from_the_fifth_read(self):
+        # a slashed span is a pronunciation only when it holds IPA: "10
+        # μg/dL (10 μg/100 g)" is units; a label may open with a lowercase
+        # word ("simplified Chinese:"); a romanisation the sentence already
+        # has goes with its label; "(more)" is a dead link; a value left as
+        # "(muntala)" is its romanisation; electron shells keep their powers;
+        # two adjacent links in a taxon row stay as they are.
+        cases = [
+            ("adults at 10 \u03bcg/dL (10 \u03bcg/100 g) and children at 3.5 \u03bcg/dL. Next", "adults at 10 \u00b5g/dL (10 \u00b5g/100 g) and children at 3.5 \u00b5g/dL. Next"),
+            ("\"Southern China\" (simplified Chinese: \u4e2d\u56fd\u5357\u65b9; traditional Chinese: \u4e2d\u570b\u5357\u65b9) is geographically", "\"Southern China\" is geographically"),
+            ("The Neretva (Serbian Cyrillic: \u041d\u0435\u0440\u0435\u0442\u0432\u0430), also known as Narenta, is a river", "The Neretva, also known as Narenta, is a river"),
+            ("1st: 740 kJ/mol; (more) (all but first estimated)", "1st: 740 kJ/mol; (all but first estimated)"),
+            ("Myiasis (/ m a\u026a \u02c8 a\u026a \u0259 s \u0259 s / my- EYE -\u0259-s\u0259ss) is a fly", "Myiasis is a fly"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        self.assertEqual(ah.fact_value("Nepali", "(muntala)"), "muntala")
+        self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
+        self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
+
+    def test_round_nine_residue(self):
+        # TeX the dump left outside any block, in any shape, goes and the
+        # prose around it stays; citation page ranges in a row go; a note
+        # marker at a line's start goes; a raw ref tag goes; a no-break
+        # space beside a removed character is one space.
+        cases = [
+            ("the equations read nabla v = R nabla u \\nabla v=R\\nabla u where R is the rotation", "the equations read nabla v = R nabla u where R is the rotation"),
+            ("R 1 = A 1 A 2 B n \\right. Let us consider", "R 1 = A 1 A 2 B n. Let us consider"),
+            ("shear stresses: p.45\u201378 : p.1\u201346 : p.111\u2013157 The normal stress", "shear stresses The normal stress"),
+            ("## x: Nickel\u2013Strunz mineral/group number", "x: Nickel\u2013Strunz mineral/group number"),
+            ("the medium. <ref name=\"a3\">cite</ref> Next and <ref name=\"x\"/> end", "the medium. Next and end"),
+            ("China\u00a0 Merrill's Marauders", "China Merrill's Marauders"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
 
     def test_round_eight_seams(self):
         # From the fourth cold read: a comma inserted after a botanical

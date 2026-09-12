@@ -104,6 +104,62 @@ _COMMA_GLUE = re.compile(r"(?<=[a-z]),(?=[A-Za-z]{2,})")
 # "A_{1}^{\\complement }\\quad": TeX the dump left outside any block
 _TEX_LOOSE = re.compile(r"(?:\\[A-Za-z]+\s*|[A-Za-z]?[_^]\{[^{}]*\}\s*){2,}")
 _TEX_ENV = re.compile(r"\{?\\begin\{([a-z*]+)\}.*?\\end\{\1\}\}?\s*(?:\\right\.)?", re.S)
+# ": p.45–78 : p.1–46 : p.111–157": page ranges of citations in a row
+_CITE_PAGES = re.compile(r"(?:\s*:\s*p{1,2}\.\s?\d+(?:[\u2013-]\d+)?\b)+")
+# "## x:", "#; Key": a note marker the dump kept at a line's start
+_NOTE_MARKER = re.compile(r"^#+;?\s+")
+# a raw reference tag the dump left in the prose
+_REF_TAG = re.compile(r"<ref\b[^>]*/>|<ref\b[^>]*>.*?</ref>|<ref\b[^>]*>", re.S | re.I)
+_TEX_START = re.compile(r"\\(?:\\|[A-Za-z]+)")
+_TEX_SCRIPT_GROUP = re.compile(r"\s?[A-Za-z]?(?:[_^]\{[^{}]*\}\s*)+")
+
+
+def _strip_tex_residue(s):
+    """TeX the dump left outside any block, in any shape: from a backslash
+    command on, over braces (balanced), scripts, operators and letters, up to
+    the end of the run. "nabla v = R nabla u \\nabla v=R\\nabla u where R is"
+    keeps its words and loses the TeX."""
+    out = []
+    i = 0
+    n = len(s)
+    while True:
+        m = _TEX_START.search(s, i)
+        if not m:
+            out.append(s[i:])
+            break
+        j = m.start()
+        k = m.end()
+        depth = 0
+        while k < n:
+            c = s[k]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0:
+                if c == "\\":
+                    k += 1  # a command: its letters belong to the run
+                    while k < n and s[k].isalpha():
+                        k += 1
+                    continue
+                if c.isalpha():
+                    # a word of two or more letters is prose again; a single
+                    # letter is a variable and stays in the run
+                    if k + 1 < n and s[k + 1].isalpha():
+                        break
+                elif c == "." and k + 1 < n and s[k + 1] == " ":
+                    break
+                elif not (c in "^_&=+*/,;()[]| \t" or c.isdigit() or c in "\u2212-'"):
+                    break
+            k += 1
+        # trim to the last TeX-looking char
+        run = s[j:k].rstrip(" ,;")
+        out.append(s[i:j].rstrip())
+        out.append(" ")
+        i = j + len(run)
+    return re.sub(r"  +", " ", "".join(out))
 _TEMPLATE_ERROR = re.compile(r"\s*(?::\s*)?(?:ISBN / Date incompatibility|Check date values in: [^()]*|Cite \w+ requires [^()]*)\s*\(help\)")
 _WS = re.compile(r"\s+")
 # A Greek letter standing alone is a symbol ("frequency \u03bd"), and the
@@ -266,7 +322,7 @@ def _runs():
         bad = "(?:[^" + drawable_class() + "]|[" + REMOVED_SCRIPTS + "])"
         run = bad + r"(?:\s*" + bad + ")*"
         _run_re = re.compile(run)
-        label = r"(?:(?<![A-Za-z])[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}:\s?)?"
+        label = r"(?:(?<![A-Za-z])(?:(?:simplified|traditional|literally|romani[sz]ed|born|modern|classical|standard|colloquial|formal|archaic|native|also|formerly|abbreviated|pinyin) )?[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}:\s?)?"
         _labelled_run_re = re.compile(label + run)
     return _run_re, _labelled_run_re
 
@@ -282,11 +338,14 @@ _EMPTY_LABEL_END = re.compile(
     r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|$)"
 )
 # "(listen)": the audio link's text, with no audio to play
-_LISTEN = re.compile(r"\s?\(\s*listen\s*\)", re.I)
+_LISTEN = re.compile(r"\s?\(\s*(?:listen|more)\s*\)", re.I)
 _FUNCTION_WORDS = frozenset("from or and of the a an in at by to lit also see cf".split())
 _EMPTY_PAREN = re.compile(r"\s?\(\s*\)")
 # IPA between slashes or brackets, when the serif cannot draw it.
 _SLASHED = re.compile(r" ?/[^/]{1,80}/")
+# what a pronunciation carries that prose never does: IPA letters, modifier
+# letters, tone bars, or the spaced single letters of the dump's IPA
+_IPA_CHAR = re.compile(r"[\u0250-\u02ff\u1d00-\u1dbf]|(?: [a-z\u00e6\u00f0\u00f8\u03b8]){3}")
 _BRACKETED = re.compile(r" ?\[[^\[\]]{1,80}\]")
 
 _TIDY = (
@@ -330,7 +389,7 @@ def clean_text(s):
         s = html.unescape(s)  # "22 &amp;amp; 23 Geo. 5": the source escaped it twice
     if "." in s:
         s = _SENTENCE_GLUE.sub(r"\1 \2", s)
-    if "listen" in s:
+    if "(" in s:
         s = _LISTEN.sub("", s)
     if "," in s:
         s = _COMMA_GLUE.sub(", ", s)
@@ -342,9 +401,16 @@ def clean_text(s):
         s = _render_tex(s)
     if "\\" in s:
         s = _TEX_ENV.sub("", s)
-        s = _TEX_LOOSE.sub("", s)  # TeX the dump left outside any block
+        s = _strip_tex_residue(s)  # TeX the dump left outside any block
+        s = re.sub(r"  +", " ", _TEX_SCRIPT_GROUP.sub(" ", s))  # "A_{1}^{ }" left beside it
     if "(help)" in s:
         s = _TEMPLATE_ERROR.sub("", s)
+    if "<ref" in s:
+        s = _REF_TAG.sub("", s)
+    if ": p" in s or ":p" in s:
+        s = _CITE_PAGES.sub("", s)
+    if s.startswith("#"):
+        s = _NOTE_MARKER.sub("", s)
     if "{{" in s:
         s = _TEMPLATE.sub("", s)
     s = _CITE.sub("", s)
@@ -459,7 +525,7 @@ _HYPHEN_AFTER = re.compile(r"(?<=\w)([-\u2013\u2014])[ \u00a0]+(?=(?!(?:and|or)\
 # Wikipedia's respelling, "(TAM-ilz, TAHM-)": syllables in capitals joined by
 # hyphens, two of them or one ending in a hyphen, and nothing else in the
 # parentheses. "(US-based)" is one plain token and stays.
-_RESPELL_TOKEN = r"[A-Z]{1,6}(?:-[a-z]{1,8})*-?"
+_RESPELL_TOKEN = r"(?:[a-z]{1,4}-)?[A-Z]{1,6}(?:-[a-z]{1,8})*-?"
 _RESPELL = re.compile(
     r"[ \u00a0]*\((?:" + _RESPELL_TOKEN + r"(?:,? " + _RESPELL_TOKEN + r")+|[A-Z]{1,6}(?:-[a-z]{1,8})*-)\)"
 )
@@ -603,9 +669,12 @@ def _romanize_runs(text, run_re):
             return run
         latin = symbols.romanize(run)
         # "\u1f08\u03c1\u03b9\u03b8\u03bc\u03bf\u03af, Arithmoi": the source's own romanisation
-        # follows; the run goes and that one stays
+        # follows; the run goes and that one stays. "The Neretva (Serbian
+        # Cyrillic: \u041d\u0435\u0440\u0435\u0442\u0432\u0430)": the sentence has the word already
         after = _NEXT_WORD.match(text, m.end())
         if after and _plain(after.group(1)) == _plain(latin):
+            return run
+        if " " not in latin.strip() and re.search(r"(?<![A-Za-z])" + re.escape(_plain(latin)) + r"(?![A-Za-z])", _plain(text[: m.start()])):
             return run
         n += 1
         return latin
@@ -668,8 +737,8 @@ def strip_undrawable(text, stats, lead=False):
     def drop_span(m):
         nonlocal removed
         whole = m.group(0)
-        if not run_re.search(whole):
-            return whole
+        if not run_re.search(whole) or not _IPA_CHAR.search(whole):
+            return whole  # "10 μg/dL (10 μg/100 g)" is units, not a pronunciation
         removed += 1
         stats["spans_removed"] = stats.get("spans_removed", 0) + 1
         return ""
@@ -790,7 +859,7 @@ _SCRUB = (
     (re.compile(r"\s+\)"), ")"),
     (re.compile(r"^\s*[,;]\s*"), ""),
     (re.compile(r"\s*[,;]$"), ""),
-    (re.compile(r"[ \t]{2,}"), " "),
+    (re.compile(r"[ \t\u00a0]{2,}"), " "),
 )
 _SCRUB_HINT = re.compile(r"[()\[\]{}\"\u201c\u2018',;]")
 
@@ -902,11 +971,23 @@ _DATE_KEYS = frozenset(("born", "died", "birth date", "death date"))
 _NAME_GROUP = re.compile(r"\bnames?$", re.I)  # "Korean name", "Chinese name": every row carries it
 
 
-def _split_at_links(value, links):
+_LIST_ROWS = re.compile(
+    r"characters|members|names|children|relatives|works|genres|labels|occupations|known for|fields|institutions|"
+    r"awards|influences|languages|groups|religions|subdivisions|ideas|notable|alumni|students|advisors|parties|"
+    r"predecessor|successor|founders|owners|products|services|divisions|subsidiaries|partners|spouses|parents",
+    re.I,
+)
+
+
+def _split_at_links(value, links, name=""):
     """"Atossa Messenger Ghost of Darius Xerxes" with links for Atossa, Ghost
     of Darius and Xerxes is three items the dump glued; where one link's
-    text starts right after another ends, a "; " goes between them."""
+    text starts right after another ends, a "; " goes between them. Two
+    adjacent links in a row that is not a list ("Tortricoidea Latreille,
+    1803", a taxon and its authority) stay as they are."""
     if not links or len(links) < 2:
+        return value
+    if len(links) < 3 and not _LIST_ROWS.search(name or ""):
         return value
     texts = [lk.get("text") for lk in links if isinstance(lk, dict) and isinstance(lk.get("text"), str) and lk.get("text")]
     if len(texts) < 2:
@@ -969,10 +1050,17 @@ def _unit_exponent(m):
     return m.group(0)
 
 
+_WRAPPED = re.compile(r"^\(([^()]+)\)$")
+_SHELL = re.compile(r"\b(\d[spdf]) (\d{1,2})\b")
+
+
 def fact_value(name, value):
     if not value:
         return value
     value = _AGE.sub("", value)
+    value = _WRAPPED.sub(r"\1", value.strip())
+    if "configuration" in name.lower() or "shell" in name.lower():
+        value = _SHELL.sub(lambda m: m.group(1) + m.group(2).translate(_SUPER), value)
     value = _YEAR_PAGE.sub("", value)
     value = re.sub(r"(\d{4}) /(\d{4})\b", r"\1/\2", value)
     if _FORMULA_ROW.search(name):
@@ -1386,19 +1474,22 @@ class _Doc:
                 # a group is a short label; a "section" whose name is a whole
                 # medal table is the table, not a group
                 if name and name != self.title and len(name.split()) <= 8 and not name.lower().startswith("infobox"):
-                    group = name
+                    # "Transcriptions" under "Chinese name" keeps the group
+                    # that says which language the rows belong to
+                    if not (group and _NAME_GROUP.search(group)):
+                        group = name
             if t == "field" and isinstance(p.get("value"), str):
                 fname = p.get("name")
                 if p.get("images"):
                     return  # the field is an image and its value is the caption
-                value = _split_at_links(p["value"], p.get("links"))
+                value = _split_at_links(p["value"], p.get("links"), fname or "")
                 if group and _NAME_GROUP.search(group) and fname:
                     add(group + ", " + fname.strip(), value, group)
                     return
                 if not fname:
                     # "In office 1945 - 1950" under its office; a caption in a
                     # section that holds an image is the image's, not a fact
-                    if group and not has_image.get(group) and _NAMELESS_FACT.search(value):
+                    if group and (not has_image.get(group) or any(c.isdigit() for c in value)) and _NAMELESS_FACT.search(value):
                         add(group, value)
                 elif group and fname.strip().lower() in _GENERIC_FIELDS:
                     add(group + ", " + fname.strip().lower(), value)
@@ -1537,7 +1628,7 @@ def heading_bytes(text):
 
 
 
-_INLINE_DOUBLE_SPACE = re.compile(r"(?<=\S)  +(?=\S)")
+_INLINE_DOUBLE_SPACE = re.compile(r"(?<=\S)[ \u00a0]{2,}(?=\S)")
 _INLINE_EMPTY_LABEL = re.compile(
     r"(?<![A-Za-z0-9>])[A-Z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?:</a>)?\s*(?=[;,)]|</)"
 )

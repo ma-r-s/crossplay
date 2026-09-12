@@ -222,7 +222,7 @@ DETECTORS = [
         "words",
         "comma_glue",
         "para",
-        re.compile(r"(?<!alpha)(?<!beta)(?<!gamma)(?<!delta)(?<!omega)(?<!sigma)(?<!kappa)(?<!theta)(?<!lambda)[a-z]{3,},[A-Za-z]{3,}"),
+        re.compile(r"\b(?!(?:alpha|beta|gamma|delta|omega|sigma|kappa|theta|lambda|cis|trans),)[a-z]{3,},[A-Za-z]{3,}"),
         "a comma with no space after it",
     ),
     ("words", "double_punct", "para", re.compile(r"[,;:]{2}|[,;] ?[,;]|, \.|; \.|\?\?|!!"), "doubled punctuation"),
@@ -879,12 +879,14 @@ def _scan_chunk(args):
     return out
 
 
-def scan(pack_dir, sample_n=0, seed=20260911, examples_per=6, limit=0, workers=None):
+def scan(pack_dir, sample_n=0, seed=20260911, examples_per=6, limit=0, workers=None, every=1):
     """Every article through every detector, on a pool of workers; each
     worker reads its own contiguous slice so the block cache stays warm."""
     p = pf.Pack(pack_dir)
     entries = [(e.title, e.locator) for e in p.iter_entries() if not e.redirect]
     p.close()
+    if every > 1:
+        entries = entries[::every]  # the full pack: every Nth article, still in title order
     if limit:
         entries = entries[:limit]
     n = len(entries)
@@ -1117,6 +1119,7 @@ def main(argv=None):
     ap.add_argument("--report", help="write the full detector report (markdown) here")
     ap.add_argument("--limit", type=int, default=0, help="scan only the first N articles")
     ap.add_argument("--workers", type=int, default=0, help="worker processes (default: cores minus two)")
+    ap.add_argument("--every", type=int, default=1, help="scan every Nth article (the full pack)")
     args = ap.parse_args(argv)
     gate_failed = False
     if args.summary:
@@ -1131,7 +1134,7 @@ def main(argv=None):
         if refused:
             gate_failed = True
         print(f"symbols spelled: {summary.get('symbols_translated', 0):,}; diacritics reduced to base letters: {summary.get('diacritics_dropped', 0):,}")
-    report, sample = scan(args.pack, args.sample, args.seed, limit=args.limit, workers=args.workers or None)
+    report, sample = scan(args.pack, args.sample, args.seed, limit=args.limit, workers=args.workers or None, every=args.every)
     # Mario, 2026-09-11: at the end nothing that reads as an artifact may
     # remain, whoever left it. These classes must be empty for the gate.
     artifacts = {name: report["signatures"][name]["articles"] for name in ARTIFACT_DETECTORS if report["signatures"][name]["hits"]}
