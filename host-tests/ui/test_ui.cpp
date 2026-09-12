@@ -12057,9 +12057,13 @@ void testWikipediaSearchRowsCarryTheirIndex() {
     if (waits != nullptr) CHECK(tapRun(out, waits).action != wikiui::ActionContinue);
     CHECK(out.target.drew("RANDOM ARTICLE"));
     CHECK(!out.target.drew("X"));
-    // A complete pack is no dead end: the count line opens the install screen.
+    // A complete pack is no dead end: the count line opens the install screen,
+    // and says so on its own line (the count plus "GET NEWER" did not fit one).
     const FakeTarget::TextRun* door = out.target.find(fresh.footer);
     CHECK(door != nullptr && tapRun(out, door).action == wikiui::ActionInstall);
+    const FakeTarget::TextRun* hint = out.target.find("TAP HERE FOR A NEWER PACK");
+    CHECK(hint != nullptr && tapRun(out, hint).action == wikiui::ActionInstall);
+    if (door != nullptr && hint != nullptr) CHECK(hint->rect.y > door->rect.y);
   }
   // The keyboard up with nothing typed: the doors stay, and the boxed X at
   // the field's end is what puts the keyboard down.

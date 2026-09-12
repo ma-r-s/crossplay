@@ -28,6 +28,9 @@ constexpr int16_t kCaptionHeight = 28;
 constexpr int16_t kFooterPad = 6;
 // The count line at the foot of the home: a hairline, then the words.
 constexpr int16_t kCountLine = 36;
+// The line under the count, "TAP HERE FOR A NEWER PACK": the count and a
+// door in one line did not fit the small cut on the panel ("GET NE...").
+constexpr int16_t kDoorLine = 30;
 
 fui::TextStyle textStyle(const fui::FontId font, const fui::TextAlign align,
                          const fui::Color colour = fui::Color::Black) {
@@ -296,14 +299,25 @@ int16_t drawRecent(toybox::Screen& screen, const SearchModel& model, int16_t y, 
 // The count line is also the way to a newer pack: a tap opens the install
 // screen, and the page then copies only the parts that changed. With a
 // complete pack the app had no way back to that screen at all.
-void drawCountLine(toybox::Screen& screen, const int16_t bottom, const char* text) {
+// `door`: the hint line under the count. Not while the keyboard is up: the
+// person is typing, the rows above are what they came for, and the line
+// would cost the one recent row that still fits.
+void drawCountLine(toybox::Screen& screen, const int16_t bottom, const char* text, const bool door) {
   const fui::Rect body = screen.body();
-  hairline(screen, static_cast<int16_t>(bottom - kCountLine));
-  const fui::Rect row{body.x, static_cast<int16_t>(bottom - kCountLine), body.width, kCountLine};
+  const int16_t height = static_cast<int16_t>(door ? kCountLine + kDoorLine : kCountLine);
+  const int16_t top = static_cast<int16_t>(bottom - height);
+  hairline(screen, top);
+  const fui::Rect row{body.x, top, body.width, height};
   drawLabel(screen,
-            fui::Rect{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(bottom - kCountLine + 4),
+            fui::Rect{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(top + 4),
                       static_cast<int16_t>(body.width - kMargin * 2), static_cast<int16_t>(kCountLine - 8)},
             text, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+  if (door) {
+    drawLabel(screen,
+              fui::Rect{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(top + kCountLine - 4),
+                        static_cast<int16_t>(body.width - kMargin * 2), static_cast<int16_t>(kDoorLine - 4)},
+              "TAP HERE FOR A NEWER PACK", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+  }
   screen.frame().hit(row, ActionInstall);
 }
 
@@ -331,7 +345,8 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
     return;
   }
   // The count line is reserved first; the trail gets what is left.
-  const int16_t list = static_cast<int16_t>(bottom - kCountLine);
+  const bool door = model.keyboardHeight == 0;
+  const int16_t list = static_cast<int16_t>(bottom - kCountLine - (door ? kDoorLine : 0));
   y = drawPartsRow(screen, model, y);
   {
     // The card: filled, the loudest thing on the page, when there is an
@@ -373,7 +388,7 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
   // The count line before the recent trail: the frame holds 24 targets and
   // registers the rest silently, so with the keyboard up the door to a newer
   // pack must be in before the rows that may not fit.
-  drawCountLine(screen, bottom, model.footer);
+  drawCountLine(screen, bottom, model.footer, door);
   drawRecent(screen, model, y, list);
 }
 
