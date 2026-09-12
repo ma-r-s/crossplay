@@ -333,7 +333,7 @@ DETECTORS = [
         "balance",
         "orphan_quote",
         "para",
-        re.compile(r"\"\s*\"|\(\s*\"\s*\)|\u201c\s*\u201d"),
+        re.compile(r"(?<![\w.,!?\"])\"\s*\"(?![\w\"])|\(\s*\"\s*\)|(?<![\w.,!?])\u201c\s*\u201d"),
         "an empty quotation",
     ),
     (
@@ -356,7 +356,7 @@ DETECTORS = [
         "stray_markup",
         "text",
         re.compile(
-            r"\{\{|\}\}|\[\[|\]\]|<ref\b|&lt;|&gt;|&nbsp;|&amp;|&#\d+;|&[a-z]{2,8};"
+            r"\{\{(?![a-z0-9 ,]{1,12}\})|(?<!\})\}\}(?![,}])|\[\[|\]\]|<ref\b|&lt;|&gt;|&nbsp;|&amp;|&#\d+;|&[a-z]{2,8};"
         ),
         "wikitext or HTML that should not be in the text",
     ),
@@ -364,7 +364,7 @@ DETECTORS = [
         "remnants",
         "wikitext_line",
         "para",
-        re.compile(r"^\s*[*#:;]{1,3}\s|'''|^==|==$|\|-|\|\}|\{\|"),
+        re.compile(r"^\s*[#:;]{1,3}\s|'''|^==|==$|\|-|\|\}|\{\|"),
         "a wikitext list marker, bold marks or table syntax",
     ),
     (

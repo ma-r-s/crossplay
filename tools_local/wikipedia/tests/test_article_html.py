@@ -855,6 +855,42 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Coordination", "Tetrahedral (Zn 2+), Tetrahedral (S 2\u2212)"), "Tetrahedral (Zn\u00b2\u207a), Tetrahedral (S\u00b2\u207b)")
         self.assertEqual(ah.fact_value("Declination", "6.63 \u00b0 to 35.69 \u00b0"), "6.63\u00b0 to 35.69\u00b0")
 
+    def test_cold_review_round_six(self):
+        # From the third cold read (2026-09-12): a unit rule that superscripted
+        # a date ("March 4" read "March⁴") because "March" ends in h; the
+        # whole token must be the unit, and an ion's charge follows an element
+        # symbol only. Citation page numbers in a row, a comma without its
+        # space, TeX the dump left outside any block, alternative years.
+        self.assertEqual(ah.fact_value("Died", "March 4, 1994, Durango"), "March 4, 1994, Durango")
+        self.assertEqual(ah.fact_value("Wade", "Li 3-ching 1"), "Li 3-ching 1")
+        self.assertEqual(ah.fact_value("Molar mass", "750.658 g\u00b7mol \u22121 and 3 m 2"), "750.658 g\u00b7mol\u207b\u00b9 and 3 m\u00b2")
+        self.assertEqual(ah.fact_value("Born", "26 May 1564: 90 /1563 Sirhind"), "26 May 1564/1563, Sirhind")
+        self.assertEqual(
+            ah.clean_text("over a phone.: S643 : S643 : 8 In adults; driven. : 32, 33, 105 : 184 Next; invasion,the land; A = A 1 A_{1}^{\\complement }\\quad A_{2}^{\\complement } end"),
+            "over a phone. In adults; driven. Next; invasion, the land; A = A 1 end",
+        )
+        # the assembled paragraph is scrubbed across its links: a label the
+        # dump left empty before ")" and a removed character at a boundary
+        secs = [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "The Hara (\"the quarter\"; Arabic:) and U+0374 \u02b9 GREEK sign.", "links": [{"url": "https://en.wikipedia.org/wiki/Hara", "text": "Hara"}, {"url": "https://en.wikipedia.org/wiki/Greek", "text": "GREEK"}]}]}]
+        _, _, x, _ = self.convert(name="D", sections=json.dumps(secs))
+        self.assertIn('("the quarter") and U+0374 <a href="Greek">GREEK</a> sign.', x)
+        self.assertNotIn("Arabic", x)
+        self.assertNotIn("  ", x)
+
+    def test_infobox_images_names_and_glued_lists(self):
+        boxes = [{"type": "infobox", "name": "Infobox settlement", "has_parts": [
+            {"type": "section", "name": "City", "has_parts": [
+                {"type": "field", "value": "Suspension bridge Memorial", "images": [{"caption": "x"}]},
+                {"type": "field", "name": "Country", "value": "Syria"},
+            ]},
+            {"type": "section", "name": "Korean name", "has_parts": [{"type": "field", "name": "Revised Romanization", "value": "Yegi"}]},
+            {"type": "section", "name": "Play", "has_parts": [{"type": "field", "name": "Characters", "value": "Atossa Ghost of Darius Xerxes", "links": [{"text": "Atossa"}, {"text": "Ghost of Darius"}, {"text": "Xerxes"}]}]},
+        ]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, infoboxes=json.dumps(boxes))
+        self.assertNotIn("Suspension", x)
+        self.assertIn("<tr><th>Korean name, Revised Romanization</th><td>Yegi</td></tr>", x)
+        self.assertIn("<tr><th>Characters</th><td>Atossa; Ghost of Darius; Xerxes</td></tr>", x)
+
     def test_infobox_captions_are_not_facts(self):
         boxes = [{"type": "infobox", "name": "Infobox settlement", "has_parts": [
             {"type": "section", "name": "City", "has_parts": [
@@ -871,8 +907,8 @@ class Rules(unittest.TestCase):
         self.assertNotIn("Suspension bridge", x)
         self.assertNotIn("Interactive map", x)
         self.assertIn("<tr><th>Country</th><td>Syria</td></tr>", x)
-        self.assertIn("<tr><th>Korean name, literal meaning</th><td>Rites Classic</td></tr>", x)
-        self.assertIn("<tr><th>Japanese name, literal meaning</th><td>Book of Rites</td></tr>", x)
+        self.assertIn("<tr><th>Korean name, Literal meaning</th><td>Rites Classic</td></tr>", x)
+        self.assertIn("<tr><th>Japanese name, Literal meaning</th><td>Book of Rites</td></tr>", x)
         self.assertNotIn("NFPA", x)
         self.assertNotIn("Reconstruction", x)
 
@@ -911,7 +947,7 @@ class Rules(unittest.TestCase):
         self.assertIn("<tr><th>President of Austria, chancellor</th><td>Leopold Figl</td></tr>", x)
         self.assertIn("<tr><th>President of Austria, preceded by</th><td>Wilhelm Miklas</td></tr>", x)
         self.assertIn("<tr><th>Area, total</th><td>303 km\u00b2 (117 sq mi)</td></tr>", x)
-        self.assertIn("<tr><th>Born</th><td>26 May 1564 /1563, Sirhind</td></tr>", x)
+        self.assertIn("<tr><th>Born</th><td>26 May 1564/1563, Sirhind</td></tr>", x)
         self.assertNotIn("Succeeded by", x)
         self.assertNotIn("Imperial conversion", x)
         self.assertNotIn("J F M A", x)

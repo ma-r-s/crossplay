@@ -97,7 +97,12 @@ _CONTROL = re.compile(
 _CITE = re.compile(r"\[\d+\]")
 # The page number a citation carried, left behind once the mark went:
 # "principles.: 6 The scope".
-_CITE_PAGE = re.compile(r"(?<=[.,;!?])\s?:\s?\d+(?:[\u2013-]\d+)?(?=\s|$)")
+# also "phone.: S643 : S643 : 8" and ". : 32, 33, 105 : 184" (rp templates in a row)
+_CITE_PAGE = re.compile(r"(?<=[.,;!?])(?:\s?:\s?[A-Z]?\d+(?:[\u2013-]\d+)?(?:,\s?\d+(?:[\u2013-]\d+)?)*)+(?=\s|$)")
+# "invasion,the territory": a comma the dump left without its space
+_COMMA_GLUE = re.compile(r"(?<=[a-z]),(?=[A-Za-z]{2,})")
+# "A_{1}^{\\complement }\\quad": TeX the dump left outside any block
+_TEX_LOOSE = re.compile(r"(?:\\[A-Za-z]+\s*|[A-Za-z]?[_^]\{[^{}]*\}\s*){2,}")
 _WS = re.compile(r"\s+")
 # A Greek letter standing alone is a symbol ("frequency \u03bd"), and the
 # reader's serif has no Greek; a Greek word beside other Greek is a run the
@@ -325,12 +330,16 @@ def clean_text(s):
         s = _SENTENCE_GLUE.sub(r"\1 \2", s)
     if "listen" in s:
         s = _LISTEN.sub("", s)
+    if "," in s:
+        s = _COMMA_GLUE.sub(", ", s)
     s = _YEAR_GLUE.sub(r"\1 ", s)
     if not s:
         return ""
     s = _CONTROL.sub("", s)
     if "style" in s and _TEX_OPEN.search(s):
         s = _render_tex(s)
+    if "\\" in s:
+        s = _TEX_LOOSE.sub("", s)  # TeX the dump left outside any block
     if "{{" in s:
         s = _TEMPLATE.sub("", s)
     s = _CITE.sub("", s)
@@ -857,6 +866,33 @@ _PAREN_THEN_ITEM = re.compile(r"\)\s+(?=[A-Z])")
 _DATE_KEYS = frozenset(("born", "died", "birth date", "death date"))
 
 
+_NAME_GROUP = re.compile(r"\bnames?$", re.I)  # "Korean name", "Chinese name": every row carries it
+
+
+def _split_at_links(value, links):
+    """"Atossa Messenger Ghost of Darius Xerxes" with links for Atossa, Ghost
+    of Darius and Xerxes is three items the dump glued; where one link's
+    text starts right after another ends, a "; " goes between them."""
+    if not links or len(links) < 2:
+        return value
+    texts = [lk.get("text") for lk in links if isinstance(lk, dict) and isinstance(lk.get("text"), str) and lk.get("text")]
+    if len(texts) < 2:
+        return value
+    out = value
+    pos = 0
+    prev_end = None
+    for t in texts:
+        i = out.find(t, pos)
+        if i < 0:
+            continue
+        if prev_end is not None and out[prev_end:i].strip() == "" and i - prev_end <= 1:
+            out = out[:prev_end] + "; " + out[i:]
+            i = prev_end + 2
+        prev_end = i + len(t)
+        pos = prev_end
+    return out
+
+
 _FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion", "NFPA 704 (fire diamond)", "NFPA 704"))
 _FACT_JUNK_VALUE = re.compile(r"^[\W_]*$|^\* ")
 _NAMELESS_FACT = re.compile(r"\d|^In office|^Term|^Reign")
@@ -866,7 +902,8 @@ _ELEMENT_COUNT = re.compile(r"(?<=[A-Za-z\)\]]) (\d{1,3})(?=[A-Z(\[\s]|$)")
 _FORMULA_GAP = re.compile(r"(?<=[A-Za-z\u2080-\u2089)\]]) (?=[A-Z(\[])")
 # "g·mol −1", "m s −2": a unit's exponent
 _UNIT_EXPONENT = re.compile(r"(?<=[a-zA-Z]) ([\u2212-]?\d)(?=\b)")
-_UNIT_BEFORE = re.compile(r"(?:mol|kg|g|m|cm|mm|km|s|K|J|Hz|Pa|N|V|A|W|C|L|dm|cd|sr|rad|h|min|yr|Bq|Gy|Sv|T|H|F|S|Wb|lm|lx)$")
+_UNIT_BEFORE = re.compile(r"^(?:mol|kg|g|m|cm|mm|km|s|K|J|Hz|Pa|N|V|A|W|C|L|dm|cd|sr|rad|h|min|yr|Bq|Gy|Sv|T|H|F|S|Wb|lm|lx)$")
+_ELEMENT_BEFORE = re.compile(r"(?:^|[\s(])([A-Z][a-z]?)$")
 # "Zn 2+", "S 2−": an ion's charge
 _ION = re.compile(r"(?<=[A-Za-z]) (\d?[+\u2212-])(?=[\s),]|$)")
 _DEGREE_GAP = re.compile(r"(?<=\d) \u00b0")
@@ -884,6 +921,13 @@ _PRONUNCIATION_FIELD = re.compile(r"pronunciation|\bIPA\b|pronounced", re.I)
 _YEAR_PAGE = re.compile(r"(?<=\d{4}):\s?\d{1,4}\b(?=\s*[/,;.]|\s+[A-Z(]|$)")
 
 
+def _ion_charge(m):
+    head = m.string[: m.start()]
+    if _ELEMENT_BEFORE.search(head):
+        return m.group(1).translate(_SUPER)
+    return m.group(0)
+
+
 def _unit_exponent(m):
     head = m.string[: m.start()]
     unit = re.search(r"[A-Za-z]+$", head)
@@ -897,10 +941,11 @@ def fact_value(name, value):
         return value
     value = _AGE.sub("", value)
     value = _YEAR_PAGE.sub("", value)
+    value = re.sub(r"(\d{4}) /(\d{4})\b", r"\1/\2", value)
     if _FORMULA_ROW.search(name):
         value = _ELEMENT_COUNT.sub(lambda m: m.group(1).translate(_SUB), value)
         value = _FORMULA_GAP.sub("", value)
-    value = _ION.sub(lambda m: m.group(1).translate(_SUPER), value)
+    value = _ION.sub(_ion_charge, value)
     value = _UNIT_EXPONENT.sub(_unit_exponent, value)
     value = _DEGREE_GAP.sub("\u00b0", value)
     if name.lower() in _DATE_KEYS:
@@ -999,7 +1044,7 @@ class _Doc:
                 + "</b>"
                 + self._emit(text, be, len(text), links)
             )
-        return self._emit(text, 0, len(text), links)
+        return _scrub_inline(self._emit(text, 0, len(text), links))
 
     @staticmethod
     def _emit(text, lo, hi, links):
@@ -1016,6 +1061,7 @@ class _Doc:
 
     def plain(self, s):
         return esc(strip_undrawable(clean_text(s), self.stats))
+
 
     # --- blocks ------------------------------------------------------------
     def paragraph(self, part, lead=False):
@@ -1170,6 +1216,8 @@ class _Doc:
                 cells = cells[:1]
             for j, c in enumerate(cells):
                 c = cut_words(c, TABLE_ROW_CELL_WORDS)
+                if len(c.split(" ")) >= TABLE_ROW_CELL_WORDS:
+                    c, _ = scrub_artifacts(c)  # a cut can leave a parenthesis open
                 if not c:
                     continue
                 label = labels[j] if j < len(labels) else ""
@@ -1307,15 +1355,21 @@ class _Doc:
                     group = name
             if t == "field" and isinstance(p.get("value"), str):
                 fname = p.get("name")
+                if p.get("images"):
+                    return  # the field is an image and its value is the caption
+                value = _split_at_links(p["value"], p.get("links"))
+                if group and _NAME_GROUP.search(group) and fname:
+                    add(group + ", " + fname.strip(), value, group)
+                    return
                 if not fname:
                     # "In office 1945 - 1950" under its office; a caption in a
                     # section that holds an image is the image's, not a fact
-                    if group and not has_image.get(group) and _NAMELESS_FACT.search(p["value"]):
-                        add(group, p["value"])
+                    if group and not has_image.get(group) and _NAMELESS_FACT.search(value):
+                        add(group, value)
                 elif group and fname.strip().lower() in _GENERIC_FIELDS:
-                    add(group + ", " + fname.strip().lower(), p["value"])
+                    add(group + ", " + fname.strip().lower(), value)
                 else:
-                    add(fname, p["value"], group)
+                    add(fname, value, group)
             elif t == "list" and p.get("name"):
                 items = [
                     clean_text(it.get("value"))
@@ -1336,7 +1390,7 @@ class _Doc:
         # and the Japanese name) carries its group
         dup = {name for name, gs in groups.items() if len(gs) > 1}
         fields = [
-            (group + ", " + name[:1].lower() + name[1:] if name in dup and group else name, value)
+            (group + ", " + name if name in dup and group else name, value)
             for name, value, group in fields
         ]
         self.stats["facts"] = self.stats.get("facts", 0) + len(fields)
@@ -1446,6 +1500,31 @@ def heading_bytes(text):
     while b and (b[-1] & 0xC0) == 0x80:
         b = b[:-1]
     return b[:-1] if b and b[-1] >= 0xC0 else b
+
+
+
+_INLINE_DOUBLE_SPACE = re.compile(r"(?<=\S)  +(?=\S)")
+_INLINE_EMPTY_LABEL = re.compile(
+    r"(?<![A-Za-z0-9>])[A-Z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?:</a>)?\s*(?=[;,)]|</)"
+)
+_INLINE_TIDY = (
+    (re.compile(r"\(\s*[;,]\s*"), "("),
+    (re.compile(r"\s*[;,]\s*\)"), ")"),
+    (re.compile(r"\s?\(\s*\)"), ""),
+    (re.compile(r"\s+([,;)])"), r"\1"),
+)
+
+
+def _scrub_inline(html_text):
+    """The text was stripped in pieces around its links, so a label whose
+    content went could not see the ")" after it and a removed character
+    left two spaces at a piece boundary. One pass over the assembled line."""
+    if "  " in html_text or ":" in html_text:
+        html_text = _INLINE_DOUBLE_SPACE.sub(" ", html_text)
+        html_text = _INLINE_EMPTY_LABEL.sub("", html_text)
+        for rx, rep_ in _INLINE_TIDY:
+            html_text = rx.sub(rep_, html_text)
+    return html_text
 
 
 def article_xhtml(row, stats=None):
