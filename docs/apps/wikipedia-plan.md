@@ -423,6 +423,15 @@ before it ships:
 - `twenty.sh` opens the app in the simulator and photographs twenty
   random articles, the test no regex replaces.
 
+**Maths (2026-09-11, Mario's constraint: nothing more in flash).** The
+dump writes every formula twice, flattened words and TeX; the words lose
+every index. `tex_text.py` renders the TeX into linear text the serif
+draws (real superscript and subscript digits, "a/b", "sqrt(x)", "sum from
+i = 1 to n of", "[a, b; c, d]") and replaces the words when they match
+what MathML would have shown for that TeX; otherwise the words stay and
+the TeX goes. Counted per build (formulas_rendered, formulas_unmatched);
+96% of formulas render on the essentials.
+
 What the census decided, in order: a pronunciation between slashes or
 brackets goes whole and first; a symbol the serif lacks is spelled
 (`symbols.py`, written from the census, most frequent first); a letter
@@ -433,9 +442,12 @@ looks up the precomposed letter the serif lacks: a box on the panel,
 measured on the simulator); a letter of an orthography the serif lacks
 becomes the plain letter it stands in for, inside a word only; a Greek
 word or a native-script name goes with its label, the romanisation beside
-it stays. The way to lose nothing is a font on the card carrying Greek,
-IPA, Latin Extended Additional and the maths blocks, loaded by the app
-when present; that is the next piece of work, and Mario's call on scope. The full pack does
+it stays. Mario's call (2026-09-11): Greek is defensible, IPA, Cyrillic
+and the other scripts are not ("if I can't even read them why would I
+want them here"); so Greek and Cyrillic words are romanised in place
+(`symbols.romanize`), pronunciations go whole, the rest goes with its
+label, and nothing more goes into flash. A font on the card stays a
+possible later card, measured on the device for page-turn cost first. The full pack does
 not publish until the gate passes on the essentials built from the same
 rules.
 

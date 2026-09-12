@@ -300,7 +300,7 @@ DETECTORS = [
     ),
     # --- balance
     ("balance", "empty_parens", "para", re.compile(r"\(\s*[,;:\s]*\)"), "an empty parenthetical: its content was removed"),
-    ("balance", "double_paren", "para", re.compile(r"\(\([^()]*\)\)|\)\)(?![^(]*\()"), "((x)) around one thing, or two closers with nothing opened between them"),
+    ("balance", "double_paren", "para", re.compile(r"\(\([^()]*\)\)"), "((x)) around one thing, or two closers with nothing opened between them"),
     (
         "balance",
         "punct_only_parens",
@@ -1061,10 +1061,16 @@ ACCEPTED_BLOCKS = (
     ("Symbols for legacy computing", 0x1FB00, 0x1FBFF), ("Chess and games", 0x1FA00, 0x1FA6F), ("Ornamental dingbats", 0x1F650, 0x1F67F),
     ("Alchemical", 0x1F700, 0x1F77F), ("Geometric extended", 0x1F780, 0x1F7FF), ("Supplemental arrows C", 0x1F800, 0x1F8FF),
 )
+# Greek and Cyrillic are removed only where a romanisation stands beside
+# them (elsewhere they are romanised in place), so their removal is accepted.
+ACCEPTED_BLOCKS = ACCEPTED_BLOCKS + (
+    ("Greek", 0x0370, 0x03FF), ("Greek extended", 0x1F00, 0x1FFF), ("Cyrillic", 0x0400, 0x04FF),
+    ("Cyrillic supplement", 0x0500, 0x052F),
+)
 WATCH_BLOCKS = (
-    ("Greek", 0x0370, 0x03FF), ("Greek extended", 0x1F00, 0x1FFF), ("Latin extended additional", 0x1E00, 0x1EFF),
-    ("Latin extended B", 0x0180, 0x024F), ("Latin extended C/D", 0x2C60, 0x2C7F), ("Cyrillic", 0x0400, 0x04FF),
-    ("Cyrillic supplement", 0x0500, 0x052F), ("General punctuation", 0x2000, 0x206F),
+    ("Latin extended additional", 0x1E00, 0x1EFF),
+    ("Latin extended B", 0x0180, 0x024F), ("Latin extended C/D", 0x2C60, 0x2C7F),
+    ("General punctuation", 0x2000, 0x206F),
     ("Super and subscripts", 0x2070, 0x209F), ("Currency", 0x20A0, 0x20CF), ("Letterlike", 0x2100, 0x214F),
     ("Number forms", 0x2150, 0x218F), ("Arrows", 0x2190, 0x21FF), ("Mathematical operators", 0x2200, 0x22FF),
     ("Misc technical", 0x2300, 0x23FF), ("Supplemental math", 0x2A00, 0x2AFF), ("Misc math A/B", 0x27C0, 0x27EF),

@@ -38,7 +38,7 @@ class Render(unittest.TestCase):
             (r"\tau _{*}={\frac {u_{*}^{2}}{(s-1)gd}}", "tau_* = (u_*²)/((s−1)gd)"),
             (r"a\leq b\neq c\approx d\in S\subseteq T", "a <= b != c ~ d in S subset of T"),
             (r"\alpha +\beta =\gamma", "alpha + beta = gamma"),
-            (r"{\text{gain-db}}=10\log _{10}\left({\frac {P_{\text{out}}}{P_{\text{in}}}}\right)~{\text{dB}}", "gain-db = 10 log₁₀ ((P_out)/(P_in)) dB"),
+            (r"{\text{gain-db}}=10\log _{10}\left({\frac {P_{\text{out}}}{P_{\text{in}}}}\right)~{\text{dB}}", "gain-db = 10 log₁₀((P_out)/(P_in)) dB"),
             (r"\binom {n}{k}", "C(n, k)"),
             (r"\sqrt[3]{x}", "root(3, x)"),
             (r"x_{i+1}", "x_(i + 1)"),

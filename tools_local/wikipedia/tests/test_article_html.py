@@ -745,7 +745,7 @@ class Rules(unittest.TestCase):
             # every TeX wrapper goes, not just displaystyle; a citation template
             # left in the prose goes with its maintenance note; nested list
             # items the source ran together after a year come apart
-            ("log 10 (d + 1 d) {\\textstyle \\log _{10}\\left({\\frac {d+1}{d}}\\right)}. The", "log 10 (d + 1 d). The"),
+            ("log 10 (d + 1 d) {\\textstyle \\log _{10}\\left({\\frac {d+1}{d}}\\right)}. The", "log\u2081\u2080((d + 1)/d). The"),
             ("teach it to me. {{ cite journal }}: CS1 maint: DOI inactive as of June 2024 (link) Next", "teach it to me. Next"),
             ("Fowler & Bean, 1929Genus Naso, 1801 and 1990s", "Fowler & Bean, 1929 Genus Naso, 1801 and 1990s"),
         ]:
@@ -766,7 +766,7 @@ class Rules(unittest.TestCase):
     def test_math_and_greek(self):
         self.assertEqual(
             ah.clean_text("in which n 2 {\\displaystyle n_{2}} is the density"),
-            "in which n 2 is the density",
+            "in which n\u2082 is the density",
         )
         self.assertEqual(
             ah.clean_text("= h 4 n 2 A 21, {\\displaystyle \\varepsilon ={\\frac {h\\nu }{4\\pi }}n_{2}A_{21},} where"),
