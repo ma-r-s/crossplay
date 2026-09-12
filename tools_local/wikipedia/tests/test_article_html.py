@@ -527,9 +527,55 @@ class Rules(unittest.TestCase):
             "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2 &amp; 3</td></tr></table>",
             x,
         )
-        self.assertEqual(x.count(TABLE_OMITTED), 4)
+        # t2 has headers and no rows and t5 has nothing: neither leaves a
+        # mark. t3 (a 33-word cell) and t4 (a 513-byte cell) are too big for
+        # the panel's grid and become one paragraph per row. Only the table
+        # the row does not carry is a notice.
+        self.assertEqual(x.count(TABLE_OMITTED), 1)
         self.assertEqual(st["tables_kept"], 1)
-        self.assertEqual(st["tables_omitted"], 4)
+        self.assertEqual(st["tables_omitted"], 1)
+        self.assertEqual(st["tables_listed"], 2)
+        self.assertIn("<p><b>" + " ".join(["w"] * 33) + "</b></p>", x)
+
+    def test_wide_table_becomes_row_paragraphs(self):
+        tables = [
+            {
+                "identifier": "t1",
+                "headers": [[{"value": "Year"}, {"value": "Category"}, {"value": "Work"}, {"value": "Result"}, {"value": "Ref."}]],
+                "rows": [
+                    [{"value": "1984"}, {"value": "Best Comedy Recording"}, {"value": "Eat It"}, {"value": "Won"}, {}],
+                    [{"value": "1985"}, {"value": "Best Comedy Recording"}, {"value": ""}, {"value": "Nominated"}, {"value": "[3]"}],
+                ],
+            }
+        ]
+        secs = [{"type": "section", "name": "Awards", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
+        _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
+        self.assertIn("<p><b>1984</b>; Category: Best Comedy Recording; Work: Eat It; Result: Won</p>", x)
+        self.assertIn("<p><b>1985</b>; Category: Best Comedy Recording; Result: Nominated</p>", x)
+        self.assertNotIn("Ref", x)
+        self.assertEqual(st["tables_listed"], 1)
+        self.assertNotIn("tables_kept", st)
+
+    def test_empty_sections_go_and_ids_renumber(self):
+        secs = [
+            {"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Lead."}]},
+            {"type": "section", "name": "Pictures", "has_parts": [{"type": "image", "images": []}]},
+            {
+                "type": "section",
+                "name": "Boxes",
+                "has_parts": [
+                    {"type": "section", "name": "Nav", "has_parts": [{"type": "table", "table_references": [{"identifier": "nav"}]}]},
+                ],
+            },
+            {"type": "section", "name": "Later", "has_parts": [{"type": "paragraph", "value": "More."}]},
+        ]
+        tables = [{"identifier": "nav", "rows": [[{"value": "This box: view talk edit"}, {"value": "x"}]]}]
+        _, heads, x, st = self.convert(name="Test", sections=json.dumps(secs), tables=json.dumps(tables))
+        self.assertEqual(heads, ["Later"])
+        self.assertEqual(x, '<html><body><h1>Test</h1><p>Lead.</p><h2 id="s1">Later</h2><p>More.</p></body></html>')
+        self.assertEqual(st["empty_sections_dropped"], 3)
+        self.assertEqual(st["navboxes_dropped"], 1)
+        self.assertNotIn("tables_omitted", st)
 
     def test_undrawable_runs(self):
         _, _, x, st = self.lead(
@@ -603,14 +649,14 @@ class Rules(unittest.TestCase):
             # Symbols the serif lacks are spelled, not dropped: "where a 0" said
             # something false. A lone Greek letter is a symbol and gets its
             # name; a Greek word is a run and goes.
-            ("where a \u2260 0 and x \u2264 \u22121", "where a != 0 and x <= -1"),
+            ("where a \u2260 0 and x \u2264 \u22121", "where a != 0 and x <= \u22121"),
             ("Goudreau \u2014on backup vocals, 1990\u2013 1995, and a spaced \u2014 dash stays", "Goudreau\u2014on backup vocals, 1990\u20131995, and a spaced \u2014 dash stays"),
             # From a reviewer's read of thirty articles (2026-09-11): a letter whose
             # accented form the serif lacks keeps its base letter; a pronunciation
             # guide's word does not outlive the guide; the mixed-number template
             # reads as a number; a spaced unit power is a power; an entity the
             # source escaped twice is a character.
-            ("known as a ma\u1e47\u1e0dal\u012b.", "known as a mandal\u012b."),
+            ("known as a ma\u1e47\u1e0dal\u012b.", "known as a man\u0323d\u0323al\u012b."),
             ("Elchingen (pronounced [mi\u0283\u025bl ne]; 10 January 1769) was", "Elchingen (10 January 1769) was"),
             ("6\u201312 cm (2 + 1 \u2044 4 \u2013 4 + 3 \u2044 4 in) long", "6\u201312 cm (2 1/4 \u2013 4 3/4 in) long"),
             ("Density 3,855/km 2 (9,985/sq mi)", "Density 3,855/km\u00b2 (9,985/sq mi)"),
@@ -624,9 +670,26 @@ class Rules(unittest.TestCase):
                 "Oceania (UK: OH-s(h)ee-AH-nee-\u0259, -AY-, US: OH-shee-A(H)N-ee-\u0259) is a region",
                 "Oceania is a region",
             ),
+            # From the character census of the essentials (2026-09-11). A
+            # letter whose mark the serif has is drawn as letter plus mark,
+            # nothing lost; a compatibility character is its plain form; a
+            # flat or sharp is spelled, because "D major" is a different key;
+            # a suffix written on its own keeps its space.
+            ("Ma\u1e25m\u016bd Mu\u1e63\u1e6daf\u0101", "Mah\u0323m\u016bd Mus\u0323t\u0323af\u0101"),
+            ("at 25 \u2103, page \u216b, item \u2460, \U0001d513 4", "at 25 \u00b0C, page XII, item 1, P 4"),
+            ("in D \u266d major and F \u266f minor, B\u266e", "in D-flat major and F-sharp minor, B-natural"),
+            ("Final -m was dropped; the suffix -ing and -am, -em, -um; a Protestant -led group", "Final -m was dropped; the suffix -ing and -am, -em, -um; a Protestant-led group"),
+            ("Mass \u2273 10 5 M\u2609 and \u2205 \u2229 A", "Mass >~ 10 5 M(sun) and empty set intersect A"),
         ]
         for src, want in cases:
             self.assertEqual(ah.strip_undrawable(src, {}, lead=True), want, src)
+        # clean_text repairs what the source flattened before any rule runs:
+        # a lost space after a period, a power of ten as a spaced digit.
+        for src, want in [
+            ("lasted 28 days.The truce held, e.g.The end, Inc.The", "lasted 28 days. The truce held, e.g.The end, Inc.The"),
+            ("Mass 10 5 M and 10 -3 m, the year 10 and 10 5,000 and 10 5.5", "Mass 10\u2075 M and 10\u207b\u00b3 m, the year 10 and 10 5,000 and 10 5.5"),
+        ]:
+            self.assertEqual(ah.clean_text(src), want, src)
         # Left alone: a period that starts a word, an inch mark, an apostrophe,
         # a clock time, a label with a value.
         for src in [
@@ -684,6 +747,17 @@ class Rules(unittest.TestCase):
         self.assertIsNone(ah.person_alias({"name": "Einstein coefficients", "infoboxes": "[]"}))
         self.assertIsNone(ah.person_alias({"name": "Tokyo", "infoboxes": born}))
         self.assertIsNone(ah.person_alias({"name": "Battle of Hastings (1066)", "infoboxes": born}))
+
+    def test_fact_repeating_its_name_goes(self):
+        boxes = [{"name": "Infobox", "has_parts": [
+            {"type": "field", "name": "Works", "value": "Works"},
+            {"type": "field", "name": "Coordinates", "value": "34\u00b030\u2032N 109\u00b018\u2032E / 34.500\u00b0N 109.300\u00b0E"},
+            {"type": "field", "name": "Born", "value": "1959"},
+        ]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, infoboxes=json.dumps(boxes))
+        self.assertNotIn("Works", x)
+        self.assertIn("<td>34\u00b030\u2032N 109\u00b018\u2032E</td>", x)
+        self.assertIn("1959", x)
 
     def test_fact_value(self):
         self.assertEqual(

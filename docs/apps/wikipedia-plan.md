@@ -267,8 +267,11 @@ measured at 300 to 500 MB a month) is the v2 of this screen.
 ## What is deliberately not there
 
 - No full-text search. No images. No references, citations, navboxes,
-  external links, coordinates, categories. Math keeps its TeX text. Complex
-  tables are dropped with a one-line note; simple ones stay.
+  external links, categories. Math keeps its words and loses its TeX. A
+  table the panel's grid can hold stays a table; a wider one becomes one
+  paragraph per row, each cell labelled by its column header; a table the
+  row does not carry leaves a one-line note. A section with nothing left
+  under it (its only content was an image or a navbox) has no heading.
 - No settings inside the app beyond the pack row. Font, size, margins are the
   reader's settings, so Wikipedia changes when the reader does.
 - No account, no server of ours in the reading path. The pack is files on a
@@ -466,7 +469,8 @@ in the format:
   (the source has no inline styling; this one is recoverable and it is the
   Wikipedia convention people recognise). Ordered lists carry their
   numbers as text. "Simple table" means what the engine draws without
-  stacking: at most four columns, at most 32 words and 512 bytes a cell.
+  stacking: at most four columns, at most 32 words and 512 bytes a cell;
+  anything wider is listed row by row (`table_rows` in article_html.py).
   The infobox is a QUICK FACTS section of `<p><b>Key</b> value</p>` rows,
   listed in CONTENTS.
 - **The reader.** `Section` gets an explicit-path constructor (html path,

@@ -36,6 +36,9 @@ FACT_WORDS = 28  # under the layout engine's 32-word cell cap, so the grid never
 TABLE_MAX_COLS = 4
 TABLE_CELL_WORDS = 32
 TABLE_CELL_BYTES = 512
+TABLE_ROWS_LISTED = 60  # a wide table becomes at most this many row paragraphs
+TABLE_ROW_CELL_WORDS = 60  # a cell in such a row is a phrase, not a grid cell
+_REF_COLUMN = re.compile(r"^(?:ref\.?s?|refs?\.|notes?|sources?|citations?)$", re.I)
 HEADING_MAX_BYTES = 255
 TABLE_OMITTED = "<p><i>(a table was omitted)</i></p>"
 
@@ -194,10 +197,21 @@ def esc_attr(s):
     return esc(s).replace('"', "&quot;")
 
 
+# "lasted 28 days.The truce": the source lost the space where a citation
+# stood. Three letters before the period so "e.g.The" and initials stay.
+_SENTENCE_GLUE = re.compile(r"([a-z]{3,}[.!?])([A-Z][a-z]{2,})")
+# "10 5 M": a power of ten whose exponent the source flattened into a spaced
+# digit; the serif has superscript digits and the superscript minus.
+_TEN_POWER = re.compile(r"(?<![\d.,\u2212-])\b10 (-?)(\d{1,2})\b(?![.,:]\d|%| ?[-\u2013]\d)")
+_SUPERSCRIPT = str.maketrans("0123456789-", "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u207b")
+
+
 def clean_text(s):
+    """Controls out, citation marks out, whitespace collapsed."""
     if "&" in s:
         s = html.unescape(s)  # "22 &amp;amp; 23 Geo. 5": the source escaped it twice
-    """Controls out, citation marks out, whitespace collapsed."""
+    if "." in s:
+        s = _SENTENCE_GLUE.sub(r"\1 \2", s)
     if not s:
         return ""
     s = _CONTROL.sub("", s)
@@ -206,7 +220,10 @@ def clean_text(s):
     s = _CITE.sub("", s)
     s = _CITE_PAGE.sub("", s)
     s = _GREEK_ALONE.sub(lambda m: _GREEK_NAMES.get(m.group(1), m.group(1)), s)
-    return _WS.sub(" ", s).strip()
+    s = _WS.sub(" ", s).strip()
+    if "10 " in s:
+        s = _TEN_POWER.sub(lambda m: "10" + (m.group(1) + m.group(2)).translate(_SUPERSCRIPT), s)
+    return s
 
 
 def _close_quote_gaps(text):
@@ -264,6 +281,26 @@ _PUNCT_GAP = re.compile(r"(?<=\S)[ \u00a0]+([,.;!?])(?=\s|$)")
 # backup vocals": 2,372 em dashes and 624 en dashes in the essentials).
 # A dash spaced on both sides is a style and stays.
 _HYPHEN_BEFORE = re.compile(r"(?<=\w)[ \u00a0]+([-\u2013\u2014])(?=\w)")
+# A suffix or ending written on its own keeps its space: "Final -m was
+# dropped", "the suffix -ing", "-am, -em, -um". One or two letters after the
+# hyphen, or a word of grammar before it, is that and not a padded link.
+_SUFFIX_TAIL = re.compile(r"[A-Za-z]{1,2}(?![A-Za-z])")
+_SUFFIX_HEADS = frozenset(
+    "suffix suffixes prefix prefixes ending endings final initial affix affixes infix marker "
+    "markers particle particles morpheme morphemes form forms clitic clitics stem stems".split()
+)
+
+
+def _hyphen_before(m):
+    text = m.string
+    if m.group(1) != "-":
+        return m.group(1)
+    if _SUFFIX_TAIL.match(text, m.end()):
+        return m.group(0)
+    head = text[: m.start()].split()
+    if head and head[-1].lower().strip(",;:") in _SUFFIX_HEADS:
+        return m.group(0)
+    return m.group(1)
 _HYPHEN_AFTER = re.compile(r"(?<=\w)([-\u2013\u2014])[ \u00a0]+(?=(?!(?:and|or)\b)\w)")
 # Wikipedia's respelling, "(TAM-ilz, TAHM-)": syllables in capitals joined by
 # hyphens, two of them or one ending in a hyphen, and nothing else in the
@@ -278,7 +315,9 @@ _EMPTY_PAREN_ANY = re.compile(r"\s?\(\s*[,;:\s]*\)")
 # "(pronounced; 10 January 1769": the guide went, its word stayed.
 _PRONOUNCED = re.compile(r"\(?\s*\bpronounced\b\s*(?=[;,)])")
 # "2 + 1 / 4 in": the mixed-number template, once its fraction slash is a slash.
-_MIXED_NUMBER = re.compile(r"\b(\d+) \+ (\d+) ?/ ?(\d+)\b")
+_MIXED_NUMBER = re.compile(r"\b(\d+) \+ (\d+) ?[/\u2044] ?(\d+)\b")
+# "1 \u2044 4": the fraction slash the serif draws, spaced by the source.
+_FRACTION_GAP = re.compile(r"(?<=\d) ?\u2044 ?(?=\d)")
 # "3,855/km 2": the superscript came through as a spaced digit.
 _UNIT_POWER = re.compile(r"\b(km|m|cm|mm|mi|ft|yd|in|nmi)\s+([23])\b(?!,\d|\.\d| [a-z])")
 _POWERS = {"2": "\u00b2", "3": "\u00b3"}
@@ -290,39 +329,71 @@ def _close_inline_gaps(text):
     text, z = _EMPTY_PAREN_ANY.subn("", text)
     text, z2 = _PRONOUNCED.subn(lambda m: "(" if m.group(0).lstrip().startswith("(") else "", text)
     text, z3 = _MIXED_NUMBER.subn(r"\1 \2/\3", text)
+    text, z5 = _FRACTION_GAP.subn("\u2044", text)
+    z3 += z5
     text, z4 = _UNIT_POWER.subn(lambda m: m.group(1) + _POWERS[m.group(2)], text)
     z += z2 + z3 + z4
     text, a = _CLITIC_GAP.subn(r"\1\2", text)
     text, b = _PUNCT_GAP.subn(r"\1", text)
-    text, c = _HYPHEN_BEFORE.subn(r"\1", text)
+    text, c = _HYPHEN_BEFORE.subn(_hyphen_before, text)
     text, d = _HYPHEN_AFTER.subn(r"\1", text)
     text, e = _RESPELL.subn("", text)
     return text, a + b + c + d + e + z
 
 
-def _base_letters(text):
-    """A Latin letter whose accented form the serif lacks keeps its base
-    letter: "ma\u1e47\u1e0dal\u012b" reads "mandali", not "maali". Deleting the
-    letter made a wrong word with no hole in it (every Sanskrit, Arabic and
-    Egyptological transliteration). Returns (text, n)."""
+_ok_re = None
+
+
+def _fold_chars(text):
+    """A code point the serif lacks becomes something it draws, losing as
+    little as possible, in this order:
+
+    1. its compatibility form when that is drawable: a circled digit is the
+       digit, a fullwidth comma a comma, a script or fraktur capital the
+       capital, "\u2103" is "\u00b0C" (NFKC);
+    2. its base letter plus the combining mark, when the mark is in the
+       serif and the renderer overlays it: "\u1e25" is "h" + U+0323, drawn as
+       an h with a dot below, nothing lost (NFD, marks kept);
+    3. its base letter alone: "ma\u1e47\u1e0dal\u012b" reads "mandali", not
+       "maali", when the mark cannot be drawn (NFD, marks dropped). This
+       loses the accent and is counted, since deleting the letter made a
+       wrong word with no hole in it.
+
+    Anything else stays for the run rules. Returns (text, {counts})."""
+    global _ok_re
     run_re, _ = _runs()
     if not run_re.search(text):
-        return text, 0
-    ok = re.compile("[" + drawable_class() + "]")
+        return text, {}
+    if _ok_re is None:
+        _ok_re = re.compile("[" + drawable_class() + "]")
+    ok = _ok_re
     out = []
-    n = 0
+    counts = {}
+
+    def drawable(s):
+        return bool(s) and all(ok.match(c) for c in s)
+
     for ch in text:
-        if ok.match(ch) or not ch.isalpha():
+        if ok.match(ch):
             out.append(ch)
             continue
-        base = unicodedata.normalize("NFD", ch)
-        base = "".join(c for c in base if not unicodedata.combining(c))
-        if base and all(ok.match(c) for c in base):
+        compat = unicodedata.normalize("NFKC", ch)
+        if compat != ch and drawable(compat):
+            out.append(compat)
+            counts["compat_folded"] = counts.get("compat_folded", 0) + 1
+            continue
+        decomposed = unicodedata.normalize("NFD", ch)
+        if len(decomposed) > 1 and drawable(decomposed):
+            out.append(decomposed)
+            counts["letters_decomposed"] = counts.get("letters_decomposed", 0) + 1
+            continue
+        base = "".join(c for c in decomposed if not unicodedata.combining(c))
+        if ch.isalpha() and base != ch and drawable(base):
             out.append(base)
-            n += 1
-        else:
-            out.append(ch)
-    return "".join(out), n
+            counts["diacritics_dropped"] = counts.get("diacritics_dropped", 0) + 1
+            continue
+        out.append(ch)
+    return "".join(out), counts
 
 
 def strip_undrawable(text, stats, lead=False):
@@ -334,9 +405,9 @@ def strip_undrawable(text, stats, lead=False):
     text, n = symbols.translate(text)
     if n:
         stats["symbols_translated"] = stats.get("symbols_translated", 0) + n
-    text, n = _base_letters(text)
-    if n:
-        stats["diacritics_dropped"] = stats.get("diacritics_dropped", 0) + n
+    text, folded = _fold_chars(text)
+    for k, n in folded.items():
+        stats[k] = stats.get(k, 0) + n
     if not text:
         return text
     run_re, labelled_re = _runs()
@@ -652,7 +723,7 @@ class _Doc:
             html = self.table_html(tb) if tb else TABLE_OMITTED
             if html == TABLE_OMITTED:
                 self.stats["tables_omitted"] = self.stats.get("tables_omitted", 0) + 1
-            elif html:
+            elif html.startswith("<table>"):
                 self.stats["tables_kept"] = self.stats.get("tables_kept", 0) + 1
             if html:
                 self.out.append(html)
@@ -674,21 +745,21 @@ class _Doc:
                     )
                 )
             grid.append((is_header, cells))
-        if max(len(c) for _, c in grid) > TABLE_MAX_COLS:
-            return TABLE_OMITTED
         # A navbox is a table of links to other pages with its own controls in
         # it; on this device it is three columns of "This box: view talk edit".
+        # It is navigation, not content, so it leaves no notice behind.
         for _, cells in grid:
             for c in cells:
                 if _NAVBOX.search(c):
-                    return TABLE_OMITTED
-        for _, cells in grid:
-            for c in cells:
-                if (
-                    len(c.split(" ")) > TABLE_CELL_WORDS
-                    or len(c.encode("utf-8")) > TABLE_CELL_BYTES
-                ):
-                    return TABLE_OMITTED
+                    self.stats["navboxes_dropped"] = self.stats.get("navboxes_dropped", 0) + 1
+                    return ""
+        wide = max(len(c) for _, c in grid) > TABLE_MAX_COLS or any(
+            len(c.split(" ")) > TABLE_CELL_WORDS or len(c.encode("utf-8")) > TABLE_CELL_BYTES
+            for _, cells in grid
+            for c in cells
+        )
+        if wide:
+            return self.table_rows(grid)
         out = ["<table>"]
         for is_header, cells in grid:
             tag = "th" if is_header else "td"
@@ -698,6 +769,41 @@ class _Doc:
                 + "</tr>"
             )
         out.append("</table>")
+        return "".join(out)
+
+    def table_rows(self, grid):
+        """A table too wide for the panel's grid, as one paragraph per row:
+        the first cell in bold, every other cell labelled by its column
+        header, empty cells and reference columns left out. A reader gets
+        "1984; Category: Best Comedy Recording; Work: Eat It; Result: Won"
+        instead of a notice that a table stood here."""
+        headers = [cells for is_header, cells in grid if is_header]
+        labels = headers[-1] if headers else []
+        body = [cells for is_header, cells in grid if not is_header]
+        if not body:
+            return ""
+        out = []
+        for cells in body[:TABLE_ROWS_LISTED]:
+            parts = []
+            for j, c in enumerate(cells):
+                c = cut_words(c, TABLE_ROW_CELL_WORDS)
+                if not c:
+                    continue
+                label = labels[j] if j < len(labels) else ""
+                if _REF_COLUMN.match(label):
+                    continue
+                if not parts:
+                    parts.append("<b>%s</b>" % esc(c))
+                elif label and label != c:
+                    parts.append("%s: %s" % (esc(label), esc(c)))
+                else:
+                    parts.append(esc(c))
+            if parts:
+                out.append("<p>" + "; ".join(parts) + "</p>")
+        if len(body) > TABLE_ROWS_LISTED:
+            out.append("<p><i>(%d more rows)</i></p>" % (len(body) - TABLE_ROWS_LISTED))
+        if out:
+            self.stats["tables_listed"] = self.stats.get("tables_listed", 0) + 1
         return "".join(out)
 
     def capture(self, parts, depth):
@@ -734,8 +840,14 @@ class _Doc:
                         self.stats.get("sections_skipped", 0) + 1
                     )
                     continue
+                # Render the body first: a section whose parts were all
+                # images, navboxes or empty subsections has no heading.
+                body = self.capture(p.get("has_parts"), depth + 1)
+                if not body:
+                    self.stats["empty_sections_dropped"] = self.stats.get("empty_sections_dropped", 0) + 1
+                    continue
                 self.heading(name, depth)
-                self.parts(p.get("has_parts"), depth + 1)
+                self.out.append(body)
             elif t == "paragraph":
                 self.paragraph(p, lead=lead)
             elif t == "list":
@@ -769,7 +881,9 @@ class _Doc:
                 fact_value(name, strip_undrawable(clean_text(value), self.stats)),
                 FACT_WORDS,
             )
-            if name and value and (name, value) not in seen:
+            if "coordinates" in name.lower() and " / " in value:
+                value = value.split(" / ")[0].strip()
+            if name and value and value != name and (name, value) not in seen:
                 seen.add((name, value))
                 fields.append((name, value))
 
@@ -943,6 +1057,7 @@ def article_xhtml(row, stats=None):
     doc.parts(rest, 0)
     doc.out.append("</body></html>")
     return doc.title, doc.headings, "".join(doc.out).encode("utf-8")
+
 
 
 if __name__ == "__main__":
