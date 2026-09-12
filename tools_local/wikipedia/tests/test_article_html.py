@@ -913,6 +913,20 @@ class Rules(unittest.TestCase):
             "The tuba (Latin, \"trumpet\") is a large",
         )
 
+    def test_round_twenty_two_thirteenth_read(self):
+        # A thirteenth cold read: an album infobox's subtitle ("Studio album
+        # by Dragon") is not a group, so "length" stands alone and its time
+        # closes; a language label whose script folded to a digit goes.
+        row = {"name": "Body and the Beat", "infoboxes": [{"name": "Infobox album", "has_parts": [{"type": "section", "name": "Studio album by Dragon", "has_parts": [
+            {"type": "field", "name": "Released", "value": "1984"}, {"type": "field", "name": "Length", "value": "38: 02"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Released</th><td>1984</td></tr><tr><th>Length</th><td>38:02</td></tr>", x)
+        self.assertEqual(
+            ah.strip_undrawable(ah.clean_text("Aliabad-e Yek (Persian: \u0639\u0644\u06cc \u0622\u0628\u0627\u062f \u06f1, also Romanized as Aliabad-e Yek; also known as Aliabad) is a village"), {}, lead=True),
+            "Aliabad-e Yek (also Romanized as Aliabad-e Yek; also known as Aliabad) is a village",
+        )
+
     def test_round_twenty_one_twelfth_read(self):
         # A twelfth cold read: a decimal copy of a DMS pair goes wherever it
         # stands; a malformed hidden date "(2015-03-2)" goes; "left",

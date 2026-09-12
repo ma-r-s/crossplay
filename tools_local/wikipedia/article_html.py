@@ -420,6 +420,7 @@ _COORDS_ONLY = re.compile(
 _FUNCTION_WORDS = frozenset("from or and of the a an in at by to lit also see cf".split())
 _EMPTY_PAREN = re.compile(r"\s?\(\s*[,;:\s]*\)")
 # "(pronounced French pronunciation:)": the IPA went with its slashes
+_LABEL_DIGITS = re.compile(r"(?<![A-Za-z])(?:[A-Z][a-z]+ )?(?:Persian|Arabic|Urdu|Hindi|Bengali|Nepali|Tamil|Telugu|Kannada|Malayalam|Marathi|Gujarati|Punjabi|Sinhala|Thai|Burmese|Khmer|Lao|Tibetan|Chinese|Japanese|Korean|Hebrew|Amharic|Georgian|Armenian): ?\d{1,4}(?=\s*[;,)])")
 _EMPTY_PRON = re.compile(r"(?:pronounced\s+)?(?:[A-Z][a-z]+\s+)?(?:pronunciation|IPA):\s*(?=[;,)]|$)")
 # "=== Neural is a discipline": heading marks the dump left on a line
 _HEADING_MARKS = re.compile(r"^\s*={2,}\s*|\s*={2,}\s*$")
@@ -964,7 +965,7 @@ def strip_undrawable(text, stats, lead=False):
             stats["runs_removed"] = stats.get("runs_removed", 0) + n
     if _MARK in text:
         text = _settle_marks(text)
-    for rx in (_EMPTY_PRON, _EMPTY_LABEL, _EMPTY_PAREN):
+    for rx in (_LABEL_DIGITS, _EMPTY_PRON, _EMPTY_LABEL, _EMPTY_PAREN):
         text, n = rx.subn("", text)
         if n:
             removed += n
@@ -1123,7 +1124,7 @@ _AGE = re.compile(r"\s*\(aged?\s+\d+(?:\s*[\u2013-]\s*\d+)?\)")
 # "Preferred IUPAC name Methyl methanesulfonate": the chembox's sub-label
 _CHEM_SUBLABEL = re.compile(r"^((?:Preferred |Systematic )?IUPAC name|Other names?|Chemical formula)\s+(?=\S)")
 # "Length: 61: 49": a running time the dump spaced
-_TIME_FIELD = re.compile(r"^(?:Length|Duration|Running time|Time|Runtime)$", re.I)
+_TIME_FIELD = re.compile(r"(?:^|, )(?:Length|Duration|Running time|Time|Runtime)$", re.I)
 _TIME_GAP = re.compile(r"\b(\d{1,2}): (\d{2})\b")
 _YEAR_TWICE = re.compile(r"\b(\d{4}) \(\1\)")
 _DECIMAL_COORDS = re.compile(r"\s*/\s*[\d.\u2212-]+\u00b0[NS]\s*[\d.\u2212-]+\u00b0[EW]")
@@ -1177,6 +1178,7 @@ def _word_then_year(m):
     return w + ", "
 
 
+_WORK_SUBTITLE = re.compile(r"^(?:[A-Za-z]+ )?(?:album|EP|single|song|soundtrack|mixtape|compilation|video|film|series|episode|novel|book) by\b", re.I)
 _NAME_GROUP = re.compile(r"\b[A-Za-z]+ names?$", re.I)  # "Korean name", "Chinese name": every row carries it; a bare "Names" group does not
 
 
@@ -1823,7 +1825,7 @@ class _Doc:
                     has_image[name] = True
                 # a group is a short label; a "section" whose name is a whole
                 # medal table is the table, not a group
-                if name and name != self.title and (not base or base not in name) and not (len(title_words) >= 2 and title_words <= {w.lower().strip(",") for w in name.split()}) and len(name.split()) <= 12 and not name.lower().startswith("infobox"):
+                if name and name != self.title and (not base or base not in name) and not (len(title_words) >= 2 and title_words <= {w.lower().strip(",") for w in name.split()}) and len(name.split()) <= 12 and not name.lower().startswith("infobox") and not _WORK_SUBTITLE.match(name):
                     # "Transcriptions" under "Chinese name" keeps the group
                     # that says which language the rows belong to
                     if not (group and _NAME_GROUP.search(group)):

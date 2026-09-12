@@ -432,7 +432,7 @@ what MathML would have shown for that TeX; otherwise the words stay and
 the TeX goes. Counted per build (formulas_rendered, formulas_unmatched);
 96% of formulas render on the essentials.
 
-Twenty-one rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
+Twenty-two rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
 onward): each one a census or a detector report or a cold reviewer's
 read of thirty random articles, every finding checked against the dump's
 own text before a rule was written, the essentials rebuilt and republished
