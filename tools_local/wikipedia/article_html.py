@@ -141,7 +141,10 @@ _FLAT_THEN_TEX = re.compile(r"\b(\w) (\w) (?=\1\^\{\2\})")
 _SCRIPT_BRACES = re.compile(r"(\w)\^\{(\w)\}")
 # a formula the dump lost the middle of: "sigma = sigma_ij = = == ==,"
 _REPEATED_EQUALS = re.compile(r"([=\u2261]=?)(?:\s+[=\u2261]=?)+(?!\S)")
-_TRAILING_EQUALS = re.compile(r"(?:\s*[=\u2261]=?)+(?=\s*[,.;]?\s*$)")
+# one greedy run per group, groups split by whitespace: "(?:\\s*=?=)+" was
+# ambiguous on "=====" and took exponential time on a rule of 36 of them,
+# which stalled a full build (2026-09-12)
+_TRAILING_EQUALS = re.compile(r"\s*[=\u2261]+(?:\s+[=\u2261]+)*(?=\s*[,.;]?\s*$)")
 # two quoted lines the dump joined: "her.'""'Did you" gets its space back
 _QUOTE_GLUE = re.compile(r"([.!?][\"']{1,2})([\"']{1,2}[A-Z])")
 _TEX_START = re.compile(r"\\(?:\\|[A-Za-z]+)")

@@ -1008,6 +1008,18 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Born", "26 May 1564 /1563, Sirhind"), "26 May 1564/1563, Sirhind")
         self.assertEqual(ah.strip_undrawable(ah.clean_text("set (P, ≤) forms and x =(y+1) and a face :) here"), {}), "set (P, <=) forms and x =(y+1) and a face :) here")
 
+    def test_rules_finish_on_long_runs(self):
+        # A rule of 36 "=" stalled the full build: the trailing-equals rule
+        # was ambiguous and backtracked exponentially. Every rule must finish
+        # a long run of one character in well under a second.
+        import time
+        for ch in "=-_*.'\"()[]{}|/\\#:;,<>~^ ":
+            for src in ("x " + ch * 400 + " y", ch * 400, "x " + (ch + " ") * 200 + "y"):
+                t = time.time()
+                ah.strip_undrawable(ah.clean_text(src), {}, lead=True)
+                ah.fact_value("Name", src)
+                self.assertLess(time.time() - t, 1.0, repr(ch))
+
     def test_round_eleven_the_last_classes(self):
         # What round ten's measurement still flagged, each traced to the dump
         # or to a rule: Parsoid's protection markers; an unclosed ref tag; a
