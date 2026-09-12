@@ -624,6 +624,7 @@ _INLINE = re.compile(r"</?(?:a|b|i)\b[^>]*>")
 _BLOCK_SPLIT = re.compile(r"<(h[1-6]|p|li|table)\b[^>]*>(.*?)</\1>", re.S)
 _TAG = re.compile(r"<[^>]+>")
 _ROW = re.compile(r"<tr><th>(.*?)</th><td>(.*?)</td></tr>", re.S)
+_NESTED_LIST = re.compile(r"<(?:ul|ol)>")  # where a nested list starts inside an item
 
 
 def plain(xhtml):
@@ -656,6 +657,9 @@ def blocks(xhtml):
             ]
             out.append(("table", rows))
         else:
+            # a list item's own text and a list nested under it are two
+            # lines on the panel, not one word: "Ice cream" + "Chapman's"
+            inner = _NESTED_LIST.sub(": ", inner)
             out.append((kind, html.unescape(_TAG.sub("", inner)).strip()))
     return out
 
