@@ -386,6 +386,17 @@ files are under Cloudflare's 512 MB per-file cache limit, so with a cache
 rule on the host the edge serves them; the full pack would be the one to
 move to R2 if its downloads ever weigh on the uplink.
 
+All of English Wikipedia does not fit that builder: 7.2 million articles'
+XHTML is some forty gigabytes held in memory on a machine with 24.
+`build_full.py` is the same build in three passes over the rows and a
+working directory: titles, order and aliases first (from here on every
+title's place is known, so links can be judged); then each row converted
+in a worker pool and written into a bucket file by its place, with a
+reservoir of records for the dictionary; then bucket by bucket, sorted in
+memory, into the writer in order. `test_build_full.py` checks it writes
+the pack `build_pack.py` writes from the same rows, byte for byte in the
+articles; only the dictionary's sample differs.
+
 ### The site: `site/wikipedia/`
 
 Static HTML and JS: fetch the manifest, folder picker, marker check, speed
