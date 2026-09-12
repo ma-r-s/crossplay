@@ -78,6 +78,33 @@ class Full(unittest.TestCase):
             pb.close()
         self.assertTrue(os.path.exists(os.path.join(self.tmp, "work", "bucket-0000.bin")))
 
+    def test_names_that_clean_to_one_title_are_one_article(self):
+        # Two rows whose names differ only in whitespace become one title
+        # after cleaning; the first full build died on that at 4.9 million.
+        import gzip
+        rows = os.path.join(self.tmp, "dup.jsonl.gz")
+        with gzip.open(FIXTURE, "rt", encoding="utf-8") as src, gzip.open(rows, "wt", encoding="utf-8") as dst:
+            first = None
+            for line in src:
+                row = json.loads(line)
+                if first is None:
+                    first = row
+                dst.write(json.dumps(row, ensure_ascii=False) + "\n")
+            twin = dict(first)
+            twin["name"] = "  " + first["name"].replace(" ", "  ", 1) + " "
+            twin["date_modified"] = "2030-01-01T00:00:00Z"
+            dst.write(json.dumps(twin, ensure_ascii=False) + "\n")
+        out = os.path.join(self.tmp, "dup")
+        summary = run(
+            build_full.main,
+            ["--rows", rows, "--out", out, "--work", os.path.join(self.tmp, "dupwork"), "--cache-dir", self.tmp,
+             "--no-vital", "--workers", "2", "--bucket-size", "7", "--train-samples", "16"],
+        )
+        base = run(build_pack.main, ["--rows", FIXTURE, "--out", os.path.join(self.tmp, "base"), "--cache-dir", self.tmp, "--no-vital"])
+        self.assertEqual(summary["articles"], base["articles"])
+        self.assertEqual(summary["duplicates_dropped"], base["duplicates_dropped"] + 1)
+        self.assertEqual(summary["duplicates_at_write"], 0)
+
     def test_limit_and_tier(self):
         _a, sa, _b, sb = self.build_both("--limit", "12", "--tier", "first=5")
         self.assertEqual(sb["articles"], 12)

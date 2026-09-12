@@ -22,6 +22,9 @@ Standard library only; the pack tool has no dependencies.
 import json
 import html
 import re
+import unicodedata
+
+import symbols
 import urllib.parse
 
 from fold import fold
@@ -143,6 +146,7 @@ _PAREN = re.compile(r" ?\((?:[^()]|\([^()]*\))*\)")
 
 _run_re = None
 _labelled_run_re = None
+_PRONUNCIATION_SEG = re.compile(r"\s*(?:UK|US|GB|AU|NZ|IPA|pronounced|pronunciation|respelled)\b", re.I)
 
 
 def _runs():
@@ -191,6 +195,8 @@ def esc_attr(s):
 
 
 def clean_text(s):
+    if "&" in s:
+        s = html.unescape(s)  # "22 &amp;amp; 23 Geo. 5": the source escaped it twice
     """Controls out, citation marks out, whitespace collapsed."""
     if not s:
         return ""
@@ -254,8 +260,11 @@ _PUNCT_GAP = re.compile(r"(?<=\S)[ \u00a0]+([,.;!?])(?=\s|$)")
 # "Protestant -led", "post- Civil War": a hyphen padded on one side after a
 # link or an italic (0.8 and 0.5 per article). "pre- and post-war" is the
 # one idiom that keeps its space, so a hyphen before "and" or "or" stays.
-_HYPHEN_BEFORE = re.compile(r"(?<=\w)[ \u00a0]+-(?=\w)")
-_HYPHEN_AFTER = re.compile(r"(?<=\w)-[ \u00a0]+(?=(?!(?:and|or)\b)\w)")
+# The same for a dash the source padded on one side only ("Goudreau \u2014on
+# backup vocals": 2,372 em dashes and 624 en dashes in the essentials).
+# A dash spaced on both sides is a style and stays.
+_HYPHEN_BEFORE = re.compile(r"(?<=\w)[ \u00a0]+([-\u2013\u2014])(?=\w)")
+_HYPHEN_AFTER = re.compile(r"(?<=\w)([-\u2013\u2014])[ \u00a0]+(?=(?!(?:and|or)\b)\w)")
 # Wikipedia's respelling, "(TAM-ilz, TAHM-)": syllables in capitals joined by
 # hyphens, two of them or one ending in a hyphen, and nothing else in the
 # parentheses. "(US-based)" is one plain token and stays.
@@ -265,13 +274,55 @@ _RESPELL = re.compile(
 )
 
 
+_EMPTY_PAREN_ANY = re.compile(r"\s?\(\s*[,;:\s]*\)")
+# "(pronounced; 10 January 1769": the guide went, its word stayed.
+_PRONOUNCED = re.compile(r"\(?\s*\bpronounced\b\s*(?=[;,)])")
+# "2 + 1 / 4 in": the mixed-number template, once its fraction slash is a slash.
+_MIXED_NUMBER = re.compile(r"\b(\d+) \+ (\d+) ?/ ?(\d+)\b")
+# "3,855/km 2": the superscript came through as a spaced digit.
+_UNIT_POWER = re.compile(r"\b(km|m|cm|mm|mi|ft|yd|in|nmi)\s+([23])\b(?!,\d|\.\d| [a-z])")
+_POWERS = {"2": "\u00b2", "3": "\u00b3"}
+
+
 def _close_inline_gaps(text):
+    # "(,)" and "( ; )": what a parenthetical is after every run inside it
+    # went (64 articles in the essentials kept one).
+    text, z = _EMPTY_PAREN_ANY.subn("", text)
+    text, z2 = _PRONOUNCED.subn(lambda m: "(" if m.group(0).lstrip().startswith("(") else "", text)
+    text, z3 = _MIXED_NUMBER.subn(r"\1 \2/\3", text)
+    text, z4 = _UNIT_POWER.subn(lambda m: m.group(1) + _POWERS[m.group(2)], text)
+    z += z2 + z3 + z4
     text, a = _CLITIC_GAP.subn(r"\1\2", text)
     text, b = _PUNCT_GAP.subn(r"\1", text)
-    text, c = _HYPHEN_BEFORE.subn("-", text)
-    text, d = _HYPHEN_AFTER.subn("-", text)
+    text, c = _HYPHEN_BEFORE.subn(r"\1", text)
+    text, d = _HYPHEN_AFTER.subn(r"\1", text)
     text, e = _RESPELL.subn("", text)
-    return text, a + b + c + d + e
+    return text, a + b + c + d + e + z
+
+
+def _base_letters(text):
+    """A Latin letter whose accented form the serif lacks keeps its base
+    letter: "ma\u1e47\u1e0dal\u012b" reads "mandali", not "maali". Deleting the
+    letter made a wrong word with no hole in it (every Sanskrit, Arabic and
+    Egyptological transliteration). Returns (text, n)."""
+    run_re, _ = _runs()
+    if not run_re.search(text):
+        return text, 0
+    ok = re.compile("[" + drawable_class() + "]")
+    out = []
+    n = 0
+    for ch in text:
+        if ok.match(ch) or not ch.isalpha():
+            out.append(ch)
+            continue
+        base = unicodedata.normalize("NFD", ch)
+        base = "".join(c for c in base if not unicodedata.combining(c))
+        if base and all(ok.match(c) for c in base):
+            out.append(base)
+            n += 1
+        else:
+            out.append(ch)
+    return "".join(out), n
 
 
 def strip_undrawable(text, stats, lead=False):
@@ -280,6 +331,12 @@ def strip_undrawable(text, stats, lead=False):
     byte-for-byte. In a lead, a parenthetical is cut segment by segment
     (";" separated) so "(Ottoman Turkish: <arabic>; 20 July 1785 - 1 July
     1839)" keeps its dates."""
+    text, n = symbols.translate(text)
+    if n:
+        stats["symbols_translated"] = stats.get("symbols_translated", 0) + n
+    text, n = _base_letters(text)
+    if n:
+        stats["diacritics_dropped"] = stats.get("diacritics_dropped", 0) + n
     if not text:
         return text
     run_re, labelled_re = _runs()
@@ -303,13 +360,35 @@ def strip_undrawable(text, stats, lead=False):
         stats["parentheticals_removed"] = stats.get("parentheticals_removed", 0) + 1
         open_at = whole.index("(")
         body = whole[open_at + 1 : -1]
-        kept = [seg.strip() for seg in body.split(";") if not run_re.search(seg)]
-        kept = [seg for seg in kept if seg]
+        kept = []
+        for seg in body.split(";"):
+            seg = seg.strip()
+            if not run_re.search(seg):
+                if seg:
+                    kept.append(seg)
+                continue
+            # A segment that is more than the run: "from the ... Greek words
+            # τοξικός (toxikos), "poisonous"" keeps its words and loses the
+            # Greek word. A segment whose runs are single symbols (a schwa in
+            # a respelling, an IPA vowel) or that is a pronunciation ("UK:",
+            # "pronounced") goes whole, as before.
+            if any(len(m.group(0)) < 2 for m in run_re.finditer(seg)) or _PRONUNCIATION_SEG.match(seg):
+                continue
+            rest = _EMPTY_LABEL.sub("", labelled_re.sub("", seg)).strip(" ,:")
+            if len(rest.split()) >= 3:
+                kept.append(re.sub(r"  +", " ", rest))
         if not kept:
             return ""
         return whole[:open_at] + "(" + "; ".join(kept) + ")"
 
     if run_re.search(text):
+        # A census of what goes, so the report can say which characters the
+        # pack loses most and the symbol table can grow from evidence.
+        census = stats.setdefault("removed_chars", {})
+        for m in run_re.finditer(text):
+            for ch in m.group(0):
+                if not ch.isspace():
+                    census[ch] = census.get(ch, 0) + 1
         text = _SLASHED.sub(drop_span, text)
         text = _BRACKETED.sub(drop_span, text)
         if lead:

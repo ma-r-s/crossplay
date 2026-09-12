@@ -600,6 +600,22 @@ class Rules(unittest.TestCase):
                 "The Tamils (TAM-ilz, TAHM-), also known; Chaos (KAY-oss) is; Foo (US-based) is",
                 "The Tamils, also known; Chaos (KAY-oss) is; Foo (US-based) is",
             ),
+            # Symbols the serif lacks are spelled, not dropped: "where a 0" said
+            # something false. A lone Greek letter is a symbol and gets its
+            # name; a Greek word is a run and goes.
+            ("where a \u2260 0 and x \u2264 \u22121", "where a != 0 and x <= -1"),
+            ("Goudreau \u2014on backup vocals, 1990\u2013 1995, and a spaced \u2014 dash stays", "Goudreau\u2014on backup vocals, 1990\u20131995, and a spaced \u2014 dash stays"),
+            # From a reviewer's read of thirty articles (2026-09-11): a letter whose
+            # accented form the serif lacks keeps its base letter; a pronunciation
+            # guide's word does not outlive the guide; the mixed-number template
+            # reads as a number; a spaced unit power is a power; an entity the
+            # source escaped twice is a character.
+            ("known as a ma\u1e47\u1e0dal\u012b.", "known as a mandal\u012b."),
+            ("Elchingen (pronounced [mi\u0283\u025bl ne]; 10 January 1769) was", "Elchingen (10 January 1769) was"),
+            ("6\u201312 cm (2 + 1 \u2044 4 \u2013 4 + 3 \u2044 4 in) long", "6\u201312 cm (2 1/4 \u2013 4 3/4 in) long"),
+            ("Density 3,855/km 2 (9,985/sq mi)", "Density 3,855/km\u00b2 (9,985/sq mi)"),
+            ("the angle \u03b8 and 10 \u03bcm of \u0394x", "the angle theta and 10 \u00b5m of Delta x"),
+            ("(Greek: \u1f08\u03bb\u03ad\u03be\u03b1\u03bd\u03b4\u03c1\u03bf\u03c2) then (\u8f9b\u4ea5, \u53d4) ok", "then ok"),
             (
                 "A pinata (/ p \u026a n j a t a /, Spanish pronunciation:) is a container",
                 "A pinata is a container",

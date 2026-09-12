@@ -274,6 +274,11 @@ def main(argv=None):
         "titles_too_long": stats.get("titles_too_long", 0),
         "articles": manifest["articles"],
         "links_in_pack": stats.get("links_in_pack", 0),
+        # What the run rules removed, most common first: the evidence the
+        # symbol table and the font's ranges are grown from.
+        "removed_chars": sorted(stats.get("removed_chars", {}).items(), key=lambda kv: -kv[1])[:300],
+        "symbols_translated": stats.get("symbols_translated", 0),
+        "diacritics_dropped": stats.get("diacritics_dropped", 0),
         "links_outside_pack": stats.get("links_outside_pack", 0),
         "vital_known": len(levels),
         "vital_matched": matched,

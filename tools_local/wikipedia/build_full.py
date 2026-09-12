@@ -40,7 +40,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import pack_format as pf  # noqa: E402
-from article_html import article_xhtml, person_alias, strip_unknown_links  # noqa: E402
+from article_html import article_xhtml, clean_text, person_alias, strip_unknown_links  # noqa: E402
 from build_pack import order_articles, read_redirects, read_rows, row_stamp, vital_levels  # noqa: E402
 
 FRAME = struct.Struct("<IHII")  # place, title bytes, headings-json bytes, xhtml bytes
@@ -51,14 +51,27 @@ def say(msg):
 
 
 def convert(row):
-    """Worker: one row to (title, headings, xhtml) or None with the reason."""
+    """Worker: one row to (title, headings, xhtml, stats) or None with the reason."""
+    stats = {}
     try:
-        title, headings, xhtml = article_xhtml(row, None)
+        title, headings, xhtml = article_xhtml(row, stats)
     except (ValueError, TypeError) as e:
         return None, str(e)
     if len(title.encode("utf-8")) > pf.MAX_TITLE_BYTES:
         return None, "title too long"
-    return (title, headings, xhtml), None
+    return (title, headings, xhtml, stats), None
+
+
+def merge_stats(into, part):
+    for k, v in part.items():
+        if k == "removed_chars":
+            census = into.setdefault("removed_chars", {})
+            for ch, c in v.items():
+                census[ch] = census.get(ch, 0) + c
+        elif k == "aliases":
+            continue
+        elif isinstance(v, int):
+            into[k] = into.get(k, 0) + v
 
 
 def pass_titles(paths, limit, stats):
@@ -68,7 +81,11 @@ def pass_titles(paths, limit, stats):
     n = 0
     for row in read_rows(paths):
         n += 1
-        name = (row.get("name") or "").strip()
+        # The title the converter will give this row, not the raw name: two
+        # names that differ by whitespace or an entity are one article, and
+        # the writer refuses the second (4.9 million articles into the first
+        # full build, on 'Omega-logic').
+        name = clean_text(row.get("name") or "")
         if not name:
             stats["rows_without_name"] = stats.get("rows_without_name", 0) + 1
             continue
@@ -110,7 +127,7 @@ def pass_convert(paths, stamps, place, work, bucket_size, workers, sample_n, see
 
     def rows_to_convert():
         for row in read_rows(paths):
-            name = (row.get("name") or "").strip()
+            name = clean_text(row.get("name") or "")
             if not name or name not in place:
                 continue
             if row_stamp(row) != stamps[name]:
@@ -127,11 +144,10 @@ def pass_convert(paths, stamps, place, work, bucket_size, workers, sample_n, see
             if converted is None:
                 refused += 1
                 continue
-            title, headings, xhtml = converted
+            title, headings, xhtml, rstats = converted
+            merge_stats(stats, rstats)
             i = place.get(title)
             if i is None:
-                # article_xhtml may normalise the title; keep the row's place
-                # by the name it was queued under only when they agree.
                 refused += 1
                 continue
             before = xhtml.count(b"<a href=")
@@ -259,8 +275,12 @@ def main(argv=None):
 
     say(f"pass 3, write: {len(buckets)} buckets")
     written = 0
+    duplicates = 0
     for k in buckets:
         for _i, title, headings, xhtml in read_bucket(bucket_path(args.work, k)):
+            if title in writer.by_title:
+                duplicates += 1  # cannot happen after pass 1's keying; counted, not fatal
+                continue
             writer.add_article(title, headings, xhtml)
             written += 1
         say(f"  bucket {k}: {written:,} written, {len(writer.shards)} shards closed")
@@ -283,8 +303,14 @@ def main(argv=None):
         "rows_without_name": stats.get("rows_without_name", 0),
         "duplicates_dropped": stats.get("duplicates_dropped", 0),
         "rows_refused": stats.get("rows_refused", 0),
+        "duplicates_at_write": duplicates,
         "articles": manifest["articles"],
         "links_in_pack": stats.get("links_in_pack", 0),
+        # What the run rules removed, most common first: the evidence the
+        # symbol table and the font's ranges are grown from.
+        "removed_chars": sorted(stats.get("removed_chars", {}).items(), key=lambda kv: -kv[1])[:300],
+        "symbols_translated": stats.get("symbols_translated", 0),
+        "diacritics_dropped": stats.get("diacritics_dropped", 0),
         "links_outside_pack": stats.get("links_outside_pack", 0),
         "vital_known": len(levels),
         "vital_matched": matched,
