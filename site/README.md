@@ -553,6 +553,74 @@ knowing before editing:
   others with nothing reported. Reachability itself is measured with
   `elementFromPoint` and a real click, the way the bug was found.
 
+## The Wikipedia page writes the card from the browser
+
+`/wikipedia/` is the install page docs/apps/wikipedia-plan.md describes under
+"The page": two route cards, choose the reader or the card, one bar, and the
+one thing left to do. Static, no framework, no CDN (the COOP/COEP headers
+above forbid one anyway). Three files carry it and a fourth is vendored:
+
+- `wikipedia/plan.js` is the pure half: the manifest check, the two routes and
+  their wording (the plan's, verbatim), which files a tier needs and in what
+  order, which to copy, verify or skip given what the card holds, the
+  ten-second rate window, the twenty-minute rule and the number formats. No
+  DOM, so `host-tests/wikisite/run.sh` pins it under node; the same files run
+  under `bun test site/wikipedia/tests/`.
+- `wikipedia/wikipedia.js` is the browser half: `showDirectoryPicker({mode:
+  "readwrite"})` as the study page does it, the `.crosspoint` check, fetch
+  streamed into `createWritable()` in 2 MB writes with the hash computed as
+  the bytes pass, the markers, the pause, the stops, the screens.
+- `wikipedia/sha256.js` is a streaming SHA-256 (MIT, written here), because
+  `crypto.subtle.digest` is one-shot and a shard is a gigabyte.
+
+**`PACK_BASE_URL` at the top of `wikipedia.js` is where the pack lives:**
+`https://packs.ma-r-s.com/wikipedia/en/`, the Orange Pi behind its own
+Cloudflare Tunnel (`server/packs/`), a stable name pointing at the current
+snapshot. The host answers CORS for any origin (GET, HEAD and OPTIONS,
+exposing Content-Length and Content-Range, Range accepted); without that
+every fetch fails as the browser's opaque "Failed to fetch", which the page
+can only report as a dropped connection. Verified with curl against the
+live host on 2026-09-11; the page's own copy onto a card is the one thing
+that needs a hand on a folder picker.
+
+**What it writes, and in what order.** `wikipedia/` in the chosen folder;
+`dict.zst`, `titles.idx`, `blocks.dir`, then the shards in order up to the
+tier's cut, then `manifest.json` last, as the format doc requires: the device
+treats a pack as present the moment the manifest is there. Beside them the
+page keeps `wikipedia/copied.json`, the files it has written and verified by
+sha256, so a second visit skips them without reading a gigabyte back. A file
+of the right size with no marker (a hand copy, a lost marker) is read back and
+hashed rather than trusted or re-downloaded. Nothing else on the card is
+touched, and a copy that fails leaves no file behind.
+
+**The twenty-minute rule is enforced at every file boundary.** The page
+measures what it has transferred this session, projects the rest of the
+chosen tier at that average rate, and if the projection crosses twenty
+minutes it stops BEFORE the next part and offers the other route (stop at
+the essentials; or eject, take the card out and use the card in the
+computer). "Keep going anyway" silences it for the session. No projection is
+printed or acted on under 4 MB or 2 seconds of transfer; a first small file
+is not a rate. The MB/s on the meter is the rolling ten-second one; the time
+left uses it, or the session average while the window fills.
+
+**Looking at it.** `?mock=1` reads `wikipedia/mock/` instead of the pack
+host. Build the mock once per checkout with `python3 site/wikipedia/mock/
+make_mock.py` (12 MB of seeded noise, gitignored; the manifest it writes is
+committed). Two knobs exist only in mock mode: `&rate=<MB/s>` throttles the
+copy so the meter shows measured numbers, and `&minutes=<n>` shortens the
+budget so the pause is reachable on 12 MB. Both are dead outside `?mock=1`,
+and `.vercelignore` keeps `mock/` off the deploy.
+
+`site/wikipedia/tests/flow.py` drives every state in Chrome (playwright,
+`channel="chrome"`, against a running `serve.py`): the picker is replaced with
+one that hands back the browser's own private filesystem, which is a real
+`FileSystemDirectoryHandle`, so everything after the dialog runs unchanged.
+It asserts the copy, the skip on a second visit, the verify pass, both pauses,
+a dropped connection with Resume, a part that arrives damaged twice, the
+by-hand page for a browser without a picker, and it photographs each one.
+What it cannot see is a real card in a real slot, or the reader on its cable
+in USB drive mode; that is a desk check.
+
 ## The rules this page follows
 
 `docs/identity.md` governs the copy and the look, and it is worth reading before

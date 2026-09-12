@@ -1,0 +1,12 @@
+[Unit]
+Description=Network isolation for the packs containers
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/srv/packs/scripts/firewall.sh
+
+[Install]
+WantedBy=multi-user.target

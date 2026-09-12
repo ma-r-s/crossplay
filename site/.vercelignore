@@ -22,3 +22,9 @@ recipes/
 # the data those scripts read. Excluding the script and shipping its input is
 # the gap: ask what a tool READS, not just what it is.
 inbox/fixture.json
+# The Wikipedia page's mock pack and its checks. ?mock=1 reads mock/ so the
+# page can be looked at from a laptop; deployed, that switch finds nothing and
+# the page says the pack could not be reached, which is the truth there. The
+# tests need node or a browser and load in no page.
+wikipedia/mock/
+wikipedia/tests/

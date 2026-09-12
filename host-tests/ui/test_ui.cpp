@@ -48,6 +48,7 @@
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
 #include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
+#include "../../src/apps_local/wikipedia/WikipediaScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
 #include "../../src/apps_local/yahtzee/YahtzeeScreens.h"
 
@@ -11902,6 +11903,341 @@ void testWavelengthIconsClearOfText() {
   }
 }
 
+// ------------------------------------------------------------------ Wikipedia
+
+void buildWikiSearch(Rendered& out, const wikiui::SearchModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wikiui::buildSearch(screen, model);
+}
+
+fui::Rect buildWikiArticleChrome(Rendered& out, const wikiui::ArticleChromeModel& model,
+                                 const wikiui::ArticleFooterModel& footer) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  const fui::Rect page = wikiui::buildArticleChrome(screen, model);
+  wikiui::buildArticleFooter(screen, footer);
+  return page;
+}
+
+int buildWikiContents(Rendered& out, const wikiui::ContentsModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  return wikiui::buildContents(screen, model);
+}
+
+fui::Rect buildWikiInstall(Rendered& out, const wikiui::InstallModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  return wikiui::buildInstall(screen, model);
+}
+
+fui::ActionEvent tapRun(Rendered& out, const FakeTarget::TextRun* run) {
+  return out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+}
+
+// The home with nothing typed: the doors back in. With a query: the matches,
+// each carrying its row, and the eighth still on the panel above the keyboard.
+void testWikipediaSearchRowsCarryTheirIndex() {
+  wikiui::SearchModel model;
+  model.query = "new y";
+  static const char* kTitles[wikiui::kMaxResults] = {"New Year",        "New York",        "New York City",
+                                                     "New York Giants", "New York Knicks", "New York Mets",
+                                                     "New York Times",  "New Yorker"};
+  for (int i = 0; i < wikiui::kMaxResults; ++i) model.results[i].title = kTitles[i];
+  model.resultCount = wikiui::kMaxResults;
+  // The keyboard's real height on the panel: rows of a thumb's height fit
+  // eight matches above it and not one more.
+  model.keyboardHeight = 252;
+  {
+    Rendered out;
+    buildWikiSearch(out, model);
+    CHECK(out.target.drew("WIKIPEDIA"));
+    CHECK(out.target.drew("new y"));
+    CHECK(out.target.drew("New Yorker"));
+    CHECK(!out.target.drew("RANDOM ARTICLE"));
+    for (int i = 0; i < wikiui::kMaxResults; ++i) {
+      const FakeTarget::TextRun* row = out.target.find(kTitles[i]);
+      CHECK(row != nullptr);
+      if (row == nullptr) continue;
+      CHECK(row->rect.bottom() <= 800 - 252);
+      const fui::ActionEvent event = tapRun(out, row);
+      CHECK(event.action == wikiui::ActionResult);
+      CHECK(event.value == i);
+    }
+    const FakeTarget::TextRun* clear = out.target.find("X");
+    CHECK(clear != nullptr);
+    if (clear != nullptr) CHECK(tapRun(out, clear).action == wikiui::ActionClear);
+  }
+  // Nothing typed.
+  wikiui::SearchModel home;
+  home.continueTitle = "Photosynthesis";
+  home.recent[0].title = "Photosynthesis";
+  home.recent[1].title = "Ray Charles";
+  home.recentCount = 2;
+  home.footer = "7,238,251 ARTICLES, MAY 2026";
+  home.partsLine = "3 OF 46 PARTS ON THE CARD";
+  home.keyboardHeight = 252;
+  {
+    Rendered out;
+    buildWikiSearch(out, home);
+    CHECK(out.target.drew("SEARCH WIKIPEDIA"));
+    CHECK(out.target.drew("RANDOM ARTICLE"));
+    CHECK(out.target.drew("CONTINUE"));
+    CHECK(out.target.drew("RECENT"));
+    CHECK(out.target.drew("7,238,251 ARTICLES, MAY 2026"));
+    const FakeTarget::TextRun* count = out.target.find("7,238,251 ARTICLES, MAY 2026");
+    CHECK(count != nullptr);
+    if (count != nullptr) CHECK(count->rect.bottom() <= 800 - 252);
+    const FakeTarget::TextRun* random = out.target.find("RANDOM ARTICLE");
+    CHECK(random != nullptr && tapRun(out, random).action == wikiui::ActionRandom);
+    const FakeTarget::TextRun* recent = out.target.find("Ray Charles");
+    CHECK(recent != nullptr);
+    if (recent != nullptr) {
+      const fui::ActionEvent event = tapRun(out, recent);
+      CHECK(event.action == wikiui::ActionRecent && event.value == 1);
+    }
+    const FakeTarget::TextRun* parts = out.target.find("3 OF 46 PARTS ON THE CARD");
+    CHECK(parts != nullptr && tapRun(out, parts).action == wikiui::ActionInstall);
+    // The count line is the way to a newer pack too, complete or not.
+    const FakeTarget::TextRun* countLine = out.target.find(home.footer);
+    CHECK(countLine != nullptr && tapRun(out, countLine).action == wikiui::ActionInstall);
+  }
+  // More matches than the panel holds: the last line says so, above the keys.
+  wikiui::SearchModel more = model;
+  more.moreResults = true;
+  {
+    Rendered out;
+    buildWikiSearch(out, more);
+    const FakeTarget::TextRun* keep = out.target.find("KEEP TYPING FOR MORE");
+    CHECK(keep != nullptr);
+    if (keep != nullptr) CHECK(keep->rect.bottom() <= 800 - 252);
+  }
+  // A title is never elided: one too wide for the row wraps, and the row grows
+  // to hold it, so the match under it starts lower.
+  wikiui::SearchModel wide;
+  wide.query = "list";
+  wide.results[0].title = "List of countries and dependencies by population density (United Nations)";
+  wide.results[1].title = "List of lists";
+  wide.resultCount = 2;
+  wide.keyboardHeight = 252;
+  {
+    Rendered out;
+    buildWikiSearch(out, wide);
+    const FakeTarget::TextRun* longRow = out.target.find(wide.results[0].title);
+    const FakeTarget::TextRun* nextRow = out.target.find("List of lists");
+    CHECK(longRow != nullptr && nextRow != nullptr);
+    if (longRow != nullptr && nextRow != nullptr) {
+      CHECK(longRow->style.maxLines == 2);
+      CHECK(longRow->rect.height == 2 * out.target.lineHeight(toybox::kBodyFont));
+      CHECK(out.target.measureText(longRow->style.font, longRow->text.c_str(), longRow->style).width >
+            longRow->rect.width);
+      CHECK(nextRow->rect.y > longRow->rect.bottom());
+      CHECK(nextRow->style.maxLines == 1);
+    }
+  }
+  // Nothing read yet: the card is there, dimmed, and not a target.
+  wikiui::SearchModel fresh;
+  fresh.footer = "49,715 ARTICLES, MAY 2026";
+  {
+    Rendered out;
+    buildWikiSearch(out, fresh);
+    CHECK(out.target.drew("CONTINUE"));
+    CHECK(out.target.drew("Open any article and it waits here."));
+    const FakeTarget::TextRun* waits = out.target.find("Open any article and it waits here.");
+    CHECK(waits != nullptr);
+    if (waits != nullptr) CHECK(tapRun(out, waits).action != wikiui::ActionContinue);
+    CHECK(out.target.drew("RANDOM ARTICLE"));
+    CHECK(!out.target.drew("X"));
+    // A complete pack is no dead end: the count line opens the install screen,
+    // and says so on its own line (the count plus "GET NEWER" did not fit one).
+    const FakeTarget::TextRun* door = out.target.find(fresh.footer);
+    CHECK(door != nullptr && tapRun(out, door).action == wikiui::ActionInstall);
+    const FakeTarget::TextRun* hint = out.target.find("TAP HERE FOR A NEWER PACK");
+    CHECK(hint != nullptr && tapRun(out, hint).action == wikiui::ActionInstall);
+    if (door != nullptr && hint != nullptr) CHECK(hint->rect.y > door->rect.y);
+  }
+  // The keyboard up with nothing typed: the doors stay, and the boxed X at
+  // the field's end is what puts the keyboard down.
+  wikiui::SearchModel raised;
+  raised.continueTitle = "Photosynthesis";
+  raised.keyboardHeight = 252;
+  {
+    Rendered out;
+    buildWikiSearch(out, raised);
+    CHECK(out.target.drew("RANDOM ARTICLE"));
+    const FakeTarget::TextRun* x = out.target.find("X");
+    CHECK(x != nullptr);
+    if (x != nullptr) CHECK(tapRun(out, x).action == wikiui::ActionClear);
+  }
+  // A query with nothing under it says so instead of showing an empty panel.
+  wikiui::SearchModel miss;
+  miss.query = "qzx";
+  miss.noMatch = true;
+  miss.keyboardHeight = 300;
+  {
+    Rendered out;
+    buildWikiSearch(out, miss);
+    CHECK(out.target.drew("No article with that name"));
+  }
+}
+
+// The band carries CONTENTS, the footer the page and the section, and the
+// rect handed back for the page clears both.
+void testWikipediaArticleChromeLeavesThePageItsRoom() {
+  wikiui::ArticleChromeModel model;
+  model.title = "Photosynthesis";
+  wikiui::ArticleFooterModel footer;
+  footer.left = "12 of 87";
+  footer.right = "Light-dependent reactions";
+  Rendered out;
+  const fui::Rect page = buildWikiArticleChrome(out, model, footer);
+  CHECK(out.target.drew("Photosynthesis"));
+  CHECK(out.target.drew("12 of 87"));
+  CHECK(out.target.drew("Light-dependent reactions"));
+  CHECK(page.y >= toybox::kChromeHeight);
+  CHECK(page.height > 600);
+  // CONTENTS is the list icon in a square at the band's right end.
+  CHECK(out.tap(480 - 16 - 30, toybox::kHeaderHeight / 2).action == wikiui::ActionContents);
+  const FakeTarget::TextRun* footerRun = out.target.find("12 of 87");
+  CHECK(footerRun != nullptr);
+  if (footerRun != nullptr) {
+    CHECK(footerRun->rect.y >= page.bottom());
+    // The footer's line box ends above the glass: the small cut's descenders
+    // once ran off row 799 of the panel.
+    CHECK(footerRun->rect.height == out.target.lineHeight(toybox::kSmallFont));
+    CHECK(footerRun->rect.bottom() <= 800 - toybox::kGutter);
+  }
+  // The band's leading chevron is the way back.
+  CHECK(out.tap(6 + 20, toybox::kHeaderHeight / 2).action == wikiui::ActionPrevious);
+  // The title is bold at the reading size when it fits one line; a longer one
+  // is two lines of the small cut, drawn whole.
+  const FakeTarget::TextRun* title = out.target.find("Photosynthesis");
+  CHECK(title != nullptr);
+  if (title != nullptr) {
+    CHECK(title->style.bold);
+    CHECK(title->style.maxLines == 1);
+    CHECK(title->style.font == toybox::kDisplayFont);
+  }
+  wikiui::ArticleChromeModel wide;
+  wide.title = "Transition from Ming to Qing (1618)";
+  Rendered two;
+  buildWikiArticleChrome(two, wide, footer);
+  const FakeTarget::TextRun* wideRun = two.target.find(wide.title);
+  CHECK(wideRun != nullptr);
+  if (wideRun != nullptr) {
+    CHECK(two.target.measureText(wideRun->style.font, wideRun->text.c_str(), wideRun->style).width >
+          wideRun->rect.width);
+    CHECK(wideRun->style.maxLines == 2);
+    CHECK(wideRun->style.font == toybox::kSmallFont);
+    CHECK(wideRun->style.bold);
+  }
+}
+
+void testWikipediaContentsRowsCarryTheHeading() {
+  static const char* kHeadings[] = {"Quick facts",     "Overview",    "Light-dependent reactions",
+                                    "Carbon fixation", "History",     "Evolution",
+                                    "Research",        "See also",    "Gallery",
+                                    "Notes",           "Sources",     "Bibliography",
+                                    "External links",  "Fourteenth",  "Fifteenth",
+                                    "Sixteenth",       "Seventeenth", "Eighteenth",
+                                    "Nineteenth",      "Twentieth"};
+  static const int kPages[] = {0, 1, 3, 6, 9, 12, 15, 18, 21, 24, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+  wikiui::ContentsModel model;
+  model.title = "Photosynthesis";
+  model.headings = kHeadings;
+  model.pages = kPages;
+  model.count = 20;
+  model.current = 2;
+  Rendered out;
+  // As many rows as fit above the window line, and not one more: the rest
+  // wait for the next window.
+  const int shown = buildWikiContents(out, model);
+  CHECK(shown >= 12 && shown < 20);
+  CHECK(out.target.drew("CLOSE"));
+  CHECK(out.target.drew("Carbon fixation"));
+  CHECK(out.target.drew(kHeadings[shown - 1]));
+  CHECK(!out.target.drew(kHeadings[shown]));
+  char where[32];
+  snprintf(where, sizeof(where), "1-%d of 20", shown);
+  CHECK(out.target.drew(where));
+  CHECK(out.target.drew("MORE >"));
+  const FakeTarget::TextRun* lastRow = out.target.find(kHeadings[shown - 1]);
+  CHECK(lastRow != nullptr);
+  if (lastRow != nullptr) CHECK(lastRow->rect.bottom() <= 800 - 40);
+  // Each row carries its page, 1-based, and none while the layout has not
+  // reached it; the section the page is in is set in the bold slot, clear of
+  // the bar in the margin.
+  CHECK(out.target.drew("4"));
+  CHECK(out.target.drew("25"));
+  CHECK(!out.target.drew("0"));
+  const FakeTarget::TextRun* here = out.target.find("Light-dependent reactions");
+  const FakeTarget::TextRun* other = out.target.find("Overview");
+  CHECK(here != nullptr && other != nullptr);
+  if (here != nullptr && other != nullptr) {
+    CHECK(here->style.font == toybox::kDisplayFont);
+    CHECK(other->style.font == toybox::kBodyFont);
+    CHECK(here->rect.x >= 32);
+    CHECK(here->rect.x == other->rect.x);
+  }
+  const FakeTarget::TextRun* more = out.target.find("MORE >");
+  CHECK(more != nullptr && tapRun(out, more).action == wikiui::ActionMore);
+  const FakeTarget::TextRun* row = out.target.find("Carbon fixation");
+  CHECK(row != nullptr);
+  if (row != nullptr) {
+    const fui::ActionEvent event = tapRun(out, row);
+    CHECK(event.action == wikiui::ActionHeading && event.value == 3);
+  }
+  const FakeTarget::TextRun* close = out.target.find("CLOSE");
+  CHECK(close != nullptr && tapRun(out, close).action == wikiui::ActionClose);
+}
+
+// The address first, a square for the code, and the cable's state in words.
+void testWikipediaInstallSaysTheAddressFirst() {
+  wikiui::InstallModel model;
+  model.url = "crossplay.ma-r-s.com/wikipedia";
+  Rendered out;
+  const fui::Rect qr = buildWikiInstall(out, model);
+  CHECK(out.target.drew("GET WIKIPEDIA"));
+  // The address has no space to wrap at, so as one run it ended in an
+  // ellipsis on the panel: the host and the path are two whole lines.
+  CHECK(!out.target.drew("crossplay.ma-r-s.com/wikipedia"));
+  CHECK(qr.width == qr.height && qr.width >= 200);
+  const FakeTarget::TextRun* url = out.target.find("crossplay.ma-r-s.com");
+  const FakeTarget::TextRun* path = out.target.find("/wikipedia");
+  CHECK(url != nullptr && path != nullptr);
+  if (url != nullptr && path != nullptr) {
+    CHECK(url->rect.y < qr.y);
+    CHECK(path->rect.y == url->rect.y + out.target.lineHeight(toybox::kBodyFont));
+    // The reading face, bold, one line each.
+    CHECK(url->style.font == toybox::kBodyFont && path->style.font == toybox::kBodyFont);
+    CHECK(url->style.bold && path->style.bold);
+    CHECK(url->style.maxLines == 1 && path->style.maxLines == 1);
+    CHECK(url->rect.height == out.target.lineHeight(toybox::kBodyFont));
+  }
+  // Each sentence has two lines of the reader's face, whatever its height.
+  const FakeTarget::TextRun* open = out.target.find("Open this in Chrome or Edge on a computer. About ten minutes.");
+  CHECK(open != nullptr);
+  if (open != nullptr) {
+    CHECK(open->style.maxLines == 2);
+    CHECK(open->rect.height == 2 * out.target.lineHeight(toybox::kBodyFont));
+  }
+  CHECK(!out.target.drew("TRY AGAIN"));
+  model.stage = wikiui::InstallModel::Stage::Failed;
+  Rendered failed;
+  buildWikiInstall(failed, model);
+  const FakeTarget::TextRun* retry = failed.target.find("TRY AGAIN");
+  CHECK(retry != nullptr && tapRun(failed, retry).action == wikiui::ActionRetry);
+}
+
 int main() {
   testWallpapersGridHasTwoColumns();
   testWallpapersCellsStayOnScreen();
@@ -11933,6 +12269,10 @@ int main() {
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
   testTriviaDrawsNoOptionsWithoutAQuestion();
+  testWikipediaSearchRowsCarryTheirIndex();
+  testWikipediaArticleChromeLeavesThePageItsRoom();
+  testWikipediaContentsRowsCarryTheHeading();
+  testWikipediaInstallSaysTheAddressFirst();
   testTriviaSettingsShowsTheToggleAndItsState();
   testTriviaSettingsRowsCarryTheirIndex();
   testTriviaMenuRowsCarryTheirOwnAction();

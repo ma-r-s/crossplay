@@ -877,6 +877,24 @@ else
   FAILED=1
 fi
 
+# The Wikipedia pack tool: the fold (Python and the device header compiled
+# on the host over the same 300 vectors), the row-to-XHTML converter, the
+# pack writer and reader round-tripping a build, and build_pack.py end to
+# end. Standard library plus the zstd CLI and a C++ compiler, so it never
+# skips. The failures it exists for are silent ones: a fold that differs by
+# one code point between the two sides puts an article where no lookup finds
+# it, and a frame that decodes to the wrong bytes reads fine until a device
+# opens that block. The 3,000-row research sample is used when this machine
+# has it and the log says when it did not.
+if (cd "$REPO" && python3 -m unittest discover -s tools_local/wikipedia/tests -p 'test_*.py') \
+    > "$LOGS/wikipedia-tools.log" 2>&1; then
+  printf "  %-12s ok\n" "wikipedia"
+else
+  printf "  %-12s FAILED\n" "wikipedia"
+  tail -14 "$LOGS/wikipedia-tools.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
 # The sync bridge server suites. Their venvs are not committed; uv rebuilds them
 # in a --committed trial worktree (warm uv cache makes that cheap). A missing
 # toolchain FAILS rather than skips: a bridge change riding a green gate whose

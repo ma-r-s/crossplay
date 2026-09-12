@@ -340,3 +340,14 @@ wallpapers  = image
 # arrow points the way the device travels; the eye is the peek's hero.
 wl_pass = arrow-big-left   # icon_wl_pass_96
 wl_look = eye              # icon_wl_look_120
+
+# WIKIPEDIA: the globe, because the pitch is all the knowledge in the world in
+# your pocket; `book-open` reads as the reader itself.
+wikipedia   = globe
+
+# The article band's way back: the previous article, or the search. Left of
+# the title, where every reader puts it.
+wiki_back   = chevron-left
+# The article band's CONTENTS: the list, because a word in the reader's
+# small cut took 151 of the band's 448 and left a one-word title cut.
+wiki_contents = list

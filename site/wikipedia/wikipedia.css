@@ -1,0 +1,352 @@
+/* The class display rules below beat the UA [hidden] rule on equal
+   specificity, so hidden toggles need this to actually hide. */
+[hidden] {
+  display: none !important;
+}
+
+/* The Wikipedia install page, page-scoped. Leans on /styles.css for the
+   palette, the type, the top bar and .btn; only what is particular to
+   choosing a route and watching a copy lives here. Paper and ink, 3px
+   rules, Jersey 25 for labels and Instrument Serif for the one big line,
+   the same as the study and wallpapers pages. */
+
+.wk-main {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 3rem) var(--gutter) 5rem;
+}
+
+.wk-head {
+  margin-bottom: 2rem;
+}
+.wk-title {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(2.2rem, 6vw, 3.6rem);
+  line-height: 1.02;
+  margin: 0.2rem 0 0.6rem;
+}
+.wk-lede {
+  font-size: 1.05rem;
+  color: var(--muted);
+  max-width: 44rem;
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* --- the two routes ------------------------------------------------------ */
+
+.wk-routes {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+@media (min-width: 760px) {
+  .wk-routes {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.wk-routes legend {
+  padding: 0;
+  margin-bottom: 0.8rem;
+}
+
+/* A route is one big label around a radio, so the whole card is the control.
+   The selected one is the black band: ink behind paper type, the way the
+   device marks the row you are on. The radio itself is visually gone but
+   still focusable, and :has() puts its focus ring on the card. */
+.wk-route {
+  position: relative;
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 1.1rem;
+  align-items: start;
+  border: 3px solid var(--ink);
+  border-radius: 4px;
+  padding: 1.1rem 1.2rem 1.2rem;
+  background: var(--paper-2);
+  color: var(--ink);
+  cursor: pointer;
+}
+.wk-route input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.wk-route:has(input:checked) {
+  background: var(--ink);
+  color: var(--paper);
+}
+.wk-route:has(input:focus-visible) {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+.wk-route-art {
+  display: block;
+  padding-top: 0.2rem;
+}
+.wk-route-art svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.wk-route-title {
+  display: block;
+  font-family: var(--display);
+  font-size: 1.55rem;
+  letter-spacing: 0.02em;
+  line-height: 1.05;
+}
+.wk-route-time {
+  display: block;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.2rem;
+  margin-top: 0.25rem;
+}
+.wk-route-how {
+  display: block;
+  margin-top: 0.7rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.wk-nowrap {
+  white-space: nowrap;
+}
+.wk-route-meta {
+  display: block;
+  margin-top: 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.8;
+  min-height: 1em;
+}
+
+/* --- the steps ---------------------------------------------------------- */
+
+/* styles.css pads every <section> for the front page's bands (7rem below);
+   these are steps in a column, so the whole padding is set here. */
+.wk-step {
+  border-top: 3px solid var(--ink);
+  padding: 1.25rem 0 0;
+  margin-top: 2rem;
+}
+.wk-step-label {
+  font-family: var(--display);
+  font-size: 1.35rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin: 0 0 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+.wk-num {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  font-size: 1.05rem;
+  flex: none;
+}
+.wk-step-text {
+  max-width: 60ch;
+  margin: 0;
+  line-height: 1.55;
+}
+.wk-main .cta-row {
+  margin-top: 1.2rem;
+}
+.wk-main button.btn {
+  cursor: pointer;
+}
+.wk-main button.btn:disabled {
+  opacity: 0.42;
+  cursor: default;
+  transform: none;
+}
+
+/* Status lines: mono and muted, the installer's own look. No colour on this
+   site, so a bad state is weight and a rule, not red. */
+.wk-status {
+  margin: 0.9rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  color: var(--muted);
+  min-height: 1.3em;
+  white-space: pre-wrap;
+  max-width: 70ch;
+}
+.wk-status[data-kind="bad"] {
+  color: var(--ink);
+  font-weight: 700;
+  border-left: 3px solid var(--ink);
+  padding-left: 0.7rem;
+}
+.wk-status[data-kind="good"] {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* --- the copy ----------------------------------------------------------- */
+
+/* One bar for the whole tier. Skipped parts count as done the moment the
+   plan is made, so a resumed copy starts where the last one stopped. */
+.wk-bar {
+  display: block;
+  height: 0.85rem;
+  margin-top: 0.4rem;
+  border: 2px solid var(--ink);
+}
+.wk-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--ink);
+  transition: width 0.15s linear;
+}
+.wk-meter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.6rem;
+  margin-top: 0.65rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  min-height: 1.2em;
+}
+.wk-meter span:empty {
+  display: none;
+}
+.wk-fine {
+  color: var(--muted);
+  font-size: 0.9rem;
+  max-width: 60ch;
+  line-height: 1.55;
+  margin: 1rem 0 0;
+}
+
+/* The three boxes that can follow the bar: the twenty-minute pause, a stop
+   with a Resume, and done. One at a time. */
+.wk-pause,
+.wk-stop,
+.wk-done {
+  margin-top: 1.4rem;
+  padding: 1.1rem 1.25rem 1.25rem;
+  border: 3px solid var(--ink);
+}
+.wk-pause p,
+.wk-stop p {
+  margin: 0;
+  line-height: 1.55;
+  max-width: 64ch;
+}
+.wk-pause-head,
+.wk-stop-head {
+  font-family: var(--display);
+  font-size: 1.35rem;
+  letter-spacing: 0.02em;
+  margin: 0 0 0.4rem;
+}
+.wk-done {
+  background: var(--ink);
+  color: var(--paper);
+}
+.wk-done-line {
+  font-family: var(--display);
+  font-size: clamp(1.6rem, 3.5vw, 2.2rem);
+  letter-spacing: 0.02em;
+  margin: 0;
+  line-height: 1.1;
+}
+.wk-done-why {
+  margin: 0.6rem 0 0;
+  line-height: 1.5;
+  max-width: 60ch;
+}
+.wk-done-why:empty {
+  display: none;
+}
+
+/* --- the by-hand route, for a browser without a folder picker ----------- */
+
+.wk-byhand p {
+  max-width: 62ch;
+  line-height: 1.55;
+}
+.wk-files {
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+.wk-files li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--edge);
+  padding: 0.35rem 0;
+  max-width: 34rem;
+}
+.wk-files a {
+  color: var(--ink);
+}
+.wk-files span {
+  color: var(--muted);
+}
+.wk-byhand code,
+.wk-step code,
+.wk-fine code {
+  font-family: var(--mono);
+  background: var(--paper-2);
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+}
+
+.wk-error {
+  border-left: 3px solid var(--ink);
+  padding-left: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 1.5rem;
+  max-width: 62ch;
+  line-height: 1.55;
+}
+.wk-error .linklike,
+.wk-byhand .linklike {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.wk-foot {
+  margin-top: 3rem;
+  border-top: 1px solid var(--edge);
+  padding-top: 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  max-width: 62ch;
+}
+.wk-foot a {
+  color: inherit;
+}

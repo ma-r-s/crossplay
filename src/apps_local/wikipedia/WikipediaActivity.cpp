@@ -1,0 +1,1042 @@
+#include "WikipediaActivity.h"
+
+#include <Arduino.h>
+#include <FontCacheManager.h>
+#include <HalGPIO.h>
+#include <HalStorage.h>
+#include <I18n.h>
+#include <Logging.h>
+#include <Memory.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+
+#include "../../CrossPointSettings.h"
+#include "../../SilentRestart.h"
+#include "../../activities/RenderLock.h"
+#include "../../activities/reader/EpubReaderUtils.h"
+#include "../../components/UITheme.h"
+#include "../../fontIds.h"
+#include "../../util/QrUtils.h"
+#include "../Shelf.h"
+#include "../ui/ToyboxTheme.h"
+
+namespace fui = freeink::ui;
+
+namespace {
+
+constexpr const char* kTag = "WIKI";
+constexpr const char* kCacheRoot = "/.crosspoint/wikipedia";
+constexpr const char* kCacheMarker = "/.crosspoint/wikipedia/pack";
+constexpr const char* kLruPath = "/.crosspoint/wikipedia/lru";
+constexpr const char* kInstallUrl = "https://crossplay.ma-r-s.com/wikipedia";
+constexpr const char* kInstallUrlShown = "crossplay.ma-r-s.com/wikipedia";
+constexpr int kCachedArticles = 32;
+constexpr int16_t kPageSide = 18;
+constexpr int16_t kPageTop = 6;
+constexpr size_t kBuildMinHeap = 40 * 1024;
+
+// "7,238,251"
+void withCommas(char* out, const size_t cap, const uint32_t n) {
+  char raw[16];
+  snprintf(raw, sizeof(raw), "%lu", static_cast<unsigned long>(n));
+  const size_t len = strlen(raw);
+  size_t o = 0;
+  for (size_t i = 0; i < len && o + 1 < cap; ++i) {
+    if (i > 0 && (len - i) % 3 == 0 && o + 1 < cap) out[o++] = ',';
+    out[o++] = raw[i];
+  }
+  out[o] = '\0';
+}
+
+// "2026-05-13" -> "MAY 2026". Caps, because the line is set in Jersey, which
+// has no lowercase voice anywhere else in the fork.
+void snapshotWords(char* out, const size_t cap, const std::string& snapshot) {
+  static const char* const kMonths[] = {"JANUARY", "FEBRUARY", "MARCH",     "APRIL",   "MAY",      "JUNE",
+                                        "JULY",    "AUGUST",   "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"};
+  int year = 0, month = 0;
+  if (sscanf(snapshot.c_str(), "%d-%d", &year, &month) == 2 && month >= 1 && month <= 12) {
+    snprintf(out, cap, "%s %d", kMonths[month - 1], year);
+  } else {
+    snprintf(out, cap, "%s", snapshot.c_str());
+  }
+}
+
+bool ensureDir(const char* path) { return Storage.exists(path) || Storage.mkdir(path); }
+
+bool writeFile(const char* path, const std::string& data) {
+  HalFile file;
+  if (!Storage.openFileForWrite(kTag, path, file)) return false;
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(data.data());
+  size_t done = 0;
+  while (done < data.size()) {
+    const size_t want = std::min<size_t>(4096, data.size() - done);
+    if (file.write(p + done, want) != want) return false;
+    done += want;
+  }
+  return true;
+}
+
+std::string readSmallFile(const char* path) {
+  HalFile file;
+  if (!Storage.exists(path) || !Storage.openFileForRead(kTag, path, file)) return {};
+  const size_t size = file.size();
+  if (size == 0 || size > 4096) return {};
+  std::string out(size, '\0');
+  if (file.read(out.data(), size) != static_cast<int>(size)) return {};
+  return out;
+}
+
+// Removes a cache directory and the files it holds (one level deep is all it has).
+void removeArticleCache(const std::string& dir) {
+  const char* const names[] = {"/article.html", "/sections/0.bin", "/sections/0.bin.part"};
+  for (const char* n : names) {
+    const std::string p = dir + n;
+    if (Storage.exists(p.c_str())) Storage.remove(p.c_str());
+  }
+  const std::string sections = dir + "/sections";
+  if (Storage.exists(sections.c_str())) Storage.rmdir(sections.c_str());
+  if (Storage.exists(dir.c_str())) Storage.rmdir(dir.c_str());
+}
+
+}  // namespace
+
+std::unique_ptr<Activity> WikipediaActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
+  return makeUniqueNoThrow<WikipediaActivity>(renderer, mappedInput);
+}
+
+WikipediaActivity::~WikipediaActivity() = default;
+
+void WikipediaActivity::onEnter() {
+  Activity::onEnter();
+  // The shelf registers the toybox faces on the way in, but the restart after
+  // a storage handoff (and a wake) lands here directly: on the panel every
+  // Jersey string on the home was missing, the serif prose intact.
+  toybox::ensureFonts(renderer);
+  keyboardShown_ = false;
+  packOpen_ = pack_.open();
+  if (packOpen_) {
+    pack_.loadState(state_);
+    char count[16];
+    withCommas(count, sizeof(count), pack_.manifest().articles);
+    char when[32];
+    snapshotWords(when, sizeof(when), pack_.manifest().snapshot);
+    footer_ = std::string(count) + " ARTICLES, " + when;
+    if (pack_.shardsPresent() < pack_.shardsTotal()) {
+      char line[64];
+      snprintf(line, sizeof(line), "%d OF %d PARTS ON THE CARD", pack_.shardsPresent(), pack_.shardsTotal());
+      partsLine_ = line;
+    }
+    // A cache laid out from another pack must not answer for this one: the
+    // build too, since one snapshot was built three times in one evening and
+    // the article behind a locator moved each time.
+    const std::string marker = pack_.manifest().pack + " " + pack_.manifest().snapshot + " " + pack_.manifest().built;
+    if (readSmallFile(kCacheMarker) != marker) {
+      const std::string lru = readSmallFile(kLruPath);
+      size_t pos = 0;
+      while (pos < lru.size()) {
+        const size_t nl = lru.find('\n', pos);
+        const std::string id = lru.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+        if (!id.empty()) removeArticleCache(std::string(kCacheRoot) + "/" + id);
+        if (nl == std::string::npos) break;
+        pos = nl + 1;
+      }
+      ensureDir("/.crosspoint");
+      ensureDir(kCacheRoot);
+      writeFile(kLruPath, "");
+      writeFile(kCacheMarker, marker);
+    }
+    go(View::Search);
+  } else {
+    enterInstall();
+  }
+}
+
+void WikipediaActivity::onExit() {
+  if (usbActive_) leaveInstall();
+  if (packOpen_) saveState();
+  closeArticle();
+  pack_.close();
+  Activity::onExit();
+}
+
+bool WikipediaActivity::skipLoopDelay() {
+  return view_ == View::Article && section_ && section_->isBuilding() && !section_->isBuildComplete();
+}
+
+void WikipediaActivity::go(const View next) {
+  view_ = next;
+  interactionsReady_ = false;
+  if (next == View::Search) kbGate_.arm();
+  requestUpdate();
+}
+
+void WikipediaActivity::showNotice(const char* headline, const char* body, const char* actionLabel,
+                                   const fui::ActionId action) {
+  noticeHead_ = headline;
+  noticeBody_ = body;
+  noticeAction_ = actionLabel;
+  noticeActionId_ = action;
+  go(View::Notice);
+}
+
+// ---------------------------------------------------------------- search
+
+void WikipediaActivity::refreshResults() {
+  results_.clear();
+  if (query_.empty() || !packOpen_) return;
+  // One past the panel's worth, so the screen can say there are more.
+  pack_.prefix(query_, wikiui::kMaxResults + 1, results_);
+}
+
+void WikipediaActivity::handleKey(const int value) {
+  const fui::KeyboardLayout& layout =
+      fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false);
+  switch (value) {
+    case fui::QWERTY_KEY_SHIFT:
+      shifted_ = !shifted_;
+      break;
+    case fui::QWERTY_KEY_MODE:
+      symbols_ = !symbols_;
+      shifted_ = false;
+      break;
+    case fui::QWERTY_KEY_LANG:
+      return;
+    case fui::QWERTY_KEY_ENTER:
+      // GO means "done typing": the keyboard goes down and the matches get
+      // the panel. It used to open the first match, which for "albert" was
+      // Albert A. Michelson.
+      keyboardShown_ = false;
+      break;
+    case fui::QWERTY_KEY_BACKSPACE: {
+      if (query_.empty()) break;
+      size_t pos = query_.size() - 1;
+      while (pos > 0 && (static_cast<uint8_t>(query_[pos]) & 0xC0) == 0x80) --pos;
+      query_.erase(pos);
+      refreshResults();
+      break;
+    }
+    default: {
+      const char* out = fui::keyboardOutputFor(layout, static_cast<int16_t>(value));
+      if (!out) return;
+      if (query_.size() + strlen(out) > 120) return;
+      query_ += out;
+      if (shifted_ && !symbols_) shifted_ = false;
+      refreshResults();
+      break;
+    }
+  }
+  requestUpdate();
+}
+
+void WikipediaActivity::noticeAbout(const char* headline, const char* fmt, const std::string& title) {
+  char body[200];
+  snprintf(body, sizeof(body), fmt, title.c_str());
+  showNotice(headline, body, "BACK", wikiui::ActionBack);
+}
+
+void WikipediaActivity::openTitle(const std::string& title) {
+  wikipedia::IndexEntry entry;
+  if (!pack_.find(title, entry)) {
+    LOG_INF(kTag, "no article called \"%s\"", title.c_str());
+    noticeAbout("NOT FOUND", tr(STR_WIKI_NO_ARTICLE_FMT), title);
+    return;
+  }
+  if (!pack_.onCard(entry.locator)) {
+    LOG_INF(kTag, "\"%s\" is not on the card", title.c_str());
+    noticeAbout("NOT YET", tr(STR_WIKI_NOT_ON_CARD_FMT), title);
+    return;
+  }
+  openLocator(entry.locator, 0, "");
+}
+
+void WikipediaActivity::openRandom() {
+  wikipedia::IndexEntry entry;
+  if (!pack_.random(entry)) {
+    showNotice("NOTHING YET", tr(STR_WIKI_NOT_ON_CARD), "BACK", wikiui::ActionBack);
+    return;
+  }
+  openLocator(entry.locator, 0, "");
+}
+
+fui::Rect WikipediaActivity::keyboardRect() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  const fui::KeyboardLayout& layout =
+      fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false);
+  const int rows = layout.rowCount;
+  const int gap = metrics.keyboardKeySpacing;
+  const int height = rows * metrics.keyboardKeyHeight + (rows > 1 ? (rows - 1) * gap : 0);
+  const int width = pageWidth * metrics.keyboardWidthPercent / 100;
+  const int x = (pageWidth - width) / 2;
+  const int y = pageHeight - 8 - height;
+  return fui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(width),
+                   static_cast<int16_t>(height)};
+}
+
+// The keyboard has its own table: it registers more hit rects than a toybox
+// screen holds, and it is routed first.
+void WikipediaActivity::drawKeyboard() {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  kbInteractions_.beginPublishCycle();
+  fui::GfxRendererTarget target(renderer);
+  target.setFont(fui::GfxRendererTarget::FONT_SMALL, SMALL_FONT_ID);
+  target.setFont(fui::GfxRendererTarget::FONT_BODY, UI_12_FONT_ID);
+  const fui::DeviceContext device = target.deviceContext();
+  const fui::InputSnapshot noInput{};
+  fui::Frame<56> frame(target, device, noInput, kbInteractions_);
+
+  fui::KeyboardProps props;
+  const fui::KeyboardLayout& layout =
+      fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false);
+  props.layout = &layout;
+  props.keyAction = wikiui::ActionKey;
+  props.okLabel = "GO";
+  props.shiftLabel = tr(STR_KEY_SHIFT);
+  props.modeLabel = symbols_ ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
+  props.inputMask = static_cast<uint16_t>(fui::InputTouch);
+  props.selectedIndex = -1;
+  props.labelText.font = fui::GfxRendererTarget::FONT_BODY;
+  props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
+  props.gap = static_cast<int16_t>(metrics.keyboardKeySpacing);
+  props.padding = fui::Insets{0, 0, 0, 0};
+  const fui::Rect kb = keyboardRect();
+  props.bottomHitOverflow = static_cast<int16_t>(renderer.getScreenHeight() - kb.bottom());
+  fui::keyboard(frame, kb, props);
+  kbInteractions_.publish();
+  kbGate_.markBuilt();
+}
+
+// --------------------------------------------------------------- article
+
+bool WikipediaActivity::stageArticle(const uint32_t locator) {
+  const char* error = nullptr;
+  if (!pack_.readArticle(locator, article_, &error)) {
+    LOG_ERR(kTag, "article %lu: %s", static_cast<unsigned long>(locator), error ? error : "");
+    return false;
+  }
+  cacheDir_ = std::string(kCacheRoot) + "/" + std::to_string(locator);
+  if (!ensureDir("/.crosspoint") || !ensureDir(kCacheRoot) || !ensureDir(cacheDir_.c_str())) return false;
+  const std::string html = cacheDir_ + "/article.html";
+  // The band carries the title, so the h1 inside the page would say it twice;
+  // it stays only for a title the band cannot hold whole (two lines of the
+  // reader's 12, about 56 characters), which is the running head's one
+  // permitted cut.
+  const bool keepH1 = article_.title.size() > kBandTitleBytes;
+  const size_t h1 = keepH1 ? std::string::npos : article_.xhtml.find("<h1>");
+  const size_t h1End = h1 == std::string::npos ? std::string::npos : article_.xhtml.find("</h1>", h1);
+  const size_t stripped = h1End == std::string::npos ? 0 : h1End + 5 - h1;
+  bool fresh = true;
+  {
+    HalFile file;
+    if (Storage.exists(html.c_str()) && Storage.openFileForRead(kTag, html.c_str(), file)) {
+      // Staged without its h1, so a match is "smaller by that much"; any
+      // other size means a different article or a torn write.
+      fresh = file.size() != article_.xhtml.size() - stripped;
+    }
+  }
+  if (fresh) {
+    std::string staged = article_.xhtml;
+    if (stripped) staged.erase(h1, stripped);
+    if (!writeFile(html.c_str(), staged)) return false;
+  }
+  // Most recently used first; the tail is pruned.
+  std::string lru = readSmallFile(kLruPath);
+  const std::string id = std::to_string(locator);
+  std::string rebuilt = id + "\n";
+  int kept = 1;
+  size_t pos = 0;
+  while (pos < lru.size()) {
+    const size_t nl = lru.find('\n', pos);
+    const std::string entry = lru.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+    if (!entry.empty() && entry != id) {
+      if (kept < kCachedArticles) {
+        rebuilt += entry + "\n";
+        ++kept;
+      } else {
+        removeArticleCache(std::string(kCacheRoot) + "/" + entry);
+      }
+    }
+    if (nl == std::string::npos) break;
+    pos = nl + 1;
+  }
+  writeFile(kLruPath, rebuilt);
+  return true;
+}
+
+bool WikipediaActivity::openLocator(const uint32_t locator, const int page, const std::string& anchor) {
+  // The render task may be mid-layout on the old section; the lock is what the
+  // reader takes before touching its own.
+  RenderLock lock;
+  closeArticle();
+  if (!stageArticle(locator)) {
+    showNotice("SORRY", tr(STR_WIKI_OPEN_FAILED), "BACK", wikiui::ActionBack);
+    return false;
+  }
+  locator_ = locator;
+  targetPage_ = page;
+  pendingAnchor_ = anchor;
+  buildFailed_ = false;
+  headingPages_.assign(article_.headings.size(), -1);
+  headingPagesFinal_ = false;
+  state_.touch({article_.title, locator});
+  state_.current = {article_.title, locator};
+  state_.currentPage = page;
+  saveState();
+  go(View::Article);
+  return true;
+}
+
+void WikipediaActivity::closeArticle() {
+  section_.reset();
+  links_.clear();
+  article_ = wikipedia::Article{};
+}
+
+// Lays out up to the page or anchor wanted, creating the section on first use.
+// Called from render(), which owns the geometry the spec is made from.
+bool WikipediaActivity::ensureBuilt() {
+  if (!section_) return false;
+  while (section_->isBuilding() && !section_->isBuildComplete()) {
+    if (!pendingAnchor_.empty()) {
+      if (section_->findAnchor(pendingAnchor_)) break;
+    } else if (section_->pageCount > targetPage_) {
+      break;
+    }
+    if (!section_->buildSomeMore(8)) {
+      buildFailed_ = true;
+      return false;
+    }
+  }
+  if (!pendingAnchor_.empty()) {
+    if (const auto p = section_->findAnchor(pendingAnchor_)) targetPage_ = *p;
+    pendingAnchor_.clear();
+  }
+  if (section_->pageCount > 0 && targetPage_ >= section_->pageCount) targetPage_ = section_->pageCount - 1;
+  if (targetPage_ < 0) targetPage_ = 0;
+  section_->currentPage = targetPage_;
+  return true;
+}
+
+void WikipediaActivity::turnPage(const int delta) {
+  RenderLock lock;
+  if (!section_) return;
+  int next = section_->currentPage + delta;
+  if (next < 0) next = 0;
+  if (section_->isBuildComplete() && next >= section_->pageCount) return;
+  targetPage_ = next;
+  state_.currentPage = next;
+  requestUpdate();
+}
+
+void WikipediaActivity::pushHistory() {
+  if (!section_) return;
+  if (static_cast<int>(history_.size()) >= kHistoryDepth) history_.erase(history_.begin());
+  history_.push_back({locator_, section_->currentPage});
+}
+
+void WikipediaActivity::popHistory() {
+  if (history_.empty()) {
+    closeArticle();
+    go(View::Search);
+    return;
+  }
+  const Visit back = history_.back();
+  history_.pop_back();
+  openLocator(back.locator, back.page, "");
+}
+
+void WikipediaActivity::refreshHeadingPages() {
+  if (!section_ || headingPagesFinal_) return;
+  bool all = true;
+  for (size_t i = 0; i < headingPages_.size(); ++i) {
+    if (headingPages_[i] >= 0) continue;
+    const std::string anchor = "s" + std::to_string(i + 1);
+    if (const auto p = section_->findAnchor(anchor)) {
+      headingPages_[i] = *p;
+    } else {
+      all = false;
+    }
+  }
+  headingPagesFinal_ = all && section_->isBuildComplete();
+}
+
+int WikipediaActivity::headingForPage(const int page) const {
+  int best = -1;
+  for (size_t i = 0; i < headingPages_.size(); ++i) {
+    if (headingPages_[i] >= 0 && headingPages_[i] <= page) best = static_cast<int>(i);
+  }
+  return best;
+}
+
+void WikipediaActivity::renderArticle(toybox::Screen& screen) {
+  wikiui::ArticleChromeModel model;
+  model.title = article_.title.c_str();
+  model.contents = !article_.headings.empty();
+  const fui::Rect body = wikiui::buildArticleChrome(screen, model);
+
+  const int pageX = body.x + kPageSide;
+  const int pageY = body.y + kPageTop;
+  const uint16_t viewportWidth = static_cast<uint16_t>(body.width - kPageSide * 2);
+  const uint16_t viewportHeight = static_cast<uint16_t>(body.height - kPageTop);
+
+  if (!section_) {
+    ReaderRenderSpec spec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
+    spec.embeddedStyle = false;
+    // Ragged right, whatever the reader's setting for books: Wikipedia prose
+    // is link-dense and name-dense on a 28-character measure, and two cold
+    // reviews found rivers a fifth of the measure wide even with hyphenation
+    // on. Hyphenation stays on; it tidies a ragged edge too.
+    spec.paragraphAlignment = CrossPointSettings::LEFT_ALIGN;
+    spec.hyphenationEnabled = true;
+    // In a long article every prose section starts a fresh page. Quick facts
+    // flows on after the lead: a grid on its own page left the first page
+    // turn a third empty, which reads as the article having ended.
+    std::vector<std::string> anchors;
+    if (article_.xhtml.size() > kFreshPageBytes) {
+      anchors.reserve(article_.headings.size());
+      for (size_t i = 0; i < article_.headings.size(); ++i) {
+        if (article_.headings[i] == "Quick facts") continue;
+        anchors.push_back("s" + std::to_string(i + 1));
+      }
+    }
+    section_ =
+        makeUniqueNoThrow<Section>(cacheDir_ + "/article.html", cacheDir_, 0, renderer, std::move(anchors), false);
+    if (!section_) {
+      LOG_ERR(kTag, "OOM: Section");
+      buildFailed_ = true;
+    } else if (!section_->loadSectionFile(spec) || section_->isPartial()) {
+      if (!section_->startBuild(spec, nullptr)) {
+        LOG_ERR(kTag, "layout could not start");
+        buildFailed_ = true;
+      }
+    }
+  }
+  if (!buildFailed_) ensureBuilt();
+
+  links_.clear();
+  if (section_ && !buildFailed_ && section_->pageCount > 0) {
+    auto page = section_->loadPage(section_->currentPage);
+    if (page) {
+      links_ = std::move(page->links);
+      linkMarginLeft_ = pageX;
+      linkMarginTop_ = pageY;
+      const int fontId = SETTINGS.getReaderFontId();
+      auto* fcm = renderer.getFontCacheManager();
+      auto scope = fcm->createPrewarmScope();
+      page->render(renderer, fontId, pageX, pageY);
+      scope.endScanAndPrewarm();
+      page->render(renderer, fontId, pageX, pageY);
+    }
+  }
+  // The footer, once the layout has said which page this is.
+  char left[32] = "";
+  char right[96] = "";
+  // A section read back from its cache is complete without ever having built.
+  const bool total = section_ && !buildFailed_ && (!section_->isBuilding() || section_->isBuildComplete());
+  if (section_ && !buildFailed_) {
+    refreshHeadingPages();
+    const int shown = section_->currentPage + 1;
+    if (total) {
+      snprintf(left, sizeof(left), "%d of %d", shown, section_->pageCount);
+    } else {
+      snprintf(left, sizeof(left), "page %d", shown);
+    }
+    const int h = headingForPage(section_->currentPage);
+    if (h >= 0 && h < static_cast<int>(article_.headings.size())) {
+      snprintf(right, sizeof(right), "%s", article_.headings[h].c_str());
+    }
+  }
+  wikiui::ArticleFooterModel footer;
+  footer.left = left;
+  footer.right = right;
+  if (section_ && !buildFailed_) {
+    footer.page = section_->currentPage + 1;
+    footer.total = total ? section_->pageCount : 0;
+  }
+  wikiui::buildArticleFooter(screen, footer);
+}
+
+void WikipediaActivity::saveState() {
+  if (!packOpen_) return;
+  pack_.saveState(state_);
+}
+
+void WikipediaActivity::pruneCache() {}
+
+// --------------------------------------------------------------- install
+
+void WikipediaActivity::enterInstall() {
+  // Everything the page needs to know, written before the card changes hands;
+  // then no file of ours stays open while the host owns the card. Not the
+  // free space: counting it walks the whole FAT (seven seconds on a 16 GB
+  // card, before this screen could draw a thing), and the page sizes the copy
+  // from the manifest and never reads the number.
+  pack_.writeInstallJson(-1, CROSSPOINT_VERSION, "X4 Pro");
+  closeArticle();
+  if (packOpen_) saveState();
+  pack_.close();
+  packOpen_ = false;
+  view_ = View::Install;
+  interactionsReady_ = false;
+  requestUpdateAndWait();
+  if (!Storage.beginUsbDrive()) {
+    LOG_ERR(kTag, "USB drive did not start");
+    stage_ = wikiui::InstallModel::Stage::Failed;
+  } else {
+    usbActive_ = true;
+    stage_ = wikiui::InstallModel::Stage::Waiting;
+  }
+  stageAt_ = millis();
+  requestUpdate();
+}
+
+// Only reached when something outside this screen's loop ended the activity
+// while the card was handed over. endUsbDrive() cannot remount the card (the
+// SDK needs the reboot), so restart rather than leave a device where every
+// SD open fails until someone power-cycles it. A deep sleep in progress makes
+// the helper return, and its wake is a chip reset that remounts anyway.
+void WikipediaActivity::leaveInstall() {
+  if (!usbActive_) return;
+  Storage.endUsbDrive();
+  usbActive_ = false;
+  restartToHomeAfterStorageHandoff();
+}
+
+// ------------------------------------------------------------------ loop
+
+void WikipediaActivity::routeAction(const int action, const int value) {
+  switch (action) {
+    case wikiui::ActionResult:
+      if (value >= 0 && value < static_cast<int>(results_.size())) {
+        const auto entry = results_[value];
+        if (!pack_.onCard(entry.locator)) {
+          LOG_INF(kTag, "\"%s\" is not on the card", entry.title.c_str());
+          noticeAbout("NOT YET", tr(STR_WIKI_NOT_ON_CARD_FMT), entry.title);
+        } else {
+          history_.clear();
+          openLocator(entry.locator, 0, "");
+        }
+      }
+      return;
+    case wikiui::ActionRecent:
+      if (value >= 0 && value < wikiui::kMaxRecent && recentRows_[value] >= 0 &&
+          recentRows_[value] < static_cast<int>(state_.recent.size())) {
+        history_.clear();
+        openLocator(state_.recent[recentRows_[value]].locator, 0, "");
+      }
+      return;
+    case wikiui::ActionContinue:
+      history_.clear();
+      openLocator(state_.current.locator, state_.currentPage, "");
+      return;
+    case wikiui::ActionRandom:
+      history_.clear();
+      openRandom();
+      return;
+    case wikiui::ActionClear:
+      // The X closes the search: the text goes and the keyboard with it.
+      keyboardShown_ = false;
+      query_.clear();
+      results_.clear();
+      requestUpdate();
+      return;
+    case wikiui::ActionField:
+      if (!keyboardShown_) {
+        keyboardShown_ = true;
+        kbGate_.arm();
+        requestUpdate();
+      }
+      return;
+    case wikiui::ActionInstall:
+      enterInstall();
+      return;
+    case wikiui::ActionContents:
+      if (view_ == View::Article && !article_.headings.empty()) {
+        refreshHeadingPages();
+        // Row 0 is TOP; heading h is row h + 1. Open on the window holding
+        // the section the page is in.
+        const int row = (section_ ? headingForPage(section_->currentPage) : -1) + 1;
+        contentsFirst_ = (row / wikiui::kContentsRows) * wikiui::kContentsRows;
+        go(View::Contents);
+      }
+      return;
+    case wikiui::ActionHeading:
+      if (value == 0) {
+        targetPage_ = 0;
+        pendingAnchor_.clear();
+        go(View::Article);
+      } else if (value > 0 && value <= static_cast<int>(article_.headings.size())) {
+        const int h = value - 1;
+        pendingAnchor_ = "s" + std::to_string(h + 1);
+        if (h < static_cast<int>(headingPages_.size()) && headingPages_[h] >= 0) {
+          targetPage_ = headingPages_[h];
+          pendingAnchor_.clear();
+        }
+        go(View::Article);
+      }
+      return;
+    case wikiui::ActionClose:
+      go(View::Article);
+      return;
+    case wikiui::ActionMore: {
+      // The next window starts after what the last render fitted.
+      const int count = static_cast<int>(article_.headings.size()) + 1;
+      const int step = contentsShown_ > 0 ? contentsShown_ : wikiui::kContentsRows;
+      contentsFirst_ = contentsFirst_ + step < count ? contentsFirst_ + step : 0;
+      requestUpdate();
+      return;
+    }
+    case wikiui::ActionPrevious:
+      saveState();
+      popHistory();
+      return;
+    case wikiui::ActionRetry:
+      enterInstall();
+      return;
+    case wikiui::ActionBack:
+      if (section_) {
+        go(View::Article);
+      } else {
+        go(View::Search);
+      }
+      return;
+    default:
+      return;
+  }
+}
+
+void WikipediaActivity::loop() {
+  // The half megabyte an article needs, read once the search screen is on
+  // the panel rather than before it: the open used to wait on it.
+  if (packOpen_ && interactionsReady_ && !pack_.isWarm()) pack_.warm();
+  if (view_ == View::Install) {
+    if (restartRequested_) return;
+    const auto state = Storage.usbDriveState();
+    if (usbActive_) {
+      if (state == UsbDriveState::Connected && stage_ != wikiui::InstallModel::Stage::Connected) {
+        stage_ = wikiui::InstallModel::Stage::Connected;
+        requestUpdate();
+      } else if (state == UsbDriveState::Ejected || state == UsbDriveState::Disconnected) {
+        // The host let go: come back into this app on the pack it wrote.
+        restartRequested_ = true;
+        Storage.endUsbDrive();
+        usbActive_ = false;
+        delay(20);
+        restartToAppAfterStorageHandoff();
+        return;
+      } else if (state == UsbDriveState::IoError && stage_ != wikiui::InstallModel::Stage::Failed) {
+        LOG_ERR(kTag, "USB drive I/O error");
+        Storage.disconnectUsbDriveHost();
+        stage_ = wikiui::InstallModel::Stage::Failed;
+        requestUpdate();
+      }
+      // The cable pulled without an eject: the USB stack keeps saying
+      // "mounted" (nothing on this bus tells it the plug is gone), so the
+      // screen said Connected forever and every tap did nothing, until the
+      // power button. The board's USB-detect line knows. Two seconds, so a
+      // glitch on the line is not a restart; then back into the app on
+      // whatever parts the page had written, which it names on its screen.
+      if (stage_ == wikiui::InstallModel::Stage::Connected) {
+        if (gpio.isUsbConnected()) {
+          cableOutAt_ = 0;
+        } else if (cableOutAt_ == 0) {
+          cableOutAt_ = millis();
+        } else if (millis() - cableOutAt_ >= kCableOutMs) {
+          LOG_INF(kTag, "cable out without an eject; restarting on what arrived");
+          restartRequested_ = true;
+          Storage.endUsbDrive();
+          usbActive_ = false;
+          delay(20);
+          restartToAppAfterStorageHandoff();
+          return;
+        }
+      }
+      // No host in half an hour: the card is still handed over, so a restart
+      // is the only way to remount it. Home, not this app: coming back here
+      // would begin the handoff again and a device with no pack would reboot
+      // into its own install screen every half hour.
+      if (stage_ == wikiui::InstallModel::Stage::Waiting && millis() - stageAt_ >= kHostWaitMs) {
+        restartRequested_ = true;
+        Storage.endUsbDrive();
+        usbActive_ = false;
+        restartToHomeAfterStorageHandoff();
+        return;
+      }
+    }
+    // Back means "not now". Only the host letting go (above) comes back into
+    // this app; Back here restarting into the app would land on this screen
+    // again, with the card handed over again, and nothing the user does would
+    // ever reach Home.
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture()) {
+      restartRequested_ = true;
+      if (usbActive_) {
+        Storage.endUsbDrive();
+        usbActive_ = false;
+      }
+      restartToHomeAfterStorageHandoff();
+      return;
+    }
+    fui::InputSnapshot input;
+    int tx = 0, ty = 0;
+    if (mappedInput.wasScreenTapped(tx, ty) && interactionsReady_) {
+      input.touchReleased = true;
+      input.touchX = static_cast<int16_t>(tx);
+      input.touchY = static_cast<int16_t>(ty);
+      const fui::ActionEvent ev = interactions_.route(input);
+      routeAction(static_cast<int>(ev.action), static_cast<int>(ev.value));
+    }
+    return;
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    switch (view_) {
+      case View::Search:
+        if (!query_.empty()) {
+          query_.clear();
+          results_.clear();
+          requestUpdate();
+        } else if (keyboardShown_) {
+          keyboardShown_ = false;
+          requestUpdate();
+        } else {
+          shelf::leave(renderer, mappedInput);
+        }
+        return;
+      case View::Article:
+        // The edge swipe leaves the article for the main page; the band's
+        // chevron is the one that walks the trail back (Mario, 2026-09-11:
+        // "the back gesture and the back arrow do different things").
+        saveState();
+        history_.clear();
+        closeArticle();
+        go(View::Search);
+        return;
+      case View::Contents:
+        go(View::Article);
+        return;
+      case View::Notice:
+        routeAction(wikiui::ActionBack, 0);
+        return;
+      default:
+        return;
+    }
+  }
+
+  if (view_ == View::Article) {
+    // The rest of the article lays out between renders, a couple of pages a
+    // tick, so a page turn is a seek rather than a wait.
+    // Under the render lock, as the reader does: render() lays out on the
+    // other task, and two callers inside one expat parser end in a mismatched
+    // tag that no document contains.
+    if (section_ && section_->isBuilding() && !section_->isBuildComplete() && !buildFailed_ && !RenderLock::peek() &&
+        ESP.getFreeHeap() > kBuildMinHeap) {
+      RenderLock lock;
+      if (section_->isBuilding() && !section_->isBuildComplete()) {
+        if (!section_->buildSomeMore(2)) {
+          buildFailed_ = true;
+        } else if (section_->isBuildComplete()) {
+          requestUpdate();
+        }
+      }
+    }
+    // A vertical swipe turns the page too, the way the shelf and Hacker News
+    // page; a horizontal one is not read here, because the left-edge swipe
+    // IS Button::Back and a second reading of it would be a second Back.
+    const auto swipe = mappedInput.wasSwipe();
+    if (swipe == MappedInputManager::SwipeDir::Up) {
+      turnPage(1);
+      return;
+    }
+    if (swipe == MappedInputManager::SwipeDir::Down) {
+      turnPage(-1);
+      return;
+    }
+    // The two side buttons, as the reader maps them; the X4 Pro has no
+    // Confirm, Left or Right (docs/buttons.md).
+    if (mappedInput.wasPressed(MappedInputManager::Button::PageBack) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+      turnPage(-1);
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::PageForward) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+      turnPage(1);
+      return;
+    }
+  } else if (view_ == View::Contents) {
+    const int rows = wikiui::kContentsRows;
+    const int count = static_cast<int>(article_.headings.size()) + 1;
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+      const int step = contentsShown_ > 0 ? contentsShown_ : rows;
+      if (contentsFirst_ + step < count) {
+        contentsFirst_ += step;
+        requestUpdate();
+      }
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+      if (contentsFirst_ > 0) {
+        contentsFirst_ = std::max(0, contentsFirst_ - rows);
+        requestUpdate();
+      }
+      return;
+    }
+  }
+
+  fui::InputSnapshot input;
+  int tapX = 0;
+  int tapY = 0;
+  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+  input.touchReleased = true;
+  input.touchX = static_cast<int16_t>(tapX);
+  input.touchY = static_cast<int16_t>(tapY);
+
+  if (view_ == View::Search && keyboardShown_ && kbGate_.revealed()) {
+    const fui::ActionEvent key = kbInteractions_.routePublished(input);
+    if (key.action == wikiui::ActionKey) {
+      handleKey(static_cast<int>(key.value));
+      return;
+    }
+  }
+  if (!interactionsReady_) return;
+
+  if (view_ == View::Article) {
+    if (!links_.empty()) {
+      const auto* link = EpubReaderUtils::linkAtPoint(links_, tapX, tapY, linkMarginLeft_, linkMarginTop_);
+      if (link) {
+        wikipedia::IndexEntry entry;
+        if (!pack_.find(link->href, entry)) {
+          LOG_INF(kTag, "link \"%s\": no such article", link->href);
+          noticeAbout("NOT FOUND", tr(STR_WIKI_NO_ARTICLE_FMT), link->href);
+        } else if (!pack_.onCard(entry.locator)) {
+          LOG_INF(kTag, "link \"%s\": not on the card", link->href);
+          noticeAbout("NOT YET", tr(STR_WIKI_NOT_ON_CARD_FMT), link->href);
+        } else {
+          LOG_INF(kTag, "link \"%s\" -> %lu", link->href, static_cast<unsigned long>(entry.locator));
+          pushHistory();
+          openLocator(entry.locator, 0, "");
+        }
+        return;
+      }
+    }
+    const fui::ActionEvent ev = interactions_.route(input);
+    if (ev.action != fui::NO_ACTION) {
+      routeAction(static_cast<int>(ev.action), static_cast<int>(ev.value));
+      return;
+    }
+    // Tap zones: the left third turns back, the rest turns forward.
+    if (tapY > toybox::kChromeHeight) turnPage(tapX < renderer.getScreenWidth() / 3 ? -1 : 1);
+    return;
+  }
+
+  const fui::ActionEvent ev = interactions_.route(input);
+  routeAction(static_cast<int>(ev.action), static_cast<int>(ev.value));
+}
+
+// ---------------------------------------------------------------- render
+
+void WikipediaActivity::render(RenderLock&&) {
+  renderer.clearScreen();
+  // Titles are somebody else's words, and the toybox reading cuts stop at
+  // Latin-1: the band showed "Chisinau" without its s-comma and a-breve. So
+  // every slot that shows a title is the reader's own face, the one the page
+  // is set in, whose coverage is what the builder's drawable class came from.
+  // The article and contents bands: the reader's 12 for the footer and page
+  // numbers, the reader's face for the rows and the band (bold by style); the
+  // rest: Jersey for the app's own captions and buttons, the reader's face
+  // for the field, the matches and the trail.
+  const int readerFont = SETTINGS.getReaderFontId();
+  const int readerSmall =
+      SETTINGS.fontFamily == CrossPointSettings::NOTOSANS ? NOTOSANS_12_FONT_ID : NOTOSERIF_12_FONT_ID;
+  const bool prose = view_ == View::Article || view_ == View::Contents;
+  const toybox::Faces faces = prose ? toybox::Faces{readerSmall, readerFont, readerFont}
+                                    : toybox::Faces{toybox::kButtonFontId, readerFont, toybox::kDisplayFontId};
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer, faces);
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
+  toybox::Screen screen(frame);
+
+  switch (view_) {
+    case View::Search: {
+      wikiui::SearchModel model;
+      model.query = query_.c_str();
+      model.resultCount = static_cast<int>(std::min<size_t>(results_.size(), wikiui::kMaxResults));
+      for (int i = 0; i < model.resultCount; ++i) {
+        model.results[i].title = results_[i].title.c_str();
+        model.results[i].redirect = results_[i].redirect;
+      }
+      model.noMatch = !query_.empty() && results_.empty();
+      model.moreResults = results_.size() > static_cast<size_t>(wikiui::kMaxResults);
+      model.continueTitle = state_.current.title.empty() ? nullptr : state_.current.title.c_str();
+      model.continuePage = state_.current.title.empty() ? 0 : state_.currentPage + 1;
+      // The trail leaves out the article CONTINUE already names; VALUE is the
+      // row in state_.recent, so the activity keeps the map.
+      model.recentCount = 0;
+      for (size_t i = 0; i < state_.recent.size() && model.recentCount < wikiui::kMaxRecent; ++i) {
+        if (!state_.current.title.empty() && state_.recent[i].locator == state_.current.locator) continue;
+        model.recent[model.recentCount].title = state_.recent[i].title.c_str();
+        recentRows_[model.recentCount] = static_cast<int>(i);
+        ++model.recentCount;
+      }
+      model.footer = footer_.c_str();
+      model.partsLine = partsLine_.empty() ? nullptr : partsLine_.c_str();
+      if (keyboardShown_) {
+        const fui::Rect kb = keyboardRect();
+        model.keyboardHeight = static_cast<int16_t>(renderer.getScreenHeight() - kb.y + 8);
+      }
+      wikiui::buildSearch(screen, model);
+      break;
+    }
+    case View::Article:
+      renderArticle(screen);
+      break;
+    case View::Contents: {
+      // TOP first (page 1), then every section with its page once the layout
+      // has reached it.
+      std::vector<const char*> names;
+      std::vector<int> pages;
+      names.reserve(article_.headings.size() + 1);
+      pages.reserve(article_.headings.size() + 1);
+      names.push_back("Top");
+      pages.push_back(0);
+      for (size_t i = 0; i < article_.headings.size(); ++i) {
+        names.push_back(article_.headings[i].c_str());
+        pages.push_back(i < headingPages_.size() ? headingPages_[i] : -1);
+      }
+      wikiui::ContentsModel model;
+      model.title = article_.title.c_str();
+      model.headings = names.data();
+      model.pages = pages.data();
+      model.count = static_cast<int>(names.size());
+      model.current = (section_ ? headingForPage(section_->currentPage) : -1) + 1;
+      model.first = contentsFirst_;
+      contentsShown_ = wikiui::buildContents(screen, model);
+      break;
+    }
+    case View::Install: {
+      wikiui::InstallModel model;
+      model.stage = stage_;
+      model.url = kInstallUrlShown;
+      model.partsLine = partsLine_.empty() ? nullptr : partsLine_.c_str();
+      const fui::Rect qr = wikiui::buildInstall(screen, model);
+      QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, kInstallUrl);
+      break;
+    }
+    case View::Notice: {
+      wikiui::NoticeModel model;
+      model.headline = noticeHead_.c_str();
+      model.body = noticeBody_.c_str();
+      model.actionLabel = noticeAction_;
+      model.action = noticeActionId_;
+      wikiui::buildNotice(screen, model);
+      break;
+    }
+  }
+  interactionsReady_ = true;
+  toybox::reportOverflow(interactions_, "Wikipedia");
+  if (view_ == View::Search && keyboardShown_) drawKeyboard();
+  renderer.displayBuffer();
+}

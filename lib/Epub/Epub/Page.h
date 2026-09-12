@@ -80,7 +80,10 @@ class Page {
   std::vector<FootnoteEntry> footnotes;
   static constexpr uint16_t MAX_FOOTNOTES_PER_PAGE = 16;
   std::vector<PageLink> links;
-  static constexpr uint16_t MAX_LINKS_PER_PAGE = 32;
+  // 96 rather than 32: a Wikipedia lead runs one link per five words, and a
+  // link past the cap silently becomes plain text. Serialized as a count, so
+  // caches written under the old cap still load.
+  static constexpr uint16_t MAX_LINKS_PER_PAGE = 96;
 
   // Zero-based visible-codepoint offset where this page starts. Not part of the serialized page
   // body (it lives in the section's visible-offset LUT); Section::loadPage* fills it in from the

@@ -21,6 +21,9 @@ class Section {
   HalFile file;
 
   void writeSectionFileHeader(const ReaderRenderSpec& spec);
+  // The spec a build and its cache really use: a standalone document forces
+  // images off.
+  ReaderRenderSpec effectiveSpec(const ReaderRenderSpec& requested) const;
   uint32_t onPageComplete(std::unique_ptr<Page> page);
 
   // Page-offset table entry, kept in RAM while an incremental build is running so
@@ -54,6 +57,12 @@ class Section {
     uint32_t smoothedAtConsumed = 0;
   };
   std::unique_ptr<BuildContext> build_;
+  // Set by the standalone constructor: a document that is already an HTML file
+  // on the card, with no Epub behind it. Empty when built from an Epub.
+  std::string standaloneHtmlPath_;
+  std::string standaloneCacheDir_;
+  std::vector<std::string> standaloneAnchors_;
+  bool captureFootnotes_ = true;
   bool buildComplete_ = false;
   // Pages laid out by the active build (== build_->lut.size()). Distinct from pageCount,
   // which is the pages *available to read* and also counts a loaded partial file's pages.
@@ -84,6 +93,13 @@ class Section {
   // Constructor and destructor are out-of-line: BuildContext holds a unique_ptr to the
   // forward-declared ChapterHtmlSlimParser, whose full definition is only visible in the .cpp.
   explicit Section(const std::shared_ptr<Epub>& epub, int spineIndex, GfxRenderer& renderer);
+  // A standalone document: htmlPath is an existing XHTML file, cacheDir receives
+  // sections/<index>.bin, and every id in sectionAnchors starts a fresh page.
+  // No zip, no CSS, no images (the section forces that in the spec it uses),
+  // and no footnote entries unless captureFootnotes. The Wikipedia app lays out an
+  // article this way; nothing else about the section changes.
+  Section(std::string htmlPath, std::string cacheDir, int index, GfxRenderer& renderer,
+          std::vector<std::string> sectionAnchors, bool captureFootnotes);
   ~Section();
   bool loadSectionFile(const ReaderRenderSpec& spec);
   bool clearCache() const;

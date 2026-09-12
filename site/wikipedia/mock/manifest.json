@@ -1,0 +1,70 @@
+{
+  "format": 1,
+  "pack": "en-mock",
+  "snapshot": "2026-05-13",
+  "built": "2026-09-11T02:00:00Z",
+  "articles": 7238251,
+  "entries": 19217771,
+  "blocks": 90,
+  "dict": {
+    "file": "dict.zst",
+    "bytes": 110000,
+    "sha256": "9d5f0d72e60403bc36b19427e9bd2cd9c966cf7bd97016ff2e13eb981b98e061"
+  },
+  "titles": [
+    {
+      "file": "titles.0.idx",
+      "bytes": 1000000,
+      "sha256": "c9b1a5454e54bb6785c6c0e4531c0dd49d2aa0be529bb6d15fe6304515e7e1eb",
+      "tier": 0
+    },
+    {
+      "file": "titles.1.idx",
+      "bytes": 5000000,
+      "sha256": "8e220a7fd1cc035ec59dfdf85ee3f995c70c62f28ee6f66bd6ed45877f36ea65",
+      "tier": 1
+    }
+  ],
+  "blocksdir": {
+    "file": "blocks.dir",
+    "bytes": 48000,
+    "sha256": "68609155e5db7635f230a7692976261fcc28d52a21b356e8436f2fa5fda03f09"
+  },
+  "shards": [
+    {
+      "file": "shards/000.blk",
+      "bytes": 2000000,
+      "sha256": "c4d77f45f6f96650f4353c356b97882e659fc40d5048db4b5b0e439c9c9b45ca",
+      "firstBlock": 0,
+      "blocks": 30
+    },
+    {
+      "file": "shards/001.blk",
+      "bytes": 2000000,
+      "sha256": "928ee37d2a653b3fb8ddfa98a2e6952d70e49438f316643756f8c59e7a7ee620",
+      "firstBlock": 30,
+      "blocks": 30
+    },
+    {
+      "file": "shards/002.blk",
+      "bytes": 2000000,
+      "sha256": "66233931adf0c0d624b7f46c537e61c8ba90fc4454dbbe023a29912367de3d08",
+      "firstBlock": 60,
+      "blocks": 30
+    }
+  ],
+  "tiers": [
+    {
+      "name": "essentials",
+      "shards": 1,
+      "articles": 49938,
+      "bytes": 3158000
+    },
+    {
+      "name": "all",
+      "shards": 3,
+      "articles": 7238251,
+      "bytes": 12158000
+    }
+  ]
+}

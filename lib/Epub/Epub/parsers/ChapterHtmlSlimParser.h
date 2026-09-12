@@ -61,6 +61,10 @@ class ChapterHtmlSlimParser {
   std::string contentBase;
   std::string imageBasePath;
   int imageCounter = 0;
+  // Every internal link is also recorded as a footnote entry for the reader's
+  // popup; a document with links but no footnote popup (a Wikipedia article)
+  // turns this off and keeps only the link rectangles.
+  bool captureFootnotes = true;
 
   // Style tracking (replaces depth-based approach)
   struct StyleStackEntry {
@@ -165,6 +169,7 @@ class ChapterHtmlSlimParser {
   static void XMLCALL endElement(void* userData, const XML_Char* name);
 
  public:
+  void setCaptureFootnotes(const bool capture) { captureFootnotes = capture; }
   explicit ChapterHtmlSlimParser(
       std::shared_ptr<Epub> epub, const std::string& filepath, GfxRenderer& renderer, const int fontId,
       const float lineCompression, const bool extraParagraphSpacing, const uint8_t paragraphAlignment,
