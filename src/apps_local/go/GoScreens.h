@@ -14,7 +14,7 @@ namespace fui = freeink::ui;
 
 enum : fui::ActionId {
   ActionMenuRow = 1,
-  ActionHowToNext = 2,
+  ActionSettingsRow = 2,
   ActionPass = 3,
   ActionAgain = 4,
   ActionDone = 5,
@@ -22,21 +22,12 @@ enum : fui::ActionId {
   ActionAccept = 7,
 };
 
-enum class MenuRow : int { Play = 0, Opponent, Level, PlayAs, PlayNearby, HowTo, Count };
+enum class MenuRow : int { Play = 0, PlayNearby, Settings, Count };
+enum class SettingsRow : int { Opponent = 0, Level, PlayAs, Count };
 
 struct MenuModel {
   const char* nearbyName = nullptr;
   int selected = -1;
-  go::Opponent opponent = go::Opponent::Computer;
-  go::Level level = go::Level::Medium;
-  // Which colour the player takes against the computer. Black moves first and
-  // gives away 7.5 points of komi; White takes the komi and moves second. On a
-  // nine by nine that is a real choice rather than a preference, which is why
-  // it is a row rather than a setting nobody finds.
-  uint8_t playAs = go::kBlack;
-  // Stones the chosen level spots the player. Non-zero forces them to Black,
-  // because a handicap is Black's by definition.
-  int handicap = 0;
   // A game is part-played and PLAY will resume it rather than start one.
   bool inProgress = false;
 
@@ -51,8 +42,17 @@ struct MenuModel {
   int losses = 0;
 };
 
-struct HowToModel {
-  int page = 0;
+struct SettingsModel {
+  int selected = -1;
+  go::Opponent opponent = go::Opponent::Computer;
+  go::Level level = go::Level::Medium;
+  // Which colour the player takes against the computer. Black moves first and
+  // gives away komi; White takes the komi and moves second. On a nine by nine
+  // that is a real choice rather than a preference.
+  uint8_t playAs = go::kBlack;
+  // Stones the chosen level spots the player. Non-zero forces them to Black,
+  // because a handicap is Black's by definition.
+  int handicap = 0;
 };
 
 struct BoardModel {
@@ -117,12 +117,10 @@ bool pointAt(const fui::DeviceContext& device, int x, int y, int& point);
 int16_t stoneRadius();
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
-void buildHowTo(toybox::Screen& screen, const HowToModel& model);
+void buildSettings(toybox::Screen& screen, const SettingsModel& model);
 void buildBoard(toybox::Screen& screen, const BoardModel& model);
 void buildCount(toybox::Screen& screen, const CountModel& model);
 void buildResult(toybox::Screen& screen, const ResultModel& model);
-
-int howToPages();
 
 // "B+5.5", "W+12.5". One function so the result screen, the front door's
 // caption and the count all say it the same way.

@@ -24,6 +24,30 @@ host-tested; only the activity needs hardware.
 
 `host-tests/go/run.sh` runs the lot on a laptop.
 
+## The front door has three doors
+
+PLAY, PLAY NEARBY, SETTINGS, and an ornament in the middle that is the final
+position of your last game. Everything configurable is behind the third door:
+six rows on a front door, three of them settings, is a settings screen with a
+PLAY button on it.
+
+There is **no how-to**. The board explains itself instead: the status capsule
+names the phase, a stone is aimed before it is placed, and the two warnings
+(that fills your own eye, that stone would be in atari) arrive at the moment
+they are about to matter rather than on a page nobody reads twice.
+
+**Icons carry the value, not the label.** The opponent row's mark is a machine
+or two people. A graded mark for the level was the first choice and had to go:
+at 32px in one bit, Lucide's three signal strengths are 3px bars in the bottom
+third of the box and the weakest is a single speck that reads as a rendering
+fault. `tools_local/toybox/icons.txt` records that, because the next person will
+reach for the same three.
+
+**A value row's icon has to LEAD.** The front door's icons sit at the right,
+like the shelf's, because those rows are label-only. A settings row carries a
+value there, and an icon drawn on top of it lands ON the value: the first
+version squeezed the third row's label off the screen entirely.
+
 ## The ruleset, and the one thing it is for
 
 **Area scoring (Chinese), positional superko, komi 7.5 in half points.** Every

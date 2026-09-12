@@ -400,20 +400,6 @@ void GoActivity::gameLoop() {
     return;
   }
 
-  // HOW TO PLAY pages on the two side keys: the case labels them previous and
-  // next page, and a page of a how-to is a page. NEXT stays tappable, because a
-  // physical button is never the only route to anything here.
-  if (screen == go::Screen::HowTo) {
-    const bool forward = mappedInput.wasReleased(MappedInputManager::Button::Down);
-    const bool backward = mappedInput.wasReleased(MappedInputManager::Button::Up);
-    if (forward || backward) {
-      const int pages = goui::howToPages();
-      howToPage = (howToPage + (forward ? 1 : pages - 1)) % pages;
-      requestUpdate();
-      return;
-    }
-  }
-
   if (screen == go::Screen::Board) {
     if (inMatch()) {
       if (!linkYourTurn()) {
@@ -480,63 +466,59 @@ void GoActivity::gameLoop() {
           }
           beginSoloGame();
           return;
-        case goui::MenuRow::Opponent:
-          // The row changes in place and the headline above it relabels itself;
-          // leaving the menu is what applies it. A destructive setting that
-          // jumps you somewhere else makes you guess whether it worked.
-          opponent = opponent == go::Opponent::Computer ? go::Opponent::Human : go::Opponent::Computer;
-          inProgress = false;
-          menuSelected = static_cast<int>(goui::MenuRow::Opponent);
-          writeSave();
-          requestUpdate();
-          return;
-        case goui::MenuRow::Level:
-          if (opponent != go::Opponent::Computer) return;
-          level = go::nextLevel(level);
-          // The level decides the opening -- how many stones and what komi --
-          // so it cannot be changed under a game in progress without the board
-          // and the menu disagreeing about what is being played. Dropping the
-          // game here is what makes the headline relabel itself from RESUME to
-          // PLAY, which is the confirmation, rather than a dialog.
-          inProgress = false;
-          menuSelected = static_cast<int>(goui::MenuRow::Level);
-          writeSave();
-          requestUpdate();
-          return;
-        case goui::MenuRow::PlayAs: {
-          if (opponent != go::Opponent::Computer) return;
-          int handicap = 0;
-          int16_t komi = go::kDefaultKomiHalves;
-          goengine::openingFor(level, handicap, komi);
-          // Dimmed rather than gone at a level that spots stones, so the row
-          // still says what it would do and the layout does not jump.
-          if (handicap > 0) return;
-          playAs = go::other(playAs);
-          inProgress = false;
-          menuSelected = static_cast<int>(goui::MenuRow::PlayAs);
-          writeSave();
-          requestUpdate();
-          return;
-        }
         case goui::MenuRow::PlayNearby:
           enterLink(linkplay::GameId::Go);
           return;
-        case goui::MenuRow::HowTo:
-          howToPage = 0;
-          goTo(go::Screen::HowTo);
+        case goui::MenuRow::Settings:
+          settingsSelected = -1;
+          goTo(go::Screen::Settings);
           return;
         case goui::MenuRow::Count:
           return;
       }
       return;
 
-    case goui::ActionHowToNext:
-      if (howToPage + 1 < goui::howToPages()) {
-        ++howToPage;
-        requestUpdate();
-        return;
+    case goui::ActionSettingsRow:
+      switch (static_cast<goui::SettingsRow>(event.value)) {
+        case goui::SettingsRow::Opponent:
+          // The row changes in place and the front door's headline relabels
+          // itself; leaving is what applies it. A destructive setting that
+          // jumps you somewhere else makes you guess whether it worked.
+          opponent = opponent == go::Opponent::Computer ? go::Opponent::Human : go::Opponent::Computer;
+          inProgress = false;
+          settingsSelected = static_cast<int>(goui::SettingsRow::Opponent);
+          writeSave();
+          requestUpdate();
+          return;
+        case goui::SettingsRow::Level:
+          if (opponent != go::Opponent::Computer) return;
+          level = go::nextLevel(level);
+          // The level decides the opening -- how many stones and what komi --
+          // so it cannot change under a game in progress without the board and
+          // the menu disagreeing about what is being played.
+          inProgress = false;
+          settingsSelected = static_cast<int>(goui::SettingsRow::Level);
+          writeSave();
+          requestUpdate();
+          return;
+        case goui::SettingsRow::PlayAs: {
+          if (opponent != go::Opponent::Computer) return;
+          int handicap = 0;
+          int16_t komi = go::kDefaultKomiHalves;
+          goengine::openingFor(level, handicap, komi);
+          // Dimmed rather than gone at a level that spots stones, so the row
+          // still says what it would do and the list does not jump.
+          if (handicap > 0) return;
+          playAs = go::other(playAs);
+          inProgress = false;
+          settingsSelected = static_cast<int>(goui::SettingsRow::PlayAs);
+          writeSave();
+          requestUpdate();
+          return;
+        }
+        case goui::SettingsRow::Count:
+          return;
       }
-      goTo(go::Screen::Menu);
       return;
 
     case goui::ActionPass:
@@ -625,15 +607,6 @@ void GoActivity::gameRender() {
     case go::Screen::Menu: {
       goui::MenuModel model;
       model.selected = menuSelected;
-      model.opponent = opponent;
-      model.level = level;
-      model.playAs = playAs;
-      {
-        int handicap = 0;
-        int16_t komi = go::kDefaultKomiHalves;
-        goengine::openingFor(level, handicap, komi);
-        model.handicap = handicap;
-      }
       model.inProgress = inProgress && game.stage != static_cast<uint8_t>(go::Stage::Over);
       model.hasHistory = hasHistory;
       model.lastPoints = lastPoints;
@@ -644,10 +617,19 @@ void GoActivity::gameRender() {
       goui::buildMenu(surface, model);
       break;
     }
-    case go::Screen::HowTo: {
-      goui::HowToModel model;
-      model.page = howToPage;
-      goui::buildHowTo(surface, model);
+    case go::Screen::Settings: {
+      goui::SettingsModel model;
+      model.selected = settingsSelected;
+      model.opponent = opponent;
+      model.level = level;
+      model.playAs = playAs;
+      {
+        int handicap = 0;
+        int16_t komi = go::kDefaultKomiHalves;
+        goengine::openingFor(level, handicap, komi);
+        model.handicap = opponent == go::Opponent::Computer ? handicap : 0;
+      }
+      goui::buildSettings(surface, model);
       break;
     }
     case go::Screen::Board: {

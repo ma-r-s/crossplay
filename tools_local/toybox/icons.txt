@@ -259,6 +259,29 @@ sudoku      = hash
 # diagram of a different subject).
 go          = grip
 
+# GO's in-app marks. Rows in this fork carry an icon on the right, and these
+# six are chosen so the icon says something the label cannot: the three signal
+# bars ARE the level, and the opponent mark changes between a machine and two
+# people. An icon that only restates its label is decoration.
+#
+# Spliced into ToyboxIcons.h by hand, like every icon since the yahtzee and
+# connectfour sources went missing (see the warning at the top of this file).
+go_play      = play
+go_settings  = settings
+go_computer  = bot          # a machine with a face; `cpu` is a chip, which is
+                            # the part rather than the player
+go_humans    = users        # two of them, because that is what the row means
+go_colour    = contrast     # a disc half black and half white, which IS the
+                            # choice the row offers
+go_level     = gauge        # a dial: HOW HARD, which is what the row asks.
+                            # `signal-low/medium/high` was the first choice --
+                            # an icon that grades itself is better than one that
+                            # restates its label -- and it had to go: at 32px in
+                            # one bit those are 3px bars in the bottom third of
+                            # the box, and `signal-low` is a single speck that
+                            # reads as a rendering fault. The VALUE already says
+                            # EASY, MEDIUM or HARD, and it says it loudly.
+
 # PICROSS. The reward is a revealed PICTURE, so `image` -- a framed picture --
 # rather than another grid. `grid-2x2`/`hash` are already spoken for and read as
 # the same boxed lattice; `pencil`/`paintbrush` are tools, which this file bans

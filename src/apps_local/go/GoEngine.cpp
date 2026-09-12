@@ -1,5 +1,7 @@
 #include "GoEngine.h"
 
+#include "GoPatterns.h"
+
 namespace goengine {
 namespace {
 
@@ -259,6 +261,42 @@ int soleLiberty(const Fast& fast, const int start) {
   return liberty;
 }
 
+// Whether the 3x3 shape around `point` is one the MoGo patterns like.
+//
+// This is the knowledge in the engine, and there is a measurement behind that
+// claim: the playout policy is worth about +512 Elo on its own, and a
+// policy-guided engine at 500 playouts beats a knowledge-free one at 10,000.
+// Without it whole groups die in a playout and nothing notices, which on a
+// panel somebody is watching reads as a crash rather than as a loss.
+//
+// The table carries every rotation, reflection and colour swap already, so
+// there is no symmetry code here and none of the eight can be got wrong.
+bool matchesPattern(const Fast& fast, const int point, const uint8_t colour) {
+  const int row = go::rowOf(point);
+  const int col = go::colOf(point);
+  const int classX = col == 0 ? 0 : (col == go::kSize - 1 ? 2 : 1);
+  const int classY = row == 0 ? 0 : (row == go::kSize - 1 ? 2 : 1);
+  const int cls = classY * 3 + classX;
+
+  // NW N NE W E SW S SE, skipping whatever is off the board: which neighbours
+  // exist is exactly what the class already said.
+  static const int8_t kOrder[8][2] = {{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}};
+  uint16_t index = 0;
+  uint16_t mult = 1;
+  for (int i = 0; i < 8; ++i) {
+    const int r = row + kOrder[i][0];
+    const int c = col + kOrder[i][1];
+    if (!go::onBoard(r, c)) continue;
+    const uint8_t here = fast.point[go::pointAt(r, c)];
+    const uint16_t value = here == go::kEmpty ? 0 : (here == colour ? 1 : 2);
+    index = static_cast<uint16_t>(index + value * mult);
+    mult = static_cast<uint16_t>(mult * 3);
+  }
+
+  const uint32_t bit = static_cast<uint32_t>(gopatterns::kOffset[cls]) * 8u + index;
+  return (gopatterns::kBits[bit / 8] & (1u << (bit % 8))) != 0;
+}
+
 // Whether `point` is worth playing at all: legal, and not filling our own eye.
 bool sensible(Fast& fast, const int point) {
   if (fast.point[point] != go::kEmpty) return false;
@@ -319,6 +357,37 @@ int playoutMove(Fast& fast, uint32_t& seed, const bool policy, const int lastMov
     }
   }
 
+  // Then the shape patterns, in the eight points around the last move. Mogo's
+  // order: answer the tactics first, then play a good local shape, then play
+  // anywhere. Local again, for the same reason -- a shape becomes interesting
+  // because of the stone that was just put down next to it.
+  if (policy && lastMove >= 0 && lastMove < go::kPoints) {
+    const int row = go::rowOf(lastMove);
+    const int col = go::colOf(lastMove);
+    uint8_t matches[8];
+    int found = 0;
+    for (int dr = -1; dr <= 1; ++dr) {
+      for (int dc = -1; dc <= 1; ++dc) {
+        if (dr == 0 && dc == 0) continue;
+        if (!go::onBoard(row + dr, col + dc)) continue;
+        const int point = go::pointAt(row + dr, col + dc);
+        if (!sensible(fast, point)) continue;
+        if (!matchesPattern(fast, point, fast.toMove)) continue;
+        matches[found++] = static_cast<uint8_t>(point);
+      }
+    }
+    // Chosen at random among the matches rather than by the first one found:
+    // walking them in board order would bias every playout towards the
+    // top-left, which is a systematic error rather than noise and does not
+    // average out over thousands of them.
+    while (found > 0) {
+      const int which = static_cast<int>(nextRandom(seed) % static_cast<uint32_t>(found));
+      const int point = matches[which];
+      if (playFast(fast, point)) return point;
+      matches[which] = matches[--found];
+    }
+  }
+
   const int start = static_cast<int>(nextRandom(seed) % go::kPoints);
   for (int i = 0; i < go::kPoints; ++i) {
     const int point = (start + i) % go::kPoints;
@@ -329,13 +398,19 @@ int playoutMove(Fast& fast, uint32_t& seed, const bool policy, const int lastMov
   return kPassIndex;
 }
 
-int runPlayout(Fast fast, uint32_t& seed, const bool policy) {
+// `played` accumulates which points each colour put a stone on, indexed by
+// colour. That is the all-moves-as-first set RAVE is built from, and collecting
+// it costs one bit a move.
+int runPlayout(Fast fast, uint32_t& seed, const bool policy, int last, uint8_t played[3][kMaskBytes]) {
   // Twice the board is the ceiling every implementation uses. Under simple ko
   // a playout can in principle cycle; the cap ends it and the score of a
   // position that has cycled is close enough for one sample out of thousands.
   constexpr int kMaxMoves = go::kPoints * 2 + 20;
-  int last = -1;
-  for (int move = 0; move < kMaxMoves && fast.passes < 2; ++move) last = playoutMove(fast, seed, policy, last);
+  for (int move = 0; move < kMaxMoves && fast.passes < 2; ++move) {
+    const uint8_t mover = fast.toMove;
+    last = playoutMove(fast, seed, policy, last);
+    if (played != nullptr && last >= 0 && last < go::kPoints) go::mark(played[mover], last);
+  }
   return fastScore(fast);
 }
 
@@ -344,16 +419,33 @@ int runPlayout(Fast fast, uint32_t& seed, const bool policy) {
 // One node a playout, at most: a visited leaf grows exactly one child rather
 // than all of its children at once. Expanding a node fully would put eighty
 // nodes in the pool for one visit and exhaust it in fifty playouts.
+//
+// Fourteen bytes, and every field is sized against what it can actually hold: a
+// child is visited at most once a playout, so nothing here can exceed the
+// playout budget.
 struct Node {
-  int32_t score;  // playouts won by the side that played `move`, minus those lost
+  int16_t score;      // playouts won by the side that played `move`, minus lost
+  int16_t raveScore;  // the same, over every simulation where that move appeared
   uint16_t visits;
+  uint16_t raveVisits;
+  // How many of `visits` are imagined rather than played. The prior has to go
+  // INTO the counts or it cannot influence selection, and it has to come back
+  // OUT of them when the move is finally chosen: at three thousand playouts a
+  // root child sees about fifty real visits, which is the same order as the
+  // prior, so choosing the most-visited child would be choosing the child with
+  // the biggest prior.
+  uint16_t prior;
   int16_t firstChild;
   int16_t nextSibling;
   uint8_t move;
   uint8_t cursor;  // the next candidate index this node has not tried
 };
 
-constexpr int kMaxNodes = 4096;
+// Three thousand nodes is 42KB of static SRAM and it is enough BECAUSE of RAVE:
+// the whole point of sharing statistics between moves is that a shallow tree
+// stops being a problem. Without it, 3,000 playouts over sixty legal moves is
+// fifty samples a move, which is noise.
+constexpr int kMaxNodes = 3072;
 Node gNodes[kMaxNodes];
 int gNodeCount = 0;
 
@@ -361,7 +453,10 @@ int newNode(const uint8_t move) {
   if (gNodeCount >= kMaxNodes) return -1;
   const int index = gNodeCount++;
   gNodes[index].score = 0;
+  gNodes[index].raveScore = 0;
   gNodes[index].visits = 0;
+  gNodes[index].raveVisits = 0;
+  gNodes[index].prior = 0;
   gNodes[index].firstChild = -1;
   gNodes[index].nextSibling = -1;
   gNodes[index].move = move;
@@ -393,9 +488,88 @@ int expandOne(Node& node, Fast& fast, const bool* blind) {
   return -1;
 }
 
-// Upper confidence bound, integer arithmetic throughout. The exploration term
-// is the usual sqrt(2 ln N / n), scaled: a device with no FPU pays for every
-// sqrt and a search does this once per node per playout.
+// What a new child is worth BEFORE anybody has played it out.
+//
+// This is the second half of the knowledge, and it is worth about as much as
+// the playout policy: with three thousand playouts spread over sixty legal
+// moves, a child gets fifty samples, and fifty samples cannot tell a good move
+// from a bad one. A prior is a head start expressed in the same currency the
+// search already speaks -- so many imagined wins out of so many imagined games
+// -- so nothing downstream has to know priors exist.
+//
+// `before` is the position the move was played FROM, so the shape it reads is
+// the one the player was looking at.
+void seedPrior(Node& node, const Fast& before, const int move, const uint8_t colour, const int lastMove) {
+  if (move == kPassIndex) {
+    // A pass is worth considering and almost never worth playing, so it gets a
+    // small, losing prior rather than none: without one the search wastes its
+    // first visits discovering that, every single move.
+    node.visits = 6;
+    node.score = -6;
+    node.raveVisits = 6;
+    node.raveScore = -6;
+    node.prior = 6;
+    return;
+  }
+
+  int weight = 0;
+  int wins = 0;
+  const auto add = [&](const int games, const int won) {
+    weight += games;
+    wins += won;
+  };
+
+  // A local shape the patterns like. The strongest single signal available
+  // here, and free: the table has already been consulted for the playouts.
+  if (lastMove >= 0 && lastMove < go::kPoints && matchesPattern(before, move, colour)) {
+    const int row = go::rowOf(move) - go::rowOf(lastMove);
+    const int col = go::colOf(move) - go::colOf(lastMove);
+    if (row >= -1 && row <= 1 && col >= -1 && col <= 1) add(16, 16);
+  }
+
+  // Taking stones, weighted by how many. Cheap to ask: only the chains touching
+  // the move can be captured by it.
+  {
+    uint8_t around[4];
+    const int count = go::neighbours(move, around);
+    int taken = 0;
+    int rescued = 0;
+    for (int i = 0; i < count; ++i) {
+      const int next = around[i];
+      if (!go::isStone(before.point[next])) continue;
+      if (soleLiberty(before, next) != move) continue;
+      if (before.point[next] == colour) {
+        ++rescued;
+      } else {
+        ++taken;
+      }
+    }
+    if (taken > 0) add(10 + taken * 4, 10 + taken * 4);
+    if (rescued > 0) add(8, 8);
+  }
+
+  // Throwing a stone away. Legal, occasionally brilliant, and at this level
+  // almost always a mistake -- and the one move that makes a watching human
+  // conclude the machine is broken.
+  {
+    Fast after = before;
+    if (playFast(after, move) && soleLiberty(after, move) != go::kNoPoint) add(12, 0);
+  }
+
+  // The first line early on. Not wrong, but on a nine by nine it is the last
+  // place a game is decided and the search should not spend its samples there.
+  const int row = go::rowOf(move);
+  const int col = go::colOf(move);
+  if (row == 0 || col == 0 || row == go::kSize - 1 || col == go::kSize - 1) add(8, 2);
+
+  if (weight == 0) return;
+  node.visits = static_cast<uint16_t>(weight);
+  node.score = static_cast<int16_t>(wins * 2 - weight);
+  node.raveVisits = node.visits;
+  node.raveScore = node.score;
+  node.prior = node.visits;
+}
+
 uint32_t isqrt(const uint32_t value) {
   uint32_t root = 0;
   uint32_t remainder = value;
@@ -412,9 +586,17 @@ uint32_t isqrt(const uint32_t value) {
   return root;
 }
 
+// Upper confidence bound blended with the all-moves-as-first estimate, integer
+// arithmetic throughout: a device with no FPU pays for every sqrt and the
+// search does this once per child per playout.
+//
+// RAVE is what makes a small tree work. The same move played later in a
+// simulation says something about playing it now, so every child learns from
+// every simulation its move appeared in rather than only from the ones that
+// began with it. The blend leans on RAVE while the real count is small and
+// hands over as it grows, on the usual schedule: beta = sqrt(k / (3n + k)).
 int selectChild(const int parent) {
   const Node& node = gNodes[parent];
-  // log2 by bit width, then scaled to a natural log: ln(n) = log2(n) * 0.693.
   uint32_t bits = 0;
   for (uint32_t v = node.visits; v > 1; v >>= 1) ++bits;
   const uint32_t lnVisits = bits * 693 / 1000 + 1;
@@ -423,11 +605,26 @@ int selectChild(const int parent) {
   int32_t bestValue = -0x7FFFFFFF;
   for (int child = node.firstChild; child != -1; child = gNodes[child].nextSibling) {
     const Node& kid = gNodes[child];
-    if (kid.visits == 0) return child;
-    // Win rate in thousandths, from the perspective of the side that played it.
-    const int32_t rate = (kid.score * 1000) / static_cast<int32_t>(kid.visits) + 1000;
-    const int32_t bonus = static_cast<int32_t>(1400 * isqrt(lnVisits * 1000 / kid.visits) / 32);
-    const int32_t value = rate + bonus;
+    if (kid.visits == 0 && kid.raveVisits == 0) return child;
+
+    // Both rates are in thousandths of a win, doubled: -1 to +1 becomes 0 to
+    // 2000, so one point of winrate is twenty units and the exploration
+    // constant below is in the same currency.
+    const int32_t rate = kid.visits > 0 ? (kid.score * 1000) / static_cast<int32_t>(kid.visits) + 1000 : 1000;
+    const int32_t raveRate =
+        kid.raveVisits > 0 ? (kid.raveScore * 1000) / static_cast<int32_t>(kid.raveVisits) + 1000 : 1000;
+
+    constexpr uint32_t kRaveEquivalence = 1000;
+    const uint32_t beta =
+        kid.raveVisits == 0 ? 0 : isqrt(kRaveEquivalence * 1000000u / (3u * kid.visits + kRaveEquivalence)) / 1;
+    // beta is now sqrt(k / (3n + k)) * 1000, clamped by construction to 1000.
+    const int32_t blended = static_cast<int32_t>(
+        (static_cast<int64_t>(beta) * raveRate + static_cast<int64_t>(1000 - static_cast<int32_t>(beta)) * rate) /
+        1000);
+
+    const uint32_t denominator = kid.visits > 0 ? kid.visits : 1;
+    const int32_t bonus = static_cast<int32_t>(1400 * isqrt(lnVisits * 1000 / denominator) / 32);
+    const int32_t value = blended + bonus;
     if (value > bestValue) {
       bestValue = value;
       best = child;
@@ -463,7 +660,7 @@ void openingFor(const go::Level level, int& handicap, int16_t& komiHalves) {
 int playoutOnce(const go::Game& game, uint32_t& seed, const bool policy) {
   Fast fast;
   adopt(fast, game);
-  return runPlayout(fast, seed, policy);
+  return runPlayout(fast, seed, policy, -1, nullptr);
 }
 
 bool fastPlayForTest(go::Game& game, const int point) {
@@ -571,29 +768,46 @@ int chooseMove(const go::Game& game, const go::Level level, uint32_t& seed) {
     int path[go::kPoints];
     int depth = 0;
     int node = rootIndex;
+    int lastMove = game.lastMove < go::kPoints ? game.lastMove : -1;
     path[depth++] = node;
 
     while (true) {
       if (gNodes[node].cursor < kCandidates) {
+        // The position BEFORE the move, so the prior reads the shape the player
+        // was actually looking at rather than the one their own stone made.
+        const Fast before = fast;
+        const uint8_t mover = fast.toMove;
         const int move = expandOne(gNodes[node], fast, node == rootIndex ? blind : nullptr);
         if (move < 0) break;
         const int child = newNode(static_cast<uint8_t>(move));
         if (child < 0) break;
+        seedPrior(gNodes[child], before, move, mover, lastMove);
         gNodes[child].nextSibling = gNodes[node].firstChild;
         gNodes[node].firstChild = static_cast<int16_t>(child);
         node = child;
         path[depth++] = node;
+        if (move != kPassIndex) lastMove = move;
         break;
       }
       const int child = selectChild(node);
       if (child < 0) break;
       playFast(fast, gNodes[child].move);
+      if (gNodes[child].move != kPassIndex) lastMove = gNodes[child].move;
       node = child;
       path[depth++] = node;
       if (depth >= go::kPoints - 1) break;
     }
 
-    const int result = runPlayout(fast, seed, true);
+    uint8_t played[3][kMaskBytes] = {};
+    // The moves taken through the TREE belong in the set too. They are moves
+    // this simulation played, and leaving them out means a child never learns
+    // from a simulation that went through its own sibling.
+    for (int i = 1; i < depth; ++i) {
+      const uint8_t mover = (i % 2 == 1) ? colour : go::other(colour);
+      if (gNodes[path[i]].move < go::kPoints) go::mark(played[mover], gNodes[path[i]].move);
+    }
+
+    const int result = runPlayout(fast, seed, true, lastMove, played);
     // `result` is from Black's side. A node's score is kept from the point of
     // view of whoever played its move, which is the opposite of whoever is to
     // move in it -- getting that inversion wrong makes an engine that plays its
@@ -603,19 +817,44 @@ int chooseMove(const go::Game& game, const go::Level level, uint32_t& seed) {
       ++visited.visits;
       const uint8_t mover = (i % 2 == 1) ? colour : go::other(colour);
       const int forMover = mover == go::kBlack ? result : -result;
-      visited.score += forMover > 0 ? 1 : (forMover < 0 ? -1 : 0);
+      visited.score = static_cast<int16_t>(visited.score + (forMover > 0 ? 1 : (forMover < 0 ? -1 : 0)));
     }
     ++gNodes[rootIndex].visits;
+
+    // All moves as first. In every node the simulation passed through, any
+    // child whose move was played LATER by the same side is credited with the
+    // same result: the assumption is that a good move is good whenever it is
+    // played, which is wrong in detail and right often enough to be worth two
+    // hundred and fifty Elo on a tree this shallow.
+    for (int i = 0; i < depth; ++i) {
+      const uint8_t toMove = (i % 2 == 0) ? colour : go::other(colour);
+      const int forMover = toMove == go::kBlack ? result : -result;
+      const int16_t delta = static_cast<int16_t>(forMover > 0 ? 1 : (forMover < 0 ? -1 : 0));
+      for (int child = gNodes[path[i]].firstChild; child != -1; child = gNodes[child].nextSibling) {
+        Node& kid = gNodes[child];
+        if (kid.move >= go::kPoints) continue;
+        if (!go::marked(played[toMove], kid.move)) continue;
+        ++kid.raveVisits;
+        kid.raveScore = static_cast<int16_t>(kid.raveScore + delta);
+      }
+    }
   }
 
   // The most VISITED child, not the best rate: a move tried twice and won twice
   // is not better than one tried four thousand times and won sixty percent of
   // them, and picking by rate is how a search throws its own work away.
+  // Real visits, with the prior taken back out. A move the search actually
+  // looked at four hundred times beats one it imagined twenty-four wins for and
+  // then looked at thirty.
+  const auto realVisits = [](const int child) {
+    const Node& kid = gNodes[child];
+    return kid.visits > kid.prior ? static_cast<int>(kid.visits - kid.prior) : 0;
+  };
   int best = -1;
-  uint16_t bestVisits = 0;
+  int bestVisits = -1;
   for (int child = gNodes[rootIndex].firstChild; child != -1; child = gNodes[child].nextSibling) {
-    if (gNodes[child].visits <= bestVisits) continue;
-    bestVisits = gNodes[child].visits;
+    if (realVisits(child) <= bestVisits) continue;
+    bestVisits = realVisits(child);
     best = child;
   }
   if (best < 0) return go::kPass;
@@ -630,20 +869,20 @@ int chooseMove(const go::Game& game, const go::Level level, uint32_t& seed) {
   // something it barely looked at: sampling a full softmax with no floor is the
   // mistake that turns "not concentrating" into "occasionally insane".
   if (level == go::Level::Medium && bestVisits > 4) {
-    const uint16_t floorVisits = static_cast<uint16_t>(bestVisits / 2);
+    const int floorVisits = bestVisits / 2;
     uint32_t total = 0;
     for (int child = gNodes[rootIndex].firstChild; child != -1; child = gNodes[child].nextSibling) {
-      if (gNodes[child].visits >= floorVisits) total += gNodes[child].visits;
+      if (realVisits(child) >= floorVisits) total += static_cast<uint32_t>(realVisits(child));
     }
     if (total > 0) {
       uint32_t ticket = nextRandom(seed) % total;
       for (int child = gNodes[rootIndex].firstChild; child != -1; child = gNodes[child].nextSibling) {
-        if (gNodes[child].visits < floorVisits) continue;
-        if (ticket < gNodes[child].visits) {
+        if (realVisits(child) < floorVisits) continue;
+        if (ticket < static_cast<uint32_t>(realVisits(child))) {
           best = child;
           break;
         }
-        ticket -= gNodes[child].visits;
+        ticket -= static_cast<uint32_t>(realVisits(child));
       }
     }
   }
@@ -658,9 +897,9 @@ int chooseMove(const go::Game& game, const go::Level level, uint32_t& seed) {
     int foundVisits = -1;
     for (int child = gNodes[rootIndex].firstChild; child != -1; child = gNodes[child].nextSibling) {
       if (gNodes[child].move == kPassIndex) continue;
-      if (static_cast<int>(gNodes[child].visits) <= foundVisits) continue;
+      if (realVisits(child) <= foundVisits) continue;
       if (!go::legal(game, gNodes[child].move, colour)) continue;
-      foundVisits = static_cast<int>(gNodes[child].visits);
+      foundVisits = realVisits(child);
       found = gNodes[child].move;
     }
     if (found >= 0) return found;

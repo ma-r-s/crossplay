@@ -7,22 +7,6 @@
 #include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxIcons.h"
 
-// Three complete treatments of the same game, behind one switch, so they can be
-// rendered through the device path and compared side by side rather than
-// described. **The losers are deleted with this switch in the same commit as
-// the winner**; a variant macro that survives is a second codepath nobody
-// renders. See docs/building-apps.md, "Offer designs by rendering them".
-//
-//   1  FRAMED    the fork's own board furniture: heavy frame, corner marks,
-//                a capture band and the standard bottom capsule.
-//   2  SEATS     two full-width seat bands, the one to move inverted, so whose
-//                turn it is is a statement rather than a caption.
-//   3  BARE      no frame and no capsule: the outer grid lines are the board's
-//                edge, as on a real goban, and one thin bar carries everything.
-#ifndef GO_VARIANT
-#define GO_VARIANT 1
-#endif
-
 namespace goui {
 
 namespace {
@@ -30,20 +14,12 @@ namespace {
 // The grid pitch, and with it every other number on the board. Nine lines at 49
 // gives a 44px stone with 5px of air, which is a fingertip; nineteen lines
 // would give 23px, which is why this game is nine by nine and says so.
-#if GO_VARIANT == 3
-constexpr int16_t kPitch = 52;
-constexpr int16_t kFrame = 0;
-// Bare runs wider than the page margin on purpose: with no frame to hold, the
-// outermost lines ARE the board's edge, and a goban ends where its lines do.
-constexpr int16_t kPad = 26;
-#else
 constexpr int16_t kPitch = 49;
 constexpr int16_t kFrame = toybox::kBoardFrame;
 // Room outside the outermost line, so an edge stone has air round it rather
 // than sitting against the frame. It has to exceed the stone RADIUS: at half a
 // pitch it was two pixels and the top row visibly touched the border.
 constexpr int16_t kPad = 28;
-#endif
 
 constexpr int16_t kGridSpan = static_cast<int16_t>(kPitch * (go::kSize - 1));
 constexpr int16_t kBoardSide = static_cast<int16_t>(kGridSpan + kPad * 2);
@@ -54,12 +30,8 @@ constexpr int16_t kSeatBand = 58;
 int16_t boardLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - kBoardSide) / 2); }
 
 int16_t boardTop() {
-#if GO_VARIANT == 2
   // The opponent's seat sits above the board, so the board starts below it.
   return static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter + kSeatBand + toybox::kGutter + kFrame);
-#else
-  return static_cast<int16_t>(toybox::kChromeHeight + toybox::kGutter + kFrame);
-#endif
 }
 
 int16_t firstLineX(const fui::DeviceContext& device) { return static_cast<int16_t>(boardLeft(device) + kPad); }
@@ -303,8 +275,6 @@ bool pointAt(const fui::DeviceContext& device, const int x, const int y, int& po
   return true;
 }
 
-int howToPages() { return 4; }
-
 void formatResult(char* out, const int capacity, const int blackHalves, const int whiteHalves) {
   const int difference = blackHalves - whiteHalves;
   const char winner = difference > 0 ? 'B' : 'W';
@@ -325,32 +295,17 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   screen.target().fill(fui::makeRect(line.x, static_cast<int16_t>(line.bottom() + 6), line.width, toybox::kRule),
                        fui::Paint::solid(fui::Color::Black));
 
+  // Three doors. Everything configurable moved behind the third one: a front
+  // door carrying six rows, three of them settings, is a settings screen with a
+  // PLAY button on it.
   fui::ListItem rows[static_cast<int>(MenuRow::Count)] = {};
   rows[static_cast<int>(MenuRow::Play)].label = model.inProgress ? "RESUME GAME" : "PLAY";
   rows[static_cast<int>(MenuRow::Play)].actionValue = static_cast<int16_t>(MenuRow::Play);
-  rows[static_cast<int>(MenuRow::Opponent)].label = "OPPONENT";
-  rows[static_cast<int>(MenuRow::Opponent)].value = model.opponent == go::Opponent::Computer ? "COMPUTER" : "2 PLAYERS";
-  rows[static_cast<int>(MenuRow::Opponent)].actionValue = static_cast<int16_t>(MenuRow::Opponent);
-  rows[static_cast<int>(MenuRow::Level)].label = "LEVEL";
-  // Dimmed rather than gone when two people share the device: a control that
-  // vanishes takes its space with it and the list jumps under the finger.
-  rows[static_cast<int>(MenuRow::Level)].value =
-      model.opponent == go::Opponent::Computer ? go::levelName(model.level) : "--";
-  rows[static_cast<int>(MenuRow::Level)].enabled = model.opponent == go::Opponent::Computer;
-  rows[static_cast<int>(MenuRow::Level)].actionValue = static_cast<int16_t>(MenuRow::Level);
-  rows[static_cast<int>(MenuRow::PlayAs)].label = "YOU PLAY";
-  const bool colourIsYours = model.opponent == go::Opponent::Computer && model.handicap == 0;
-  rows[static_cast<int>(MenuRow::PlayAs)].value = model.opponent != go::Opponent::Computer ? "--"
-                                                  : model.handicap > 0                     ? "BLACK"
-                                                  : model.playAs == go::kBlack             ? "BLACK"
-                                                                                           : "WHITE";
-  rows[static_cast<int>(MenuRow::PlayAs)].enabled = colourIsYours;
-  rows[static_cast<int>(MenuRow::PlayAs)].actionValue = static_cast<int16_t>(MenuRow::PlayAs);
   rows[static_cast<int>(MenuRow::PlayNearby)].label = "PLAY NEARBY";
   rows[static_cast<int>(MenuRow::PlayNearby)].subtitle = model.nearbyName;
   rows[static_cast<int>(MenuRow::PlayNearby)].actionValue = static_cast<int16_t>(MenuRow::PlayNearby);
-  rows[static_cast<int>(MenuRow::HowTo)].label = "HOW TO PLAY";
-  rows[static_cast<int>(MenuRow::HowTo)].actionValue = static_cast<int16_t>(MenuRow::HowTo);
+  rows[static_cast<int>(MenuRow::Settings)].label = "SETTINGS";
+  rows[static_cast<int>(MenuRow::Settings)].actionValue = static_cast<int16_t>(MenuRow::Settings);
 
   const int selected = model.selected < 0 ? 0 : model.selected;
   fui::ListProps list;
@@ -365,15 +320,21 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const fui::Rect listBand =
       fui::makeRect(content.x, static_cast<int16_t>(content.bottom() - listHeight), content.width, listHeight);
   screen.list(list, listHeight, fui::LayoutAnchor::Bottom);
+
+  toybox::iconAtRowRight(screen, listBand, static_cast<int>(MenuRow::Play), 0, icon_go_play_32,
+                         selected == static_cast<int>(MenuRow::Play));
   toybox::iconAtRowRight(screen, listBand, static_cast<int>(MenuRow::PlayNearby), 0, linkui::nearbyMark(),
                          selected == static_cast<int>(MenuRow::PlayNearby));
+  toybox::iconAtRowRight(screen, listBand, static_cast<int>(MenuRow::Settings), 0, icon_go_settings_32,
+                         selected == static_cast<int>(MenuRow::Settings));
 
   if (!model.hasHistory || model.lastPoints == nullptr) return;
 
-  // The last game's final position, at a third scale. Ornament made of the
-  // app's own material carrying the app's own data: a screenshot of it is
-  // different on every device, which is the whole test.
-  constexpr int16_t kMini = 18;
+  // The last game's final position. Ornament made of the app's own material
+  // carrying the app's own data: a screenshot of it is different on every
+  // device, which is the whole test. It grew when the front door lost three
+  // rows, because the space a layout gains has to go somewhere deliberate.
+  constexpr int16_t kMini = 30;
   const int16_t span = static_cast<int16_t>(kMini * (go::kSize - 1));
   const int16_t areaTop = static_cast<int16_t>(line.bottom() + 6 + toybox::kRule);
   const int16_t room = static_cast<int16_t>(listBand.y - areaTop);
@@ -389,8 +350,78 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::TextStyle cap;
   cap.font = toybox::kTileFont;
   cap.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(top + 12 + span + 16), content.width, 24), caption,
+  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(top + 12 + span + 20), content.width, 24), caption,
                        cap);
+}
+
+void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
+  toyboxChrome(screen, "SETTINGS");
+
+  fui::ListItem rows[static_cast<int>(SettingsRow::Count)] = {};
+  rows[static_cast<int>(SettingsRow::Opponent)].label = "OPPONENT";
+  rows[static_cast<int>(SettingsRow::Opponent)].value =
+      model.opponent == go::Opponent::Computer ? "COMPUTER" : "2 PLAYERS";
+  rows[static_cast<int>(SettingsRow::Opponent)].actionValue = static_cast<int16_t>(SettingsRow::Opponent);
+  // LEADING icons here, where the front door's are trailing, and the reason is
+  // structural rather than taste: a row carrying a value has no room on the
+  // right, and an icon drawn there anyway lands ON the value. The first version
+  // did exactly that and squeezed the third row's LABEL off the screen
+  // entirely.
+  //
+  // The opponent's mark carries the VALUE rather than restating the label: it is
+  // a machine or it is two people. The level's cannot -- see icons.txt for the
+  // three graded ones that had to go -- so the row leans on its value, which is
+  // the loudest thing on it anyway.
+  rows[static_cast<int>(SettingsRow::Opponent)].icon =
+      fui::bitmapFromIcon(model.opponent == go::Opponent::Computer ? icon_go_computer_32 : icon_go_humans_32);
+
+  rows[static_cast<int>(SettingsRow::Level)].label = "LEVEL";
+  // Dimmed rather than gone when two people share the device: a control that
+  // vanishes takes its space with it and the list jumps under the finger.
+  rows[static_cast<int>(SettingsRow::Level)].value =
+      model.opponent == go::Opponent::Computer ? go::levelName(model.level) : "--";
+  rows[static_cast<int>(SettingsRow::Level)].enabled = model.opponent == go::Opponent::Computer;
+  rows[static_cast<int>(SettingsRow::Level)].actionValue = static_cast<int16_t>(SettingsRow::Level);
+  rows[static_cast<int>(SettingsRow::Level)].icon = fui::bitmapFromIcon(icon_go_level_32);
+
+  const bool colourIsYours = model.opponent == go::Opponent::Computer && model.handicap == 0;
+  rows[static_cast<int>(SettingsRow::PlayAs)].label = "YOU PLAY";
+  rows[static_cast<int>(SettingsRow::PlayAs)].value = model.opponent != go::Opponent::Computer ? "--"
+                                                      : model.handicap > 0                     ? "BLACK +2"
+                                                      : model.playAs == go::kBlack             ? "BLACK"
+                                                                                               : "WHITE";
+  rows[static_cast<int>(SettingsRow::PlayAs)].enabled = colourIsYours;
+  rows[static_cast<int>(SettingsRow::PlayAs)].actionValue = static_cast<int16_t>(SettingsRow::PlayAs);
+  rows[static_cast<int>(SettingsRow::PlayAs)].icon = fui::bitmapFromIcon(icon_go_colour_32);
+
+  const int selected = model.selected < 0 ? 0 : model.selected;
+  fui::ListProps list;
+  list.items = rows;
+  list.count = static_cast<uint16_t>(SettingsRow::Count);
+  list.selectedIndex = static_cast<int16_t>(selected);
+  list.action = ActionSettingsRow;
+  const int count = static_cast<int>(SettingsRow::Count);
+  const int16_t listHeight =
+      static_cast<int16_t>(count * toybox::kRowHeight + (count - 1) * toybox::kGutter / 2 + toybox::kGutter);
+  const fui::Rect content = screen.contentRect();
+  const fui::Rect listBand = fui::makeRect(content.x, content.y, content.width, listHeight);
+  screen.list(list, listHeight, fui::LayoutAnchor::Top);
+
+  // What the level means, said once, below the rows rather than inside them: a
+  // subtitle on a value row is set at the title cut and about twenty characters
+  // is all there is, which is not enough to say anything true.
+  if (model.opponent != go::Opponent::Computer) return;
+  const char* explain = model.handicap > 0 ? "EASY SPOTS YOU TWO STONES AND MISSES THINGS ON THE FAR SIDE OF THE BOARD."
+                        : model.level == go::Level::Medium
+                            ? "AN EVEN GAME. IT SEES EVERYTHING AND DOES NOT ALWAYS PLAY ITS BEST MOVE."
+                            : "AN EVEN GAME, AND IT THINKS FOR AS LONG AS IT IS ALLOWED.";
+  fui::TextStyle body;
+  body.font = toybox::kTileFont;
+  body.align = fui::TextAlign::Left;
+  body.maxLines = 3;
+  screen.target().text(
+      fui::makeRect(content.x, static_cast<int16_t>(listBand.bottom() + toybox::kGutter * 2), content.width, 90),
+      explain, body);
 }
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
@@ -410,58 +441,15 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
 
   const fui::DeviceContext device = screen.device();
 
-#if GO_VARIANT == 1
-  // FRAMED. The fork's own board furniture, as chess and checkers wear it: a
-  // nine pixel frame flush against the board, a capture band under it, and the
-  // standard bottom capsule with PASS beside it.
-  const fui::Rect bottom = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
-  fui::ButtonProps pass;
-  pass.label = "PASS";
-  pass.action = ActionPass;
-  pass.enabled = model.yourTurn;
-  pass.borderEdges = fui::EdgesNone;
-  const fui::Rect passBox = fui::makeRect(bottom.x, bottom.y, 132, bottom.height);
-  screen.button(pass, passBox);
-
-  fui::ButtonProps status;
-  status.label = statusWords(model);
-  status.action = fui::NO_ACTION;
-  status.styles = capsuleStyles();
-  status.borderEdges = fui::EdgesAll;
-  const fui::Rect statusBox =
-      fui::makeRect(static_cast<int16_t>(passBox.right() + toybox::kGutter), bottom.y,
-                    static_cast<int16_t>(bottom.width - passBox.width - toybox::kGutter), bottom.height);
-  screen.button(status, model.opponentName != nullptr ? linkui::withOpponentFace(screen, statusBox, model.opponentName)
-                                                      : statusBox);
-
-  drawFrame(screen, device);
-  drawGrid(screen, device);
-  drawStones(screen, device, model.game);
-  if (model.aimed != go::kNothingAimed) drawAim(screen, device, model.aimed, model.seat);
-
-  // The prisoners, in the band between the board and the capsule. Captures do
-  // not decide an area-scored game, so this is not a score: it is the only
-  // thing that happened which the board no longer shows.
-  // Centred in the zone between the board and the footer rather than pinned to
-  // the top of it: pinned, the slack all collects at the bottom of the screen
-  // and reads as a layout that ran out rather than as a page with a footer.
-  const int16_t zoneTop = static_cast<int16_t>(boardTop() + kBoardSide + kFrame);
-  const int16_t zoneBottom = static_cast<int16_t>(bottom.y - toybox::kGutter);
-  constexpr int16_t kStripHeight = 32;
-  constexpr int16_t kStripGap = 16;
-  const int16_t stripsTop = static_cast<int16_t>(zoneTop + (zoneBottom - zoneTop - (kStripHeight * 2 + kStripGap)) / 2);
-  prisonerStrip(screen, fui::makeRect(boardLeft(device), stripsTop, kBoardSide, kStripHeight), go::kWhite,
-                model.game.capturedBy[go::kBlack]);
-  prisonerStrip(screen,
-                fui::makeRect(boardLeft(device), static_cast<int16_t>(stripsTop + kStripHeight + kStripGap), kBoardSide,
-                              kStripHeight),
-                go::kBlack, model.game.capturedBy[go::kWhite]);
-
-#elif GO_VARIANT == 2
-  // SEATS. Whose turn it is is the loudest thing on the screen, said by a whole
-  // band rather than by a caption at the bottom: the seat to move is inverted,
-  // the other is outlined. The mark carries each side's captures, so the band
+  // Whose turn it is is the loudest thing on the screen, said by a whole band
+  // rather than by a caption at the bottom: the seat to move is inverted, the
+  // other is outlined. Each band carries its side's colour and captures, so it
   // is information as well as state.
+  //
+  // Chosen by Mario on 2026-09-12 over two alternatives that were rendered
+  // beside it: the fork's standard framed board with capture shelves, and a
+  // bare goban with no frame and one thin bar. This one won on the seat bands,
+  // which is also what fills the space a square board leaves in portrait.
   const fui::Rect bottom = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
   fui::ButtonProps pass;
   pass.label = model.nothingLeft ? "PASS -- NOTHING LEFT" : "PASS";
@@ -546,56 +534,6 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
                            toybox::kTileCut),
         statusWords(model), note);
   }
-
-#else
-  // BARE. No frame and no capsule. The outermost grid lines are the board's
-  // edge, which is what they are on a real goban, and everything else is one
-  // thin bar: two stone glyphs with their counts, the turn shown by which glyph
-  // is bracketed, and PASS on the right.
-  const fui::Rect bottom = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
-  fui::ButtonProps pass;
-  pass.label = "PASS";
-  pass.action = ActionPass;
-  pass.enabled = model.yourTurn;
-  pass.borderEdges = fui::EdgesNone;
-  const fui::Rect passBox = fui::makeRect(static_cast<int16_t>(bottom.right() - 132), bottom.y, 132, bottom.height);
-  screen.button(pass, passBox);
-
-  drawGrid(screen, device);
-  drawStones(screen, device, model.game);
-  if (model.aimed != go::kNothingAimed) drawAim(screen, device, model.aimed, model.seat);
-
-  // The bar sits directly above the footer rather than directly under the
-  // board, so the quiet left over by a board that cannot grow any wider is ONE
-  // band between the two, rather than two stranded rows with a hole between
-  // them. This variant's whole claim is board first and furniture last; a
-  // furniture row floating in the middle of the page contradicts it.
-  const int16_t barTop = static_cast<int16_t>(bottom.y - toybox::kGutter - 44);
-  const auto glyph = [&](const int16_t x, const uint8_t colour, const int captured) {
-    const int16_t cy = static_cast<int16_t>(barTop + 22);
-    stone(screen, static_cast<int16_t>(x + 22), cy, 20, colour);
-    if (model.game.toMove == colour) {
-      toybox::bracket(screen, fui::makeRect(x, barTop, 44, 44), 11, 4);
-    }
-    char text[16];
-    std::snprintf(text, sizeof(text), "%d", captured);
-    fui::TextStyle style;
-    style.font = toybox::kUiFont;
-    style.align = fui::TextAlign::Left;
-    screen.target().text(
-        toybox::inkCentred(fui::makeRect(static_cast<int16_t>(x + 54), barTop, 70, 44), toybox::kUiCut), text, style);
-  };
-  glyph(boardLeft(device), go::kBlack, model.game.capturedBy[go::kBlack]);
-  glyph(static_cast<int16_t>(boardLeft(device) + 124), go::kWhite, model.game.capturedBy[go::kWhite]);
-
-  fui::TextStyle note;
-  note.font = toybox::kTileFont;
-  note.align = fui::TextAlign::Left;
-  screen.target().text(toybox::inkCentred(fui::makeRect(boardLeft(device), static_cast<int16_t>(bottom.y + 12),
-                                                        static_cast<int16_t>(bottom.width - 144), 26),
-                                          toybox::kTileCut),
-                       statusWords(model), note);
-#endif
 }
 
 void buildCount(toybox::Screen& screen, const CountModel& model) {
@@ -770,44 +708,6 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
       toybox::inkCentred(fui::makeRect(boardLeft(device), static_cast<int16_t>(bandTop + 36), kBoardSide, 34),
                          toybox::kUiCut),
       whiteLine, line);
-}
-
-void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
-  char page[16];
-  std::snprintf(page, sizeof(page), "%d/%d", model.page + 1, howToPages());
-  toyboxChrome(screen, "HOW TO PLAY", page);
-
-  static const char* const kTitles[4] = {"PUT A STONE ON A LINE CROSSING", "SURROUND TO CAPTURE",
-                                         "TWO EYES CANNOT BE TAKEN", "PASS TWICE TO COUNT"};
-  static const char* const kBodies[4] = {
-      "Black plays first. A stone goes on a crossing, not in a square, and it never moves again. Tap once to aim, tap "
-      "the same crossing again to place it.",
-      "A stone's liberties are the empty crossings next to it. Fill the last one and the stone comes off the board. "
-      "Whole groups go together.",
-      "A group with two separate eyes can never be surrounded, because filling one eye is suicide. That is how a group "
-      "lives.",
-      "When neither of you wants to play, pass twice. Then mark the stones that cannot live, and the bigger area wins. "
-      "White gets 7.5 points for going second.",
-  };
-
-  const fui::Rect content = screen.contentRect();
-  fui::TextStyle title;
-  title.font = toybox::kUiFont;
-  title.align = fui::TextAlign::Left;
-  screen.target().text(fui::makeRect(content.x, content.y, content.width, 40), kTitles[model.page], title);
-
-  fui::TextStyle body;
-  body.font = toybox::kTileFont;
-  body.align = fui::TextAlign::Left;
-  body.maxLines = 6;
-  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(content.y + 48), content.width, 220),
-                       kBodies[model.page], body);
-
-  fui::ButtonProps next;
-  next.label = model.page + 1 < howToPages() ? "NEXT" : "GOT IT";
-  next.action = ActionHowToNext;
-  next.borderEdges = fui::EdgesNone;
-  screen.button(next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 }
 
 }  // namespace goui

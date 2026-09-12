@@ -66,8 +66,8 @@ class GoActivity final : public linkplay::LinkActivity {
 
   go::Screen screen = go::Screen::Menu;
   go::Game game{};
-  int howToPage = 0;
   int menuSelected = -1;
+  int settingsSelected = -1;
 
   go::Opponent opponent = go::Opponent::Computer;
   go::Level level = go::Level::Medium;

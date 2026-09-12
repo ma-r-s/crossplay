@@ -24,7 +24,9 @@ namespace go {
 enum class Screen : uint8_t {
   // The top. Back from here leaves the app, and it is the only screen that does.
   Menu,
-  HowTo,
+  // Everything configurable, off the front door. Three value rows is a busy
+  // front door and a quiet settings screen, not the other way round.
+  Settings,
   Board,
   // Both players passed. Dead stones are being agreed before anything is
   // counted. This screen exists because area scoring without it would make the
@@ -48,7 +50,7 @@ constexpr Screen back(const Screen screen) {
   switch (screen) {
     case Screen::Menu:
       return Screen::Menu;
-    case Screen::HowTo:
+    case Screen::Settings:
       return Screen::Menu;
     case Screen::Board:
       return Screen::Menu;
