@@ -836,6 +836,20 @@ class Rules(unittest.TestCase):
         self.assertEqual(st["hatnotes_dropped"], 2)
         self.assertEqual(st["list_intros_dropped"], 1)
 
+    def test_artifacts_are_scrubbed(self):
+        # Mario, 2026-09-11: no consecutive parentheses or stray marks may
+        # remain, whoever left them. Chemistry's nesting stays.
+        cases = [
+            ("the united army captured Wulongshan, Mufushan), Yuhuatai) among others", "the united army captured Wulongshan, Mufushan, Yuhuatai among others"),
+            ("a name ((Latin)) and an empty pair ( ) and quotes \"\" here,, twice ; and a space , before", "a name (Latin) and an empty pair and quotes here, twice; and a space, before"),
+            ("the (+)-camphor ((1 R,4 R)-bornan-2-one) is rarer", "the (+)-camphor ((1 R,4 R)-bornan-2-one) is rarer"),
+            ("(an opener with no close", "an opener with no close"),
+            (", a leading comma and a trailing one,", "a leading comma and a trailing one"),
+            ("It is the \u201cbest\u201d ( really ) one [ ]", "It is the \u201cbest\u201d (really) one"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(src, {}, lead=True), want, src)
+
     def test_fact_groups_and_remnants(self):
         boxes = [{"type": "infobox", "name": "Infobox officeholder", "has_parts": [
             {"type": "section", "name": "Test", "has_parts": [{"type": "image", "value": "Test in 1931"}]},

@@ -299,13 +299,8 @@ DETECTORS = [
         "a paragraph in capitals",
     ),
     # --- balance
-    (
-        "balance",
-        "empty_parens",
-        "para",
-        re.compile(r"\(\s*[,;:\s]*\)"),
-        "an empty parenthetical: its content was removed",
-    ),
+    ("balance", "empty_parens", "para", re.compile(r"\(\s*[,;:\s]*\)"), "an empty parenthetical: its content was removed"),
+    ("balance", "double_paren", "para", re.compile(r"\(\([^()]*\)\)|\)\)(?![^(]*\()"), "((x)) around one thing, or two closers with nothing opened between them"),
     (
         "balance",
         "punct_only_parens",
@@ -612,6 +607,11 @@ DETECTORS = [
 ]
 
 NEAR_EMPTY = 300
+ARTIFACT_DETECTORS = (
+    "empty_parens", "double_paren", "orphan_quote", "double_space", "space_before_punct", "stray_markup",
+    "tex_remnant", "invisible_char", "replacement_char", "empty_label", "unbalanced_parens",
+    "unbalanced_brackets", "comma_glue", "wikitext_line", "navbox_remnant", "heading_edit",
+)
 _BLOCK = re.compile(r"</?(?:p|h[1-6]|li|ul|table|tr|td|th|body|html)\b[^>]*>")
 _INLINE = re.compile(r"</?(?:a|b|i)\b[^>]*>")
 _BLOCK_SPLIT = re.compile(r"<(h[1-6]|p|li|table)\b[^>]*>(.*?)</\1>", re.S)
@@ -1126,6 +1126,12 @@ def main(argv=None):
             gate_failed = True
         print(f"symbols spelled: {summary.get('symbols_translated', 0):,}; diacritics reduced to base letters: {summary.get('diacritics_dropped', 0):,}")
     report, sample = scan(args.pack, args.sample, args.seed, limit=args.limit, workers=args.workers or None)
+    # Mario, 2026-09-11: at the end nothing that reads as an artifact may
+    # remain, whoever left it. These classes must be empty for the gate.
+    artifacts = {name: report["signatures"][name]["articles"] for name in ARTIFACT_DETECTORS if report["signatures"][name]["hits"]}
+    if artifacts:
+        print("ARTIFACTS STILL PRESENT: " + ", ".join("%s in %d articles" % kv for kv in sorted(artifacts.items(), key=lambda kv: -kv[1])))
+        gate_failed = True
     print(f"{report['articles']:,} articles; body chars median {report['body_chars']['median']:,}, "
           f"p10 {report['body_chars']['p10']:,}, p1 {report['body_chars']['p1']:,}; "
           f"near-empty (<{NEAR_EMPTY}): {report['near_empty_count']}")

@@ -628,7 +628,80 @@ def strip_undrawable(text, stats, lead=False):
         for rx, rep in _TIDY:
             text = rx.sub(rep, text)
         text = text.strip()
+    text, n = scrub_artifacts(text)
+    if n:
+        stats["artifacts_scrubbed"] = stats.get("artifacts_scrubbed", 0) + n
     return text
+
+
+# Mario, 2026-09-11: "make sure at the end no weird symbols like consecutive
+# parenthesis or stuff that would read as an artifact remain". Whatever
+# left them, the source or a removal here, they go: an empty pair of
+# quotes or brackets, a doubled comma, a space before a comma, a
+# parenthesis with nothing to match, "((x))" around one thing. Chemistry's
+# "((1R,4R)-bornan-2-one)" keeps its nesting because the inner pair does
+# not close the outer one.
+_SCRUB = (
+    (re.compile(r"\s?(?:\"\s*\"|\u201c\s*\u201d|''|\u2018\s*\u2019)(?=\s|[,.;:)]|$)"), ""),
+    (re.compile(r"\s?[(\[{]\s*[)\]}]"), ""),
+    (re.compile(r"\(\(([^()]*)\)\)"), r"(\1)"),
+    (re.compile(r"\[\[([^\[\]]*)\]\]"), r"[\1]"),
+    (re.compile(r"([,;])\s*(?:[,;]\s*)+"), r"\1 "),
+    (re.compile(r"(?<=\S)\s+([,;](?=\s|$))"), r"\1"),
+    (re.compile(r"\(\s+"), "("),
+    (re.compile(r"\s+\)"), ")"),
+    (re.compile(r"^\s*[,;]\s*"), ""),
+    (re.compile(r"\s*[,;]$"), ""),
+    (re.compile(r"[ \t]{2,}"), " "),
+)
+_SCRUB_HINT = re.compile(r"[()\[\]{}\"\u201c\u2018',;]")
+
+
+def scrub_artifacts(text):
+    """Returns (text, n) with the marks above removed and every parenthesis
+    that closes nothing, or opens nothing, dropped."""
+    if not text or not _SCRUB_HINT.search(text):
+        return text, 0
+    n = 0
+    for rx, rep in _SCRUB:
+        text, k = rx.subn(rep, text)
+        n += k
+    if text.count("(") != text.count(")"):
+        text, k = _balance(text, "(", ")")
+        n += k
+    if text.count("[") != text.count("]"):
+        text, k = _balance(text, "[", "]")
+        n += k
+    return text.strip(), n
+
+
+def _balance(text, opener, closer):
+    """Drops closers with no opener before them and openers never closed."""
+    out = []
+    stack = []
+    drop = set()
+    for i, ch in enumerate(text):
+        if ch == opener:
+            stack.append(i)
+        elif ch == closer:
+            if stack:
+                stack.pop()
+            else:
+                drop.add(i)
+    drop.update(stack)
+    if not drop:
+        return text, 0
+    for i, ch in enumerate(text):
+        if i in drop:
+            # a space beside the dropped mark goes with it
+            if out and out[-1] == " " and i + 1 < len(text) and text[i + 1] in " ,.;":
+                out.pop()
+            continue
+        out.append(ch)
+    text = "".join(out)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\s+([,.;:])", r"\1", text)
+    return text, len(drop)
 
 
 def _parse(v):
