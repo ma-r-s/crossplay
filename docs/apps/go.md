@@ -1,6 +1,6 @@
 # Go
 
-Nine by nine, area scoring, komi 7.5, positional superko. Two people on one
+Nine by nine, area scoring, komi 7.5, situational superko. Two people on one
 device, two devices in a room, or one person against a machine at three levels.
 
 Nine by nine **only**, and that is a decision rather than a first step.
@@ -50,7 +50,7 @@ version squeezed the third row's label off the screen entirely.
 
 ## The ruleset, and the one thing it is for
 
-**Area scoring (Chinese), positional superko, komi 7.5 in half points.** Every
+**Area scoring (Chinese), situational superko, komi 7.5 in half points.** Every
 engine plays this because a finished position is scorable by counting alone: no
 prisoners to remember, no dame to haggle over, no seki exception.
 
@@ -62,7 +62,7 @@ the level ladder can set to that promise. The first version had 7.0 and the
 suite found the tie.
 
 `kMoveLimit` is 400 moves, and it is a **[house rule]**. Chinese rules with full
-positional superko terminate on their own, but the ring in `Game` remembers
+superko terminate on their own, but the ring in `Game` remembers
 eight positions rather than every one, so a long enough cycle is not forbidden.
 An opponent that refuses to pass while losing (which is correct, below) will
 happily play into one, and a self-play game ran past four hundred moves during
@@ -108,11 +108,11 @@ counting who won needs no knowledge, no opening book and no weights, which is
 also why it fits in a device with fifty kilobytes of flash to spare.
 
 **There are two boards, and that is deliberate.** `go::Game` is the game: a
-superko ring, dead-stone marks, tallies, 140 bytes copied to answer one
+superko ring, dead-stone marks, tallies, and a whole board copied to answer one
 question. The search plays on `Fast`, which has none of that. Two
 implementations of one rulebook is exactly the shape that drifts, so
-`testTheFastBoardIsTheSameGame` plays **3.6 million positions** through both and
-asserts they agree point for point, with the single licensed exception that the
+`testTheFastBoardIsTheSameGame` plays **over a million positions** through both
+and asserts they agree point for point, printing the count it reached, with the single licensed exception that the
 fast board knows simple ko where the game knows superko.
 
 **The playout policy is LOCAL, and that is the whole design.** The first version
@@ -219,8 +219,10 @@ together and can say so out loud, so one tap settles it in both of those.
 ## Multiplayer
 
 `linkplay::LinkActivity`, `GameId::Go = 0x0A01`. The shared state is
-`go::Game` itself: 140 bytes against the layer's 192-byte ceiling, asserted in
-the suite rather than discovered when a field is added. Whole states travel, so
+`go::Game` itself, comfortably inside the layer's 192-byte ceiling, which the
+suite asserts. The exact size is deliberately written down nowhere: it was, as
+140, and adding one byte for `accepted` made four copies of that number wrong at
+once. Whole states travel, so
 a lost packet is a stale frame the next one corrects.
 
 The counting phase crosses the wire like any other move: a dead-stone mark is a
@@ -266,6 +268,37 @@ right, it fixed a visibly bad opening move, and it took the engine from 45% to
 decided, and telling the search to ignore it permanently is fatal. Two changes
 went in together and only the pair was measured, which is the other half of the
 lesson.
+
+## Six things a cold reviewer found
+
+Written down because each is a class rather than an incident, and this repo has
+seen every one of them before.
+
+- **A round-trip test that names fields by hand cannot see a field nobody
+  wrote.** `GoSave` gained `komiHalves` and `handicap` when the level ladder did
+  and `pack()` did not, so every resumed game scored with komi 0. The test named
+  fourteen fields and omitted exactly those two. It compares the whole struct
+  now, which cannot rot the same way.
+- **"Which stone is on this point" is not "who owns this point".** The
+  dead-stone guess asked the first and a captured group leaves its points EMPTY,
+  so a lone dead stone was never marked and a dead pair was marked half.
+- **A match must put the solo game back.** `onMatchStart` resets the board over
+  it, so leaving a match without reloading left the front door offering RESUME
+  for a game that had been overwritten.
+- **Every screen that sends has a turn**, not just the board. The counting
+  screen took taps from the seat that could not send them and dropped the
+  refusal.
+- **A `sizeof` written into prose is a number that rots.** 140 was in four
+  files; one added byte falsified all four. It is written down nowhere now.
+- **This is situational superko, not positional.** `positionKey` mixes the side
+  to move. That is the AGA's rule and it errs toward permissiveness, so no legal
+  move is refused -- but it was labelled wrong in four places.
+
+And a note on the test that caught the second one: getting its POSITION right
+took three attempts. The first put the dead group on an empty board, where
+whether it lives is genuinely open. The second filled the rest with black and
+put black's own eighty-stone group in atari, so white answered by capturing the
+entire board: the playouts were right and the fixture was wrong.
 
 ## What is not done
 

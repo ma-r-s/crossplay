@@ -280,6 +280,14 @@ bool isEye(const Game& game, const int point, const uint8_t colour) {
   return hostile <= allowed;
 }
 
+// FNV-1a over the position AND the side to move, which makes the repetition
+// rule SITUATIONAL superko rather than positional: a board the game has held
+// before with the other player to move is not forbidden.
+//
+// That is a real ruleset, not an approximation -- it is what the AGA rules use
+// -- and it errs toward permissiveness, so no legal move is ever refused. The
+// labelling was wrong in four places before anybody checked which one the code
+// implemented.
 uint32_t positionKey(const Game& game) {
   uint32_t hash = 2166136261u;
   for (int i = 0; i < kPoints; ++i) {

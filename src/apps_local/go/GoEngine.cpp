@@ -14,13 +14,14 @@ constexpr int kCandidates = go::kPoints + 1;
 //
 // A second, smaller board, and the duplication is deliberate. `go::Game` is the
 // game: it carries a superko ring, dead-stone marks, a move number and capture
-// tallies, and `go::legal()` copies the whole 140 bytes to answer one question.
+// tallies, and `go::legal()` copies the whole board to answer one question.
 // A playout plays eighty moves and the search plays thousands of playouts, so
 // the game's own board is three orders of magnitude too expensive here.
 //
-// What keeps the two from drifting is not discipline, it is a test: 200,000
-// random positions are played through BOTH and asserted identical, point for
-// point, in host-tests/go. That is the differential check that makes a second
+// What keeps the two from drifting is not discipline, it is a test: over a
+// million random positions are played through BOTH and asserted identical,
+// point for point, in host-tests/go, which prints the count it actually
+// reached rather than trusting one written here. That is the differential check that makes a second
 // implementation safe. See test_go.cpp, testTheFastBoardIsTheSameGame.
 struct Fast {
   uint8_t point[go::kPoints];
@@ -168,11 +169,16 @@ bool playFast(Fast& fast, const int point) {
   return true;
 }
 
-// Area score from Black's point of view, in half points, komi included. Every
-// stone standing at the end of a playout is alive by construction: the playout
-// only stops when neither side has a move that is not filling its own eye.
-int fastScore(const Fast& fast) {
-  uint8_t owner[go::kPoints];
+// Who each point belongs to at the end of a position: the stone standing on it,
+// or the colour that alone surrounds the empty region it is in.
+//
+// This is the OWNER MAP, and it is not the same question as "what stone is
+// here". The first version of estimateDead asked the second one and was wrong
+// in the commonest endgame shape there is: once a dead group is captured during
+// a playout, the points it stood on are empty, and an empty point holds no
+// stone for anybody. A single dead stone in a corner was never called dead at
+// all, and a dead pair was called half dead.
+void fastOwner(const Fast& fast, uint8_t owner[go::kPoints]) {
   uint8_t seen[kMaskBytes];
   for (int i = 0; i < kMaskBytes; ++i) seen[i] = 0;
   for (int i = 0; i < go::kPoints; ++i) owner[i] = fast.point[i];
@@ -211,7 +217,14 @@ int fastScore(const Fast& fast) {
     const uint8_t belongsTo = (black && !white) ? go::kBlack : ((white && !black) ? go::kWhite : go::kEmpty);
     for (int i = 0; i < found; ++i) owner[region[i]] = belongsTo;
   }
+}
 
+// Area score from Black's point of view, in half points, komi included. Every
+// stone standing at the end of a playout is alive by construction: the playout
+// only stops when neither side has a move that is not filling its own eye.
+int fastScore(const Fast& fast) {
+  uint8_t owner[go::kPoints];
+  fastOwner(fast, owner);
   int black = 0;
   int white = 0;
   for (int i = 0; i < go::kPoints; ++i) {
@@ -934,7 +947,11 @@ int chooseMove(const go::Game& game, const go::Level level, uint32_t& seed) {
 void estimateDead(const go::Game& game, uint32_t& seed, uint8_t out[kMaskBytes]) {
   go::clearMask(out);
 
-  // How often each point ends up Black's at the end of a playout from here.
+  // How often each point ends up BLACK'S at the end of a playout from here --
+  // the owner map, not the stones. The difference is the whole correctness of
+  // this function: a dead group is captured during the playout, so the points
+  // it stood on end EMPTY, and asking which stone is there answers nobody.
+  // Asking who the region belongs to answers the captor.
   int16_t blackness[go::kPoints] = {};
   constexpr int kTrials = 200;
   for (int trial = 0; trial < kTrials; ++trial) {
@@ -947,22 +964,47 @@ void estimateDead(const go::Game& game, uint32_t& seed, uint8_t out[kMaskBytes])
     constexpr int kMaxMoves = go::kPoints * 2 + 20;
     int last = -1;
     for (int move = 0; move < kMaxMoves && fast.passes < 2; ++move) last = playoutMove(fast, seed, true, last);
+
+    uint8_t owner[go::kPoints];
+    fastOwner(fast, owner);
     for (int point = 0; point < go::kPoints; ++point) {
-      if (fast.point[point] == go::kBlack) ++blackness[point];
-      if (fast.point[point] == go::kWhite) --blackness[point];
+      if (owner[point] == go::kBlack) ++blackness[point];
+      if (owner[point] == go::kWhite) --blackness[point];
     }
   }
 
-  // A stone standing on a point that the other colour holds in most playouts is
-  // a stone that cannot live. Two thirds rather than a bare majority, because
-  // the cost of calling a live group dead is a player losing a game they won,
-  // and the cost of the opposite is one more tap.
-  constexpr int16_t kThreshold = kTrials * 2 / 3;
+  // A GROUP lives or dies together, so the verdict is taken for the group and
+  // not for the stone. Marking half a dragon dead draws one live stone beside
+  // one ghost, which is a board nobody can read and a score nobody agreed.
+  //
+  // Seventy percent, which is where OGS's autoscorer independently landed.
+  // Deliberately not a bare majority: calling a live group dead costs a player
+  // a game they won, and calling a dead one live costs them one tap.
+  constexpr int16_t kThreshold = kTrials * 7 / 10;
+  uint8_t judged[kMaskBytes];
+  go::clearMask(judged);
   for (int point = 0; point < go::kPoints; ++point) {
     const uint8_t here = game.point[point];
-    if (!go::isStone(here)) continue;
-    if (here == go::kBlack && blackness[point] <= -kThreshold) go::mark(out, point);
-    if (here == go::kWhite && blackness[point] >= kThreshold) go::mark(out, point);
+    if (!go::isStone(here) || go::marked(judged, point)) continue;
+
+    uint8_t stones[kMaskBytes];
+    int size = 0;
+    int liberties = 0;
+    go::group(game, point, stones, size, liberties);
+
+    int32_t total = 0;
+    for (int p = 0; p < go::kPoints; ++p) {
+      if (!go::marked(stones, p)) continue;
+      go::mark(judged, p);
+      total += blackness[p];
+    }
+    const int32_t average = size > 0 ? total / size : 0;
+
+    const bool dead = here == go::kBlack ? average <= -kThreshold : average >= kThreshold;
+    if (!dead) continue;
+    for (int p = 0; p < go::kPoints; ++p) {
+      if (go::marked(stones, p)) go::mark(out, p);
+    }
   }
 }
 

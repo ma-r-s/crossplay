@@ -4,7 +4,8 @@
 // round trip is host-tested rather than discovered on a device.
 //
 // Two things are saved and they have different lifetimes. The RECORD is a
-// device's history and outlives every game; the GAME IN PROGRESS is one
+// device's history and outlives every game EXCEPT across a format change, where
+// the whole file is refused (see kVersion); the GAME IN PROGRESS is one
 // position and is cleared the moment it finishes. Wavelength shipped an
 // onExit() that wrote the first and not the second, and a cold tester lost a
 // round by pressing Home one key from Back. A field that is never written
@@ -17,8 +18,13 @@
 
 namespace gosave {
 
-// Bumped whenever the layout changes. `unpack` accepts older versions rather
-// than rejecting them, or an upgrade throws away a year of record.
+// Bumped whenever the layout changes, and an older file is REFUSED.
+//
+// Accepting one would be better and is not possible as this file is written:
+// every field after the header is positional, so a v1 line read as v2 takes the
+// next number in the missing one's place and shifts a whole board along by one.
+// A game that loads and is wrong is worse than one that does not load. What it
+// costs is the record, which is two integers.
 //
 // 2 added `Game::accepted`, which is who has agreed the count. A v1 file has
 // one fewer number on the line and is refused rather than misread: the record

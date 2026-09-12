@@ -91,6 +91,10 @@ struct CountModel {
   // A link match: both seats have to say yes, and this one already has.
   bool youAccepted = false;
   bool theyAccepted = false;
+  // Counting has a turn too, in a match: a mark is a state change and the link
+  // only takes one from the seat holding the turn. Without this the screen
+  // offers controls whose taps are silently dropped.
+  bool yourTurn = true;
   bool sharedDevice = false;
 };
 

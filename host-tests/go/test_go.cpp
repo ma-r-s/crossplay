@@ -1056,7 +1056,12 @@ void testBackIsTotalAndAlwaysReachesTheTop() {
 
 void testASavedGameComesBackExactly() {
   Game game;
-  reset(game);
+  // A handicap game with a level's own komi, because those two were the fields
+  // the first version of this test did not name and the first version of pack()
+  // did not write. A round-trip test that enumerates fields BY HAND cannot see
+  // a field nobody wrote, which is why the whole-struct comparison below
+  // matters more than the named ones.
+  reset(game, 2, 1);
   uint32_t local = 5150u;
   for (int i = 0; i < 40; ++i) {
     int candidates[kPoints];
@@ -1110,6 +1115,23 @@ void testASavedGameComesBackExactly() {
   CHECK(back.game.capturedBy[kBlack] == game.capturedBy[kBlack]);
   CHECK(back.game.capturedBy[kWhite] == game.capturedBy[kWhite]);
   CHECK(back.game.recentCount == game.recentCount);
+  CHECK(back.game.komiHalves == game.komiHalves);
+  CHECK(back.game.handicap == game.handicap);
+  CHECK(back.game.handicap == 2);
+
+  // And the assertion no enumeration can rot past: every byte of the game comes
+  // back. A field added to Game and not to pack() fails HERE whether or not
+  // anybody remembers to name it above.
+  CHECK(std::memcmp(&back.game, &game, sizeof(Game)) == 0);
+
+  // The promise the whole ruleset rests on has to survive the card. A resumed
+  // game scored with komi 0 is a different game, and it can end in the draw
+  // this app has no screen for.
+  CHECK(settlesEveryGame(back.game.komiHalves));
+  back.game.stage = static_cast<uint8_t>(Stage::Over);
+  game.stage = static_cast<uint8_t>(Stage::Over);
+  CHECK(score(back.game).whiteHalves == score(game).whiteHalves);
+  CHECK(score(back.game).blackHalves == score(game).blackHalves);
   for (int i = 0; i < kHistory; ++i) CHECK(back.game.recent[i] == game.recent[i]);
   for (int i = 0; i < (kPoints + 7) / 8; ++i) CHECK(back.game.dead[i] == game.dead[i]);
   // Who agreed the count survives too. A resumed count that forgot it would
@@ -1144,6 +1166,91 @@ void testAHalfWrittenSaveCostsNothingButTheGame() {
   }
   CHECK(!gosave::unpack("", good));
   CHECK(!gosave::unpack("nonsense", good));
+}
+
+void testTheDeadStoneGuessFindsAWholeGroup() {
+  // The commonest endgame shape there is, and the one the first version of
+  // estimateDead got wrong in every case: a small enemy group sitting inside
+  // finished territory. It counted which STONE was on each point at the end of
+  // a playout, and a captured group leaves its points EMPTY -- so a lone dead
+  // stone was never called dead at all, and a dead pair was called half dead.
+  //
+  // Half a dead group is the worse outcome of the two: the board draws one live
+  // stone beside one ghost, which is a position nobody can read.
+  // SETTLED boards, and getting them settled took two tries. The first draft put
+  // the white group in a corner of an EMPTY board, where whether it lives is
+  // genuinely open -- a playout from an empty board is a whole game. The second
+  // filled the rest with black, which put black's own eighty-stone group in
+  // ATARI: white answered by capturing the entire board, so the playouts were
+  // right and the position was wrong.
+  //
+  // These are the real thing. Black is alive with two eyes far apart, the white
+  // group has one point of space and no way to make a second, and the only
+  // question left on the board is the one being asked.
+  const char* rows[3][kSize] = {
+      {
+          "O.XXXXXXX",  // one stone, one point of space
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXX.XXXX",  // black's first eye
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXXXXXX.",  // and its second, far from the first
+      },
+      {
+          "OO.XXXXXX",  // a pair
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXX.XXXX",  // black's first eye
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXXXXXX.",  // and its second, far from the first
+      },
+      {
+          "OOO.XXXXX",  // three, still one eye, still dead
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXX.XXXX",  // black's first eye
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXXXXXXX",  //
+          "XXXXXXXX.",  // and its second, far from the first
+      },
+  };
+  const int expected[3] = {1, 2, 3};
+
+  for (int shape = 0; shape < 3; ++shape) {
+    Game game;
+    setUp(game, rows[shape]);
+    game.stage = static_cast<uint8_t>(Stage::Scoring);
+    uint32_t seed = 424242u + static_cast<uint32_t>(shape) * 7919u;
+
+    uint8_t dead[(kPoints + 7) / 8];
+    goengine::estimateDead(game, seed, dead);
+
+    int marked = 0;
+    for (int point = 0; point < kPoints; ++point) {
+      if (go::marked(dead, point)) {
+        ++marked;
+        // Only White's stones are dead here. Marking a black one would hand the
+        // game away.
+        CHECK(game.point[point] == kWhite);
+      }
+    }
+    CHECK(marked == expected[shape]);
+
+    // And the count that follows is the true one: Black holds the whole board.
+    for (int i = 0; i < (kPoints + 7) / 8; ++i) game.dead[i] = dead[i];
+    game.stage = static_cast<uint8_t>(Stage::Over);
+    const Score counted = score(game);
+    CHECK(counted.blackHalves == kPoints * 2);
+    CHECK(counted.whiteHalves == kDefaultKomiHalves);
+  }
 }
 
 void testACountEndsOnlyWhenBOTHSeatsAgree() {
@@ -1232,6 +1339,7 @@ int main() {
   testBackIsTotalAndAlwaysReachesTheTop();
   testASavedGameComesBackExactly();
   testAHalfWrittenSaveCostsNothingButTheGame();
+  testTheDeadStoneGuessFindsAWholeGroup();
   testACountEndsOnlyWhenBOTHSeatsAgree();
   testACountIsAnAgreementNotAComputation();
   testTheFastBoardIsTheSameGame();

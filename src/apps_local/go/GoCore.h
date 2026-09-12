@@ -8,7 +8,7 @@
 // which is below the fingertip this device is driven with; nine gives 48px and
 // a game that finishes in twenty minutes on a train.
 //
-// **Area scoring (Chinese), positional superko, komi 7.5.** That combination is
+// **Area scoring (Chinese), situational superko, komi 7.5.** That combination is
 // what every engine plays because it makes a finished position scorable by
 // counting alone -- no prisoners to remember, no dame to haggle over, no seki
 // exception. It is also the ruleset a beginner never has to learn: they put
@@ -19,8 +19,14 @@
 // happily fill every neutral point, which reads as an idiot to a human. The
 // rules here stop at "two passes ends it"; who is dead is a separate agreement.
 //
-// This struct IS the wire format and IS the save format. 140 bytes, trivially
-// copyable, so two devices share one description of a game and cannot drift.
+// This struct IS the wire format and IS the save format: trivially copyable,
+// comfortably inside the link layer's 192-byte packet, so two devices share one
+// description of a game and cannot drift.
+//
+// The exact size is deliberately NOT written here. It was, as 140, and adding
+// one byte for `accepted` made every copy of that number wrong at once -- in
+// this file, in GoEngine.cpp and twice in docs/apps/go.md. The suite asserts
+// the ceiling, which is the only part that matters.
 
 #include <cstdint>
 
@@ -64,7 +70,7 @@ constexpr bool settlesEveryGame(const int16_t komiHalves) { return (komiHalves %
 // The longest a game may run before it is counted whether or not anybody
 // passed. **[house rule]**
 //
-// Chinese rules with FULL positional superko terminate on their own, but the
+// Chinese rules with FULL superko terminate on their own, but the
 // ring below remembers eight positions rather than every one, so a long enough
 // cycle is not forbidden -- and an opponent that refuses to pass while it is
 // losing (which is the correct behaviour, see GoEngine.h) will happily play
@@ -78,7 +84,7 @@ constexpr uint16_t kMoveLimit = 400;
 
 // How many recent positions the superko rule looks back over.
 //
-// Full positional superko wants every position the game has ever held, which is
+// Full superko wants every position the game has ever held, which is
 // a few hundred hashes and does not fit in a packet. Eight covers simple ko
 // (length 1), the triple ko that is the reason superko exists at all (length 3
 // each way), and every cycle a human will produce. A cycle longer than this is

@@ -35,6 +35,12 @@ int pack(const Save& save, char* out, const int capacity) {
   used = appendInt(out, capacity, used, game.passes);
   used = appendInt(out, capacity, used, game.lastMove);
   used = appendInt(out, capacity, used, game.stage);
+  // Komi and handicap are the LEVEL, written into the game when it started.
+  // Leaving them out cost every resumed game its komi: a 44/37 split, which is
+  // an ordinary result, scored W+0.5 as played and B+7.0 after a resume, and
+  // komi 0 made the draw this ruleset exists to avoid reachable again.
+  used = appendInt(out, capacity, used, game.komiHalves);
+  used = appendInt(out, capacity, used, game.handicap);
   used = appendInt(out, capacity, used, game.accepted);
   used = appendInt(out, capacity, used, game.moveNumber);
   used = appendInt(out, capacity, used, game.capturedBy[go::kBlack]);
@@ -103,6 +109,8 @@ bool unpack(const char* text, Save& save) {
   parsed.game.passes = static_cast<uint8_t>(take(ok));
   parsed.game.lastMove = static_cast<uint8_t>(take(ok));
   parsed.game.stage = static_cast<uint8_t>(take(ok));
+  parsed.game.komiHalves = static_cast<int16_t>(take(ok));
+  parsed.game.handicap = static_cast<uint8_t>(take(ok));
   parsed.game.accepted = static_cast<uint8_t>(take(ok));
   parsed.game.moveNumber = static_cast<uint16_t>(take(ok));
   parsed.game.capturedBy[0] = 0;
@@ -122,6 +130,10 @@ bool unpack(const char* text, Save& save) {
   if (parsed.game.toMove != go::kBlack && parsed.game.toMove != go::kWhite) return false;
   if (parsed.game.stage > static_cast<uint8_t>(go::Stage::Over)) return false;
   if (parsed.game.recentCount > go::kHistory) return false;
+  // A komi that cannot settle a game is a komi this app never set, so the file
+  // is either damaged or from a build that did not write one.
+  if (!go::settlesEveryGame(parsed.game.komiHalves)) return false;
+  if (parsed.game.handicap > go::kMaxHandicap) return false;
   if (parsed.level > go::Level::Hard) parsed.level = go::Level::Medium;
   if (parsed.opponent > go::Opponent::Human) parsed.opponent = go::Opponent::Computer;
   if (parsed.playAs != go::kBlack && parsed.playAs != go::kWhite) parsed.playAs = go::kBlack;

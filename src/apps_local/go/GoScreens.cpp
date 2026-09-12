@@ -483,15 +483,17 @@ void buildCount(toybox::Screen& screen, const CountModel& model) {
 
   const fui::Rect bottom = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
   fui::ButtonProps accept;
-  accept.label = model.youAccepted ? "WAITING" : "ACCEPT";
-  accept.action = model.youAccepted ? fui::NO_ACTION : static_cast<fui::ActionId>(ActionAccept);
-  accept.enabled = !model.youAccepted;
+  const bool canAct = model.yourTurn && !model.youAccepted;
+  accept.label = model.youAccepted ? "WAITING" : (model.yourTurn ? "ACCEPT" : "THEIR TURN");
+  accept.action = canAct ? static_cast<fui::ActionId>(ActionAccept) : fui::NO_ACTION;
+  accept.enabled = canAct;
   accept.borderEdges = fui::EdgesNone;
   screen.button(accept, fui::makeRect(bottom.x, bottom.y, static_cast<int16_t>(bottom.width - 152), bottom.height));
 
   fui::ButtonProps resume;
   resume.label = "PLAY ON";
-  resume.action = ActionResume;
+  resume.action = model.yourTurn ? static_cast<fui::ActionId>(ActionResume) : fui::NO_ACTION;
+  resume.enabled = model.yourTurn;
   resume.borderEdges = fui::EdgesNone;
   screen.button(resume, fui::makeRect(static_cast<int16_t>(bottom.right() - 140), bottom.y, 140, bottom.height));
 
@@ -570,7 +572,7 @@ void buildCount(toybox::Screen& screen, const CountModel& model) {
   screen.target().text(toybox::inkCentred(fui::makeRect(static_cast<int16_t>(boardLeft(device) + 220), bandTop,
                                                         static_cast<int16_t>(kBoardSide - 220), 70),
                                           toybox::kTileCut),
-                       "TAP A DEAD GROUP", hint);
+                       model.yourTurn ? "TAP A DEAD GROUP" : "THEY ARE MARKING", hint);
 }
 
 void buildResult(toybox::Screen& screen, const ResultModel& model) {

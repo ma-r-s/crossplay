@@ -105,7 +105,7 @@ bool passingWins(const go::Game& game, uint8_t colour);
 //
 // The search does not use `go::Game`: it plays on a smaller board with no
 // history, no dead marks and no tallies, because the game's own board copies
-// 140 bytes to answer one question and a search asks that question millions of
+// the whole board to answer one question, and a search asks that question
 // times. Two implementations of one rulebook is exactly the shape that drifts,
 // so `host-tests/go` plays hundreds of thousands of random positions through
 // BOTH and asserts the boards are identical point for point. This is how it

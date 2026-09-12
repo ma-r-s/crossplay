@@ -205,10 +205,14 @@ void GoActivity::handlePointActivated(const int point) {
 
   if (!go::play(game, point)) return;
   clearAim();
-  inProgress = true;
   if (inMatch()) {
     play.play(game);
   } else {
+    // Only a SOLO game is in progress. A match has its own board, and marking
+    // the device as having a game to resume while playing one leaves the front
+    // door offering RESUME for a game that was overwritten the moment the match
+    // started.
+    inProgress = true;
     writeSave();
   }
   if (game.stage == static_cast<uint8_t>(go::Stage::Scoring)) {
@@ -238,6 +242,12 @@ void GoActivity::enterCounting() {
 
 void GoActivity::toggleDeadAt(const int point) {
   if (!go::isStone(game.point[point])) return;
+  // The counting screen has a turn, exactly like the board does. A mark is a
+  // state change, so the link refuses to send one out of turn -- and the first
+  // version mutated the board first and threw the refusal away, which left one
+  // device showing a mark the other had never heard of, until their next send
+  // silently wiped it.
+  if (!myMove()) return;
 
   // A whole group flips, never one stone of it: a group is alive or dead as a
   // unit, and asking a player to tap eleven stones of a dead dragon is asking
@@ -260,7 +270,7 @@ void GoActivity::toggleDeadAt(const int point) {
   go::withdrawAcceptance(game);
   refreshCount();
   if (inMatch()) {
-    play.play(game);
+    if (!play.play(game)) LOG_ERR("GO", "The link refused a dead-stone mark the board allowed");
   } else {
     writeSave();
   }
@@ -357,8 +367,20 @@ bool GoActivity::takeOpponentState() {
 void GoActivity::onRematch() { onMatchStart(play.goesFirst()); }
 
 void GoActivity::onLinkEnded() {
-  seat = playAs;
+  // The solo game comes BACK. onMatchStart resets the board straight over it,
+  // so without this the front door offers RESUME and opens the match's final
+  // position with the wrong seat -- and the computer starts playing it. Chess
+  // reloads here for the same reason.
+  //
+  // The card still holds the solo game: writeSave() refuses for the whole
+  // length of a match, so nothing has overwritten it.
   clearAim();
+  thinking = false;
+  go::reset(game, 0, go::kDefaultKomiHalves);
+  inProgress = false;
+  seat = playAs;
+  loadSave();
+  if (inProgress && game.stage == static_cast<uint8_t>(go::Stage::Scoring)) refreshCount();
   goTo(go::Screen::Menu);
 }
 
@@ -537,6 +559,7 @@ void GoActivity::gameLoop() {
       return;
 
     case goui::ActionResume:
+      if (!myMove()) return;
       // Disagreeing about what is dead is resolved by playing it out, which is
       // what the rules say and what a Go player expects. The marks are dropped
       // so nobody carries half an argument back onto the board.
@@ -545,7 +568,7 @@ void GoActivity::gameLoop() {
       go::clearMask(game.dead);
       go::withdrawAcceptance(game);
       if (inMatch()) {
-        play.play(game);
+        if (!play.play(game)) LOG_ERR("GO", "The link refused PLAY ON");
       } else {
         writeSave();
       }
@@ -553,6 +576,7 @@ void GoActivity::gameLoop() {
       return;
 
     case goui::ActionAccept: {
+      if (inMatch() && !myMove()) return;
       // Solo, there is nobody to wait for. Two people sharing one device are
       // sitting together and can say so out loud, so one tap settles it there
       // too; only a match has a second seat that has to agree in its own time.
@@ -569,7 +593,7 @@ void GoActivity::gameLoop() {
       }
       // Sending hands them the turn. The button relabels itself to WAITING and
       // means it: the game ends when their ACCEPT comes back, not now.
-      play.play(game);
+      if (!play.play(game)) LOG_ERR("GO", "The link refused an ACCEPT the screen allowed");
       requestUpdate();
       return;
     }
@@ -663,6 +687,7 @@ void GoActivity::gameRender() {
       model.whiteHalves = whiteHalves;
       model.youAccepted = go::hasAccepted(game, seat);
       model.theyAccepted = go::hasAccepted(game, go::other(seat));
+      model.yourTurn = myMove();
       model.sharedDevice = !inMatch() && opponent == go::Opponent::Human;
       goui::buildCount(surface, model);
       break;
