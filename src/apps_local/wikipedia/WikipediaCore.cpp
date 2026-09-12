@@ -304,24 +304,35 @@ bool parseManifest(const char* json, const size_t len, Manifest& out) {
 
 // ------------------------------------------------------------- blocks.dir
 
-bool BlocksDir::load(std::vector<uint8_t> bytes) {
+bool BlocksDir::open(ByteSource& source) {
+  source_ = nullptr;
   count_ = 0;
-  if (bytes.size() < 12 || memcmp(bytes.data(), "WKBD", 4) != 0 || bytes[4] != 1) return false;
-  const uint32_t count = readU32(bytes.data() + 8);
-  if (bytes.size() < 12 + static_cast<size_t>(count) * 16) return false;
-  bytes_ = std::move(bytes);
+  cachedBlock_ = kNoBlock;
+  uint8_t header[12];
+  if (source.size() < sizeof(header) || !source.read(0, header, sizeof(header))) return false;
+  if (memcmp(header, "WKBD", 4) != 0 || header[4] != 1) return false;
+  const uint32_t count = readU32(header + 8);
+  if (static_cast<uint64_t>(count) * 16 + sizeof(header) > source.size()) return false;
+  source_ = &source;
   count_ = count;
   return true;
 }
 
 bool BlocksDir::record(const uint32_t block, BlockRecord& out) const {
-  if (block >= count_) return false;
-  const uint8_t* p = bytes_.data() + 12 + static_cast<size_t>(block) * 16;
+  if (!source_ || block >= count_) return false;
+  if (block == cachedBlock_) {
+    out = cached_;
+    return true;
+  }
+  uint8_t p[16];
+  if (!source_->read(12 + block * 16, p, sizeof(p))) return false;
   out.shard = readU16(p);
   out.slots = readU16(p + 2);
   out.offset = readU32(p + 4);
   out.csize = readU32(p + 8);
   out.usize = readU32(p + 12);
+  cached_ = out;
+  cachedBlock_ = block;
   return true;
 }
 

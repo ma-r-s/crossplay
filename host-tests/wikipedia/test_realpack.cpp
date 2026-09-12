@@ -97,8 +97,9 @@ int main(const int argc, char** argv) {
   CHECK(!manifest.titles.empty());
   CHECK(!manifest.shards.empty());
 
+  FileSource blocksSource(dir + "/" + manifest.blocksdir.file);
   BlocksDir blocks;
-  CHECK(blocks.load(readAll(dir + "/" + manifest.blocksdir.file)));
+  CHECK(blocks.open(blocksSource));
   CHECK(blocks.count() == manifest.blocks);
 
   const auto dict = readAll(dir + "/" + manifest.dict.file);

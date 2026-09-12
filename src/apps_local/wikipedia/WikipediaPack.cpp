@@ -135,11 +135,16 @@ bool Pack::loadDict() {
 
 bool Pack::loadDirectory() {
   const std::string path = std::string(kDir) + "/" + manifest_.blocksdir.file;
-  std::vector<uint8_t> bytes;
-  if (!readWhole(path.c_str(), bytes, 64 * 1024 * 1024) || !dir_.load(std::move(bytes))) {
+  dirSource_ = makeUniqueNoThrow<FileSource>();
+  if (!dirSource_) {
+    LOG_ERR(kTag, "OOM: blocks.dir source");
+    return false;
+  }
+  if (!dirSource_->open(path.c_str()) || !dir_.open(*dirSource_)) {
     LOG_ERR(kTag, "blocks.dir missing or invalid: %s", path.c_str());
     return false;
   }
+  LOG_INF(kTag, "blocks.dir: %u blocks, read from the card", dir_.count());
   return true;
 }
 

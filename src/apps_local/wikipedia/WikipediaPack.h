@@ -95,6 +95,7 @@ class Pack {
   bool warm_ = false;
   Manifest manifest_;
   BlocksDir dir_;
+  std::unique_ptr<FileSource> dirSource_;  // blocks.dir stays on the card; dir_ reads records from it
   std::vector<uint8_t> dict_;
   std::vector<std::unique_ptr<FileSource>> indexSources_;
   std::vector<std::unique_ptr<TitleIndex>> indexes_;
