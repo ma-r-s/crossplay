@@ -656,6 +656,8 @@ class Rules(unittest.TestCase):
             # something false. A lone Greek letter is a symbol and gets its
             # name; a Greek word is a run and goes.
             ("where a \u2260 0 and x \u2264 \u22121", "where a != 0 and x <= \u22121"),
+            # the tidy after a removal must not glue "!=" to its left operand
+            ("where a \u2260 0 (Greek: \u03b1\u03bb\u03c6\u03b1) holds", "where a != 0 holds"),
             ("Goudreau \u2014on backup vocals, 1990\u2013 1995, and a spaced \u2014 dash stays", "Goudreau\u2014on backup vocals, 1990\u20131995, and a spaced \u2014 dash stays"),
             # From a reviewer's read of thirty articles (2026-09-11): a letter whose
             # accented form the serif lacks keeps its base letter; a pronunciation

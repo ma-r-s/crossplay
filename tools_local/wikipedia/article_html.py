@@ -198,7 +198,7 @@ _TIDY = (
     (re.compile(r"\s*[,;:]\s*\)"), ")"),
     (re.compile(r"\(\s*\)"), ""),
     (re.compile(r"\[\s*\]"), ""),
-    (re.compile(r"\s+([,;:!?)])"), r"\1"),
+    (re.compile(r"\s+([,;:?)]|!(?!=))"), r"\1"),  # "a != 0" keeps its space
     (re.compile(r"\s+\.(?![A-Za-z0-9])"), "."),
     (re.compile(r"\(\s+"), "("),
     (re.compile(r"(?:[,;:]\s*)+([,;:])"), r"\1"),
