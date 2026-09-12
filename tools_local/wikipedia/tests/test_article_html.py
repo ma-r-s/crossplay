@@ -616,7 +616,8 @@ class Rules(unittest.TestCase):
             st,
             lead=True,
         )
-        self.assertEqual(got, "Mahmud II (20 July 1785 - 1 July 1839) was the sultan")
+        # the Arabic goes with its label; the romanisation is information
+        self.assertEqual(got, "Mahmud II (romanized: X; 20 July 1785 - 1 July 1839) was the sultan")
         self.assertEqual(st["parentheticals_removed"], 1)
 
     def test_source_remnants(self):
@@ -656,7 +657,7 @@ class Rules(unittest.TestCase):
             # guide's word does not outlive the guide; the mixed-number template
             # reads as a number; a spaced unit power is a power; an entity the
             # source escaped twice is a character.
-            ("known as a ma\u1e47\u1e0dal\u012b.", "known as a man\u0323d\u0323al\u012b."),
+            ("known as a ma\u1e47\u1e0dal\u012b.", "known as a mandal\u012b."),
             ("Elchingen (pronounced [mi\u0283\u025bl ne]; 10 January 1769) was", "Elchingen (10 January 1769) was"),
             ("6\u201312 cm (2 + 1 \u2044 4 \u2013 4 + 3 \u2044 4 in) long", "6\u201312 cm (2 1/4 \u2013 4 3/4 in) long"),
             ("Density 3,855/km 2 (9,985/sq mi)", "Density 3,855/km\u00b2 (9,985/sq mi)"),
@@ -675,11 +676,19 @@ class Rules(unittest.TestCase):
             # nothing lost; a compatibility character is its plain form; a
             # flat or sharp is spelled, because "D major" is a different key;
             # a suffix written on its own keeps its space.
-            ("Ma\u1e25m\u016bd Mu\u1e63\u1e6daf\u0101", "Mah\u0323m\u016bd Mus\u0323t\u0323af\u0101"),
+            ("Ma\u1e25m\u016bd Mu\u1e63\u1e6daf\u0101", "Mahm\u016bd Mustaf\u0101"),
+
             ("at 25 \u2103, page \u216b, item \u2460, \U0001d513 4", "at 25 \u00b0C, page XII, item 1, P 4"),
             ("in D \u266d major and F \u266f minor, B\u266e", "in D-flat major and F-sharp minor, B-natural"),
             ("Final -m was dropped; the suffix -ing and -am, -em, -um; a Protestant -led group", "Final -m was dropped; the suffix -ing and -am, -em, -um; a Protestant-led group"),
             ("Mass \u2273 10 5 M\u2609 and \u2205 \u2229 A", "Mass >~ 10 5 M(sun) and empty set intersect A"),
+            ("Hawai\u02bbi, \u02bfAl\u012b and the Qur\u02beān", "Hawai\u2018i, \u2018Al\u012b and the Qur\u2019\u0101n"),
+            # A letter of an orthography folds inside a word; a pronunciation
+            # goes whole before any spelling, so its theta is not "theta" and
+            # its schwa is not a letter; a respelling's "-\u0259-" is not a word.
+            ("C\u0259lil M\u0259mm\u0259dquluzad\u0259 wrote; laamii\u0257o; Bum\u00efn qa\u0263an; \u01c3Nanseb", "C\u00e4lil M\u00e4mm\u00e4dquluzad\u00e4 wrote; laamiido; Bum\u00efn qa\u011fan; !Nanseb"),
+            ("Theophrastus (/ \u02cc \u03b8 i\u02d0. \u0259 /; Ancient Greek: \u0398\u03b5\u03cc\u03c6\u03c1\u03b1\u03c3\u03c4\u03bf\u03c2, romanized: Theophrastos) was", "Theophrastus (romanized: Theophrastos) was"),
+            ("Camogie (/ k \u0259 \u02c8 m o\u028a \u0261 i / k\u0259- MOH -ghee; Irish: cam\u00f3ga\u00edocht) is", "Camogie (Irish: cam\u00f3ga\u00edocht) is"),
         ]
         for src, want in cases:
             self.assertEqual(ah.strip_undrawable(src, {}, lead=True), want, src)
@@ -688,6 +697,8 @@ class Rules(unittest.TestCase):
         for src, want in [
             ("lasted 28 days.The truce held, e.g.The end, Inc.The", "lasted 28 days. The truce held, e.g.The end, Inc.The"),
             ("Mass 10 5 M and 10 -3 m, the year 10 and 10 5,000 and 10 5.5", "Mass 10\u2075 M and 10\u207b\u00b3 m, the year 10 and 10 5,000 and 10 5.5"),
+            # the invisible marks the panel smudges are gone, the words whole
+            ("left\u200eto\u200fright, word\u2060joiner, soft\u00adhyphen, zero\u200bwidth\ufeff", "lefttoright, wordjoiner, softhyphen, zerowidth"),
         ]:
             self.assertEqual(ah.clean_text(src), want, src)
         # Left alone: a period that starts a word, an inch mark, an apostrophe,

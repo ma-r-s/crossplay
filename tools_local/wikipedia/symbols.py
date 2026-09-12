@@ -173,6 +173,13 @@ SYMBOLS = {
     "\u266d": "-flat",  # ♭
     "\u266f": "-sharp",  # ♯
     "\u266e": "-natural",  # ♮
+    # --- transliteration letters: an okina or ayn is a letter of the name
+    # ("Hawai\u02bbi", "\u02bfAl\u012b"), typeset as the quote it resembles
+    "\u02bb": "\u2018",  # modifier letter turned comma (okina)  \u02bb
+    "\u02bf": "\u2018",  # modifier letter left half ring (ayn)  \u02bf
+    "\u02be": "\u2019",  # modifier letter right half ring (hamza)  \u02be
+    "\u02bc": "\u2019",  # modifier letter apostrophe  \u02bc
+    "\u02bd": "\u2018",  # modifier letter reversed comma  \u02bd
     # --- marks people write in tables and titles
     "\u2713": "yes",  # check mark  ✓
     "\u2714": "yes",  # ✔
@@ -208,6 +215,36 @@ SYMBOLS = {
     "\u215e": "7/8",  # ⅞
     "\u2215": "/",  # division slash  ∕
 }
+# Letters of an orthography the serif lacks, in the letter they stand in for
+# when a word must be written in plain Latin: Azerbaijani schwa, Fula and
+# Hausa hooked letters, Khoisan clicks, Egyptological aleph and ayin, the
+# IPA letters some languages spell with. Lossy, so article_html applies
+# them only inside a word (a token with letters and no hyphen) and only
+# after pronunciation spans are gone, and counts them; a lone IPA symbol in
+# a respelling or a phonology table never reaches this table.
+LOOKALIKES = {
+    "\u0259": "\u00e4", "\u018f": "\u00c4",  # schwa: Azerbaijani wrote it \u00e4 before 1992
+    "\u0261": "g", "\u0262": "G",  # script g, small capital G
+    "\u0263": "\u011f",  # gamma: Turkic \u011f
+    "\u0268": "i", "\u0197": "I", "\u0289": "u", "\u0244": "U",  # barred i, u
+    "\u0275": "o", "\u019f": "O",  # barred o
+    "\u0254": "o", "\u0186": "O", "\u025b": "e", "\u0190": "E",  # open o, open e (African orthographies)
+    "\u025c": "e", "\u026a": "i", "\u028a": "u", "\u0251": "a", "\u0250": "a", "\u0252": "o",
+    "\u0253": "b", "\u0181": "B", "\u0257": "d", "\u018a": "D",  # hooked b, d
+    "\u0199": "k", "\u0198": "K", "\u0260": "g", "\u0193": "G",  # hooked k, g
+    "\u01b4": "y", "\u01b3": "Y", "\u01ad": "t", "\u01ac": "T",  # hooked y, t
+    "\u0288": "t", "\u0256": "d", "\u0273": "n", "\u026d": "l", "\u027d": "r", "\u0282": "s", "\u0290": "z",  # retroflex
+    "\u0271": "m", "\u0272": "\u00f1", "\u026b": "\u0142", "\u026c": "l",  # m with hook, n with left hook, l with tilde, l with belt
+    "\u027e": "r", "\u0279": "r", "\u0281": "r", "\u0280": "r", "\u027b": "r",  # r variants
+    "\u0294": "\u2019", "\u0295": "\u2018", "\u02c0": "\u2019",  # glottal stop, pharyngeal, modifier glottal
+    "\u01c0": "|", "\u01c1": "||", "\u01c3": "!", "\u01c2": "=",  # clicks
+    "\u0192": "f", "\u0191": "F",  # f with hook
+    "\ua723": "A", "\ua722": "A", "\ua725": "a", "\ua724": "A",  # Egyptological aleph, ayin (Manuel de Codage)
+    "\ua78c": "\u2019", "\ua78b": "\u2019",  # saltillo
+    "\u02b9": "\u2032",  # modifier prime -> prime
+    "\u1e9e": "SS",  # capital sharp s
+}
+
 GREEK = {
     "\u03b1": "alpha",  # α
     "\u03b2": "beta",  # β

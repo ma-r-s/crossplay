@@ -86,7 +86,13 @@ SKIP_NAMESPACES = (
 # Beatles" and "This is a <b>list</b> of" are worse than no bold at all.
 SUBJECT_STOPWORDS = frozenset(("the", "a", "an", "list", "of", "in", "on", "and"))
 
-_CONTROL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f￾￿\ud800-\udfff]")
+# Controls, and the invisible marks the serif has slots for but draws as a
+# smudge or a gap (measured on the simulator): zero-width space and joiners,
+# bidi marks and embeddings, word joiner, byte order mark, soft hyphen.
+_CONTROL = re.compile(
+    "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ufffe\uffff\ud800-\udfff"
+    "\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\u00ad]"
+)
 _CITE = re.compile(r"\[\d+\]")
 # The page number a citation carried, left behind once the mark went:
 # "principles.: 6 The scope".
@@ -342,6 +348,15 @@ def _close_inline_gaps(text):
 
 
 _ok_re = None
+# Letter plus combining mark draws as a box on the panel today, not because
+# the serif lacks the mark (it has U+0300-036F and EpdFont overlays them) but
+# because the reader composes every word to NFC before layout (upstream's
+# ParsedText::addWord) and then looks up the precomposed letter, which the
+# serif lacks. Measured on the simulator 2026-09-11: "Ma\u1e25m\u016bd" as
+# "Mah\u0323m\u016bd" showed a box over the h. Until the app draws with a card
+# font that carries Latin Extended Additional, the base letter is the lesser
+# loss; the census counts every one (diacritics_dropped).
+DECOMPOSE = False
 
 
 def _fold_chars(text):
@@ -351,13 +366,11 @@ def _fold_chars(text):
     1. its compatibility form when that is drawable: a circled digit is the
        digit, a fullwidth comma a comma, a script or fraktur capital the
        capital, "\u2103" is "\u00b0C" (NFKC);
-    2. its base letter plus the combining mark, when the mark is in the
-       serif and the renderer overlays it: "\u1e25" is "h" + U+0323, drawn as
-       an h with a dot below, nothing lost (NFD, marks kept);
+    2. (off, see DECOMPOSE) its base letter plus the combining mark, which
+       the renderer overlays: "\u1e25" as "h" + U+0323, nothing lost;
     3. its base letter alone: "ma\u1e47\u1e0dal\u012b" reads "mandali", not
-       "maali", when the mark cannot be drawn (NFD, marks dropped). This
-       loses the accent and is counted, since deleting the letter made a
-       wrong word with no hole in it.
+       "maali" (NFD, marks dropped). This loses the accent and is counted,
+       since deleting the letter made a wrong word with no hole in it.
 
     Anything else stays for the run rules. Returns (text, {counts})."""
     global _ok_re
@@ -383,7 +396,7 @@ def _fold_chars(text):
             counts["compat_folded"] = counts.get("compat_folded", 0) + 1
             continue
         decomposed = unicodedata.normalize("NFD", ch)
-        if len(decomposed) > 1 and drawable(decomposed):
+        if DECOMPOSE and len(decomposed) > 1 and drawable(decomposed):
             out.append(decomposed)
             counts["letters_decomposed"] = counts.get("letters_decomposed", 0) + 1
             continue
@@ -396,20 +409,41 @@ def _fold_chars(text):
     return "".join(out), counts
 
 
+_LOOKALIKE_RE = re.compile("[" + "".join(re.escape(c) for c in symbols.LOOKALIKES) + "]")
+_LOOKALIKE_TOKEN = re.compile(r"\S+")
+
+
+def _fold_lookalikes(text):
+    """A letter of an orthography the serif lacks becomes the plain letter it
+    stands in for (symbols.LOOKALIKES), inside a word only: a token with no
+    hyphen and at least two drawable letters besides it. "M\u0259mm\u0259d"
+    reads "M\u00e4mm\u00e4d"; the "-\u0259-" of a respelling and a lone IPA symbol
+    stay for the run rules. Returns (text, n)."""
+    if not _LOOKALIKE_RE.search(text):
+        return text, 0
+    ok = _ok_re or re.compile("[" + drawable_class() + "]")
+    n = 0
+
+    def token(m):
+        nonlocal n
+        tok = m.group(0)
+        if "-" in tok or not _LOOKALIKE_RE.search(tok):
+            return tok
+        if sum(1 for c in tok if c.isalpha() and ok.match(c)) < 2:
+            return tok
+        out, k = _LOOKALIKE_RE.subn(lambda mm: symbols.LOOKALIKES[mm.group(0)], tok)
+        n += k
+        return out
+
+    return _LOOKALIKE_TOKEN.sub(token, text), n
+
+
 def strip_undrawable(text, stats, lead=False):
     """Removes what the serif cannot draw, and the remnants the source left
     behind; tidies only when it removed something, so untouched text stays
     byte-for-byte. In a lead, a parenthetical is cut segment by segment
     (";" separated) so "(Ottoman Turkish: <arabic>; 20 July 1785 - 1 July
     1839)" keeps its dates."""
-    text, n = symbols.translate(text)
-    if n:
-        stats["symbols_translated"] = stats.get("symbols_translated", 0) + n
-    text, folded = _fold_chars(text)
-    for k, n in folded.items():
-        stats[k] = stats.get(k, 0) + n
-    if not text:
-        return text
     run_re, labelled_re = _runs()
     removed = 0
 
@@ -446,12 +480,29 @@ def strip_undrawable(text, stats, lead=False):
             if any(len(m.group(0)) < 2 for m in run_re.finditer(seg)) or _PRONUNCIATION_SEG.match(seg):
                 continue
             rest = _EMPTY_LABEL.sub("", labelled_re.sub("", seg)).strip(" ,:")
-            if len(rest.split()) >= 3:
+            # "romanized: Theophrastos" is two words and the whole point
+            if len(rest.split()) >= 2:
                 kept.append(re.sub(r"  +", " ", rest))
         if not kept:
             return ""
         return whole[:open_at] + "(" + "; ".join(kept) + ")"
 
+    if run_re.search(text):
+        # A pronunciation, slashed or bracketed, goes whole and first: spelling
+        # its theta or folding its schwa would leave half of it behind.
+        text = _SLASHED.sub(drop_span, text)
+        text = _BRACKETED.sub(drop_span, text)
+    text, n = symbols.translate(text)
+    if n:
+        stats["symbols_translated"] = stats.get("symbols_translated", 0) + n
+    text, folded = _fold_chars(text)
+    for k, n in folded.items():
+        stats[k] = stats.get(k, 0) + n
+    text, n = _fold_lookalikes(text)
+    if n:
+        stats["letters_lookalike"] = stats.get("letters_lookalike", 0) + n
+    if not text:
+        return text
     if run_re.search(text):
         # A census of what goes, so the report can say which characters the
         # pack loses most and the symbol table can grow from evidence.
@@ -460,8 +511,6 @@ def strip_undrawable(text, stats, lead=False):
             for ch in m.group(0):
                 if not ch.isspace():
                     census[ch] = census.get(ch, 0) + 1
-        text = _SLASHED.sub(drop_span, text)
-        text = _BRACKETED.sub(drop_span, text)
         if lead:
             for _ in range(3):
                 new = _PAREN.sub(paren, text)

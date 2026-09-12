@@ -400,6 +400,45 @@ memory, into the writer in order. `test_build_full.py` checks it writes
 the pack `build_pack.py` writes from the same rows, byte for byte in the
 articles; only the dictionary's sample differs.
 
+**The content gate (2026-09-11).** Mario's standard is correct
+information, not just legible text: a diaeresis, a Greek letter or a maths
+sign removed can change what a sentence says. So the text rules are
+written from counts, not from imagination, and every build is measured
+before it ships:
+
+- `census.py --rows <rows> --json <out> --md <report>` counts every code
+  point above ASCII the converter feeds its strip step, across every
+  article: occurrences, articles, share inside a parenthetical, what the
+  pipeline does to it (drawn, spelled, folded, dropped) and real sentences
+  before and after, plus the collateral (drawable letters lost with an
+  undrawable run) and the articles that lost the most. The outcome column
+  is decided by the same tables the converter uses, so it cannot drift.
+- `quality.py <pack> --summary <summary.json> --report <report.md>
+  --sample 30 --plain <sample.md>` runs eighty detectors over the built
+  pack (structure, headings, words, balance, source remnants, encoding,
+  formulas, tables, links), prints the shape percentiles with the named
+  extremes, judges the census of removed characters by block, and writes
+  thirty random articles as plain text for a reviewer to read. A detector
+  firing is a thing to look at, not a verdict.
+- `twenty.sh` opens the app in the simulator and photographs twenty
+  random articles, the test no regex replaces.
+
+What the census decided, in order: a pronunciation between slashes or
+brackets goes whole and first; a symbol the serif lacks is spelled
+(`symbols.py`, written from the census, most frequent first); a letter
+becomes its compatibility form when that is drawable, else its base letter
+alone, counted (letter plus combining mark would draw, EpdFont overlays
+marks, but the reader composes every word to NFC before layout and then
+looks up the precomposed letter the serif lacks: a box on the panel,
+measured on the simulator); a letter of an orthography the serif lacks
+becomes the plain letter it stands in for, inside a word only; a Greek
+word or a native-script name goes with its label, the romanisation beside
+it stays. The way to lose nothing is a font on the card carrying Greek,
+IPA, Latin Extended Additional and the maths blocks, loaded by the app
+when present; that is the next piece of work, and Mario's call on scope. The full pack does
+not publish until the gate passes on the essentials built from the same
+rules.
+
 ### The site: `site/wikipedia/`
 
 Static HTML and JS: fetch the manifest, folder picker, marker check, speed

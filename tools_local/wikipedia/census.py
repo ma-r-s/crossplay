@@ -189,11 +189,16 @@ def outcome(cp):
         return "spelled when alone, dropped in a word"
     if glyphs.is_drawable(cp):
         return "drawn"
-    if ch.isalpha():
-        base = unicodedata.normalize("NFD", ch)
-        base = "".join(c for c in base if not unicodedata.combining(c))
-        if base and all(glyphs.is_drawable(ord(c)) for c in base):
-            return "folded to " + base
+    # the same order as article_html._fold_chars
+    compat = unicodedata.normalize("NFKC", ch)
+    if compat != ch and all(glyphs.is_drawable(ord(c)) for c in compat):
+        return "compat to " + compat
+    decomposed = unicodedata.normalize("NFD", ch)
+    if len(decomposed) > 1 and all(glyphs.is_drawable(ord(c)) for c in decomposed):
+        return "decomposed"
+    base = "".join(c for c in decomposed if not unicodedata.combining(c))
+    if ch.isalpha() and base != ch and base and all(glyphs.is_drawable(ord(c)) for c in base):
+        return "folded to " + base
     return "dropped"
 
 
@@ -479,7 +484,7 @@ def report(census, path, top_chars=200):
     w("\n## By outcome\n")
     w("| outcome | code points | occurrences | article hits |")
     w("|---|---:|---:|---:|")
-    for k in ("drawn", "spelled", "folded", "dropped"):
+    for k in ("drawn", "spelled", "compat", "decomposed", "folded", "dropped"):
         d = by_out.get(k, {"code points": 0, "occurrences": 0, "article hits": 0})
         w(
             "| %s | %d | %d | %d |"
@@ -571,6 +576,18 @@ def report(census, path, top_chars=200):
         "A lone letter is spelled by name; a letter inside a Greek word is dropped with the word.",
     )
     section(
+        "Compatibility forms",
+        lambda e: e["outcome"].startswith("compat"),
+        60,
+        "Drawn as the plain form Unicode names as equivalent: a circled digit as the digit, a script capital as the capital, a fullwidth comma as a comma.",
+    )
+    section(
+        "Decomposed",
+        lambda e: e["outcome"] == "decomposed",
+        60,
+        "Drawn as the base letter plus its combining mark, which the renderer overlays: nothing lost.",
+    )
+    section(
         "Folded to the base letter",
         lambda e: e["outcome"].startswith("folded"),
         120,
@@ -623,6 +640,8 @@ def main(argv=None):
     if args.from_json:
         with open(args.from_json, encoding="utf-8") as f:
             census = json.load(f)
+        for cp, e in census["chars"].items():  # the tables may have moved since the scan
+            e["outcome"] = outcome(int(cp, 16))
     else:
         if not args.rows:
             ap.error("--rows or --from-json")
