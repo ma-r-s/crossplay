@@ -649,7 +649,7 @@ class Rules(unittest.TestCase):
             lead=True,
         )
         # the Arabic goes with its label; the romanisation is information
-        self.assertEqual(got, "Mahmud II (Ottoman Turkish: X; 20 July 1785 - 1 July 1839) was the sultan")
+        self.assertEqual(got, "Mahmud II (Ottoman Turkish, romanized: X; 20 July 1785 - 1 July 1839) was the sultan")
         self.assertEqual(st["parentheticals_removed"], 1)
 
     def test_source_remnants(self):
@@ -721,7 +721,7 @@ class Rules(unittest.TestCase):
             # goes whole before any spelling, so its theta is not "theta" and
             # its schwa is not a letter; a respelling's "-\u0259-" is not a word.
             ("C\u0259lil M\u0259mm\u0259dquluzad\u0259 wrote; laamii\u0257o; Bum\u00efn qa\u0263an; \u01c3Nanseb", "Celil Memmedquluzade wrote; laamiido; Bum\u00efn qa\u011fan; !Nanseb"),
-            ("Theophrastus (/ \u02cc \u03b8 i\u02d0. \u0259 /; Ancient Greek: \u0398\u03b5\u03cc\u03c6\u03c1\u03b1\u03c3\u03c4\u03bf\u03c2, romanized: Theophrastos) was", "Theophrastus (Ancient Greek: Theophrastos) was"),
+            ("Theophrastus (/ \u02cc \u03b8 i\u02d0. \u0259 /; Ancient Greek: \u0398\u03b5\u03cc\u03c6\u03c1\u03b1\u03c3\u03c4\u03bf\u03c2, romanized: Theophrastos) was", "Theophrastus (Ancient Greek, romanized: Theophrastos) was"),
             ("Camogie (/ k \u0259 \u02c8 m o\u028a \u0261 i / k\u0259- MOH -ghee; Irish: cam\u00f3ga\u00edocht) is", "Camogie (Irish: cam\u00f3ga\u00edocht) is"),
             # Mario, 2026-09-11: Greek is defensible, Cyrillic is not, and no
             # removal may butcher the sentence. A Greek or Cyrillic word with
@@ -730,8 +730,10 @@ class Rules(unittest.TestCase):
             # and all; two accentuations of one word are one spelling.
             ("comes from the Greek word \u1f55\u03b2\u03bf\u03c2 or \u1f51\u03b2\u03cc\u03c2 meaning hump and \u1f40\u03b4\u03bf\u03cd\u03c2, meaning tooth.", "comes from the Greek word hybos meaning hump and odous, meaning tooth."),
             ("(from Greek \u1f08\u03c1\u03b9\u03b8\u03bc\u03bf\u03af, Arithmoi, lit. 'numbers'; Biblical Hebrew: \u05d1\u05b0\u05bc\u05de\u05b4\u05d3\u05b0\u05d1\u05b7\u05bc\u05e8, B\u0259m\u012b\u1e0fbar, lit. 'In desert'; Latin: Liber Numeri) is", "(from Greek Arithmoi, lit. 'numbers'; Biblical Hebrew: Bem\u012bdbar, lit. 'In desert'; Latin: Liber Numeri) is"),
-            ("Seventeen Moments (Russian: \u0421\u0435\u043c\u043d\u0430\u0434\u0446\u0430\u0442\u044c, romanized: Semnadtsat') is a series about \u041c\u043e\u0441\u043a\u0432\u0430 and (\u0422\u043e\u043b\u0441\u0442\u043e\u0439).", "Seventeen Moments (Russian: Semnadtsat') is a series about Moskva and (Tolstoy)."),
-            ("The pentathlon (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The pentathlon (Greek: pentathlon) was"),
+            ("Seventeen Moments (Russian: \u0421\u0435\u043c\u043d\u0430\u0434\u0446\u0430\u0442\u044c, romanized: Semnadtsat') is a series about \u041c\u043e\u0441\u043a\u0432\u0430 and (\u0422\u043e\u043b\u0441\u0442\u043e\u0439).", "Seventeen Moments (Russian, romanized: Semnadtsat') is a series about Moskva and (Tolstoy)."),
+            # the romanisation is the English word itself: the aside says nothing
+            ("The pentathlon (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The pentathlon was"),
+            ("The contest (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The contest (Greek: pentathlon) was"),
         ]
         for src, want in cases:
             self.assertEqual(ah.strip_undrawable(src, {}, lead=True), want, src)
@@ -845,7 +847,7 @@ class Rules(unittest.TestCase):
             ("Karma (/ \u02c8 k \u0251\u02d0r m \u0259 /, from Sanskrit: \u0915\u0930\u094d\u092e, IPA:; Pali: kamma) is an ancient", "Karma (Pali: kamma) is an ancient"),
             ("A raga (/ \u02c8 r \u0251\u02d0 \u0261 \u0259 / RAH-g\u0259; IAST: r\u0101ga, Sanskrit:; lit. ' colouring', 'tingeing ' or ' dyeing ') is", "A raga (IAST: r\u0101ga; lit. 'colouring', 'tingeing' or 'dyeing') is"),
             ("won in Athens ' City Dionysia festival in 472 BC. It is Aeschylus' oldest play, the \" best \" one.", "won in Athens' City Dionysia festival in 472 BC. It is Aeschylus' oldest play, the \"best\" one."),
-            ("The Persians (Ancient Greek: \u03a0\u03ad\u03c1\u03c3\u03b1\u03b9, romanized: P\u00e9rsai, Latinised as Persae) is", "The Persians (Ancient Greek: P\u00e9rsai, Latinised as Persae) is"),
+            ("The Persians (Ancient Greek: \u03a0\u03ad\u03c1\u03c3\u03b1\u03b9, romanized: P\u00e9rsai, Latinised as Persae) is", "The Persians (Ancient Greek, romanized: P\u00e9rsai, Latinised as Persae) is"),
             ("A samosa (listen) is a fried pastry with epsilon : Permittivity", "A samosa is a fried pastry with epsilon: Permittivity"),
         ]
         for src, want in cases:
@@ -876,6 +878,536 @@ class Rules(unittest.TestCase):
         self.assertIn('("the quarter") and U+0374 <a href="Greek">GREEK</a> sign.', x)
         self.assertNotIn("Arabic", x)
         self.assertNotIn("  ", x)
+
+    def test_round_ten_from_the_fifth_read(self):
+        # a slashed span is a pronunciation only when it holds IPA: "10
+        # μg/dL (10 μg/100 g)" is units; a label may open with a lowercase
+        # word ("simplified Chinese:"); a romanisation the sentence already
+        # has goes with its label; "(more)" is a dead link; a value left as
+        # "(muntala)" is its romanisation; electron shells keep their powers;
+        # two adjacent links in a taxon row stay as they are.
+        cases = [
+            ("adults at 10 \u03bcg/dL (10 \u03bcg/100 g) and children at 3.5 \u03bcg/dL. Next", "adults at 10 \u00b5g/dL (10 \u00b5g/100 g) and children at 3.5 \u00b5g/dL. Next"),
+            ("\"Southern China\" (simplified Chinese: \u4e2d\u56fd\u5357\u65b9; traditional Chinese: \u4e2d\u570b\u5357\u65b9) is geographically", "\"Southern China\" is geographically"),
+            ("The Neretva (Serbian Cyrillic: \u041d\u0435\u0440\u0435\u0442\u0432\u0430), also known as Narenta, is a river", "The Neretva, also known as Narenta, is a river"),
+            ("1st: 740 kJ/mol; (more) (all but first estimated)", "1st: 740 kJ/mol; (all but first estimated)"),
+            ("Myiasis (/ m a\u026a \u02c8 a\u026a \u0259 s \u0259 s / my- EYE -\u0259-s\u0259ss) is a fly", "Myiasis is a fly"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        self.assertEqual(ah.fact_value("Nepali", "(muntala)"), "muntala")
+        self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
+        self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
+
+    def test_label_that_is_a_whole_link_goes_with_its_colon(self):
+        # Scrubbing the bold-subject lead exposed a label living inside a link
+        # ("<a>Hebrew</a>:;" once the Hebrew script went): the inline rule's
+        # lookbehind cannot see past the ">", so the anchor goes with its
+        # colon. A label with content after it keeps both.
+        row = {"name": "Ariel Sharon", "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+            {"type": "paragraph", "value": "Ariel \"Arik\" Sharon (Hebrew: \u05d0\u05e8\u05d9\u05d0\u05dc \u05e9\u05e8\u05d5\u05df; 26 February 1928 \u2013 11 January 2014) was an Israeli general.",
+             "links": [{"url": "https://en.wikipedia.org/wiki/Hebrew_language", "text": "Hebrew"}]}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<p><b>Ariel</b> \"Arik\" Sharon (26 February 1928 \u2013 11 January 2014) was an Israeli general.</p>", x)
+        row = {"name": "T", "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+            {"type": "paragraph", "value": "Vizing's Theorem: A graph of maximal degree.", "links": [{"url": "https://en.wikipedia.org/wiki/Vizing's_theorem", "text": "Vizing's Theorem:"}]}]}]}
+        self.assertIn("<a href=\"Vizing's theorem\">Vizing's Theorem:</a> A graph", ah.article_xhtml(row, {})[2].decode())
+
+    def test_lead_with_bold_subject_is_scrubbed_too(self):
+        # The lead's bold-subject branch returned before the inline scrub, so
+        # "(Latin, "trumpet"; UK: /.../)" kept a ";)" once its pronunciation
+        # went. Both branches scrub now.
+        row = {"name": "Tuba", "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+            {"type": "paragraph", "value": "The tuba (Latin, \"trumpet\"; UK: / \u02c8 tju\u02d0b\u0259 /) is a large brass instrument.", "links": [{"url": "https://en.wikipedia.org/wiki/Latin", "text": "Latin"}]}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<p>The <b>tuba</b> (<a href=\"Latin\">Latin</a>, \"trumpet\") is a large brass instrument.</p>", x)
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("Article 26 :(1) Everyone has the right"), {}), "Article 26 :(1) Everyone has the right")
+        self.assertEqual(
+            ah.strip_undrawable(ah.clean_text("The tuba (Latin, \"trumpet\"; UK: / \u02c8 tju\u02d0b\u0259 /; US: / \u02c8 tu\u02d0b\u0259 /) is a large"), {}, lead=True),
+            "The tuba (Latin, \"trumpet\") is a large",
+        )
+
+    def test_round_twenty_two_thirteenth_read(self):
+        # A thirteenth cold read: an album infobox's subtitle ("Studio album
+        # by Dragon") is not a group, so "length" stands alone and its time
+        # closes; a language label whose script folded to a digit goes.
+        row = {"name": "Body and the Beat", "infoboxes": [{"name": "Infobox album", "has_parts": [{"type": "section", "name": "Studio album by Dragon", "has_parts": [
+            {"type": "field", "name": "Released", "value": "1984"}, {"type": "field", "name": "Length", "value": "38: 02"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Released</th><td>1984</td></tr><tr><th>Length</th><td>38:02</td></tr>", x)
+        self.assertEqual(
+            ah.strip_undrawable(ah.clean_text("Aliabad-e Yek (Persian: \u0639\u0644\u06cc \u0622\u0628\u0627\u062f \u06f1, also Romanized as Aliabad-e Yek; also known as Aliabad) is a village"), {}, lead=True),
+            "Aliabad-e Yek (also Romanized as Aliabad-e Yek; also known as Aliabad) is a village",
+        )
+
+    def test_round_twenty_one_twelfth_read(self):
+        # A twelfth cold read: a decimal copy of a DMS pair goes wherever it
+        # stands; a malformed hidden date "(2015-03-2)" goes; "left",
+        # "average" and the like carry their group; a unit fraction closes.
+        self.assertEqual(ah.clean_text("rises at 40°02′59″N 93°48′26″W / 40.04972°N 93.80722°W and flows"), "rises at 40°02′59″N 93°48′26″W and flows")
+        self.assertEqual(ah.clean_text("Released March 2, 2015 (2015-03-2) by"), "Released March 2, 2015 by")
+        self.assertEqual(ah.fact_value("Average", "13 m 3 / s (460 cu ft/s)"), "13 m³/s (460 cu ft/s)")
+        self.assertEqual(ah.fact_value("Ratio", "4 / 5"), "4 / 5")
+        row = {"name": "Wimmera River", "infoboxes": [{"name": "Infobox", "has_parts": [
+            {"type": "section", "name": "Tributaries", "has_parts": [{"type": "field", "name": "left", "value": "Mount Cole Creek; Six Mile Creek"}]},
+            {"type": "section", "name": "Discharge", "has_parts": [{"type": "field", "name": "average", "value": "13 m 3 / s (460 cu ft/s)"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Tributaries, left</th><td>Mount Cole Creek; Six Mile Creek</td></tr><tr><th>Discharge, average</th><td>13 m³/s (460 cu ft/s)</td></tr>", x)
+
+    def test_round_twenty_eleventh_read(self):
+        # An eleventh cold read: a standings table the dump puts before the
+        # lead sentence follows it; stacked header rows combine ("Conference
+        # W", "Overall W") so two W columns can be told apart; a cut never
+        # doubles a period.
+        self.assertEqual(ah.cut_words("a b c Auctt. d e", 4), "a b c Auctt...")
+        tables = [{"identifier": "t1", "headers": [[{"value": "Team"}, {"value": "Conference"}, {"value": "Conference"}, {"value": "Overall"}, {"value": "Overall"}], [{"value": "Team"}, {"value": "W"}, {"value": "L"}, {"value": "W"}, {"value": "L"}]],
+                   "rows": [[{"value": "Nebraska"}, {"value": "4"}, {"value": "0"}, {"value": "8"}, {"value": "0"}]]}]
+        row = {"name": "1915 Iowa State", "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}, {"type": "paragraph", "value": "The 1915 Iowa State Cyclones football team represented Iowa State."}]}], "tables": json.dumps(tables)}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<p>The <b>1915 Iowa State</b> Cyclones football team represented Iowa State.</p><p><b>Nebraska</b>; Conference W: 4; Conference L: 0; Overall W: 8; Overall L: 0</p>", x)
+
+    def test_round_nineteen_tenth_read(self):
+        # A tenth cold read: a Unicode hyphen is a hyphen; a table's header
+        # row that arrived as a field ("Years: Team") is no fact; a footnote
+        # asterisk on a group goes; an empty cell the dump wrote as a dash
+        # goes; a fixture template's time zone on a line of its own goes.
+        self.assertEqual(ah.clean_text("a 2022 Indian Bengali\u2011language romantic drama"), "a 2022 Indian Bengali-language romantic drama")
+        row = {"name": "Joseph Nixon", "infoboxes": [{"name": "Infobox", "has_parts": [{"type": "section", "name": "Senior career*", "has_parts": [
+            {"type": "field", "name": "Years", "value": "Team"}, {"type": "field", "name": "1957\u20131960", "value": "Niort"}, {"type": "field", "name": "Total", "value": "29 (1)"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]},
+                {"type": "section", "name": "Matches", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}, {"type": "paragraph", "value": "KGT"}, {"type": "paragraph", "value": "NASA launched."}]}],
+            "tables": json.dumps([{"identifier": "t1", "headers": [[{"value": "Date"}, {"value": "Home"}, {"value": "Score"}, {"value": "Away"}, {"value": "Venue"}, {"value": "Att."}, {"value": "Ref"}, {"value": "Notes"}]],
+                "rows": [[{"value": "30 May 2021"}, {"value": "Alay"}, {"value": "BYE"}, {"value": "-"}, {"value": "Osh"}, {"value": "-"}, {"value": ""}, {"value": ""}]]}])}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<table><tr><th>1957\u20131960</th><td>Niort</td></tr><tr><th>Senior career, total</th><td>29 (1)</td></tr></table>", x)
+        self.assertNotIn("<th>Years</th>", x)
+        self.assertIn("<p><b>30 May 2021</b>; Home: Alay; Score: BYE; Venue: Osh</p><p>NASA launched.</p>", x)
+        self.assertNotIn("<p>KGT</p>", x)
+
+    def test_round_eighteen_ninth_read(self):
+        # A ninth cold read: a taxobox's "<title>: Scientific classification"
+        # row and a link caption "Official Results" are no facts; an infobox's
+        # previous/next arrows go; a semicolon before an aside and two asides
+        # where a line broke read as one; a coordinate line alone goes.
+        row = {"name": "Caladenia cleistantha", "infoboxes": [{"name": "Infobox", "has_parts": [{"type": "section", "has_parts": [
+            {"type": "field", "name": "Caladenia cleistantha", "value": "Scientific classification"},
+            {"type": "field", "name": "Kingdom", "value": "Plantae"}, {"type": "field", "name": "Results", "value": "Official Results"},
+            {"type": "field", "name": "Previous", "value": "<- 1962"}, {"type": "field", "name": "Next", "value": "1964 ->"},
+            {"type": "field", "name": "Owner", "value": "Townsquare Media; (Townsquare License, LLC)"},
+            {"type": "field", "name": "Champions", "value": "Illinois (Vacated) (1st title, 2nd title game)"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+                {"type": "paragraph", "value": "51°51′58″N 0°22′16″E / 51.866°N 0.371°E"}, {"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<h2 id=\"s1\">Quick facts</h2><table><tr><th>Kingdom</th><td>Plantae</td></tr>", x)
+        for gone in ("Scientific classification", "Official Results", "1962", "1964"):
+            self.assertNotIn(gone, x)
+        self.assertIn("<td>Townsquare Media (Townsquare License, LLC)</td>", x)
+        self.assertIn("<td>Illinois (Vacated; 1st title, 2nd title game)</td>", x)
+        self.assertNotIn("51°", x)
+
+    def test_round_seventeen_eighth_read(self):
+        # An eighth cold read: a "Title card" caption is no fact; a bare
+        # "Names" group does not prefix the rows under it ("Names, House"),
+        # while "Chinese name" still does.
+        row = {"name": "Princess Januária", "infoboxes": [{"name": "Infobox", "has_parts": [
+            {"type": "field", "name": "Title card", "value": "The island's skyline stands beyond the forest."},
+            {"type": "section", "name": "Names", "has_parts": [{"type": "field", "name": "House", "value": "Braganza"}, {"type": "field", "name": "Father", "value": "Pedro I of Brazil"}]},
+            {"type": "section", "name": "Chinese name", "has_parts": [{"type": "field", "name": "Hanyu Pinyin", "value": "Quanlian Fuli Zhongxin"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertNotIn("Title card", x)
+        self.assertIn("<tr><th>House</th><td>Braganza</td></tr><tr><th>Father</th><td>Pedro I of Brazil</td></tr>", x)
+        self.assertIn("<tr><th>Chinese name, Hanyu Pinyin</th><td>Quanlian Fuli Zhongxin</td></tr>", x)
+        # from the ess-q18 gate: the tidy rules run on untouched text too, so
+        # the dump's own "(e.g.:)" and "apostrophe';)" close cleanly; an
+        # apostrophe closing a quoted word is not an emoticon's eye; Parsoid's
+        # strip markers go
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("zero-day exploits (e.g.:) in Windows"), {}), "zero-day exploits (e.g.) in Windows")
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("Deppenapostroph ('idiot's apostrophe';). Next"), {}), "Deppenapostroph ('idiot's apostrophe'). Next")
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("14 instances of \":) \" in"), {}), "14 instances of \":)\" in")
+        self.assertNotIn("UNIQ", ah.clean_text("\"`UNIQ--templatestyles-000000C0-QINU`\" Shanghainese is"))
+        # an IPv6 prefix keeps its double colon; a doubled colon before a space collapses
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("this purpose (fec0::/10, dubbed site-local) and 2001:db8::1 here"), {}), "this purpose (fec0::/10, dubbed site-local) and 2001:db8::1 here")
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("Note:: the text,, and;, more"), {}), "Note: the text, and, more")
+
+    def test_round_sixteen_seventh_read(self):
+        # A seventh cold read: rp page references after a parenthesis, with
+        # "fn. 2", or after a bare word go; a combining author keeps its
+        # shape ("(D.Don) Merr."); a template parameter leaked as a value is
+        # no fact; two fields the dump glued ("Batted: Right Threw: Right")
+        # are two rows; a nameless "Coordinates (Trzcinica): ..." takes its
+        # label, parenthesis and all.
+        cases = [
+            ("with indigenous (pre-European) literary traditions.: 112, fn. 2 The next", "with indigenous (pre-European) literary traditions. The next"),
+            ("science, mathematics, or medicine.): xii The", "science, mathematics, or medicine.) The"),
+            ("during the 1838 Battle of the Windmill: 288 George's brother Angus", "during the 1838 Battle of the Windmill George's brother Angus"),
+            ("the ratio is 3: 1 in the", "the ratio is 3: 1 in the"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.clean_text(src), want, src)
+        self.assertEqual(ah.fact_value("Binomial name", "Wightia speciosissima (D.Don) Merr."), "Wightia speciosissima (D.Don) Merr.")
+        row = {"name": "Ray Herbert", "infoboxes": [{"name": "Infobox", "has_parts": [{"type": "section", "name": "Gmina", "has_parts": [
+            {"type": "field", "value": "Batted: Right Threw: Right"}, {"type": "field", "value": "Coordinates (Trzcinica): 51°10′2″N 18°0′17″E"}]},
+            {"type": "field", "name": "Products", "value": "share_of_grocery_market_in_Taiwan =41.3%"}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Batted</th><td>Right</td></tr><tr><th>Threw</th><td>Right</td></tr>", x)
+        self.assertIn("<tr><th>Coordinates (Trzcinica)</th><td>51°10′2″N 18°0′17″E</td></tr>", x)
+        self.assertNotIn("share_of", x)
+        self.assertNotIn("<th>Gmina</th>", x)
+
+    def test_round_fifteen_sixth_read(self):
+        # A sixth cold read: the s of a cricket "50s" is not a second; a label
+        # before "also Romanized as" is empty; "Population (2006), total" is
+        # "Population (2006)"; consecutive facts with one name are one row; a
+        # footnote digit on a group and a footnote as a nameless value go; a
+        # bare year after a birth name gets its comma, a month does not; a
+        # loan arrow at the front of a cell reads "to"; "2002.They" is glued.
+        self.assertEqual(ah.fact_value("Stat", "100s/50s 0/0 0/2"), "100s/50s 0/0 0/2")
+        self.assertEqual(ah.fact_value("Molar mass", "750.658 g·mol −1 and 3 m 2"), "750.658 g·mol⁻¹ and 3 m²")
+        self.assertEqual(
+            ah.strip_undrawable(ah.clean_text("Hareh Shun Dasht (Persian: هره شون دشت, also Romanized as Hareh Shūn Dasht; also known as X) is"), {}, lead=True),
+            "Hareh Shun Dasht (also Romanized as Hareh Shūn Dasht; also known as X) is",
+        )
+        self.assertEqual(ah.fact_value("Born", "Harry Louis Kirkpatrick III 1951, Beckley"), "Harry Louis Kirkpatrick III, 1951, Beckley")
+        self.assertEqual(ah.fact_value("Born", "13 June 1645, Higo Province"), "13 June 1645, Higo Province")
+        self.assertEqual(ah.fact_value("Team", "-> Kent (on loan)"), "to Kent (on loan)")
+        self.assertEqual(ah.clean_text("were released on January 3, 2002.They reported that"), "were released on January 3, 2002. They reported that")
+        row = {"name": "Mia Rogers", "infoboxes": [{"name": "Infobox", "has_parts": [
+            {"type": "section", "name": "Playing career 1", "has_parts": [{"type": "field", "name": "Years", "value": "2017–present"}]},
+            {"type": "section", "name": "Career statistics", "has_parts": [{"type": "field", "value": "Matches 14 39"}, {"type": "field", "value": "Runs scored 46 462"}, {"type": "field", "value": "1 Playing statistics correct to the end of 2023."}]},
+            {"type": "section", "name": "Population (2006)", "has_parts": [{"type": "field", "name": "Total", "value": "1,234"}, {"type": "field", "name": "Density", "value": "3/km2"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Years</th><td>2017–present</td></tr>", x)
+        self.assertIn("<tr><th>Career statistics</th><td>Matches 14 39; Runs scored 46 462</td></tr>", x)
+        self.assertIn("<tr><th>Population (2006)</th><td>1,234</td></tr><tr><th>Population (2006), density</th><td>3/km2</td></tr>", x)
+        self.assertNotIn("Playing statistics", x)
+        # from the ess-q15 gate: a full-width comma before a capital, a comma
+        # after a parenthesis, and a comma a removed run left glued get their
+        # space; "French pronunciation:" whose IPA went with its slashes is
+        # empty; heading marks the dump left on a line go; a quote pair left
+        # around a dropped bracket goes
+        more = [
+            ("massacre\uff0cAnti-bourgeois liberalization", "massacre, Anti-bourgeois liberalization"),
+            ("carbonic acid, (H2CO3),characterized by", "carbonic acid, (H2CO3), characterized by"),
+            ("Cl\u00e9mentine (pronounced French pronunciation: /klem\u0251\u0303tin/) is a 1985", "Cl\u00e9mentine is a 1985"),
+            ("The Choctaw (Choctaw: Chahta Choctaw pronunciation: [t\u0283ahta]) people", "The Choctaw (Choctaw: Chahta) people"),
+            ("=== Neural engineering is a discipline", "Neural engineering is a discipline"),
+            ("another clause (as in \" ] \"). Human language", "another clause (as in). Human language"),
+        ]
+        for src, want in more:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+
+    def test_round_fourteen_fifth_read(self):
+        # A fifth cold read: "6 ft 3 1/2 in" is not six cubic feet; a taxon
+        # row keeps its authority; an address joins its links with commas; a
+        # compass point after a parenthesis is not an item; a row number
+        # "1." and a machine date in a cell; "Density" under the dump's
+        # "Government" section belongs to the population row before it.
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("1.92 m (6 ft 3 1/2 in) tall"), {}), "1.92 m (6 ft 3 1/2 in) tall")
+        self.assertEqual(ah._split_at_links("Helonias L.", [{"text": "Helonias"}, {"text": "L."}], "Genus"), "Helonias L.")
+        self.assertEqual(
+            ah._split_at_links("2, Bank Plot, Dhakuria Kali Bari Lane Kolkata, West Bengal India", [{"text": "Kolkata"}, {"text": "West Bengal"}, {"text": "India"}], ""),
+            "2, Bank Plot, Dhakuria Kali Bari Lane Kolkata, West Bengal, India",
+        )
+        self.assertEqual(ah.fact_value("Location", "190 km (118 mi) W of Sydney; 33 km (21 mi) SSE of Bathurst"), "190 km (118 mi) W of Sydney; 33 km (21 mi) SSE of Bathurst")
+        self.assertEqual(ah.fact_value("Date", "2014-10-15"), "15 October 2014")
+        row = {"name": "Aincourt", "infoboxes": [{"name": "Infobox", "has_parts": [{"type": "section", "name": "Government", "has_parts": [
+            {"type": "field", "name": "Mayor", "value": "Emmanuel Couesnon"}, {"type": "field", "name": "Area 1", "value": "10.03 km 2 (3.87 sq mi)"},
+            {"type": "field", "name": "Population (2023)", "value": "854"}, {"type": "field", "name": "Density", "value": "85.1/km 2 (221/sq mi)"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]},
+                {"type": "section", "name": "Goals", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}],
+            "tables": json.dumps([{"identifier": "t1", "headers": [[{"value": "No."}, {"value": "Date"}, {"value": "Venue"}, {"value": "Opponent"}, {"value": "Score"}, {"value": "Result"}, {"value": "Competition"}, {"value": "Ref"}]],
+                "rows": [[{"value": "1."}, {"value": "2014-10-15"}, {"value": "Luanda"}, {"value": "Lesotho"}, {"value": "2–0"}, {"value": "4–0"}, {"value": "Friendly"}, {"value": ""}]]}])}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Population (2023), density</th><td>85.1/km² (221/sq mi)</td></tr>", x)
+        self.assertNotIn("Government, density", x)
+        self.assertIn("<p><b>1</b>; Date: 15 October 2014; Venue: Luanda; Opponent: Lesotho; Score: 2–0; Result: 4–0; Competition: Friendly</p>", x)
+
+    def test_round_thirteen_fourth_read(self):
+        # A fourth cold read of the full pack: a romanised aside keeps the
+        # word "romanized" so the Latin string is not taken for the native
+        # spelling; the title's own words reordered in a lead aside go with
+        # the script; the start-date template's month copy; a label before
+        # "lit."; the infobox header with a middle initial is not a group; a
+        # row whose value is the title says nothing; "H:20" gets its space;
+        # coordinates set off from an address, one notation; dead captions
+        # and "Report" cells; links that start with a digit are a list.
+        cases = [
+            ("Seventeen Moments (Russian: Семнадцать, romanized: Semnadtsat') is a series", "Seventeen Moments (Russian, romanized: Semnadtsat') is a series"),
+            ("Aryavarta (Sanskrit: आर्यावर्त, lit. 'Land of the Aryans') is", "Aryavarta (lit. 'Land of the Aryans') is"),
+            ("released March 1922 (1922-03) in", "released March 1922 in"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        self.assertEqual(ah.fact_value("Dimensions", "H:20 cm × L:19 cm"), "H: 20 cm × L: 19 cm")
+        self.assertEqual(ah.fact_value("Location", "Jamshoro, Sindh, 76062, Pakistan 25°24′29″N 68°15′37″E / 25.4081°N 68.2603°E"), "Jamshoro, Sindh, 76062, Pakistan; 25°24′29″N 68°15′37″E")
+        self.assertEqual(ah._split_at_links("Joint Artificial Intelligence Center 3rd Radio Battalion", [{"text": "Joint Artificial Intelligence Center"}, {"text": "3rd Radio Battalion"}], "Commands"), "Joint Artificial Intelligence Center; 3rd Radio Battalion")
+        row = {"name": "Masaru Kitao", "infoboxes": [{"name": "Infobox", "has_parts": [
+            {"type": "section", "name": "Masaru S. Kitao", "has_parts": [{"type": "field", "name": "Rank", "value": "General"}]},
+            {"type": "field", "value": "Japanese: Masaru Kitao"},
+            {"type": "field", "name": "Webcast", "value": "Listen live (Southern gospel), Listen live (Oldies)"}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+                {"type": "paragraph", "value": "Masaru Kitao (Japanese: 北尾 勝, Kitao Masaru, born July 15, 1961) is a Japanese animator."}]},
+                {"type": "section", "name": "Matches", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}],
+            "tables": json.dumps([{"identifier": "t1", "headers": [[{"value": "Home"}, {"value": "Score"}, {"value": "Away"}]],
+                "rows": [[{"value": "Linfield"}, {"value": "1-1"}, {"value": "Distillery"}], [{"value": "Report"}, {"value": ""}, {"value": ""}]]}])}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<p><b>Masaru Kitao</b> (born July 15, 1961) is a Japanese animator.</p>", x)
+        self.assertIn("<tr><th>Rank</th><td>General</td></tr>", x)
+        self.assertNotIn("Japanese", x.split("Quick facts")[1])
+        self.assertNotIn("Listen live", x)
+        self.assertNotIn("Report", x)
+        self.assertIn("<tr><td>Linfield</td><td>1-1</td><td>Distillery</td></tr>", x)
+
+    def test_round_twelve_from_the_full_pack_sample(self):
+        # A cold read of thirty articles from the full pack (stubs with
+        # infoboxes, which the essentials rarely are): hidden template spans
+        # and navigation words leaking as text, a name glued to its date, a
+        # spanning cell repeated per column, stacked header rows, a unit
+        # rule that superscripted a longitude.
+        cases = [
+            ("58°37′25″N 8°55′40″E / 58.623675°N 08.927698°E The church is", "The church is"),
+            ("released April 26, 1994 (1994-04-26) by", "released April 26, 1994 by"),
+            ("6 April (2001-04-06) – 29 June 2001 (2001-06-29)", "6 April – 29 June 2001"),
+            ("(Pub. L. Tooltip Public Law (United States)107–252 (text) (PDF))", "(Pub. L. 107–252)"),
+            ("Team v t e", "Team"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        self.assertEqual(ah.fact_value("Born", "Weslyn Melva Dunford October 2, 1945 Lethbridge, Alberta"), "Weslyn Melva Dunford, October 2, 1945, Lethbridge, Alberta")
+        self.assertEqual(ah.fact_value("Born", "Innokenty Mikhailovich Smoktunovich 28 March 1925 Tatyanovka"), "Innokenty Mikhailovich Smoktunovich, 28 March 1925, Tatyanovka")
+        self.assertEqual(ah.fact_value("Died", "born 3 May 1959 Chicago"), "born 3 May 1959, Chicago")
+        self.assertEqual(ah.fact_value("Coordinates", "58°37′25″N 8°55′40″E"), "58°37′25″N 8°55′40″E")
+        tables = [{"identifier": "t1",
+                   "headers": [[{"value": "Athlete"}, {"value": "Event"}, {"value": "Final"}, {"value": "Final"}],
+                               [{"value": "Athlete"}, {"value": "Event"}, {"value": "Result"}, {"value": "Rank"}]],
+                   "rows": [[{"value": "Antoni"}, {"value": "Marathon"}, {"value": "2:55:23"}, {"value": "57"}],
+                            [{"value": "Felipo"}, {"value": "100 m"}, {"value": "did not advance"}, {"value": "did not advance"}]]}]
+        secs = [{"type": "section", "name": "Athletics", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
+        _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
+        self.assertIn("<tr><th>Athlete</th><th>Event</th><th>Final Result</th><th>Final Rank</th></tr>", x)  # the group row prefixes the names
+        self.assertNotIn("<th>Final</th>", x)
+        wide = [{"identifier": "t2",
+                 "headers": [[{"value": "Athlete"}, {"value": "Event"}, {"value": "Heat"}, {"value": "Rank"}, {"value": "Semi"}, {"value": "Rank"}, {"value": "Final"}, {"value": "Rank"}]],
+                 "rows": [[{"value": "Felipo"}, {"value": "100 m"}, {"value": "11.2"}, {"value": "7"}, {"value": "did not advance"}, {"value": "did not advance"}, {"value": "did not advance"}, {"value": "did not advance"}]]}]
+        secs = [{"type": "section", "name": "Athletics", "has_parts": [{"type": "table", "table_references": [{"identifier": "t2"}]}]}]
+        _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(wide))
+        self.assertIn("<p><b>Felipo</b>; Event: 100 m; Heat: 11.2; Rank: 7; Semi: did not advance</p>", x)
+        # the same read, traced on the dump's own rows: "v t e" arrives on
+        # three lines; a chembox sub-label is glued to its value; a running
+        # time is spaced; two links that are the whole value are a list; a
+        # definition list keeps its values; a romanisation in parentheses
+        # beside the Greek word stands alone once the word is romanised
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("Team\nv\nt\ne"), {}), "Team")
+        self.assertEqual(ah.fact_value("Names", "Preferred IUPAC name Methyl methanesulfonate"), "Preferred IUPAC name: Methyl methanesulfonate")
+        self.assertEqual(ah.fact_value("Length", "61: 49"), "61:49")
+        self.assertEqual(ah.fact_value("Score", "61: 49"), "61: 49")
+        self.assertEqual(ah._split_at_links("Mark Waid Alex Ross", [{"text": "Mark Waid"}, {"text": "Alex Ross"}], "Created by"), "Mark Waid; Alex Ross")
+        self.assertEqual(
+            ah.strip_undrawable(ah.clean_text("related to Greek ἄγγελος (ángelos) – \"messenger\". The poets"), {}, lead=True),
+            "related to Greek ángelos – \"messenger\". The poets",
+        )
+        row = {"name": "T", "infoboxes": [{"name": "Infobox", "has_parts": [{"type": "list", "name": "Medals", "has_parts": [
+            {"type": "definition_term", "value": "Gold", "has_parts": [{"type": "definition", "value": "0"}]},
+            {"type": "definition_term", "value": "Silver", "has_parts": [{"type": "definition", "value": "1"}]}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        self.assertIn("<tr><th>Medals</th><td>Gold 0; Silver 1</td></tr>", ah.article_xhtml(row, {})[2].decode())
+        # a second cold read of a fresh full sample: "in 2:11:53" is a time,
+        # not square inches; a label before another label is empty; the
+        # end-date template's copy of the year; a nameless "Coordinates: ..."
+        # value takes its label as its name and keeps one notation; the
+        # infobox's own header is not a group; a word leaked into a name;
+        # "Official website" becomes the address the reader can type
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("who broke the world record in 2:11:53 at"), {}), "who broke the world record in 2:11:53 at")
+        self.assertEqual(
+            ah.strip_undrawable(ah.clean_text("Namgyal (Tibetan: Wylie: zhabs drung ngag dbang rnam rgyal; 1594) was"), {}, lead=True),
+            "Namgyal (Wylie: zhabs drung ngag dbang rnam rgyal; 1594) was",
+        )
+        self.assertEqual(ah.fact_value("Defunct", "1939 (1939)"), "1939")
+        self.assertEqual(ah.fact_value("Founded", "1939 (1940)"), "1939 (1940)")
+        row = {"name": "John Bloomfield (British Army officer)", "infoboxes": [{"name": "Infobox military person", "has_parts": [
+            {"type": "section", "name": "General Sir John Bloomfield GCB", "has_parts": [
+                {"type": "field", "name": "Rank", "value": "General"},
+                {"type": "field", "name": "team Former teams", "value": "Retired"},
+                {"type": "field", "name": "Website", "value": "Official website", "links": [{"url": "https://www.comune.frascineto.cs.it/", "text": "Official website"}]},
+            ]},
+            {"type": "section", "name": "Plateau", "has_parts": [
+                {"type": "field", "value": "Coordinates: 41°37′00″N 44°00′00″E / 41.61667°N 44.00000°E"},
+            ]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "John Bloomfield was a general."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Rank</th><td>General</td></tr>", x)
+        self.assertIn("<tr><th>Former teams</th><td>Retired</td></tr>", x)
+        self.assertIn("<tr><th>Website</th><td>comune.frascineto.cs.it</td></tr>", x)
+        self.assertIn("<tr><th>Coordinates</th><td>41°37′00″N 44°00′00″E</td></tr>", x)
+        self.assertNotIn("GCB", x.split("Quick facts")[1])
+        # a third read: a table row of labels with nothing after them goes
+        # ("Source:"), a row repeated goes, a table left with no rows goes; a
+        # footnote digit on a fact's name ("Area 1") goes; " /" gets its
+        # spaces except between two years; a link's caption with no link
+        # ("Listen live") is no fact; an office of nine words is still a group
+        row = {"name": "Bergbieten", "infoboxes": [{"name": "Infobox", "has_parts": [
+            {"type": "section", "name": "Judge of the Washington Court of Appeals, Division One", "has_parts": [{"type": "field", "name": "Preceded by", "value": "Ronald Cox"}]},
+            {"type": "field", "name": "Area 1", "value": "5.2 km2"}, {"type": "field", "name": "INSEE /Postal code", "value": "67030 /67310"},
+            {"type": "field", "name": "Webcast", "value": "Listen live"}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]},
+                {"type": "section", "name": "Population", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}, {"identifier": "t2"}]}]}],
+            "tables": json.dumps([
+                {"identifier": "t1", "headers": [[{"value": "Year"}, {"value": "Pop."}]],
+                 "rows": [[{"value": "1968"}, {"value": "394"}], [{"value": "Source: INSEE"}, {"value": "Source: INSEE"}],
+                          [{"value": "Source: INSEE"}, {"value": "Source: INSEE"}], [{"value": "Source:"}, {"value": ""}]]},
+                {"identifier": "t2", "headers": [[{"value": "Election"}, {"value": "Election"}]], "rows": [[{"value": "Source:"}, {"value": ""}]]}])}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Judge of the Washington Court of Appeals, Division One, preceded by</th><td>Ronald Cox</td></tr>", x)
+        self.assertIn("<tr><th>Area</th><td>5.2 km2</td></tr>", x)
+        self.assertIn("<tr><th>INSEE / Postal code</th><td>67030 / 67310</td></tr>", x)
+        self.assertNotIn("Listen live", x)
+        self.assertEqual(x.count("Source: INSEE"), 1)
+        self.assertNotIn("<td>Source:</td>", x)
+        self.assertNotIn("Election", x)
+        self.assertEqual(ah.fact_value("Born", "26 May 1564 /1563, Sirhind"), "26 May 1564/1563, Sirhind")
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("set (P, ≤) forms and x =(y+1) and a face :) here"), {}), "set (P, <=) forms and x =(y+1) and a face :) here")
+
+    def test_rules_finish_on_long_runs(self):
+        # A rule of 36 "=" stalled the full build: the trailing-equals rule
+        # was ambiguous and backtracked exponentially. Every rule must finish
+        # a long run of one character in well under a second.
+        import time
+        for ch in "=-_*.'\"()[]{}|/\\#:;,<>~^ ":
+            for src in ("x " + ch * 400 + " y", ch * 400, "x " + (ch + " ") * 200 + "y"):
+                t = time.time()
+                ah.strip_undrawable(ah.clean_text(src), {}, lead=True)
+                ah.fact_value("Name", src)
+                self.assertLess(time.time() - t, 1.0, repr(ch))
+
+    def test_round_eleven_the_last_classes(self):
+        # What round ten's measurement still flagged, each traced to the dump
+        # or to a rule: Parsoid's protection markers; an unclosed ref tag; a
+        # footnote template and an unclosed opener; a quoted script run and a
+        # run with commas inside it go whole, not as (") and (,); a block
+        # that starts with a colon; rp page references; a formula whose
+        # middle the dump lost; the dump's words beside the TeX of them; the
+        # residue of an align block; two quoted lines joined.
+        cases = [
+            ("1,432,820 \ufffdPROT139\ufffd 1910-2020\ufffdPROT140\ufffd 2024 \ufffdPROT141\ufffd", "1,432,820 1910-2020 2024"),
+            ("Religion: {{Pie chart| thumb = right| caption = Religion (2014)\ufffdPROT199\ufffd Roughly one-quarter identify as unaffiliated.", "Religion: Roughly one-quarter identify as unaffiliated."),
+            ("the interstellar medium. <ref name=\"abundance of chemical elements3", "the interstellar medium."),
+            ("in exceptional circumstances.{{efn|For example, travel was restricted in 2020.}} Federations, and{{block indent| sigma: F -> F are natural", "in exceptional circumstances. Federations, and sigma: F -> F are natural"),
+            ("The Hebrew Bible is also known by the name Tanakh (Hebrew: \u05ea\u05e0\"\u05da). This reflects", "The Hebrew Bible is also known by the name Tanakh. This reflects"),
+            ("the foundation of \"this mosque\" (Arabic: \"\u0647\u0630\u0627 \u0627\u0644\u0645\u0633\u062c\u062f\") by Dawud", "the foundation of \"this mosque\" by Dawud"),
+            ("Two Systems (Chinese: \u201c\u4e00\u56fd\u4e24\u5236\u201d\u6770\u51fa\u8d21\u732e\u8005) national honorary title", "Two Systems national honorary title"),
+            ("were for solo vocal ('\u0938\u094d\u0935\u0930\u094d\u0917\u0915\u0940 \u0930\u093e\u0928\u0940', '\u092d\u094b \u092d\u094b') and two were for duet", "were for solo vocal and two were for duet"),
+            ("you can not create a new career. (\u6539\u9769\u5f00\u653e\u80c6\u5b50\uff0c\u6562\u4e8e\u8bd5\u9a8c)", "you can not create a new career."),
+            (": An offering table with a secondary dedication", "An offering table with a secondary dedication"),
+            ("\u0543\u0561\u0576\u0561\u0579\u0565\u056c \u0566\u056b\u0574\u0561\u057d\u057f\u0578\u0582\u0569\u056b\u0582\u0576: \u010cana\u010d\u02bfel zimastut\u02bfiun yev zxrat. To know wisdom", "\u010cana\u010d\u2018el zimastut\u2018iun yev zxrat. To know wisdom"),
+            ("secured their submission.: ii. 161 : I.68 However, this", "secured their submission. However, this"),
+            ("sigma = sigma_ij = = \u2261 \u2261,", "sigma = sigma_ij"),
+            ("many possible values for z w z^{w}. So", "many possible values for z^w. So"),
+            ("in her.'\"\"'Did you see", "in her.'\" \"'Did you see"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        # from the round-eleven essentials gate: an emoticon in quotes keeps
+        # its face; a quoted phrase ending in a colon is not a label; the
+        # dump's wikitext quotes go, a second derivative stays; a "{{" with
+        # nothing after it goes, set-builder braces stay; a comma between
+        # spelled words gets its space (a chemical name stays tight); the
+        # full-width comma the dump uses folds to a comma with its space; rp
+        # page numbers after a period go; "(number 8)" is not a face
+        more = [
+            ("including 14 instances of \":) \" in Richard", "including 14 instances of \":)\" in Richard"),
+            ("the Ahl ad-dār (\"House of the Mahdi:), composed of", "the Ahl ad-dār (\"House of the Mahdi), composed of"),
+            ("cultivars are ''Prunus serrulata'''Grandiflora' A. Wagner and ''Prunus serrulata'''Gioiko' Koidz", "cultivars are Prunus serrulata 'Grandiflora' A. Wagner and Prunus serrulata 'Gioiko' Koidz"),
+            ("Notable out-fighters include '''Sydney Greve''', Muhammad Ali", "Notable out-fighters include Sydney Greve, Muhammad Ali"),
+            ("the derivative f''(x) and f'''(x) of f", "the derivative f''(x) and f'''(x) of f"),
+            ("reduced to one-third of what it was at independence.{{", "reduced to one-third of what it was at independence."),
+            ("the filter {{k:k >= N}:N in D} is a filter", "the filter {{k:k >= N}:N in D} is a filter"),
+            ("the spatial domain is (−∞,∞). In others", "the spatial domain is (−infinity, infinity). In others"),
+            ("7',8'-Dihydro-ε,γ-carotene and the Zheng clan，personal name", "7',8'-Dihydro-epsilon,gamma-carotene and the Zheng clan, personal name"),
+            ("hybrids based on Prunus speciosa.: 86–95, 137 and others", "hybrids based on Prunus speciosa. and others"),
+            ("H (number 8) means add 8 hours", "H (number 8) means add 8 hours"),
+        ]
+        for src, want in more:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        # a link whose text is only a space is no link, and the space stands once
+        row = {"name": "T", "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+            {"type": "paragraph", "value": "The modern alphabet used by Bashkir.", "links": [{"url": "https://en.wikipedia.org/wiki/Space", "text": " "}]}]}]}
+        self.assertIn("<p>The modern alphabet used by Bashkir.</p>", ah.article_xhtml(row, {})[2].decode())
+        residue = ah.clean_text("= E.1 { }&= }{ }} _{=\\,1{ }G}1 { }{ } . }}")
+        for mark in ("{", "}", "&", "_{", "\\"):
+            self.assertNotIn(mark, residue, residue)
+        # a link's text keeps its label ("Vizing's Theorem:" is not an empty
+        # label because its own closing tag follows), and the space a lost
+        # icon left in a link's text stands outside the anchor
+        row = {"name": "T", "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+            {"type": "paragraph", "value": "Vizing's Theorem: A graph of maximal degree has edge-chromatic number.", "links": [{"url": "https://en.wikipedia.org/wiki/Vizing's_theorem", "text": "Vizing's Theorem:"}]},
+            {"type": "paragraph", "value": "China  Merrill's Marauders and OSS Detachment 101.", "links": [{"url": "https://en.wikipedia.org/wiki/China_Burma_India_Theater", "text": "China "}, {"url": "https://en.wikipedia.org/wiki/Merrill's_Marauders", "text": "Merrill's Marauders"}]},
+        ]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<a href=\"Vizing's theorem\">Vizing's Theorem:</a> A graph", x)
+        self.assertIn("<a href=\"China Burma India Theater\">China</a> <a href=\"Merrill's Marauders\">Merrill's Marauders</a>", x)
+        # a table header whose cells all say the same thing is a caption, not
+        # column names, and "#" is a number (in a table, and in the row
+        # paragraphs a wide table becomes)
+        tables = [{"identifier": "t1", "headers": [[{"value": "Key (expand for notes)"}, {"value": "Key (expand for notes)"}]],
+                   "rows": [[{"value": "Location"}, {"value": "Where the match was played"}], [{"value": "#"}, {"value": "Goal of total goals"}]]}]
+        secs = [{"type": "section", "name": "Goals", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
+        _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
+        self.assertIn("<tr><td>Location</td><td>Where the match was played</td></tr>", x)
+        self.assertIn("<tr><td>Number</td><td>Goal of total goals</td></tr>", x)
+        self.assertNotIn("Key (expand", x)
+
+    def test_round_nine_residue(self):
+        # TeX the dump left outside any block, in any shape, goes and the
+        # prose around it stays; citation page ranges in a row go; a note
+        # marker at a line's start goes; a raw ref tag goes; a no-break
+        # space beside a removed character is one space.
+        cases = [
+            ("the equations read nabla v = R nabla u \\nabla v=R\\nabla u where R is the rotation", "the equations read nabla v = R nabla u where R is the rotation"),
+            ("R 1 = A 1 A 2 B n \\right. Let us consider", "R 1 = A 1 A 2 B n. Let us consider"),
+            ("shear stresses: p.45\u201378 : p.1\u201346 : p.111\u2013157 The normal stress", "shear stresses The normal stress"),
+            ("## x: Nickel\u2013Strunz mineral/group number", "x: Nickel\u2013Strunz mineral/group number"),
+            ("the medium. <ref name=\"a3\">cite</ref> Next and <ref name=\"x\"/> end", "the medium. Next and end"),
+            ("China\u00a0 Merrill's Marauders", "China Merrill's Marauders"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+
+    def test_round_eight_seams(self):
+        # From the fourth cold read: a comma inserted after a botanical
+        # authority's parenthesis, and a comma left after "pl." when the
+        # Arabic plural went.
+        self.assertEqual(ah.fact_value("Species", "Phytelephas tenuicaulis (Barfod) A.J.Hend."), "Phytelephas tenuicaulis (Barfod) A.J.Hend.")
+        self.assertEqual(ah.fact_value("Born", "3 May 1959 (aged 45) Chicago"), "3 May 1959, Chicago")
+        self.assertEqual(
+            ah.strip_undrawable("A madhhab (Arabic: \u0645\u0630\u0647\u0628, romanized: madhhab, lit. 'way to act', pl. \u0645\u0630\u0627\u0647\u0628, madh\u0101hib) refers", {}, lead=True),
+            "A madhhab (Arabic, romanized: madhhab, lit. 'way to act', pl. madh\u0101hib) refers",
+        )
+
+    def test_round_seven_remnants(self):
+        # a colon padded at the end of a phrase closes, a ratio keeps its
+        # spaces even when the paragraph had gaps to close; "({})" is nothing
+        # after two passes; an environment the dump left outside a block
+        # goes whole; a citation template's error goes.
+        cases = [
+            ("The responsibilities include : water. The Mayor : is here, a ratio of 3 : 1 and m/z : 291.0 (Greek: \u03b1\u03bb\u03c6\u03b1)",
+             "The responsibilities include: water. The Mayor: is here, a ratio of 3 : 1 and m/z: 291.0 (Greek: alpha)"),
+            ("curly brackets ({}) and (,) here", "curly brackets and here"),
+            ("B 1 B 2 B n {\\begin{array}{cccc}&&\\dots &\\\\&&\\dots &\\end{array}}\\right. Let us consider", "B 1 B 2 B n Let us consider"),
+            (": ISBN / Date incompatibility (help) Next", "Next"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        # a listed table row: a cell that is only a label goes, spaces settle
+        tables = [{"identifier": "t1", "headers": [[{"value": "Letter"}, {"value": "Cyrillic"}, {"value": "Phonemic Value (IPA)"}, {"value": "2021"}, {"value": "2018"}]],
+                   "rows": [[{"value": "A"}, {"value": "\u0430"}, {"value": "\u2205"}, {"value": "x"}, {"value": "y"}]]}]
+        secs = [{"type": "section", "name": "Letters", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
+        self.assertIn("<p><b>A</b>; Cyrillic: a; Phonemic Value (IPA): empty set; 2021: x; 2018: y</p>", x)
 
     def test_infobox_images_names_and_glued_lists(self):
         boxes = [{"type": "infobox", "name": "Infobox settlement", "has_parts": [
@@ -970,7 +1502,7 @@ class Rules(unittest.TestCase):
         )
         self.assertEqual(
             ah.fact_value("Born", "Mala Helfgott 1930 (age 95 \u2013 96) Piotrkow Trybunalski"),
-            "Mala Helfgott 1930, Piotrkow Trybunalski",
+            "Mala Helfgott, 1930, Piotrkow Trybunalski",
         )
         self.assertEqual(
             ah.fact_value("Children", "Mikinosuke (adopted) Kurotaro (adopted) Iori (adopted)"),

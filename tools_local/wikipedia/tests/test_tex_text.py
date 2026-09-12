@@ -42,6 +42,7 @@ class Render(unittest.TestCase):
             (r"\binom {n}{k}", "C(n, k)"),
             (r"\sqrt[3]{x}", "root(3, x)"),
             (r"x_{i+1}", "x_(i + 1)"),
+            (r"x_{i}\in X_{i}{\text{ for every }}i\in \{1,\dots ,n\}", "x_i in X_i for every i in {1, ..., n}"),
         ]
         for tex, want in cases:
             text, complete = tex_text.render(tex)
@@ -64,6 +65,13 @@ class Render(unittest.TestCase):
         ]:
             skip = "matrix" in tex
             self.assertEqual(tex_text.loose(tex_text.leaves(tex, skip_matrices=skip)), tex_text.loose(words), tex)
+
+
+class TextArguments(unittest.TestCase):
+    def test_comma_in_text_gets_its_space(self):
+        text, complete = tex_text.render(r"W_{A\to B}^{\text{adiabatic,quasi-static}}")
+        self.assertTrue(complete)
+        self.assertEqual(text, "W_(A -> B)^(adiabatic, quasi-static)")
 
 
 class Integration(unittest.TestCase):

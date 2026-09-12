@@ -432,6 +432,44 @@ what MathML would have shown for that TeX; otherwise the words stay and
 the TeX goes. Counted per build (formulas_rendered, formulas_unmatched);
 96% of formulas render on the essentials.
 
+Twenty-two rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
+onward): each one a census or a detector report or a cold reviewer's
+read of thirty random articles, every finding checked against the dump's
+own text before a rule was written, the essentials rebuilt and republished
+after each. Reviewer samples take `--seed`; the default seed picks the
+same thirty every time. The live pack is the best build so far, and a
+round that changes rules materially ends with the full pack rebuilt.
+Round eleven closed the last artifact classes the gate still counted, one
+cause each: Parsoid's leaked protection markers, an unclosed ref tag, a
+footnote template in the prose, a quoted or comma-separated script run
+that left `(")` or `(,)`, an inline label rule that took a link's own
+closing tag for the end of the piece and ate "Vizing's Theorem:", the
+space a lost icon left inside a link's text, a table caption repeated as
+the header of every row, rp page references, a formula whose middle the
+dump lost, the residue of an align block, two quoted lines joined. Four
+detectors were narrowed where every hit was legitimate: a colon after a
+digit is a ratio or a title, `|-` is the turnstile's spelling, `{{ A, A }}`
+is set notation, `[[1,3-...` is a chemical name. What stays flagged after
+that is the dump's own and is listed in the report, not hidden. Round
+twelve came from a cold read of the FULL pack's sample, which is stubs
+with infoboxes where the essentials are long articles: hidden ISO-date
+copies, an abbreviation's tooltip, "v t e" in a table header, a coordinate
+pair glued to the lead, a name glued to its birth date, a spanning cell
+said once per column, stacked header rows, a definition list that lost
+its values (medal counts), a chembox sub-label glued to its value, and a
+unit rule of ours that superscripted a longitude. Two more reads of
+fresh full samples (round thirteen) closed the infobox shapes those
+showed: dead link captions, a header taken for a group, a row whose
+value is the title, a romanised aside that now keeps the word
+"romanized" so a Latin string is not taken for the native spelling
+("Russian, romanized: Semnadtsat'"), the title's own words reordered in
+a lead aside. A rule of 36 equals signs stalled a full build on an
+ambiguous quantifier; every rule is now timed on 400-character runs.
+A fifth read (round fourteen) settled feet-and-inches beside the
+unit-power rule, taxon authorities, commas in addresses, compass
+points after a parenthesis, machine dates in cells and a density row
+the dump nests under "Government".
+
 What the census decided, in order: a pronunciation between slashes or
 brackets goes whole and first; a symbol the serif lacks is spelled
 (`symbols.py`, written from the census, most frequent first); a letter

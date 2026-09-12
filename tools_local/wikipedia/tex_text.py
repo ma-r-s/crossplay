@@ -581,6 +581,22 @@ class Parser:
             self.i += 1
         return nodes
 
+    def raw_group(self):
+        """At "{": the text inside, past the matching "}", spaces kept."""
+        depth = 0
+        j = self.i
+        while j < len(self.s):
+            if self.s[j] == "{":
+                depth += 1
+            elif self.s[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        raw = self.s[self.i + 1 : j]
+        self.i = j + 1
+        return raw
+
     def argument(self):
         """One argument: a group, or the next single token."""
         self.skip_space()
@@ -669,6 +685,13 @@ class Parser:
         if name in PLAIN_ARG:
             if name in ("color", "textcolor"):
                 self.argument()  # the colour
+            if name in ("text", "textrm", "textbf", "textit", "textsf", "texttt", "mbox", "hbox", "operatorname", "operatorname*", "mathrm"):
+                self.skip_space()
+                if self.peek() == "{":
+                    raw = self.raw_group()
+                    if "\\" not in raw:
+                        return ("plain", name, [("char", raw)])
+                    self.i -= len(raw) + 2  # a command inside: parse it after all
             return ("plain", name, self.argument())
         if name in (
             "phantom",
@@ -873,8 +896,10 @@ class Renderer:
             self.complete = False
             return " " + name + " "
         if kind == "plain":
-            # words are words: "otherwise", "gain-db", "in"; no token spacing
+            # words are words: "otherwise", "gain-db", "in"; no token spacing,
+            # but a comma between words gets its space ("adiabatic,quasi-static")
             text = "".join(c[1] if c[0] == "char" else self.node(c) for c in n[2])
+            text = re.sub(r"(?<=[A-Za-z]),(?=[A-Za-z])", ", ", text)
             if n[1] in (
                 "operatorname",
                 "operatorname*",

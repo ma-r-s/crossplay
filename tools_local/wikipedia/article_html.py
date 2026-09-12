@@ -100,9 +100,114 @@ _CITE = re.compile(r"\[\d+\]")
 # also "phone.: S643 : S643 : 8" and ". : 32, 33, 105 : 184" (rp templates in a row)
 _CITE_PAGE = re.compile(r"(?<=[.,;!?])(?:\s?:\s?[A-Z]?\d+(?:[\u2013-]\d+)?(?:,\s?\d+(?:[\u2013-]\d+)?)*)+(?=\s|$)")
 # "invasion,the territory": a comma the dump left without its space
-_COMMA_GLUE = re.compile(r"(?<=[a-z]),(?=[A-Za-z]{2,})")
+_COMMA_GLUE = re.compile(r"(?<=[a-z)]),(?=[A-Za-z]{2,})")
 # "A_{1}^{\\complement }\\quad": TeX the dump left outside any block
 _TEX_LOOSE = re.compile(r"(?:\\[A-Za-z]+\s*|[A-Za-z]?[_^]\{[^{}]*\}\s*){2,}")
+_TEX_ENV = re.compile(r"\{?\\begin\{([a-z*]+)\}.*?\\end\{\1\}\}?\s*(?:\\right\.)?", re.S)
+# ": p.45–78 : p.1–46 : p.111–157": page ranges of citations in a row
+_CITE_PAGES = re.compile(r"(?:\s*:\s*p{1,2}\.\s?\d+(?:[\u2013-]\d+)?\b)+")
+# "## x:", "#; Key": a note marker the dump kept at a line's start
+_NOTE_MARKER = re.compile(r"^#+[;:]?\s+")
+# a wikitext row marker the dump left as a paragraph of its own
+_ROW_MARKER = re.compile(r"^\s*(?:\|-|\|\}|\{\|)\s*$")
+# a raw reference tag the dump left in the prose
+_REF_TAG = re.compile(r"<ref\b[^>]*/>|<ref\b[^>]*>.*?</ref>|<ref\b[^>]*>|<ref\b[^<>]{0,160}$", re.S | re.I)
+# Parsoid's protection markers, leaked into a few articles: "\ufffdPROT139\ufffd"
+# stands where a reference or template was, and one can end an unclosed
+# template ("{{Pie chart| caption = ...\ufffdPROT199\ufffd Roughly ...")
+_PROT = re.compile(r"\{\{[^{}]*?\ufffdPROT\d+\ufffd\s*|\s?\ufffdPROT\d+\ufffd|\s?`UNIQ--[a-z]+-[0-9A-Fa-f ]+-QINU`")
+# a footnote the dump left in the prose, and a template opener never closed
+# ("{{block indent| sigma: F -> F'"): the note goes, the opener alone goes
+_NOTE_TEMPLATE = re.compile(r"\s?\{\{(?:efn|sfn|refn|notetag|note)\|[^{}]{0,800}\}\}")
+_TEMPLATE_OPENER = re.compile(r"\{\{[A-Za-z][A-Za-z ]{0,30}\|\s*")
+_BRACE_OPENER = re.compile(r"\{\{(?=\s|$)")
+# wikitext marks the dump left: ''italic'' and '''bold'''; "f''(x)" is a
+# second derivative and stays, so a mark must open before a letter
+_WIKI_BOLD = re.compile(r"'''([A-Za-z][^'\n]{0,120}?)'''")
+_WIKI_ITALIC = re.compile(r"''([A-Za-z][^'\n]{0,120}?)''")
+_WIKI_QUOTE_LEFT = re.compile(r"'''(?=[A-Za-z])")
+_CULTIVAR_QUOTE = re.compile(r"(?<=[a-z])'(?=[A-Z][a-z])")
+# "(-infinity,infinity)": a comma between spelled words gets its space;
+# "epsilon,gamma-carotene" is a chemical name and stays tight
+_COMMA_WORDS = re.compile(r"\b([a-z]{2,}),(?=[A-Za-z]{2,})")
+
+
+def _comma_words(m):
+    return m.group(0) if m.group(1) in _GREEK_WORDS else m.group(1) + ", "
+_GREEK_WORDS = frozenset(symbols.GREEK.values())
+# "{{rp}}" page references after a period: ".: ii. 161 : I.68 However"
+# the same with plain pages: "speciosa.: 86-95, 137)"
+_CITE_NUMERIC = re.compile(
+    r"(?:(?<=[a-z]{4}[.!?])|(?<=[a-z][.!?]\)))(?::\s?(?:\d{1,4}|[ivxlc]{1,7})(?:[\u2013-]\d{1,4})?(?:,\s?(?:\d{1,4}(?:[\u2013-]\d{1,4})?|(?:fn|n|note)\.?\s?\d{1,3}))*)(?=[\s)]|$)"
+)
+# "Battle of the Windmill: 288 George's brother": the same after a bare word
+_CITE_AFTER_WORD = re.compile(r"(?<=[a-z]{3}): \d{2,4}(?:[\u2013-]\d{1,4})?(?=\s[A-Z][a-z])")
+_CITE_ROMAN = re.compile(r"(?<=[.,;!?])(?:\s?:\s?[IVXLCivxlc]{1,7}\.\s?\d{1,4}(?:[\u2013-]\d{1,4})?)+(?=\s|$)")
+# what the residue scanner steps over: TeX spacing, align marks, empty groups
+_TEX_LEFTOVER = re.compile(r"\\[,;:!>]|\{\s*\}")
+_TEX_ALIGN = re.compile(r"\s*&=|(?<=\s)&(?=\s)")
+# "z w z^{w}": the dump's words for a formula, then the TeX of them
+_FLAT_THEN_TEX = re.compile(r"\b(\w) (\w) (?=\1\^\{\2\})")
+_SCRIPT_BRACES = re.compile(r"(\w)\^\{(\w)\}")
+# a formula the dump lost the middle of: "sigma = sigma_ij = = == ==,"
+_REPEATED_EQUALS = re.compile(r"([=\u2261]=?)(?:\s+[=\u2261]=?)+(?!\S)")
+# one greedy run per group, groups split by whitespace: "(?:\\s*=?=)+" was
+# ambiguous on "=====" and took exponential time on a rule of 36 of them,
+# which stalled a full build (2026-09-12)
+_TRAILING_EQUALS = re.compile(r"\s*[=\u2261]+(?:\s+[=\u2261]+)*(?=\s*[,.;]?\s*$)")
+# two quoted lines the dump joined: "her.'""'Did you" gets its space back
+_QUOTE_GLUE = re.compile(r"([.!?][\"']{1,2})([\"']{1,2}[A-Z])")
+_TEX_START = re.compile(r"\\(?:\\|[A-Za-z]+)")
+_TEX_SCRIPT_GROUP = re.compile(r"\s?[A-Za-z]?(?:[_^]\{[^{}]*\}\s*)+")
+
+
+def _strip_tex_residue(s):
+    """TeX the dump left outside any block, in any shape: from a backslash
+    command on, over braces (balanced), scripts, operators and letters, up to
+    the end of the run. "nabla v = R nabla u \\nabla v=R\\nabla u where R is"
+    keeps its words and loses the TeX."""
+    out = []
+    i = 0
+    n = len(s)
+    while True:
+        m = _TEX_START.search(s, i)
+        if not m:
+            out.append(s[i:])
+            break
+        j = m.start()
+        k = m.end()
+        depth = 0
+        while k < n:
+            c = s[k]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0:
+                if c == "\\":
+                    k += 1  # a command: its letters belong to the run
+                    while k < n and s[k].isalpha():
+                        k += 1
+                    continue
+                if c.isalpha():
+                    # a word of two or more letters is prose again; a single
+                    # letter is a variable and stays in the run
+                    if k + 1 < n and s[k + 1].isalpha():
+                        break
+                elif c == "." and k + 1 < n and s[k + 1] == " ":
+                    break
+                elif not (c in "^_&=+*/,;()[]| \t" or c.isdigit() or c in "\u2212-'"):
+                    break
+            k += 1
+        # trim to the last TeX-looking char
+        run = s[j:k].rstrip(" ,;")
+        out.append(s[i:j].rstrip())
+        out.append(" ")
+        i = j + len(run)
+    return re.sub(r"  +", " ", "".join(out))
+_TEMPLATE_ERROR = re.compile(r"\s*(?::\s*)?(?:ISBN / Date incompatibility|Check date values in: [^()]*|Cite \w+ requires [^()]*)\s*\(help\)")
 _WS = re.compile(r"\s+")
 # A Greek letter standing alone is a symbol ("frequency \u03bd"), and the
 # reader's serif has no Greek; a Greek word beside other Greek is a run the
@@ -237,6 +342,7 @@ _HATNOTE = re.compile(
     r"(?:Main articles?:|See also:|Further information:|For other uses\b|For the [^.]{0,80}, see\b|"
     r"Not to be confused with\b|\"[^\"]{1,80}\" redirects here\b|[^.\n]{1,80} redirects here\.)"
 )
+_NAME_DISAMBIG = re.compile(r" \((?:band|album|singer|group|musician|rapper|artist|film|TV series|series)\)(?= (?:chronology|discography|singles))")
 _NAVBOX = re.compile(r"This box:|\bview\s+talk\s+edit\b|\bv\s*[\u00b7.]\s*t\s*[\u00b7.]\s*e\b")
 # One level of nesting, so "(UK: OH-s(h)ee-AH-nee-<schwa>)" is one parenthetical.
 _PAREN = re.compile(r" ?\((?:[^()]|\([^()]*\))*\)")
@@ -262,9 +368,14 @@ def _runs():
         # not want on the panel (2026-09-11): a Cyrillic word in prose is
         # romanised, in a labelled aside it goes with its label
         bad = "(?:[^" + drawable_class() + "]|[" + REMOVED_SCRIPTS + "])"
-        run = bad + r"(?:\s*" + bad + ")*"
+        # a run carries the quotes around it and the commas, colons and
+        # quotes inside it, so a quoted Hebrew word, a list of Devanagari
+        # titles or a Chinese sentence with its commas goes whole, not as
+        # (") and (,)
+        quote = "[" + _RUN_QUOTES + "]"
+        run = "(?:" + quote + r"\s*)?" + bad + r"(?:[\s,;:\"'\u201c\u201d\u2018\u2019]*" + bad + r")*(?:\s*" + quote + ")?"
         _run_re = re.compile(run)
-        label = r"(?:(?<![A-Za-z])[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}:\s?)?"
+        label = r"(?:(?<![A-Za-z])(?:(?:simplified|traditional|literally|romani[sz]ed|born|modern|classical|standard|colloquial|formal|archaic|native|also|formerly|abbreviated|pinyin) )?[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}:\s?)?"
         _labelled_run_re = re.compile(label + run)
     return _run_re, _labelled_run_re
 
@@ -272,30 +383,66 @@ def _runs():
 # Source remnants: the dataset already dropped pronunciation spans and native
 # scripts from some leads, leaving "(German:; 6 January 1850" and "Fernandel ()",
 # and it pads every quotation with spaces: the " beech ", lit. ' uncle '.
+_RUN_QUOTES = "\"'\u201c\u201d\u2018\u2019"
+# a label inside quotes ("House of the Mahdi:) is quoted text, not a label
+# a label opens with a capital or a word labels use ("lit.", "born",
+# "romanized"); "of the Mahdi:" inside a quotation is not one
+_LABEL_HEAD = r"(?:[A-Z][A-Za-z.]*|lit\\.|pl\\.|romani[sz]ed|pinyin|born|n\\u00e9e|also|abbreviated|simplified|traditional|literally|translit\\.|transliterated|from|or|in|meaning|formerly|native|modern|classical|standard|colloquial|formal|archaic)"
+# ... and stands at the start of its segment: after "(", ";" or ","
+_SEGMENT_START = r"(?:^|(?<=[(\[;,])|(?<=[(\[;,] ))"
 _EMPTY_LABEL = re.compile(
-    r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)])"
+    _SEGMENT_START + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|[A-Z][a-z]+(?:[ -][A-Za-z]+){0,2}:\s|lit\.\s|literally\s|[Rr]omani[sz]ed[: ]|pinyin:|IPA:|translit|also [Rr]omani[sz]ed)"
 )
 # the same at the end of a parenthetical's segment ("from Sanskrit: , IPA:")
 _EMPTY_LABEL_END = re.compile(
-    r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|$)"
+    _SEGMENT_START + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|$)"
 )
 # "(listen)": the audio link's text, with no audio to play
-_LISTEN = re.compile(r"\s?\(\s*listen\s*\)", re.I)
+_LISTEN = re.compile(r"\s?\(\s*(?:listen|more)\s*\)", re.I)
+# "April 26, 1994 (1994-04-26)": the start-date template's hidden ISO copy
+_ISO_DATE_DUP = re.compile(r"(?<=[a-z0-9])\s?\(\d{4}-\d{2}(?:-\d{1,2})?\)")  # "(2015-03-2)" too
+# "(Pub. L. Tooltip Public Law (United States)107-252 (text) (PDF))": an
+# abbreviation's tooltip and the law template's link labels
+_TOOLTIP = re.compile(r"\s?\bTooltip [A-Z][A-Za-z .]{0,60}(?:\([^()]{0,40}\))? ?(?=\d|$)")
+_TEXT_PDF = re.compile(r"\s?\(text\)(?:\s?\(PDF\))?")
+# "Team v t e": a navbox's view-talk-edit inside a table header
+_VTE = re.compile(r"\s?\bv\s+t\s+e\b")
+# a coordinate pair the infobox left at the front of a paragraph
+_LEAD_COORDS = re.compile(
+    r"^\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[NS]\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[EW]"
+    r"(?:\s*/\s*[\d.\u2212-]+\u00b0[NS]\s*[\d.\u2212-]+\u00b0[EW])?(?:\s*/\s*[\d.\u2212-]+;\s*[\d.\u2212-]+)?\s*(?=[A-Z])"
+)
+# a paragraph that is only a coordinate pair (a fact's value may be one)
+_CAPS_TOKEN = re.compile(r"^[A-Z]{2,4}$")  # "KGT" on a line of its own after every match: a fixture template's time zone
+_COORDS_ONLY = re.compile(
+    r"^\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[NS]\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[EW](?:\s*/.*)?$"
+)
 _FUNCTION_WORDS = frozenset("from or and of the a an in at by to lit also see cf".split())
-_EMPTY_PAREN = re.compile(r"\s?\(\s*\)")
+_EMPTY_PAREN = re.compile(r"\s?\(\s*[,;:\s]*\)")
+# "(pronounced French pronunciation:)": the IPA went with its slashes
+_LABEL_DIGITS = re.compile(r"(?<![A-Za-z])(?:[A-Z][a-z]+ )?(?:Persian|Arabic|Urdu|Hindi|Bengali|Nepali|Tamil|Telugu|Kannada|Malayalam|Marathi|Gujarati|Punjabi|Sinhala|Thai|Burmese|Khmer|Lao|Tibetan|Chinese|Japanese|Korean|Hebrew|Amharic|Georgian|Armenian): ?\d{1,4}(?=\s*[;,)])")
+_EMPTY_PRON = re.compile(r"(?:pronounced\s+)?(?:[A-Z][a-z]+\s+)?(?:pronunciation|IPA):\s*(?=[;,)]|$)")
+# "=== Neural is a discipline": heading marks the dump left on a line
+_HEADING_MARKS = re.compile(r"^\s*={2,}\s*|\s*={2,}\s*$")
 # IPA between slashes or brackets, when the serif cannot draw it.
 _SLASHED = re.compile(r" ?/[^/]{1,80}/")
+# what a pronunciation carries that prose never does: IPA letters, modifier
+# letters, tone bars, or the spaced single letters of the dump's IPA
+_IPA_CHAR = re.compile(r"[\u0250-\u02ff\u1d00-\u1dbf]|(?: [a-z\u00e6\u00f0\u00f8\u03b8]){3}")
 _BRACKETED = re.compile(r" ?\[[^\[\]]{1,80}\]")
 
 _TIDY = (
     (re.compile(r"\(\s*[,;:]\s*"), "("),
-    (re.compile(r"\s*[,;:]\s*\)"), ")"),
+    # a mark after a word, a closing quote or a bracket goes before ")"; after a
+    # space or an opening quote it is the face of ":)" and stays
+    (re.compile(r"(?<=[A-Za-z0-9.')\]\u201d\u2019])[,;:]\s*\)|(?<=[A-Za-z0-9.]\")[,;:]\s*\)"), ")"),
     (re.compile(r"\(\s*\)"), ""),
     (re.compile(r"\[\s*\]"), ""),
-    (re.compile(r"\s+([,;:?)]|!(?!=))"), r"\1"),  # "a != 0" keeps its space
+    (re.compile(r"\s+([,;?)]|!(?![=A-Za-z0-9])|:(?!\s?\d|-?[()]))"), r"\1"),  # "a != 0", "3 : 1", the click in "!Nanseb" and the face in ":)" keep their spaces
     (re.compile(r"\s+\.(?![A-Za-z0-9])"), "."),
     (re.compile(r"\(\s+"), "("),
-    (re.compile(r"(?:[,;:]\s*)+([,;:])"), r"\1"),
+    (re.compile(r"(?:[,;]\s*)+([,;:])"), r"\1"),  # ",," and ";,"
+    (re.compile(r":(?:\s*:)+(?=\s|$)"), ":"),  # "Note:: text", not the "::" of "fec0::/10"
     (re.compile(r"\s{2,}"), " "),
 )
 
@@ -310,7 +457,7 @@ def esc_attr(s):
 
 # "lasted 28 days.The truce": the source lost the space where a citation
 # stood. Three letters before the period so "e.g.The" and initials stay.
-_SENTENCE_GLUE = re.compile(r"([a-z]{3,}[.!?])([A-Z][a-z]{2,})")
+_SENTENCE_GLUE = re.compile(r"([a-z]{3,}[.!?]|\d{4}\.)([A-Z][a-z]{2,})")
 # "Bonaparte, 1835Tribe Acanthurini": nested list items the source ran together
 _YEAR_GLUE = re.compile(r"\b((?:1[5-9]|20)\d\d)(?=[A-Z][a-z]{2,})")
 # "{{ cite journal }}: CS1 maint: DOI inactive as of June 2024 (link)": a
@@ -328,20 +475,71 @@ def clean_text(s):
         s = html.unescape(s)  # "22 &amp;amp; 23 Geo. 5": the source escaped it twice
     if "." in s:
         s = _SENTENCE_GLUE.sub(r"\1 \2", s)
-    if "listen" in s:
+    if "(" in s:
         s = _LISTEN.sub("", s)
+        s = _ISO_DATE_DUP.sub("", s)
+        s = _TEXT_PDF.sub("", s)
+    if "Tooltip" in s:
+        s = _TOOLTIP.sub(" ", s)
+    if "v" in s:
+        s = _VTE.sub("", s)
+    if "\u00b0" in s:
+        if _LEAD_COORDS.match(s):
+            s = _LEAD_COORDS.sub("", s, count=1)
+        s = _DECIMAL_COORDS.sub("", s)
     if "," in s:
         s = _COMMA_GLUE.sub(", ", s)
     s = _YEAR_GLUE.sub(r"\1 ", s)
+    s = _QUOTE_GLUE.sub(r"\1 \2", s)
     if not s:
         return ""
     s = _CONTROL.sub("", s)
+    if "\u2011" in s or "\u2010" in s:
+        s = s.replace("\u2011", "-").replace("\u2010", "-")
+    if "," in s:
+        s = _COMMA_GLUE.sub(", ", s)  # again: a zero-width space after the comma just went
     if "style" in s and _TEX_OPEN.search(s):
         s = _render_tex(s)
     if "\\" in s:
-        s = _TEX_LOOSE.sub("", s)  # TeX the dump left outside any block
+        s = _TEX_ENV.sub("", s)
+        s = _strip_tex_residue(s)  # TeX the dump left outside any block
+        s = _TEX_SCRIPT_GROUP.sub(" ", s)  # "A_{1}^{ }" left beside it
+        s = _TEX_LEFTOVER.sub(" ", _TEX_LEFTOVER.sub(" ", s))
+        s = _TEX_ALIGN.sub(lambda m: " =" if "=" in m.group(0) else " ", s)
+        s = re.sub(r"  +", " ", _TEX_SCRIPT_GROUP.sub(" ", s))
+        s = re.sub(r"\s[_^](?=\s|$)", "", s)
+        if s.count("{") != s.count("}"):
+            s, _ = _balance(s, "{", "}")
+    if "^{" in s:
+        s = _SCRIPT_BRACES.sub(r"\1^\2", _FLAT_THEN_TEX.sub("", s))
+    if "=" in s or "\u2261" in s:
+        s = _TRAILING_EQUALS.sub("", _REPEATED_EQUALS.sub(r"\1", s))
+    if "(help)" in s:
+        s = _TEMPLATE_ERROR.sub("", s)
+    if "<ref" in s:
+        s = _REF_TAG.sub("", s)
+    if ": p" in s or ":p" in s:
+        s = _CITE_PAGES.sub("", s)
+    if ":" in s:
+        s = _CITE_AFTER_WORD.sub("", _CITE_NUMERIC.sub("", _CITE_ROMAN.sub("", s)))
+    if s.startswith("#"):
+        s = _NOTE_MARKER.sub("", s)
+    if _ROW_MARKER.match(s):
+        return ""
+    if "==" in s:
+        s = _HEADING_MARKS.sub("", s)
+    if "PROT" in s or "QINU" in s:
+        s = _PROT.sub("", s)
     if "{{" in s:
         s = _TEMPLATE.sub("", s)
+        s = _NOTE_TEMPLATE.sub("", s)
+        s = _TEMPLATE_OPENER.sub(" ", s)
+        surplus = s.count("{") - s.count("}")
+        if surplus > 0:
+            s = _BRACE_OPENER.sub("", s, count=surplus)
+    if "''" in s:
+        s = _WIKI_ITALIC.sub(r"\1", _WIKI_BOLD.sub(r"\1", s))
+        s = _CULTIVAR_QUOTE.sub(" '", _WIKI_QUOTE_LEFT.sub("'", s))
     s = _CITE.sub("", s)
     s = _CITE_PAGE.sub("", s)
     s = _GREEK_ALONE.sub(lambda m: _GREEK_NAMES.get(m.group(1), m.group(1)), s)
@@ -389,6 +587,10 @@ def _close_quote_gaps(text):
                 out.append(c)  # an apostrophe inside a word, or a padded clitic: McGregor 's
                 i += 1
                 continue
+            if c == '"' and before in "'\u2019" and after.isspace() and text[i + 2 : i + 3] in ('"', "'"):
+                out.append(c)  # a closing quote before the next line's opening one: her.'" "'Did
+                i += 1
+                continue
             closes = inside == c and (word_before or not word_after)
             opens = inside is None and not word_before and not before.isdigit()
             if closes:
@@ -422,7 +624,7 @@ _CLITIC_GAP = re.compile(r"(?<=[\w)\]\"\u201d])[ \u00a0]+(['\u2019])(s|d|ll|re|v
 _PUNCT_GAP = re.compile(r"(?<=\S)[ \u00a0]+([,.;!?])(?=\s|$)")
 # "epsilon : Permittivity": a colon padded between two words (a ratio,
 # "3 : 1", keeps its spaces)
-_COLON_GAP = re.compile(r"(?<=[A-Za-z\u00c0-\u024f]) :(?= [A-Za-z\u00c0-\u024f])")
+_COLON_GAP = re.compile(r"(?<=[A-Za-z\u00c0-\u024f)]) :(?=\s|$)|(?<=[A-Za-z\u00c0-\u024f]) :(?= [A-Za-z\u00c0-\u024f])")
 # "Protestant -led", "post- Civil War": a hyphen padded on one side after a
 # link or an italic (0.8 and 0.5 per article). "pre- and post-war" is the
 # one idiom that keeps its space, so a hyphen before "and" or "or" stays.
@@ -454,7 +656,7 @@ _HYPHEN_AFTER = re.compile(r"(?<=\w)([-\u2013\u2014])[ \u00a0]+(?=(?!(?:and|or)\
 # Wikipedia's respelling, "(TAM-ilz, TAHM-)": syllables in capitals joined by
 # hyphens, two of them or one ending in a hyphen, and nothing else in the
 # parentheses. "(US-based)" is one plain token and stays.
-_RESPELL_TOKEN = r"[A-Z]{1,6}(?:-[a-z]{1,8})*-?"
+_RESPELL_TOKEN = r"(?:[a-z]{1,4}-)?[A-Z]{1,6}(?:-[a-z]{1,8})*-?"
 _RESPELL = re.compile(
     r"[ \u00a0]*\((?:" + _RESPELL_TOKEN + r"(?:,? " + _RESPELL_TOKEN + r")+|[A-Z]{1,6}(?:-[a-z]{1,8})*-)\)"
 )
@@ -468,7 +670,7 @@ _MIXED_NUMBER = re.compile(r"\b(\d+) \+ (\d+) ?[/\u2044] ?(\d+)\b")
 # "1 \u2044 4": the fraction slash the serif draws, spaced by the source.
 _FRACTION_GAP = re.compile(r"(?<=\d) ?\u2044 ?(?=\d)")
 # "3,855/km 2": the superscript came through as a spaced digit.
-_UNIT_POWER = re.compile(r"\b(km|m|cm|mm|mi|ft|yd|in|nmi)\s+([23])\b(?!,\d|\.\d| [a-z])")
+_UNIT_POWER = re.compile(r"\b(km|m|cm|mm|mi|ft|yd|in|nmi)\s+([23])\b(?![,.:]\d| [a-z]| ?\d|\u00bd)")
 _POWERS = {"2": "\u00b2", "3": "\u00b3"}
 
 
@@ -598,14 +800,19 @@ def _romanize_runs(text, run_re):
             return run
         latin = symbols.romanize(run)
         # "\u1f08\u03c1\u03b9\u03b8\u03bc\u03bf\u03af, Arithmoi": the source's own romanisation
-        # follows; the run goes and that one stays
+        # follows; the run goes and that one stays. "The Neretva (Serbian
+        # Cyrillic: \u041d\u0435\u0440\u0435\u0442\u0432\u0430)": the sentence has the word already
         after = _NEXT_WORD.match(text, m.end())
         if after and _plain(after.group(1)) == _plain(latin):
+            return run
+        if " " not in latin.strip() and re.search(r"(?<![A-Za-z])" + re.escape(_plain(latin)) + r"(?![A-Za-z])", _plain(text[: m.start()])):
             return run
         n += 1
         return latin
 
     out = run_re.sub(sub, text)
+    if n and "(" in out:
+        out = _ROMAN_PAREN.sub(lambda m: m.group(2) if _plain(m.group(1)) == _plain(m.group(2)) else m.group(0), out)
     if n >= 2:
         # "\u1f55\u03b2\u03bf\u03c2 or \u1f51\u03b2\u03cc\u03c2": two accentuations, one spelling
         out = _SAME_TWICE.sub(r"\1", out)
@@ -613,6 +820,7 @@ def _romanize_runs(text, run_re):
 
 
 _NEXT_WORD = re.compile(r"\s*,\s*([A-Z][A-Za-z\u00c0-\u024f]+)")
+_ROMAN_PAREN = re.compile(r"\b([A-Za-z]+) \(([A-Za-z\u00c0-\u024f\u1e00-\u1eff]+)\)")
 _SAME_TWICE = re.compile(r"\b([A-Za-z]+) (?:or|and|/) \1\b")
 
 
@@ -621,12 +829,21 @@ def _plain(word):
 
 
 _MARK_LABEL = re.compile(r"(?<![A-Za-z])[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}:\s*" + _MARK + r"\s*,?\s*(?=(?:romani[sz]ed|translit\w*|pinyin|lit\.|literally|IPA)\b)")
-_MARK_COMMA = re.compile(_MARK + r"\s*,\s*(?=[A-Z])")
+# "pl. <run>, madhāhib" reads "pl. madhāhib": after an abbreviation the
+# romanisation may be lowercase
+_MARK_COMMA = re.compile(r"(\b(?:pl|sing|lit|abbr|orig|trans|cf)\.\s*)?" + _MARK + r"\s*,\s*(?=(\S)?)")
+
+
+def _mark_comma(m):
+    nxt = m.group(2) or ""
+    if m.group(1) or nxt.isupper():
+        return (m.group(1) or "") + " "
+    return m.group(0)
 _MARK_COLON = re.compile(r":\s*" + _MARK + r"\s*,\s*")
 _MARK_ANY = re.compile(r"\s*" + _MARK + r"\s*")
 
 
-_MARK_ROMAN = re.compile(r"\s*" + _MARK + r"\s*,?\s*(?:romani[sz]ed|romani[sz]ation|translit\w*|pinyin):\s*", re.I)
+_MARK_ROMAN = re.compile(r":?\s*" + _MARK + r"\s*,?\s*(romani[sz]ed|romani[sz]ation|translit\w*|pinyin):\s*", re.I)
 
 
 def _settle_marks(text):
@@ -634,9 +851,9 @@ def _settle_marks(text):
     "Ancient Greek: X"; "Greek <run>, Arithmoi" drops the comma the run
     left before its romanisation; "Hebrew: <run>, Bemidbar" keeps the
     label."""
-    text = _MARK_ROMAN.sub(" ", text)
+    text = _MARK_ROMAN.sub(lambda m: ", " + m.group(1).lower() + ": ", text)
     text = _MARK_LABEL.sub("", text)
-    text = _MARK_COMMA.sub(" ", text)
+    text = _MARK_COMMA.sub(_mark_comma, text)
     text = _MARK_COLON.sub(": ", text)
     text = _MARK_ANY.sub(" ", text)
     return text
@@ -654,8 +871,8 @@ def strip_undrawable(text, stats, lead=False):
     def drop_span(m):
         nonlocal removed
         whole = m.group(0)
-        if not run_re.search(whole):
-            return whole
+        if not run_re.search(whole) or not _IPA_CHAR.search(whole):
+            return whole  # "10 μg/dL (10 μg/100 g)" is units, not a pronunciation
         removed += 1
         stats["spans_removed"] = stats.get("spans_removed", 0) + 1
         return ""
@@ -685,9 +902,19 @@ def strip_undrawable(text, stats, lead=False):
                 continue
             rest = _settle_marks(run_re.sub(_MARK, seg))
             rest = _EMPTY_LABEL_END.sub("", rest).strip(" ,:")
-            # "romanized: Theophrastos" is two words and the whole point;
+            # "romanized: Theophrastos" is two words and the whole point, and
+            # "Moskva" alone is the romanisation of the word that went;
             # "from" alone, or "from or", is what a removal left behind
-            if len(rest.split()) >= 2 and not all(w.lower().strip(".,") in _FUNCTION_WORDS for w in rest.split()):
+            words = rest.split()
+            label = _LEAD_LABEL.match(rest)
+            body_words = rest[label.end() :].split() if label else words
+            if lead and _TITLE_WORDS and {w.lower().strip(".,") for w in body_words[: len(_TITLE_WORDS)]} == _TITLE_WORDS:
+                # "(Japanese: Kitao Masaru, born ...)": the title's own words reordered
+                words = " ".join(body_words[len(_TITLE_WORDS) :]).lstrip(", ").split()
+                rest = " ".join(words)
+                if not words:
+                    continue
+            if words and (len(words) >= 2 or words[0][:1].isupper()) and not all(w.lower().strip(".,") in _FUNCTION_WORDS for w in words):
                 kept.append(re.sub(r"  +", " ", rest))
         if not kept:
             return ""
@@ -702,6 +929,10 @@ def strip_undrawable(text, stats, lead=False):
     if n:
         stats["symbols_translated"] = stats.get("symbols_translated", 0) + n
     text, folded = _fold_chars(text)
+    if "," in text:
+        # a comma between spelled or folded words gets its space: "(-infinity,infinity)",
+        # "clan,personal" (a full-width comma folded); "epsilon,gamma-carotene" stays
+        text = _COMMA_WORDS.sub(_comma_words, text)
     for k, n in folded.items():
         stats[k] = stats.get(k, 0) + n
     text, n = _fold_lookalikes(text)
@@ -719,7 +950,8 @@ def strip_undrawable(text, stats, lead=False):
         census = stats.setdefault("removed_chars", {})
         for m in run_re.finditer(text):
             for ch in m.group(0):
-                if not ch.isspace():
+                # the quotes and commas a run carries are its own, not a loss
+                if not ch.isspace() and ord(ch) >= 128 and ch not in _RUN_QUOTES:
                     census[ch] = census.get(ch, 0) + 1
         if lead:
             for _ in range(3):
@@ -733,7 +965,7 @@ def strip_undrawable(text, stats, lead=False):
             stats["runs_removed"] = stats.get("runs_removed", 0) + n
     if _MARK in text:
         text = _settle_marks(text)
-    for rx in (_EMPTY_LABEL, _EMPTY_PAREN):
+    for rx in (_LABEL_DIGITS, _EMPTY_PRON, _EMPTY_LABEL, _EMPTY_PAREN):
         text, n = rx.subn("", text)
         if n:
             removed += n
@@ -743,13 +975,16 @@ def strip_undrawable(text, stats, lead=False):
         removed += 1
         stats["quote_gaps_closed"] = stats.get("quote_gaps_closed", 0) + n
     text, n = _close_inline_gaps(text)
+    if "," in text:
+        text = _COMMA_WORDS.sub(_comma_words, text)  # a comma a removed run left glued
     if n:
         removed += 1
         stats["inline_gaps_closed"] = stats.get("inline_gaps_closed", 0) + n
-    if removed:
-        for rx, rep in _TIDY:
-            text = rx.sub(rep, text)
-        text = text.strip()
+    # the seams a removal leaves, and the same seams the dump itself has
+    # ("(e.g.:)", "apostrophe';)"): tidied whether or not anything went
+    for rx, rep in _TIDY:
+        text = rx.sub(rep, text)
+    text = text.strip()
     text, n = scrub_artifacts(text)
     if n:
         stats["artifacts_scrubbed"] = stats.get("artifacts_scrubbed", 0) + n
@@ -765,18 +1000,20 @@ def strip_undrawable(text, stats, lead=False):
 # not close the outer one.
 _SCRUB = (
     (re.compile(r"\s?(?:\"\s*\"|\u201c\s*\u201d|''|\u2018\s*\u2019)(?=\s|[,.;:)]|$)"), ""),
-    (re.compile(r"\s?[(\[{]\s*[)\]}]"), ""),
+    (re.compile(r"\s?[(\[{]\s*[,;:\s]*[)\]}]"), ""),
     (re.compile(r"\(\(([^()]*)\)\)"), r"(\1)"),
     (re.compile(r"\[\[([^\[\]]*)\]\]"), r"[\1]"),
     (re.compile(r"([,;])\s*(?:[,;]\s*)+"), r"\1 "),
     (re.compile(r"(?<=\S)\s+([,;](?=\s|$))"), r"\1"),
     (re.compile(r"\(\s+"), "("),
     (re.compile(r"\s+\)"), ")"),
-    (re.compile(r"^\s*[,;]\s*"), ""),
+    # a mark left before ")" once "; ;" collapsed ("trumpet"; )); not a face
+    (re.compile(r"(?<=[A-Za-z0-9.')\]\u201d\u2019])[,;:]\s*\)|(?<=[A-Za-z0-9.]\")[,;:]\s*\)"), ")"),
+    (re.compile(r"^\s*(?:[,;]|:(?=\s|$))\s*"), ""),
     (re.compile(r"\s*[,;]$"), ""),
-    (re.compile(r"[ \t]{2,}"), " "),
+    (re.compile(r"[ \t\u00a0]{2,}"), " "),
 )
-_SCRUB_HINT = re.compile(r"[()\[\]{}\"\u201c\u2018',;]")
+_SCRUB_HINT = re.compile(r"[()\[\]{}\"\u201c\u2018',;]|^\s*:")
 
 
 def scrub_artifacts(text):
@@ -785,16 +1022,39 @@ def scrub_artifacts(text):
     if not text or not _SCRUB_HINT.search(text):
         return text, 0
     n = 0
-    for rx, rep in _SCRUB:
-        text, k = rx.subn(rep, text)
-        n += k
+    for _ in range(3):
+        k_all = 0
+        for rx, rep in _SCRUB:
+            text, k = rx.subn(rep, text)
+            k_all += k
+        n += k_all
+        if not k_all:
+            break
     if text.count("(") != text.count(")"):
         text, k = _balance(text, "(", ")")
         n += k
     if text.count("[") != text.count("]"):
         text, k = _balance(text, "[", "]")
         n += k
+    if n:
+        for rx, rep in _SCRUB:
+            text, k = rx.subn(rep, text)  # what a dropped mark left: (as in " ")
+            n += k
     return text.strip(), n
+
+
+def _is_face(text, i):
+    """text[i] is the mouth of ":)" or ";-(": an emoticon, not a parenthesis.
+    The eyes stand at a word boundary; "8)" is "(number 8)" and "=)" is "(P, <=)"
+    far more often than a face."""
+    j = i - 1
+    if j >= 0 and text[j] == "-":
+        j -= 1
+    if j < 0 or text[j] not in ":;":
+        return False
+    if i + 1 < len(text) and text[i + 1].isalnum():
+        return False  # ":(1) Everyone" is a numbered clause
+    return j == 0 or text[j - 1] in " \t\"\u201c\u2018"
 
 
 def _balance(text, opener, closer):
@@ -803,6 +1063,8 @@ def _balance(text, opener, closer):
     stack = []
     drop = set()
     for i, ch in enumerate(text):
+        if ch in "()" and _is_face(text, i):
+            continue  # ":)" and ":-(" are faces, not parentheses
         if ch == opener:
             stack.append(i)
         elif ch == closer:
@@ -859,23 +1121,91 @@ def link_target(url):
 # snapshot and wrong from the next day; the place gets its comma back after
 # a date, and one item after another gets one after its parenthesis.
 _AGE = re.compile(r"\s*\(aged?\s+\d+(?:\s*[\u2013-]\s*\d+)?\)")
+# "Preferred IUPAC name Methyl methanesulfonate": the chembox's sub-label
+_CHEM_SUBLABEL = re.compile(r"^((?:Preferred |Systematic )?IUPAC name|Other names?|Chemical formula)\s+(?=\S)")
+# "Length: 61: 49": a running time the dump spaced
+_TIME_FIELD = re.compile(r"(?:^|, )(?:Length|Duration|Running time|Time|Runtime)$", re.I)
+_TIME_GAP = re.compile(r"\b(\d{1,2}): (\d{2})\b")
+_YEAR_TWICE = re.compile(r"\b(\d{4}) \(\1\)")
+_DECIMAL_COORDS = re.compile(r"\s*/\s*[\d.\u2212-]+\u00b0[NS]\s*[\d.\u2212-]+\u00b0[EW]")
+_COORDS_AFTER_TEXT = re.compile(r"([a-z]) (?=\d{1,3}\u00b0\d)")  # "Pakistan 25°24′N", not the N of a pair
+# "Coordinates: 41°37′N 44°00′E" as a nameless value: the label is the name
+_LABELLED_VALUE = re.compile(r"^([A-Z][a-z]+(?: [a-z]+){0,2}(?: \([^()]{1,30}\))?): (\S.*)$")
+# "team Former teams": a word of the row above leaked into the name
+_LEAKED_WORD = re.compile(r"^[a-z]+ (?=[A-Z][a-z]+)")
+_WEBSITE_VALUE = re.compile(r"^(?:official )?(?:web ?site|site|homepage|home page)$", re.I)
+_NAME_THEN_DATE = re.compile(
+    r"([A-Za-z]+)\s+(?=(?:\d{1,2} [A-Z][a-z]+ \d{4}|[A-Z][a-z]+ \d{1,2}, \d{4})\b)"
+)
+_DATE_LEAD_WORDS = frozenset(
+    "born died c ca circa on in since until from to before after about by at the of and or between as".split()
+)
+
+
+def _name_then_date(m):
+    word = m.group(1)
+    if word.lower() in _DATE_LEAD_WORDS or not word[:1].isupper():
+        return m.group(0)
+    return word + ", "
+
+
 _DATE_THEN_PLACE = re.compile(
     r"(\b(?:\d{1,2} [A-Z][a-z]+ \d{4}|[A-Z][a-z]+ \d{1,2}, \d{4}|\d{4}))\s+(?=[A-Z])"
 )
-_PAREN_THEN_ITEM = re.compile(r"\)\s+(?=[A-Z])")
+# "(aged 45) Chicago" reads "(aged 45), Chicago"; "(Barfod) A.J.Hend.", a
+# botanical authority, keeps its shape: only a parenthesis that ends in a
+# digit is a date's
+_PAREN_THEN_ITEM = re.compile(r"\(([^()]*)\)\s+(?=([A-Z][A-Za-z.]*))")
+
+
+def _paren_then_item(m):
+    inner, nxt = m.group(1), m.group(2)
+    # "(Barfod) A.J.Hend.": a capitalised name in the parenthesis followed by
+    # an initial is a botanical authority and keeps its shape
+    if inner[:1].isupper() and " " not in inner and re.match(r"[A-Z][a-z]{0,6}\.", nxt):
+        return m.group(0)
+    if _COMPASS.match(nxt):
+        return m.group(0)  # "(118 mi) W of Sydney"
+    return "(" + inner + "), "
 _DATE_KEYS = frozenset(("born", "died", "birth date", "death date"))
+_MONTH_WORDS = frozenset(m.lower() for m in ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December", "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Sept", "Oct", "Nov", "Dec"))
 
 
-_NAME_GROUP = re.compile(r"\bnames?$", re.I)  # "Korean name", "Chinese name": every row carries it
+def _word_then_year(m):
+    w = m.group(1)
+    if w.lower() in _MONTH_WORDS or w.lower() in _DATE_LEAD_WORDS or not w[:1].isupper():
+        return m.group(0)
+    return w + ", "
 
 
-def _split_at_links(value, links):
+_WORK_SUBTITLE = re.compile(r"^(?:[A-Za-z]+ )?(?:album|EP|single|song|soundtrack|mixtape|compilation|video|film|series|episode|novel|book) by\b", re.I)
+_NAME_GROUP = re.compile(r"\b[A-Za-z]+ names?$", re.I)  # "Korean name", "Chinese name": every row carries it; a bare "Names" group does not
+
+
+_LIST_ROWS = re.compile(
+    r"characters|members|names|children|relatives|works|genres|labels|occupations|known for|fields|institutions|"
+    r"awards|influences|languages|groups|religions|subdivisions|ideas|notable|alumni|students|advisors|parties|"
+    r"predecessor|successor|founders|owners|products|services|divisions|subsidiaries|partners|spouses|parents",
+    re.I,
+)
+
+
+def _split_at_links(value, links, name=""):
     """"Atossa Messenger Ghost of Darius Xerxes" with links for Atossa, Ghost
     of Darius and Xerxes is three items the dump glued; where one link's
-    text starts right after another ends, a "; " goes between them."""
+    text starts right after another ends, a "; " goes between them. Two
+    adjacent links in a row that is not a list ("Tortricoidea Latreille,
+    1803", a taxon and its authority) stay as they are."""
     if not links or len(links) < 2:
         return value
+    if _TAXON_RANK.match((name or "").strip()):
+        return value  # "Helonias L.": a genus and its authority
+    sep = ", " if not name or _ADDRESS_FIELD.search(name) else "; "
     texts = [lk.get("text") for lk in links if isinstance(lk, dict) and isinstance(lk.get("text"), str) and lk.get("text")]
+    if len(texts) >= 2 and value.strip() == " ".join(texts) and all(t[:1].isupper() or t[:1].isdigit() for t in texts):
+        return sep.join(texts)  # "Mark Waid Alex Ross": the links are the whole value
+    if len(links) < 3 and not _LIST_ROWS.search(name or ""):
+        return value
     if len(texts) < 2:
         return value
     out = value
@@ -886,22 +1216,41 @@ def _split_at_links(value, links):
         if i < 0:
             continue
         if prev_end is not None and out[prev_end:i].strip() == "" and i - prev_end <= 1:
-            out = out[:prev_end] + "; " + out[i:]
-            i = prev_end + 2
+            out = out[:prev_end] + sep + out[i:]
+            i = prev_end + len(sep)
         prev_end = i + len(t)
         pos = prev_end
     return out
 
 
-_FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion", "NFPA 704 (fire diamond)", "NFPA 704"))
-_FACT_JUNK_VALUE = re.compile(r"^[\W_]*$|^\* ")
+_TAXON_RANK = re.compile(r"^(?:Genus|Species|Family|Order|Class|Kingdom|Phylum|Division|Tribe|Subfamily|Subgenus|Variety|Subspecies|Binomial name|Trinomial name|Synonyms|Authority)$", re.I)
+_ADDRESS_FIELD = re.compile(r"location|address|headquarters|residence|place|origin|coordinates", re.I)
+_COMPASS = re.compile(r"(?:N|S|E|W|NE|NW|SE|SW|NNE|ENE|ESE|SSE|SSW|WSW|WNW|NNW)$")
+_ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_MONTHS = ("", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+
+
+def _spell_iso_date(s):
+    """A cell or value that is exactly a machine date reads "15 October 2014"."""
+    m = _ISO_DATE.match(s.strip())
+    if not m or not 1 <= int(m.group(2)) <= 12 or not 1 <= int(m.group(3)) <= 31:
+        return s
+    return "%d %s %s" % (int(m.group(3)), _MONTHS[int(m.group(2))], m.group(1))
+
+
+_FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion", "NFPA 704 (fire diamond)", "NFPA 704", "Title card", "Caption", "Image caption", "Logo caption", "Map caption"))
+_FACT_JUNK_VALUE = re.compile(r"^[\W_]*$|^\* |^<-\s|^.*\s->$")  # "<- 1962", "1964 ->": an infobox's previous/next arrows
+_HEADER_VALUE = re.compile(r"^(?:Scientific classification|Official (?:Results|Website|Site)|Details|Overview|History)$", re.I)
+_PARAM_LEAK = re.compile(r"^[a-z]+(?:_[A-Za-z]+)+\s?=")
+_GLUED_FIELD = re.compile(r"^([A-Z][A-Za-z]*(?: [A-Za-z]+){0,2}) ([A-Z][a-z]+): (\S.*)$")
 _NAMELESS_FACT = re.compile(r"\d|^In office|^Term|^Reign")
+_FOOTNOTE_VALUE = re.compile(r"^\d [A-Z][a-z]+ [a-z]")  # "1 Playing statistics correct to ..."
 # "C 20 H 8 Br 2" in a formula row: the subscripts the dump spaced out
 _FORMULA_ROW = re.compile(r"formula", re.I)
 _ELEMENT_COUNT = re.compile(r"(?<=[A-Za-z\)\]]) (\d{1,3})(?=[A-Z(\[\s]|$)")
 _FORMULA_GAP = re.compile(r"(?<=[A-Za-z\u2080-\u2089)\]]) (?=[A-Z(\[])")
 # "g·mol −1", "m s −2": a unit's exponent
-_UNIT_EXPONENT = re.compile(r"(?<=[a-zA-Z]) ([\u2212-]?\d)(?=\b)")
+_UNIT_EXPONENT = re.compile(r"(?<=[a-zA-Z]) ([\u2212-]?\d)(?=\b)(?![\u00b0\u2032\u2033\d])")
 _UNIT_BEFORE = re.compile(r"^(?:mol|kg|g|m|cm|mm|km|s|K|J|Hz|Pa|N|V|A|W|C|L|dm|cd|sr|rad|h|min|yr|Bq|Gy|Sv|T|H|F|S|Wb|lm|lx)$")
 _ELEMENT_BEFORE = re.compile(r"(?:^|[\s(])([A-Z][a-z]?)$")
 # "Zn 2+", "S 2−": an ion's charge
@@ -909,10 +1258,18 @@ _ION = re.compile(r"(?<=[A-Za-z]) (\d?[+\u2212-])(?=[\s),]|$)")
 _DEGREE_GAP = re.compile(r"(?<=\d) \u00b0")
 _SUPER = str.maketrans("0123456789+-\u2212", "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207b")
 _SUB = str.maketrans("0123456789", "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089")
-_FACT_SKIP_VALUE = re.compile(r"^(?:[JFMASOND] ){11}[JFMASOND]$")  # a climate table's month row
+# a climate table's month row; a link's caption with no link to follow
+_FACT_SKIP_VALUE = re.compile(r"^(?:[JFMASOND] ){11}[JFMASOND]$|^(?:(?:Listen live|Public file(?:; LMS)?|LMS|Website|Official website)(?: \([^()]*\))?(?:[,;] )?)+$", re.I)
+_DEAD_CELL = re.compile(r"^(?:Report|Match report|Highlights|Video|Stats|Box score)$", re.I)
+_NAME_FOOTNOTE = re.compile(r"(?<=[A-Za-z)]) \d$|(?<=[A-Za-z)])\*$")
+# a table's header row that arrived as a field: "Years: Team", "Source: Rating"
+_HEADER_WORDS = frozenset("years year team club title role source rating apps gls goals pos nation player name no. date opponent result venue competition".split())
+_SLASH_GAP = re.compile(r"(?<=\S) /(?=[A-Za-z0-9])(?!\d{4}\b)")  # not "1564 /1563", a year either way
+_UNIT_FRACTION = re.compile(r"(?<=[a-z\u00b2\u00b3]) / (?=(?:s|h|min|kg|km|m|mol|L|yr|day|ha)\b)")  # "m³ / s", "km / h"
 _FACT_LABELS = frozenset(("Preceded by", "Succeeded by", "In office"))
 _GENERIC_FIELDS = frozenset((
     "total", "rank", "density", "land", "water", "urban", "metro", "estimate", "census", "preceded by",
+    "left", "right", "average", "mean", "minimum", "maximum", "min", "max", "length", "width", "depth",
     "succeeded by", "in office", "term", "chancellor", "vice-chancellor", "president", "prime minister",
     "monarch", "governor", "deputy", "leader", "members", "seats",
 ))
@@ -930,35 +1287,84 @@ def _ion_charge(m):
 
 def _unit_exponent(m):
     head = m.string[: m.start()]
-    unit = re.search(r"[A-Za-z]+$", head)
-    if unit and _UNIT_BEFORE.search(unit.group(0)):
+    unit = re.search(r"(?:^|(?<=[\s(\u00b7/]))([A-Za-z]+)$", head)  # a unit stands alone: "5 m 2", "g\u00b7mol -1"; not "50s 0"
+    if unit and _UNIT_BEFORE.search(unit.group(1)) and not m.string.startswith("/", m.end()):
         return m.group(1).translate(_SUPER)
     return m.group(0)
+
+
+_WRAPPED = re.compile(r"^\(([^()]+)\)$")
+_SHELL = re.compile(r"\b(\d[spdf]) (\d{1,2})\b")
 
 
 def fact_value(name, value):
     if not value:
         return value
     value = _AGE.sub("", value)
+    value = _WRAPPED.sub(r"\1", value.strip())
+    value = _CHEM_SUBLABEL.sub(r"\1: ", value)
+    if _TIME_FIELD.search(name):
+        value = _TIME_GAP.sub(r"\1:\2", value)
+    if "configuration" in name.lower() or "shell" in name.lower():
+        value = _SHELL.sub(lambda m: m.group(1) + m.group(2).translate(_SUPER), value)
     value = _YEAR_PAGE.sub("", value)
+    value = _NAME_THEN_DATE.sub(_name_then_date, value)
+    value = _YEAR_TWICE.sub(r"\1", value)
+    value = _SLASH_GAP.sub(" / ", value)
+    value = _spell_iso_date(value)
+    if value.startswith("-> "):
+        value = "to " + value[3:]  # a loan arrow at the front of a cell
+    value = re.sub(r";\s*\(", " (", value)  # "Townsquare Media; (Townsquare License, LLC)": a folded line break
+    value = re.sub(r"\)\s+\(", "; ", value)  # "Illinois (Vacated) (1st title)": two asides where a line broke
+    value = re.sub(r"\b([A-Z]):(?=\d)", r"\1: ", value)
+    if "\u00b0" in value:
+        value = _DECIMAL_COORDS.sub("", value)
+        value = _COORDS_AFTER_TEXT.sub(r"\1; ", value)
     value = re.sub(r"(\d{4}) /(\d{4})\b", r"\1/\2", value)
     if _FORMULA_ROW.search(name):
         value = _ELEMENT_COUNT.sub(lambda m: m.group(1).translate(_SUB), value)
         value = _FORMULA_GAP.sub("", value)
     value = _ION.sub(_ion_charge, value)
     value = _UNIT_EXPONENT.sub(_unit_exponent, value)
+    value = _UNIT_FRACTION.sub("/", value)
     value = _DEGREE_GAP.sub("\u00b0", value)
     if name.lower() in _DATE_KEYS:
+        value = re.sub(r"\b([A-Za-z]+) (?=(?:c\. )?\d{4}\b)", _word_then_year, value)  # "Kirkpatrick III 1951"
         value = _DATE_THEN_PLACE.sub(r"\1, ", value)
-    value = _PAREN_THEN_ITEM.sub("), ", value)
+    if not _TAXON_RANK.match(name.strip()):
+        value = _PAREN_THEN_ITEM.sub(_paren_then_item, value)
     return value.strip()
+
+
+def _cell_text(c):
+    v = c.get("value") if isinstance(c, dict) else c
+    return v if isinstance(v, str) else ""
+
+
+def _combined_header(header_rows):
+    """Of stacked header rows the lowest names the columns; a group row above
+    it ("Conference Conference Conference Overall Overall Overall") prefixes
+    each name ("Conference W"), so two W columns can be told apart."""
+    bottom = header_rows[-1]
+    if len(header_rows) < 2:
+        return bottom
+    top = header_rows[-2]
+    tops = [_cell_text(c).strip() for c in top]
+    if len(set(t for t in tops if t)) < 2:
+        return bottom  # one caption over everything, not groups
+    out = []
+    for i, c in enumerate(bottom):
+        b = _cell_text(c).strip()
+        t = tops[i] if i < len(tops) else ""
+        out.append({"value": (t + " " + b) if t and b and t != b and len(t.split()) <= 3 else (b or t)})
+    return out
 
 
 def cut_words(text, n):
     words = text.split(" ")
     if len(words) <= n:
         return text
-    return " ".join(words[:n]) + "..."
+    return " ".join(words[:n]).rstrip(".") + "..."
 
 
 class _Doc:
@@ -985,7 +1391,7 @@ class _Doc:
                 self.stats["links_dropped"] = self.stats.get("links_dropped", 0) + 1
                 continue
             t = strip_undrawable(clean_text(raw), {}, lead=False)
-            if not t:
+            if not t.strip():
                 self.stats["links_dropped"] = self.stats.get("links_dropped", 0) + 1
                 continue
             i = text.find(t)
@@ -1025,7 +1431,7 @@ class _Doc:
         text = strip_undrawable(
             clean_text(part.get("value") or ""), self.stats, lead=lead
         )
-        if not text:
+        if not text or _COORDS_ONLY.match(text) or (not lead and _CAPS_TOKEN.match(text)):
             return ""
         links = self._place_links(text, part.get("links"), lead)
         bold = self._subject(text) if subject else None
@@ -1037,7 +1443,7 @@ class _Doc:
                     break
         if bold:
             bs, be = bold
-            return (
+            return _scrub_inline(
                 self._emit(text, 0, bs, links)
                 + "<b>"
                 + self._emit(text, bs, be, links)
@@ -1053,8 +1459,18 @@ class _Doc:
         for s, e, href in links:
             if s < lo or e > hi:
                 continue
-            out.append(esc(text[i:s]))
-            out.append('<a href="' + esc_attr(href) + '">' + esc(text[s:e]) + "</a>")
+            # the dump's link text can carry the space that stood beside a
+            # lost icon ("China "): the space stays outside the anchor
+            inner = text[s:e]
+            if not inner.strip():
+                out.append(esc(text[i:e]))
+                i = e
+                continue
+            lead = inner[: len(inner) - len(inner.lstrip())]
+            trail = inner[len(inner.rstrip()) :]
+            out.append(esc(text[i:s] + lead))
+            out.append('<a href="' + esc_attr(href) + '">' + esc(inner.strip()) + "</a>")
+            out.append(esc(trail))
             i = e
         out.append(esc(text[i:hi]))
         return "".join(out)
@@ -1147,6 +1563,7 @@ class _Doc:
 
     def table_html(self, tb):
         rows = [(True, r) for r in (tb.get("headers") or []) if isinstance(r, list)]
+        rows = [(True, _combined_header([r for _, r in rows]))] if rows else []
         rows += [(False, r) for r in (tb.get("rows") or []) if isinstance(r, list)]
         rows = [(h, r) for h, r in rows if r]
         if not rows:
@@ -1163,13 +1580,17 @@ class _Doc:
                     filled += 1
                     if run_re.search(raw):
                         with_runs += 1
-                cells.append(strip_undrawable(raw, self.stats))
+                cells.append(_spell_iso_date(re.sub(r"\s#$", "", strip_undrawable(raw, self.stats))))
+            if is_header and len(cells) > 1 and len(set(cells)) == 1:
+                continue  # a caption spanning the row ("Key (expand for notes)"), not column names
             grid.append((is_header, cells))
         if filled and with_runs * 2 >= filled:
             # a phoneme chart, a table of native names: without its script it
             # is a grid of holes, so the notice is the honest rendering
             self.stats["script_tables_omitted"] = self.stats.get("script_tables_omitted", 0) + 1
             return TABLE_OMITTED
+        if not grid:
+            return ""  # a caption and nothing under it
         # A navbox is a table of links to other pages with its own controls in
         # it; on this device it is three columns of "This box: view talk edit".
         # It is navigation, not content, so it leaves no notice behind.
@@ -1186,13 +1607,24 @@ class _Doc:
         if wide:
             return self.table_rows(grid)
         out = ["<table>"]
+        last = None
         for is_header, cells in grid:
             tag = "th" if is_header else "td"
+            cells = ["" if _DEAD_CELL.match(c.strip()) else c for c in cells]  # "Report": a link's caption
+            if all(not c.strip() or c.rstrip().endswith(":") for c in cells):
+                continue  # "Source:" with nothing after it
+            if cells == last:
+                continue  # the same row twice ("Source: INSEE")
+            last = cells
+            if not is_header:
+                cells = [c for j, c in enumerate(cells) if not (j and c == cells[j - 1])]  # a spanning cell, once
             out.append(
                 "<tr>"
-                + "".join("<%s>%s</%s>" % (tag, esc(c), tag) for c in cells)
+                + "".join("<%s>%s</%s>" % (tag, esc("Number" if c.strip() == "#" else c), tag) for c in cells)
                 + "</tr>"
             )
+        if len(out) == 1:
+            return ""  # every row was a label with nothing after it
         out.append("</table>")
         return "".join(out)
 
@@ -1203,7 +1635,7 @@ class _Doc:
         "1984; Category: Best Comedy Recording; Work: Eat It; Result: Won"
         instead of a notice that a table stood here."""
         headers = [cells for is_header, cells in grid if is_header]
-        labels = headers[-1] if headers else []
+        labels = ["Number" if c.strip() == "#" else c for c in (headers[-1] if headers else [])]
         body = [cells for is_header, cells in grid if not is_header]
         if not body:
             return ""
@@ -1215,11 +1647,24 @@ class _Doc:
                 # arrives as the same text in every column: say it once
                 cells = cells[:1]
             for j, c in enumerate(cells):
-                c = cut_words(c, TABLE_ROW_CELL_WORDS)
+                if j and c == cells[j - 1]:
+                    continue  # a spanning cell ("did not advance"), once per column it covered
+                c = cut_words(c.strip(), TABLE_ROW_CELL_WORDS)
+                c = re.sub(r"\s#$", "", c)  # a footnote marker
                 if len(c.split(" ")) >= TABLE_ROW_CELL_WORDS:
                     c, _ = scrub_artifacts(c)  # a cut can leave a parenthesis open
-                if not c:
-                    continue
+                c = re.sub(r"  +", " ", c).strip()
+                if c in ("-", "\u2013", "\u2014", "\u2212"):
+                    continue  # an empty cell the dump wrote as a dash
+                if c == "#":
+                    c = "Number"
+                if not parts and re.match(r"^\d+\.$", c):
+                    c = c[:-1]  # "1." then "; Date: ..." read as "1.;"
+                c = _spell_iso_date(c)
+                if c.startswith("-> "):
+                    c = "to " + c[3:]
+                if not c or c.endswith(":"):
+                    continue  # empty, or a label whose script went
                 label = labels[j] if j < len(labels) else ""
                 if _REF_COLUMN.match(label):
                     continue
@@ -1230,7 +1675,10 @@ class _Doc:
                 else:
                     parts.append(esc(c))
             if parts:
-                out.append("<p>" + "; ".join(parts) + "</p>")
+                para = "<p>" + re.sub(r"  +", " ", "; ".join(parts)) + "</p>"
+                if out and out[-1] == para:
+                    continue  # "Source: INSEE" once per table, not per row
+                out.append(para)
         if len(body) > TABLE_ROWS_LISTED:
             out.append("<p><i>(%d more rows)</i></p>" % (len(body) - TABLE_ROWS_LISTED))
         if out:
@@ -1249,6 +1697,14 @@ class _Doc:
         return s
 
     def parts(self, parts, depth, lead=False):
+        if lead and parts:
+            # a standings table the dump put before the lead sentence: the
+            # article opens on prose, the table follows it
+            first = next((i for i, p in enumerate(parts) if isinstance(p, dict) and p.get("type") == "paragraph"), None)
+            if first:
+                before = [p for p in parts[:first] if isinstance(p, dict) and p.get("type") == "table"]
+                if before:
+                    parts = [p for p in parts[:first] if not (isinstance(p, dict) and p.get("type") == "table")] + [parts[first]] + before + list(parts[first + 1 :])
         loose = []  # consecutive bare list_items become one <ul>
 
         def flush_loose():
@@ -1318,14 +1774,28 @@ class _Doc:
                 self.stats["pronunciation_facts_dropped"] = self.stats.get("pronunciation_facts_dropped", 0) + 1
                 return
             name = strip_undrawable(clean_text(name), self.stats)
+            name = _NAME_DISAMBIG.sub("", name)
+            name = _SLASH_GAP.sub(" / ", _NAME_FOOTNOTE.sub("", name))
             value = cut_words(
                 fact_value(name, strip_undrawable(clean_text(value), self.stats)),
                 FACT_WORDS,
             )
             if "coordinates" in name.lower() and " / " in value:
                 value = value.split(" / ")[0].strip()
-            if value in _FACT_LABELS:
-                return  # "Preceded by: Succeeded by": both values were flags
+            if _PARAM_LEAK.match(value):
+                return  # "share_of_grocery_market_in_Taiwan =41.3%"
+            glued = _GLUED_FIELD.match(value)
+            if glued and len(name.split()) <= 2:
+                add(name, glued.group(1), group)
+                add(glued.group(2), glued.group(3), group)
+                return
+            if name.strip().lower() in _HEADER_WORDS and value.strip().lower() in _HEADER_WORDS:
+                return  # "Years: Team": a header row the dump made a field
+            if name in (self.title, base) or _HEADER_VALUE.match(value):
+                return  # a taxobox's "<title>: Scientific classification", a link caption "Official Results"
+            if value in _FACT_LABELS or value in (self.title, self.title.split(",")[0].strip(), base):
+                return  # "Preceded by: Succeeded by": both values were flags; "Azerbaijani: <title>"
+            name = name[:1].upper() + name[1:]
             if _FACT_JUNK_VALUE.match(value) or sum(1 for c in value if c.isalpha()) < 2 and not any(c.isdigit() for c in value):
                 return  # "* R ij’ kr -s": a reconstruction whose marks all went
             if name in _FACT_SKIP_NAMES:
@@ -1334,6 +1804,10 @@ class _Doc:
                 seen.add((name, value))
                 fields.append((name, value, group))
                 groups.setdefault(name, set()).add(group)
+
+        base = re.sub(r"\s*\([^()]*\)\s*$", "", self.title)
+        title_words = {w.lower() for w in base.split()}
+        recent = []  # named fields seen so far, for a generic one to hang on
 
         def walk(p, group=""):
             if isinstance(p, list):
@@ -1346,33 +1820,56 @@ class _Doc:
             if t == "section":
                 # "President of Austria", "Area", "Population": the group a
                 # field belongs to, which the flat grid would otherwise lose
-                name = clean_text(str(p.get("name") or ""))
+                name = _NAME_FOOTNOTE.sub("", clean_text(str(p.get("name") or "")))
                 if name and any(isinstance(c, dict) and c.get("type") == "image" for c in p.get("has_parts") or []):
                     has_image[name] = True
                 # a group is a short label; a "section" whose name is a whole
                 # medal table is the table, not a group
-                if name and name != self.title and len(name.split()) <= 8 and not name.lower().startswith("infobox"):
-                    group = name
+                if name and name != self.title and (not base or base not in name) and not (len(title_words) >= 2 and title_words <= {w.lower().strip(",") for w in name.split()}) and len(name.split()) <= 12 and not name.lower().startswith("infobox") and not _WORK_SUBTITLE.match(name):
+                    # "Transcriptions" under "Chinese name" keeps the group
+                    # that says which language the rows belong to
+                    if not (group and _NAME_GROUP.search(group)):
+                        group = name
             if t == "field" and isinstance(p.get("value"), str):
                 fname = p.get("name")
                 if p.get("images"):
                     return  # the field is an image and its value is the caption
-                value = _split_at_links(p["value"], p.get("links"))
+                if fname:
+                    fname = _LEAKED_WORD.sub("", fname)
+                value = _split_at_links(p["value"], p.get("links"), fname or "")
+                if fname and _WEBSITE_VALUE.match(fname.strip()) and _WEBSITE_VALUE.match(value.strip()):
+                    # "Official website" is a link's text; the reader has no link, so the address
+                    value = _website_host(p.get("links")) or value
+                if not fname:
+                    labelled = _LABELLED_VALUE.match(value)
+                    if labelled:
+                        add(labelled.group(1), labelled.group(2), group)
+                        return
                 if group and _NAME_GROUP.search(group) and fname:
                     add(group + ", " + fname.strip(), value, group)
                     return
                 if not fname:
                     # "In office 1945 - 1950" under its office; a caption in a
                     # section that holds an image is the image's, not a fact
-                    if group and not has_image.get(group) and _NAMELESS_FACT.search(value):
+                    if _FOOTNOTE_VALUE.match(value):
+                        return
+                    if group and (not has_image.get(group) or any(c.isdigit() for c in value)) and _NAMELESS_FACT.search(value):
                         add(group, value)
                 elif group and fname.strip().lower() in _GENERIC_FIELDS:
-                    add(group + ", " + fname.strip().lower(), value)
+                    key = fname.strip().lower()
+                    g = group
+                    if key in ("density", "total", "estimate", "census", "urban", "metro", "land", "water"):
+                        for prev in reversed(recent):
+                            if prev.lower().startswith(("population", "pop.", "area")):
+                                g = _NAME_FOOTNOTE.sub("", prev)
+                                break
+                    add(g if key == "total" and g.lower().startswith(("population", "pop.")) else g + ", " + key, value)
                 else:
+                    recent.append(fname.strip())
                     add(fname, value, group)
             elif t == "list" and p.get("name"):
                 items = [
-                    clean_text(it.get("value"))
+                    _item_text(it)
                     for it in p.get("has_parts") or []
                     if isinstance(it, dict) and isinstance(it.get("value"), str)
                 ]
@@ -1393,6 +1890,13 @@ class _Doc:
             (group + ", " + name if name in dup and group else name, value)
             for name, value, group in fields
         ]
+        merged = []
+        for name, value in fields:
+            if merged and merged[-1][0] == name:
+                merged[-1] = (name, cut_words(merged[-1][1] + "; " + value, FACT_WORDS))
+            else:
+                merged.append((name, value))
+        fields = merged
         self.stats["facts"] = self.stats.get("facts", 0) + len(fields)
         self.headings.append(QUICK_FACTS)
         self.out.append('<h2 id="s%d">%s</h2>' % (len(self.headings), QUICK_FACTS))
@@ -1404,6 +1908,27 @@ class _Doc:
         for name, value in fields:
             self.out.append("<tr><th>" + esc(name) + "</th><td>" + esc(value) + "</td></tr>")
         self.out.append("</table>")
+
+
+def _website_host(links):
+    for lk in links or []:
+        url = lk.get("url") if isinstance(lk, dict) else None
+        if isinstance(url, str) and "://" in url:
+            host = url.split("://", 1)[1].split("/", 1)[0]
+            return host[4:] if host.startswith("www.") else host
+    return ""
+
+
+def _item_text(it):
+    """A list item's text; a definition term carries its definitions
+    ("Gold 0"), which the dump nests under it."""
+    v = clean_text(it.get("value") or "")
+    if it.get("type") == "definition_term":
+        defs = [clean_text(d.get("value") or "") for d in it.get("has_parts") or [] if isinstance(d, dict)]
+        defs = [d for d in defs if d]
+        if defs:
+            v = v + " " + ", ".join(defs)
+    return v
 
 
 # "Wolfgang Amadeus Mozart" is found by "mozart" only through an index entry
@@ -1503,13 +2028,22 @@ def heading_bytes(text):
 
 
 
-_INLINE_DOUBLE_SPACE = re.compile(r"(?<=\S)  +(?=\S)")
+_INLINE_DOUBLE_SPACE = re.compile(r"(?<=\S)[ \u00a0]{2,}(?=\S)")
+# the label may sit in a link ("Chinese</a>: ,"); the closing tag stays.
+# The piece ends at a block's closing tag, never at the link's own ("Vizing's
+# Theorem:</a> A graph" is a label with its content after it)
 _INLINE_EMPTY_LABEL = re.compile(
-    r"(?<![A-Za-z0-9>])[A-Z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?:</a>)?\s*(?=[;,)]|</)"
+    r"(?<![A-Za-z0-9>\"'\u201c\u2018])[A-Z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}(</a>)?:\s*(</a>)?\s*(?=[;,)]|</(?:p|li|td|th|dd|dt|h[1-6])>)"
+)
+_EMPTY_ANCHOR = re.compile(r'<a href="[^"]*">\s*</a>')
+# a label that is the whole of a link ("<a>Hebrew</a>:;"): the lookbehind
+# above cannot see past the ">", so the anchor and its colon go together
+_INLINE_LINKED_LABEL = re.compile(
+    r'<a href="[^"]*">' + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}</a>:\s*(?=[;,)]|</(?:p|li|td|th|dd|dt|h[1-6])>)"
 )
 _INLINE_TIDY = (
-    (re.compile(r"\(\s*[;,]\s*"), "("),
-    (re.compile(r"\s*[;,]\s*\)"), ")"),
+    (re.compile(r"\(\s*[;,:]\s*"), "("),
+    (re.compile(r"(?<![\s(]\")\s*[;,:]\s*\)"), ")"),
     (re.compile(r"\s?\(\s*\)"), ""),
     (re.compile(r"\s+([,;)])"), r"\1"),
 )
@@ -1521,17 +2055,26 @@ def _scrub_inline(html_text):
     left two spaces at a piece boundary. One pass over the assembled line."""
     if "  " in html_text or ":" in html_text:
         html_text = _INLINE_DOUBLE_SPACE.sub(" ", html_text)
-        html_text = _INLINE_EMPTY_LABEL.sub("", html_text)
+        html_text = _INLINE_LINKED_LABEL.sub("", html_text)
+        html_text = _INLINE_EMPTY_LABEL.sub(lambda m: (m.group(1) or "") + (m.group(2) or ""), html_text)
+        html_text = _EMPTY_ANCHOR.sub("", html_text)
         for rx, rep_ in _INLINE_TIDY:
             html_text = rx.sub(rep_, html_text)
     return html_text
 
 
+_TITLE_WORDS = frozenset()
+_LEAD_LABEL = re.compile(r"[A-Z][A-Za-z -]{0,24}:\s*")
+
+
 def article_xhtml(row, stats=None):
     """(title, headings, xhtml_bytes). `stats`, if given, is a dict the
     counters (runs_removed, tables_omitted, ...) are added into."""
+    global _TITLE_WORDS
     if stats is None:
         stats = {}
+    base = re.sub(r"\s*\([^()]*\)\s*$", "", str(row.get("name") or ""))
+    _TITLE_WORDS = frozenset(w.lower().strip(".,") for w in base.split()) if len(base.split()) >= 2 else frozenset()
     before = dict(tex_stats)
     doc = _Doc(row, stats)
     if not doc.title:
