@@ -10,6 +10,7 @@
 
 #include "../activities/ActivityManager.h"
 #include "ShelfFolderActivity.h"
+#include "ShelfHidden.h"
 #include "ShelfState.h"
 #include "activities/browser/OpdsBookBrowserActivity.h"
 #include "battleship/BattleshipActivity.h"
@@ -116,6 +117,11 @@ static_assert(everyFolderHasAMark(), "every shelf folder needs a mark; see tools
 // -Werror failure there.
 #if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
 constexpr char kStatePath[] = "/.crosspoint/shelf.cfg";
+// Beside it rather than inside it. The position is one short line a navigation
+// rewrites constantly; this is a list that changes a handful of times in a
+// device's life, and the two have no reason to share a write, a buffer or a
+// parser -- shelf.cfg's is a fixed 96 bytes precisely because it is small.
+constexpr char kHiddenPath[] = "/.crosspoint/shelf-hidden.cfg";
 #endif
 
 // Where leave() sends an app. Set when an item is opened, read when it leaves.
@@ -147,6 +153,12 @@ int openFolderIndex = -1;
 // player.cfg already established the pattern.
 shelf::State state;
 bool stateLoaded = false;
+
+// The items no folder shows, by title, mirroring shelf-hidden.cfg. Loaded on
+// the first question anyone asks of it and not at boot, because the shelf has
+// no init hook -- the same lazy load the position uses, for the same reason.
+shelf::HiddenSet hiddenItems;
+bool hiddenLoaded = false;
 
 // The Activity that the open item launched, by name. `openFolderIndex` alone
 // cannot answer "is that item still what is on screen": the Home gesture leaves
@@ -228,6 +240,31 @@ void saveState() {
 // would silently do nothing.
 void ensureLoaded() {
   if (!stateLoaded) loadState();
+}
+
+// The hidden list, read once. Read whole rather than into a fixed buffer: the
+// worst case is every item in the registry, and that grows every time Mario
+// adds a game -- a buffer sized for today is a setting silently lost on the
+// day the twenty-first one lands.
+void ensureHiddenLoaded() {
+  if (hiddenLoaded) return;
+  hiddenLoaded = true;
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  if (!Storage.exists(kHiddenPath)) return;
+  shelf::parseHidden(Storage.readFile(kHiddenPath).c_str(), hiddenItems);
+#endif
+}
+
+void saveHiddenItems() {
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  // An empty set writes an empty file rather than removing it: a file that
+  // exists and says nothing is hidden is one state, and a missing file that
+  // means the same thing is the same state by another route. One write path,
+  // and `exists` above is the only place that has to know both.
+  if (!Storage.writeFile(kHiddenPath, String(shelf::formatHidden(hiddenItems).c_str()))) {
+    LOG_ERR("SHELF", "Could not write %s; the list is only in RAM until the next boot", kHiddenPath);
+  }
+#endif
 }
 
 // Only when something actually changed. Opening a folder happens on every Back,
@@ -317,6 +354,54 @@ bool openItem(const int folder, const int item, GfxRenderer& renderer, MappedInp
   return true;
 }
 
+// A folder's titles, by row, for the conversions in ShelfHidden.h.
+auto titlesOf(const int folder) {
+  return [folder](const int i) { return kFolders[folder].items[i].title; };
+}
+
+bool isHidden(const int folder, const int item) {
+  if (folder < 0 || folder >= kFolderCount) return false;
+  if (item < 0 || item >= kFolders[folder].count) return false;
+  ensureHiddenLoaded();
+  return hiddenItems.contains(kFolders[folder].items[item].title);
+}
+
+void setHidden(const int folder, const int item, const bool hide) {
+  if (folder < 0 || folder >= kFolderCount) {
+    LOG_ERR("SHELF", "Bad folder index: %d", folder);
+    return;
+  }
+  if (item < 0 || item >= kFolders[folder].count) {
+    LOG_ERR("SHELF", "Bad item index %d in %s", item, kFolders[folder].title);
+    return;
+  }
+  ensureHiddenLoaded();
+  if (!hiddenItems.set(kFolders[folder].items[item].title, hide)) return;
+  LOG_INF("SHELF", "%s is now %s", kFolders[folder].items[item].title, hide ? "hidden" : "shown");
+  saveHiddenItems();
+}
+
+// The three of them are the same conversion asked three ways, and it lives in
+// ShelfHidden.h where a host test can reach it: this file cannot be built off a
+// device. All each one does here is bind the folder's titles to it.
+int shownCount(const int folder) {
+  if (folder < 0 || folder >= kFolderCount) return 0;
+  ensureHiddenLoaded();
+  return shownCountIn(hiddenItems, kFolders[folder].count, titlesOf(folder));
+}
+
+int shownItem(const int folder, const int row) {
+  if (folder < 0 || folder >= kFolderCount) return -1;
+  ensureHiddenLoaded();
+  return shownItemIn(hiddenItems, kFolders[folder].count, row, titlesOf(folder));
+}
+
+int shownRowFor(const int folder, const int item) {
+  if (folder < 0 || folder >= kFolderCount) return 0;
+  ensureHiddenLoaded();
+  return shownRowForIn(hiddenItems, kFolders[folder].count, item, titlesOf(folder));
+}
+
 void autostartFromEnv(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   // Once per process: leaving the app afterwards must land on the shelf like
   // any other exit, not bounce straight back in.
@@ -397,7 +482,16 @@ int lastFolderOnHome() {
 
 int resumeRowIn(const int index) {
   ensureLoaded();
-  return index >= 0 && index < kFolderCount ? state.resumeRow[index] : 0;
+  if (index < 0 || index >= kFolderCount) return 0;
+  // Stored as the ITEM, answered as the ROW. The conversion is here, beside the
+  // file, and not in the folder that asks: those are the only two units in this
+  // feature and the whole hazard is a caller holding one while believing the
+  // other -- they are both small ints in the same range, so nothing would say
+  // so. The folder does hold items, at the two points where it must (opening
+  // one, hiding one) and through ONE named function that produces them
+  // (ShelfFolderActivity::itemAtRow); what it never does is store one in a
+  // variable that means a row.
+  return shownRowFor(index, state.resumeRow[index]);
 }
 
 void rememberRowIn(const int index, const int row) {
@@ -405,15 +499,15 @@ void rememberRowIn(const int index, const int row) {
     LOG_ERR("SHELF", "Bad folder index: %d", index);
     return;
   }
-  if (row < 0 || row >= kFolders[index].count) {
+  // `row` is a SHOWN row, so this is also the range check: a row past the end
+  // of what the folder is showing has no item and is refused, which is the same
+  // guard the registry count used to give when the two were the same number.
+  const int item = shownItem(index, row);
+  if (item < 0) {
     LOG_ERR("SHELF", "Bad row %d in %s", row, kFolders[index].title);
     return;
   }
-  saveIfChanged(index, row);
-}
-
-const freeink::Icon* folderMark(const int index) {
-  return index >= 0 && index < kFolderCount ? kFolders[index].mark : nullptr;
+  saveIfChanged(index, item);
 }
 
 }  // namespace shelf

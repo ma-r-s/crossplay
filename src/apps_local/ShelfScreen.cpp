@@ -10,6 +10,40 @@
 
 namespace shelfui {
 
+const char* const kDoneChip = "DONE";
+
+// The chooser's caption, in the band the player bar leaves. The mode is
+// legible from the boxes alone once you are looking at them; this is for the
+// half second before that, and it is the one place the screen can say that a
+// TAP is what changes a row, on a device where a tap usually opens things.
+//
+// Nineteen characters because the band is 448px at the UI cut and the fuller
+// sentence -- TAP A ROW TO SHOW OR HIDE IT -- came back from the simulator as
+// "TAP A ROW TO SHOW OR HI...". The renderer ellipsizes and says nothing, and
+// the host test that asserted the string was DRAWN passed the whole time: the
+// target records what the builder handed it. host-tests/ui measures it now.
+const char* const kChoosingCaption = "TAP TO SHOW OR HIDE";
+
+// A folder with nothing on its list. The sentence is what the whole BAND does,
+// not what the chip in the corner does: the chip is 400px away at the top of an
+// 800px panel, and a caption pointing at a control the reader has not found yet
+// is a worse dead end than no caption. So the empty body is itself the way
+// back, and the words describe tapping where the eye already is.
+const char* const kEmptyHeadline = "NOTHING HERE";
+const char* const kEmptyHint = "TAP TO CHOOSE WHAT THIS FOLDER SHOWS";
+
+// The box on a chooser row. A filled slab with the tick knocked out of it, or a
+// hairline outline: the page marks below mean exactly that by the same pair, so
+// this is the screen's own language rather than a new one. Drawn rather than
+// blitted because a 1-bpp mask cannot be both a fill and a knockout, and
+// because a hand-drawn TICK is what goes wrong (solitaire's pips, minesweeper's
+// flag, three attempts each) -- so the tick is Lucide's and the box is two
+// primitives.
+constexpr int16_t kBoxSize = toybox::kIconSize;
+constexpr int16_t kTickSize = 24;
+constexpr uint8_t kBoxRadius = 6;
+constexpr int16_t kBoxEdge = 2;
+
 // The footer holds the device's name and is the way into changing it, so the
 // list has to stop above it. Shared with the builder, or the paging maths would
 // think it has a row's more room than it does and put a row on a page that
@@ -87,20 +121,68 @@ int pageStepClamped(const int page, const int pageCount, const int delta) {
 }
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
+  const bool choosing = model.checks != nullptr;
+
   fui::HeaderProps header;
   header.title = model.title;
   header.borderEdges = fui::EdgesNone;
+  // The corner holds the folder's mark while browsing and DONE while choosing.
+  //
+  // Only one of them at a time, and only the second is a drawn control: the way
+  // IN is the whole band, which the mark sits in and labels without being a
+  // button. The way OUT has to be a button, because a mode whose exit is
+  // invisible is a trap -- and a chip that exists only inside the mode is not
+  // the permanent furniture the first design put there.
+  if (choosing) {
+    header.trailingLabel = kDoneChip;
+    header.trailingAction = ActionChoose;
+    header.trailingStyles = toybox::bandFilledStyles();
+  } else {
+    // Room at the right of the content for the mark this file draws by hand.
+    // The component reserves it out of the title AND out of the page counter,
+    // which is the whole reason it is asked for rather than assumed: the
+    // counter used to be placed by hand against the same arithmetic, in a
+    // second copy, and a second copy is what goes wrong when the corner
+    // changes.
+    header.rightReserve = static_cast<int16_t>(toybox::kIconSize + toybox::kGutter);
+  }
+  // The chip's label takes its COLOUR from the style's foreground -- button()
+  // resolves it that way and ignores the colour on this style -- so what this
+  // line is for is the font the header measures the chip's width with. Named
+  // rather than left unset because the fit depends on it and a reader should
+  // not have to know that headerBand substitutes the same slot by default.
+  header.trailingText = screen.theme().smallText;
+  header.trailingRadius = toybox::kPillRadius / 2;
+
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
 
+  // The band is the way into the chooser, and out of it. The whole band, not
+  // the mark alone: a 32px glyph is under half a thumb, and the rest of the
+  // strip carries nothing a tap could otherwise mean. Registered AFTER the
+  // header, so the chip inside it is registered first -- both carry the same
+  // action, so the order is belt and braces rather than load-bearing.
+  //
+  // A hit region and nothing else; a StyleSet left unset would be replaced by
+  // the default button look and paint a slab over the title.
+  {
+    fui::StyleSet invisible;
+    invisible.explicitlySet = true;
+    fui::ButtonProps band;
+    band.action = ActionChoose;
+    band.styles = invisible;
+    band.minTouchSize = 0;
+    screen.button(band, toybox::headerBandRect(screen));
+  }
+
   const fui::Rect panel = screen.device().screen();
 
-  // Paper, because the header is a filled black band. Placed from the right
-  // edge, where nothing else in the header goes.
-  if (model.mark != nullptr) {
+  // Paper, because the band is a filled black slab, and only while browsing:
+  // the corner is DONE's while choosing.
+  const int16_t markX = static_cast<int16_t>(panel.width - toybox::kIconSize - toybox::kMargin);
+  if (!choosing && model.mark != nullptr) {
     const fui::Rect markRect =
-        fui::makeRect(static_cast<int16_t>(panel.width - toybox::kIconSize - toybox::kMargin),
-                      toybox::bandCenterY(screen, toybox::kIconSize), toybox::kIconSize, toybox::kIconSize);
+        fui::makeRect(markX, toybox::bandCenterY(screen, toybox::kIconSize), toybox::kIconSize, toybox::kIconSize);
     screen.target().bitmap(markRect, fui::bitmapFromIcon(*model.mark), fui::BitmapMode::Contain,
                            fui::Paint::solid(fui::Color::White));
   }
@@ -114,19 +196,34 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // twice: once beside the folder's name, which is the first thing read, and
   // once on the control that changes it.
   //
-  // Right-aligned into the gap the mark leaves, at UI size rather than the
-  // title's, because it is an answer to a question about the title and not part
-  // of the name.
+  // Placed by hand, at UI size, with its INK centred in the visible band --
+  // which is the same rule the mark beside it uses, and is why the two line up.
+  // The component's own rightLabel slot would place it for us and sits it on
+  // the TITLE's line box instead: bottom-aligned to a display cut whose line
+  // box runs well below its glyphs, so a small label lands under the baseline
+  // and reads as dropped. Mario saw it in one screenshot.
+  //
+  // What it has to stop before is whichever thing the corner is holding, and
+  // those are different widths. The chip's is the header component's own
+  // arithmetic -- label + 20, inset 4 from the band's right edge -- mirrored
+  // here in the same order, the way toybox::headerTitleWidth mirrors the rest
+  // of that layout rather than guessing at it.
   if (model.pageCount > 1) {
+    int16_t cornerX = markX;
+    if (choosing) {
+      const int16_t chipW = static_cast<int16_t>(
+          screen.target().measureText(header.trailingText.font, kDoneChip, header.trailingText).width + 20);
+      cornerX = static_cast<int16_t>(panel.width - 4 - chipW);
+    }
     char counter[toybox::kSlashCounterChars];
     snprintf(counter, sizeof(counter), "%d/%d", model.page + 1, model.pageCount);
     fui::TextStyle style;
     style.font = toybox::kUiFont;
     style.align = fui::TextAlign::Right;
+    // Paper, or it is painted black on a black band and simply is not there.
     style.color = fui::Color::White;
-    const int16_t right = static_cast<int16_t>(panel.width - toybox::kIconSize - toybox::kMargin - toybox::kGutter);
     const fui::Rect box = fui::makeRect(0, toybox::bandCenterY(screen, toybox::kUiCut.inkHeight),
-                                        static_cast<int16_t>(right), toybox::kUiCut.inkHeight);
+                                        static_cast<int16_t>(cornerX - toybox::kGutter), toybox::kUiCut.inkHeight);
     screen.target().text(toybox::inkCentred(box, toybox::kUiCut), counter, style);
   }
 
@@ -143,50 +240,66 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // reason to build one: a name here is a label to be recognised, not a message
   // to be written, and rolling one word at a time is faster and more fun than
   // typing on a panel that repaints in half a second.
+  //
+  // The band belongs to the FOLDER, not to the mode: it is taken here whenever
+  // this folder shows the device name, in both modes, which is what keeps the
+  // chooser showing the same games on the same page as the list it was opened
+  // from. What goes IN it changes -- the bar is a browsing control, and while
+  // choosing the same strip carries the mode's caption instead, an inert
+  // sentence rather than a second control on a screen whose rows have just
+  // changed meaning. A folder without the bar (APPS) gets no caption, because
+  // taking a band for one would reflow its list.
   if (model.playerName != nullptr) {
     const fui::Rect bar = screen.takeBottom(toybox::kRowHeight, toybox::kGutter);
+    if (choosing) {
+      fui::TextStyle caption = screen.theme().bodyText;
+      caption.color = fui::Color::Black;
+      caption.align = fui::TextAlign::Center;
+      screen.target().text(toybox::inkCentred(bar, toybox::kUiCut), kChoosingCaption, caption);
+    } else {
+      // The slab and the hit region, with NO label. The name is drawn separately
+      // below, into a band that excludes the face and the chevron.
+      //
+      // Handing the button its label was the obvious thing and it was wrong: the
+      // component centres the text across the whole rect, so at the widest name
+      // the lists can roll -- twenty characters -- it ran straight through the
+      // face on one side and the chevron on the other. Three things cannot share
+      // one centre line.
+      fui::ButtonProps you;
+      you.action = ActionOpenPlayer;
+      screen.button(you, bar);
 
-    // The slab and the hit region, with NO label. The name is drawn separately
-    // below, into a band that excludes the face and the chevron.
-    //
-    // Handing the button its label was the obvious thing and it was wrong: the
-    // component centres the text across the whole rect, so at the widest name
-    // the lists can roll -- twenty characters -- it ran straight through the
-    // face on one side and the chevron on the other. Three things cannot share
-    // one centre line.
-    fui::ButtonProps you;
-    you.action = ActionOpenPlayer;
-    screen.button(you, bar);
+      // Both marks are drawn ON the bar, which the button has just filled solid
+      // black, so both are paper. Drawn in ink they would be invisible and
+      // nothing would warn -- the multiplayer mark went black-on-black once
+      // already.
+      const fui::Paint paper = fui::Paint::solid(fui::Color::White);
+      const int16_t face = player::avatarPixels(player::AvatarSize::Row);
+      const int16_t inset = static_cast<int16_t>((toybox::kRowHeight - face) / 2);
+      const fui::Rect faceRect =
+          fui::makeRect(static_cast<int16_t>(bar.x + inset), static_cast<int16_t>(bar.y + inset), face, face);
+      const fui::Rect chevron =
+          fui::makeRect(static_cast<int16_t>(bar.right() - toybox::kIconSize - toybox::kGutter),
+                        static_cast<int16_t>(bar.y + (toybox::kRowHeight - toybox::kIconSize) / 2), toybox::kIconSize,
+                        toybox::kIconSize);
+      player::drawAvatar(screen.target(), faceRect, model.playerName, player::AvatarSize::Row, fui::Color::White);
+      screen.target().bitmap(chevron, fui::bitmapFromIcon(icon_opens_32), fui::BitmapMode::Contain, paper);
 
-    // Both marks are drawn ON the bar, which the button has just filled solid
-    // black, so both are paper. Drawn in ink they would be invisible and
-    // nothing would warn -- the multiplayer mark went black-on-black once
-    // already.
-    const fui::Paint paper = fui::Paint::solid(fui::Color::White);
-    const int16_t face = player::avatarPixels(player::AvatarSize::Row);
-    const int16_t inset = static_cast<int16_t>((toybox::kRowHeight - face) / 2);
-    const fui::Rect faceRect =
-        fui::makeRect(static_cast<int16_t>(bar.x + inset), static_cast<int16_t>(bar.y + inset), face, face);
-    const fui::Rect chevron = fui::makeRect(static_cast<int16_t>(bar.right() - toybox::kIconSize - toybox::kGutter),
-                                            static_cast<int16_t>(bar.y + (toybox::kRowHeight - toybox::kIconSize) / 2),
-                                            toybox::kIconSize, toybox::kIconSize);
-    player::drawAvatar(screen.target(), faceRect, model.playerName, player::AvatarSize::Row, fui::Color::White);
-    screen.target().bitmap(chevron, fui::bitmapFromIcon(icon_opens_32), fui::BitmapMode::Contain, paper);
-
-    // What is left between them, and the name has to live inside it whatever it
-    // says. The dense cut, because twenty characters do not fit this band at UI
-    // size and the alternative is the component quietly truncating -- with an
-    // ellipsis glyph Jersey does not even have. Smaller is also the right
-    // hierarchy here: on a door, the face says who and the name only confirms
-    // it. The PLAYER screen is where the name is the subject.
-    fui::TextStyle label;
-    label.font = toybox::kSmallFont;
-    label.align = fui::TextAlign::Center;
-    label.color = fui::Color::White;
-    const int16_t left = static_cast<int16_t>(faceRect.right() + toybox::kGutter);
-    screen.target().text(
-        fui::makeRect(left, bar.y, static_cast<int16_t>(chevron.x - toybox::kGutter - left), toybox::kRowHeight),
-        model.playerName, label);
+      // What is left between them, and the name has to live inside it whatever it
+      // says. The dense cut, because twenty characters do not fit this band at UI
+      // size and the alternative is the component quietly truncating -- with an
+      // ellipsis glyph Jersey does not even have. Smaller is also the right
+      // hierarchy here: on a door, the face says who and the name only confirms
+      // it. The PLAYER screen is where the name is the subject.
+      fui::TextStyle label;
+      label.font = toybox::kSmallFont;
+      label.align = fui::TextAlign::Center;
+      label.color = fui::Color::White;
+      const int16_t left = static_cast<int16_t>(faceRect.right() + toybox::kGutter);
+      screen.target().text(
+          fui::makeRect(left, bar.y, static_cast<int16_t>(chevron.x - toybox::kGutter - left), toybox::kRowHeight),
+          model.playerName, label);
+    }
   }
 
   // Taken after the player bar, so it sits above it, and only when there is more
@@ -275,6 +388,53 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     }
   }
 
+  const fui::Rect rows = listBand(screen.device(), model.playerName != nullptr, model.pageCount > 1);
+
+  // A folder with nothing on its list. Reachable, deliberately: a person who
+  // does not want any of the games is allowed to have none of them, and a rule
+  // refusing the last one would be the device arguing with its owner.
+  //
+  // What it must not be is a dead end, so the whole empty band is the way back
+  // in -- one hit region, the size of the hole the list left, doing what the
+  // chip in the corner does. The chip is still up there for anyone who looks,
+  // but nothing here depends on finding it.
+  if (model.count <= 0) {
+    fui::StyleSet invisible;
+    // A hit region and nothing else, the same way the page marks ask for one: a
+    // StyleSet left unset would be replaced by the default button look, which
+    // is a black slab the size of the body.
+    invisible.explicitlySet = true;
+    fui::ButtonProps anywhere;
+    anywhere.action = ActionChoose;
+    anywhere.styles = invisible;
+    anywhere.minTouchSize = 0;
+    screen.button(anywhere, rows);
+
+    fui::TextStyle headline = screen.theme().titleText;
+    // OFF THE BAND, SO IT HAS TO BE INK. The display cut's token colour is
+    // paper because it is otherwise only ever set on the black header; taken as
+    // given here it paints white on white and the panel looks broken in exactly
+    // the way this sentence exists to prevent.
+    headline.color = fui::Color::Black;
+    headline.align = fui::TextAlign::Center;
+    fui::TextStyle hint = screen.theme().bodyText;
+    hint.color = fui::Color::Black;
+    hint.align = fui::TextAlign::Center;
+    hint.maxLines = 3;
+    // Both measured and stacked as a block. centeredText() centres in the
+    // content rect and consumes nothing, so two calls draw at the same y and
+    // the first is simply painted over -- the Hacker News empty shelf shipped
+    // that way and nobody could see it happening.
+    const int16_t headlineH = screen.target().lineHeight(headline.font);
+    const int16_t hintH = fui::measureWrappedText(screen.target(), kEmptyHint, hint, rows.width).height;
+    const int16_t top = static_cast<int16_t>(rows.y + (rows.height - headlineH - toybox::kGutter - hintH) / 2);
+    screen.target().text(fui::makeRect(rows.x, top, rows.width, headlineH), kEmptyHeadline, headline);
+    screen.target().text(
+        fui::makeRect(rows.x, static_cast<int16_t>(top + headlineH + toybox::kGutter), rows.width, hintH), kEmptyHint,
+        hint);
+    return;
+  }
+
   fui::ListProps list;
   list.items = model.items;
   list.count = static_cast<uint16_t>(model.count);
@@ -285,10 +445,41 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // component's default so a change to that default cannot put a cursor back on
   // a screen that has nothing to move it.
   list.selectedIndex = -1;
-  list.action = ActionOpen;
-
-  const fui::Rect rows = listBand(screen.device(), model.playerName != nullptr, model.pageCount > 1);
+  list.action = choosing ? ActionToggleShown : ActionOpen;
+  // The whole row is the target, not the box on it. Two hit regions per row
+  // would be two of the screen's twenty-four for a control the finger is
+  // already on, and the row past the twenty-fourth stops answering in silence.
+  if (choosing) {
+    // The list only indents a label when it is drawing an icon of its own, and
+    // its icon slot draws one bitmap with the row's foreground -- which cannot
+    // be a box with a knocked-out tick. So the room is taken here and the box
+    // is drawn into it below, the same arrangement the app icons on the right
+    // already have.
+    list.sidePadding = static_cast<int16_t>(screen.theme().listSidePadding + toybox::kIconSize + toybox::kGutter);
+  }
   screen.list(list);
+
+  if (choosing) {
+    const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+    for (int i = 0; i < model.count; ++i) {
+      fui::Rect row;
+      if (!toybox::listRowRect(screen, rows, i, 0, row)) continue;
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(row.x + screen.theme().listSidePadding),
+                        static_cast<int16_t>(row.y + (row.height - kBoxSize) / 2), kBoxSize, kBoxSize);
+      if (!model.checks[i]) {
+        screen.target().stroke(box, ink, kBoxEdge, kBoxRadius);
+        continue;
+      }
+      screen.target().fill(box, ink, kBoxRadius);
+      // Paper on the slab. Drawn in ink it would be invisible and nothing would
+      // warn; the multiplayer mark went black-on-black once already.
+      screen.target().bitmap(
+          fui::makeRect(static_cast<int16_t>(box.x + (kBoxSize - kTickSize) / 2),
+                        static_cast<int16_t>(box.y + (kBoxSize - kTickSize) / 2), kTickSize, kTickSize),
+          fui::bitmapFromIcon(icon_tick_24), fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::White));
+    }
+  }
 
   // Icons sit at the right edge; see toybox::iconAtRowRight for why not the
   // list's own left-hand slot.

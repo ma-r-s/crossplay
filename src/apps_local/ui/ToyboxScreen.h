@@ -405,17 +405,36 @@ constexpr int16_t kIconSize = 32;
 //
 // `selected` picks the ink: the selected row is filled black, so its icon has
 // to be paper.
-inline void iconAtRowRight(Screen& screen, const freeink::ui::Rect& band, const int index, const int topIndex,
-                           const freeink::Icon& icon, const bool selected) {
-  namespace fui = freeink::ui;
+// Where the list component put row `index`, for anything an app draws ON a row
+// that the component knows nothing about.
+//
+// False when that row is not on the panel -- above the band's first drawn row,
+// or past the last one that fits -- matching the component's own rule, so a
+// decoration stops exactly where the labels do. Extracted so the two things
+// this fork draws on rows (an icon at the right, a box at the left) cannot
+// disagree about where a row is: the right-hand one had this arithmetic inline
+// and got it wrong once already, painting the tenth shelf icon a row below the
+// band, in black, on top of the black player footer.
+inline bool listRowRect(Screen& screen, const freeink::ui::Rect& band, const int index, const int topIndex,
+                        freeink::ui::Rect& out) {
   const int16_t rowHeight = screen.theme().rowHeight;
   const int16_t rowGap = screen.theme().listRowGap;
   const int row = index - topIndex;
-  if (row < 0) return;
+  if (row < 0) return false;
   const int16_t rowY = static_cast<int16_t>(band.y + row * (rowHeight + rowGap));
-  if (rowY + rowHeight > band.y + band.height) return;
-  const fui::Rect where = fui::makeRect(static_cast<int16_t>(band.x + band.width - kIconSize - kGutter * 2),
-                                        static_cast<int16_t>(rowY + (rowHeight - kIconSize) / 2), kIconSize, kIconSize);
+  if (rowY + rowHeight > band.y + band.height) return false;
+  out = freeink::ui::makeRect(band.x, rowY, band.width, rowHeight);
+  return true;
+}
+
+inline void iconAtRowRight(Screen& screen, const freeink::ui::Rect& band, const int index, const int topIndex,
+                           const freeink::Icon& icon, const bool selected) {
+  namespace fui = freeink::ui;
+  fui::Rect row;
+  if (!listRowRect(screen, band, index, topIndex, row)) return;
+  const fui::Rect where =
+      fui::makeRect(static_cast<int16_t>(row.x + row.width - kIconSize - kGutter * 2),
+                    static_cast<int16_t>(row.y + (row.height - kIconSize) / 2), kIconSize, kIconSize);
   screen.target().bitmap(where, fui::bitmapFromIcon(icon), fui::BitmapMode::Contain,
                          fui::Paint::solid(selected ? fui::Color::White : fui::Color::Black));
 }

@@ -70,12 +70,15 @@ struct Folder {
   // Home draws this one, and upstream's menu takes a UIIcon and nothing else.
   // Folder is honest: these are folders, in their list, in their language.
   UIIcon icon;
-  // Ours, drawn in the folder's own header where we own the whole screen.
-  // Home cannot use it: drawButtonMenu only indents the label when its own
-  // palette resolves a bitmap, so placing ours there means either overlapping
-  // the label or erasing upstream's icon first -- and erasing means copying the
-  // row's inset, its font's line height, the theme's private icon size and its
-  // selection fill. Five couplings to a private layout, for two icons.
+  // Ours, drawn at the right of the folder's own header, where Home cannot use
+  // it: drawButtonMenu only indents the label when its own palette resolves a
+  // bitmap, so placing ours there means either overlapping the label or erasing
+  // upstream's icon first -- and erasing means copying the row's inset, its
+  // font's line height, the theme's private icon size and its selection fill.
+  // Five couplings to a private layout, for two icons.
+  //
+  // It is also the affordance for the chooser: the whole header band is the way
+  // in, and this is the thing in it that does not look like a title.
   const freeink::Icon* mark;
   const Item* items;
   int count;
@@ -96,6 +99,49 @@ void openFolder(int index, GfxRenderer& renderer, MappedInputManager& mappedInpu
 // so leave() can undo it. False if the item could not be created, in which case
 // nothing was replaced and the caller still owns the screen.
 bool openItem(int folder, int item, GfxRenderer& renderer, MappedInputManager& mappedInput);
+
+// ---------------------------------------------------------------------------
+// What a folder SHOWS, which is not the same as what it holds.
+//
+// Every item above is installed and stays installed. A person who never plays
+// Sudoku can take it off the list, and a folder then draws, pages and resumes
+// over what is left. Nothing else changes: a hidden item still resumes on wake
+// and still answers to CROSSPLAY_AUTOSTART, because this is a listing, not an
+// uninstall, and a device that woke up having forgotten the game on its own
+// screen would be a worse thing than a long list.
+//
+// The set lives in /.crosspoint/shelf-hidden.cfg, keyed by title; see
+// ShelfHidden.h for why a title and not a row.
+// ---------------------------------------------------------------------------
+
+// Whether item `item` of `folder` is off the list. False for anything out of
+// range, so a caller with a stale index gets the harmless answer.
+bool isHidden(int folder, int item);
+
+// Put it on or take it off, and write the card. A no-op when it is already
+// that way, because a card has a finite erase count and a tap that changes
+// nothing should cost nothing.
+void setHidden(int folder, int item, bool hide);
+
+// How many items `folder` is showing. Zero is allowed and is not a bug: the
+// folder draws its own empty state, which still carries the way back.
+int shownCount(int folder);
+
+// The registry index of the item at shown row `row`, or -1 when there is none.
+// The one place a row becomes an item, so a tap cannot open a game the row
+// under the finger was not naming.
+int shownItem(int folder, int row);
+
+// How many shown items sit BEFORE registry item `item` -- which is the shown
+// row of `item` itself when it is shown, and the row of the next surviving
+// item when it is not.
+//
+// Deliberately unclamped, so it can return shownCount() when everything after
+// the hidden item is hidden too. The clamp is shelfui::resumeRowFor()'s job
+// and is the same rule a folder that SHRANK already uses: pin to the last row,
+// not back to the top. Two rules, one each, rather than two clamps that have
+// to agree.
+int shownRowFor(int folder, int item);
 
 // Record, on the way into deep sleep, whether a shelf item is what the user is
 // looking at. `currentActivityName` is the name of the activity on screen; an
@@ -149,6 +195,12 @@ int lastFolderOnHome();
 // The row folder `index` should reopen on -- which is to say the PAGE it should
 // reopen on, since the page is the row's. 0 if it has never been left anywhere.
 //
+// A SHOWN row: it counts only the items the folder is listing, which is what
+// the folder draws and pages over. The card holds the ITEM instead, and the
+// conversion happens here rather than in the folder, so nothing outside this
+// file ever holds both units. An item hidden since it was written resumes on
+// the nearest row that survived.
+//
 // A folder is destroyed when it launches something and again when you walk out
 // of it, so without this you come back from the third game with the cursor on
 // the first, and you come back from a book to page one of a folder you had
@@ -157,16 +209,16 @@ int lastFolderOnHome();
 int resumeRowIn(int index);
 
 // Remember that folder `index` is standing on `row`, so that is where it comes
-// back. openItem() does this with the row it opened; the folder itself does it
+// back. openItem() does this with the item it opened; the folder itself does it
 // with the first row of every page it turns to, which is what makes leaving a
 // folder WITHOUT opening anything come back to the page you were reading.
+//
+// A SHOWN row, the same unit resumeRowIn() answers in, and refused when the
+// folder is not showing that many.
 //
 // Written when the page turns rather than on the way out, because there is no
 // reliable way out to hook: the idle timeout deep-sleeps wherever you are, and
 // wake is a chip reset. The write is ~20 bytes beside a full e-ink repaint.
 void rememberRowIn(int index, int row);
-
-// The icon for folder row `index`, for the Home seam to draw. Null-safe.
-const freeink::Icon* folderMark(int index);
 
 }  // namespace shelf

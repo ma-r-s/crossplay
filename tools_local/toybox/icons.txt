@@ -351,3 +351,19 @@ wiki_back   = chevron-left
 # The article band's CONTENTS: the list, because a word in the reader's
 # small cut took 151 of the band's 448 and left a one-word title cut.
 wiki_contents = list
+
+# The shelf chooser's tick. The BOX around it is drawn from primitives (a
+# filled slab or a hairline outline, which is already this screen's language
+# for "this one of these" -- see the page marks); only the tick is an asset,
+# because a hand-drawn one goes the way solitaire's pips and minesweeper's
+# flag went. Lucide's plain `check` is a single stroke with no interior
+# detail, which is the one thing that survives being knocked out of a 32px
+# slab in one bit.
+#
+# `tick`, not `check`: src/components/icons/listIcons.h -- the OTHER generated
+# icon header, upstream's side of the fence -- already defines icon_check_24
+# and icon_check_32, and both headers declare their icons `static const` at
+# namespace scope. Nothing includes both today, so the collision would have
+# waited quietly until the first file that did. It is the only name the two
+# manifests have ever shared.
+tick = check

@@ -36,6 +36,44 @@ inline fui::StyleSet invertedStyles() {
   return styles;
 }
 
+// A control ON the header band, in its two states. The band is solid black, so
+// neither of the pairs above will do: invertedStyles() is that same black and
+// leaves a chip that IS the band with a glyph floating on it, and rowStyles()
+// is a white fill whose black hairline vanishes into the paper it is drawn on.
+// Both were tried, on two different screens, and the second of them shipped
+// backwards for two cold testers (one removed an article believing they had
+// kept it).
+//
+// So: present, chosen, on -- the white chip. Absent, available, off -- the
+// outline, drawn in paper, because a black hairline on a black band is nothing
+// at all. It is the same filled-versus-outlined language the page marks use one
+// screen down, which is what lets a person read a chip they have never tapped.
+inline fui::StyleSet bandFilledStyles() {
+  fui::StyleSet styles;
+  styles.explicitlySet = true;
+  styles.normal.background = fui::Paint::solid(fui::Color::White);
+  styles.normal.foreground = fui::Paint::solid(fui::Color::Black);
+  styles.selected = styles.normal;
+  styles.focused = styles.normal;
+  styles.active = styles.normal;
+  styles.disabled = styles.normal;
+  return styles;
+}
+
+inline fui::StyleSet bandOutlineStyles() {
+  fui::StyleSet styles;
+  styles.explicitlySet = true;
+  styles.normal.background = fui::Paint::solid(fui::Color::Black);
+  styles.normal.foreground = fui::Paint::solid(fui::Color::White);
+  styles.normal.border = fui::Paint::solid(fui::Color::White);
+  styles.normal.borderWidth = kHairline;
+  styles.selected = styles.normal;
+  styles.focused = styles.normal;
+  styles.active = styles.normal;
+  styles.disabled = styles.normal;
+  return styles;
+}
+
 // A settings row: hairline outline at rest, inverted when selected. Same two
 // states menuRow() drew by hand.
 inline fui::StyleSet rowStyles() {

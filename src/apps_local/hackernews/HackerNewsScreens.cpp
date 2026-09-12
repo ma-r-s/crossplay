@@ -20,47 +20,11 @@ constexpr int kBodyTop = toybox::kBodyTop;
 // The reader's footer: one row of three controls.
 constexpr int kFooterHeight = toybox::kPillHeight;
 
-// A control that sits ON the header band, where the ordinary pair of styles is
-// upside down.
-//
-// toybox::invertedStyles() is a solid black fill: on paper it is the loud one,
-// on this band it IS the band, so "filled" disappears and only the knocked-out
-// glyph is left. rowStyles() is a white fill with a black hairline: on the band
-// the hairline vanishes and the white fill is the loudest thing on the screen.
-// A mark styled "filled means saved" out of those two therefore reads exactly
-// backwards, and two cold testers read it backwards -- one of them removed an
-// article believing they had just kept it.
-//
-// So the band gets its own pair, the same idea re-derived against black ground:
-// present is the white chip, absent is the outline drawn in paper.
-fui::StyleSet bandFilledStyles() {
-  fui::StyleSet styles;
-  styles.explicitlySet = true;
-  styles.normal.background = fui::Paint::solid(fui::Color::White);
-  styles.normal.foreground = fui::Paint::solid(fui::Color::Black);
-  styles.selected = styles.normal;
-  styles.focused = styles.normal;
-  styles.active = styles.normal;
-  styles.disabled = styles.normal;
-  return styles;
-}
-
-fui::StyleSet bandOutlineStyles() {
-  fui::StyleSet styles;
-  styles.explicitlySet = true;
-  // The band's own black, so the chip is a shape drawn in its outline rather
-  // than a second ground. The border has to be PAPER: a black hairline on a
-  // black band is the invisible half of the bug above.
-  styles.normal.background = fui::Paint::solid(fui::Color::Black);
-  styles.normal.foreground = fui::Paint::solid(fui::Color::White);
-  styles.normal.border = fui::Paint::solid(fui::Color::White);
-  styles.normal.borderWidth = toybox::kHairline;
-  styles.selected = styles.normal;
-  styles.focused = styles.normal;
-  styles.active = styles.normal;
-  styles.disabled = styles.normal;
-  return styles;
-}
+// The save chip's two styles are toybox::bandFilledStyles() and
+// bandOutlineStyles(), which this screen wrote first and the shelf's chooser
+// chip needed second. They live in the tokens now; the reason they cannot be
+// the ordinary pair is in the header there, and two cold testers paid for it
+// here.
 
 // Header band, rule, and the page margin. Every screen here opens with this.
 //
@@ -90,7 +54,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
     header.trailingIcon = fui::bitmapFromIcon(icon_saved_32);
     header.trailingLabel = saveChipLabel(saved);
     header.trailingAction = saved ? ActionUnsave : ActionSave;
-    header.trailingStyles = saved ? bandFilledStyles() : bandOutlineStyles();
+    header.trailingStyles = saved ? toybox::bandFilledStyles() : toybox::bandOutlineStyles();
     header.trailingRadius = toybox::kPillRadius / 2;
   }
   header.rightLabel = rightLabel;

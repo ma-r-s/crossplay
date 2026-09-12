@@ -13,7 +13,32 @@ namespace shelfui {
 
 namespace fui = freeink::ui;
 
-enum : fui::ActionId { ActionOpen = 1, ActionOpenPlayer = 2, ActionGoToPage = 3 };
+enum : fui::ActionId {
+  ActionOpen = 1,
+  ActionOpenPlayer = 2,
+  ActionGoToPage = 3,
+  // The corner chip, in both directions: one control, one action, so the
+  // screen cannot be in a state where the way in is drawn and the way out is
+  // not. The activity holds which way round it is.
+  ActionChoose = 4,
+  // A row while choosing. A different action from ActionOpen rather than the
+  // same one read differently, because the two do opposite things to the same
+  // pixels and a mode read from a second place is how a tap opens a game the
+  // user was trying to hide.
+  ActionToggleShown = 5,
+};
+
+// The one word this screen spends on the mode, and it is spent on the way OUT.
+//
+// There is no button for the way IN: the whole header band is the target, and
+// the folder's mark sits in it as the thing that does not look like a title. A
+// permanent EDIT chip was the first design and Mario turned it down -- it is a
+// control that shouts on every visit for a thing done once, on a shelf whose
+// whole job is the list underneath it.
+//
+// The exit still has to be visible, because a mode you cannot see the way out
+// of is a trap, and DONE is only ever drawn inside the mode.
+extern const char* const kDoneChip;
 
 // How many rows a page holds, and how many pages there are.
 //
@@ -32,10 +57,19 @@ struct MenuModel {
   const freeink::Icon* const* icons = nullptr;
   // The folder's own name, drawn in the header.
   const char* title = "";
-  // Drawn beside the title. Home shows these rows with upstream's folder icon,
-  // in upstream's list, in upstream's language; this is where the folder gets
-  // to say what kind of folder it is.
+  // Drawn beside the title, at the right of the band. Home shows these rows with
+  // upstream's folder icon, in upstream's list, in upstream's language; this is
+  // where the folder gets to say what kind of folder it is -- and it is what a
+  // finger aims at to open the chooser, though the whole band answers.
   const freeink::Icon* mark = nullptr;
+  // One per row, in the same order as `items`: true when that item is on the
+  // list. NON-NULL IS THE MODE. A screen with checks draws a box at the left
+  // of every row, puts DONE in the corner where the mark was, and sends taps to
+  // ActionToggleShown instead of ActionOpen -- all of it from this one field,
+  // because a mode carried in two places is a mode that can disagree with
+  // itself, and here the disagreement opens a game while you are trying to
+  // hide it.
+  const bool* checks = nullptr;
   // The current page's items, and only those: the caller slices, so `items[0]`
   // is the top row on screen and `count` is what this page holds, which is
   // short on the last one.
@@ -47,8 +81,12 @@ struct MenuModel {
   // one. A page is a short list, so it is passed as one, and the component never
   // learns that paging exists.
   //
-  // `actionValue` still carries the absolute index, so a tap reports which game
-  // it is rather than which row.
+  // `actionValue` carries the item's index in the WHOLE list -- the folder's
+  // shown items while browsing, its every item while choosing -- so a tap
+  // reports which entry it is rather than which row of the slice. It is not the
+  // registry index: the activity turns one into the other in a single place
+  // (ShelfFolderActivity::itemAtRow), because a screen that knows both units
+  // is a screen that can open the game below the one you tapped.
   const fui::ListItem* items = nullptr;
   int count = 0;
   // There is no selection field, and that is the design. Navigation here is
@@ -173,6 +211,14 @@ int pageStepClamped(int page, int pageCount, int delta);
 // it is a separate argument rather than derived because pagingFor has to ask
 // this question both ways round to resolve the circularity. Shared with the
 // builder so the two cannot disagree.
+//
+// `hasDeviceName` is a property of the FOLDER and not of the mode, which is
+// what keeps the chooser showing the same games on the same page as the list it
+// was opened from. Making the band appear because the chooser wanted somewhere
+// to put its caption would have reflowed APPS, which has no player bar: ten
+// rows browsing and nine choosing, so the row under your finger is a different
+// app before you have touched anything. The caption goes in the band the folder
+// already has, or it does not go anywhere.
 fui::Rect listBand(const fui::DeviceContext& device, bool hasDeviceName, bool hasPages);
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
