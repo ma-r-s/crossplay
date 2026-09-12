@@ -79,17 +79,23 @@ struct BlockRecord {
   uint32_t usize = 0;
 };
 
-// The directory is small enough to hold whole (16 bytes a block), so the
-// caller reads the file into memory once and hands it here.
+// 16 bytes a block, and the full English pack has 657,085 of them: 10.5 MB
+// in one allocation, which this device does not have once the framebuffer,
+// the fonts and zstd have theirs (it aborted on exactly that, 1.12.56). So
+// the directory is read from the card a record at a time, like the title
+// index, and the last record is kept because a lookup asks for it twice.
 class BlocksDir {
  public:
-  bool load(std::vector<uint8_t> bytes);
+  bool open(ByteSource& source);
   uint32_t count() const { return count_; }
   bool record(uint32_t block, BlockRecord& out) const;
 
  private:
-  std::vector<uint8_t> bytes_;
+  static constexpr uint32_t kNoBlock = 0xFFFFFFFFu;
+  ByteSource* source_ = nullptr;
   uint32_t count_ = 0;
+  mutable uint32_t cachedBlock_ = kNoBlock;
+  mutable BlockRecord cached_;
 };
 
 // ------------------------------------------------------------ titles.N.idx

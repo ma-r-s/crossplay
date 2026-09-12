@@ -248,6 +248,47 @@ void testManifest() {
   CHECK(e.built.empty());
 }
 
+// A directory of `count` records that exist only as arithmetic: record i has
+// shard i % 39 and offset i * 7. Lets a test describe the 10.5 MB directory of
+// a full pack without allocating it, which is the whole point of the change.
+class SparseSource final : public ByteSource {
+ public:
+  SparseSource(std::vector<uint8_t> header, uint32_t count, uint32_t recordBytes)
+      : header_(std::move(header)), count_(count), recordBytes_(recordBytes) {}
+
+  bool read(const uint32_t offset, void* dst, const uint32_t length) override {
+    if (static_cast<uint64_t>(offset) + length > size()) return false;
+    auto* out = static_cast<uint8_t*>(dst);
+    for (uint32_t k = 0; k < length; ++k) {
+      const uint32_t at = offset + k;
+      if (at < header_.size()) {
+        out[k] = header_[at];
+        continue;
+      }
+      const uint32_t i = (at - header_.size()) / recordBytes_;
+      const uint32_t within = (at - header_.size()) % recordBytes_;
+      uint8_t rec[16] = {0};
+      const uint16_t shard = static_cast<uint16_t>(i % 39);
+      const uint32_t offsetValue = i * 7u;
+      rec[0] = static_cast<uint8_t>(shard & 0xFF);
+      rec[1] = static_cast<uint8_t>(shard >> 8);
+      rec[4] = static_cast<uint8_t>(offsetValue & 0xFF);
+      rec[5] = static_cast<uint8_t>((offsetValue >> 8) & 0xFF);
+      rec[6] = static_cast<uint8_t>((offsetValue >> 16) & 0xFF);
+      rec[7] = static_cast<uint8_t>((offsetValue >> 24) & 0xFF);
+      out[k] = within < sizeof(rec) ? rec[within] : 0;
+    }
+    return true;
+  }
+
+  uint32_t size() const override { return static_cast<uint32_t>(header_.size()) + count_ * recordBytes_; }
+
+ private:
+  std::vector<uint8_t> header_;
+  uint32_t count_;
+  uint32_t recordBytes_;
+};
+
 void testBlocksDir() {
   std::vector<uint8_t> bytes;
   putStr(bytes, "WKBD");
@@ -265,16 +306,40 @@ void testBlocksDir() {
   putU32(bytes, 20000);
   putU32(bytes, 90000);
   putU32(bytes, 247000);
+  MemSource source(bytes);
   BlocksDir dir;
-  CHECK(dir.load(bytes));
+  CHECK(dir.open(source));
   CHECK(dir.count() == 2);
   BlockRecord r;
   CHECK(dir.record(1, r));
   CHECK(r.shard == 1 && r.slots == 1 && r.offset == 20000 && r.csize == 90000 && r.usize == 247000);
+  CHECK(dir.record(1, r));  // again, from the one-record cache
+  CHECK(r.offset == 20000 && r.usize == 247000);
+  CHECK(dir.record(0, r));
+  CHECK(r.shard == 0 && r.slots == 12 && r.csize == 20000 && r.usize == 65000);
   CHECK(!dir.record(2, r));
   std::vector<uint8_t> truncated(bytes.begin(), bytes.end() - 3);
+  MemSource shortSource(truncated);
   BlocksDir bad;
-  CHECK(!bad.load(truncated));
+  CHECK(!bad.open(shortSource));
+
+  // The directory of a full English pack: 657,085 records, 10.5 MB on the
+  // card. 1.12.56 aborted trying to hold it; nothing is held now, so this
+  // reads the last record of a directory far larger than the heap allows.
+  const uint32_t many = 657085;
+  std::vector<uint8_t> head;
+  putStr(head, "WKBD");
+  head.push_back(1);
+  head.push_back(0);
+  putU16(head, 0);
+  putU32(head, many);
+  SparseSource wide(head, many, 16);
+  BlocksDir big;
+  CHECK(big.open(wide));
+  CHECK(big.count() == many);
+  CHECK(big.record(many - 1, r));
+  CHECK(r.shard == (many - 1) % 39 && r.offset == (many - 1) * 7u);
+  CHECK(!big.record(many, r));
   CHECK(makeLocator(5, 7) == (5u << 12 | 7u));
   CHECK(locatorBlock(makeLocator(1048575, 4095)) == 1048575);
   CHECK(locatorSlot(makeLocator(1048575, 4095)) == 4095);

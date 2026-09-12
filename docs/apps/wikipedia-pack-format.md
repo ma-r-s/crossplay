@@ -138,6 +138,15 @@ csize     u32     compressed frame bytes
 usize     u32     raw block bytes (what the frame decompresses to)
 ```
 
+The device does NOT hold this file. A full English pack has 657,085 blocks,
+so the directory is 10.5 MB, and 1.12.56 aborted trying to read it whole
+once every shard was on the card (the panic's argument was 0x00A06BDC, the
+file's exact size). The reader seeks to `12 + block * 16` and reads sixteen
+bytes, keeping only the last record, because a lookup asks for it twice.
+Anything else that grows with the pack must be read the same way: the title
+index already is, and its in-memory sampler is 859 KB for 8.4 million
+entries.
+
 The whole directory is loaded into PSRAM at open (16 bytes x blocks: 2.9 MB
 for the full pack, 112 KB for the essentials).
 
