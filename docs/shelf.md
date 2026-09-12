@@ -214,6 +214,121 @@ obvious glyph for "next" and is exactly what could not be used: on this device a
 right chevron already means "opens", and it is the only affordance the player
 bar has.
 
+## Choosing what a folder shows
+
+Twenty games is a lot of games, and not everybody wants all of them. **Touching
+the header band** turns the list into a chooser: every item the folder holds,
+each with a box, hidden ones included. Tap a row to put it on the list or take
+it off. `DONE`, or Back, closes the mode; the folder then draws, pages and
+resumes over what is left, and the rest is simply not there.
+
+```
+GAMES                2/3  (joystick)      GAMES              2/3  [ DONE ]
+  CHESS                      (crown)        [x] CHESS               (crown)
+  SOLITAIRE                  (spade)        [ ] BATTLESHIP          (ship)
+  ...                                       [x] SOLITAIRE           (spade)
+  [ (face) SPIKY GRIM BEARD     > ]            TAP TO SHOW OR HIDE
+            1  2  3                                    1  2  3
+```
+
+**It is a listing, not an uninstall.** Every item is still built into the
+firmware and still works. A hidden game still resumes on wake if it was open
+when the device slept, and still answers to `CROSSPLAY_AUTOSTART` -- a device
+that woke up having forgotten the game on its own screen would be worse than a
+long list.
+
+Seven things this cost, each of which was wrong in a draft:
+
+- **There is no button for the way in, and the folder's mark stays where it
+  was.** The first version put a permanent `EDIT` chip in that corner and Mario
+  turned it down: it is furniture that shouts on every visit for a thing done
+  once, on a screen whose whole job is the list underneath it. The whole header
+  band is the target instead -- the mark is what a finger aims at, and the strip
+  around it answers, because a 32px glyph is under half a thumb and nothing else
+  in that band could mean anything by a tap. The way OUT is still a drawn
+  control (`DONE`, in the corner the mark occupies while browsing), because a
+  mode whose exit is invisible is a trap; it exists only inside the mode.
+
+  The page counter moved into the header component's own `rightLabel` with
+  `rightReserve` for the mark. It was placed by hand at a fixed offset from the
+  panel edge, which is right for exactly one of the two things that corner
+  holds: `DONE` is wider than a 32px mark, so the hand-placed counter printed
+  underneath it.
+
+- **The chooser lists EVERYTHING, and the browsing list only what is shown.**
+  That is the one thing that cannot be otherwise: a chooser over the shown items
+  could not show you what you had hidden. It also means the chooser's rows ARE
+  the registry, in registry order, so hiding something never moves the row under
+  your finger. The list that shrinks is the other one, and it is not on screen
+  while you are choosing.
+
+- **The bottom band belongs to the FOLDER, not to the mode.** GAMES has one
+  because it shows the device name; APPS has none. The chooser does not take a
+  band of its own -- it puts its caption in the one the folder already has, and
+  a folder without a bar gets no caption. That is what keeps the same page
+  holding the same games in both modes, so entering the chooser adds boxes to
+  the screen you were already looking at. A band the mode owned reflowed APPS:
+  ten rows browsing against nine choosing, and the row under your finger is a
+  different app before you have touched anything -- on a screen whose every page
+  draws its rows at the same positions. The first draft had exactly that, and
+  the test written for it compared `pagingFor` against itself and passed. The
+  test now renders a full page both ways and demands every row.
+
+- **Back closes the mode instead of leaving the folder**, and that is the only
+  exception to the two Back rules below. It is named here rather than left to be
+  discovered: on this device Back is also the only way out of an app, so a Back
+  that walked out of the chooser would read as "undo what I was doing" on the
+  one screen where it cannot be.
+
+- **The box is drawn, not blitted.** A filled slab with a tick knocked out of
+  it, or a hairline outline -- the same filled-versus-outlined pair the page
+  marks below it already use for "this one of these". Lucide's `square-check` is
+  a hairline tick inside a hairline box, and down a column of ten rows the two
+  states read as the same grey smudge. Only the tick is an asset, because a
+  hand-drawn tick is what goes wrong (solitaire's pips, minesweeper's flag,
+  three attempts each).
+
+- **The whole row toggles, not the box on it.** Two hit regions per row would be
+  two of the screen's twenty-four for a control the finger is already on, and
+  the row past the twenty-fourth stops answering in silence.
+
+- **Hiding everything is allowed, and the empty folder is its own way back.**
+  The whole empty body is a second hit region that opens the chooser, and it
+  says `NOTHING HERE` above the sentence that says so. The band above it would
+  have done, but it is 400px away at the top of an 800px panel and a person who
+  has just found an empty folder is looking at the middle of it. A rule refusing
+  the last game would be the device arguing with its owner.
+
+### The file, and the two units
+
+The set lives in `/.crosspoint/shelf-hidden.cfg`, beside `shelf.cfg` and
+`player.cfg`, one item TITLE per line, only the hidden ones. So the ordinary
+file is absent or empty and the ordinary parse is nothing at all.
+
+**Titles, not row indices**, for the reason the wake-resume already learned:
+indices move whenever a game is added, this card outlives firmware updates, and
+an index would hide a DIFFERENT game after the next release with nobody able to
+say why. A title in the file that matches no item today is KEPT on save, so a
+build that does not know about a game is not the reason the build after it
+forgets that the game was hidden. Everything else is dropped quietly -- blank
+lines, whitespace, a stray carriage return, a duplicate, a line longer than any
+title can be, anything past `MAX_HIDDEN` -- because there is nothing anybody
+could do about any of it, and because the whole format fails OPEN: a file that
+is missing, short, truncated or full of junk shows everything.
+
+**A row is not an item, and the conversion is one named thing.** The card stores
+the ITEM the folder was standing on; `shelf::resumeRowIn()` answers in SHOWN
+rows and `shelf::rememberRowIn()` takes one, so the file holds one unit and the
+folder counts in the other. The folder does hold items -- at the two points
+where it must, opening one and hiding one -- and it gets them from
+`ShelfFolderActivity::itemAtRow` and nowhere else. The arithmetic itself is in
+`ShelfHidden.h` rather than beside the registry, because `Shelf.cpp` cannot be
+built off a device and this is the part that must be tested: see
+`host-tests/shelfhidden`. They are both small ints in the same range,
+so a caller holding one while believing the other is a mistake nothing would
+report -- and the symptom is this screen's oldest one: the header says page 2,
+the rows sit where page 2's rows sit, and the tap opens page 1's game.
+
 ## The three rules
 
 **1. A folder holds items, never folders.** There is nowhere in `shelf::Folder`
@@ -221,8 +336,9 @@ to put a `Folder`. The depth cap is structural, not a convention someone has to
 remember, and on a panel that repaints in half a second a third tap is a real
 cost.
 
-**2. Back has two rules and no exceptions.** An app returns to its folder; a
-folder returns to Home.
+**2. Back has two rules and one exception.** An app returns to its folder; a
+folder returns to Home. The exception is the chooser above: while a folder is
+choosing, Back closes the mode and stays put.
 
 **3. No app names its own destination.** It calls `shelf::leave()`.
 
@@ -322,14 +438,25 @@ drawn" is not the same as asserting "the control is not there".
 `ShelfScreen` is, like every screen here. `Shelf.cpp` is not: it exists to swap
 activities, so it pulls in `ActivityManager` and cannot be built freestanding.
 
-Its whole job is four facts -- which folder is open, which folder Home should
-select, which page each folder should reopen on, and which item was open when the
-device went to sleep -- and those are verified in the simulator instead.
+Its whole job is five facts -- which folder is open, which folder Home should
+select, which page each folder should reopen on, which item was open when the
+device went to sleep, and which items the folders are not showing -- and those
+are verified in the simulator instead.
 
 The arithmetic underneath the third one is not in that exception:
 `shelfui::rowForPage` and `shelfui::resumeRowFor` are pure and live in the `ui`
 suite, where the round trip (a page stored as a row comes back as the same page)
 and the shrunken-folder rule are properties rather than examples.
+
+Neither is the fifth one's file format: `ShelfHidden` is freestanding, and
+`host-tests/shelfhidden` asks it what a file written by a later firmware does,
+what a half-written one does, and what a card full of junk does -- the three
+cases whose failures are all silent on the device, because each of them is a
+game that appears or vanishes with nothing to say why. The chooser's own screen
+is in the `ui` suite with the rest: that the corner chip routes, that a row
+toggles instead of opening, that the page counter clears the chip, that both
+modes fit the same games on the same page, and that an empty folder is tappable
+everywhere.
 
 The last three of those outlive a reboot, in `/.crosspoint/shelf.cfg` beside
 `player.cfg`. They are plain `.bss` otherwise, and `main.cpp` deep-sleeps on the
@@ -414,9 +541,12 @@ afternoon otherwise.
   input by -90. Every bitmap in `src/components/icons/` is therefore stored
   rotated the other way so it comes out upright.
 
-So the two Home folder icons exist twice: upright in `ui/ToyboxIcons.h` for the
-folder headers, and pre-rotated in `src/components/icons/shelfIcons.h` for the
-theme. `tools_local/toybox/gen_toybox_icons.sh` writes both; never hand-edit either.
+So the two Home folder icons exist twice: upright in `ui/ToyboxIcons.h`, which
+is what `rotate_icons.py` reads, and pre-rotated in
+`src/components/icons/shelfIcons.h`, which is what the theme draws.
+`tools_local/toybox/gen_toybox_icons.sh` writes both; never hand-edit either.
+The upright pair is the rotation's source rather than something a screen draws:
+the folder header stopped carrying a mark when the chooser took that corner.
 
 The joystick shipped lying on its side, then upside down, before this was
 understood. The direction was settled by rotating a freshly generated `folder`
@@ -428,9 +558,11 @@ by looking at the shape.
 
 One row in `kFolders`, plus its icon in two places: a `UIIcon` value appended in
 `BaseTheme.h` with a case in `LyraTheme.cpp` (Home draws it and accepts nothing
-else), and a line in `tools_local/toybox/icons.txt` for the folder's own header. Those
-are the only per-folder edits to upstream files this fork makes, which is
-affordable at two folders and would not be at ten.
+else), and a line in `tools_local/toybox/icons.txt` -- which is not for the
+folder's own header, which carries no icon any more, but for the pre-rotated
+copy `gen_toybox_icons.sh` writes into `src/components/icons/shelfIcons.h` for
+Home's row. Those are the only per-folder edits to upstream files this fork
+makes, which is affordable at two folders and would not be at ten.
 
 Resist it until there is something that genuinely belongs in neither. Two
 folders is a structure; four is a filing system, and a filing system is what you

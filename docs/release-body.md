@@ -1,6 +1,6 @@
 [Install it](https://crossplay.ma-r-s.com/#get) · [which file, and by hand](https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md) · [earlier releases](https://github.com/ma-r-s/crossplay/blob/xteink/docs/release-notes.md)
 
-### What is new in 1.12.55
+### What is new in 1.12.56
 
-- Wikipedia: text-only English Wikipedia on the card, read like a book
+- you can hide the games and apps you do not want. Touch the black
 

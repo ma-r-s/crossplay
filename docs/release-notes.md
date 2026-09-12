@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.56
+
+- you can hide the games and apps you do not want. Touch the black
+
 ### 1.12.55
 
 - Wikipedia: text-only English Wikipedia on the card, read like a book
