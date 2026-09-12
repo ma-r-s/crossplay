@@ -25,6 +25,7 @@ import re
 import unicodedata
 
 import symbols
+import tex_text
 import urllib.parse
 
 from fold import fold
@@ -119,6 +120,77 @@ _GREEK_ALONE = re.compile(
 
 
 _TEX_OPEN = re.compile(r"\{\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle)\b")
+# Mario, 2026-09-11: maths needs delicate care; route 3. Counted per build.
+tex_stats = {"formulas_rendered": 0, "formulas_words_kept": 0, "formulas_unmatched": 0}
+
+
+def _render_tex(s):
+    """Every "{\\displaystyle TEX}" block, with the flattened words the dump
+    wrote before it, becomes the TeX rendered as linear text (tex_text). The
+    words are found by matching what the dump would have written for that
+    TeX; when they are not there, or the renderer met a command it does not
+    know, the words stay and the TeX goes, as before."""
+    out = []
+    i = 0
+    n = len(s)
+    while True:
+        m = _TEX_OPEN.search(s, i)
+        if not m:
+            out.append(s[i:])
+            break
+        j = m.start()
+        k = j
+        depth = 0
+        while k < n:
+            if s[k] == "{":
+                depth += 1
+            elif s[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        if k >= n:
+            out.append(s[i:])
+            break
+        head = s[i:j]
+        tex = s[m.end() : k]
+        rendered = _replace_words(head, tex)
+        if rendered is None:
+            if head.endswith(" "):
+                head = head[:-1]
+            out.append(head)
+        else:
+            out.append(rendered)
+        i = k + 1
+    return "".join(out)
+
+
+def _replace_words(head, tex):
+    """head with its trailing formula words replaced by the rendering, or
+    None when the words are not found or the rendering is not complete."""
+    text, complete = tex_text.render(tex)
+    if not text:
+        return None
+    for skip in (False, True):
+        target = tex_text.loose(tex_text.leaves(tex, skip_matrices=skip))
+        if not target:
+            continue
+        # walk back over the head until its loose form ends with the target
+        j = len(head)
+        got = ""
+        while j > 0 and len(got) < len(target):
+            j -= 1
+            if not head[j].isspace():
+                got = tex_text.loose(head[j]) + got
+        if got != target or (j > 0 and not head[j - 1].isspace() and head[j - 1] not in "(["):
+            continue
+        if not complete:
+            tex_stats["formulas_words_kept"] += 1
+            return None
+        tex_stats["formulas_rendered"] += 1
+        return head[:j] + text
+    tex_stats["formulas_unmatched"] += 1
+    return None
 
 
 def _strip_tex(s):
@@ -249,7 +321,7 @@ def clean_text(s):
         return ""
     s = _CONTROL.sub("", s)
     if "style" in s and _TEX_OPEN.search(s):
-        s = _strip_tex(s)
+        s = _render_tex(s)
     if "{{" in s:
         s = _TEMPLATE.sub("", s)
     s = _CITE.sub("", s)
