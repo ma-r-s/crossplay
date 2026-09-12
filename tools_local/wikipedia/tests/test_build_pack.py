@@ -194,9 +194,6 @@ class Build(unittest.TestCase):
         self.assertEqual(vital.load(p), {"A": 2, "B": 4})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class CaseVariants(unittest.TestCase):
     def test_stub_and_disambiguation_variants_go_when_the_listed_spelling_is_present(self):
@@ -218,6 +215,16 @@ class CaseVariants(unittest.TestCase):
         self.assertEqual(sorted(articles), ["ALI", "Ali", "Alps", "Paris", "ROME"])
         self.assertEqual(stats["case_variants_dropped"], 2)
 
+
+
+class FoldAlias(unittest.TestCase):
+    def test_variant_takes_the_listed_level_only_when_the_listed_spelling_is_absent(self):
+        levels = {"Alps": 3, "Paris": 2}
+        articles = {"Alps": 0, "ALPS": 0, "PARIS": 0}
+        order, matched = build_pack.order_articles(articles, levels, {})
+        self.assertEqual(matched, 2)  # Alps itself, and PARIS standing in for the absent Paris
+        self.assertEqual(sorted(order[:2]), ["Alps", "PARIS"])
+        self.assertEqual(order[-1], "ALPS")  # level 6, after the listed ones
 
 if __name__ == "__main__":
     unittest.main()

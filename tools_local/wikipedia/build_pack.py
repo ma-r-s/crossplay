@@ -148,8 +148,10 @@ def order_articles(articles, levels, stats):
     for title in articles:
         level = levels.get(title)
         if level is None:
+            # "ALPS" folds to "Alps": it takes the listed title's level only
+            # when the listed spelling itself is not in the pack
             alias = by_fold.get(fold(title))
-            level = levels.get(alias) if alias else None
+            level = levels.get(alias) if alias and alias not in articles else None
         if level is not None:
             matched += 1
         keyed.append((level or 6, fold_bytes(title), title.encode("utf-8"), title))
