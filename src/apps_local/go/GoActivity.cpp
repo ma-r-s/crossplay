@@ -163,8 +163,19 @@ void GoActivity::takeComputerTurn() {
   // positions on the panel -- invisible here, half a second of garbage on the
   // device. See the chess note in docs/building-apps.md.
   const go::Game snapshot = game;
+  const uint32_t began = millis();
   const int move = goengine::chooseMove(snapshot, level, seed);
+  const uint32_t took = millis() - began;
   thinking = false;
+
+  // How long the search actually took, on the actual chip. Every number in
+  // docs/apps/go.md is a laptop measurement scaled by a published CoreMark
+  // ratio, and the spread in that estimate is a rank and a half -- so this is
+  // the one line that turns an estimate into a fact, and it is also the line
+  // somebody needs if a move ever takes long enough to trip the watchdog.
+  LOG_INF("GO", "search: level %d, %u playouts, %u ms (%u moves in)", static_cast<int>(level),
+          static_cast<unsigned>(goengine::settingsFor(level).playouts), static_cast<unsigned>(took),
+          static_cast<unsigned>(game.moveNumber));
   if (!go::play(game, move)) {
     // Belt and braces: chooseMove promises a legal move, and if it ever breaks
     // that promise the game passes rather than freezing on a turn nobody can
