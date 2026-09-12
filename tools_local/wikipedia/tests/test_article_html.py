@@ -899,6 +899,27 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
         self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
 
+    def test_round_eighteen_ninth_read(self):
+        # A ninth cold read: a taxobox's "<title>: Scientific classification"
+        # row and a link caption "Official Results" are no facts; an infobox's
+        # previous/next arrows go; a semicolon before an aside and two asides
+        # where a line broke read as one; a coordinate line alone goes.
+        row = {"name": "Caladenia cleistantha", "infoboxes": [{"name": "Infobox", "has_parts": [{"type": "section", "has_parts": [
+            {"type": "field", "name": "Caladenia cleistantha", "value": "Scientific classification"},
+            {"type": "field", "name": "Kingdom", "value": "Plantae"}, {"type": "field", "name": "Results", "value": "Official Results"},
+            {"type": "field", "name": "Previous", "value": "<- 1962"}, {"type": "field", "name": "Next", "value": "1964 ->"},
+            {"type": "field", "name": "Owner", "value": "Townsquare Media; (Townsquare License, LLC)"},
+            {"type": "field", "name": "Champions", "value": "Illinois (Vacated) (1st title, 2nd title game)"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+                {"type": "paragraph", "value": "51°51′58″N 0°22′16″E / 51.866°N 0.371°E"}, {"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<h2 id=\"s1\">Quick facts</h2><table><tr><th>Kingdom</th><td>Plantae</td></tr>", x)
+        for gone in ("Scientific classification", "Official Results", "1962", "1964"):
+            self.assertNotIn(gone, x)
+        self.assertIn("<td>Townsquare Media (Townsquare License, LLC)</td>", x)
+        self.assertIn("<td>Illinois (Vacated; 1st title, 2nd title game)</td>", x)
+        self.assertNotIn("51°", x)
+
     def test_round_seventeen_eighth_read(self):
         # An eighth cold read: a "Title card" caption is no fact; a bare
         # "Names" group does not prefix the rows under it ("Names, House"),
@@ -920,6 +941,9 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.strip_undrawable(ah.clean_text("Deppenapostroph ('idiot's apostrophe';). Next"), {}), "Deppenapostroph ('idiot's apostrophe'). Next")
         self.assertEqual(ah.strip_undrawable(ah.clean_text("14 instances of \":) \" in"), {}), "14 instances of \":)\" in")
         self.assertNotIn("UNIQ", ah.clean_text("\"`UNIQ--templatestyles-000000C0-QINU`\" Shanghainese is"))
+        # an IPv6 prefix keeps its double colon; a doubled colon before a space collapses
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("this purpose (fec0::/10, dubbed site-local) and 2001:db8::1 here"), {}), "this purpose (fec0::/10, dubbed site-local) and 2001:db8::1 here")
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("Note:: the text,, and;, more"), {}), "Note: the text, and, more")
 
     def test_round_sixteen_seventh_read(self):
         # A seventh cold read: rp page references after a parenthesis, with

@@ -412,6 +412,10 @@ _LEAD_COORDS = re.compile(
     r"^\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[NS]\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[EW]"
     r"(?:\s*/\s*[\d.\u2212-]+\u00b0[NS]\s*[\d.\u2212-]+\u00b0[EW])?(?:\s*/\s*[\d.\u2212-]+;\s*[\d.\u2212-]+)?\s*(?=[A-Z])"
 )
+# a paragraph that is only a coordinate pair (a fact's value may be one)
+_COORDS_ONLY = re.compile(
+    r"^\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[NS]\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[EW](?:\s*/.*)?$"
+)
 _FUNCTION_WORDS = frozenset("from or and of the a an in at by to lit also see cf".split())
 _EMPTY_PAREN = re.compile(r"\s?\(\s*[,;:\s]*\)")
 # "(pronounced French pronunciation:)": the IPA went with its slashes
@@ -435,7 +439,8 @@ _TIDY = (
     (re.compile(r"\s+([,;?)]|!(?![=A-Za-z0-9])|:(?!\s?\d|-?[()]))"), r"\1"),  # "a != 0", "3 : 1", the click in "!Nanseb" and the face in ":)" keep their spaces
     (re.compile(r"\s+\.(?![A-Za-z0-9])"), "."),
     (re.compile(r"\(\s+"), "("),
-    (re.compile(r"(?:[,;:]\s*)+([,;:])"), r"\1"),
+    (re.compile(r"(?:[,;]\s*)+([,;:])"), r"\1"),  # ",," and ";,"
+    (re.compile(r":(?:\s*:)+(?=\s|$)"), ":"),  # "Note:: text", not the "::" of "fec0::/10"
     (re.compile(r"\s{2,}"), " "),
 )
 
@@ -1223,7 +1228,8 @@ def _spell_iso_date(s):
 
 
 _FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion", "NFPA 704 (fire diamond)", "NFPA 704", "Title card", "Caption", "Image caption", "Logo caption", "Map caption"))
-_FACT_JUNK_VALUE = re.compile(r"^[\W_]*$|^\* ")
+_FACT_JUNK_VALUE = re.compile(r"^[\W_]*$|^\* |^<-\s|^.*\s->$")  # "<- 1962", "1964 ->": an infobox's previous/next arrows
+_HEADER_VALUE = re.compile(r"^(?:Scientific classification|Official (?:Results|Website|Site)|Details|Overview|History)$", re.I)
 _PARAM_LEAK = re.compile(r"^[a-z]+(?:_[A-Za-z]+)+\s?=")
 _GLUED_FIELD = re.compile(r"^([A-Z][A-Za-z]*(?: [A-Za-z]+){0,2}) ([A-Z][a-z]+): (\S.*)$")
 _NAMELESS_FACT = re.compile(r"\d|^In office|^Term|^Reign")
@@ -1293,6 +1299,8 @@ def fact_value(name, value):
     value = _spell_iso_date(value)
     if value.startswith("-> "):
         value = "to " + value[3:]  # a loan arrow at the front of a cell
+    value = re.sub(r";\s*\(", " (", value)  # "Townsquare Media; (Townsquare License, LLC)": a folded line break
+    value = re.sub(r"\)\s+\(", "; ", value)  # "Illinois (Vacated) (1st title)": two asides where a line broke
     value = re.sub(r"\b([A-Z]):(?=\d)", r"\1: ", value)
     if "\u00b0" in value:
         value = _DECIMAL_COORDS.sub("", value)
@@ -1383,7 +1391,7 @@ class _Doc:
         text = strip_undrawable(
             clean_text(part.get("value") or ""), self.stats, lead=lead
         )
-        if not text:
+        if not text or _COORDS_ONLY.match(text):
             return ""
         links = self._place_links(text, part.get("links"), lead)
         bold = self._subject(text) if subject else None
@@ -1731,6 +1739,8 @@ class _Doc:
                 add(name, glued.group(1), group)
                 add(glued.group(2), glued.group(3), group)
                 return
+            if name in (self.title, base) or _HEADER_VALUE.match(value):
+                return  # a taxobox's "<title>: Scientific classification", a link caption "Official Results"
             if value in _FACT_LABELS or value in (self.title, self.title.split(",")[0].strip(), base):
                 return  # "Preceded by: Succeeded by": both values were flags; "Azerbaijani: <title>"
             name = name[:1].upper() + name[1:]
