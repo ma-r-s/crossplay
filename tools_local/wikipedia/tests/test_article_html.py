@@ -981,6 +981,32 @@ class Rules(unittest.TestCase):
         self.assertIn("<tr><th>Website</th><td>comune.frascineto.cs.it</td></tr>", x)
         self.assertIn("<tr><th>Coordinates</th><td>41°37′00″N 44°00′00″E</td></tr>", x)
         self.assertNotIn("GCB", x.split("Quick facts")[1])
+        # a third read: a table row of labels with nothing after them goes
+        # ("Source:"), a row repeated goes, a table left with no rows goes; a
+        # footnote digit on a fact's name ("Area 1") goes; " /" gets its
+        # spaces except between two years; a link's caption with no link
+        # ("Listen live") is no fact; an office of nine words is still a group
+        row = {"name": "Bergbieten", "infoboxes": [{"name": "Infobox", "has_parts": [
+            {"type": "section", "name": "Judge of the Washington Court of Appeals, Division One", "has_parts": [{"type": "field", "name": "Preceded by", "value": "Ronald Cox"}]},
+            {"type": "field", "name": "Area 1", "value": "5.2 km2"}, {"type": "field", "name": "INSEE /Postal code", "value": "67030 /67310"},
+            {"type": "field", "name": "Webcast", "value": "Listen live"}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]},
+                {"type": "section", "name": "Population", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}, {"identifier": "t2"}]}]}],
+            "tables": json.dumps([
+                {"identifier": "t1", "headers": [[{"value": "Year"}, {"value": "Pop."}]],
+                 "rows": [[{"value": "1968"}, {"value": "394"}], [{"value": "Source: INSEE"}, {"value": "Source: INSEE"}],
+                          [{"value": "Source: INSEE"}, {"value": "Source: INSEE"}], [{"value": "Source:"}, {"value": ""}]]},
+                {"identifier": "t2", "headers": [[{"value": "Election"}, {"value": "Election"}]], "rows": [[{"value": "Source:"}, {"value": ""}]]}])}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Judge of the Washington Court of Appeals, Division One, preceded by</th><td>Ronald Cox</td></tr>", x)
+        self.assertIn("<tr><th>Area</th><td>5.2 km2</td></tr>", x)
+        self.assertIn("<tr><th>INSEE / Postal code</th><td>67030 / 67310</td></tr>", x)
+        self.assertNotIn("Listen live", x)
+        self.assertEqual(x.count("Source: INSEE"), 1)
+        self.assertNotIn("<td>Source:</td>", x)
+        self.assertNotIn("Election", x)
+        self.assertEqual(ah.fact_value("Born", "26 May 1564 /1563, Sirhind"), "26 May 1564/1563, Sirhind")
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("set (P, ≤) forms and x =(y+1) and a face :) here"), {}), "set (P, <=) forms and x =(y+1) and a face :) here")
 
     def test_round_eleven_the_last_classes(self):
         # What round ten's measurement still flagged, each traced to the dump

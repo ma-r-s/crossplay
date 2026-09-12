@@ -664,7 +664,7 @@ def _words(t):
     return len(t.split())
 
 
-_FACE = re.compile(r"(?<![A-Za-z0-9])[:;=]-?[()]")
+_FACE = re.compile(r"(?<![A-Za-z0-9<>=])[:;]-?[()]")
 
 
 def struct_hits(name, bl):

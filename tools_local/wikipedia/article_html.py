@@ -994,11 +994,12 @@ def scrub_artifacts(text):
 
 def _is_face(text, i):
     """text[i] is the mouth of ":)" or ";-(": an emoticon, not a parenthesis.
-    The eyes stand at a word boundary; "8)" is "(number 8)" far more often than a face."""
+    The eyes stand at a word boundary; "8)" is "(number 8)" and "=)" is "(P, <=)"
+    far more often than a face."""
     j = i - 1
     if j >= 0 and text[j] == "-":
         j -= 1
-    if j < 0 or text[j] not in ":;=":
+    if j < 0 or text[j] not in ":;":
         return False
     return j == 0 or text[j - 1] in " \t\"'\u201c\u2018"
 
@@ -1169,7 +1170,10 @@ _ION = re.compile(r"(?<=[A-Za-z]) (\d?[+\u2212-])(?=[\s),]|$)")
 _DEGREE_GAP = re.compile(r"(?<=\d) \u00b0")
 _SUPER = str.maketrans("0123456789+-\u2212", "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207b")
 _SUB = str.maketrans("0123456789", "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089")
-_FACT_SKIP_VALUE = re.compile(r"^(?:[JFMASOND] ){11}[JFMASOND]$")  # a climate table's month row
+# a climate table's month row; a link's caption with no link to follow
+_FACT_SKIP_VALUE = re.compile(r"^(?:[JFMASOND] ){11}[JFMASOND]$|^(?:Listen live|Public file(?:; LMS)?|LMS|Website|Official website)$", re.I)
+_NAME_FOOTNOTE = re.compile(r"(?<=[A-Za-z)]) \d$")
+_SLASH_GAP = re.compile(r"(?<=\S) /(?=[A-Za-z0-9])(?!\d{4}\b)")  # not "1564 /1563", a year either way
 _FACT_LABELS = frozenset(("Preceded by", "Succeeded by", "In office"))
 _GENERIC_FIELDS = frozenset((
     "total", "rank", "density", "land", "water", "urban", "metro", "estimate", "census", "preceded by",
@@ -1213,6 +1217,7 @@ def fact_value(name, value):
     value = _YEAR_PAGE.sub("", value)
     value = _NAME_THEN_DATE.sub(_name_then_date, value)
     value = _YEAR_TWICE.sub(r"\1", value)
+    value = _SLASH_GAP.sub(" / ", value)
     value = re.sub(r"(\d{4}) /(\d{4})\b", r"\1/\2", value)
     if _FORMULA_ROW.search(name):
         value = _ELEMENT_COUNT.sub(lambda m: m.group(1).translate(_SUB), value)
@@ -1473,13 +1478,23 @@ class _Doc:
         if wide:
             return self.table_rows(grid)
         out = ["<table>"]
+        last = None
         for is_header, cells in grid:
             tag = "th" if is_header else "td"
+            if all(not c.strip() or c.rstrip().endswith(":") for c in cells):
+                continue  # "Source:" with nothing after it
+            if cells == last:
+                continue  # the same row twice ("Source: INSEE")
+            last = cells
+            if not is_header:
+                cells = [c for j, c in enumerate(cells) if not (j and c == cells[j - 1])]  # a spanning cell, once
             out.append(
                 "<tr>"
                 + "".join("<%s>%s</%s>" % (tag, esc("Number" if c.strip() == "#" else c), tag) for c in cells)
                 + "</tr>"
             )
+        if len(out) == 1:
+            return ""  # every row was a label with nothing after it
         out.append("</table>")
         return "".join(out)
 
@@ -1523,7 +1538,10 @@ class _Doc:
                 else:
                     parts.append(esc(c))
             if parts:
-                out.append("<p>" + re.sub(r"  +", " ", "; ".join(parts)) + "</p>")
+                para = "<p>" + re.sub(r"  +", " ", "; ".join(parts)) + "</p>"
+                if out and out[-1] == para:
+                    continue  # "Source: INSEE" once per table, not per row
+                out.append(para)
         if len(body) > TABLE_ROWS_LISTED:
             out.append("<p><i>(%d more rows)</i></p>" % (len(body) - TABLE_ROWS_LISTED))
         if out:
@@ -1612,6 +1630,7 @@ class _Doc:
                 return
             name = strip_undrawable(clean_text(name), self.stats)
             name = _NAME_DISAMBIG.sub("", name)
+            name = _SLASH_GAP.sub(" / ", _NAME_FOOTNOTE.sub("", name))
             value = cut_words(
                 fact_value(name, strip_undrawable(clean_text(value), self.stats)),
                 FACT_WORDS,
@@ -1647,7 +1666,7 @@ class _Doc:
                     has_image[name] = True
                 # a group is a short label; a "section" whose name is a whole
                 # medal table is the table, not a group
-                if name and name != self.title and (not base or base not in name) and len(name.split()) <= 8 and not name.lower().startswith("infobox"):
+                if name and name != self.title and (not base or base not in name) and len(name.split()) <= 12 and not name.lower().startswith("infobox"):
                     # "Transcriptions" under "Chinese name" keeps the group
                     # that says which language the rows belong to
                     if not (group and _NAME_GROUP.search(group)):
