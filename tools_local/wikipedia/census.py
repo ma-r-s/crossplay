@@ -194,11 +194,13 @@ def outcome(cp):
     if compat != ch and all(glyphs.is_drawable(ord(c)) for c in compat):
         return "compat to " + compat
     decomposed = unicodedata.normalize("NFD", ch)
-    if len(decomposed) > 1 and all(glyphs.is_drawable(ord(c)) for c in decomposed):
+    if article_html.DECOMPOSE and len(decomposed) > 1 and all(glyphs.is_drawable(ord(c)) for c in decomposed):
         return "decomposed"
     base = "".join(c for c in decomposed if not unicodedata.combining(c))
     if ch.isalpha() and base != ch and base and all(glyphs.is_drawable(ord(c)) for c in base):
         return "folded to " + base
+    if ch in symbols.LOOKALIKES:
+        return "lookalike inside a word (" + symbols.LOOKALIKES[ch] + "), else dropped"
     return "dropped"
 
 
@@ -484,7 +486,7 @@ def report(census, path, top_chars=200):
     w("\n## By outcome\n")
     w("| outcome | code points | occurrences | article hits |")
     w("|---|---:|---:|---:|")
-    for k in ("drawn", "spelled", "compat", "decomposed", "folded", "dropped"):
+    for k in ("drawn", "spelled", "compat", "decomposed", "folded", "lookalike", "dropped"):
         d = by_out.get(k, {"code points": 0, "occurrences": 0, "article hits": 0})
         w(
             "| %s | %d | %d | %d |"
@@ -586,6 +588,12 @@ def report(census, path, top_chars=200):
         lambda e: e["outcome"] == "decomposed",
         60,
         "Drawn as the base letter plus its combining mark, which the renderer overlays: nothing lost.",
+    )
+    section(
+        "Look-alike letters",
+        lambda e: e["outcome"].startswith("lookalike"),
+        60,
+        "Inside a word (a token with letters and no hyphen) the letter becomes the plain letter it stands in for; elsewhere it is a pronunciation symbol and goes with its span.",
     )
     section(
         "Folded to the base letter",
