@@ -200,6 +200,22 @@ the human's marking is simply accepted: there is no rating to protect, and an
 app that argues with you about which of your stones are dead is worse than an
 app that is occasionally wrong.
 
+## Agreeing the count is TWO agreements
+
+Both seats have to agree which stones are dead, and then both have to agree
+they are finished. `Game::accepted` is a bit a colour and it lives in the
+**game**, not in the activity, because it has to cross the wire: an agreement
+held only on the device that made it is not an agreement.
+
+The first version kept it in the activity, and one seat pressing ACCEPT ended
+the match for both while the button it pressed relabelled itself to WAITING.
+The screen promised a negotiation the code did not hold. Changing any mark
+withdraws both agreements, because a count that moved is a count nobody has
+read.
+
+Solo there is nobody to wait for, and two people sharing one device are sitting
+together and can say so out loud, so one tap settles it in both of those.
+
 ## Multiplayer
 
 `linkplay::LinkActivity`, `GameId::Go = 0x0A01`. The shared state is

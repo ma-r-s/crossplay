@@ -76,9 +76,13 @@ struct Device {
 
     go::Game incoming{};
     if (play.takeOpponent(incoming)) {
-      // A mark they changed means this seat has to look again.
-      if (incoming.stage == static_cast<uint8_t>(go::Stage::Scoring)) accepted = false;
       game = incoming;
+      // Who agrees came WITH the board, so this seat cannot believe something
+      // about the count that the other one does not.
+      accepted = go::hasAccepted(game, seat);
+      if (go::hasAccepted(game, go::kBlack) && go::hasAccepted(game, go::kWhite)) {
+        game.stage = static_cast<uint8_t>(go::Stage::Over);
+      }
     }
 
     if (phase != Phase::YourTurn) return;
@@ -106,8 +110,11 @@ struct Device {
         ++marksMade;
         accepted = false;
       } else {
-        game.stage = static_cast<uint8_t>(go::Stage::Over);
+        // Agreeing does NOT end the game. It ends when the OTHER seat agrees
+        // too, which is why `accepted` lives in the board rather than here.
+        const bool both = go::accept(game, seat);
         accepted = true;
+        if (both) game.stage = static_cast<uint8_t>(go::Stage::Over);
       }
       if (!play.play(game)) refused = true;
       return;
@@ -188,6 +195,12 @@ void testAGameOfGoOverAHostileLink() {
   CHECK(a.game.stage == static_cast<uint8_t>(go::Stage::Over));
   CHECK(b.game.stage == static_cast<uint8_t>(go::Stage::Over));
   CHECK(a.marksMade > 0 || b.marksMade > 0);
+
+  // And BOTH seats agreed, on both devices. One seat pressing ACCEPT must not
+  // end a match: the first version did, while the button said WAITING.
+  CHECK(go::hasAccepted(a.game, go::kBlack));
+  CHECK(go::hasAccepted(a.game, go::kWhite));
+  CHECK(a.game.accepted == b.game.accepted);
 
   // And the count agrees, which is the whole point of the negotiation: the
   // dead marks crossed the wire with the position, so neither device is

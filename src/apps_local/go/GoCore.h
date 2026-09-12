@@ -138,6 +138,16 @@ struct Game {
   uint8_t lastMove;  // the move just played, for the marker on the board
   uint8_t recentCount;
   uint8_t stage;  // go::Stage, held as a byte so the struct stays trivially copyable
+
+  // Who has agreed the count, as a bit per colour: `1 << kBlack`, `1 << kWhite`.
+  //
+  // It lives in the GAME rather than in the activity because it has to cross
+  // the wire. Two devices counting the same board have to agree TWICE -- once
+  // about which stones are dead and once that they are finished -- and an
+  // agreement held only on the device that made it is not an agreement: the
+  // first version ended the game the moment either seat pressed ACCEPT, while
+  // the button it pressed said WAITING.
+  uint8_t accepted;
 };
 
 // Where a game is in its life. Not the same thing as whose turn it is, which
@@ -239,6 +249,20 @@ struct Score {
 
 // The final count, in half points, with komi already added to White.
 Score score(const Game& game);
+
+// Whether `colour` has agreed the count as it stands.
+constexpr bool hasAccepted(const Game& game, const uint8_t colour) { return (game.accepted & (1u << colour)) != 0; }
+
+// Record that `colour` agrees. Returns true when BOTH now do, which is the only
+// thing that ends a counted game.
+inline bool accept(Game& game, const uint8_t colour) {
+  game.accepted = static_cast<uint8_t>(game.accepted | (1u << colour));
+  return hasAccepted(game, kBlack) && hasAccepted(game, kWhite);
+}
+
+// Nobody agrees any more. Called whenever a dead-stone mark changes, because a
+// count that moved is a count nobody has read.
+inline void withdrawAcceptance(Game& game) { game.accepted = 0; }
 
 // Who won. Running until the game is Over.
 Outcome outcome(const Game& game);

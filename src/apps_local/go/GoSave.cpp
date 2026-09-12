@@ -35,6 +35,7 @@ int pack(const Save& save, char* out, const int capacity) {
   used = appendInt(out, capacity, used, game.passes);
   used = appendInt(out, capacity, used, game.lastMove);
   used = appendInt(out, capacity, used, game.stage);
+  used = appendInt(out, capacity, used, game.accepted);
   used = appendInt(out, capacity, used, game.moveNumber);
   used = appendInt(out, capacity, used, game.capturedBy[go::kBlack]);
   used = appendInt(out, capacity, used, game.capturedBy[go::kWhite]);
@@ -71,7 +72,12 @@ bool unpack(const char* text, Save& save) {
 
   bool ok = true;
   const long version = take(ok);
-  if (!ok || version < 1 || version > kVersion) return false;
+  // An OLDER version is refused outright rather than read as far as it goes.
+  // Every field after the header is positional, so a v1 line parsed as v2 does
+  // not fail at the missing number, it reads the NEXT one in its place and
+  // shifts a whole board along by one. That is a game that loads and is wrong,
+  // which is worse than a game that does not load.
+  if (!ok || version != kVersion) return false;
   parsed.wins = static_cast<int>(take(ok));
   parsed.losses = static_cast<int>(take(ok));
   parsed.hasHistory = take(ok) != 0;
@@ -97,6 +103,7 @@ bool unpack(const char* text, Save& save) {
   parsed.game.passes = static_cast<uint8_t>(take(ok));
   parsed.game.lastMove = static_cast<uint8_t>(take(ok));
   parsed.game.stage = static_cast<uint8_t>(take(ok));
+  parsed.game.accepted = static_cast<uint8_t>(take(ok));
   parsed.game.moveNumber = static_cast<uint16_t>(take(ok));
   parsed.game.capturedBy[0] = 0;
   parsed.game.capturedBy[go::kBlack] = static_cast<uint16_t>(take(ok));

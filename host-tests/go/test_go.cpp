@@ -1062,6 +1062,7 @@ void testASavedGameComesBackExactly() {
   }
   mark(game.dead, 7);
   mark(game.dead, 80);
+  accept(game, kBlack);
 
   gosave::Save save;
   save.wins = 11;
@@ -1101,6 +1102,11 @@ void testASavedGameComesBackExactly() {
   CHECK(back.game.recentCount == game.recentCount);
   for (int i = 0; i < kHistory; ++i) CHECK(back.game.recent[i] == game.recent[i]);
   for (int i = 0; i < (kPoints + 7) / 8; ++i) CHECK(back.game.dead[i] == game.dead[i]);
+  // Who agreed the count survives too. A resumed count that forgot it would
+  // show WAITING to a seat nobody is waiting for, or end on one more tap.
+  CHECK(back.game.accepted == game.accepted);
+  CHECK(hasAccepted(back.game, kBlack));
+  CHECK(!hasAccepted(back.game, kWhite));
 
   // The superko ring surviving the round trip is not a detail: a resumed game
   // that forgot it accepts a repetition the same game refused a minute before
@@ -1128,6 +1134,39 @@ void testAHalfWrittenSaveCostsNothingButTheGame() {
   }
   CHECK(!gosave::unpack("", good));
   CHECK(!gosave::unpack("nonsense", good));
+}
+
+void testACountEndsOnlyWhenBOTHSeatsAgree() {
+  // The one thing a match's endgame must not do: end because one seat pressed
+  // ACCEPT. The first version did exactly that, while the button it pressed
+  // relabelled itself to WAITING -- so the screen promised a negotiation the
+  // code did not hold.
+  //
+  // It lives in the GAME because it has to cross the wire. An agreement held
+  // only on the device that made it is not an agreement.
+  Game game;
+  reset(game);
+  CHECK(game.accepted == 0);
+  CHECK(!hasAccepted(game, kBlack));
+  CHECK(!hasAccepted(game, kWhite));
+
+  CHECK(!accept(game, kBlack));
+  CHECK(hasAccepted(game, kBlack));
+  CHECK(!hasAccepted(game, kWhite));
+  // Saying it twice is not saying it for both.
+  CHECK(!accept(game, kBlack));
+  CHECK(accept(game, kWhite));
+
+  // And changing a mark takes both agreements back, because a count that moved
+  // is a count nobody has read.
+  withdrawAcceptance(game);
+  CHECK(!hasAccepted(game, kBlack));
+  CHECK(!hasAccepted(game, kWhite));
+  CHECK(!accept(game, kWhite));
+
+  // A fresh game agrees to nothing, whatever the last one settled.
+  reset(game);
+  CHECK(game.accepted == 0);
 }
 
 void testACountIsAnAgreementNotAComputation() {
@@ -1183,6 +1222,7 @@ int main() {
   testBackIsTotalAndAlwaysReachesTheTop();
   testASavedGameComesBackExactly();
   testAHalfWrittenSaveCostsNothingButTheGame();
+  testACountEndsOnlyWhenBOTHSeatsAgree();
   testACountIsAnAgreementNotAComputation();
   testTheFastBoardIsTheSameGame();
   testTheOpponentOnlyEverPlaysALegalMove();

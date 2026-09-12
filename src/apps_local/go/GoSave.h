@@ -19,7 +19,12 @@ namespace gosave {
 
 // Bumped whenever the layout changes. `unpack` accepts older versions rather
 // than rejecting them, or an upgrade throws away a year of record.
-constexpr int kVersion = 1;
+//
+// 2 added `Game::accepted`, which is who has agreed the count. A v1 file has
+// one fewer number on the line and is refused rather than misread: the record
+// in it is a handful of integers and the game is one position, and neither is
+// worth a migration nobody will ever test again.
+constexpr int kVersion = 2;
 
 struct Save {
   int wins = 0;

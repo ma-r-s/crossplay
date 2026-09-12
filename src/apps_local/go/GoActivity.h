@@ -97,8 +97,6 @@ class GoActivity final : public linkplay::LinkActivity {
   uint8_t owner[go::kPoints] = {};
   int blackHalves = 0;
   int whiteHalves = 0;
-  bool youAccepted = false;
-  bool theyAccepted = false;
 
   uint32_t seed = 0x9E3779B9u;
 

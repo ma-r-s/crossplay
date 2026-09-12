@@ -106,6 +106,7 @@ void reset(Game& game, const int handicap, const int16_t komiHalves) {
   game.lastMove = kNoPoint;
   game.recentCount = 0;
   game.stage = static_cast<uint8_t>(Stage::Playing);
+  game.accepted = 0;
 
   uint8_t stones[kMaxHandicap];
   const int placed = handicapPoints(handicap, stones);

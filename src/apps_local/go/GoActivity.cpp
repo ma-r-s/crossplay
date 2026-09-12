@@ -149,8 +149,6 @@ void GoActivity::beginSoloGame() {
   // choose at a level that spots them stones, and the front door says so.
   seat = opponent != go::Opponent::Computer ? go::kBlack : (handicap > 0 ? go::kBlack : playAs);
   resultRecorded = false;
-  youAccepted = false;
-  theyAccepted = false;
   inProgress = true;
   thinking = false;
   clearAim();
@@ -232,8 +230,6 @@ void GoActivity::refreshCount() {
 
 void GoActivity::enterCounting() {
   goengine::estimateDead(game, seed, game.dead);
-  youAccepted = false;
-  theyAccepted = false;
   refreshCount();
   clearAim();
   if (!inMatch()) writeSave();
@@ -261,8 +257,7 @@ void GoActivity::toggleDeadAt(const int point) {
   }
 
   // Both seats have to agree again after either of them changes their mind.
-  youAccepted = false;
-  theyAccepted = false;
+  go::withdrawAcceptance(game);
   refreshCount();
   if (inMatch()) {
     play.play(game);
@@ -320,8 +315,6 @@ void GoActivity::onMatchStart(const bool goesFirst) {
   // reads as a legal game nobody can score.
   seat = goesFirst ? go::kBlack : go::kWhite;
   resultRecorded = false;
-  youAccepted = false;
-  theyAccepted = false;
   thinking = false;
   clearAim();
   go::reset(game);
@@ -338,10 +331,14 @@ bool GoActivity::takeOpponentState() {
   clearAim();
 
   if (game.stage == static_cast<uint8_t>(go::Stage::Scoring)) {
-    // They passed a second time, or they changed a dead-stone mark. Either way
-    // this seat has to look again and say yes again.
-    youAccepted = false;
+    // They passed a second time, they changed a dead-stone mark, or they
+    // accepted. Whichever it was, `accepted` came with the board, so who agrees
+    // is a fact about the game rather than a flag this device kept.
     refreshCount();
+    if (go::hasAccepted(game, go::kBlack) && go::hasAccepted(game, go::kWhite)) {
+      finishCounting();
+      return true;
+    }
     if (!wasCounting) goengine::estimateDead(game, seed, game.dead);
     goTo(go::Screen::Count);
     return true;
@@ -546,8 +543,7 @@ void GoActivity::gameLoop() {
       game.stage = static_cast<uint8_t>(go::Stage::Playing);
       game.passes = 0;
       go::clearMask(game.dead);
-      youAccepted = false;
-      theyAccepted = false;
+      go::withdrawAcceptance(game);
       if (inMatch()) {
         play.play(game);
       } else {
@@ -556,18 +552,27 @@ void GoActivity::gameLoop() {
       goTo(go::Screen::Board);
       return;
 
-    case goui::ActionAccept:
-      youAccepted = true;
+    case goui::ActionAccept: {
+      // Solo, there is nobody to wait for. Two people sharing one device are
+      // sitting together and can say so out loud, so one tap settles it there
+      // too; only a match has a second seat that has to agree in its own time.
       if (!inMatch()) {
+        go::accept(game, go::kBlack);
+        go::accept(game, go::kWhite);
         finishCounting();
         return;
       }
-      // In a match the other seat has to agree too. Sending the state hands
-      // them the turn, and their ACCEPT comes back as a finished game.
-      theyAccepted = theyAccepted || false;
-      finishCounting();
+      const bool both = go::accept(game, seat);
+      if (both) {
+        finishCounting();
+        return;
+      }
+      // Sending hands them the turn. The button relabels itself to WAITING and
+      // means it: the game ends when their ACCEPT comes back, not now.
+      play.play(game);
       requestUpdate();
       return;
+    }
 
     case goui::ActionAgain:
       if (inMatch()) {
@@ -656,8 +661,8 @@ void GoActivity::gameRender() {
       for (int i = 0; i < go::kPoints; ++i) model.owner[i] = owner[i];
       model.blackHalves = blackHalves;
       model.whiteHalves = whiteHalves;
-      model.youAccepted = youAccepted;
-      model.theyAccepted = theyAccepted;
+      model.youAccepted = go::hasAccepted(game, seat);
+      model.theyAccepted = go::hasAccepted(game, go::other(seat));
       model.sharedDevice = !inMatch() && opponent == go::Opponent::Human;
       goui::buildCount(surface, model);
       break;
