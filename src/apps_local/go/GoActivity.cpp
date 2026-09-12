@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include "../Shelf.h"
+#include "../player/PlayerName.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxTheme.h"
@@ -641,7 +642,8 @@ void GoActivity::gameRender() {
       model.yourTurn = myMove();
       model.theyPassed = game.lastMove == go::kPass;
       model.nothingLeft = !go::hasUsefulMove(game, game.toMove);
-      model.opponentName = inMatch() ? opponentName() : nullptr;
+      player::shortName(inMatch() ? opponentName() : nullptr, theirName, sizeof(theirName));
+      model.opponentName = inMatch() ? theirName : nullptr;
       model.sharedDevice = !inMatch() && opponent == go::Opponent::Human;
       model.thinking = thinking;
       goui::buildBoard(surface, model);
@@ -667,7 +669,8 @@ void GoActivity::gameRender() {
       for (int i = 0; i < go::kPoints; ++i) model.owner[i] = owner[i];
       model.blackHalves = blackHalves;
       model.whiteHalves = whiteHalves;
-      model.opponentName = inMatch() ? opponentName() : nullptr;
+      player::shortName(inMatch() ? opponentName() : nullptr, theirName, sizeof(theirName));
+      model.opponentName = inMatch() ? theirName : nullptr;
       model.sharedDevice = !inMatch() && opponent == go::Opponent::Human;
       goui::buildResult(surface, model);
       break;

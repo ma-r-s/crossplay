@@ -102,6 +102,13 @@ class GoActivity final : public linkplay::LinkActivity {
 
   uint32_t seed = 0x9E3779B9u;
 
+  // The opponent's name, shortened to its first word, held because the seat
+  // band draws it every frame. A device name is three words and up to twenty
+  // characters, and the band gives it 168 pixels: whole, it is elided, and what
+  // an elision drops is the part the reader needed. Every other link game in
+  // this fork does the same.
+  char theirName[24] = {};
+
   bool hasHistory = false;
   uint8_t lastPoints[go::kPoints] = {};
   bool lastWon = false;

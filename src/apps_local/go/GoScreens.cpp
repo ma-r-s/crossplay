@@ -156,51 +156,6 @@ void miniBoard(toybox::Screen& screen, const int16_t left, const int16_t top, co
   }
 }
 
-// One side's prisoners, as the stones themselves rather than as a number.
-//
-// Chess's captured-material strips, for chess's reason: the question a player
-// asks is "am I up or down", which two rows of discs answer without anybody
-// counting. The space is reserved from the first frame even while both rows are
-// empty, because a board that reflows halfway through a game is worse than one
-// with a little air in it.
-//
-// `colour` is the colour of the stones TAKEN, so the caption and the discs
-// agree: BLACK TOOK, followed by white stones.
-void prisonerStrip(toybox::Screen& screen, const fui::Rect& box, const uint8_t colour, const int captured) {
-  fui::TextStyle label;
-  label.font = toybox::kTileFont;
-  label.align = fui::TextAlign::Left;
-  constexpr int16_t kLabelWidth = 128;
-  screen.target().text(toybox::inkCentred(fui::makeRect(box.x, box.y, kLabelWidth, box.height), toybox::kTileCut),
-                       colour == go::kWhite ? "BLACK TOOK" : "WHITE TOOK", label);
-
-  constexpr int16_t kSmall = 12;
-  constexpr int16_t kStep = 27;
-  const int16_t cy = static_cast<int16_t>(box.y + box.height / 2);
-  // The shelf the stones stand on, drawn whether or not any have been taken.
-  // An empty strip with no shelf reads as a gap in the layout; with one it
-  // reads as a place nothing has arrived yet, which is what it is. Both rows
-  // are empty for the first dozen moves of every game.
-  screen.target().fill(fui::makeRect(static_cast<int16_t>(box.x + kLabelWidth), static_cast<int16_t>(cy + 16),
-                                     static_cast<int16_t>(box.width - kLabelWidth), toybox::kHairline),
-                       fui::Paint::solid(fui::Color::Black));
-  const int room = (box.width - kLabelWidth) / kStep;
-  const int shown = captured < room ? captured : room;
-  for (int i = 0; i < shown; ++i) {
-    stone(screen, static_cast<int16_t>(box.x + kLabelWidth + kSmall + i * kStep), cy, kSmall, colour);
-  }
-  // A count appears only once the discs run out of room, so the common case
-  // carries no number at all and the rare one is not silently short.
-  if (captured <= room) return;
-  char more[16];
-  std::snprintf(more, sizeof(more), "+%d", captured - room);
-  fui::TextStyle rest = label;
-  rest.align = fui::TextAlign::Right;
-  screen.target().text(toybox::inkCentred(fui::makeRect(static_cast<int16_t>(box.right() - 60), box.y, 60, box.height),
-                                          toybox::kTileCut),
-                       more, rest);
-}
-
 const char* statusWords(const BoardModel& model) {
   if (model.thinking) return "THINKING";
   if (model.nothingLeft) return model.yourTurn ? "NOTHING LEFT: PASS" : "THEIR MOVE";
@@ -209,24 +164,6 @@ const char* statusWords(const BoardModel& model) {
   if (model.theyPassed && model.yourTurn) return "THEY PASSED";
   if (model.sharedDevice) return model.game.toMove == go::kBlack ? "BLACK TO PLAY" : "WHITE TO PLAY";
   return model.yourTurn ? "YOUR MOVE" : "THEIR MOVE";
-}
-
-// The status capsule. Outlined, never filled: the ink budget rule keeps solid
-// black for a surface that does not repaint, and this one changes every move.
-// It also stops the capsule reading as a second button beside PASS, which it is
-// not -- it is not tappable at all.
-fui::StyleSet capsuleStyles() {
-  fui::StyleSet styles;
-  styles.explicitlySet = true;
-  styles.normal.background = fui::Paint::solid(fui::Color::White);
-  styles.normal.foreground = fui::Paint::solid(fui::Color::Black);
-  styles.normal.border = fui::Paint::solid(fui::Color::Black);
-  styles.normal.borderWidth = toybox::kRule;
-  styles.selected = styles.normal;
-  styles.focused = styles.normal;
-  styles.active = styles.normal;
-  styles.disabled = styles.normal;
-  return styles;
 }
 
 void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
@@ -686,8 +623,8 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   }
 
   const int16_t bandTop = static_cast<int16_t>(boardTop() + kBoardSide + toybox::kGutter);
-  char blackLine[40];
-  char whiteLine[40];
+  char blackLine[64];
+  char whiteLine[64];
   if (model.game.handicap > 0) {
     std::snprintf(blackLine, sizeof(blackLine), "BLACK  %d  (%u STONES)", model.blackHalves / 2,
                   static_cast<unsigned>(model.game.handicap));

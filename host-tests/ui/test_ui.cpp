@@ -22,6 +22,7 @@
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
 #include "../../src/apps_local/dungeon/DungeonScreens.h"
 #include "../../src/apps_local/forehead/ForeheadScreens.h"
+#include "../../src/apps_local/go/GoScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/instapaper/InstapaperScreens.h"
@@ -5322,6 +5323,165 @@ void testAFullBoardDoesNotOverflowTheInteractionBuffer() {
   Rendered out;
   buildC4<c4ui::BoardModel, c4ui::buildBoard>(out, model);
   CHECK(!out.interactions.overflowed());
+}
+
+// --- go --------------------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildGo(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The load-bearing one. Eighty-one points do not fit the interaction table, so
+// the board is hit-tested arithmetically from the geometry that drew it, and
+// the two have to be exact inverses or a tap plays somewhere else.
+//
+// Go's version is harder than a squared board's in one specific way: a point is
+// a CROSSING, and the quadrant around it belongs to it. Computing a small
+// target on each line instead leaves dead gutters between the points, which on
+// a touch board reads as the game ignoring taps.
+void testThePointYouTapIsThePointTheRulesGet() {
+  for (int point = 0; point < go::kPoints; ++point) {
+    int16_t cx = 0;
+    int16_t cy = 0;
+    goui::stoneCentre(device(), point, cx, cy);
+    int got = -1;
+    CHECK(goui::pointAt(device(), cx, cy, got));
+    CHECK(got == point);
+
+    // And the whole quadrant around it, up to but not including the halfway
+    // line to the neighbour.
+    const int16_t reach = static_cast<int16_t>(goui::stoneRadius());
+    const int probes[4][2] = {
+        {cx - reach, cy - reach}, {cx + reach, cy - reach}, {cx - reach, cy + reach}, {cx + reach, cy + reach}};
+    for (const auto& probe : probes) {
+      int near = -1;
+      if (!goui::pointAt(device(), probe[0], probe[1], near)) continue;
+      CHECK(near == point);
+    }
+  }
+}
+
+void testTheBoardKeepsOffTheChromeAndTheSeats() {
+  int got = -1;
+  // The header, the seat bands and the PASS row are not the board.
+  CHECK(!goui::pointAt(device(), 240, toybox::kHeaderHeight / 2, got));
+  CHECK(!goui::pointAt(device(), 240, 800 - toybox::kMargin - toybox::kPillHeight / 2, got));
+
+  int16_t cx = 0;
+  int16_t cy = 0;
+  goui::stoneCentre(device(), go::pointAt(0, 0), cx, cy);
+  CHECK(cy - goui::stoneRadius() > toybox::kChromeHeight);
+  goui::stoneCentre(device(), go::pointAt(go::kSize - 1, go::kSize - 1), cx, cy);
+  CHECK(cy + goui::stoneRadius() < 800 - toybox::kMargin - toybox::kPillHeight);
+}
+
+void testTheBoardSaysWhoseMoveAndWhatIsWrongWithTheMove() {
+  goui::BoardModel model;
+  go::reset(model.game);
+  model.yourTurn = true;
+
+  Rendered mine;
+  buildGo<goui::BoardModel, goui::buildBoard>(mine, model);
+  CHECK(mine.target.drew("PASS"));
+
+  // The two cautions are the whole value of placing a stone in two taps: they
+  // are the only moment a warning can reach the player before the stone exists.
+  model.caution = go::Caution::FillsOwnEye;
+  Rendered eye;
+  buildGo<goui::BoardModel, goui::buildBoard>(eye, model);
+  CHECK(eye.target.drew("THAT FILLS YOUR OWN EYE"));
+
+  model.caution = go::Caution::SelfAtari;
+  Rendered atari;
+  buildGo<goui::BoardModel, goui::buildBoard>(atari, model);
+  CHECK(atari.target.drew("THAT STONE WOULD BE IN ATARI"));
+  CHECK(!atari.target.drew("THAT FILLS YOUR OWN EYE"));
+}
+
+void testTheCountScreenOffersBothWaysOut() {
+  goui::CountModel model;
+  go::reset(model.game);
+  model.game.stage = static_cast<uint8_t>(go::Stage::Scoring);
+  Rendered out;
+  buildGo<goui::CountModel, goui::buildCount>(out, model);
+  // Accepting the count and playing on are BOTH doors, because a player who
+  // passed too early has no other way back and that is the common beginner
+  // mistake.
+  CHECK(out.target.drew("ACCEPT"));
+  CHECK(out.target.drew("PLAY ON"));
+  CHECK(out.target.drew("TAP A DEAD GROUP"));
+}
+
+void testTheResultNamesTheWinnerFromYourSeat() {
+  goui::ResultModel model;
+  go::reset(model.game);
+  model.game.stage = static_cast<uint8_t>(go::Stage::Over);
+  model.seat = go::kBlack;
+  model.blackHalves = 90;
+  model.whiteHalves = 75;
+
+  Rendered won;
+  buildGo<goui::ResultModel, goui::buildResult>(won, model);
+  CHECK(won.target.drew("YOU WIN"));
+
+  model.seat = go::kWhite;
+  Rendered lost;
+  buildGo<goui::ResultModel, goui::buildResult>(lost, model);
+  CHECK(lost.target.drew("THEY WIN"));
+  CHECK(!lost.target.drew("YOU WIN"));
+
+  // Two people sharing one device have no "you", so the headline names the
+  // colour instead. Saying YOU WIN to a pair of players names the wrong one.
+  model.sharedDevice = true;
+  Rendered shared;
+  buildGo<goui::ResultModel, goui::buildResult>(shared, model);
+  CHECK(shared.target.drew("BLACK WINS"));
+  CHECK(!shared.target.drew("YOU WIN"));
+  CHECK(!shared.target.drew("THEY WIN"));
+}
+
+void testTheSettingsRowsSayWhatTheyAre() {
+  goui::SettingsModel model;
+  model.opponent = go::Opponent::Computer;
+  model.level = go::Level::Medium;
+  Rendered computer;
+  buildGo<goui::SettingsModel, goui::buildSettings>(computer, model);
+  CHECK(computer.target.drew("OPPONENT"));
+  CHECK(computer.target.drew("COMPUTER"));
+  CHECK(computer.target.drew("MEDIUM"));
+  CHECK(computer.target.drew("YOU PLAY"));
+
+  // Two people sharing the device: the machine's rows dim rather than vanish,
+  // so the list does not jump under the finger and the row still says what it
+  // would do.
+  model.opponent = go::Opponent::Human;
+  Rendered humans;
+  buildGo<goui::SettingsModel, goui::buildSettings>(humans, model);
+  CHECK(humans.target.drew("2 PLAYERS"));
+  CHECK(humans.target.drew("LEVEL"));
+  CHECK(humans.target.drew("YOU PLAY"));
+}
+
+void testTheFrontDoorIsThreeDoors() {
+  goui::MenuModel model;
+  Rendered fresh;
+  buildGo<goui::MenuModel, goui::buildMenu>(fresh, model);
+  CHECK(fresh.target.drew("PLAY"));
+  CHECK(fresh.target.drew("PLAY NEARBY"));
+  CHECK(fresh.target.drew("SETTINGS"));
+  CHECK(fresh.target.drew("NO GAMES YET"));
+
+  // A part-played game is RESUMED, not thrown away. Starting a new one from the
+  // front door with no warning is how a player loses the game they left on the
+  // train.
+  model.inProgress = true;
+  Rendered resumed;
+  buildGo<goui::MenuModel, goui::buildMenu>(resumed, model);
+  CHECK(resumed.target.drew("RESUME GAME"));
 }
 
 // --- checkers --------------------------------------------------------------
@@ -12387,6 +12547,13 @@ int main() {
   testTheRackShowsEveryTroopYouHold();
   testTheRackTileYouTapIsTheTroopYouGet();
   testAFullBoardDoesNotOverflowTheInteractionBuffer();
+  testThePointYouTapIsThePointTheRulesGet();
+  testTheBoardKeepsOffTheChromeAndTheSeats();
+  testTheBoardSaysWhoseMoveAndWhatIsWrongWithTheMove();
+  testTheCountScreenOffersBothWaysOut();
+  testTheResultNamesTheWinnerFromYourSeat();
+  testTheSettingsRowsSayWhatTheyAre();
+  testTheFrontDoorIsThreeDoors();
   testTheSquareYouTapIsTheSquareTheRulesGet();
   testTheBoardKeepsOffTheChrome();
   testTheBoardSaysWhoseMoveAndWho();
