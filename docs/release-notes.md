@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.55
+
+- Wikipedia: text-only English Wikipedia on the card, read like a book
+
 ### 1.12.54
 
 - Xkcd: a retry no longer says the card is not writable (#475)
