@@ -664,7 +664,9 @@ def _words(t):
     return len(t.split())
 
 
-_FACE = re.compile(r"(?<![A-Za-z0-9<>=.'])[:;]-?[()]")
+# a face stands after a space or an opening quote; ":(" glued to a word or a
+# parenthesis ("(A+C):(B+D)", "states):(I)") is punctuation and counts
+_FACE = re.compile(r"(?<![^\s\"\u201c\u2018])[:;]-?[()](?![A-Za-z0-9])")
 
 
 def struct_hits(name, bl):

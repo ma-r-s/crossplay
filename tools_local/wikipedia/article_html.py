@@ -433,7 +433,7 @@ _TIDY = (
     (re.compile(r"\(\s*[,;:]\s*"), "("),
     # a mark after a word, a closing quote or a bracket goes before ")"; after a
     # space or an opening quote it is the face of ":)" and stays
-    (re.compile(r"(?<=[A-Za-z0-9.')\]])[,;:]\s*\)|(?<=[A-Za-z0-9.]\")[,;:]\s*\)"), ")"),
+    (re.compile(r"(?<=[A-Za-z0-9.')\]\u201d\u2019])[,;:]\s*\)|(?<=[A-Za-z0-9.]\")[,;:]\s*\)"), ")"),
     (re.compile(r"\(\s*\)"), ""),
     (re.compile(r"\[\s*\]"), ""),
     (re.compile(r"\s+([,;?)]|!(?![=A-Za-z0-9])|:(?!\s?\d|-?[()]))"), r"\1"),  # "a != 0", "3 : 1", the click in "!Nanseb" and the face in ":)" keep their spaces
@@ -1044,6 +1044,8 @@ def _is_face(text, i):
         j -= 1
     if j < 0 or text[j] not in ":;":
         return False
+    if i + 1 < len(text) and text[i + 1].isalnum():
+        return False  # ":(1) Everyone" is a numbered clause
     return j == 0 or text[j - 1] in " \t\"\u201c\u2018"
 
 
@@ -1403,7 +1405,7 @@ class _Doc:
                     break
         if bold:
             bs, be = bold
-            return (
+            return _scrub_inline(
                 self._emit(text, 0, bs, links)
                 + "<b>"
                 + self._emit(text, bs, be, links)

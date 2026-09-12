@@ -899,6 +899,16 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
         self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
 
+    def test_lead_with_bold_subject_is_scrubbed_too(self):
+        # The lead's bold-subject branch returned before the inline scrub, so
+        # "(Latin, "trumpet"; UK: /.../)" kept a ";)" once its pronunciation
+        # went. Both branches scrub now.
+        row = {"name": "Tuba", "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+            {"type": "paragraph", "value": "The tuba (Latin, \"trumpet\"; UK: / \u02c8 tju\u02d0b\u0259 /) is a large brass instrument.", "links": [{"url": "https://en.wikipedia.org/wiki/Latin", "text": "Latin"}]}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<p>The <b>tuba</b> (<a href=\"Latin\">Latin</a>, \"trumpet\") is a large brass instrument.</p>", x)
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("Article 26 :(1) Everyone has the right"), {}), "Article 26 :(1) Everyone has the right")
+
     def test_round_eighteen_ninth_read(self):
         # A ninth cold read: a taxobox's "<title>: Scientific classification"
         # row and a link caption "Official Results" are no facts; an infobox's
