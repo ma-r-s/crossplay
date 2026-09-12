@@ -211,11 +211,56 @@ The counting phase crosses the wire like any other move: a dead-stone mark is a
 state change, so flipping one hands the turn over and the other seat has to look
 again and say yes again.
 
+## How strong it actually is
+
+Measured, on a laptop, alternating colours, Tromp-Taylor scored by a GTP
+referee. Hard, which is 8,000 playouts a move.
+
+| Opponent | Games | Won | Elo |
+| --- | --- | --- | --- |
+| GNU Go 3.8 `--level 1` | 64 | 29 | -33 |
+| GNU Go 3.8 `--level 10` | 64 | 5 | -429 |
+
+So: level with GNU Go at its lowest setting, and well below its highest. For
+scale, michi-c2 at **500** playouts is level with `--level 10`, so there are two
+or three stones still on the table and they are the knowledge this engine does
+not have rather than search it cannot afford.
+
+**Three traps in measuring this, all of which cost a wrong conclusion first:**
+
+- **A 24-game match cannot tell 37% from 56%.** Both of those are the same
+  engine against the same opponent, measured twice. The interval on 24 games is
+  about twenty points wide, which is wider than every change worth making. Do
+  not quote a number from fewer than about sixty games, and do not act on one.
+- **GNU Go 3.8 is DETERMINISTIC.** Playing it against itself at two levels
+  produces the same game every time: a 48-game match between `--level 1` and
+  `--level 10` is two distinct games played twenty-four times each, and its
+  confidence interval is a fiction. It is a valid opponent for a randomised
+  engine and a useless one for itself.
+- **Homebrew's `gnugo` crashes on `genmove` at every level on arm64.** It
+  answers `boardsize` and `clear_board` happily and then dies silently, so a
+  match reports every game as an error rather than as a crash. GNU Go assumes a
+  signed `char`; building it with `-fsigned-char` fixes it, and that trap
+  belongs to this whole generation of 2000s C.
+
+**And one change that measured much worse and was reverted**: a prior favouring
+the middle of the board and penalising the first two lines. It looked obviously
+right, it fixed a visibly bad opening move, and it took the engine from 45% to
+4% against `--level 1`. On nine by nine the edge is where the endgame is
+decided, and telling the search to ignore it permanently is fatal. Two changes
+went in together and only the pair was measured, which is the other half of the
+lesson.
+
 ## What is not done
 
 - **No measurement on hardware.** Every playout rate here is a laptop number
   scaled by a published CoreMark ratio, and the spread in that estimate is a
   rank and a half. The first thing to do with a device is time a real move.
+- **Two or three stones short of michi-c2**, which is the engine the research
+  recommended porting. It was not ported because it is 33 to 45KB of flash
+  against roughly 50KB spare on the oldest partition table in the field, where
+  this one is twelve. If the gap matters more than the bytes, that port is the
+  fallback and it is a measured one.
 - **No 3x3 shape patterns in the playouts, no RAVE, no priors.** The research
   measures these at +512, +250 and +398 Elo respectively on top of what is here,
   and the pattern table is **961 bytes**, not megabytes. This is the single
