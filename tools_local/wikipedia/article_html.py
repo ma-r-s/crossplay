@@ -118,14 +118,19 @@ _GREEK_ALONE = re.compile(
 )
 
 
+_TEX_OPEN = re.compile(r"\{\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle)\b")
+
+
 def _strip_tex(s):
     """The dataset writes every formula twice: its words, then the TeX in
-    "{\\displaystyle ...}". The TeX goes, braces balanced."""
+    "{\\displaystyle ...}" (or textstyle, scriptstyle). The TeX goes, braces
+    balanced."""
     out = []
     i = 0
     n = len(s)
     while True:
-        j = s.find("{\\displaystyle", i)
+        m = _TEX_OPEN.search(s, i)
+        j = m.start() if m else -1
         if j < 0:
             out.append(s[i:])
             break
@@ -149,6 +154,12 @@ def _strip_tex(s):
         i = k + 1
     return "".join(out)
 
+# A hatnote points at another page; on a device with no other page to point
+# at it is noise: "Main article: X", "For other uses, see X (disambiguation)".
+_HATNOTE = re.compile(
+    r"(?:Main articles?:|See also:|Further information:|For other uses\b|For the [^.]{0,80}, see\b|"
+    r"Not to be confused with\b|\"[^\"]{1,80}\" redirects here\b|[^.\n]{1,80} redirects here\.)"
+)
 _NAVBOX = re.compile(r"This box:|\bview\s+talk\s+edit\b|\bv\s*[\u00b7.]\s*t\s*[\u00b7.]\s*e\b")
 # One level of nesting, so "(UK: OH-s(h)ee-AH-nee-<schwa>)" is one parenthetical.
 _PAREN = re.compile(r" ?\((?:[^()]|\([^()]*\))*\)")
@@ -206,6 +217,11 @@ def esc_attr(s):
 # "lasted 28 days.The truce": the source lost the space where a citation
 # stood. Three letters before the period so "e.g.The" and initials stay.
 _SENTENCE_GLUE = re.compile(r"([a-z]{3,}[.!?])([A-Z][a-z]{2,})")
+# "Bonaparte, 1835Tribe Acanthurini": nested list items the source ran together
+_YEAR_GLUE = re.compile(r"\b((?:1[5-9]|20)\d\d)(?=[A-Z][a-z]{2,})")
+# "{{ cite journal }}: CS1 maint: DOI inactive as of June 2024 (link)": a
+# citation template the source left in the prose
+_TEMPLATE = re.compile(r"\s*\{\{[^{}]{0,120}\}\}(?::\s*CS1 maint:[^.()]*(?:\([a-z ]+\))?\.?)?")
 # "10 5 M": a power of ten whose exponent the source flattened into a spaced
 # digit; the serif has superscript digits and the superscript minus.
 _TEN_POWER = re.compile(r"(?<![\d.,\u2212-])\b10 (-?)(\d{1,2})\b(?![.,:]\d|%| ?[-\u2013]\d)")
@@ -218,11 +234,14 @@ def clean_text(s):
         s = html.unescape(s)  # "22 &amp;amp; 23 Geo. 5": the source escaped it twice
     if "." in s:
         s = _SENTENCE_GLUE.sub(r"\1 \2", s)
+    s = _YEAR_GLUE.sub(r"\1 ", s)
     if not s:
         return ""
     s = _CONTROL.sub("", s)
-    if "\\displaystyle" in s:
+    if "style" in s and _TEX_OPEN.search(s):
         s = _strip_tex(s)
+    if "{{" in s:
+        s = _TEMPLATE.sub("", s)
     s = _CITE.sub("", s)
     s = _CITE_PAGE.sub("", s)
     s = _GREEK_ALONE.sub(lambda m: _GREEK_NAMES.get(m.group(1), m.group(1)), s)
@@ -701,6 +720,10 @@ class _Doc:
 
     # --- blocks ------------------------------------------------------------
     def paragraph(self, part, lead=False):
+        raw = part.get("value") if isinstance(part, dict) else None
+        if isinstance(raw, str) and _HATNOTE.match(raw.lstrip()):
+            self.stats["hatnotes_dropped"] = self.stats.get("hatnotes_dropped", 0) + 1
+            return
         subject = lead and not self.first_paragraph_done
         s = self.inline(part, lead=lead, subject=subject)
         if s:
@@ -1092,6 +1115,10 @@ def article_xhtml(row, stats=None):
     elif isinstance(row.get("abstract"), str) and row["abstract"].strip():
         lead = [{"type": "paragraph", "value": row["abstract"]}]
 
+    for p in lead[:2]:
+        v = p.get("value") if isinstance(p, dict) else None
+        if isinstance(v, str) and v.lstrip().startswith("#REDIRECT"):
+            raise ValueError("redirect page")
     doc.out.append("<html><body>")
     doc.out.append("<h1>" + esc(doc.title) + "</h1>")
     lead_blocks = [
@@ -1105,7 +1132,15 @@ def article_xhtml(row, stats=None):
     doc.parts(lead_sections, 0)
     doc.parts(rest, 0)
     doc.out.append("</body></html>")
-    return doc.title, doc.headings, "".join(doc.out).encode("utf-8")
+    xhtml, n = _LIST_INTRO_ALONE.subn("", "".join(doc.out))
+    if n:
+        stats["list_intros_dropped"] = stats.get("list_intros_dropped", 0) + n
+    return doc.title, doc.headings, xhtml.encode("utf-8")
+
+
+# "Typical fashions in the 1930s:" and then a heading: the gallery it
+# introduced was images, and went. The colon line goes with it.
+_LIST_INTRO_ALONE = re.compile(r"<p>(?:[^<]|<(?!/p>))*:</p>(?=<h[1-6]|</body>)")
 
 
 

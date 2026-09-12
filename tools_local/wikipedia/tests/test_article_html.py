@@ -190,7 +190,12 @@ class Sample(unittest.TestCase):
         rows = read_rows(path)
         stats = {}
         for row in rows:
-            title, headings, xhtml = article_xhtml(row, stats)
+            try:
+                title, headings, xhtml = article_xhtml(row, stats)
+            except ValueError as e:
+                if str(e) == "redirect page":
+                    continue  # the builders skip these too
+                raise
             check_document(self, row, title, headings, xhtml)
         print(f"\n  article_html: {len(rows)} sample rows ok; {stats}", flush=True)
         self.assertEqual(len(rows), 3000)
@@ -699,6 +704,12 @@ class Rules(unittest.TestCase):
             ("Mass 10 5 M and 10 -3 m, the year 10 and 10 5,000 and 10 5.5", "Mass 10\u2075 M and 10\u207b\u00b3 m, the year 10 and 10 5,000 and 10 5.5"),
             # the invisible marks the panel smudges are gone, the words whole
             ("left\u200eto\u200fright, word\u2060joiner, soft\u00adhyphen, zero\u200bwidth\ufeff", "lefttoright, wordjoiner, softhyphen, zerowidth"),
+            # every TeX wrapper goes, not just displaystyle; a citation template
+            # left in the prose goes with its maintenance note; nested list
+            # items the source ran together after a year come apart
+            ("log 10 (d + 1 d) {\\textstyle \\log _{10}\\left({\\frac {d+1}{d}}\\right)}. The", "log 10 (d + 1 d). The"),
+            ("teach it to me. {{ cite journal }}: CS1 maint: DOI inactive as of June 2024 (link) Next", "teach it to me. Next"),
+            ("Fowler & Bean, 1929Genus Naso, 1801 and 1990s", "Fowler & Bean, 1929 Genus Naso, 1801 and 1990s"),
         ]:
             self.assertEqual(ah.clean_text(src), want, src)
         # Left alone: a period that starts a word, an inch mark, an apostrophe,
@@ -758,6 +769,34 @@ class Rules(unittest.TestCase):
         self.assertIsNone(ah.person_alias({"name": "Einstein coefficients", "infoboxes": "[]"}))
         self.assertIsNone(ah.person_alias({"name": "Tokyo", "infoboxes": born}))
         self.assertIsNone(ah.person_alias({"name": "Battle of Hastings (1066)", "infoboxes": born}))
+
+    def test_redirect_page_refused(self):
+        with self.assertRaises(ValueError):
+            self.lead(
+                {"type": "paragraph", "value": "%5B%5BWikipedia%3ARedirects+for+discussion%5D%5D+debate"},
+                {"type": "paragraph", "value": "#REDIRECT Paris"},
+                name="PariS",
+            )
+
+    def test_hatnotes_and_orphan_list_intro_go(self):
+        secs = [
+            {"type": "section", "name": "Fashion", "has_parts": [
+                {"type": "paragraph", "value": "Main article: 1930s in fashion"},
+                {"type": "paragraph", "value": "Typical fashions in the 1930s:"},
+                {"type": "section", "name": "Hats", "has_parts": [
+                    {"type": "paragraph", "value": "For other uses, see Hat (disambiguation)."},
+                    {"type": "paragraph", "value": "Hats were worn. The list of hats is:"},
+                    {"type": "list", "has_parts": [{"type": "list_item", "value": "Fedora"}]},
+                ]},
+            ]},
+        ]
+        _, heads, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs)
+        self.assertNotIn("Main article", x)
+        self.assertNotIn("For other uses", x)
+        self.assertNotIn("Typical fashions", x)
+        self.assertIn("<p>Hats were worn. The list of hats is:</p><ul>", x)
+        self.assertEqual(st["hatnotes_dropped"], 2)
+        self.assertEqual(st["list_intros_dropped"], 1)
 
     def test_fact_repeating_its_name_goes(self):
         boxes = [{"name": "Infobox", "has_parts": [

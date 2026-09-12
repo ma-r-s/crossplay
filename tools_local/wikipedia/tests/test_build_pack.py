@@ -196,3 +196,28 @@ class Build(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaseVariants(unittest.TestCase):
+    def test_stub_and_disambiguation_variants_go_when_the_listed_spelling_is_present(self):
+        levels = {"Alps": 3, "Paris": 2, "Ali": 4}
+        articles = {
+            "Alps": ([], b"<html><body><h1>Alps</h1>" + b"<p>Mountains.</p>" * 400 + b"</body></html>"),
+            "ALPS": ([], b"<html><body><h1>ALPS</h1><p>ALPS may refer to:</p><ul><li>x</li></ul></body></html>"),
+            "Paris": ([], b"<html><body><h1>Paris</h1>" + b"<p>City.</p>" * 400 + b"</body></html>"),
+            "PariS": ([], b"<html><body><h1>PariS</h1><p>#REDIRECT Paris</p></body></html>"),
+            # a genuine other page with a long body keeps its place
+            "ALI": ([], b"<html><body><h1>ALI</h1>" + b"<p>A real page about something else.</p>" * 200 + b"</body></html>"),
+            "Ali": ([], b"<html><body><h1>Ali</h1>" + b"<p>The caliph.</p>" * 400 + b"</body></html>"),
+            # a variant with no listed spelling present stays
+            "ROME": ([], b"<html><body><h1>ROME</h1><p>ROME may refer to:</p></body></html>"),
+        }
+        stats = {}
+        n = build_pack.drop_case_variants(articles, levels, stats)
+        self.assertEqual(n, 2)
+        self.assertEqual(sorted(articles), ["ALI", "Ali", "Alps", "Paris", "ROME"])
+        self.assertEqual(stats["case_variants_dropped"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

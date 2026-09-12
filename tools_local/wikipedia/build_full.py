@@ -324,6 +324,12 @@ def main(argv=None):
         "snapshot": snapshot,
         "seconds": round(time.time() - t0, 1),
     }
+    # every other counter the converter kept (tables_listed, hatnotes_dropped,
+    # navboxes_dropped, empty_sections_dropped, compat_folded, ...), so a new
+    # rule's count reaches the report without a summary edit
+    for k, v in sorted(stats.items()):
+        if isinstance(v, int) and k not in summary:
+            summary[k] = v
     text = json.dumps(summary, indent=2)
     if args.summary_json:
         with open(args.summary_json, "w", encoding="utf-8") as f:
