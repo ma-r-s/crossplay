@@ -913,6 +913,18 @@ class Rules(unittest.TestCase):
             "The tuba (Latin, \"trumpet\") is a large",
         )
 
+    def test_round_twenty_eleventh_read(self):
+        # An eleventh cold read: a standings table the dump puts before the
+        # lead sentence follows it; stacked header rows combine ("Conference
+        # W", "Overall W") so two W columns can be told apart; a cut never
+        # doubles a period.
+        self.assertEqual(ah.cut_words("a b c Auctt. d e", 4), "a b c Auctt...")
+        tables = [{"identifier": "t1", "headers": [[{"value": "Team"}, {"value": "Conference"}, {"value": "Conference"}, {"value": "Overall"}, {"value": "Overall"}], [{"value": "Team"}, {"value": "W"}, {"value": "L"}, {"value": "W"}, {"value": "L"}]],
+                   "rows": [[{"value": "Nebraska"}, {"value": "4"}, {"value": "0"}, {"value": "8"}, {"value": "0"}]]}]
+        row = {"name": "1915 Iowa State", "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}, {"type": "paragraph", "value": "The 1915 Iowa State Cyclones football team represented Iowa State."}]}], "tables": json.dumps(tables)}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<p>The <b>1915 Iowa State</b> Cyclones football team represented Iowa State.</p><p><b>Nebraska</b>; Conference W: 4; Conference L: 0; Overall W: 8; Overall L: 0</p>", x)
+
     def test_round_nineteen_tenth_read(self):
         # A tenth cold read: a Unicode hyphen is a hyphen; a table's header
         # row that arrived as a field ("Years: Team") is no fact; a footnote
@@ -1134,7 +1146,7 @@ class Rules(unittest.TestCase):
                             [{"value": "Felipo"}, {"value": "100 m"}, {"value": "did not advance"}, {"value": "did not advance"}]]}]
         secs = [{"type": "section", "name": "Athletics", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
         _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
-        self.assertIn("<tr><th>Athlete</th><th>Event</th><th>Result</th><th>Rank</th></tr>", x)
+        self.assertIn("<tr><th>Athlete</th><th>Event</th><th>Final Result</th><th>Final Rank</th></tr>", x)  # the group row prefixes the names
         self.assertNotIn("<th>Final</th>", x)
         wide = [{"identifier": "t2",
                  "headers": [[{"value": "Athlete"}, {"value": "Event"}, {"value": "Heat"}, {"value": "Rank"}, {"value": "Semi"}, {"value": "Rank"}, {"value": "Final"}, {"value": "Rank"}]],

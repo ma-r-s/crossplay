@@ -1329,11 +1329,35 @@ def fact_value(name, value):
     return value.strip()
 
 
+def _cell_text(c):
+    v = c.get("value") if isinstance(c, dict) else c
+    return v if isinstance(v, str) else ""
+
+
+def _combined_header(header_rows):
+    """Of stacked header rows the lowest names the columns; a group row above
+    it ("Conference Conference Conference Overall Overall Overall") prefixes
+    each name ("Conference W"), so two W columns can be told apart."""
+    bottom = header_rows[-1]
+    if len(header_rows) < 2:
+        return bottom
+    top = header_rows[-2]
+    tops = [_cell_text(c).strip() for c in top]
+    if len(set(t for t in tops if t)) < 2:
+        return bottom  # one caption over everything, not groups
+    out = []
+    for i, c in enumerate(bottom):
+        b = _cell_text(c).strip()
+        t = tops[i] if i < len(tops) else ""
+        out.append({"value": (t + " " + b) if t and b and t != b and len(t.split()) <= 3 else (b or t)})
+    return out
+
+
 def cut_words(text, n):
     words = text.split(" ")
     if len(words) <= n:
         return text
-    return " ".join(words[:n]) + "..."
+    return " ".join(words[:n]).rstrip(".") + "..."
 
 
 class _Doc:
@@ -1532,7 +1556,7 @@ class _Doc:
 
     def table_html(self, tb):
         rows = [(True, r) for r in (tb.get("headers") or []) if isinstance(r, list)]
-        rows = rows[-1:]  # of stacked header rows, the lowest names the columns
+        rows = [(True, _combined_header([r for _, r in rows]))] if rows else []
         rows += [(False, r) for r in (tb.get("rows") or []) if isinstance(r, list)]
         rows = [(h, r) for h, r in rows if r]
         if not rows:
@@ -1666,6 +1690,14 @@ class _Doc:
         return s
 
     def parts(self, parts, depth, lead=False):
+        if lead and parts:
+            # a standings table the dump put before the lead sentence: the
+            # article opens on prose, the table follows it
+            first = next((i for i, p in enumerate(parts) if isinstance(p, dict) and p.get("type") == "paragraph"), None)
+            if first:
+                before = [p for p in parts[:first] if isinstance(p, dict) and p.get("type") == "table"]
+                if before:
+                    parts = [p for p in parts[:first] if not (isinstance(p, dict) and p.get("type") == "table")] + [parts[first]] + before + list(parts[first + 1 :])
         loose = []  # consecutive bare list_items become one <ul>
 
         def flush_loose():
