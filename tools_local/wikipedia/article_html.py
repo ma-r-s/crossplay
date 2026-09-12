@@ -378,7 +378,7 @@ _LABEL_HEAD = r"(?:[A-Z][A-Za-z.]*|lit\\.|pl\\.|romani[sz]ed|pinyin|born|n\\u00e
 # ... and stands at the start of its segment: after "(", ";" or ","
 _SEGMENT_START = r"(?:^|(?<=[(\[;,])|(?<=[(\[;,] ))"
 _EMPTY_LABEL = re.compile(
-    _SEGMENT_START + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)])"
+    _SEGMENT_START + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|[A-Z][a-z]+(?:[ -][A-Za-z]+){0,2}:\s)"
 )
 # the same at the end of a parenthetical's segment ("from Sanskrit: , IPA:")
 _EMPTY_LABEL_END = re.compile(
@@ -636,7 +636,7 @@ _MIXED_NUMBER = re.compile(r"\b(\d+) \+ (\d+) ?[/\u2044] ?(\d+)\b")
 # "1 \u2044 4": the fraction slash the serif draws, spaced by the source.
 _FRACTION_GAP = re.compile(r"(?<=\d) ?\u2044 ?(?=\d)")
 # "3,855/km 2": the superscript came through as a spaced digit.
-_UNIT_POWER = re.compile(r"\b(km|m|cm|mm|mi|ft|yd|in|nmi)\s+([23])\b(?!,\d|\.\d| [a-z])")
+_UNIT_POWER = re.compile(r"\b(km|m|cm|mm|mi|ft|yd|in|nmi)\s+([23])\b(?![,.:]\d| [a-z])")
 _POWERS = {"2": "\u00b2", "3": "\u00b3"}
 
 
@@ -1072,6 +1072,12 @@ _CHEM_SUBLABEL = re.compile(r"^((?:Preferred |Systematic )?IUPAC name|Other name
 # "Length: 61: 49": a running time the dump spaced
 _TIME_FIELD = re.compile(r"^(?:Length|Duration|Running time|Time|Runtime)$", re.I)
 _TIME_GAP = re.compile(r"\b(\d{1,2}): (\d{2})\b")
+_YEAR_TWICE = re.compile(r"\b(\d{4}) \(\1\)")
+# "Coordinates: 41°37′N 44°00′E" as a nameless value: the label is the name
+_LABELLED_VALUE = re.compile(r"^([A-Z][a-z]+(?: [a-z]+){0,2}): (\S.*)$")
+# "team Former teams": a word of the row above leaked into the name
+_LEAKED_WORD = re.compile(r"^[a-z]+ (?=[A-Z][a-z]+)")
+_WEBSITE_VALUE = re.compile(r"^(?:official )?(?:web ?site|site|homepage|home page)$", re.I)
 _NAME_THEN_DATE = re.compile(
     r"([A-Za-z]+)\s+(?=(?:\d{1,2} [A-Z][a-z]+ \d{4}|[A-Z][a-z]+ \d{1,2}, \d{4})\b)"
 )
@@ -1206,6 +1212,7 @@ def fact_value(name, value):
         value = _SHELL.sub(lambda m: m.group(1) + m.group(2).translate(_SUPER), value)
     value = _YEAR_PAGE.sub("", value)
     value = _NAME_THEN_DATE.sub(_name_then_date, value)
+    value = _YEAR_TWICE.sub(r"\1", value)
     value = re.sub(r"(\d{4}) /(\d{4})\b", r"\1/\2", value)
     if _FORMULA_ROW.search(name):
         value = _ELEMENT_COUNT.sub(lambda m: m.group(1).translate(_SUB), value)
@@ -1622,6 +1629,8 @@ class _Doc:
                 fields.append((name, value, group))
                 groups.setdefault(name, set()).add(group)
 
+        base = re.sub(r"\s*\([^()]*\)\s*$", "", self.title)
+
         def walk(p, group=""):
             if isinstance(p, list):
                 for c in p:
@@ -1638,7 +1647,7 @@ class _Doc:
                     has_image[name] = True
                 # a group is a short label; a "section" whose name is a whole
                 # medal table is the table, not a group
-                if name and name != self.title and len(name.split()) <= 8 and not name.lower().startswith("infobox"):
+                if name and name != self.title and (not base or base not in name) and len(name.split()) <= 8 and not name.lower().startswith("infobox"):
                     # "Transcriptions" under "Chinese name" keeps the group
                     # that says which language the rows belong to
                     if not (group and _NAME_GROUP.search(group)):
@@ -1647,7 +1656,17 @@ class _Doc:
                 fname = p.get("name")
                 if p.get("images"):
                     return  # the field is an image and its value is the caption
+                if fname:
+                    fname = _LEAKED_WORD.sub("", fname)
                 value = _split_at_links(p["value"], p.get("links"), fname or "")
+                if fname and _WEBSITE_VALUE.match(fname.strip()) and _WEBSITE_VALUE.match(value.strip()):
+                    # "Official website" is a link's text; the reader has no link, so the address
+                    value = _website_host(p.get("links")) or value
+                if not fname:
+                    labelled = _LABELLED_VALUE.match(value)
+                    if labelled:
+                        add(labelled.group(1), labelled.group(2), group)
+                        return
                 if group and _NAME_GROUP.search(group) and fname:
                     add(group + ", " + fname.strip(), value, group)
                     return
@@ -1694,6 +1713,15 @@ class _Doc:
         for name, value in fields:
             self.out.append("<tr><th>" + esc(name) + "</th><td>" + esc(value) + "</td></tr>")
         self.out.append("</table>")
+
+
+def _website_host(links):
+    for lk in links or []:
+        url = lk.get("url") if isinstance(lk, dict) else None
+        if isinstance(url, str) and "://" in url:
+            host = url.split("://", 1)[1].split("/", 1)[0]
+            return host[4:] if host.startswith("www.") else host
+    return ""
 
 
 def _item_text(it):

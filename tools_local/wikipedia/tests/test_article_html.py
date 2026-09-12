@@ -952,6 +952,35 @@ class Rules(unittest.TestCase):
             {"type": "definition_term", "value": "Silver", "has_parts": [{"type": "definition", "value": "1"}]}]}]}],
             "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
         self.assertIn("<tr><th>Medals</th><td>Gold 0; Silver 1</td></tr>", ah.article_xhtml(row, {})[2].decode())
+        # a second cold read of a fresh full sample: "in 2:11:53" is a time,
+        # not square inches; a label before another label is empty; the
+        # end-date template's copy of the year; a nameless "Coordinates: ..."
+        # value takes its label as its name and keeps one notation; the
+        # infobox's own header is not a group; a word leaked into a name;
+        # "Official website" becomes the address the reader can type
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("who broke the world record in 2:11:53 at"), {}), "who broke the world record in 2:11:53 at")
+        self.assertEqual(
+            ah.strip_undrawable(ah.clean_text("Namgyal (Tibetan: Wylie: zhabs drung ngag dbang rnam rgyal; 1594) was"), {}, lead=True),
+            "Namgyal (Wylie: zhabs drung ngag dbang rnam rgyal; 1594) was",
+        )
+        self.assertEqual(ah.fact_value("Defunct", "1939 (1939)"), "1939")
+        self.assertEqual(ah.fact_value("Founded", "1939 (1940)"), "1939 (1940)")
+        row = {"name": "John Bloomfield (British Army officer)", "infoboxes": [{"name": "Infobox military person", "has_parts": [
+            {"type": "section", "name": "General Sir John Bloomfield GCB", "has_parts": [
+                {"type": "field", "name": "Rank", "value": "General"},
+                {"type": "field", "name": "team Former teams", "value": "Retired"},
+                {"type": "field", "name": "Website", "value": "Official website", "links": [{"url": "https://www.comune.frascineto.cs.it/", "text": "Official website"}]},
+            ]},
+            {"type": "section", "name": "Plateau", "has_parts": [
+                {"type": "field", "value": "Coordinates: 41°37′00″N 44°00′00″E / 41.61667°N 44.00000°E"},
+            ]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "John Bloomfield was a general."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Rank</th><td>General</td></tr>", x)
+        self.assertIn("<tr><th>Former teams</th><td>Retired</td></tr>", x)
+        self.assertIn("<tr><th>Website</th><td>comune.frascineto.cs.it</td></tr>", x)
+        self.assertIn("<tr><th>Coordinates</th><td>41°37′00″N 44°00′00″E</td></tr>", x)
+        self.assertNotIn("GCB", x.split("Quick facts")[1])
 
     def test_round_eleven_the_last_classes(self):
         # What round ten's measurement still flagged, each traced to the dump
