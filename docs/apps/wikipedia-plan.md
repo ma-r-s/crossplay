@@ -432,7 +432,7 @@ what MathML would have shown for that TeX; otherwise the words stay and
 the TeX goes. Counted per build (formulas_rendered, formulas_unmatched);
 96% of formulas render on the essentials.
 
-Thirteen rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
+Fourteen rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
 onward): each one a census or a detector report or a cold reviewer's
 read of thirty random articles, every finding checked against the dump's
 own text before a rule was written, the essentials rebuilt and republished
@@ -465,6 +465,10 @@ value is the title, a romanised aside that now keeps the word
 ("Russian, romanized: Semnadtsat'"), the title's own words reordered in
 a lead aside. A rule of 36 equals signs stalled a full build on an
 ambiguous quantifier; every rule is now timed on 400-character runs.
+A fifth read (round fourteen) settled feet-and-inches beside the
+unit-power rule, taxon authorities, commas in addresses, compass
+points after a parenthesis, machine dates in cells and a density row
+the dump nests under "Government".
 
 What the census decided, in order: a pronunciation between slashes or
 brackets goes whole and first; a symbol the serif lacks is spelled

@@ -899,6 +899,32 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
         self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
 
+    def test_round_fourteen_fifth_read(self):
+        # A fifth cold read: "6 ft 3 1/2 in" is not six cubic feet; a taxon
+        # row keeps its authority; an address joins its links with commas; a
+        # compass point after a parenthesis is not an item; a row number
+        # "1." and a machine date in a cell; "Density" under the dump's
+        # "Government" section belongs to the population row before it.
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("1.92 m (6 ft 3 1/2 in) tall"), {}), "1.92 m (6 ft 3 1/2 in) tall")
+        self.assertEqual(ah._split_at_links("Helonias L.", [{"text": "Helonias"}, {"text": "L."}], "Genus"), "Helonias L.")
+        self.assertEqual(
+            ah._split_at_links("2, Bank Plot, Dhakuria Kali Bari Lane Kolkata, West Bengal India", [{"text": "Kolkata"}, {"text": "West Bengal"}, {"text": "India"}], ""),
+            "2, Bank Plot, Dhakuria Kali Bari Lane Kolkata, West Bengal, India",
+        )
+        self.assertEqual(ah.fact_value("Location", "190 km (118 mi) W of Sydney; 33 km (21 mi) SSE of Bathurst"), "190 km (118 mi) W of Sydney; 33 km (21 mi) SSE of Bathurst")
+        self.assertEqual(ah.fact_value("Date", "2014-10-15"), "15 October 2014")
+        row = {"name": "Aincourt", "infoboxes": [{"name": "Infobox", "has_parts": [{"type": "section", "name": "Government", "has_parts": [
+            {"type": "field", "name": "Mayor", "value": "Emmanuel Couesnon"}, {"type": "field", "name": "Area 1", "value": "10.03 km 2 (3.87 sq mi)"},
+            {"type": "field", "name": "Population (2023)", "value": "854"}, {"type": "field", "name": "Density", "value": "85.1/km 2 (221/sq mi)"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]},
+                {"type": "section", "name": "Goals", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}],
+            "tables": json.dumps([{"identifier": "t1", "headers": [[{"value": "No."}, {"value": "Date"}, {"value": "Venue"}, {"value": "Opponent"}, {"value": "Score"}, {"value": "Result"}, {"value": "Competition"}, {"value": "Ref"}]],
+                "rows": [[{"value": "1."}, {"value": "2014-10-15"}, {"value": "Luanda"}, {"value": "Lesotho"}, {"value": "2–0"}, {"value": "4–0"}, {"value": "Friendly"}, {"value": ""}]]}])}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Population (2023), density</th><td>85.1/km² (221/sq mi)</td></tr>", x)
+        self.assertNotIn("Government, density", x)
+        self.assertIn("<p><b>1</b>; Date: 15 October 2014; Venue: Luanda; Opponent: Lesotho; Score: 2–0; Result: 4–0; Competition: Friendly</p>", x)
+
     def test_round_thirteen_fourth_read(self):
         # A fourth cold read of the full pack: a romanised aside keeps the
         # word "romanized" so the Latin string is not taken for the native

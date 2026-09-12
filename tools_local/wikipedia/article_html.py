@@ -639,7 +639,7 @@ _MIXED_NUMBER = re.compile(r"\b(\d+) \+ (\d+) ?[/\u2044] ?(\d+)\b")
 # "1 \u2044 4": the fraction slash the serif draws, spaced by the source.
 _FRACTION_GAP = re.compile(r"(?<=\d) ?\u2044 ?(?=\d)")
 # "3,855/km 2": the superscript came through as a spaced digit.
-_UNIT_POWER = re.compile(r"\b(km|m|cm|mm|mi|ft|yd|in|nmi)\s+([23])\b(?![,.:]\d| [a-z])")
+_UNIT_POWER = re.compile(r"\b(km|m|cm|mm|mi|ft|yd|in|nmi)\s+([23])\b(?![,.:]\d| [a-z]| ?\d|\u00bd)")
 _POWERS = {"2": "\u00b2", "3": "\u00b3"}
 
 
@@ -1122,6 +1122,8 @@ def _paren_then_item(m):
     # an initial is a botanical authority and keeps its shape
     if inner[:1].isupper() and " " not in inner and re.match(r"[A-Z]\.", nxt):
         return m.group(0)
+    if _COMPASS.match(nxt):
+        return m.group(0)  # "(118 mi) W of Sydney"
     return "(" + inner + "), "
 _DATE_KEYS = frozenset(("born", "died", "birth date", "death date"))
 
@@ -1145,9 +1147,12 @@ def _split_at_links(value, links, name=""):
     1803", a taxon and its authority) stay as they are."""
     if not links or len(links) < 2:
         return value
+    if _TAXON_RANK.match((name or "").strip()):
+        return value  # "Helonias L.": a genus and its authority
+    sep = ", " if not name or _ADDRESS_FIELD.search(name) else "; "
     texts = [lk.get("text") for lk in links if isinstance(lk, dict) and isinstance(lk.get("text"), str) and lk.get("text")]
     if len(texts) >= 2 and value.strip() == " ".join(texts) and all(t[:1].isupper() or t[:1].isdigit() for t in texts):
-        return "; ".join(texts)  # "Mark Waid Alex Ross": the links are the whole value
+        return sep.join(texts)  # "Mark Waid Alex Ross": the links are the whole value
     if len(links) < 3 and not _LIST_ROWS.search(name or ""):
         return value
     if len(texts) < 2:
@@ -1160,11 +1165,26 @@ def _split_at_links(value, links, name=""):
         if i < 0:
             continue
         if prev_end is not None and out[prev_end:i].strip() == "" and i - prev_end <= 1:
-            out = out[:prev_end] + "; " + out[i:]
-            i = prev_end + 2
+            out = out[:prev_end] + sep + out[i:]
+            i = prev_end + len(sep)
         prev_end = i + len(t)
         pos = prev_end
     return out
+
+
+_TAXON_RANK = re.compile(r"^(?:Genus|Species|Family|Order|Class|Kingdom|Phylum|Division|Tribe|Subfamily|Subgenus|Variety|Subspecies|Binomial name|Trinomial name|Synonyms|Authority)$", re.I)
+_ADDRESS_FIELD = re.compile(r"location|address|headquarters|residence|place|origin|coordinates", re.I)
+_COMPASS = re.compile(r"(?:N|S|E|W|NE|NW|SE|SW|NNE|ENE|ESE|SSE|SSW|WSW|WNW|NNW)$")
+_ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_MONTHS = ("", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+
+
+def _spell_iso_date(s):
+    """A cell or value that is exactly a machine date reads "15 October 2014"."""
+    m = _ISO_DATE.match(s.strip())
+    if not m or not 1 <= int(m.group(2)) <= 12 or not 1 <= int(m.group(3)) <= 31:
+        return s
+    return "%d %s %s" % (int(m.group(3)), _MONTHS[int(m.group(2))], m.group(1))
 
 
 _FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion", "NFPA 704 (fire diamond)", "NFPA 704"))
@@ -1232,6 +1252,7 @@ def fact_value(name, value):
     value = _NAME_THEN_DATE.sub(_name_then_date, value)
     value = _YEAR_TWICE.sub(r"\1", value)
     value = _SLASH_GAP.sub(" / ", value)
+    value = _spell_iso_date(value)
     value = re.sub(r"\b([A-Z]):(?=\d)", r"\1: ", value)
     if "\u00b0" in value:
         value = _DECIMAL_COORDS.sub("", value)
@@ -1469,7 +1490,7 @@ class _Doc:
                     filled += 1
                     if run_re.search(raw):
                         with_runs += 1
-                cells.append(re.sub(r"\s#$", "", strip_undrawable(raw, self.stats)))
+                cells.append(_spell_iso_date(re.sub(r"\s#$", "", strip_undrawable(raw, self.stats))))
             if is_header and len(cells) > 1 and len(set(cells)) == 1:
                 continue  # a caption spanning the row ("Key (expand for notes)"), not column names
             grid.append((is_header, cells))
@@ -1545,6 +1566,9 @@ class _Doc:
                 c = re.sub(r"  +", " ", c).strip()
                 if c == "#":
                     c = "Number"
+                if not parts and re.match(r"^\d+\.$", c):
+                    c = c[:-1]  # "1." then "; Date: ..." read as "1.;"
+                c = _spell_iso_date(c)
                 if not c or c.endswith(":"):
                     continue  # empty, or a label whose script went
                 label = labels[j] if j < len(labels) else ""
@@ -1670,6 +1694,7 @@ class _Doc:
 
         base = re.sub(r"\s*\([^()]*\)\s*$", "", self.title)
         title_words = {w.lower() for w in base.split()}
+        recent = []  # named fields seen so far, for a generic one to hang on
 
         def walk(p, group=""):
             if isinstance(p, list):
@@ -1716,8 +1741,16 @@ class _Doc:
                     if group and (not has_image.get(group) or any(c.isdigit() for c in value)) and _NAMELESS_FACT.search(value):
                         add(group, value)
                 elif group and fname.strip().lower() in _GENERIC_FIELDS:
-                    add(group + ", " + fname.strip().lower(), value)
+                    key = fname.strip().lower()
+                    g = group
+                    if key in ("density", "total", "estimate", "census", "urban", "metro", "land", "water"):
+                        for prev in reversed(recent):
+                            if prev.lower().startswith(("population", "pop.", "area")):
+                                g = _NAME_FOOTNOTE.sub("", prev)
+                                break
+                    add(g + ", " + key, value)
                 else:
+                    recent.append(fname.strip())
                     add(fname, value, group)
             elif t == "list" and p.get("name"):
                 items = [
