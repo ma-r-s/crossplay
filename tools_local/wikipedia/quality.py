@@ -156,7 +156,7 @@ DETECTORS = [
         re.compile(
             r"^(?:References|External links|See also|Notes|Bibliography|Further reading|Sources|Citations|"
             r"Gallery|Footnotes|Notes and references|Works cited|Explanatory notes|Primary sources|"
-            r"Secondary sources|Literature|Sources and further reading)$",
+            r"Secondary sources|Sources and further reading)$",
             re.I,
         ),
         "a section the converter should have dropped",
@@ -255,7 +255,7 @@ DETECTORS = [
         "six of the same character in a row: dividers, dot leaders",
     ),
     ("words", "lowercase_sentence", "para",
-     re.compile(r"(?<![A-Z])(?<!e\.g)(?<!i\.e)(?<!etc)(?<!\bvs)(?<!\bcf)(?<!\bca)(?<!\bal)[.!?] [a-z]{3,}\b"),
+     re.compile(r"(?<![A-Z])(?<!e\.g)(?<!i\.e)(?<!etc)(?<!\bvs)(?<!\bcf)(?<!\bca)(?<!\bal)(?<!\.\.)[.!?] [a-z]{3,}\b"),
      "a sentence starting lowercase"),
     (
         "words",
@@ -310,7 +310,7 @@ DETECTORS = [
         "balance",
         "punct_only_parens",
         "para",
-        re.compile(r"\([^A-Za-z0-9()]{1,8}\)"),
+        re.compile(r"\([^A-Za-z0-9()+\-\u2212\u00b1]{1,8}\)"),
         "a parenthetical of punctuation only",
     ),
     (
@@ -377,7 +377,7 @@ DETECTORS = [
         "namespace_remnant",
         "text",
         re.compile(
-            r"\bthumb\b|\b\d{2,4}px\b|\bFile:|\bImage:|\bCategory:|\bTemplate:|\bWikipedia:|\bHelp:|\bSpecial:|\bTalk:"
+            r"\bthumb\||\b\d{2,4}px\b|\b(?:File|Image|Category|Template|Wikipedia|Help|Special|Talk):(?=\S)"
         ),
         "file, image, category or template syntax",
     ),
@@ -401,7 +401,7 @@ DETECTORS = [
         "hatnote",
         "para",
         re.compile(
-            r"^(?:Main articles?:|See also:|Further information:|For other uses|For the [a-z]|Not to be confused|"
+            r"^(?:Main articles?:|See also:|Further information:|For other uses|For the [^.]{0,80}, see\b|Not to be confused|"
             r"This article|This section|This list|This page|\"[^\"]+\" redirects here|[A-Z][^.]{0,40} redirects here)"
         ),
         "a hatnote line",

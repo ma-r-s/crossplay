@@ -187,6 +187,10 @@ def outcome(cp):
         return "spelled"
     if ch in symbols.GREEK:
         return "spelled when alone, dropped in a word"
+    if 0x0400 <= cp <= 0x052F:
+        return "romanised in prose, removed with its label (Cyrillic)"
+    if 0x0370 <= cp <= 0x03FF or 0x1F00 <= cp <= 0x1FFF:
+        return "romanised in prose, removed with its label (Greek)"
     if glyphs.is_drawable(cp):
         return "drawn"
     # the same order as article_html._fold_chars
@@ -486,7 +490,7 @@ def report(census, path, top_chars=200):
     w("\n## By outcome\n")
     w("| outcome | code points | occurrences | article hits |")
     w("|---|---:|---:|---:|")
-    for k in ("drawn", "spelled", "compat", "decomposed", "folded", "lookalike", "dropped"):
+    for k in ("drawn", "spelled", "compat", "decomposed", "folded", "lookalike", "romanised", "dropped"):
         d = by_out.get(k, {"code points": 0, "occurrences": 0, "article hits": 0})
         w(
             "| %s | %d | %d | %d |"

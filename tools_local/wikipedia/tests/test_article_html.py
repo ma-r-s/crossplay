@@ -561,6 +561,32 @@ class Rules(unittest.TestCase):
         self.assertEqual(st["tables_listed"], 1)
         self.assertNotIn("tables_kept", st)
 
+    def test_spanning_row_is_said_once(self):
+        tables = [{"identifier": "t1", "headers": [[{"value": "Month"}, {"value": "Jan"}, {"value": "Feb"}, {"value": "Mar"}, {"value": "Apr"}]],
+                   "rows": [[{"value": "Source: Met Office"}] * 5]}]
+        secs = [{"type": "section", "name": "Climate", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
+        self.assertIn("<p><b>Source: Met Office</b></p>", x)
+        self.assertNotIn("Jan: Source", x)
+
+    def test_colon_paragraph_before_a_lost_image(self):
+        long = "Both Bach and Handel featured canons in their works. The final variation of the Chaconne is a canon in which the right hand is imitated at one beat's distance:"
+        secs = [
+            {"type": "section", "name": "Baroque", "has_parts": [{"type": "paragraph", "value": long}, {"type": "image", "images": []}]},
+            {"type": "section", "name": "Fashion", "has_parts": [{"type": "paragraph", "value": "Typical fashions in the 1930s:"}, {"type": "image", "images": []}]},
+        ]
+        _, heads, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs)
+        self.assertIn("at one beat's distance.</p>", x)
+        self.assertIn("Baroque", heads)
+        self.assertNotIn("Fashion", heads)
+        self.assertNotIn("Typical fashions", x)
+        self.assertEqual(st["list_intros_dropped"], 2)
+
+    def test_may_refer_to_intro_stays(self):
+        secs = [{"type": "section", "name": "Arts", "has_parts": [{"type": "list", "has_parts": [{"type": "list_item", "value": "Art (band)"}]}]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "ART may refer to:"}, name="ART", sections=secs)
+        self.assertIn("<p><b>ART</b> may refer to:</p><h2", x)
+
     def test_empty_sections_go_and_ids_renumber(self):
         secs = [
             {"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Lead."}]},
@@ -610,8 +636,9 @@ class Rules(unittest.TestCase):
         ]
         _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs)
         self.assertIn("<p>Tokyo (Tōkyō) is written in kanji.</p>", x)
-        self.assertIn("<p>was the name.</p>", x)
-        self.assertEqual(st["runs_removed"], 3)
+        self.assertIn("<p>Ancient Greek: Athenai was the name.</p>", x)
+        self.assertEqual(st["runs_removed"], 2)
+        self.assertEqual(st["runs_romanized"], 1)
 
     def test_lead_parenthetical_keeps_its_dates(self):
         st = {}
@@ -657,7 +684,7 @@ class Rules(unittest.TestCase):
             # name; a Greek word is a run and goes.
             ("where a \u2260 0 and x \u2264 \u22121", "where a != 0 and x <= \u22121"),
             # the tidy after a removal must not glue "!=" to its left operand
-            ("where a \u2260 0 (Greek: \u03b1\u03bb\u03c6\u03b1) holds", "where a != 0 holds"),
+            ("where a \u2260 0 (Greek: \u03b1\u03bb\u03c6\u03b1) holds", "where a != 0 (Greek: alpha) holds"),
             ("Goudreau \u2014on backup vocals, 1990\u2013 1995, and a spaced \u2014 dash stays", "Goudreau\u2014on backup vocals, 1990\u20131995, and a spaced \u2014 dash stays"),
             # From a reviewer's read of thirty articles (2026-09-11): a letter whose
             # accented form the serif lacks keeps its base letter; a pronunciation
@@ -669,7 +696,7 @@ class Rules(unittest.TestCase):
             ("6\u201312 cm (2 + 1 \u2044 4 \u2013 4 + 3 \u2044 4 in) long", "6\u201312 cm (2 1/4 \u2013 4 3/4 in) long"),
             ("Density 3,855/km 2 (9,985/sq mi)", "Density 3,855/km\u00b2 (9,985/sq mi)"),
             ("the angle \u03b8 and 10 \u03bcm of \u0394x", "the angle theta and 10 \u00b5m of Delta x"),
-            ("(Greek: \u1f08\u03bb\u03ad\u03be\u03b1\u03bd\u03b4\u03c1\u03bf\u03c2) then (\u8f9b\u4ea5, \u53d4) ok", "then ok"),
+            ("(Greek: \u1f08\u03bb\u03ad\u03be\u03b1\u03bd\u03b4\u03c1\u03bf\u03c2) then (\u8f9b\u4ea5, \u53d4) ok", "(Greek: Alexandros) then ok"),
             (
                 "A pinata (/ p \u026a n j a t a /, Spanish pronunciation:) is a container",
                 "A pinata is a container",
@@ -693,9 +720,18 @@ class Rules(unittest.TestCase):
             # A letter of an orthography folds inside a word; a pronunciation
             # goes whole before any spelling, so its theta is not "theta" and
             # its schwa is not a letter; a respelling's "-\u0259-" is not a word.
-            ("C\u0259lil M\u0259mm\u0259dquluzad\u0259 wrote; laamii\u0257o; Bum\u00efn qa\u0263an; \u01c3Nanseb", "C\u00e4lil M\u00e4mm\u00e4dquluzad\u00e4 wrote; laamiido; Bum\u00efn qa\u011fan; !Nanseb"),
+            ("C\u0259lil M\u0259mm\u0259dquluzad\u0259 wrote; laamii\u0257o; Bum\u00efn qa\u0263an; \u01c3Nanseb", "Celil Memmedquluzade wrote; laamiido; Bum\u00efn qa\u011fan; !Nanseb"),
             ("Theophrastus (/ \u02cc \u03b8 i\u02d0. \u0259 /; Ancient Greek: \u0398\u03b5\u03cc\u03c6\u03c1\u03b1\u03c3\u03c4\u03bf\u03c2, romanized: Theophrastos) was", "Theophrastus (romanized: Theophrastos) was"),
             ("Camogie (/ k \u0259 \u02c8 m o\u028a \u0261 i / k\u0259- MOH -ghee; Irish: cam\u00f3ga\u00edocht) is", "Camogie (Irish: cam\u00f3ga\u00edocht) is"),
+            # Mario, 2026-09-11: Greek is defensible, Cyrillic is not, and no
+            # removal may butcher the sentence. A Greek or Cyrillic word with
+            # no romanisation beside it is romanised where it stands; with
+            # one beside it, the word goes and the romanisation stays, label
+            # and all; two accentuations of one word are one spelling.
+            ("comes from the Greek word \u1f55\u03b2\u03bf\u03c2 or \u1f51\u03b2\u03cc\u03c2 meaning hump and \u1f40\u03b4\u03bf\u03cd\u03c2, meaning tooth.", "comes from the Greek word hybos meaning hump and odous, meaning tooth."),
+            ("(from Greek \u1f08\u03c1\u03b9\u03b8\u03bc\u03bf\u03af, Arithmoi, lit. 'numbers'; Biblical Hebrew: \u05d1\u05b0\u05bc\u05de\u05b4\u05d3\u05b0\u05d1\u05b7\u05bc\u05e8, B\u0259m\u012b\u1e0fbar, lit. 'In desert'; Latin: Liber Numeri) is", "(from Greek Arithmoi, lit. 'numbers'; Biblical Hebrew: Bem\u012bdbar, lit. 'In desert'; Latin: Liber Numeri) is"),
+            ("Seventeen Moments (Russian: \u0421\u0435\u043c\u043d\u0430\u0434\u0446\u0430\u0442\u044c, romanized: Semnadtsat') is a series about \u041c\u043e\u0441\u043a\u0432\u0430 and (\u0422\u043e\u043b\u0441\u0442\u043e\u0439).", "Seventeen Moments (romanized: Semnadtsat') is a series about Moskva and (Tolstoy)."),
+            ("The pentathlon (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The pentathlon (Greek: pentathlon) was"),
         ]
         for src, want in cases:
             self.assertEqual(ah.strip_undrawable(src, {}, lead=True), want, src)
@@ -799,6 +835,32 @@ class Rules(unittest.TestCase):
         self.assertIn("<p>Hats were worn. The list of hats is:</p><ul>", x)
         self.assertEqual(st["hatnotes_dropped"], 2)
         self.assertEqual(st["list_intros_dropped"], 1)
+
+    def test_fact_groups_and_remnants(self):
+        boxes = [{"type": "infobox", "name": "Infobox officeholder", "has_parts": [
+            {"type": "section", "name": "Test", "has_parts": [{"type": "image", "value": "Test in 1931"}]},
+            {"type": "section", "name": "President of Austria", "has_parts": [
+                {"type": "field", "value": "In office 20 December 1945 \u2013 31 December 1950"},
+                {"type": "field", "name": "Chancellor", "value": "Leopold Figl"},
+                {"type": "field", "name": "Preceded by", "value": "Wilhelm Miklas"},
+            ]},
+            {"type": "section", "name": "Area", "has_parts": [{"type": "field", "name": "Total", "value": "303 km\u00b2 (117 sq mi)"}]},
+            {"type": "section", "name": "Personal life", "has_parts": [
+                {"type": "field", "name": "Born", "value": "26 May 1564: 90 /1563 Sirhind"},
+                {"type": "field", "name": "Preceded by", "value": "Succeeded by"},
+                {"type": "field", "name": "Imperial conversion", "value": "J F M A M J J A S O N D"},
+                {"type": "field", "name": "Months", "value": "J F M A M J J A S O N D"},
+            ]},
+        ]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, infoboxes=json.dumps(boxes))
+        self.assertIn("<tr><th>President of Austria</th><td>In office 20 December 1945 \u2013 31 December 1950</td></tr>", x)
+        self.assertIn("<tr><th>President of Austria, chancellor</th><td>Leopold Figl</td></tr>", x)
+        self.assertIn("<tr><th>President of Austria, preceded by</th><td>Wilhelm Miklas</td></tr>", x)
+        self.assertIn("<tr><th>Area, total</th><td>303 km\u00b2 (117 sq mi)</td></tr>", x)
+        self.assertIn("<tr><th>Born</th><td>26 May 1564 /1563, Sirhind</td></tr>", x)
+        self.assertNotIn("Succeeded by", x)
+        self.assertNotIn("Imperial conversion", x)
+        self.assertNotIn("J F M A", x)
 
     def test_fact_repeating_its_name_goes(self):
         boxes = [{"name": "Infobox", "has_parts": [

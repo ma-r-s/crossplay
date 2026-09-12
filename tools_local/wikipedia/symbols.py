@@ -18,6 +18,7 @@ what each one is.
 """
 
 import re
+import unicodedata
 
 SYMBOLS = {
     # --- comparison and equality
@@ -223,7 +224,7 @@ SYMBOLS = {
 # after pronunciation spans are gone, and counts them; a lone IPA symbol in
 # a respelling or a phonology table never reaches this table.
 LOOKALIKES = {
-    "\u0259": "\u00e4", "\u018f": "\u00c4",  # schwa: Azerbaijani wrote it \u00e4 before 1992
+    "\u0259": "e", "\u018f": "E",  # schwa: "Bemidbar", "Memmed" are the plain spellings
     "\u0261": "g", "\u0262": "G",  # script g, small capital G
     "\u0263": "\u011f",  # gamma: Turkic \u011f
     "\u0268": "i", "\u0197": "I", "\u0289": "u", "\u0244": "U",  # barred i, u
@@ -316,3 +317,99 @@ def translate(text):
         text = _ACCIDENTAL_RE.sub(r"\1", text)
         text = re.sub(r"  +", " ", text)
     return text, a + b
+
+
+# ---------------------------------------------------------------- romanisation
+#
+# Mario, 2026-09-11: Greek in an English article is defensible; Cyrillic and
+# the rest are not, "if I can't even read them why would I want them here",
+# but the removal must not butcher the sentence. A Greek or Cyrillic word
+# has a deterministic Latin spelling (ALA-LC classical Greek, BGN/PCGN
+# Russian with the Serbian, Ukrainian and Belarusian letters), so a word
+# that stands in running prose with no romanisation beside it is written
+# that way instead of leaving a hole: "the Greek word hybos or hybos
+# meaning hump". Scripts without a deterministic romanisation (Arabic,
+# Hebrew, Devanagari, Han) are removed with their labels as before.
+
+GREEK_ROMAN = {
+    "\u03b1": "a", "\u03b2": "b", "\u03b3": "g", "\u03b4": "d", "\u03b5": "e", "\u03b6": "z",
+    "\u03b7": "e", "\u03b8": "th", "\u03b9": "i", "\u03ba": "k", "\u03bb": "l", "\u03bc": "m",
+    "\u03bd": "n", "\u03be": "x", "\u03bf": "o", "\u03c0": "p", "\u03c1": "r", "\u03c3": "s",
+    "\u03c2": "s", "\u03c4": "t", "\u03c5": "y", "\u03c6": "ph", "\u03c7": "ch", "\u03c8": "ps",
+    "\u03c9": "o", "\u03dd": "w", "\u03f2": "s",  # digamma, lunate sigma
+}
+_GREEK_VOWELS = "\u03b1\u03b5\u03b7\u03bf\u03c5\u03c9\u03b9"
+_GREEK_LETTER = re.compile("[\u0370-\u03ff\u1f00-\u1fff]")
+_ROUGH = "\u0314"
+
+CYRILLIC_ROMAN = {
+    "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g", "\u0434": "d", "\u0435": "e",
+    "\u0451": "yo", "\u0436": "zh", "\u0437": "z", "\u0438": "i", "\u0439": "y", "\u043a": "k",
+    "\u043b": "l", "\u043c": "m", "\u043d": "n", "\u043e": "o", "\u043f": "p", "\u0440": "r",
+    "\u0441": "s", "\u0442": "t", "\u0443": "u", "\u0444": "f", "\u0445": "kh", "\u0446": "ts",
+    "\u0447": "ch", "\u0448": "sh", "\u0449": "shch", "\u044a": "", "\u044b": "y", "\u044c": "",
+    "\u044d": "e", "\u044e": "yu", "\u044f": "ya",
+    "\u0456": "i", "\u0457": "yi", "\u0454": "ye", "\u0491": "g",  # Ukrainian
+    "\u0458": "j", "\u0459": "lj", "\u045a": "nj", "\u0452": "\u0111", "\u045b": "\u0107", "\u045f": "d\u017e",  # Serbian
+    "\u045e": "w", "\u0455": "dz", "\u0453": "gj", "\u045c": "kj", "\u0450": "e", "\u045d": "i",  # Belarusian, Macedonian
+    "\u04d9": "a", "\u0493": "gh", "\u049b": "q", "\u04a3": "ng", "\u04e9": "o", "\u04b1": "u", "\u04af": "u", "\u04bb": "h",  # Kazakh
+}
+
+
+def _cap(latin, upper):
+    return latin[:1].upper() + latin[1:] if upper and latin else latin
+
+
+def romanize_greek(word):
+    """Classical transliteration of one Greek word: accents off, rough
+    breathing an h, gamma before a velar an n, upsilon after a vowel a u."""
+    out = []
+    prev = ""
+    first = True
+    for ch in word:
+        upper = ch.isupper()
+        nfd = unicodedata.normalize("NFD", ch)
+        base = nfd[0].lower()
+        latin = GREEK_ROMAN.get(base)
+        if latin is None:
+            out.append(ch if not _GREEK_LETTER.match(ch) else "")
+            prev = ""
+            continue
+        if base == "\u03b3" and prev == "\u03b3":
+            out[-1] = "n"  # gg -> ng, then this gamma is g
+        elif base in "\u03ba\u03be\u03c7" and prev == "\u03b3":
+            out[-1] = "n"
+        if base == "\u03c5" and prev and prev in "\u03b1\u03b5\u03b7\u03bf":
+            latin = "u"
+        if first and _ROUGH in nfd:
+            latin = "h" + latin if base != "\u03c1" else "rh"
+        out.append(_cap(latin, upper))
+        prev = base
+        first = False
+    return "".join(out)
+
+
+def romanize_cyrillic(word):
+    out = []
+    for ch in word:
+        upper = ch.isupper()
+        latin = CYRILLIC_ROMAN.get(ch.lower())
+        if latin is None:
+            out.append(ch if not ("\u0400" <= ch <= "\u052f") else "")
+            continue
+        out.append(_cap(latin, upper))
+    return "".join(out)
+
+
+def romanize(run):
+    """A run of Greek or Cyrillic text (with spaces and punctuation) in
+    Latin letters; anything else in it stays."""
+    out = []
+    for token in re.split(r"(\s+)", run):
+        if not token or token.isspace():
+            out.append(token)
+        elif _GREEK_LETTER.search(token):
+            out.append(romanize_greek(token))
+        else:
+            out.append(romanize_cyrillic(token))
+    return "".join(out)

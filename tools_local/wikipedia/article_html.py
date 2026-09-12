@@ -166,6 +166,13 @@ _PAREN = re.compile(r" ?\((?:[^()]|\([^()]*\))*\)")
 
 _run_re = None
 _labelled_run_re = None
+REMOVED_SCRIPTS = "\u0400-\u052f"  # Cyrillic and its supplement
+_ROMAN_LETTER = re.compile("[\u0370-\u03ff\u1f00-\u1fff\u0400-\u052f]")
+# a romanisation stands right after the run: the run goes, the romanisation stays
+_ROMANISED_NEXT = re.compile(
+    r"\s*[,;:]?\s*(?:\(|\b)(?:romani[sz]ed|romani[sz]ation|translit\w*|pinyin|lit\.|literally|IPA)\b", re.I
+)
+_MARK = "\x01"  # where a run stood, until the tidy has looked at it
 _PRONUNCIATION_SEG = re.compile(r"\s*(?:UK|US|GB|AU|NZ|IPA|pronounced|pronunciation|respelled)\b", re.I)
 
 
@@ -174,7 +181,10 @@ def _runs():
     to the next such code point; optionally preceded by a "Script:" label."""
     global _run_re, _labelled_run_re
     if _run_re is None:
-        bad = "[^" + drawable_class() + "]"
+        # what the serif lacks, plus Cyrillic, which it draws and Mario does
+        # not want on the panel (2026-09-11): a Cyrillic word in prose is
+        # romanised, in a labelled aside it goes with its label
+        bad = "(?:[^" + drawable_class() + "]|[" + REMOVED_SCRIPTS + "])"
         run = bad + r"(?:\s*" + bad + ")*"
         _run_re = re.compile(run)
         label = r"(?:(?<![A-Za-z])[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}:\s?)?"
@@ -457,6 +467,60 @@ def _fold_lookalikes(text):
     return _LOOKALIKE_TOKEN.sub(token, text), n
 
 
+def _romanize_runs(text, run_re):
+    """A run that is Greek or Cyrillic letters, with no romanisation beside
+    it, is written in Latin letters where it stands. Returns (text, n)."""
+    n = 0
+
+    def sub(m):
+        nonlocal n
+        run = m.group(0)
+        letters = [c for c in run if c.isalpha()]
+        if not letters or sum(1 for c in letters if _ROMAN_LETTER.match(c)) < len(letters):
+            return run
+        if _ROMANISED_NEXT.match(text, m.end()):
+            return run
+        latin = symbols.romanize(run)
+        # "\u1f08\u03c1\u03b9\u03b8\u03bc\u03bf\u03af, Arithmoi": the source's own romanisation
+        # follows; the run goes and that one stays
+        after = _NEXT_WORD.match(text, m.end())
+        if after and _plain(after.group(1)) == _plain(latin):
+            return run
+        n += 1
+        return latin
+
+    out = run_re.sub(sub, text)
+    if n >= 2:
+        # "\u1f55\u03b2\u03bf\u03c2 or \u1f51\u03b2\u03cc\u03c2": two accentuations, one spelling
+        out = _SAME_TWICE.sub(r"\1", out)
+    return out, n
+
+
+_NEXT_WORD = re.compile(r"\s*,\s*([A-Z][A-Za-z\u00c0-\u024f]+)")
+_SAME_TWICE = re.compile(r"\b([A-Za-z]+) (?:or|and|/) \1\b")
+
+
+def _plain(word):
+    return "".join(c for c in unicodedata.normalize("NFD", word) if not unicodedata.combining(c)).lower()
+
+
+_MARK_LABEL = re.compile(r"(?<![A-Za-z])[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}:\s*" + _MARK + r"\s*,?\s*(?=(?:romani[sz]ed|translit\w*|pinyin|lit\.|literally|IPA)\b)")
+_MARK_COMMA = re.compile(_MARK + r"\s*,\s*(?=[A-Z])")
+_MARK_COLON = re.compile(r":\s*" + _MARK + r"\s*,\s*")
+_MARK_ANY = re.compile(r"\s*" + _MARK + r"\s*")
+
+
+def _settle_marks(text):
+    """Where a run stood: "Greek: <run>, romanized: X" keeps the second
+    label only; "Greek <run>, Arithmoi" drops the comma the run left before
+    its romanisation; "Hebrew: <run>, Bemidbar" keeps the label."""
+    text = _MARK_LABEL.sub("", text)
+    text = _MARK_COMMA.sub(" ", text)
+    text = _MARK_COLON.sub(": ", text)
+    text = _MARK_ANY.sub(" ", text)
+    return text
+
+
 def strip_undrawable(text, stats, lead=False):
     """Removes what the serif cannot draw, and the remnants the source left
     behind; tidies only when it removed something, so untouched text stays
@@ -498,7 +562,8 @@ def strip_undrawable(text, stats, lead=False):
             # "pronounced") goes whole, as before.
             if any(len(m.group(0)) < 2 for m in run_re.finditer(seg)) or _PRONUNCIATION_SEG.match(seg):
                 continue
-            rest = _EMPTY_LABEL.sub("", labelled_re.sub("", seg)).strip(" ,:")
+            rest = _settle_marks(run_re.sub(_MARK, seg))
+            rest = _EMPTY_LABEL.sub("", rest).strip(" ,:")
             # "romanized: Theophrastos" is two words and the whole point
             if len(rest.split()) >= 2:
                 kept.append(re.sub(r"  +", " ", rest))
@@ -523,6 +588,10 @@ def strip_undrawable(text, stats, lead=False):
     if not text:
         return text
     if run_re.search(text):
+        text, n = _romanize_runs(text, run_re)
+        if n:
+            stats["runs_romanized"] = stats.get("runs_romanized", 0) + n
+    if run_re.search(text):
         # A census of what goes, so the report can say which characters the
         # pack loses most and the symbol table can grow from evidence.
         census = stats.setdefault("removed_chars", {})
@@ -537,9 +606,11 @@ def strip_undrawable(text, stats, lead=False):
                     break
                 text = new
         if run_re.search(text):
-            text, n = labelled_re.subn("", text)
+            text, n = labelled_re.subn(_MARK, text)
             removed += n
             stats["runs_removed"] = stats.get("runs_removed", 0) + n
+    if _MARK in text:
+        text = _settle_marks(text)
     for rx in (_EMPTY_LABEL, _EMPTY_PAREN):
         text, n = rx.subn("", text)
         if n:
@@ -600,10 +671,24 @@ _PAREN_THEN_ITEM = re.compile(r"\)\s+(?=[A-Z])")
 _DATE_KEYS = frozenset(("born", "died", "birth date", "death date"))
 
 
+_FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion"))
+_FACT_SKIP_VALUE = re.compile(r"^(?:[JFMASOND] ){11}[JFMASOND]$")  # a climate table's month row
+_FACT_LABELS = frozenset(("Preceded by", "Succeeded by", "In office"))
+_GENERIC_FIELDS = frozenset((
+    "total", "rank", "density", "land", "water", "urban", "metro", "estimate", "census", "preceded by",
+    "succeeded by", "in office", "term", "chancellor", "vice-chancellor", "president", "prime minister",
+    "monarch", "governor", "deputy", "leader", "members", "seats",
+))
+_PRONUNCIATION_FIELD = re.compile(r"pronunciation|\bIPA\b|pronounced", re.I)
+# "26 May 1564: 90 /1563": the page number of a citation the source stripped
+_YEAR_PAGE = re.compile(r"(?<=\d{4}):\s?\d{1,4}\b(?=\s*[/,;.]|\s+[A-Z(]|$)")
+
+
 def fact_value(name, value):
     if not value:
         return value
     value = _AGE.sub("", value)
+    value = _YEAR_PAGE.sub("", value)
     if name.lower() in _DATE_KEYS:
         value = _DATE_THEN_PLACE.sub(r"\1, ", value)
     value = _PAREN_THEN_ITEM.sub("), ", value)
@@ -807,16 +892,24 @@ class _Doc:
         if not rows:
             return ""
         grid = []
+        run_re, _ = _runs()
+        filled = with_runs = 0
         for is_header, r in rows:
             cells = []
             for c in r:
                 v = c.get("value") if isinstance(c, dict) else c
-                cells.append(
-                    strip_undrawable(
-                        clean_text(v if isinstance(v, str) else ""), self.stats
-                    )
-                )
+                raw = clean_text(v if isinstance(v, str) else "")
+                if raw.strip():
+                    filled += 1
+                    if run_re.search(raw):
+                        with_runs += 1
+                cells.append(strip_undrawable(raw, self.stats))
             grid.append((is_header, cells))
+        if filled and with_runs * 2 >= filled:
+            # a phoneme chart, a table of native names: without its script it
+            # is a grid of holes, so the notice is the honest rendering
+            self.stats["script_tables_omitted"] = self.stats.get("script_tables_omitted", 0) + 1
+            return TABLE_OMITTED
         # A navbox is a table of links to other pages with its own controls in
         # it; on this device it is three columns of "This box: view talk edit".
         # It is navigation, not content, so it leaves no notice behind.
@@ -857,6 +950,10 @@ class _Doc:
         out = []
         for cells in body[:TABLE_ROWS_LISTED]:
             parts = []
+            if len(set(cells)) == 1 and cells[0]:
+                # a spanning row ("Source: Agencia Estatal de Meteorología")
+                # arrives as the same text in every column: say it once
+                cells = cells[:1]
             for j, c in enumerate(cells):
                 c = cut_words(c, TABLE_ROW_CELL_WORDS)
                 if not c:
@@ -915,6 +1012,9 @@ class _Doc:
                 # Render the body first: a section whose parts were all
                 # images, navboxes or empty subsections has no heading.
                 body = self.capture(p.get("has_parts"), depth + 1)
+                body, n = _COLON_AT_END.subn(_colon_alone, body)
+                if n:
+                    self.stats["list_intros_dropped"] = self.stats.get("list_intros_dropped", 0) + n
                 if not body:
                     self.stats["empty_sections_dropped"] = self.stats.get("empty_sections_dropped", 0) + 1
                     continue
@@ -948,6 +1048,11 @@ class _Doc:
         seen = set()
 
         def add(name, value):
+            if name in _FACT_SKIP_NAMES or _FACT_SKIP_VALUE.match(value or ""):
+                return
+            if _PRONUNCIATION_FIELD.search(name):
+                self.stats["pronunciation_facts_dropped"] = self.stats.get("pronunciation_facts_dropped", 0) + 1
+                return
             name = strip_undrawable(clean_text(name), self.stats)
             value = cut_words(
                 fact_value(name, strip_undrawable(clean_text(value), self.stats)),
@@ -955,20 +1060,37 @@ class _Doc:
             )
             if "coordinates" in name.lower() and " / " in value:
                 value = value.split(" / ")[0].strip()
+            if value in _FACT_LABELS:
+                return  # "Preceded by: Succeeded by": both values were flags
             if name and value and value != name and (name, value) not in seen:
                 seen.add((name, value))
                 fields.append((name, value))
 
-        def walk(p):
+        def walk(p, group=""):
             if isinstance(p, list):
                 for c in p:
-                    walk(c)
+                    walk(c, group)
                 return
             if not isinstance(p, dict):
                 return
             t = p.get("type")
-            if t == "field" and p.get("name") and isinstance(p.get("value"), str):
-                add(p["name"], p["value"])
+            if t == "section":
+                # "President of Austria", "Area", "Population": the group a
+                # field belongs to, which the flat grid would otherwise lose
+                name = clean_text(str(p.get("name") or ""))
+                # a group is a short label; a "section" whose name is a whole
+                # medal table is the table, not a group
+                if name and name != self.title and len(name.split()) <= 8 and not name.lower().startswith("infobox"):
+                    group = name
+            if t == "field" and isinstance(p.get("value"), str):
+                fname = p.get("name")
+                if not fname:
+                    if group:
+                        add(group, p["value"])  # "In office 1945 - 1950" under its office
+                elif group and fname.strip().lower() in _GENERIC_FIELDS:
+                    add(group + ", " + fname.strip().lower(), p["value"])
+                else:
+                    add(fname, p["value"])
             elif t == "list" and p.get("name"):
                 items = [
                     clean_text(it.get("value"))
@@ -980,7 +1102,7 @@ class _Doc:
                     add(p["name"], "; ".join(items))
                 return
             for c in p.get("has_parts") or []:
-                walk(c)
+                walk(c, group)
 
         walk(infoboxes)
         if not fields:
@@ -1132,15 +1254,30 @@ def article_xhtml(row, stats=None):
     doc.parts(lead_sections, 0)
     doc.parts(rest, 0)
     doc.out.append("</body></html>")
-    xhtml, n = _LIST_INTRO_ALONE.subn("", "".join(doc.out))
+    xhtml, n = _COLON_ALONE.subn(_colon_alone, "".join(doc.out))
     if n:
         stats["list_intros_dropped"] = stats.get("list_intros_dropped", 0) + n
     return doc.title, doc.headings, xhtml.encode("utf-8")
 
 
 # "Typical fashions in the 1930s:" and then a heading: the gallery it
-# introduced was images, and went. The colon line goes with it.
-_LIST_INTRO_ALONE = re.compile(r"<p>(?:[^<]|<(?!/p>))*:</p>(?=<h[1-6]|</body>)")
+# introduced was images, and went. A short colon line goes with it; a real
+# paragraph that happened to introduce an image ("...is a canon in which
+# the right hand is imitated at one beat's distance:") keeps every word and
+# ends with a period instead. A disambiguation page's "X may refer to:"
+# stays, so the builder can still tell the page for what it is.
+_COLON_ALONE = re.compile(r"<p>((?:[^<]|<(?!/p>))*):</p>(?=<h[1-6]|</body>)")
+_COLON_AT_END = re.compile(r"<p>((?:[^<]|<(?!/p>))*):</p>$")
+COLON_LINE_WORDS = 12
+
+
+def _colon_alone(m):
+    inner = m.group(1)
+    if "may refer to" in inner:
+        return m.group(0)
+    if len(re.sub(r"<[^>]+>", "", inner).split()) <= COLON_LINE_WORDS:
+        return ""
+    return "<p>" + inner + ".</p>"
 
 
 
