@@ -17,6 +17,8 @@ import argparse
 import collections
 import html
 import json
+import multiprocessing as mp
+import os
 import random
 import re
 import sys
@@ -785,106 +787,143 @@ class Percentiles:
         }
 
 
-def scan(pack_dir, sample_n=0, seed=20260911, examples_per=6, limit=0):
+DIST_KEYS = ("words", "paragraphs", "headings", "list_items", "longest_paragraph_words", "longest_word", "facts")
+
+_pack = None  # the worker's own reader
+
+
+def _init_scan(pack_dir):
+    global _pack
+    _pack = pf.Pack(pack_dir)
+
+
+def scan_article(a, examples_per, out):
+    """Runs every detector over one article; adds to `out`, a dict of the
+    per-chunk accumulators (counts, hit, examples, dist, sizes, near_empty)."""
+    t = plain(a.xhtml)
+    bl = blocks(a.xhtml)
+    body = t[len(a.title) :].strip() if t.startswith(a.title) else t
+    out["sizes"].append(len(body))
+    if len(body) < NEAR_EMPTY:
+        out["near_empty"].append((a.title, len(body)))
+    paras = [tx for k, tx in bl if k in ("p", "li")]
+    heads = [tx for k, tx in bl if k[0] == "h" and k != "h1"]
+    dist = out["dist"]
+    dist["words"].append((_words(body), a.title))
+    dist["paragraphs"].append((sum(1 for k, tx in bl if k == "p"), a.title))
+    dist["headings"].append((len(heads), a.title))
+    dist["list_items"].append((sum(1 for k, tx in bl if k == "li"), a.title))
+    dist["longest_paragraph_words"].append((max((_words(tx) for tx in paras), default=0), a.title))
+    longest = max((len(w.strip(".,;:()\"'")) for w in body.split()), default=0)
+    dist["longest_word"].append((longest, a.title))
+    dist["facts"].append((sum(len(rows) for k, rows in bl if k == "table"), a.title))
+    counts = out["counts"]
+    examples = out["examples"]
+
+    def note(name, ctx):
+        counts[name] += 1
+        if len(examples[name]) < examples_per:
+            examples[name].append((a.title, ctx.replace("\n", " ")))
+
+    hit_here = set()
+    xh = a.xhtml.decode("utf-8", "replace")
+    for cat, name, kind, pat, _ in DETECTORS:
+        if kind == "text":
+            for m in pat.finditer(t):
+                note(name, t[max(0, m.start() - 60) : m.end() + 50])
+                hit_here.add(name)
+        elif kind == "xhtml":
+            for m in pat.finditer(xh):
+                note(name, xh[max(0, m.start() - 60) : m.end() + 50])
+                hit_here.add(name)
+        elif kind == "p":
+            for tx in (tx for k, tx in bl if k == "p"):
+                for m in pat.finditer(tx):
+                    note(name, tx[max(0, m.start() - 60) : m.end() + 50])
+                    hit_here.add(name)
+        elif kind == "para":
+            for tx in paras:
+                for m in pat.finditer(tx):
+                    note(name, tx[max(0, m.start() - 60) : m.end() + 50])
+                    hit_here.add(name)
+        elif kind == "head":
+            for tx in heads:
+                if pat.search(tx):
+                    note(name, tx)
+                    hit_here.add(name)
+        elif kind == "struct":
+            for ctx in struct_hits(pat, bl):
+                note(name, ctx)
+                hit_here.add(name)
+    for name in hit_here:
+        out["hit"][name] += 1
+
+
+def _new_accumulators():
+    return {
+        "counts": collections.Counter(),
+        "hit": collections.Counter(),
+        "examples": collections.defaultdict(list),
+        "dist": {k: [] for k in DIST_KEYS},
+        "sizes": [],
+        "near_empty": [],
+    }
+
+
+def _scan_chunk(args):
+    chunk, examples_per = args
+    out = _new_accumulators()
+    for title, locator in chunk:
+        scan_article(_pack.article(locator), examples_per, out)
+    out["examples"] = dict(out["examples"])
+    return out
+
+
+def scan(pack_dir, sample_n=0, seed=20260911, examples_per=6, limit=0, workers=None):
+    """Every article through every detector, on a pool of workers; each
+    worker reads its own contiguous slice so the block cache stays warm."""
     p = pf.Pack(pack_dir)
+    entries = [(e.title, e.locator) for e in p.iter_entries() if not e.redirect]
+    p.close()
+    if limit:
+        entries = entries[:limit]
+    n = len(entries)
     rng = random.Random(seed)
+    sample_entries = rng.sample(entries, min(sample_n, n)) if sample_n else []
+    workers = workers or max(1, (os.cpu_count() or 2) - 2)
+    step = max(200, -(-n // (workers * 6)))
+    chunks = [(entries[i : i + step], examples_per) for i in range(0, n, step)]
     counts = collections.Counter()
     articles_hit = collections.Counter()
     examples = collections.defaultdict(list)
-    dist = {
-        k: Percentiles()
-        for k in (
-            "words",
-            "paragraphs",
-            "headings",
-            "list_items",
-            "longest_paragraph_words",
-            "longest_word",
-            "facts",
-        )
-    }
+    dist = {k: Percentiles() for k in DIST_KEYS}
     sizes = []
     near_empty = []
+    done = 0
+    ctx = mp.get_context("fork")
+    with ctx.Pool(processes=workers, initializer=_init_scan, initargs=(pack_dir,)) as pool:
+        for part in pool.imap_unordered(_scan_chunk, chunks):
+            counts.update(part["counts"])
+            articles_hit.update(part["hit"])
+            for name, exs in part["examples"].items():
+                room = examples_per - len(examples[name])
+                if room > 0:
+                    examples[name].extend(exs[:room])
+            for k, vals in part["dist"].items():
+                for v, title in vals:
+                    dist[k].add(v, title)
+            sizes.extend(part["sizes"])
+            near_empty.extend(part["near_empty"])
+            done += len(part["sizes"])
+            print("%d of %d articles scanned" % (done, n), file=sys.stderr, flush=True)
     sample = []
-    n = 0
-
-    def note(name, title, ctx):
-        counts[name] += 1
-        if len(examples[name]) < examples_per:
-            examples[name].append((title, ctx.replace("\n", " ")))
-
-    try:
-        for e in p.iter_entries():
-            if e.redirect:
-                continue
-            n += 1
-            if limit and n > limit:
-                n -= 1
-                break
-            if n % 5000 == 0:
-                print("%d articles scanned" % n, file=sys.stderr, flush=True)
-            a = p.article(e.locator)
-            t = plain(a.xhtml)
-            bl = blocks(a.xhtml)
-            body = t[len(a.title) :].strip() if t.startswith(a.title) else t
-            sizes.append(len(body))
-            if len(body) < NEAR_EMPTY:
-                near_empty.append((a.title, len(body)))
-            paras = [tx for k, tx in bl if k in ("p", "li")]
-            heads = [tx for k, tx in bl if k[0] == "h" and k != "h1"]
-            dist["words"].add(_words(body), a.title)
-            dist["paragraphs"].add(sum(1 for k, tx in bl if k == "p"), a.title)
-            dist["headings"].add(len(heads), a.title)
-            dist["list_items"].add(sum(1 for k, tx in bl if k == "li"), a.title)
-            dist["longest_paragraph_words"].add(
-                max((_words(tx) for tx in paras), default=0), a.title
-            )
-            longest = max((len(w.strip(".,;:()\"'")) for w in body.split()), default=0)
-            dist["longest_word"].add(longest, a.title)
-            dist["facts"].add(sum(len(rows) for k, rows in bl if k == "table"), a.title)
-            hit_here = set()
-            xh = a.xhtml.decode("utf-8", "replace")
-            for cat, name, kind, pat, _ in DETECTORS:
-                if kind == "text":
-                    for m in pat.finditer(t):
-                        note(name, a.title, t[max(0, m.start() - 60) : m.end() + 50])
-                        hit_here.add(name)
-                elif kind == "xhtml":
-                    for m in pat.finditer(xh):
-                        note(name, a.title, xh[max(0, m.start() - 60) : m.end() + 50])
-                        hit_here.add(name)
-                elif kind == "p":
-                    for tx in (tx for k, tx in bl if k == "p"):
-                        for m in pat.finditer(tx):
-                            note(name, a.title, tx[max(0, m.start() - 60) : m.end() + 50])
-                            hit_here.add(name)
-                elif kind == "para":
-                    for tx in paras:
-                        for m in pat.finditer(tx):
-                            note(
-                                name, a.title, tx[max(0, m.start() - 60) : m.end() + 50]
-                            )
-                            hit_here.add(name)
-                elif kind == "head":
-                    for tx in heads:
-                        if pat.search(tx):
-                            note(name, a.title, tx)
-                            hit_here.add(name)
-                elif kind == "struct":
-                    for ctx in struct_hits(pat, bl):
-                        note(name, a.title, ctx)
-                        hit_here.add(name)
-            for name in hit_here:
-                articles_hit[name] += 1
-            if sample_n:
-                if len(sample) < sample_n:
-                    sample.append((a.title, t))
-                else:
-                    j = rng.randrange(n)
-                    if j < sample_n:
-                        sample[j] = (a.title, t)
-    finally:
-        p.close()
+    if sample_entries:
+        p = pf.Pack(pack_dir)
+        try:
+            for title, locator in sample_entries:
+                sample.append((title, plain(p.article(locator).xhtml)))
+        finally:
+            p.close()
     sizes.sort()
     report = {
         "articles": n,
@@ -1071,6 +1110,7 @@ def main(argv=None):
     ap.add_argument("--summary", help="a build's summary.json: judge its census of removed characters")
     ap.add_argument("--report", help="write the full detector report (markdown) here")
     ap.add_argument("--limit", type=int, default=0, help="scan only the first N articles")
+    ap.add_argument("--workers", type=int, default=0, help="worker processes (default: cores minus two)")
     args = ap.parse_args(argv)
     gate_failed = False
     if args.summary:
@@ -1085,7 +1125,7 @@ def main(argv=None):
         if refused:
             gate_failed = True
         print(f"symbols spelled: {summary.get('symbols_translated', 0):,}; diacritics reduced to base letters: {summary.get('diacritics_dropped', 0):,}")
-    report, sample = scan(args.pack, args.sample, args.seed, limit=args.limit)
+    report, sample = scan(args.pack, args.sample, args.seed, limit=args.limit, workers=args.workers or None)
     print(f"{report['articles']:,} articles; body chars median {report['body_chars']['median']:,}, "
           f"p10 {report['body_chars']['p10']:,}, p1 {report['body_chars']['p1']:,}; "
           f"near-empty (<{NEAR_EMPTY}): {report['near_empty_count']}")
