@@ -74,6 +74,7 @@ enum class GameId : uint16_t {
   // that has been on the deploy branch has to be assumed to be on a device.
   // Nothing had shipped with 0x0902, so this costs nobody a match.
   ToyBattle = 0x0902,
+  Go = 0x0A01,
   // Reserved for host tests, which need an id no real game will ever use.
   Test = 0xFF01,
 };
@@ -89,8 +90,8 @@ enum class GameId : uint16_t {
 // guard, but it turns a silent protocol bug into a compile error, and the
 // alternative is nothing.
 constexpr GameId kAllGameIds[] = {
-    GameId::Chess,   GameId::ConnectFour,  GameId::Battleship, GameId::Jaipur,    GameId::Checkers,
-    GameId::Yahtzee, GameId::Knucklebones, GameId::SeaSalt,    GameId::ToyBattle, GameId::Test,
+    GameId::Chess,        GameId::ConnectFour, GameId::Battleship, GameId::Jaipur, GameId::Checkers, GameId::Yahtzee,
+    GameId::Knucklebones, GameId::SeaSalt,     GameId::ToyBattle,  GameId::Go,     GameId::Test,
 };
 
 constexpr bool gameIdsAreDistinct() {

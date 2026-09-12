@@ -26,7 +26,7 @@ devices with an 800x480 panel, capacitive touch and two physical buttons
 (three on the Sticky, and the design targets the two both boards share), and
 [CrossPoint](https://crosspointreader.com/) already makes them good at reading.
 CrossPlay is firmware that keeps all of that and adds the other things a screen
-that holds still is good at: **20 games and 7 apps**,
+that holds still is good at: **21 games and 7 apps**,
 spaced-repetition flashcards, comics, a read-later queue, and two devices that
 play together with nothing to set up.
 
@@ -70,6 +70,7 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Forehead**     | Screen against your forehead, the room shouts clues, sixty seconds.          |
 | **Trivia**       | 50,000 questions off 42 years of Jeopardy. Read them out, or play alone.     |
 | **Wavelength**   | A hidden point on a spectrum, one clue, and the whole table arguing.         |
+| **Go**           | Nine by nine, against the device or someone next to you. It counts for you.  |
 
 ### Apps
 
@@ -88,8 +89,8 @@ browser are theirs and stay theirs.
 
 ### Two devices, nothing to type
 
-Nine of the games play over **PLAY NEARBY**: Chess, Checkers, Connect Four,
-Yahtzee, Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Put two
+Ten of the games play over **PLAY NEARBY**: Chess, Checkers, Connect Four,
+Yahtzee, Knucklebones, Battleship, Jaipur, Sea Salt, Toy Battle and Go. Put two
 devices next to each other and they find one another. No pairing screen, no room
 code, no account, no router, no internet.
 

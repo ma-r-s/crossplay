@@ -1,0 +1,36 @@
+# site/assets/shots/go.png
+#
+# The seats board with a stone aimed but not placed: the one screen that shows
+# every decision this app makes. The seat to move is the inverted band, so
+# whose turn it is is a statement rather than a caption; the ring on the white
+# stone top right is the last move played; the dithered stone in corner brackets
+# is the two-tap placement, which is the thing a still frame can otherwise never
+# show.
+#
+# CROSSPLAY_AUTOSTART jumps straight into a shelf item by title (Shelf.cpp,
+# autostartFromEnv), which beats counting taps down a folder of twenty-one
+# games that grows every few weeks.
+#
+#   CROSSPLAY_AUTOSTART=GO ./scripts_local/sim-shot.sh \
+#     '2500:TAP:240,605;5500:TAP:240,404;9000:QUIT' '7500:qa-artifacts/go-site.bmp'
+#
+# then downsample qa-artifacts/go-site.png from 960x1600 to 480x800 (LANCZOS).
+
+input:
+  2500:TAP:240,605      # RESUME GAME on the front door
+  5500:TAP:240,404      # aim the centre point -- one tap, so nothing is played
+  9000:QUIT
+
+shot:
+  7500:qa-artifacts/go-site.bmp
+
+# NOT reproducible byte-for-byte, and the reason is worth knowing. The position
+# comes from fs_agent/.crosspoint/go.sav, a real game the real engine played
+# against itself and stopped at move 34; the engine seeds itself from millis()
+# at entry, so a regenerated save is a different game. Seeding the card is the
+# documented way to render a state honestly (docs/building-apps.md): an empty
+# board is not a screenshot of this design, it is a screenshot of a grid.
+#
+# What the shot has to show is the same whichever game it is: the two seat
+# bands with the mover inverted, a board with both colours on it, the last-move
+# ring, and a stone aimed inside corner brackets.

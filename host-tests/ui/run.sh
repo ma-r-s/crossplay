@@ -37,6 +37,8 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/ShelfScreen.cpp \
   ../../src/apps_local/chess/ChessScreens.cpp \
   ../../src/apps_local/checkers/CheckersScreens.cpp \
+  ../../src/apps_local/go/GoScreens.cpp \
+  ../../src/apps_local/go/GoCore.cpp \
   ../../src/apps_local/connectfour/ConnectFourScreens.cpp \
   ../../src/apps_local/connections/ConnectionsCore.cpp \
   ../../src/apps_local/connections/ConnectionsScreens.cpp \

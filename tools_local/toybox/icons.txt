@@ -246,6 +246,42 @@ toybattle = share-2
 # game, and every game here is played with one), `brain` (mush at 32px).
 sudoku      = hash
 
+# GO. Nine dots in a three by three: stones standing ON the crossings, which is
+# the one thing about this board that is not true of any other board on the
+# shelf -- every other game here puts its pieces INSIDE squares. `grip` is that
+# arrangement and nothing else.
+#
+# It has to survive its neighbours, and the circle family is crowded:
+# `circle-dot` is checkers and `circle-small` beside it is the same silhouette
+# one size down. Rejected: `grid-3x3` and `hash` (lines, and `hash` is sudoku),
+# `chart-scatter` (its axes read as a chart), `target` and `donut` (concentric
+# rings, which is checkers' mark with more strokes), `atom` and `orbit` (a
+# diagram of a different subject).
+go          = grip
+
+# GO's in-app marks. Rows in this fork carry an icon on the right, and these
+# six are chosen so the icon says something the label cannot: the three signal
+# bars ARE the level, and the opponent mark changes between a machine and two
+# people. An icon that only restates its label is decoration.
+#
+# Spliced into ToyboxIcons.h by hand, like every icon since the yahtzee and
+# connectfour sources went missing (see the warning at the top of this file).
+go_play      = play
+go_settings  = settings
+go_computer  = bot          # a machine with a face; `cpu` is a chip, which is
+                            # the part rather than the player
+go_humans    = users        # two of them, because that is what the row means
+go_colour    = contrast     # a disc half black and half white, which IS the
+                            # choice the row offers
+go_level     = gauge        # a dial: HOW HARD, which is what the row asks.
+                            # `signal-low/medium/high` was the first choice --
+                            # an icon that grades itself is better than one that
+                            # restates its label -- and it had to go: at 32px in
+                            # one bit those are 3px bars in the bottom third of
+                            # the box, and `signal-low` is a single speck that
+                            # reads as a rendering fault. The VALUE already says
+                            # EASY, MEDIUM or HARD, and it says it loudly.
+
 # PICROSS. The reward is a revealed PICTURE, so `image` -- a framed picture --
 # rather than another grid. `grid-2x2`/`hash` are already spoken for and read as
 # the same boxed lattice; `pencil`/`paintbrush` are tools, which this file bans

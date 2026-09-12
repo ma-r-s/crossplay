@@ -62,6 +62,15 @@ SRC=../../src/apps_local/link
   test_toybattlelink.cpp -o "$BUILD_DIR/test_toybattlelink"
 "$BUILD_DIR/test_toybattlelink"
 
+# Go, which brings the layer the one thing no earlier game did: the match does
+# not end when the game does. Two passes put it in Scoring, and the dead-stone
+# marks are state changes that cross the wire like moves, so the last thing the
+# link carries is a negotiation either side can reopen.
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+  $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp ../../src/apps_local/go/GoCore.cpp \
+  test_golink.cpp -o "$BUILD_DIR/test_golink"
+"$BUILD_DIR/test_golink"
+
 # The end of a match: the record that was never written and the final board the
 # loser was never shown. Real link, real Connect Four rules, real Endgame; see
 # test_endgame.cpp for what it does and does not cover.
