@@ -109,7 +109,41 @@ _CITE_PAGES = re.compile(r"(?:\s*:\s*p{1,2}\.\s?\d+(?:[\u2013-]\d+)?\b)+")
 # "## x:", "#; Key": a note marker the dump kept at a line's start
 _NOTE_MARKER = re.compile(r"^#+;?\s+")
 # a raw reference tag the dump left in the prose
-_REF_TAG = re.compile(r"<ref\b[^>]*/>|<ref\b[^>]*>.*?</ref>|<ref\b[^>]*>", re.S | re.I)
+_REF_TAG = re.compile(r"<ref\b[^>]*/>|<ref\b[^>]*>.*?</ref>|<ref\b[^>]*>|<ref\b[^<>]{0,160}$", re.S | re.I)
+# Parsoid's protection markers, leaked into a few articles: "\ufffdPROT139\ufffd"
+# stands where a reference or template was, and one can end an unclosed
+# template ("{{Pie chart| caption = ...\ufffdPROT199\ufffd Roughly ...")
+_PROT = re.compile(r"\{\{[^{}]*?\ufffdPROT\d+\ufffd\s*|\s?\ufffdPROT\d+\ufffd")
+# a footnote the dump left in the prose, and a template opener never closed
+# ("{{block indent| sigma: F -> F'"): the note goes, the opener alone goes
+_NOTE_TEMPLATE = re.compile(r"\s?\{\{(?:efn|sfn|refn|notetag|note)\|[^{}]{0,800}\}\}")
+_TEMPLATE_OPENER = re.compile(r"\{\{[A-Za-z][A-Za-z ]{0,30}\|\s*")
+_BRACE_OPENER = re.compile(r"\{\{(?=\s|$)")
+# wikitext marks the dump left: ''italic'' and '''bold'''; "f''(x)" is a
+# second derivative and stays, so a mark must open before a letter
+_WIKI_BOLD = re.compile(r"'''([A-Za-z][^'\n]{0,120}?)'''")
+_WIKI_ITALIC = re.compile(r"''([A-Za-z][^'\n]{0,120}?)''")
+_WIKI_QUOTE_LEFT = re.compile(r"'''(?=[A-Za-z])")
+_CULTIVAR_QUOTE = re.compile(r"(?<=[a-z])'(?=[A-Z][a-z])")
+# "(-infinity,infinity)": a comma between spelled words gets its space;
+# "epsilon,gamma-carotene" is a chemical name and stays tight
+_COMMA_WORDS = re.compile(r"\b([a-z]{2,}),(?=[a-z]{3,})")
+_GREEK_WORDS = frozenset(symbols.GREEK.values())
+# "{{rp}}" page references after a period: ".: ii. 161 : I.68 However"
+# the same with plain pages: "speciosa.: 86-95, 137)"
+_CITE_NUMERIC = re.compile(r"(?<=[a-z]{4}[.!?])(?::\s?\d{1,4}(?:[\u2013-]\d{1,4})?(?:, \d{1,4}(?:[\u2013-]\d{1,4})?)*)(?=[\s)]|$)")
+_CITE_ROMAN = re.compile(r"(?<=[.,;!?])(?:\s?:\s?[IVXLCivxlc]{1,7}\.\s?\d{1,4}(?:[\u2013-]\d{1,4})?)+(?=\s|$)")
+# what the residue scanner steps over: TeX spacing, align marks, empty groups
+_TEX_LEFTOVER = re.compile(r"\\[,;:!>]|\{\s*\}")
+_TEX_ALIGN = re.compile(r"\s*&=|(?<=\s)&(?=\s)")
+# "z w z^{w}": the dump's words for a formula, then the TeX of them
+_FLAT_THEN_TEX = re.compile(r"\b(\w) (\w) (?=\1\^\{\2\})")
+_SCRIPT_BRACES = re.compile(r"(\w)\^\{(\w)\}")
+# a formula the dump lost the middle of: "sigma = sigma_ij = = == ==,"
+_REPEATED_EQUALS = re.compile(r"([=\u2261]=?)(?:\s+[=\u2261]=?)+(?!\S)")
+_TRAILING_EQUALS = re.compile(r"(?:\s*[=\u2261]=?)+(?=\s*[,.;]?\s*$)")
+# two quoted lines the dump joined: "her.'""'Did you" gets its space back
+_QUOTE_GLUE = re.compile(r"([.!?][\"']{1,2})([\"']{1,2}[A-Z])")
 _TEX_START = re.compile(r"\\(?:\\|[A-Za-z]+)")
 _TEX_SCRIPT_GROUP = re.compile(r"\s?[A-Za-z]?(?:[_^]\{[^{}]*\}\s*)+")
 
@@ -320,7 +354,12 @@ def _runs():
         # not want on the panel (2026-09-11): a Cyrillic word in prose is
         # romanised, in a labelled aside it goes with its label
         bad = "(?:[^" + drawable_class() + "]|[" + REMOVED_SCRIPTS + "])"
-        run = bad + r"(?:\s*" + bad + ")*"
+        # a run carries the quotes around it and the commas, colons and
+        # quotes inside it, so a quoted Hebrew word, a list of Devanagari
+        # titles or a Chinese sentence with its commas goes whole, not as
+        # (") and (,)
+        quote = "[" + _RUN_QUOTES + "]"
+        run = "(?:" + quote + r"\s*)?" + bad + r"(?:[\s,;:\"'\u201c\u201d\u2018\u2019]*" + bad + r")*(?:\s*" + quote + ")?"
         _run_re = re.compile(run)
         label = r"(?:(?<![A-Za-z])(?:(?:simplified|traditional|literally|romani[sz]ed|born|modern|classical|standard|colloquial|formal|archaic|native|also|formerly|abbreviated|pinyin) )?[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}:\s?)?"
         _labelled_run_re = re.compile(label + run)
@@ -330,17 +369,24 @@ def _runs():
 # Source remnants: the dataset already dropped pronunciation spans and native
 # scripts from some leads, leaving "(German:; 6 January 1850" and "Fernandel ()",
 # and it pads every quotation with spaces: the " beech ", lit. ' uncle '.
+_RUN_QUOTES = "\"'\u201c\u201d\u2018\u2019"
+# a label inside quotes ("House of the Mahdi:) is quoted text, not a label
+# a label opens with a capital or a word labels use ("lit.", "born",
+# "romanized"); "of the Mahdi:" inside a quotation is not one
+_LABEL_HEAD = r"(?:[A-Z][A-Za-z.]*|lit\\.|pl\\.|romani[sz]ed|pinyin|born|n\\u00e9e|also|abbreviated|simplified|traditional|literally|translit\\.|transliterated|from|or|in|meaning|formerly|native|modern|classical|standard|colloquial|formal|archaic)"
+# ... and stands at the start of its segment: after "(", ";" or ","
+_SEGMENT_START = r"(?:^|(?<=[(\[;,])|(?<=[(\[;,] ))"
 _EMPTY_LABEL = re.compile(
-    r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)])"
+    _SEGMENT_START + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)])"
 )
 # the same at the end of a parenthetical's segment ("from Sanskrit: , IPA:")
 _EMPTY_LABEL_END = re.compile(
-    r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|$)"
+    _SEGMENT_START + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|$)"
 )
 # "(listen)": the audio link's text, with no audio to play
 _LISTEN = re.compile(r"\s?\(\s*(?:listen|more)\s*\)", re.I)
 _FUNCTION_WORDS = frozenset("from or and of the a an in at by to lit also see cf".split())
-_EMPTY_PAREN = re.compile(r"\s?\(\s*\)")
+_EMPTY_PAREN = re.compile(r"\s?\(\s*[,;:\s]*\)")
 # IPA between slashes or brackets, when the serif cannot draw it.
 _SLASHED = re.compile(r" ?/[^/]{1,80}/")
 # what a pronunciation carries that prose never does: IPA letters, modifier
@@ -350,7 +396,7 @@ _BRACKETED = re.compile(r" ?\[[^\[\]]{1,80}\]")
 
 _TIDY = (
     (re.compile(r"\(\s*[,;:]\s*"), "("),
-    (re.compile(r"\s*[,;:]\s*\)"), ")"),
+    (re.compile(r"(?<![\s(]\")(?<!^\")\s*[,;:]\s*\)"), ")"),  # not the face of ":)"
     (re.compile(r"\(\s*\)"), ""),
     (re.compile(r"\[\s*\]"), ""),
     (re.compile(r"\s+([,;?)]|!(?!=)|:(?!\s?\d))"), r"\1"),  # "a != 0" and "3 : 1" keep their spaces
@@ -394,25 +440,50 @@ def clean_text(s):
     if "," in s:
         s = _COMMA_GLUE.sub(", ", s)
     s = _YEAR_GLUE.sub(r"\1 ", s)
+    s = _QUOTE_GLUE.sub(r"\1 \2", s)
     if not s:
         return ""
     s = _CONTROL.sub("", s)
+    if "," in s:
+        s = _COMMA_GLUE.sub(", ", s)  # again: a zero-width space after the comma just went
     if "style" in s and _TEX_OPEN.search(s):
         s = _render_tex(s)
     if "\\" in s:
         s = _TEX_ENV.sub("", s)
         s = _strip_tex_residue(s)  # TeX the dump left outside any block
-        s = re.sub(r"  +", " ", _TEX_SCRIPT_GROUP.sub(" ", s))  # "A_{1}^{ }" left beside it
+        s = _TEX_SCRIPT_GROUP.sub(" ", s)  # "A_{1}^{ }" left beside it
+        s = _TEX_LEFTOVER.sub(" ", _TEX_LEFTOVER.sub(" ", s))
+        s = _TEX_ALIGN.sub(lambda m: " =" if "=" in m.group(0) else " ", s)
+        s = re.sub(r"  +", " ", _TEX_SCRIPT_GROUP.sub(" ", s))
+        s = re.sub(r"\s[_^](?=\s|$)", "", s)
+        if s.count("{") != s.count("}"):
+            s, _ = _balance(s, "{", "}")
+    if "^{" in s:
+        s = _SCRIPT_BRACES.sub(r"\1^\2", _FLAT_THEN_TEX.sub("", s))
+    if "=" in s or "\u2261" in s:
+        s = _TRAILING_EQUALS.sub("", _REPEATED_EQUALS.sub(r"\1", s))
     if "(help)" in s:
         s = _TEMPLATE_ERROR.sub("", s)
     if "<ref" in s:
         s = _REF_TAG.sub("", s)
     if ": p" in s or ":p" in s:
         s = _CITE_PAGES.sub("", s)
+    if ":" in s:
+        s = _CITE_NUMERIC.sub("", _CITE_ROMAN.sub("", s))
     if s.startswith("#"):
         s = _NOTE_MARKER.sub("", s)
+    if "PROT" in s:
+        s = _PROT.sub("", s)
     if "{{" in s:
         s = _TEMPLATE.sub("", s)
+        s = _NOTE_TEMPLATE.sub("", s)
+        s = _TEMPLATE_OPENER.sub(" ", s)
+        surplus = s.count("{") - s.count("}")
+        if surplus > 0:
+            s = _BRACE_OPENER.sub("", s, count=surplus)
+    if "''" in s:
+        s = _WIKI_ITALIC.sub(r"\1", _WIKI_BOLD.sub(r"\1", s))
+        s = _CULTIVAR_QUOTE.sub(" '", _WIKI_QUOTE_LEFT.sub("'", s))
     s = _CITE.sub("", s)
     s = _CITE_PAGE.sub("", s)
     s = _GREEK_ALONE.sub(lambda m: _GREEK_NAMES.get(m.group(1), m.group(1)), s)
@@ -458,6 +529,10 @@ def _close_quote_gaps(text):
                     continue
             if c == "'" and (word_before and word_after or _CLITIC_AFTER.match(text, i + 1)):
                 out.append(c)  # an apostrophe inside a word, or a padded clitic: McGregor 's
+                i += 1
+                continue
+            if c == '"' and before in "'\u2019" and after.isspace() and text[i + 2 : i + 3] in ('"', "'"):
+                out.append(c)  # a closing quote before the next line's opening one: her.'" "'Did
                 i += 1
                 continue
             closes = inside == c and (word_before or not word_after)
@@ -787,6 +862,10 @@ def strip_undrawable(text, stats, lead=False):
     if n:
         stats["symbols_translated"] = stats.get("symbols_translated", 0) + n
     text, folded = _fold_chars(text)
+    if "," in text:
+        # a comma between spelled or folded words gets its space: "(-infinity,infinity)",
+        # "clan,personal" (a full-width comma folded); "epsilon,gamma-carotene" stays
+        text = _COMMA_WORDS.sub(lambda m: m.group(0) if m.group(1) in _GREEK_WORDS else m.group(1) + ", ", text)
     for k, n in folded.items():
         stats[k] = stats.get(k, 0) + n
     text, n = _fold_lookalikes(text)
@@ -804,7 +883,8 @@ def strip_undrawable(text, stats, lead=False):
         census = stats.setdefault("removed_chars", {})
         for m in run_re.finditer(text):
             for ch in m.group(0):
-                if not ch.isspace():
+                # the quotes and commas a run carries are its own, not a loss
+                if not ch.isspace() and ord(ch) >= 128 and ch not in _RUN_QUOTES:
                     census[ch] = census.get(ch, 0) + 1
         if lead:
             for _ in range(3):
@@ -850,18 +930,18 @@ def strip_undrawable(text, stats, lead=False):
 # not close the outer one.
 _SCRUB = (
     (re.compile(r"\s?(?:\"\s*\"|\u201c\s*\u201d|''|\u2018\s*\u2019)(?=\s|[,.;:)]|$)"), ""),
-    (re.compile(r"\s?[(\[{]\s*[)\]}]"), ""),
+    (re.compile(r"\s?[(\[{]\s*[,;:\s]*[)\]}]"), ""),
     (re.compile(r"\(\(([^()]*)\)\)"), r"(\1)"),
     (re.compile(r"\[\[([^\[\]]*)\]\]"), r"[\1]"),
     (re.compile(r"([,;])\s*(?:[,;]\s*)+"), r"\1 "),
     (re.compile(r"(?<=\S)\s+([,;](?=\s|$))"), r"\1"),
     (re.compile(r"\(\s+"), "("),
     (re.compile(r"\s+\)"), ")"),
-    (re.compile(r"^\s*[,;]\s*"), ""),
+    (re.compile(r"^\s*(?:[,;]|:(?=\s|$))\s*"), ""),
     (re.compile(r"\s*[,;]$"), ""),
     (re.compile(r"[ \t\u00a0]{2,}"), " "),
 )
-_SCRUB_HINT = re.compile(r"[()\[\]{}\"\u201c\u2018',;]")
+_SCRUB_HINT = re.compile(r"[()\[\]{}\"\u201c\u2018',;]|^\s*:")
 
 
 def scrub_artifacts(text):
@@ -887,12 +967,25 @@ def scrub_artifacts(text):
     return text.strip(), n
 
 
+def _is_face(text, i):
+    """text[i] is the mouth of ":)" or ";-(": an emoticon, not a parenthesis.
+    The eyes stand at a word boundary; "8)" is "(number 8)" far more often than a face."""
+    j = i - 1
+    if j >= 0 and text[j] == "-":
+        j -= 1
+    if j < 0 or text[j] not in ":;=":
+        return False
+    return j == 0 or text[j - 1] in " \t\"'\u201c\u2018"
+
+
 def _balance(text, opener, closer):
     """Drops closers with no opener before them and openers never closed."""
     out = []
     stack = []
     drop = set()
     for i, ch in enumerate(text):
+        if ch in "()" and _is_face(text, i):
+            continue  # ":)" and ":-(" are faces, not parentheses
         if ch == opener:
             stack.append(i)
         elif ch == closer:
@@ -1106,7 +1199,7 @@ class _Doc:
                 self.stats["links_dropped"] = self.stats.get("links_dropped", 0) + 1
                 continue
             t = strip_undrawable(clean_text(raw), {}, lead=False)
-            if not t:
+            if not t.strip():
                 self.stats["links_dropped"] = self.stats.get("links_dropped", 0) + 1
                 continue
             i = text.find(t)
@@ -1174,8 +1267,18 @@ class _Doc:
         for s, e, href in links:
             if s < lo or e > hi:
                 continue
-            out.append(esc(text[i:s]))
-            out.append('<a href="' + esc_attr(href) + '">' + esc(text[s:e]) + "</a>")
+            # the dump's link text can carry the space that stood beside a
+            # lost icon ("China "): the space stays outside the anchor
+            inner = text[s:e]
+            if not inner.strip():
+                out.append(esc(text[i:e]))
+                i = e
+                continue
+            lead = inner[: len(inner) - len(inner.lstrip())]
+            trail = inner[len(inner.rstrip()) :]
+            out.append(esc(text[i:s] + lead))
+            out.append('<a href="' + esc_attr(href) + '">' + esc(inner.strip()) + "</a>")
+            out.append(esc(trail))
             i = e
         out.append(esc(text[i:hi]))
         return "".join(out)
@@ -1285,12 +1388,16 @@ class _Doc:
                     if run_re.search(raw):
                         with_runs += 1
                 cells.append(strip_undrawable(raw, self.stats))
+            if is_header and len(cells) > 1 and len(set(cells)) == 1:
+                continue  # a caption spanning the row ("Key (expand for notes)"), not column names
             grid.append((is_header, cells))
         if filled and with_runs * 2 >= filled:
             # a phoneme chart, a table of native names: without its script it
             # is a grid of holes, so the notice is the honest rendering
             self.stats["script_tables_omitted"] = self.stats.get("script_tables_omitted", 0) + 1
             return TABLE_OMITTED
+        if not grid:
+            return ""  # a caption and nothing under it
         # A navbox is a table of links to other pages with its own controls in
         # it; on this device it is three columns of "This box: view talk edit".
         # It is navigation, not content, so it leaves no notice behind.
@@ -1311,7 +1418,7 @@ class _Doc:
             tag = "th" if is_header else "td"
             out.append(
                 "<tr>"
-                + "".join("<%s>%s</%s>" % (tag, esc(c), tag) for c in cells)
+                + "".join("<%s>%s</%s>" % (tag, esc("Number" if c.strip() == "#" else c), tag) for c in cells)
                 + "</tr>"
             )
         out.append("</table>")
@@ -1324,7 +1431,7 @@ class _Doc:
         "1984; Category: Best Comedy Recording; Work: Eat It; Result: Won"
         instead of a notice that a table stood here."""
         headers = [cells for is_header, cells in grid if is_header]
-        labels = headers[-1] if headers else []
+        labels = ["Number" if c.strip() == "#" else c for c in (headers[-1] if headers else [])]
         body = [cells for is_header, cells in grid if not is_header]
         if not body:
             return ""
@@ -1340,6 +1447,8 @@ class _Doc:
                 if len(c.split(" ")) >= TABLE_ROW_CELL_WORDS:
                     c, _ = scrub_artifacts(c)  # a cut can leave a parenthesis open
                 c = re.sub(r"  +", " ", c).strip()
+                if c == "#":
+                    c = "Number"
                 if not c or c.endswith(":"):
                     continue  # empty, or a label whose script went
                 label = labels[j] if j < len(labels) else ""
@@ -1629,9 +1738,13 @@ def heading_bytes(text):
 
 
 _INLINE_DOUBLE_SPACE = re.compile(r"(?<=\S)[ \u00a0]{2,}(?=\S)")
+# the label may sit in a link ("Chinese</a>: ,"); the closing tag stays.
+# The piece ends at a block's closing tag, never at the link's own ("Vizing's
+# Theorem:</a> A graph" is a label with its content after it)
 _INLINE_EMPTY_LABEL = re.compile(
-    r"(?<![A-Za-z0-9>])[A-Z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?:</a>)?\s*(?=[;,)]|</)"
+    r"(?<![A-Za-z0-9>\"'\u201c\u2018])[A-Z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}(</a>)?:\s*(</a>)?\s*(?=[;,)]|</(?:p|li|td|th|dd|dt|h[1-6])>)"
 )
+_EMPTY_ANCHOR = re.compile(r'<a href="[^"]*">\s*</a>')
 _INLINE_TIDY = (
     (re.compile(r"\(\s*[;,]\s*"), "("),
     (re.compile(r"\s*[;,]\s*\)"), ")"),
@@ -1646,7 +1759,8 @@ def _scrub_inline(html_text):
     left two spaces at a piece boundary. One pass over the assembled line."""
     if "  " in html_text or ":" in html_text:
         html_text = _INLINE_DOUBLE_SPACE.sub(" ", html_text)
-        html_text = _INLINE_EMPTY_LABEL.sub("", html_text)
+        html_text = _INLINE_EMPTY_LABEL.sub(lambda m: (m.group(1) or "") + (m.group(2) or ""), html_text)
+        html_text = _EMPTY_ANCHOR.sub("", html_text)
         for rx, rep_ in _INLINE_TIDY:
             html_text = rx.sub(rep_, html_text)
     return html_text

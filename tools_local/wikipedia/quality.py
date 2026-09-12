@@ -186,7 +186,7 @@ DETECTORS = [
         "headings",
         "heading_edit",
         "head",
-        re.compile(r"\[edit\]|\bedit\b$"),
+        re.compile(r"\[edit\]|^edit$"),
         "the edit link survived",
     ),
     # --- words and spacing
@@ -222,7 +222,7 @@ DETECTORS = [
         "words",
         "comma_glue",
         "para",
-        re.compile(r"\b(?!(?:alpha|beta|gamma|delta|omega|sigma|kappa|theta|lambda|cis|trans),)[a-z]{3,},[A-Za-z]{3,}"),
+        re.compile(r"\b(?!(?:alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|omicron|rho|sigma|tau|upsilon|phi|chi|psi|omega|cis|trans|sec|tert|iso|neo|ortho|meta|para),)[a-z]{3,},[A-Za-z]{3,}"),
         "a comma with no space after it",
     ),
     ("words", "double_punct", "para", re.compile(r"[,;:]{2}|[,;] ?[,;]|, \.|; \.|\?\?|!!"), "doubled punctuation"),
@@ -230,8 +230,8 @@ DETECTORS = [
         "words",
         "space_before_punct",
         "para",
-        re.compile(r"\w [,.;:!?](?=\s|$)"),
-        "a space before a comma or period: something between them went",
+        re.compile(r"\w [,.;!?](?=\s|$)|[A-Za-z] :(?=\s[a-z]|$)"),
+        "a space before a comma or period: something between them went (a colon after a digit is a ratio or a title)",
     ),
     (
         "words",
@@ -333,7 +333,7 @@ DETECTORS = [
         "balance",
         "orphan_quote",
         "para",
-        re.compile(r"(?<![\w.,!?\"])\"\s*\"(?![\w\"])|\(\s*\"\s*\)|(?<![\w.,!?])\u201c\s*\u201d"),
+        re.compile(r"(?<![\w.,!?\"'])\"\s*\"(?![\w\"'])|(?<!mark )(?<!marks )(?<!quote )(?<!quotes )(?<!character )\(\s*\"\s*\)|(?<![\w.,!?])\u201c\s*\u201d"),
         "an empty quotation",
     ),
     (
@@ -356,7 +356,7 @@ DETECTORS = [
         "stray_markup",
         "text",
         re.compile(
-            r"\{\{(?![a-z0-9 ,]{1,12}\})|\[\[|\]\]|<ref\b|&lt;|&gt;|&nbsp;|&amp;|&#\d+;|&[a-z]{2,8};"
+            r"\{\{(?!\s*[A-Za-z0-9 ,]{1,12}\s*\})|\[\[(?!\d)|\]\]|<ref\b|&lt;|&gt;|&nbsp;|&amp;|&#\d+;|&[a-z]{2,8};"
         ),
         "wikitext or HTML that should not be in the text",
     ),
@@ -364,7 +364,7 @@ DETECTORS = [
         "remnants",
         "wikitext_line",
         "para",
-        re.compile(r"^\s*[#:;]{1,3}\s|'''|^==|==$|\|-|\|\}|\{\|"),
+        re.compile(r"^\s*[#:;]{1,3}\s|'''|^==|==$|^\s*\|[-}]|^\s*\{\|"),
         "a wikitext list marker, bold marks or table syntax",
     ),
     (
@@ -432,10 +432,17 @@ DETECTORS = [
     ("remnants", "url_in_text", "text", re.compile(r"https?://|\bwww\.[a-z]"), "a URL"),
     (
         "remnants",
+        "page_ref_glue",
+        "para",
+        re.compile(r"(?<=[a-z]{4}[.!?]):\s?(?:[ivxlc]{1,7}\.\s?)?\d{1,4}(?:[\u2013-]\d{1,4})?(?=[\s)]|$)"),
+        "a page reference glued to the sentence's period: the rp template's output (\"Pop.: 249,626\" is a label)",
+    ),
+    (
+        "remnants",
         "tex_remnant",
         "text",
         re.compile(
-            r"\\displaystyle|\\frac|\\sqrt|\\mathbf|\\mathrm|\\left|\\right|\{\\|\^\{|_\{|\\[a-zA-Z]{2,}\{|\\[a-zA-Z]{2,}\b"
+            r"\\displaystyle|\\frac|\\sqrt|\\mathbf|\\mathrm|\\left|\\right|(?<!\\)\{\\|\^\{|_\{|\\[a-zA-Z]{2,}\{|(?<![A-Za-z])\\[a-zA-Z]{2,}\b"
         ),
         "TeX in the text",
     ),
@@ -472,7 +479,7 @@ DETECTORS = [
         "encoding",
         "replacement_char",
         "text",
-        re.compile(r"\ufffd"),
+        re.compile(r"(?<!U\+FFFD )(?<!character )\ufffd(?! REPLACEMENT)"),
         "U+FFFD: a byte that was not text",
     ),
     (
@@ -657,6 +664,9 @@ def _words(t):
     return len(t.split())
 
 
+_FACE = re.compile(r"(?<![A-Za-z0-9])[:;=]-?[()]")
+
+
 def struct_hits(name, bl):
     """Structural detectors over the block list. Returns [context, ...]."""
     hits = []
@@ -747,6 +757,7 @@ def struct_hits(name, bl):
                     hits.append(sent[:160])
     elif name == "unbalanced_parens":
         for k, t in paras:
+            t = _FACE.sub("", t)  # ":)" is a face, not a parenthesis
             if t.count("(") != t.count(")"):
                 hits.append(t[:160])
     elif name == "unbalanced_quotes":
@@ -1121,7 +1132,7 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=0, help="worker processes (default: cores minus two)")
     ap.add_argument("--every", type=int, default=1, help="scan every Nth article (the full pack)")
     args = ap.parse_args(argv)
-    gate_failed = False
+    gate_failed = []
     if args.summary:
         with open(args.summary, encoding="utf-8") as f:
             summary = json.load(f)
@@ -1132,7 +1143,7 @@ def main(argv=None):
         for name, (cnt, chars) in sorted(refused.items(), key=lambda kv: -kv[1][0]):
             print(f"  REFUSED  {name:28s} {cnt:10,}  {' '.join(chars)}   (must be drawn or spelled, not dropped)")
         if refused:
-            gate_failed = True
+            gate_failed.append("characters that carry meaning were dropped")
         print(f"symbols spelled: {summary.get('symbols_translated', 0):,}; diacritics reduced to base letters: {summary.get('diacritics_dropped', 0):,}")
     report, sample = scan(args.pack, args.sample, args.seed, limit=args.limit, workers=args.workers or None, every=args.every)
     # Mario, 2026-09-11: at the end nothing that reads as an artifact may
@@ -1140,7 +1151,7 @@ def main(argv=None):
     artifacts = {name: report["signatures"][name]["articles"] for name in ARTIFACT_DETECTORS if report["signatures"][name]["hits"]}
     if artifacts:
         print("ARTIFACTS STILL PRESENT: " + ", ".join("%s in %d articles" % kv for kv in sorted(artifacts.items(), key=lambda kv: -kv[1])))
-        gate_failed = True
+        gate_failed.append("artifacts remain in %d classes" % len(artifacts))
     print(f"{report['articles']:,} articles; body chars median {report['body_chars']['median']:,}, "
           f"p10 {report['body_chars']['p10']:,}, p1 {report['body_chars']['p1']:,}; "
           f"near-empty (<{NEAR_EMPTY}): {report['near_empty_count']}")
@@ -1163,7 +1174,7 @@ def main(argv=None):
                 f.write("## " + title + "\n\n" + t[:args.chars] + ("\n\n[...]\n\n" if len(t) > args.chars else "\n\n"))
         print(f"sample of {len(sample)} articles -> {args.plain}")
     if gate_failed:
-        print("QUALITY GATE: FAILED, characters that carry meaning were dropped")
+        print("QUALITY GATE: FAILED, " + " and ".join(gate_failed))
         return 1
     print("QUALITY GATE: passed (every removed character is in an accepted script)")
     return 0

@@ -899,6 +899,83 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
         self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
 
+    def test_round_eleven_the_last_classes(self):
+        # What round ten's measurement still flagged, each traced to the dump
+        # or to a rule: Parsoid's protection markers; an unclosed ref tag; a
+        # footnote template and an unclosed opener; a quoted script run and a
+        # run with commas inside it go whole, not as (") and (,); a block
+        # that starts with a colon; rp page references; a formula whose
+        # middle the dump lost; the dump's words beside the TeX of them; the
+        # residue of an align block; two quoted lines joined.
+        cases = [
+            ("1,432,820 \ufffdPROT139\ufffd 1910-2020\ufffdPROT140\ufffd 2024 \ufffdPROT141\ufffd", "1,432,820 1910-2020 2024"),
+            ("Religion: {{Pie chart| thumb = right| caption = Religion (2014)\ufffdPROT199\ufffd Roughly one-quarter identify as unaffiliated.", "Religion: Roughly one-quarter identify as unaffiliated."),
+            ("the interstellar medium. <ref name=\"abundance of chemical elements3", "the interstellar medium."),
+            ("in exceptional circumstances.{{efn|For example, travel was restricted in 2020.}} Federations, and{{block indent| sigma: F -> F are natural", "in exceptional circumstances. Federations, and sigma: F -> F are natural"),
+            ("The Hebrew Bible is also known by the name Tanakh (Hebrew: \u05ea\u05e0\"\u05da). This reflects", "The Hebrew Bible is also known by the name Tanakh. This reflects"),
+            ("the foundation of \"this mosque\" (Arabic: \"\u0647\u0630\u0627 \u0627\u0644\u0645\u0633\u062c\u062f\") by Dawud", "the foundation of \"this mosque\" by Dawud"),
+            ("Two Systems (Chinese: \u201c\u4e00\u56fd\u4e24\u5236\u201d\u6770\u51fa\u8d21\u732e\u8005) national honorary title", "Two Systems national honorary title"),
+            ("were for solo vocal ('\u0938\u094d\u0935\u0930\u094d\u0917\u0915\u0940 \u0930\u093e\u0928\u0940', '\u092d\u094b \u092d\u094b') and two were for duet", "were for solo vocal and two were for duet"),
+            ("you can not create a new career. (\u6539\u9769\u5f00\u653e\u80c6\u5b50\uff0c\u6562\u4e8e\u8bd5\u9a8c)", "you can not create a new career."),
+            (": An offering table with a secondary dedication", "An offering table with a secondary dedication"),
+            ("\u0543\u0561\u0576\u0561\u0579\u0565\u056c \u0566\u056b\u0574\u0561\u057d\u057f\u0578\u0582\u0569\u056b\u0582\u0576: \u010cana\u010d\u02bfel zimastut\u02bfiun yev zxrat. To know wisdom", "\u010cana\u010d\u2018el zimastut\u2018iun yev zxrat. To know wisdom"),
+            ("secured their submission.: ii. 161 : I.68 However, this", "secured their submission. However, this"),
+            ("sigma = sigma_ij = = \u2261 \u2261,", "sigma = sigma_ij"),
+            ("many possible values for z w z^{w}. So", "many possible values for z^w. So"),
+            ("in her.'\"\"'Did you see", "in her.'\" \"'Did you see"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        # from the round-eleven essentials gate: an emoticon in quotes keeps
+        # its face; a quoted phrase ending in a colon is not a label; the
+        # dump's wikitext quotes go, a second derivative stays; a "{{" with
+        # nothing after it goes, set-builder braces stay; a comma between
+        # spelled words gets its space (a chemical name stays tight); the
+        # full-width comma the dump uses folds to a comma with its space; rp
+        # page numbers after a period go; "(number 8)" is not a face
+        more = [
+            ("including 14 instances of \":) \" in Richard", "including 14 instances of \":)\" in Richard"),
+            ("the Ahl ad-dār (\"House of the Mahdi:), composed of", "the Ahl ad-dār (\"House of the Mahdi:), composed of"),
+            ("cultivars are ''Prunus serrulata'''Grandiflora' A. Wagner and ''Prunus serrulata'''Gioiko' Koidz", "cultivars are Prunus serrulata 'Grandiflora' A. Wagner and Prunus serrulata 'Gioiko' Koidz"),
+            ("Notable out-fighters include '''Sydney Greve''', Muhammad Ali", "Notable out-fighters include Sydney Greve, Muhammad Ali"),
+            ("the derivative f''(x) and f'''(x) of f", "the derivative f''(x) and f'''(x) of f"),
+            ("reduced to one-third of what it was at independence.{{", "reduced to one-third of what it was at independence."),
+            ("the filter {{k:k >= N}:N in D} is a filter", "the filter {{k:k >= N}:N in D} is a filter"),
+            ("the spatial domain is (−∞,∞). In others", "the spatial domain is (−infinity, infinity). In others"),
+            ("7',8'-Dihydro-ε,γ-carotene and the Zheng clan，personal name", "7',8'-Dihydro-epsilon,gamma-carotene and the Zheng clan, personal name"),
+            ("hybrids based on Prunus speciosa.: 86–95, 137 and others", "hybrids based on Prunus speciosa. and others"),
+            ("H (number 8) means add 8 hours", "H (number 8) means add 8 hours"),
+        ]
+        for src, want in more:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        # a link whose text is only a space is no link, and the space stands once
+        row = {"name": "T", "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+            {"type": "paragraph", "value": "The modern alphabet used by Bashkir.", "links": [{"url": "https://en.wikipedia.org/wiki/Space", "text": " "}]}]}]}
+        self.assertIn("<p>The modern alphabet used by Bashkir.</p>", ah.article_xhtml(row, {})[2].decode())
+        residue = ah.clean_text("= E.1 { }&= }{ }} _{=\\,1{ }G}1 { }{ } . }}")
+        for mark in ("{", "}", "&", "_{", "\\"):
+            self.assertNotIn(mark, residue, residue)
+        # a link's text keeps its label ("Vizing's Theorem:" is not an empty
+        # label because its own closing tag follows), and the space a lost
+        # icon left in a link's text stands outside the anchor
+        row = {"name": "T", "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+            {"type": "paragraph", "value": "Vizing's Theorem: A graph of maximal degree has edge-chromatic number.", "links": [{"url": "https://en.wikipedia.org/wiki/Vizing's_theorem", "text": "Vizing's Theorem:"}]},
+            {"type": "paragraph", "value": "China  Merrill's Marauders and OSS Detachment 101.", "links": [{"url": "https://en.wikipedia.org/wiki/China_Burma_India_Theater", "text": "China "}, {"url": "https://en.wikipedia.org/wiki/Merrill's_Marauders", "text": "Merrill's Marauders"}]},
+        ]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<a href=\"Vizing's theorem\">Vizing's Theorem:</a> A graph", x)
+        self.assertIn("<a href=\"China Burma India Theater\">China</a> <a href=\"Merrill's Marauders\">Merrill's Marauders</a>", x)
+        # a table header whose cells all say the same thing is a caption, not
+        # column names, and "#" is a number (in a table, and in the row
+        # paragraphs a wide table becomes)
+        tables = [{"identifier": "t1", "headers": [[{"value": "Key (expand for notes)"}, {"value": "Key (expand for notes)"}]],
+                   "rows": [[{"value": "Location"}, {"value": "Where the match was played"}], [{"value": "#"}, {"value": "Goal of total goals"}]]}]
+        secs = [{"type": "section", "name": "Goals", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
+        _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
+        self.assertIn("<tr><td>Location</td><td>Where the match was played</td></tr>", x)
+        self.assertIn("<tr><td>Number</td><td>Goal of total goals</td></tr>", x)
+        self.assertNotIn("Key (expand", x)
+
     def test_round_nine_residue(self):
         # TeX the dump left outside any block, in any shape, goes and the
         # prose around it stays; citation page ranges in a row go; a note

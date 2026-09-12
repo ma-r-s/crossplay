@@ -67,6 +67,13 @@ class Render(unittest.TestCase):
             self.assertEqual(tex_text.loose(tex_text.leaves(tex, skip_matrices=skip)), tex_text.loose(words), tex)
 
 
+class TextArguments(unittest.TestCase):
+    def test_comma_in_text_gets_its_space(self):
+        text, complete = tex_text.render(r"W_{A\to B}^{\text{adiabatic,quasi-static}}")
+        self.assertTrue(complete)
+        self.assertEqual(text, "W_(A -> B)^(adiabatic, quasi-static)")
+
+
 class Integration(unittest.TestCase):
     def test_words_replaced_by_the_rendering(self):
         src = ("Then using J z 0 = − J z 1 {\\displaystyle J_{z}^{0}=-J_{z}^{1}} and L 2, S 2, J 2 "

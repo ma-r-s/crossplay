@@ -896,8 +896,10 @@ class Renderer:
             self.complete = False
             return " " + name + " "
         if kind == "plain":
-            # words are words: "otherwise", "gain-db", "in"; no token spacing
+            # words are words: "otherwise", "gain-db", "in"; no token spacing,
+            # but a comma between words gets its space ("adiabatic,quasi-static")
             text = "".join(c[1] if c[0] == "char" else self.node(c) for c in n[2])
+            text = re.sub(r"(?<=[A-Za-z]),(?=[A-Za-z])", ", ", text)
             if n[1] in (
                 "operatorname",
                 "operatorname*",
