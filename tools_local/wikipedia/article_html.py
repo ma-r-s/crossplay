@@ -135,7 +135,11 @@ def _comma_words(m):
 _GREEK_WORDS = frozenset(symbols.GREEK.values())
 # "{{rp}}" page references after a period: ".: ii. 161 : I.68 However"
 # the same with plain pages: "speciosa.: 86-95, 137)"
-_CITE_NUMERIC = re.compile(r"(?<=[a-z]{4}[.!?])(?::\s?\d{1,4}(?:[\u2013-]\d{1,4})?(?:, \d{1,4}(?:[\u2013-]\d{1,4})?)*)(?=[\s)]|$)")
+_CITE_NUMERIC = re.compile(
+    r"(?:(?<=[a-z]{4}[.!?])|(?<=[a-z][.!?]\)))(?::\s?(?:\d{1,4}|[ivxlc]{1,7})(?:[\u2013-]\d{1,4})?(?:,\s?(?:\d{1,4}(?:[\u2013-]\d{1,4})?|(?:fn|n|note)\.?\s?\d{1,3}))*)(?=[\s)]|$)"
+)
+# "Battle of the Windmill: 288 George's brother": the same after a bare word
+_CITE_AFTER_WORD = re.compile(r"(?<=[a-z]{3}): \d{2,4}(?:[\u2013-]\d{1,4})?(?=\s[A-Z][a-z])")
 _CITE_ROMAN = re.compile(r"(?<=[.,;!?])(?:\s?:\s?[IVXLCivxlc]{1,7}\.\s?\d{1,4}(?:[\u2013-]\d{1,4})?)+(?=\s|$)")
 # what the residue scanner steps over: TeX spacing, align marks, empty groups
 _TEX_LEFTOVER = re.compile(r"\\[,;:!>]|\{\s*\}")
@@ -502,7 +506,7 @@ def clean_text(s):
     if ": p" in s or ":p" in s:
         s = _CITE_PAGES.sub("", s)
     if ":" in s:
-        s = _CITE_NUMERIC.sub("", _CITE_ROMAN.sub("", s))
+        s = _CITE_AFTER_WORD.sub("", _CITE_NUMERIC.sub("", _CITE_ROMAN.sub("", s)))
     if s.startswith("#"):
         s = _NOTE_MARKER.sub("", s)
     if "==" in s:
@@ -1104,7 +1108,7 @@ _YEAR_TWICE = re.compile(r"\b(\d{4}) \(\1\)")
 _DECIMAL_COORDS = re.compile(r"\s*/\s*[\d.\u2212-]+\u00b0[NS]\s*[\d.\u2212-]+\u00b0[EW]")
 _COORDS_AFTER_TEXT = re.compile(r"([a-z]) (?=\d{1,3}\u00b0\d)")  # "Pakistan 25°24′N", not the N of a pair
 # "Coordinates: 41°37′N 44°00′E" as a nameless value: the label is the name
-_LABELLED_VALUE = re.compile(r"^([A-Z][a-z]+(?: [a-z]+){0,2}): (\S.*)$")
+_LABELLED_VALUE = re.compile(r"^([A-Z][a-z]+(?: [a-z]+){0,2}(?: \([^()]{1,30}\))?): (\S.*)$")
 # "team Former teams": a word of the row above leaked into the name
 _LEAKED_WORD = re.compile(r"^[a-z]+ (?=[A-Z][a-z]+)")
 _WEBSITE_VALUE = re.compile(r"^(?:official )?(?:web ?site|site|homepage|home page)$", re.I)
@@ -1136,7 +1140,7 @@ def _paren_then_item(m):
     inner, nxt = m.group(1), m.group(2)
     # "(Barfod) A.J.Hend.": a capitalised name in the parenthesis followed by
     # an initial is a botanical authority and keeps its shape
-    if inner[:1].isupper() and " " not in inner and re.match(r"[A-Z]\.", nxt):
+    if inner[:1].isupper() and " " not in inner and re.match(r"[A-Z][a-z]{0,6}\.", nxt):
         return m.group(0)
     if _COMPASS.match(nxt):
         return m.group(0)  # "(118 mi) W of Sydney"
@@ -1213,6 +1217,8 @@ def _spell_iso_date(s):
 
 _FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion", "NFPA 704 (fire diamond)", "NFPA 704"))
 _FACT_JUNK_VALUE = re.compile(r"^[\W_]*$|^\* ")
+_PARAM_LEAK = re.compile(r"^[a-z]+(?:_[A-Za-z]+)+\s?=")
+_GLUED_FIELD = re.compile(r"^([A-Z][A-Za-z]*(?: [A-Za-z]+){0,2}) ([A-Z][a-z]+): (\S.*)$")
 _NAMELESS_FACT = re.compile(r"\d|^In office|^Term|^Reign")
 _FOOTNOTE_VALUE = re.compile(r"^\d [A-Z][a-z]+ [a-z]")  # "1 Playing statistics correct to ..."
 # "C 20 H 8 Br 2" in a formula row: the subscripts the dump spaced out
@@ -1294,7 +1300,8 @@ def fact_value(name, value):
     if name.lower() in _DATE_KEYS:
         value = re.sub(r"\b([A-Za-z]+) (?=(?:c\. )?\d{4}\b)", _word_then_year, value)  # "Kirkpatrick III 1951"
         value = _DATE_THEN_PLACE.sub(r"\1, ", value)
-    value = _PAREN_THEN_ITEM.sub(_paren_then_item, value)
+    if not _TAXON_RANK.match(name.strip()):
+        value = _PAREN_THEN_ITEM.sub(_paren_then_item, value)
     return value.strip()
 
 
@@ -1710,6 +1717,13 @@ class _Doc:
             )
             if "coordinates" in name.lower() and " / " in value:
                 value = value.split(" / ")[0].strip()
+            if _PARAM_LEAK.match(value):
+                return  # "share_of_grocery_market_in_Taiwan =41.3%"
+            glued = _GLUED_FIELD.match(value)
+            if glued and len(name.split()) <= 2:
+                add(name, glued.group(1), group)
+                add(glued.group(2), glued.group(3), group)
+                return
             if value in _FACT_LABELS or value in (self.title, self.title.split(",")[0].strip(), base):
                 return  # "Preceded by: Succeeded by": both values were flags; "Azerbaijani: <title>"
             name = name[:1].upper() + name[1:]

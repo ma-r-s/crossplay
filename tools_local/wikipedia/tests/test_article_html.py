@@ -899,6 +899,32 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
         self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
 
+    def test_round_sixteen_seventh_read(self):
+        # A seventh cold read: rp page references after a parenthesis, with
+        # "fn. 2", or after a bare word go; a combining author keeps its
+        # shape ("(D.Don) Merr."); a template parameter leaked as a value is
+        # no fact; two fields the dump glued ("Batted: Right Threw: Right")
+        # are two rows; a nameless "Coordinates (Trzcinica): ..." takes its
+        # label, parenthesis and all.
+        cases = [
+            ("with indigenous (pre-European) literary traditions.: 112, fn. 2 The next", "with indigenous (pre-European) literary traditions. The next"),
+            ("science, mathematics, or medicine.): xii The", "science, mathematics, or medicine.) The"),
+            ("during the 1838 Battle of the Windmill: 288 George's brother Angus", "during the 1838 Battle of the Windmill George's brother Angus"),
+            ("the ratio is 3: 1 in the", "the ratio is 3: 1 in the"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.clean_text(src), want, src)
+        self.assertEqual(ah.fact_value("Binomial name", "Wightia speciosissima (D.Don) Merr."), "Wightia speciosissima (D.Don) Merr.")
+        row = {"name": "Ray Herbert", "infoboxes": [{"name": "Infobox", "has_parts": [{"type": "section", "name": "Gmina", "has_parts": [
+            {"type": "field", "value": "Batted: Right Threw: Right"}, {"type": "field", "value": "Coordinates (Trzcinica): 51°10′2″N 18°0′17″E"}]},
+            {"type": "field", "name": "Products", "value": "share_of_grocery_market_in_Taiwan =41.3%"}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Batted</th><td>Right</td></tr><tr><th>Threw</th><td>Right</td></tr>", x)
+        self.assertIn("<tr><th>Coordinates (Trzcinica)</th><td>51°10′2″N 18°0′17″E</td></tr>", x)
+        self.assertNotIn("share_of", x)
+        self.assertNotIn("<th>Gmina</th>", x)
+
     def test_round_fifteen_sixth_read(self):
         # A sixth cold read: the s of a cricket "50s" is not a second; a label
         # before "also Romanized as" is empty; "Population (2006), total" is
