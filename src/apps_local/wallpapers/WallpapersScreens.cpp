@@ -192,27 +192,10 @@ void paintTruchet(fui::DrawTarget& t, const fui::Rect& r, const int cell) {
   }
 }
 
-// The chip's style, re-derived against a BLACK ground rather than borrowed from
-// the paper pair. toybox::invertedStyles() is a solid black fill, which on this
-// band IS the band and leaves only a floating glyph; rowStyles() is a white
-// fill whose black hairline vanishes. HackerNews' save chip carries the same
-// pair for the same reason (the-black-band-swaps-your-styles). This chip is an
-// ACTION rather than a state, so it only ever needs the outline half: a filled
-// chip would read as "already on".
-fui::StyleSet bandOutlineStyles() {
-  fui::StyleSet styles;
-  styles.explicitlySet = true;
-  styles.normal.background = fui::Paint::solid(fui::Color::Black);
-  styles.normal.foreground = fui::Paint::solid(fui::Color::White);
-  styles.normal.border = fui::Paint::solid(fui::Color::White);
-  styles.normal.borderWidth = toybox::kHairline;
-  styles.selected = styles.normal;
-  styles.focused = styles.normal;
-  styles.active = styles.normal;
-  styles.disabled = styles.normal;
-  return styles;
-}
-
+// The chip takes toybox::bandOutlineStyles(), and only ever that half: this
+// chip is an ACTION rather than a state, and a filled one would read as
+// "already on". The filled half is for a control that has two states, which is
+// the shelf's chooser and Hacker News's save mark.
 void chrome(toybox::Screen& screen, const char* title, const char* rightLabel, const bool showChip = false,
             const bool choosing = false) {
   fui::HeaderProps header;
@@ -220,7 +203,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel, c
   if (showChip) {
     header.trailingLabel = chooseChipLabel(choosing);
     header.trailingAction = ActionChoose;
-    header.trailingStyles = bandOutlineStyles();
+    header.trailingStyles = toybox::bandOutlineStyles();
     header.trailingText = screen.theme().smallText;
     header.trailingText.color = fui::Color::White;
     header.trailingRadius = toybox::kPillRadius / 2;
