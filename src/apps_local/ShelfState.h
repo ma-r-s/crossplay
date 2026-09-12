@@ -22,9 +22,15 @@
 // game is added or removed, and the file outlives firmware updates -- an index
 // would silently resume into a different game.
 //
-// A resume row is a row and not a title for the opposite reason: it stands for a
-// PAGE rather than for a game, and a page is a position in the list. See
-// shelfui::rowForPage().
+// The resume value is an index and not a title for the opposite reason: it
+// stands for a PAGE rather than for a game, and a page is a position in a list.
+// See shelfui::rowForPage().
+//
+// It is the ITEM's index, not the row's, and the two stopped being the same
+// number when a folder gained the ability to hide things: a row counts only
+// what the folder is showing, and what it shows now is not what it showed when
+// the file was written. shelf::resumeRowIn() converts on the way out and
+// shelf::rememberRowIn() on the way in, so this file holds exactly one unit.
 
 #include <cstddef>
 
@@ -39,10 +45,12 @@ constexpr int MAX_FOLDERS = 4;
 
 struct State {
   int lastFolder = -1;  // shelf row Home lands on, -1 for none
-  // Per folder, the row it reopens on -- which is to say the page it reopens on,
-  // stored as a row. Written by the two things that leave a folder standing
-  // somewhere: opening an item (that item's row) and turning the page (the new
-  // page's first row). It is where you WERE, not what you last played.
+  // Per folder, the ITEM it reopens on -- which is to say the page it reopens
+  // on, stored as an item. Written by the two things that leave a folder
+  // standing somewhere: opening an item, and turning the page (the item at the
+  // top of the new page). It is where you WERE, not what you last played. The
+  // name is the one every earlier firmware wrote and the file format does not
+  // carry it, so it stays; the unit is the item.
   int resumeRow[MAX_FOLDERS] = {};
   char openTitle[MAX_ITEM_TITLE + 1] = {};  // item open when the device slept; empty for none
 };

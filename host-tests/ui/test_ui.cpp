@@ -546,6 +546,42 @@ struct Rendered {
   }
 };
 
+// Present is not the same as legible. drewText() sees the string the builder
+// HANDED the renderer, and the renderer is what shortens it -- so a button
+// whose box is too narrow for its own label passes every "did it draw?" check
+// while the panel says "UNDO A...". This asks the target to measure the run it
+// recorded against the rect it was given, which is the one comparison the
+// truncation is decided by.
+bool drewLabelWhole(const Rendered& out, const char* needle) {
+  bool found = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text != needle) continue;
+    found = true;
+    if (out.target.measureText(run.style.font, run.text.c_str(), run.style).width > run.rect.width) return false;
+  }
+  return found;
+}
+
+// The height this text needs with the LINE CAP LIFTED, against the width it was
+// drawn into.
+//
+// Measuring with the run's own style is a tautology wherever the builder sized
+// the rect from that same call: the check restates the line it is guarding and
+// can only fail if that line disappears entirely. Worse, it is blind to the
+// mechanism it exists to catch. layoutText clamps to style.maxLines and
+// ellipsizes whatever is left over, so a wording that needs five lines under a
+// four-line cap is silently cut, the capped measure dutifully reports four, and
+// the reserved rect matches it exactly.
+//
+// style.maxLines saturates at layoutText's own MAX_LINES (16), so asking for 16
+// is asking for as many lines as the sentence takes. Comparing THAT against the
+// reserved rect is the comparison the truncation is actually decided by.
+int16_t uncappedWrappedHeight(const FakeTarget& target, const FakeTarget::TextRun& run) {
+  fui::TextStyle uncapped = run.style;
+  uncapped.maxLines = 16;
+  return fui::measureWrappedText(target, run.text.c_str(), uncapped, run.rect.width).height;
+}
+
 void buildSettings(Rendered& out, const chessui::SettingsModel& model) {
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
@@ -2640,6 +2676,389 @@ void testShelfFolderMarksNoRow() {
   }
 }
 
+// --- the chooser ------------------------------------------------------------
+//
+// The corner chip, the boxes it puts on the rows, and the empty folder that a
+// person who hides everything lands in. What is being defended here is not that
+// the mode works: it is that entering it does not move the list. Every page of
+// every folder draws its rows at the same eight screen positions, so a list
+// that shifted under a mode switch is indistinguishable from one that did not
+// until something opens -- which on this screen has already cost one cold
+// tester the wrong game (docs/shelf.md).
+
+// The same artwork, by its BYTES rather than by its address. ToyboxIcons.h
+// declares every icon `static const`, so the copy the screen builder blits is a
+// different object from the copy this test can name -- one per translation
+// unit. An icon the test hands IN through the model compares by pointer; one
+// the builder reaches for itself, like this tick, cannot.
+bool sameIcon(const uint8_t* drawn, const freeink::Icon& icon) {
+  if (drawn == nullptr) return false;
+  const size_t bytes = static_cast<size_t>((icon.w + 7) / 8) * icon.h;
+  return std::memcmp(drawn, icon.bits, bytes) == 0;
+}
+
+// One folder's worth of rows, for the tests below: enough to page, with the
+// player bar GAMES carries.
+struct ChooserFixture {
+  static constexpr int kCount = 12;
+  char labels[kCount][8] = {};
+  fui::ListItem items[kCount] = {};
+  bool checks[kCount] = {};
+  const freeink::Icon* icons[kCount] = {};
+
+  ChooserFixture() {
+    for (int i = 0; i < kCount; ++i) {
+      std::snprintf(labels[i], sizeof(labels[i]), "GAME%02d", i);
+      items[i].label = labels[i];
+      items[i].actionValue = static_cast<int16_t>(i);
+      checks[i] = true;
+      icons[i] = &icon_chess_32;
+    }
+  }
+
+  shelfui::MenuModel page(const int first, const int onThisPage, const bool choosing) {
+    shelfui::MenuModel model;
+    model.title = "GAMES";
+    model.items = items + first;
+    model.icons = icons + first;
+    model.count = onThisPage;
+    model.checks = choosing ? checks + first : nullptr;
+    // Set in BOTH modes: the name is a fact about the folder, and the screen
+    // decides what goes in the band it buys -- the player bar while browsing,
+    // the chooser's caption while choosing. A model that dropped the name while
+    // choosing would drop the band with it and reflow the list.
+    model.playerName = "SPIKY GRIM BEARD";
+    return model;
+  }
+};
+
+void testTheHeaderBandOpensAndClosesTheChooser() {
+  ChooserFixture fixture;
+
+  // Browsing: no button anywhere. The band is the way in and the folder's mark
+  // is what sits in it, which is the whole of Mario's redirection -- a
+  // permanent EDIT chip was the first design and it shouted on every visit for
+  // a thing done once.
+  Rendered browsing;
+  shelfui::MenuModel model = fixture.page(0, 6, false);
+  model.mark = &icon_games_32;
+  buildShelf(browsing, model);
+  CHECK(!browsing.target.drew(shelfui::kDoneChip));
+  CHECK(!browsing.target.drew("EDIT"));
+
+  bool drewTheMark = false;
+  for (const auto& blit : browsing.target.blits) {
+    if (blit.data != icon_games_32.bits) continue;
+    drewTheMark = true;
+    // On the band, in the corner, and in PAPER: the band is solid black and a
+    // mark drawn in ink there is not there at all.
+    CHECK(blit.rect.y < toybox::kHeaderHeight);
+    CHECK(blit.rect.right() > 480 - 60);
+    CHECK(blit.color == fui::Color::White);
+  }
+  CHECK(drewTheMark);
+
+  // The band answers a tap on the mark, on the title, and in the empty middle:
+  // a 32px glyph is under half a thumb, so the target is the strip.
+  CHECK(browsing.tap(456, 40).action == shelfui::ActionChoose);
+  CHECK(browsing.tap(60, 40).action == shelfui::ActionChoose);
+  CHECK(browsing.tap(240, 40).action == shelfui::ActionChoose);
+
+  // Choosing: the corner becomes the way OUT, because a mode whose exit is
+  // invisible is a trap. Same action, so the band still closes it too.
+  Rendered choosing;
+  shelfui::MenuModel chooser = fixture.page(0, 6, true);
+  chooser.mark = &icon_games_32;
+  buildShelf(choosing, chooser);
+  CHECK(choosing.target.drew(shelfui::kDoneChip));
+  bool markWhileChoosing = false;
+  for (const auto& blit : choosing.target.blits) {
+    if (blit.data == icon_games_32.bits) markWhileChoosing = true;
+  }
+  CHECK(!markWhileChoosing);
+
+  const FakeTarget::TextRun* done = choosing.target.find(shelfui::kDoneChip);
+  CHECK(done != nullptr);
+  if (done != nullptr) {
+    CHECK(choosing.tap(done->rect.x + done->rect.width / 2, done->rect.y + done->rect.height / 2).action ==
+          shelfui::ActionChoose);
+  }
+  CHECK(choosing.tap(60, 40).action == shelfui::ActionChoose);
+}
+
+// The page counter shares the right-hand end of the band with whatever is in the
+// corner -- the folder's mark while browsing, DONE while choosing, and they are
+// not the same width. It used to be placed by hand at a hardcoded offset, which
+// is fine for exactly one of those two and wrong for the other.
+void testThePageCounterClearsTheCorner() {
+  ChooserFixture fixture;
+  for (const bool choosing : {false, true}) {
+    Rendered menu;
+    shelfui::MenuModel model = fixture.page(0, 6, choosing);
+    model.mark = &icon_games_32;
+    model.page = 1;
+    model.pageCount = 3;
+    buildShelf(menu, model);
+
+    const FakeTarget::TextRun* counter = menu.target.find("2/3");
+    CHECK(counter != nullptr);
+    if (counter == nullptr) continue;
+    // Paper: the band is solid black, and a label left at the token's default
+    // colour is painted black on black and simply is not there.
+    CHECK(counter->color == fui::Color::White);
+    if (choosing) {
+      const FakeTarget::TextRun* chip = menu.target.find(shelfui::kDoneChip);
+      CHECK(chip != nullptr);
+      if (chip != nullptr) CHECK(counter->rect.right() <= chip->rect.x);
+      continue;
+    }
+    // Browsing, the corner holds the folder's mark instead, and the counter has
+    // to clear THAT -- which is what header.rightReserve buys.
+    for (const auto& blit : menu.target.blits) {
+      if (blit.data != icon_games_32.bits) continue;
+      CHECK(counter->rect.right() <= blit.rect.x);
+      // And sit on the same line as it. Both are centred on their own INK in
+      // the visible band, which is the rule that makes them agree; the header
+      // component's rightLabel slot bottom-aligns to the TITLE's line box
+      // instead, and a display cut's line box runs well below its glyphs, so
+      // the counter landed under the baseline and read as dropped.
+      const int16_t counterInkCentre =
+          static_cast<int16_t>(counter->rect.y + toybox::kUiCut.ascender - toybox::kUiCut.inkHeight / 2);
+      const int16_t markCentre = static_cast<int16_t>(blit.rect.y + blit.rect.height / 2);
+      CHECK(std::abs(counterInkCentre - markCentre) <= 2);
+    }
+  }
+}
+
+// Entering the chooser must not reflow the list. This is the property the whole
+// mode is arranged around, and it is asserted where it can actually fail: the
+// same folder rendered both ways, with every label required to land on the same
+// pixel row.
+//
+// The first version of this test compared pagingFor() against itself -- both
+// arguments reduced to the same bool -- and would have passed against an
+// implementation that reflowed. What follows goes through the builder.
+void checkTheChooserKeepsTheRowsWhereTheyWere(const bool showsDeviceName) {
+  ChooserFixture fixture;
+  const int first = 0;
+  const int onThisPage = 6;
+
+  Rendered browsing;
+  shelfui::MenuModel a = fixture.page(first, onThisPage, false);
+  a.playerName = showsDeviceName ? "SPIKY GRIM BEARD" : nullptr;
+  buildShelf(browsing, a);
+
+  Rendered choosing;
+  shelfui::MenuModel b = fixture.page(first, onThisPage, true);
+  b.playerName = showsDeviceName ? "SPIKY GRIM BEARD" : nullptr;
+  buildShelf(choosing, b);
+
+  int compared = 0;
+  for (int i = 0; i < onThisPage; ++i) {
+    const FakeTarget::TextRun* before = browsing.target.find(fixture.labels[first + i]);
+    const FakeTarget::TextRun* after = choosing.target.find(fixture.labels[first + i]);
+    CHECK(before != nullptr);
+    CHECK(after != nullptr);
+    if (before == nullptr || after == nullptr) continue;
+    // The label moves RIGHT by the box's gutter, and must not move DOWN at all.
+    CHECK(before->rect.y == after->rect.y);
+    CHECK(after->rect.x > before->rect.x);
+    ++compared;
+  }
+  CHECK(compared == onThisPage);
+
+  // And a FULL page, both ways, because that is where a band the mode took for
+  // itself would actually show: the activity hands the builder as many rows as
+  // pagingFor promised, and a builder that then reserved a strip of its own
+  // would drop the last one -- no crash, no log, just a game that is not on the
+  // page the counter says it is on.
+  const fui::ThemeTokens tokens = toybox::themeTokens();
+  const shelfui::Paging paging = shelfui::pagingFor(device(), tokens, showsDeviceName, 40);
+  CHECK(paging.rowsPerPage > 0);
+  CHECK(paging.pageCount > 1);
+
+  std::vector<std::string> labels(static_cast<size_t>(paging.rowsPerPage));
+  std::vector<fui::ListItem> full(static_cast<size_t>(paging.rowsPerPage));
+  std::vector<bool> shown(static_cast<size_t>(paging.rowsPerPage), true);
+  std::vector<char> flags(static_cast<size_t>(paging.rowsPerPage), 1);
+  for (int i = 0; i < paging.rowsPerPage; ++i) {
+    labels[static_cast<size_t>(i)] = "FULL" + std::to_string(i);
+    full[static_cast<size_t>(i)].label = labels[static_cast<size_t>(i)].c_str();
+    full[static_cast<size_t>(i)].actionValue = static_cast<int16_t>(i);
+  }
+
+  for (const bool choosingNow : {false, true}) {
+    Rendered page;
+    shelfui::MenuModel model;
+    model.title = "GAMES";
+    model.items = full.data();
+    model.count = paging.rowsPerPage;
+    model.checks = choosingNow ? reinterpret_cast<const bool*>(flags.data()) : nullptr;
+    model.playerName = showsDeviceName ? "SPIKY GRIM BEARD" : nullptr;
+    model.page = 0;
+    model.pageCount = paging.pageCount;
+    buildShelf(page, model);
+    int drawn = 0;
+    for (int i = 0; i < paging.rowsPerPage; ++i) {
+      if (page.target.drew(labels[static_cast<size_t>(i)].c_str())) ++drawn;
+    }
+    CHECK(drawn == paging.rowsPerPage);
+    CHECK(!page.interactions.overflowed());
+  }
+}
+
+void testTheChooserKeepsTheSamePageGeometry() {
+  // GAMES, which has the player bar the caption borrows.
+  checkTheChooserKeepsTheRowsWhereTheyWere(true);
+  // And APPS, which has no bar at all -- the case a mode-owned band would have
+  // reflowed, ten rows browsing against nine choosing.
+  checkTheChooserKeepsTheRowsWhereTheyWere(false);
+}
+
+// A box on every row, filled for a game on the list and outlined for one that
+// is off it, and the tick only on the filled ones. Asserted as a count of each
+// rather than "a box was drawn", because the two states are the whole control:
+// a chooser that drew the same box on every row would pass any test that only
+// looked for boxes.
+void testTheChooserDrawsABoxPerRowAndTicksTheShownOnes() {
+  ChooserFixture fixture;
+  fixture.checks[1] = false;
+  fixture.checks[3] = false;
+
+  Rendered menu;
+  shelfui::MenuModel model = fixture.page(0, 6, true);
+  buildShelf(menu, model);
+
+  int ticks = 0;
+  for (const auto& blit : menu.target.blits) {
+    if (!sameIcon(blit.data, icon_tick_24)) continue;
+    ++ticks;
+    // Paper on the slab. Ink would be invisible and nothing would warn.
+    CHECK(blit.color == fui::Color::White);
+  }
+  CHECK(ticks == 4);
+
+  // The four filled slabs are the ticks' own grounds, and the two hidden rows
+  // are outlines instead: an outline is a stroke, and nothing else on this
+  // screen strokes a 32px square.
+  int outlines = 0;
+  for (const auto& stroke : menu.target.strokes) {
+    if (stroke.rect.width == toybox::kIconSize && stroke.rect.height == toybox::kIconSize) ++outlines;
+  }
+  CHECK(outlines == 2);
+
+  // The app's own icon is still on the right of every row: the box is a second
+  // mark, not a replacement for the first.
+  int appIcons = 0;
+  for (const auto& blit : menu.target.blits) {
+    if (blit.data == icon_chess_32.bits) ++appIcons;
+  }
+  CHECK(appIcons == 6);
+
+  // And the caption, which is the only thing on the panel that says a tap now
+  // changes a row rather than opening one. Measured rather than merely found:
+  // the first wording was four characters too wide for the band, the renderer
+  // ellipsized it to "TAP A ROW TO SHOW OR HI..." on the panel, and drew() saw
+  // the string the builder handed over and passed.
+  CHECK(drewLabelWhole(menu, "TAP TO SHOW OR HIDE"));
+  CHECK(!menu.target.drew("SPIKY GRIM BEARD"));
+}
+
+// The caption and the empty folder's sentences have a PIXEL budget, and the
+// fake target's ten-pixel cell is half the panel's.
+//
+// This is the trap that got the first wording: "TAP A ROW TO SHOW OR HIDE IT"
+// measured 280px here and fit the 448px band, and came back from the simulator
+// as "TAP A ROW TO SHOW OR HI...". The renderer ellipsizes and logs nothing, so
+// only a measurement can see it -- and only one taken against a cell the size
+// of the real cut. Twenty is conservative for toybox_20, whose capitals run
+// about nineteen.
+void testTheChooserWordsFitTheirBands() {
+  ChooserFixture fixture;
+  Rendered menu;
+  menu.target.charW = 20;
+  shelfui::MenuModel model = fixture.page(0, 6, true);
+  buildShelf(menu, model);
+  CHECK(drewLabelWhole(menu, "TAP TO SHOW OR HIDE"));
+
+  // And the empty folder, whose headline is set in the DISPLAY cut -- the
+  // widest in the fork, and the one with the least room to be wrong in.
+  Rendered empty;
+  empty.target.charW = 30;
+  shelfui::MenuModel nothing;
+  nothing.title = "GAMES";
+  nothing.count = 0;
+  nothing.playerName = "SPIKY GRIM BEARD";
+  buildShelf(empty, nothing);
+  CHECK(drewLabelWhole(empty, "NOTHING HERE"));
+  // The sentence under it wraps rather than truncating, so what it must not do
+  // is need more lines than the rect reserved for it.
+  const FakeTarget::TextRun* hint = empty.target.find("TAP TO CHOOSE WHAT THIS FOLDER SHOWS");
+  CHECK(hint != nullptr);
+  if (hint != nullptr) CHECK(uncappedWrappedHeight(empty.target, *hint) <= hint->rect.height);
+}
+
+// A row in the chooser toggles. It must not open: the same pixel means "play
+// CHESS" one tap earlier, and a mode read from anywhere but the model is how
+// that goes wrong.
+void testAChooserRowTogglesInsteadOfOpening() {
+  ChooserFixture fixture;
+  const int firstRowY = toybox::kHeaderHeight + toybox::kGutter * 3 + toybox::kRowHeight / 2;
+
+  Rendered browsing;
+  shelfui::MenuModel model = fixture.page(0, 6, false);
+  buildShelf(browsing, model);
+  const fui::ActionEvent opens = browsing.tap(240, firstRowY);
+  CHECK(opens.action == shelfui::ActionOpen);
+  CHECK(opens.value == 0);
+
+  Rendered choosing;
+  shelfui::MenuModel chooser = fixture.page(0, 6, true);
+  buildShelf(choosing, chooser);
+  const fui::ActionEvent toggles = choosing.tap(240, firstRowY);
+  CHECK(toggles.action == shelfui::ActionToggleShown);
+  CHECK(toggles.value == 0);
+
+  // The value is the row's place in the whole list, not in the page, so the
+  // second page reports the games it is showing rather than rows 0-5 again.
+  Rendered second;
+  shelfui::MenuModel later = fixture.page(6, 6, true);
+  buildShelf(second, later);
+  const fui::ActionEvent sixth = second.tap(240, firstRowY);
+  CHECK(sixth.action == shelfui::ActionToggleShown);
+  CHECK(sixth.value == 6);
+}
+
+// Hiding everything is allowed, and the folder it leaves must not be a dead
+// end. The whole empty band is the way back in -- the chip is 400px away at the
+// top of an 800px panel, and a caption pointing at a control the reader has not
+// found is worse than no caption at all.
+void testAnEmptyFolderIsItsOwnWayBack() {
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.count = 0;
+  model.playerName = "SPIKY GRIM BEARD";
+
+  Rendered menu;
+  buildShelf(menu, model);
+  CHECK(menu.target.drew("NOTHING HERE"));
+
+  const FakeTarget::TextRun* headline = menu.target.find("NOTHING HERE");
+  CHECK(headline != nullptr);
+  if (headline != nullptr) {
+    // Off the band, so it has to be ink. The display cut's token colour is
+    // paper, and taken as given here the sentence is white on white.
+    CHECK(headline->color == fui::Color::Black);
+    // The sentence under it, and the tap that acts on it. Both are the same
+    // band, so the tap is checked well away from the words.
+    CHECK(menu.tap(240, headline->rect.y + 200).action == shelfui::ActionChoose);
+    CHECK(menu.tap(240, headline->rect.y).action == shelfui::ActionChoose);
+  }
+
+  // And nothing claims to be a row.
+  CHECK(!menu.interactions.overflowed());
+}
+
 void testShelfIconsFollowTheRowsWhenTheListScrolls() {
   // Page one of a folder that overflows: the rows past the fold are the ones
   // that used to paint their icons onto the player footer.
@@ -3557,42 +3976,6 @@ bool drewText(const Rendered& out, const char* needle) {
     if (run.text.find(needle) != std::string::npos) return true;
   }
   return false;
-}
-
-// Present is not the same as legible. drewText() sees the string the builder
-// HANDED the renderer, and the renderer is what shortens it -- so a button
-// whose box is too narrow for its own label passes every "did it draw?" check
-// while the panel says "UNDO A...". This asks the target to measure the run it
-// recorded against the rect it was given, which is the one comparison the
-// truncation is decided by.
-bool drewLabelWhole(const Rendered& out, const char* needle) {
-  bool found = false;
-  for (const auto& run : out.target.texts) {
-    if (run.text != needle) continue;
-    found = true;
-    if (out.target.measureText(run.style.font, run.text.c_str(), run.style).width > run.rect.width) return false;
-  }
-  return found;
-}
-
-// The height this text needs with the LINE CAP LIFTED, against the width it was
-// drawn into.
-//
-// Measuring with the run's own style is a tautology wherever the builder sized
-// the rect from that same call: the check restates the line it is guarding and
-// can only fail if that line disappears entirely. Worse, it is blind to the
-// mechanism it exists to catch. layoutText clamps to style.maxLines and
-// ellipsizes whatever is left over, so a wording that needs five lines under a
-// four-line cap is silently cut, the capped measure dutifully reports four, and
-// the reserved rect matches it exactly.
-//
-// style.maxLines saturates at layoutText's own MAX_LINES (16), so asking for 16
-// is asking for as many lines as the sentence takes. Comparing THAT against the
-// reserved rect is the comparison the truncation is actually decided by.
-int16_t uncappedWrappedHeight(const FakeTarget& target, const FakeTarget::TextRun& run) {
-  fui::TextStyle uncapped = run.style;
-  uncapped.maxLines = 16;
-  return fui::measureWrappedText(target, run.text.c_str(), uncapped, run.rect.width).height;
 }
 
 void testHnReaderFooter() {
@@ -12395,6 +12778,13 @@ int main() {
   testShelfFolderDrawsItsOwnNameAndRows();
   testShelfFolderMarksNoRow();
   testShelfIconsFollowTheRowsWhenTheListScrolls();
+  testTheHeaderBandOpensAndClosesTheChooser();
+  testThePageCounterClearsTheCorner();
+  testTheChooserKeepsTheSamePageGeometry();
+  testTheChooserDrawsABoxPerRowAndTicksTheShownOnes();
+  testTheChooserWordsFitTheirBands();
+  testAChooserRowTogglesInsteadOfOpening();
+  testAnEmptyFolderIsItsOwnWayBack();
   testTheShelfPagesWhenAFolderOverflows();
   testAPageStepMovesExactlyOnePage();
   testTheShelfStepStopsAtBothEnds();
