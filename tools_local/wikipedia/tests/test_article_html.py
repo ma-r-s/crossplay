@@ -649,7 +649,7 @@ class Rules(unittest.TestCase):
             lead=True,
         )
         # the Arabic goes with its label; the romanisation is information
-        self.assertEqual(got, "Mahmud II (romanized: X; 20 July 1785 - 1 July 1839) was the sultan")
+        self.assertEqual(got, "Mahmud II (Ottoman Turkish: X; 20 July 1785 - 1 July 1839) was the sultan")
         self.assertEqual(st["parentheticals_removed"], 1)
 
     def test_source_remnants(self):
@@ -721,7 +721,7 @@ class Rules(unittest.TestCase):
             # goes whole before any spelling, so its theta is not "theta" and
             # its schwa is not a letter; a respelling's "-\u0259-" is not a word.
             ("C\u0259lil M\u0259mm\u0259dquluzad\u0259 wrote; laamii\u0257o; Bum\u00efn qa\u0263an; \u01c3Nanseb", "Celil Memmedquluzade wrote; laamiido; Bum\u00efn qa\u011fan; !Nanseb"),
-            ("Theophrastus (/ \u02cc \u03b8 i\u02d0. \u0259 /; Ancient Greek: \u0398\u03b5\u03cc\u03c6\u03c1\u03b1\u03c3\u03c4\u03bf\u03c2, romanized: Theophrastos) was", "Theophrastus (romanized: Theophrastos) was"),
+            ("Theophrastus (/ \u02cc \u03b8 i\u02d0. \u0259 /; Ancient Greek: \u0398\u03b5\u03cc\u03c6\u03c1\u03b1\u03c3\u03c4\u03bf\u03c2, romanized: Theophrastos) was", "Theophrastus (Ancient Greek: Theophrastos) was"),
             ("Camogie (/ k \u0259 \u02c8 m o\u028a \u0261 i / k\u0259- MOH -ghee; Irish: cam\u00f3ga\u00edocht) is", "Camogie (Irish: cam\u00f3ga\u00edocht) is"),
             # Mario, 2026-09-11: Greek is defensible, Cyrillic is not, and no
             # removal may butcher the sentence. A Greek or Cyrillic word with
@@ -730,7 +730,7 @@ class Rules(unittest.TestCase):
             # and all; two accentuations of one word are one spelling.
             ("comes from the Greek word \u1f55\u03b2\u03bf\u03c2 or \u1f51\u03b2\u03cc\u03c2 meaning hump and \u1f40\u03b4\u03bf\u03cd\u03c2, meaning tooth.", "comes from the Greek word hybos meaning hump and odous, meaning tooth."),
             ("(from Greek \u1f08\u03c1\u03b9\u03b8\u03bc\u03bf\u03af, Arithmoi, lit. 'numbers'; Biblical Hebrew: \u05d1\u05b0\u05bc\u05de\u05b4\u05d3\u05b0\u05d1\u05b7\u05bc\u05e8, B\u0259m\u012b\u1e0fbar, lit. 'In desert'; Latin: Liber Numeri) is", "(from Greek Arithmoi, lit. 'numbers'; Biblical Hebrew: Bem\u012bdbar, lit. 'In desert'; Latin: Liber Numeri) is"),
-            ("Seventeen Moments (Russian: \u0421\u0435\u043c\u043d\u0430\u0434\u0446\u0430\u0442\u044c, romanized: Semnadtsat') is a series about \u041c\u043e\u0441\u043a\u0432\u0430 and (\u0422\u043e\u043b\u0441\u0442\u043e\u0439).", "Seventeen Moments (romanized: Semnadtsat') is a series about Moskva and (Tolstoy)."),
+            ("Seventeen Moments (Russian: \u0421\u0435\u043c\u043d\u0430\u0434\u0446\u0430\u0442\u044c, romanized: Semnadtsat') is a series about \u041c\u043e\u0441\u043a\u0432\u0430 and (\u0422\u043e\u043b\u0441\u0442\u043e\u0439).", "Seventeen Moments (Russian: Semnadtsat') is a series about Moskva and (Tolstoy)."),
             ("The pentathlon (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The pentathlon (Greek: pentathlon) was"),
         ]
         for src, want in cases:
@@ -835,6 +835,46 @@ class Rules(unittest.TestCase):
         self.assertIn("<p>Hats were worn. The list of hats is:</p><ul>", x)
         self.assertEqual(st["hatnotes_dropped"], 2)
         self.assertEqual(st["list_intros_dropped"], 1)
+
+    def test_cold_review_round_five(self):
+        # From the cold reviewer's read of the q4 sample (2026-09-11): a label
+        # left standing after its content went, a possessive apostrophe that
+        # jumped to the next word, quotes paired by count instead of by what
+        # touches them, the audio link's "(listen)".
+        cases = [
+            ("Karma (/ \u02c8 k \u0251\u02d0r m \u0259 /, from Sanskrit: \u0915\u0930\u094d\u092e, IPA:; Pali: kamma) is an ancient", "Karma (Pali: kamma) is an ancient"),
+            ("A raga (/ \u02c8 r \u0251\u02d0 \u0261 \u0259 / RAH-g\u0259; IAST: r\u0101ga, Sanskrit:; lit. ' colouring', 'tingeing ' or ' dyeing ') is", "A raga (IAST: r\u0101ga; lit. 'colouring', 'tingeing' or 'dyeing') is"),
+            ("won in Athens ' City Dionysia festival in 472 BC. It is Aeschylus' oldest play, the \" best \" one.", "won in Athens' City Dionysia festival in 472 BC. It is Aeschylus' oldest play, the \"best\" one."),
+            ("The Persians (Ancient Greek: \u03a0\u03ad\u03c1\u03c3\u03b1\u03b9, romanized: P\u00e9rsai, Latinised as Persae) is", "The Persians (Ancient Greek: P\u00e9rsai, Latinised as Persae) is"),
+            ("A samosa (listen) is a fried pastry with epsilon : Permittivity", "A samosa is a fried pastry with epsilon: Permittivity"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        self.assertEqual(ah.fact_value("Chemical formula", "C 20 H 8 Br 2 Hg Na 2 O 6"), "C\u2082\u2080H\u2088Br\u2082HgNa\u2082O\u2086")
+        self.assertEqual(ah.fact_value("Molar mass", "750.658 g\u00b7mol \u22121"), "750.658 g\u00b7mol\u207b\u00b9")
+        self.assertEqual(ah.fact_value("Coordination", "Tetrahedral (Zn 2+), Tetrahedral (S 2\u2212)"), "Tetrahedral (Zn\u00b2\u207a), Tetrahedral (S\u00b2\u207b)")
+        self.assertEqual(ah.fact_value("Declination", "6.63 \u00b0 to 35.69 \u00b0"), "6.63\u00b0 to 35.69\u00b0")
+
+    def test_infobox_captions_are_not_facts(self):
+        boxes = [{"type": "infobox", "name": "Infobox settlement", "has_parts": [
+            {"type": "section", "name": "City", "has_parts": [
+                {"type": "image", "value": "Suspension bridge of Deir ez-Zor", "images": []},
+                {"type": "field", "value": "Suspension bridge of Deir ez-Zor Memorial of Armenian genocide"},
+                {"type": "field", "value": "Interactive map of Deir ez-Zor"},
+                {"type": "field", "name": "Country", "value": "Syria"},
+            ]},
+            {"type": "section", "name": "Korean name", "has_parts": [{"type": "field", "name": "Literal meaning", "value": "Rites Classic"}]},
+            {"type": "section", "name": "Japanese name", "has_parts": [{"type": "field", "name": "Literal meaning", "value": "Book of Rites"}]},
+            {"type": "section", "name": "Hazards", "has_parts": [{"type": "field", "name": "NFPA 704 (fire diamond)", "value": "1 0 0"}, {"type": "field", "name": "Reconstruction", "value": "* R ij\u2019 kr -s"}]},
+        ]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, infoboxes=json.dumps(boxes))
+        self.assertNotIn("Suspension bridge", x)
+        self.assertNotIn("Interactive map", x)
+        self.assertIn("<tr><th>Country</th><td>Syria</td></tr>", x)
+        self.assertIn("<tr><th>Korean name, literal meaning</th><td>Rites Classic</td></tr>", x)
+        self.assertIn("<tr><th>Japanese name, literal meaning</th><td>Book of Rites</td></tr>", x)
+        self.assertNotIn("NFPA", x)
+        self.assertNotIn("Reconstruction", x)
 
     def test_artifacts_are_scrubbed(self):
         # Mario, 2026-09-11: no consecutive parentheses or stray marks may

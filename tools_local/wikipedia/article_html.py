@@ -270,6 +270,13 @@ def _runs():
 _EMPTY_LABEL = re.compile(
     r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)])"
 )
+# the same at the end of a parenthetical's segment ("from Sanskrit: , IPA:")
+_EMPTY_LABEL_END = re.compile(
+    r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|$)"
+)
+# "(listen)": the audio link's text, with no audio to play
+_LISTEN = re.compile(r"\s?\(\s*listen\s*\)", re.I)
+_FUNCTION_WORDS = frozenset("from or and of the a an in at by to lit also see cf".split())
 _EMPTY_PAREN = re.compile(r"\s?\(\s*\)")
 # IPA between slashes or brackets, when the serif cannot draw it.
 _SLASHED = re.compile(r" ?/[^/]{1,80}/")
@@ -316,6 +323,8 @@ def clean_text(s):
         s = html.unescape(s)  # "22 &amp;amp; 23 Geo. 5": the source escaped it twice
     if "." in s:
         s = _SENTENCE_GLUE.sub(r"\1 \2", s)
+    if "listen" in s:
+        s = _LISTEN.sub("", s)
     s = _YEAR_GLUE.sub(r"\1 ", s)
     if not s:
         return ""
@@ -333,10 +342,16 @@ def clean_text(s):
     return s
 
 
+_CLITIC_AFTER = re.compile(r"(?:s|d|ll|re|ve|m|t)(?![A-Za-z])")
+
+
 def _close_quote_gaps(text):
-    """"the \" beech \"." to "the \"beech\".": a quote after whitespace opens,
-    and the gap after it goes; the next quote closes, and the gap before it
-    goes. An inch mark ("a 12\" single") follows a digit and is left alone.
+    """"the \" beech \"." to "the \"beech\".": a quote after whitespace opens
+    and the gap after it goes; a quote after a word closes and the gap before
+    it goes. Which it is comes from what touches it, not from the count,
+    because the source pads its quotes unevenly ("' colouring', 'tingeing '
+    or ' dyeing '"). A padded possessive ("Athens ' City") returns to its
+    word. An inch mark ("a 12\" single") follows a digit and is left alone.
     Returns (text, gaps closed)."""
     out = []
     n = 0
@@ -347,8 +362,27 @@ def _close_quote_gaps(text):
         c = text[i]
         if c in "\"'":
             before = text[i - 1] if i else " "
-            if inside == c:
-                # closing: drop the whitespace already emitted before it
+            after = text[i + 1] if i + 1 < length else " "
+            word_before = before.isalnum() or before in ".,!?)]"
+            word_after = after.isalnum() or after in "([\u2018\u201c"
+            if c == "'" and before.isspace() and after.isspace():
+                # "Athens ' City": the possessive of the word before
+                k = len(out) - 1
+                while k >= 0 and out[k].isspace():
+                    k -= 1
+                if inside is None and k >= 0 and out[k] in "sS":
+                    del out[k + 1 :]
+                    out.append(c)
+                    n += 1
+                    i += 1
+                    continue
+            if c == "'" and (word_before and word_after or _CLITIC_AFTER.match(text, i + 1)):
+                out.append(c)  # an apostrophe inside a word, or a padded clitic: McGregor 's
+                i += 1
+                continue
+            closes = inside == c and (word_before or not word_after)
+            opens = inside is None and not word_before and not before.isdigit()
+            if closes:
                 while out and out[-1].isspace():
                     out.pop()
                     n += 1
@@ -356,11 +390,7 @@ def _close_quote_gaps(text):
                 inside = None
                 i += 1
                 continue
-            after = text[i + 1] if i + 1 < length else " "
-            opens = before.isspace() or before in "(["
-            if c == "'" and not after.isspace():
-                opens = False  # an apostrophe: 's, 'n', 'best'
-            if inside is None and opens:
+            if opens:
                 out.append(c)
                 i += 1
                 while i < length and text[i].isspace():
@@ -381,6 +411,9 @@ def _close_quote_gaps(text):
 # ("3 : 1" is a ratio), nor an inch mark after a digit.
 _CLITIC_GAP = re.compile(r"(?<=[\w)\]\"\u201d])[ \u00a0]+(['\u2019])(s|d|ll|re|ve|m|t)\b")
 _PUNCT_GAP = re.compile(r"(?<=\S)[ \u00a0]+([,.;!?])(?=\s|$)")
+# "epsilon : Permittivity": a colon padded between two words (a ratio,
+# "3 : 1", keeps its spaces)
+_COLON_GAP = re.compile(r"(?<=[A-Za-z\u00c0-\u024f]) :(?= [A-Za-z\u00c0-\u024f])")
 # "Protestant -led", "post- Civil War": a hyphen padded on one side after a
 # link or an italic (0.8 and 0.5 per article). "pre- and post-war" is the
 # one idiom that keeps its space, so a hyphen before "and" or "or" stays.
@@ -442,6 +475,8 @@ def _close_inline_gaps(text):
     z += z2 + z3 + z4
     text, a = _CLITIC_GAP.subn(r"\1\2", text)
     text, b = _PUNCT_GAP.subn(r"\1", text)
+    text, b2 = _COLON_GAP.subn(":", text)
+    b += b2
     text, c = _HYPHEN_BEFORE.subn(_hyphen_before, text)
     text, d = _HYPHEN_AFTER.subn(r"\1", text)
     text, e = _RESPELL.subn("", text)
@@ -582,10 +617,15 @@ _MARK_COLON = re.compile(r":\s*" + _MARK + r"\s*,\s*")
 _MARK_ANY = re.compile(r"\s*" + _MARK + r"\s*")
 
 
+_MARK_ROMAN = re.compile(r"\s*" + _MARK + r"\s*,?\s*(?:romani[sz]ed|romani[sz]ation|translit\w*|pinyin):\s*", re.I)
+
+
 def _settle_marks(text):
-    """Where a run stood: "Greek: <run>, romanized: X" keeps the second
-    label only; "Greek <run>, Arithmoi" drops the comma the run left before
-    its romanisation; "Hebrew: <run>, Bemidbar" keeps the label."""
+    """Where a run stood: "Ancient Greek: <run>, romanized: X" reads
+    "Ancient Greek: X"; "Greek <run>, Arithmoi" drops the comma the run
+    left before its romanisation; "Hebrew: <run>, Bemidbar" keeps the
+    label."""
+    text = _MARK_ROMAN.sub(" ", text)
     text = _MARK_LABEL.sub("", text)
     text = _MARK_COMMA.sub(" ", text)
     text = _MARK_COLON.sub(": ", text)
@@ -635,9 +675,10 @@ def strip_undrawable(text, stats, lead=False):
             if any(len(m.group(0)) < 2 for m in run_re.finditer(seg)) or _PRONUNCIATION_SEG.match(seg):
                 continue
             rest = _settle_marks(run_re.sub(_MARK, seg))
-            rest = _EMPTY_LABEL.sub("", rest).strip(" ,:")
-            # "romanized: Theophrastos" is two words and the whole point
-            if len(rest.split()) >= 2:
+            rest = _EMPTY_LABEL_END.sub("", rest).strip(" ,:")
+            # "romanized: Theophrastos" is two words and the whole point;
+            # "from" alone, or "from or", is what a removal left behind
+            if len(rest.split()) >= 2 and not all(w.lower().strip(".,") in _FUNCTION_WORDS for w in rest.split()):
                 kept.append(re.sub(r"  +", " ", rest))
         if not kept:
             return ""
@@ -816,7 +857,21 @@ _PAREN_THEN_ITEM = re.compile(r"\)\s+(?=[A-Z])")
 _DATE_KEYS = frozenset(("born", "died", "birth date", "death date"))
 
 
-_FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion"))
+_FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion", "NFPA 704 (fire diamond)", "NFPA 704"))
+_FACT_JUNK_VALUE = re.compile(r"^[\W_]*$|^\* ")
+_NAMELESS_FACT = re.compile(r"\d|^In office|^Term|^Reign")
+# "C 20 H 8 Br 2" in a formula row: the subscripts the dump spaced out
+_FORMULA_ROW = re.compile(r"formula", re.I)
+_ELEMENT_COUNT = re.compile(r"(?<=[A-Za-z\)\]]) (\d{1,3})(?=[A-Z(\[\s]|$)")
+_FORMULA_GAP = re.compile(r"(?<=[A-Za-z\u2080-\u2089)\]]) (?=[A-Z(\[])")
+# "g·mol −1", "m s −2": a unit's exponent
+_UNIT_EXPONENT = re.compile(r"(?<=[a-zA-Z]) ([\u2212-]?\d)(?=\b)")
+_UNIT_BEFORE = re.compile(r"(?:mol|kg|g|m|cm|mm|km|s|K|J|Hz|Pa|N|V|A|W|C|L|dm|cd|sr|rad|h|min|yr|Bq|Gy|Sv|T|H|F|S|Wb|lm|lx)$")
+# "Zn 2+", "S 2−": an ion's charge
+_ION = re.compile(r"(?<=[A-Za-z]) (\d?[+\u2212-])(?=[\s),]|$)")
+_DEGREE_GAP = re.compile(r"(?<=\d) \u00b0")
+_SUPER = str.maketrans("0123456789+-\u2212", "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207b")
+_SUB = str.maketrans("0123456789", "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089")
 _FACT_SKIP_VALUE = re.compile(r"^(?:[JFMASOND] ){11}[JFMASOND]$")  # a climate table's month row
 _FACT_LABELS = frozenset(("Preceded by", "Succeeded by", "In office"))
 _GENERIC_FIELDS = frozenset((
@@ -829,11 +884,25 @@ _PRONUNCIATION_FIELD = re.compile(r"pronunciation|\bIPA\b|pronounced", re.I)
 _YEAR_PAGE = re.compile(r"(?<=\d{4}):\s?\d{1,4}\b(?=\s*[/,;.]|\s+[A-Z(]|$)")
 
 
+def _unit_exponent(m):
+    head = m.string[: m.start()]
+    unit = re.search(r"[A-Za-z]+$", head)
+    if unit and _UNIT_BEFORE.search(unit.group(0)):
+        return m.group(1).translate(_SUPER)
+    return m.group(0)
+
+
 def fact_value(name, value):
     if not value:
         return value
     value = _AGE.sub("", value)
     value = _YEAR_PAGE.sub("", value)
+    if _FORMULA_ROW.search(name):
+        value = _ELEMENT_COUNT.sub(lambda m: m.group(1).translate(_SUB), value)
+        value = _FORMULA_GAP.sub("", value)
+    value = _ION.sub(lambda m: m.group(1).translate(_SUPER), value)
+    value = _UNIT_EXPONENT.sub(_unit_exponent, value)
+    value = _DEGREE_GAP.sub("\u00b0", value)
     if name.lower() in _DATE_KEYS:
         value = _DATE_THEN_PLACE.sub(r"\1, ", value)
     value = _PAREN_THEN_ITEM.sub("), ", value)
@@ -1191,8 +1260,10 @@ class _Doc:
     def facts(self, infoboxes):
         fields = []
         seen = set()
+        has_image = {}
+        groups = {}  # a field's group, to tell "Literal meaning" under Korean from under Japanese
 
-        def add(name, value):
+        def add(name, value, group=""):
             if name in _FACT_SKIP_NAMES or _FACT_SKIP_VALUE.match(value or ""):
                 return
             if _PRONUNCIATION_FIELD.search(name):
@@ -1207,9 +1278,14 @@ class _Doc:
                 value = value.split(" / ")[0].strip()
             if value in _FACT_LABELS:
                 return  # "Preceded by: Succeeded by": both values were flags
+            if _FACT_JUNK_VALUE.match(value) or sum(1 for c in value if c.isalpha()) < 2 and not any(c.isdigit() for c in value):
+                return  # "* R ij’ kr -s": a reconstruction whose marks all went
+            if name in _FACT_SKIP_NAMES:
+                return
             if name and value and value != name and (name, value) not in seen:
                 seen.add((name, value))
-                fields.append((name, value))
+                fields.append((name, value, group))
+                groups.setdefault(name, set()).add(group)
 
         def walk(p, group=""):
             if isinstance(p, list):
@@ -1223,6 +1299,8 @@ class _Doc:
                 # "President of Austria", "Area", "Population": the group a
                 # field belongs to, which the flat grid would otherwise lose
                 name = clean_text(str(p.get("name") or ""))
+                if name and any(isinstance(c, dict) and c.get("type") == "image" for c in p.get("has_parts") or []):
+                    has_image[name] = True
                 # a group is a short label; a "section" whose name is a whole
                 # medal table is the table, not a group
                 if name and name != self.title and len(name.split()) <= 8 and not name.lower().startswith("infobox"):
@@ -1230,12 +1308,14 @@ class _Doc:
             if t == "field" and isinstance(p.get("value"), str):
                 fname = p.get("name")
                 if not fname:
-                    if group:
-                        add(group, p["value"])  # "In office 1945 - 1950" under its office
+                    # "In office 1945 - 1950" under its office; a caption in a
+                    # section that holds an image is the image's, not a fact
+                    if group and not has_image.get(group) and _NAMELESS_FACT.search(p["value"]):
+                        add(group, p["value"])
                 elif group and fname.strip().lower() in _GENERIC_FIELDS:
                     add(group + ", " + fname.strip().lower(), p["value"])
                 else:
-                    add(fname, p["value"])
+                    add(fname, p["value"], group)
             elif t == "list" and p.get("name"):
                 items = [
                     clean_text(it.get("value"))
@@ -1252,6 +1332,13 @@ class _Doc:
         walk(infoboxes)
         if not fields:
             return
+        # the same name under two groups ("Literal meaning" under the Korean
+        # and the Japanese name) carries its group
+        dup = {name for name, gs in groups.items() if len(gs) > 1}
+        fields = [
+            (group + ", " + name[:1].lower() + name[1:] if name in dup and group else name, value)
+            for name, value, group in fields
+        ]
         self.stats["facts"] = self.stats.get("facts", 0) + len(fields)
         self.headings.append(QUICK_FACTS)
         self.out.append('<h2 id="s%d">%s</h2>' % (len(self.headings), QUICK_FACTS))
@@ -1366,6 +1453,7 @@ def article_xhtml(row, stats=None):
     counters (runs_removed, tables_omitted, ...) are added into."""
     if stats is None:
         stats = {}
+    before = dict(tex_stats)
     doc = _Doc(row, stats)
     if not doc.title:
         raise ValueError("row has no name")
@@ -1399,6 +1487,9 @@ def article_xhtml(row, stats=None):
     doc.parts(lead_sections, 0)
     doc.parts(rest, 0)
     doc.out.append("</body></html>")
+    for k, v in tex_stats.items():  # the formula counters reach both builders' summaries
+        if v != before[k]:
+            stats[k] = stats.get(k, 0) + v - before[k]
     xhtml, n = _COLON_ALONE.subn(_colon_alone, "".join(doc.out))
     if n:
         stats["list_intros_dropped"] = stats.get("list_intros_dropped", 0) + n

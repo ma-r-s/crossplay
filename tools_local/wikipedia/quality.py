@@ -397,7 +397,7 @@ DETECTORS = [
         "para",
         re.compile(
             r"^(?:Main articles?:|See also:|Further information:|For other uses|For the [^.]{0,80}, see\b|Not to be confused|"
-            r"This article|This section|This list|This page|\"[^\"]+\" redirects here|[A-Z][^.]{0,40} redirects here)"
+            r"This article is about|This page is about|\"[^\"]+\" redirects here|[A-Z][^.]{0,40} redirects here)"
         ),
         "a hatnote line",
     ),
