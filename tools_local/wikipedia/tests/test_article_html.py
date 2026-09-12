@@ -899,6 +899,20 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
         self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
 
+    def test_round_seventeen_eighth_read(self):
+        # An eighth cold read: a "Title card" caption is no fact; a bare
+        # "Names" group does not prefix the rows under it ("Names, House"),
+        # while "Chinese name" still does.
+        row = {"name": "Princess Januária", "infoboxes": [{"name": "Infobox", "has_parts": [
+            {"type": "field", "name": "Title card", "value": "The island's skyline stands beyond the forest."},
+            {"type": "section", "name": "Names", "has_parts": [{"type": "field", "name": "House", "value": "Braganza"}, {"type": "field", "name": "Father", "value": "Pedro I of Brazil"}]},
+            {"type": "section", "name": "Chinese name", "has_parts": [{"type": "field", "name": "Hanyu Pinyin", "value": "Quanlian Fuli Zhongxin"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertNotIn("Title card", x)
+        self.assertIn("<tr><th>House</th><td>Braganza</td></tr><tr><th>Father</th><td>Pedro I of Brazil</td></tr>", x)
+        self.assertIn("<tr><th>Chinese name, Hanyu Pinyin</th><td>Quanlian Fuli Zhongxin</td></tr>", x)
+
     def test_round_sixteen_seventh_read(self):
         # A seventh cold read: rp page references after a parenthesis, with
         # "fn. 2", or after a bare word go; a combining author keeps its

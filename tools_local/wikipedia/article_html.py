@@ -1156,7 +1156,7 @@ def _word_then_year(m):
     return w + ", "
 
 
-_NAME_GROUP = re.compile(r"\bnames?$", re.I)  # "Korean name", "Chinese name": every row carries it
+_NAME_GROUP = re.compile(r"\b[A-Za-z]+ names?$", re.I)  # "Korean name", "Chinese name": every row carries it; a bare "Names" group does not
 
 
 _LIST_ROWS = re.compile(
@@ -1215,7 +1215,7 @@ def _spell_iso_date(s):
     return "%d %s %s" % (int(m.group(3)), _MONTHS[int(m.group(2))], m.group(1))
 
 
-_FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion", "NFPA 704 (fire diamond)", "NFPA 704"))
+_FACT_SKIP_NAMES = frozenset(("Imperial conversion", "Metric conversion", "NFPA 704 (fire diamond)", "NFPA 704", "Title card", "Caption", "Image caption", "Logo caption", "Map caption"))
 _FACT_JUNK_VALUE = re.compile(r"^[\W_]*$|^\* ")
 _PARAM_LEAK = re.compile(r"^[a-z]+(?:_[A-Za-z]+)+\s?=")
 _GLUED_FIELD = re.compile(r"^([A-Z][A-Za-z]*(?: [A-Za-z]+){0,2}) ([A-Z][a-z]+): (\S.*)$")
