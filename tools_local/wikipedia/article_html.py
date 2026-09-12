@@ -329,6 +329,7 @@ _HATNOTE = re.compile(
     r"(?:Main articles?:|See also:|Further information:|For other uses\b|For the [^.]{0,80}, see\b|"
     r"Not to be confused with\b|\"[^\"]{1,80}\" redirects here\b|[^.\n]{1,80} redirects here\.)"
 )
+_NAME_DISAMBIG = re.compile(r" \((?:band|album|singer|group|musician|rapper|artist|film|TV series|series)\)(?= (?:chronology|discography|singles))")
 _NAVBOX = re.compile(r"This box:|\bview\s+talk\s+edit\b|\bv\s*[\u00b7.]\s*t\s*[\u00b7.]\s*e\b")
 # One level of nesting, so "(UK: OH-s(h)ee-AH-nee-<schwa>)" is one parenthetical.
 _PAREN = re.compile(r" ?\((?:[^()]|\([^()]*\))*\)")
@@ -385,6 +386,19 @@ _EMPTY_LABEL_END = re.compile(
 )
 # "(listen)": the audio link's text, with no audio to play
 _LISTEN = re.compile(r"\s?\(\s*(?:listen|more)\s*\)", re.I)
+# "April 26, 1994 (1994-04-26)": the start-date template's hidden ISO copy
+_ISO_DATE_DUP = re.compile(r"(?<=[a-z0-9])\s?\(\d{4}-\d{2}-\d{2}\)")
+# "(Pub. L. Tooltip Public Law (United States)107-252 (text) (PDF))": an
+# abbreviation's tooltip and the law template's link labels
+_TOOLTIP = re.compile(r"\s?\bTooltip [A-Z][A-Za-z .]{0,60}(?:\([^()]{0,40}\))? ?(?=\d|$)")
+_TEXT_PDF = re.compile(r"\s?\(text\)(?:\s?\(PDF\))?")
+# "Team v t e": a navbox's view-talk-edit inside a table header
+_VTE = re.compile(r"\s?\bv\s+t\s+e\b")
+# a coordinate pair the infobox left at the front of a paragraph
+_LEAD_COORDS = re.compile(
+    r"^\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[NS]\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[EW]"
+    r"(?:\s*/\s*[\d.\u2212-]+\u00b0[NS]\s*[\d.\u2212-]+\u00b0[EW])?(?:\s*/\s*[\d.\u2212-]+;\s*[\d.\u2212-]+)?\s*(?=[A-Z])"
+)
 _FUNCTION_WORDS = frozenset("from or and of the a an in at by to lit also see cf".split())
 _EMPTY_PAREN = re.compile(r"\s?\(\s*[,;:\s]*\)")
 # IPA between slashes or brackets, when the serif cannot draw it.
@@ -437,6 +451,14 @@ def clean_text(s):
         s = _SENTENCE_GLUE.sub(r"\1 \2", s)
     if "(" in s:
         s = _LISTEN.sub("", s)
+        s = _ISO_DATE_DUP.sub("", s)
+        s = _TEXT_PDF.sub("", s)
+    if "Tooltip" in s:
+        s = _TOOLTIP.sub(" ", s)
+    if "v" in s:
+        s = _VTE.sub("", s)
+    if "\u00b0" in s and _LEAD_COORDS.match(s):
+        s = _LEAD_COORDS.sub("", s, count=1)
     if "," in s:
         s = _COMMA_GLUE.sub(", ", s)
     s = _YEAR_GLUE.sub(r"\1 ", s)
@@ -755,6 +777,8 @@ def _romanize_runs(text, run_re):
         return latin
 
     out = run_re.sub(sub, text)
+    if n and "(" in out:
+        out = _ROMAN_PAREN.sub(lambda m: m.group(2) if _plain(m.group(1)) == _plain(m.group(2)) else m.group(0), out)
     if n >= 2:
         # "\u1f55\u03b2\u03bf\u03c2 or \u1f51\u03b2\u03cc\u03c2": two accentuations, one spelling
         out = _SAME_TWICE.sub(r"\1", out)
@@ -762,6 +786,7 @@ def _romanize_runs(text, run_re):
 
 
 _NEXT_WORD = re.compile(r"\s*,\s*([A-Z][A-Za-z\u00c0-\u024f]+)")
+_ROMAN_PAREN = re.compile(r"\b([A-Za-z]+) \(([A-Za-z\u00c0-\u024f\u1e00-\u1eff]+)\)")
 _SAME_TWICE = re.compile(r"\b([A-Za-z]+) (?:or|and|/) \1\b")
 
 
@@ -1042,6 +1067,26 @@ def link_target(url):
 # snapshot and wrong from the next day; the place gets its comma back after
 # a date, and one item after another gets one after its parenthesis.
 _AGE = re.compile(r"\s*\(aged?\s+\d+(?:\s*[\u2013-]\s*\d+)?\)")
+# "Preferred IUPAC name Methyl methanesulfonate": the chembox's sub-label
+_CHEM_SUBLABEL = re.compile(r"^((?:Preferred |Systematic )?IUPAC name|Other names?|Chemical formula)\s+(?=\S)")
+# "Length: 61: 49": a running time the dump spaced
+_TIME_FIELD = re.compile(r"^(?:Length|Duration|Running time|Time|Runtime)$", re.I)
+_TIME_GAP = re.compile(r"\b(\d{1,2}): (\d{2})\b")
+_NAME_THEN_DATE = re.compile(
+    r"([A-Za-z]+)\s+(?=(?:\d{1,2} [A-Z][a-z]+ \d{4}|[A-Z][a-z]+ \d{1,2}, \d{4})\b)"
+)
+_DATE_LEAD_WORDS = frozenset(
+    "born died c ca circa on in since until from to before after about by at the of and or between as".split()
+)
+
+
+def _name_then_date(m):
+    word = m.group(1)
+    if word.lower() in _DATE_LEAD_WORDS or not word[:1].isupper():
+        return m.group(0)
+    return word + ", "
+
+
 _DATE_THEN_PLACE = re.compile(
     r"(\b(?:\d{1,2} [A-Z][a-z]+ \d{4}|[A-Z][a-z]+ \d{1,2}, \d{4}|\d{4}))\s+(?=[A-Z])"
 )
@@ -1080,9 +1125,11 @@ def _split_at_links(value, links, name=""):
     1803", a taxon and its authority) stay as they are."""
     if not links or len(links) < 2:
         return value
+    texts = [lk.get("text") for lk in links if isinstance(lk, dict) and isinstance(lk.get("text"), str) and lk.get("text")]
+    if len(texts) >= 2 and value.strip() == " ".join(texts) and all(t[:1].isupper() for t in texts):
+        return "; ".join(texts)  # "Mark Waid Alex Ross": the links are the whole value
     if len(links) < 3 and not _LIST_ROWS.search(name or ""):
         return value
-    texts = [lk.get("text") for lk in links if isinstance(lk, dict) and isinstance(lk.get("text"), str) and lk.get("text")]
     if len(texts) < 2:
         return value
     out = value
@@ -1108,7 +1155,7 @@ _FORMULA_ROW = re.compile(r"formula", re.I)
 _ELEMENT_COUNT = re.compile(r"(?<=[A-Za-z\)\]]) (\d{1,3})(?=[A-Z(\[\s]|$)")
 _FORMULA_GAP = re.compile(r"(?<=[A-Za-z\u2080-\u2089)\]]) (?=[A-Z(\[])")
 # "g·mol −1", "m s −2": a unit's exponent
-_UNIT_EXPONENT = re.compile(r"(?<=[a-zA-Z]) ([\u2212-]?\d)(?=\b)")
+_UNIT_EXPONENT = re.compile(r"(?<=[a-zA-Z]) ([\u2212-]?\d)(?=\b)(?![\u00b0\u2032\u2033\d])")
 _UNIT_BEFORE = re.compile(r"^(?:mol|kg|g|m|cm|mm|km|s|K|J|Hz|Pa|N|V|A|W|C|L|dm|cd|sr|rad|h|min|yr|Bq|Gy|Sv|T|H|F|S|Wb|lm|lx)$")
 _ELEMENT_BEFORE = re.compile(r"(?:^|[\s(])([A-Z][a-z]?)$")
 # "Zn 2+", "S 2−": an ion's charge
@@ -1152,9 +1199,13 @@ def fact_value(name, value):
         return value
     value = _AGE.sub("", value)
     value = _WRAPPED.sub(r"\1", value.strip())
+    value = _CHEM_SUBLABEL.sub(r"\1: ", value)
+    if _TIME_FIELD.search(name):
+        value = _TIME_GAP.sub(r"\1:\2", value)
     if "configuration" in name.lower() or "shell" in name.lower():
         value = _SHELL.sub(lambda m: m.group(1) + m.group(2).translate(_SUPER), value)
     value = _YEAR_PAGE.sub("", value)
+    value = _NAME_THEN_DATE.sub(_name_then_date, value)
     value = re.sub(r"(\d{4}) /(\d{4})\b", r"\1/\2", value)
     if _FORMULA_ROW.search(name):
         value = _ELEMENT_COUNT.sub(lambda m: m.group(1).translate(_SUB), value)
@@ -1371,6 +1422,7 @@ class _Doc:
 
     def table_html(self, tb):
         rows = [(True, r) for r in (tb.get("headers") or []) if isinstance(r, list)]
+        rows = rows[-1:]  # of stacked header rows, the lowest names the columns
         rows += [(False, r) for r in (tb.get("rows") or []) if isinstance(r, list)]
         rows = [(h, r) for h, r in rows if r]
         if not rows:
@@ -1387,7 +1439,7 @@ class _Doc:
                     filled += 1
                     if run_re.search(raw):
                         with_runs += 1
-                cells.append(strip_undrawable(raw, self.stats))
+                cells.append(re.sub(r"\s#$", "", strip_undrawable(raw, self.stats)))
             if is_header and len(cells) > 1 and len(set(cells)) == 1:
                 continue  # a caption spanning the row ("Key (expand for notes)"), not column names
             grid.append((is_header, cells))
@@ -1443,7 +1495,10 @@ class _Doc:
                 # arrives as the same text in every column: say it once
                 cells = cells[:1]
             for j, c in enumerate(cells):
+                if j and c == cells[j - 1]:
+                    continue  # a spanning cell ("did not advance"), once per column it covered
                 c = cut_words(c.strip(), TABLE_ROW_CELL_WORDS)
+                c = re.sub(r"\s#$", "", c)  # a footnote marker
                 if len(c.split(" ")) >= TABLE_ROW_CELL_WORDS:
                     c, _ = scrub_artifacts(c)  # a cut can leave a parenthesis open
                 c = re.sub(r"  +", " ", c).strip()
@@ -1549,6 +1604,7 @@ class _Doc:
                 self.stats["pronunciation_facts_dropped"] = self.stats.get("pronunciation_facts_dropped", 0) + 1
                 return
             name = strip_undrawable(clean_text(name), self.stats)
+            name = _NAME_DISAMBIG.sub("", name)
             value = cut_words(
                 fact_value(name, strip_undrawable(clean_text(value), self.stats)),
                 FACT_WORDS,
@@ -1606,7 +1662,7 @@ class _Doc:
                     add(fname, value, group)
             elif t == "list" and p.get("name"):
                 items = [
-                    clean_text(it.get("value"))
+                    _item_text(it)
                     for it in p.get("has_parts") or []
                     if isinstance(it, dict) and isinstance(it.get("value"), str)
                 ]
@@ -1638,6 +1694,18 @@ class _Doc:
         for name, value in fields:
             self.out.append("<tr><th>" + esc(name) + "</th><td>" + esc(value) + "</td></tr>")
         self.out.append("</table>")
+
+
+def _item_text(it):
+    """A list item's text; a definition term carries its definitions
+    ("Gold 0"), which the dump nests under it."""
+    v = clean_text(it.get("value") or "")
+    if it.get("type") == "definition_term":
+        defs = [clean_text(d.get("value") or "") for d in it.get("has_parts") or [] if isinstance(d, dict)]
+        defs = [d for d in defs if d]
+        if defs:
+            v = v + " " + ", ".join(defs)
+    return v
 
 
 # "Wolfgang Amadeus Mozart" is found by "mozart" only through an index entry

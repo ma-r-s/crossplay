@@ -432,7 +432,7 @@ what MathML would have shown for that TeX; otherwise the words stay and
 the TeX goes. Counted per build (formulas_rendered, formulas_unmatched);
 96% of formulas render on the essentials.
 
-Eleven rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
+Twelve rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
 onward): each one a census or a detector report or a cold reviewer's
 read of thirty random articles, every finding checked against the dump's
 own text before a rule was written, the essentials rebuilt and republished
@@ -450,7 +450,14 @@ dump lost, the residue of an align block, two quoted lines joined. Four
 detectors were narrowed where every hit was legitimate: a colon after a
 digit is a ratio or a title, `|-` is the turnstile's spelling, `{{ A, A }}`
 is set notation, `[[1,3-...` is a chemical name. What stays flagged after
-that is the dump's own and is listed in the report, not hidden.
+that is the dump's own and is listed in the report, not hidden. Round
+twelve came from a cold read of the FULL pack's sample, which is stubs
+with infoboxes where the essentials are long articles: hidden ISO-date
+copies, an abbreviation's tooltip, "v t e" in a table header, a coordinate
+pair glued to the lead, a name glued to its birth date, a spanning cell
+said once per column, stacked header rows, a definition list that lost
+its values (medal counts), a chembox sub-label glued to its value, and a
+unit rule of ours that superscripted a longitude.
 
 What the census decided, in order: a pronunciation between slashes or
 brackets goes whole and first; a symbol the serif lacks is spelled

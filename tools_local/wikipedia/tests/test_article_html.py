@@ -899,6 +899,60 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
         self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
 
+    def test_round_twelve_from_the_full_pack_sample(self):
+        # A cold read of thirty articles from the full pack (stubs with
+        # infoboxes, which the essentials rarely are): hidden template spans
+        # and navigation words leaking as text, a name glued to its date, a
+        # spanning cell repeated per column, stacked header rows, a unit
+        # rule that superscripted a longitude.
+        cases = [
+            ("58°37′25″N 8°55′40″E / 58.623675°N 08.927698°E The church is", "The church is"),
+            ("released April 26, 1994 (1994-04-26) by", "released April 26, 1994 by"),
+            ("6 April (2001-04-06) – 29 June 2001 (2001-06-29)", "6 April – 29 June 2001"),
+            ("(Pub. L. Tooltip Public Law (United States)107–252 (text) (PDF))", "(Pub. L. 107–252)"),
+            ("Team v t e", "Team"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        self.assertEqual(ah.fact_value("Born", "Weslyn Melva Dunford October 2, 1945 Lethbridge, Alberta"), "Weslyn Melva Dunford, October 2, 1945, Lethbridge, Alberta")
+        self.assertEqual(ah.fact_value("Born", "Innokenty Mikhailovich Smoktunovich 28 March 1925 Tatyanovka"), "Innokenty Mikhailovich Smoktunovich, 28 March 1925, Tatyanovka")
+        self.assertEqual(ah.fact_value("Died", "born 3 May 1959 Chicago"), "born 3 May 1959, Chicago")
+        self.assertEqual(ah.fact_value("Coordinates", "58°37′25″N 8°55′40″E"), "58°37′25″N 8°55′40″E")
+        tables = [{"identifier": "t1",
+                   "headers": [[{"value": "Athlete"}, {"value": "Event"}, {"value": "Final"}, {"value": "Final"}],
+                               [{"value": "Athlete"}, {"value": "Event"}, {"value": "Result"}, {"value": "Rank"}]],
+                   "rows": [[{"value": "Antoni"}, {"value": "Marathon"}, {"value": "2:55:23"}, {"value": "57"}],
+                            [{"value": "Felipo"}, {"value": "100 m"}, {"value": "did not advance"}, {"value": "did not advance"}]]}]
+        secs = [{"type": "section", "name": "Athletics", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
+        _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
+        self.assertIn("<tr><th>Athlete</th><th>Event</th><th>Result</th><th>Rank</th></tr>", x)
+        self.assertNotIn("<th>Final</th>", x)
+        wide = [{"identifier": "t2",
+                 "headers": [[{"value": "Athlete"}, {"value": "Event"}, {"value": "Heat"}, {"value": "Rank"}, {"value": "Semi"}, {"value": "Rank"}, {"value": "Final"}, {"value": "Rank"}]],
+                 "rows": [[{"value": "Felipo"}, {"value": "100 m"}, {"value": "11.2"}, {"value": "7"}, {"value": "did not advance"}, {"value": "did not advance"}, {"value": "did not advance"}, {"value": "did not advance"}]]}]
+        secs = [{"type": "section", "name": "Athletics", "has_parts": [{"type": "table", "table_references": [{"identifier": "t2"}]}]}]
+        _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(wide))
+        self.assertIn("<p><b>Felipo</b>; Event: 100 m; Heat: 11.2; Rank: 7; Semi: did not advance</p>", x)
+        # the same read, traced on the dump's own rows: "v t e" arrives on
+        # three lines; a chembox sub-label is glued to its value; a running
+        # time is spaced; two links that are the whole value are a list; a
+        # definition list keeps its values; a romanisation in parentheses
+        # beside the Greek word stands alone once the word is romanised
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("Team\nv\nt\ne"), {}), "Team")
+        self.assertEqual(ah.fact_value("Names", "Preferred IUPAC name Methyl methanesulfonate"), "Preferred IUPAC name: Methyl methanesulfonate")
+        self.assertEqual(ah.fact_value("Length", "61: 49"), "61:49")
+        self.assertEqual(ah.fact_value("Score", "61: 49"), "61: 49")
+        self.assertEqual(ah._split_at_links("Mark Waid Alex Ross", [{"text": "Mark Waid"}, {"text": "Alex Ross"}], "Created by"), "Mark Waid; Alex Ross")
+        self.assertEqual(
+            ah.strip_undrawable(ah.clean_text("related to Greek ἄγγελος (ángelos) – \"messenger\". The poets"), {}, lead=True),
+            "related to Greek ángelos – \"messenger\". The poets",
+        )
+        row = {"name": "T", "infoboxes": [{"name": "Infobox", "has_parts": [{"type": "list", "name": "Medals", "has_parts": [
+            {"type": "definition_term", "value": "Gold", "has_parts": [{"type": "definition", "value": "0"}]},
+            {"type": "definition_term", "value": "Silver", "has_parts": [{"type": "definition", "value": "1"}]}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        self.assertIn("<tr><th>Medals</th><td>Gold 0; Silver 1</td></tr>", ah.article_xhtml(row, {})[2].decode())
+
     def test_round_eleven_the_last_classes(self):
         # What round ten's measurement still flagged, each traced to the dump
         # or to a rule: Parsoid's protection markers; an unclosed ref tag; a
