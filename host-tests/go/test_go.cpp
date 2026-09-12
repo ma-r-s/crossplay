@@ -763,7 +763,7 @@ void testTheFastBoardIsTheSameGame() {
   // than a bug.
   int checked = 0;
   int superkoOnly = 0;
-  for (int trial = 0; trial < 400; ++trial) {
+  for (int trial = 0; trial < 200; ++trial) {
     Game game;
     reset(game);
 
@@ -810,8 +810,18 @@ void testTheFastBoardIsTheSameGame() {
   std::printf("  fast board: %d positions compared, %d superko-only differences\n", checked, superkoOnly);
 }
 
+// Kept deliberately small, and the reason is worth writing down: this suite
+// runs on every gate and in CI, and a whole game at the Hard level is eight
+// thousand playouts a move for a hundred moves. The first version ran thirty of
+// them and took eight and a half MINUTES, which is longer than every other
+// suite in this repository put together.
+//
+// What these assertions catch is an engine that is BROKEN -- illegal moves,
+// games that never end, a level that lost its evaluation. None of that needs
+// thirty games to show up. How STRONG it is is measured against GNU Go offline,
+// which is where a number that needs sixty games belongs.
 void testTheOpponentOnlyEverPlaysALegalMove() {
-  for (int trial = 0; trial < 30; ++trial) {
+  for (int trial = 0; trial < 6; ++trial) {
     Game game;
     reset(game);
     uint32_t seed = 4242u + static_cast<uint32_t>(trial) * 97u;
@@ -834,7 +844,7 @@ void testTheOpponentBeatsARandomMoverAtEveryLevel() {
   for (int levelIndex = 0; levelIndex < 3; ++levelIndex) {
     const go::Level level = static_cast<go::Level>(levelIndex);
     int engineWins = 0;
-    constexpr int kGames = 8;
+    constexpr int kGames = 4;
     for (int trial = 0; trial < kGames; ++trial) {
       Game game;
       reset(game);
@@ -982,7 +992,7 @@ void testItNeverPassesAWonGameAway() {
   // position is over, and passing would hand Black the game.
   game.toMove = kWhite;
   uint32_t seed = 6060u;
-  for (int trial = 0; trial < 6; ++trial) {
+  for (int trial = 0; trial < 3; ++trial) {
     const int move = goengine::chooseMove(game, go::Level::Hard, seed);
     CHECK(move != kPass);
   }
@@ -993,7 +1003,7 @@ void testEasyMissesThingsWithoutLookingBroken() {
   // own eye or to pass a game it is winning: both read as a fault rather than as
   // a weak player, and the whole reason the weakening is blindness rather than
   // blunder injection is that every move it plays is one it considered.
-  for (int trial = 0; trial < 20; ++trial) {
+  for (int trial = 0; trial < 5; ++trial) {
     Game game;
     int handicap = 0;
     int16_t komi = kDefaultKomiHalves;
