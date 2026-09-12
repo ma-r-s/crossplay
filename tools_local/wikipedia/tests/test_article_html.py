@@ -908,6 +908,10 @@ class Rules(unittest.TestCase):
         x = ah.article_xhtml(row, {})[2].decode()
         self.assertIn("<p>The <b>tuba</b> (<a href=\"Latin\">Latin</a>, \"trumpet\") is a large brass instrument.</p>", x)
         self.assertEqual(ah.strip_undrawable(ah.clean_text("Article 26 :(1) Everyone has the right"), {}), "Article 26 :(1) Everyone has the right")
+        self.assertEqual(
+            ah.strip_undrawable(ah.clean_text("The tuba (Latin, \"trumpet\"; UK: / \u02c8 tju\u02d0b\u0259 /; US: / \u02c8 tu\u02d0b\u0259 /) is a large"), {}, lead=True),
+            "The tuba (Latin, \"trumpet\") is a large",
+        )
 
     def test_round_eighteen_ninth_read(self):
         # A ninth cold read: a taxobox's "<title>: Scientific classification"

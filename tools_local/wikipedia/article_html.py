@@ -1001,6 +1001,8 @@ _SCRUB = (
     (re.compile(r"(?<=\S)\s+([,;](?=\s|$))"), r"\1"),
     (re.compile(r"\(\s+"), "("),
     (re.compile(r"\s+\)"), ")"),
+    # a mark left before ")" once "; ;" collapsed ("trumpet"; )); not a face
+    (re.compile(r"(?<=[A-Za-z0-9.')\]\u201d\u2019])[,;:]\s*\)|(?<=[A-Za-z0-9.]\")[,;:]\s*\)"), ")"),
     (re.compile(r"^\s*(?:[,;]|:(?=\s|$))\s*"), ""),
     (re.compile(r"\s*[,;]$"), ""),
     (re.compile(r"[ \t\u00a0]{2,}"), " "),
