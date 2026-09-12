@@ -432,7 +432,7 @@ what MathML would have shown for that TeX; otherwise the words stay and
 the TeX goes. Counted per build (formulas_rendered, formulas_unmatched);
 96% of formulas render on the essentials.
 
-Twelve rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
+Thirteen rounds ran on the night of 2026-09-11/12 (commits bb0ad49df
 onward): each one a census or a detector report or a cold reviewer's
 read of thirty random articles, every finding checked against the dump's
 own text before a rule was written, the essentials rebuilt and republished
@@ -457,7 +457,14 @@ copies, an abbreviation's tooltip, "v t e" in a table header, a coordinate
 pair glued to the lead, a name glued to its birth date, a spanning cell
 said once per column, stacked header rows, a definition list that lost
 its values (medal counts), a chembox sub-label glued to its value, and a
-unit rule of ours that superscripted a longitude.
+unit rule of ours that superscripted a longitude. Two more reads of
+fresh full samples (round thirteen) closed the infobox shapes those
+showed: dead link captions, a header taken for a group, a row whose
+value is the title, a romanised aside that now keeps the word
+"romanized" so a Latin string is not taken for the native spelling
+("Russian, romanized: Semnadtsat'"), the title's own words reordered in
+a lead aside. A rule of 36 equals signs stalled a full build on an
+ambiguous quantifier; every rule is now timed on 400-character runs.
 
 What the census decided, in order: a pronunciation between slashes or
 brackets goes whole and first; a symbol the serif lacks is spelled

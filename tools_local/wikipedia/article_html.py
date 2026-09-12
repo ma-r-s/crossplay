@@ -381,7 +381,7 @@ _LABEL_HEAD = r"(?:[A-Z][A-Za-z.]*|lit\\.|pl\\.|romani[sz]ed|pinyin|born|n\\u00e
 # ... and stands at the start of its segment: after "(", ";" or ","
 _SEGMENT_START = r"(?:^|(?<=[(\[;,])|(?<=[(\[;,] ))"
 _EMPTY_LABEL = re.compile(
-    _SEGMENT_START + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|[A-Z][a-z]+(?:[ -][A-Za-z]+){0,2}:\s)"
+    _SEGMENT_START + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}:\s*(?=[;,)]|[A-Z][a-z]+(?:[ -][A-Za-z]+){0,2}:\s|lit\.\s|literally\s|romani[sz]ed:|pinyin:|IPA:|translit)"
 )
 # the same at the end of a parenthetical's segment ("from Sanskrit: , IPA:")
 _EMPTY_LABEL_END = re.compile(
@@ -390,7 +390,7 @@ _EMPTY_LABEL_END = re.compile(
 # "(listen)": the audio link's text, with no audio to play
 _LISTEN = re.compile(r"\s?\(\s*(?:listen|more)\s*\)", re.I)
 # "April 26, 1994 (1994-04-26)": the start-date template's hidden ISO copy
-_ISO_DATE_DUP = re.compile(r"(?<=[a-z0-9])\s?\(\d{4}-\d{2}-\d{2}\)")
+_ISO_DATE_DUP = re.compile(r"(?<=[a-z0-9])\s?\(\d{4}-\d{2}(?:-\d{2})?\)")
 # "(Pub. L. Tooltip Public Law (United States)107-252 (text) (PDF))": an
 # abbreviation's tooltip and the law template's link labels
 _TOOLTIP = re.compile(r"\s?\bTooltip [A-Z][A-Za-z .]{0,60}(?:\([^()]{0,40}\))? ?(?=\d|$)")
@@ -812,7 +812,7 @@ _MARK_COLON = re.compile(r":\s*" + _MARK + r"\s*,\s*")
 _MARK_ANY = re.compile(r"\s*" + _MARK + r"\s*")
 
 
-_MARK_ROMAN = re.compile(r"\s*" + _MARK + r"\s*,?\s*(?:romani[sz]ed|romani[sz]ation|translit\w*|pinyin):\s*", re.I)
+_MARK_ROMAN = re.compile(r":?\s*" + _MARK + r"\s*,?\s*(romani[sz]ed|romani[sz]ation|translit\w*|pinyin):\s*", re.I)
 
 
 def _settle_marks(text):
@@ -820,7 +820,7 @@ def _settle_marks(text):
     "Ancient Greek: X"; "Greek <run>, Arithmoi" drops the comma the run
     left before its romanisation; "Hebrew: <run>, Bemidbar" keeps the
     label."""
-    text = _MARK_ROMAN.sub(" ", text)
+    text = _MARK_ROMAN.sub(lambda m: ", " + m.group(1).lower() + ": ", text)
     text = _MARK_LABEL.sub("", text)
     text = _MARK_COMMA.sub(_mark_comma, text)
     text = _MARK_COLON.sub(": ", text)
@@ -875,6 +875,14 @@ def strip_undrawable(text, stats, lead=False):
             # "Moskva" alone is the romanisation of the word that went;
             # "from" alone, or "from or", is what a removal left behind
             words = rest.split()
+            label = _LEAD_LABEL.match(rest)
+            body_words = rest[label.end() :].split() if label else words
+            if lead and _TITLE_WORDS and {w.lower().strip(".,") for w in body_words[: len(_TITLE_WORDS)]} == _TITLE_WORDS:
+                # "(Japanese: Kitao Masaru, born ...)": the title's own words reordered
+                words = " ".join(body_words[len(_TITLE_WORDS) :]).lstrip(", ").split()
+                rest = " ".join(words)
+                if not words:
+                    continue
             if words and (len(words) >= 2 or words[0][:1].isupper()) and not all(w.lower().strip(".,") in _FUNCTION_WORDS for w in words):
                 kept.append(re.sub(r"  +", " ", rest))
         if not kept:
@@ -1077,6 +1085,8 @@ _CHEM_SUBLABEL = re.compile(r"^((?:Preferred |Systematic )?IUPAC name|Other name
 _TIME_FIELD = re.compile(r"^(?:Length|Duration|Running time|Time|Runtime)$", re.I)
 _TIME_GAP = re.compile(r"\b(\d{1,2}): (\d{2})\b")
 _YEAR_TWICE = re.compile(r"\b(\d{4}) \(\1\)")
+_DECIMAL_COORDS = re.compile(r"\s*/\s*[\d.\u2212-]+\u00b0[NS]\s*[\d.\u2212-]+\u00b0[EW]")
+_COORDS_AFTER_TEXT = re.compile(r"([a-z]) (?=\d{1,3}\u00b0\d)")  # "Pakistan 25°24′N", not the N of a pair
 # "Coordinates: 41°37′N 44°00′E" as a nameless value: the label is the name
 _LABELLED_VALUE = re.compile(r"^([A-Z][a-z]+(?: [a-z]+){0,2}): (\S.*)$")
 # "team Former teams": a word of the row above leaked into the name
@@ -1136,7 +1146,7 @@ def _split_at_links(value, links, name=""):
     if not links or len(links) < 2:
         return value
     texts = [lk.get("text") for lk in links if isinstance(lk, dict) and isinstance(lk.get("text"), str) and lk.get("text")]
-    if len(texts) >= 2 and value.strip() == " ".join(texts) and all(t[:1].isupper() for t in texts):
+    if len(texts) >= 2 and value.strip() == " ".join(texts) and all(t[:1].isupper() or t[:1].isdigit() for t in texts):
         return "; ".join(texts)  # "Mark Waid Alex Ross": the links are the whole value
     if len(links) < 3 and not _LIST_ROWS.search(name or ""):
         return value
@@ -1174,7 +1184,8 @@ _DEGREE_GAP = re.compile(r"(?<=\d) \u00b0")
 _SUPER = str.maketrans("0123456789+-\u2212", "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207b")
 _SUB = str.maketrans("0123456789", "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089")
 # a climate table's month row; a link's caption with no link to follow
-_FACT_SKIP_VALUE = re.compile(r"^(?:[JFMASOND] ){11}[JFMASOND]$|^(?:Listen live|Public file(?:; LMS)?|LMS|Website|Official website)$", re.I)
+_FACT_SKIP_VALUE = re.compile(r"^(?:[JFMASOND] ){11}[JFMASOND]$|^(?:(?:Listen live|Public file(?:; LMS)?|LMS|Website|Official website)(?: \([^()]*\))?(?:[,;] )?)+$", re.I)
+_DEAD_CELL = re.compile(r"^(?:Report|Match report|Highlights|Video|Stats|Box score)$", re.I)
 _NAME_FOOTNOTE = re.compile(r"(?<=[A-Za-z)]) \d$")
 _SLASH_GAP = re.compile(r"(?<=\S) /(?=[A-Za-z0-9])(?!\d{4}\b)")  # not "1564 /1563", a year either way
 _FACT_LABELS = frozenset(("Preceded by", "Succeeded by", "In office"))
@@ -1221,6 +1232,10 @@ def fact_value(name, value):
     value = _NAME_THEN_DATE.sub(_name_then_date, value)
     value = _YEAR_TWICE.sub(r"\1", value)
     value = _SLASH_GAP.sub(" / ", value)
+    value = re.sub(r"\b([A-Z]):(?=\d)", r"\1: ", value)
+    if "\u00b0" in value:
+        value = _DECIMAL_COORDS.sub("", value)
+        value = _COORDS_AFTER_TEXT.sub(r"\1; ", value)
     value = re.sub(r"(\d{4}) /(\d{4})\b", r"\1/\2", value)
     if _FORMULA_ROW.search(name):
         value = _ELEMENT_COUNT.sub(lambda m: m.group(1).translate(_SUB), value)
@@ -1484,6 +1499,7 @@ class _Doc:
         last = None
         for is_header, cells in grid:
             tag = "th" if is_header else "td"
+            cells = ["" if _DEAD_CELL.match(c.strip()) else c for c in cells]  # "Report": a link's caption
             if all(not c.strip() or c.rstrip().endswith(":") for c in cells):
                 continue  # "Source:" with nothing after it
             if cells == last:
@@ -1640,8 +1656,9 @@ class _Doc:
             )
             if "coordinates" in name.lower() and " / " in value:
                 value = value.split(" / ")[0].strip()
-            if value in _FACT_LABELS:
-                return  # "Preceded by: Succeeded by": both values were flags
+            if value in _FACT_LABELS or value in (self.title, self.title.split(",")[0].strip(), base):
+                return  # "Preceded by: Succeeded by": both values were flags; "Azerbaijani: <title>"
+            name = name[:1].upper() + name[1:]
             if _FACT_JUNK_VALUE.match(value) or sum(1 for c in value if c.isalpha()) < 2 and not any(c.isdigit() for c in value):
                 return  # "* R ij’ kr -s": a reconstruction whose marks all went
             if name in _FACT_SKIP_NAMES:
@@ -1652,6 +1669,7 @@ class _Doc:
                 groups.setdefault(name, set()).add(group)
 
         base = re.sub(r"\s*\([^()]*\)\s*$", "", self.title)
+        title_words = {w.lower() for w in base.split()}
 
         def walk(p, group=""):
             if isinstance(p, list):
@@ -1669,7 +1687,7 @@ class _Doc:
                     has_image[name] = True
                 # a group is a short label; a "section" whose name is a whole
                 # medal table is the table, not a group
-                if name and name != self.title and (not base or base not in name) and len(name.split()) <= 12 and not name.lower().startswith("infobox"):
+                if name and name != self.title and (not base or base not in name) and not (len(title_words) >= 2 and title_words <= {w.lower().strip(",") for w in name.split()}) and len(name.split()) <= 12 and not name.lower().startswith("infobox"):
                     # "Transcriptions" under "Chinese name" keeps the group
                     # that says which language the rows belong to
                     if not (group and _NAME_GROUP.search(group)):
@@ -1884,11 +1902,18 @@ def _scrub_inline(html_text):
     return html_text
 
 
+_TITLE_WORDS = frozenset()
+_LEAD_LABEL = re.compile(r"[A-Z][A-Za-z -]{0,24}:\s*")
+
+
 def article_xhtml(row, stats=None):
     """(title, headings, xhtml_bytes). `stats`, if given, is a dict the
     counters (runs_removed, tables_omitted, ...) are added into."""
+    global _TITLE_WORDS
     if stats is None:
         stats = {}
+    base = re.sub(r"\s*\([^()]*\)\s*$", "", str(row.get("name") or ""))
+    _TITLE_WORDS = frozenset(w.lower().strip(".,") for w in base.split()) if len(base.split()) >= 2 else frozenset()
     before = dict(tex_stats)
     doc = _Doc(row, stats)
     if not doc.title:

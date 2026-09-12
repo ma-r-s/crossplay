@@ -649,7 +649,7 @@ class Rules(unittest.TestCase):
             lead=True,
         )
         # the Arabic goes with its label; the romanisation is information
-        self.assertEqual(got, "Mahmud II (Ottoman Turkish: X; 20 July 1785 - 1 July 1839) was the sultan")
+        self.assertEqual(got, "Mahmud II (Ottoman Turkish, romanized: X; 20 July 1785 - 1 July 1839) was the sultan")
         self.assertEqual(st["parentheticals_removed"], 1)
 
     def test_source_remnants(self):
@@ -721,7 +721,7 @@ class Rules(unittest.TestCase):
             # goes whole before any spelling, so its theta is not "theta" and
             # its schwa is not a letter; a respelling's "-\u0259-" is not a word.
             ("C\u0259lil M\u0259mm\u0259dquluzad\u0259 wrote; laamii\u0257o; Bum\u00efn qa\u0263an; \u01c3Nanseb", "Celil Memmedquluzade wrote; laamiido; Bum\u00efn qa\u011fan; !Nanseb"),
-            ("Theophrastus (/ \u02cc \u03b8 i\u02d0. \u0259 /; Ancient Greek: \u0398\u03b5\u03cc\u03c6\u03c1\u03b1\u03c3\u03c4\u03bf\u03c2, romanized: Theophrastos) was", "Theophrastus (Ancient Greek: Theophrastos) was"),
+            ("Theophrastus (/ \u02cc \u03b8 i\u02d0. \u0259 /; Ancient Greek: \u0398\u03b5\u03cc\u03c6\u03c1\u03b1\u03c3\u03c4\u03bf\u03c2, romanized: Theophrastos) was", "Theophrastus (Ancient Greek, romanized: Theophrastos) was"),
             ("Camogie (/ k \u0259 \u02c8 m o\u028a \u0261 i / k\u0259- MOH -ghee; Irish: cam\u00f3ga\u00edocht) is", "Camogie (Irish: cam\u00f3ga\u00edocht) is"),
             # Mario, 2026-09-11: Greek is defensible, Cyrillic is not, and no
             # removal may butcher the sentence. A Greek or Cyrillic word with
@@ -730,7 +730,7 @@ class Rules(unittest.TestCase):
             # and all; two accentuations of one word are one spelling.
             ("comes from the Greek word \u1f55\u03b2\u03bf\u03c2 or \u1f51\u03b2\u03cc\u03c2 meaning hump and \u1f40\u03b4\u03bf\u03cd\u03c2, meaning tooth.", "comes from the Greek word hybos meaning hump and odous, meaning tooth."),
             ("(from Greek \u1f08\u03c1\u03b9\u03b8\u03bc\u03bf\u03af, Arithmoi, lit. 'numbers'; Biblical Hebrew: \u05d1\u05b0\u05bc\u05de\u05b4\u05d3\u05b0\u05d1\u05b7\u05bc\u05e8, B\u0259m\u012b\u1e0fbar, lit. 'In desert'; Latin: Liber Numeri) is", "(from Greek Arithmoi, lit. 'numbers'; Biblical Hebrew: Bem\u012bdbar, lit. 'In desert'; Latin: Liber Numeri) is"),
-            ("Seventeen Moments (Russian: \u0421\u0435\u043c\u043d\u0430\u0434\u0446\u0430\u0442\u044c, romanized: Semnadtsat') is a series about \u041c\u043e\u0441\u043a\u0432\u0430 and (\u0422\u043e\u043b\u0441\u0442\u043e\u0439).", "Seventeen Moments (Russian: Semnadtsat') is a series about Moskva and (Tolstoy)."),
+            ("Seventeen Moments (Russian: \u0421\u0435\u043c\u043d\u0430\u0434\u0446\u0430\u0442\u044c, romanized: Semnadtsat') is a series about \u041c\u043e\u0441\u043a\u0432\u0430 and (\u0422\u043e\u043b\u0441\u0442\u043e\u0439).", "Seventeen Moments (Russian, romanized: Semnadtsat') is a series about Moskva and (Tolstoy)."),
             # the romanisation is the English word itself: the aside says nothing
             ("The pentathlon (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The pentathlon was"),
             ("The contest (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The contest (Greek: pentathlon) was"),
@@ -847,7 +847,7 @@ class Rules(unittest.TestCase):
             ("Karma (/ \u02c8 k \u0251\u02d0r m \u0259 /, from Sanskrit: \u0915\u0930\u094d\u092e, IPA:; Pali: kamma) is an ancient", "Karma (Pali: kamma) is an ancient"),
             ("A raga (/ \u02c8 r \u0251\u02d0 \u0261 \u0259 / RAH-g\u0259; IAST: r\u0101ga, Sanskrit:; lit. ' colouring', 'tingeing ' or ' dyeing ') is", "A raga (IAST: r\u0101ga; lit. 'colouring', 'tingeing' or 'dyeing') is"),
             ("won in Athens ' City Dionysia festival in 472 BC. It is Aeschylus' oldest play, the \" best \" one.", "won in Athens' City Dionysia festival in 472 BC. It is Aeschylus' oldest play, the \"best\" one."),
-            ("The Persians (Ancient Greek: \u03a0\u03ad\u03c1\u03c3\u03b1\u03b9, romanized: P\u00e9rsai, Latinised as Persae) is", "The Persians (Ancient Greek: P\u00e9rsai, Latinised as Persae) is"),
+            ("The Persians (Ancient Greek: \u03a0\u03ad\u03c1\u03c3\u03b1\u03b9, romanized: P\u00e9rsai, Latinised as Persae) is", "The Persians (Ancient Greek, romanized: P\u00e9rsai, Latinised as Persae) is"),
             ("A samosa (listen) is a fried pastry with epsilon : Permittivity", "A samosa is a fried pastry with epsilon: Permittivity"),
         ]
         for src, want in cases:
@@ -898,6 +898,42 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Nepali", "(muntala)"), "muntala")
         self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
         self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
+
+    def test_round_thirteen_fourth_read(self):
+        # A fourth cold read of the full pack: a romanised aside keeps the
+        # word "romanized" so the Latin string is not taken for the native
+        # spelling; the title's own words reordered in a lead aside go with
+        # the script; the start-date template's month copy; a label before
+        # "lit."; the infobox header with a middle initial is not a group; a
+        # row whose value is the title says nothing; "H:20" gets its space;
+        # coordinates set off from an address, one notation; dead captions
+        # and "Report" cells; links that start with a digit are a list.
+        cases = [
+            ("Seventeen Moments (Russian: Семнадцать, romanized: Semnadtsat') is a series", "Seventeen Moments (Russian, romanized: Semnadtsat') is a series"),
+            ("Aryavarta (Sanskrit: आर्यावर्त, lit. 'Land of the Aryans') is", "Aryavarta (lit. 'Land of the Aryans') is"),
+            ("released March 1922 (1922-03) in", "released March 1922 in"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        self.assertEqual(ah.fact_value("Dimensions", "H:20 cm × L:19 cm"), "H: 20 cm × L: 19 cm")
+        self.assertEqual(ah.fact_value("Location", "Jamshoro, Sindh, 76062, Pakistan 25°24′29″N 68°15′37″E / 25.4081°N 68.2603°E"), "Jamshoro, Sindh, 76062, Pakistan; 25°24′29″N 68°15′37″E")
+        self.assertEqual(ah._split_at_links("Joint Artificial Intelligence Center 3rd Radio Battalion", [{"text": "Joint Artificial Intelligence Center"}, {"text": "3rd Radio Battalion"}], "Commands"), "Joint Artificial Intelligence Center; 3rd Radio Battalion")
+        row = {"name": "Masaru Kitao", "infoboxes": [{"name": "Infobox", "has_parts": [
+            {"type": "section", "name": "Masaru S. Kitao", "has_parts": [{"type": "field", "name": "Rank", "value": "General"}]},
+            {"type": "field", "value": "Japanese: Masaru Kitao"},
+            {"type": "field", "name": "Webcast", "value": "Listen live (Southern gospel), Listen live (Oldies)"}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+                {"type": "paragraph", "value": "Masaru Kitao (Japanese: 北尾 勝, Kitao Masaru, born July 15, 1961) is a Japanese animator."}]},
+                {"type": "section", "name": "Matches", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}],
+            "tables": json.dumps([{"identifier": "t1", "headers": [[{"value": "Home"}, {"value": "Score"}, {"value": "Away"}]],
+                "rows": [[{"value": "Linfield"}, {"value": "1-1"}, {"value": "Distillery"}], [{"value": "Report"}, {"value": ""}, {"value": ""}]]}])}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<p><b>Masaru Kitao</b> (born July 15, 1961) is a Japanese animator.</p>", x)
+        self.assertIn("<tr><th>Rank</th><td>General</td></tr>", x)
+        self.assertNotIn("Japanese", x.split("Quick facts")[1])
+        self.assertNotIn("Listen live", x)
+        self.assertNotIn("Report", x)
+        self.assertIn("<tr><td>Linfield</td><td>1-1</td><td>Distillery</td></tr>", x)
 
     def test_round_twelve_from_the_full_pack_sample(self):
         # A cold read of thirty articles from the full pack (stubs with
@@ -1121,7 +1157,7 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Born", "3 May 1959 (aged 45) Chicago"), "3 May 1959, Chicago")
         self.assertEqual(
             ah.strip_undrawable("A madhhab (Arabic: \u0645\u0630\u0647\u0628, romanized: madhhab, lit. 'way to act', pl. \u0645\u0630\u0627\u0647\u0628, madh\u0101hib) refers", {}, lead=True),
-            "A madhhab (Arabic: madhhab, lit. 'way to act', pl. madh\u0101hib) refers",
+            "A madhhab (Arabic, romanized: madhhab, lit. 'way to act', pl. madh\u0101hib) refers",
         )
 
     def test_round_seven_remnants(self):
