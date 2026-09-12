@@ -640,6 +640,18 @@ def plain(xhtml):
     return re.sub(r"\n\s*\n+", "\n", t).strip()
 
 
+def _unnest(inner):
+    """A list item's own text and the list nested under it are two lines on
+    the panel, not one word. The separator goes in only when the item has
+    text of its own: a line that STARTS with ": " is wikitext list syntax to
+    the remnant detectors, which is how 164 articles were flagged once."""
+
+    def sep(m):
+        before = _TAG.sub("", inner[: m.start()]).strip()
+        return ": " if before else " "
+
+    return _NESTED_LIST.sub(sep, inner)
+
 def blocks(xhtml):
     """[(kind, text)] in document order; kind is h1..h6, p, li or table.
     A table's text is its rows as (name, value) pairs."""
@@ -659,7 +671,7 @@ def blocks(xhtml):
         else:
             # a list item's own text and a list nested under it are two
             # lines on the panel, not one word: "Ice cream" + "Chapman's"
-            inner = _NESTED_LIST.sub(": ", inner)
+            inner = _unnest(inner)
             out.append((kind, html.unescape(_TAG.sub("", inner)).strip()))
     return out
 
