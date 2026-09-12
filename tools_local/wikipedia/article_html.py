@@ -2036,6 +2036,11 @@ _INLINE_EMPTY_LABEL = re.compile(
     r"(?<![A-Za-z0-9>\"'\u201c\u2018])[A-Z][A-Za-z.]*(?:[ -][A-Za-z.]+){0,3}(</a>)?:\s*(</a>)?\s*(?=[;,)]|</(?:p|li|td|th|dd|dt|h[1-6])>)"
 )
 _EMPTY_ANCHOR = re.compile(r'<a href="[^"]*">\s*</a>')
+# a label that is the whole of a link ("<a>Hebrew</a>:;"): the lookbehind
+# above cannot see past the ">", so the anchor and its colon go together
+_INLINE_LINKED_LABEL = re.compile(
+    r'<a href="[^"]*">' + _LABEL_HEAD + r"(?:[ -][A-Za-z.]+){0,3}</a>:\s*(?=[;,)]|</(?:p|li|td|th|dd|dt|h[1-6])>)"
+)
 _INLINE_TIDY = (
     (re.compile(r"\(\s*[;,:]\s*"), "("),
     (re.compile(r"(?<![\s(]\")\s*[;,:]\s*\)"), ")"),
@@ -2050,6 +2055,7 @@ def _scrub_inline(html_text):
     left two spaces at a piece boundary. One pass over the assembled line."""
     if "  " in html_text or ":" in html_text:
         html_text = _INLINE_DOUBLE_SPACE.sub(" ", html_text)
+        html_text = _INLINE_LINKED_LABEL.sub("", html_text)
         html_text = _INLINE_EMPTY_LABEL.sub(lambda m: (m.group(1) or "") + (m.group(2) or ""), html_text)
         html_text = _EMPTY_ANCHOR.sub("", html_text)
         for rx, rep_ in _INLINE_TIDY:

@@ -899,6 +899,20 @@ class Rules(unittest.TestCase):
         self.assertEqual(ah.fact_value("Electron configuration", "5f 14 6d 5 7s 2"), "5f\u00b9\u2074 6d\u2075 7s\u00b2")
         self.assertEqual(ah._split_at_links("Tortricoidea Latreille, 1803", [{"text": "Tortricoidea"}, {"text": "Latreille"}], "Superfamily"), "Tortricoidea Latreille, 1803")
 
+    def test_label_that_is_a_whole_link_goes_with_its_colon(self):
+        # Scrubbing the bold-subject lead exposed a label living inside a link
+        # ("<a>Hebrew</a>:;" once the Hebrew script went): the inline rule's
+        # lookbehind cannot see past the ">", so the anchor goes with its
+        # colon. A label with content after it keeps both.
+        row = {"name": "Ariel Sharon", "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+            {"type": "paragraph", "value": "Ariel \"Arik\" Sharon (Hebrew: \u05d0\u05e8\u05d9\u05d0\u05dc \u05e9\u05e8\u05d5\u05df; 26 February 1928 \u2013 11 January 2014) was an Israeli general.",
+             "links": [{"url": "https://en.wikipedia.org/wiki/Hebrew_language", "text": "Hebrew"}]}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<p><b>Ariel</b> \"Arik\" Sharon (26 February 1928 \u2013 11 January 2014) was an Israeli general.</p>", x)
+        row = {"name": "T", "sections": [{"type": "section", "name": "Abstract", "has_parts": [
+            {"type": "paragraph", "value": "Vizing's Theorem: A graph of maximal degree.", "links": [{"url": "https://en.wikipedia.org/wiki/Vizing's_theorem", "text": "Vizing's Theorem:"}]}]}]}
+        self.assertIn("<a href=\"Vizing's theorem\">Vizing's Theorem:</a> A graph", ah.article_xhtml(row, {})[2].decode())
+
     def test_lead_with_bold_subject_is_scrubbed_too(self):
         # The lead's bold-subject branch returned before the inline scrub, so
         # "(Latin, "trumpet"; UK: /.../)" kept a ";)" once its pronunciation
