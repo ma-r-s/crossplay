@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.12.57
+
+- The device aborted holding blocks.dir with the whole encyclopedia on the card
+
 ### 1.12.56
 
 - you can hide the games and apps you do not want. Touch the black
