@@ -912,6 +912,14 @@ class Rules(unittest.TestCase):
         self.assertNotIn("Title card", x)
         self.assertIn("<tr><th>House</th><td>Braganza</td></tr><tr><th>Father</th><td>Pedro I of Brazil</td></tr>", x)
         self.assertIn("<tr><th>Chinese name, Hanyu Pinyin</th><td>Quanlian Fuli Zhongxin</td></tr>", x)
+        # from the ess-q18 gate: the tidy rules run on untouched text too, so
+        # the dump's own "(e.g.:)" and "apostrophe';)" close cleanly; an
+        # apostrophe closing a quoted word is not an emoticon's eye; Parsoid's
+        # strip markers go
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("zero-day exploits (e.g.:) in Windows"), {}), "zero-day exploits (e.g.) in Windows")
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("Deppenapostroph ('idiot's apostrophe';). Next"), {}), "Deppenapostroph ('idiot's apostrophe'). Next")
+        self.assertEqual(ah.strip_undrawable(ah.clean_text("14 instances of \":) \" in"), {}), "14 instances of \":)\" in")
+        self.assertNotIn("UNIQ", ah.clean_text("\"`UNIQ--templatestyles-000000C0-QINU`\" Shanghainese is"))
 
     def test_round_sixteen_seventh_read(self):
         # A seventh cold read: rp page references after a parenthesis, with
@@ -1201,7 +1209,7 @@ class Rules(unittest.TestCase):
         # page numbers after a period go; "(number 8)" is not a face
         more = [
             ("including 14 instances of \":) \" in Richard", "including 14 instances of \":)\" in Richard"),
-            ("the Ahl ad-dār (\"House of the Mahdi:), composed of", "the Ahl ad-dār (\"House of the Mahdi:), composed of"),
+            ("the Ahl ad-dār (\"House of the Mahdi:), composed of", "the Ahl ad-dār (\"House of the Mahdi), composed of"),
             ("cultivars are ''Prunus serrulata'''Grandiflora' A. Wagner and ''Prunus serrulata'''Gioiko' Koidz", "cultivars are Prunus serrulata 'Grandiflora' A. Wagner and Prunus serrulata 'Gioiko' Koidz"),
             ("Notable out-fighters include '''Sydney Greve''', Muhammad Ali", "Notable out-fighters include Sydney Greve, Muhammad Ali"),
             ("the derivative f''(x) and f'''(x) of f", "the derivative f''(x) and f'''(x) of f"),

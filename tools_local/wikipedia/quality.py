@@ -364,7 +364,7 @@ DETECTORS = [
         "remnants",
         "wikitext_line",
         "para",
-        re.compile(r"^\s*[#:;]{1,3}\s|'''|^={2,}[^=\n]*={2,}\s*$|^={3,}\s|^\s*\|[-}]|^\s*\{\|"),
+        re.compile(r"^\s*[#:;]{1,3}\s|'''|^={2,}[^=\n]*={2,}\s*$|^={3,}\s|^\s*\|-\s*$|^\s*\|\}|^\s*\{\|"),
         "a wikitext list marker, bold marks or table syntax",
     ),
     (
@@ -664,7 +664,7 @@ def _words(t):
     return len(t.split())
 
 
-_FACE = re.compile(r"(?<![A-Za-z0-9<>=])[:;]-?[()]")
+_FACE = re.compile(r"(?<![A-Za-z0-9<>=.'])[:;]-?[()]")
 
 
 def struct_hits(name, bl):

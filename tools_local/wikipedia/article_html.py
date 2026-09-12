@@ -113,7 +113,7 @@ _REF_TAG = re.compile(r"<ref\b[^>]*/>|<ref\b[^>]*>.*?</ref>|<ref\b[^>]*>|<ref\b[
 # Parsoid's protection markers, leaked into a few articles: "\ufffdPROT139\ufffd"
 # stands where a reference or template was, and one can end an unclosed
 # template ("{{Pie chart| caption = ...\ufffdPROT199\ufffd Roughly ...")
-_PROT = re.compile(r"\{\{[^{}]*?\ufffdPROT\d+\ufffd\s*|\s?\ufffdPROT\d+\ufffd")
+_PROT = re.compile(r"\{\{[^{}]*?\ufffdPROT\d+\ufffd\s*|\s?\ufffdPROT\d+\ufffd|\s?`UNIQ--[a-z]+-[0-9A-Fa-f ]+-QINU`")
 # a footnote the dump left in the prose, and a template opener never closed
 # ("{{block indent| sigma: F -> F'"): the note goes, the opener alone goes
 _NOTE_TEMPLATE = re.compile(r"\s?\{\{(?:efn|sfn|refn|notetag|note)\|[^{}]{0,800}\}\}")
@@ -425,10 +425,12 @@ _BRACKETED = re.compile(r" ?\[[^\[\]]{1,80}\]")
 
 _TIDY = (
     (re.compile(r"\(\s*[,;:]\s*"), "("),
-    (re.compile(r"(?<![\s(]\")(?<!^\")\s*[,;:]\s*\)"), ")"),  # not the face of ":)"
+    # a mark after a word, a closing quote or a bracket goes before ")"; after a
+    # space or an opening quote it is the face of ":)" and stays
+    (re.compile(r"(?<=[A-Za-z0-9.')\]])[,;:]\s*\)|(?<=[A-Za-z0-9.]\")[,;:]\s*\)"), ")"),
     (re.compile(r"\(\s*\)"), ""),
     (re.compile(r"\[\s*\]"), ""),
-    (re.compile(r"\s+([,;?)]|!(?!=)|:(?!\s?\d))"), r"\1"),  # "a != 0" and "3 : 1" keep their spaces
+    (re.compile(r"\s+([,;?)]|!(?![=A-Za-z0-9])|:(?!\s?\d|-?[()]))"), r"\1"),  # "a != 0", "3 : 1", the click in "!Nanseb" and the face in ":)" keep their spaces
     (re.compile(r"\s+\.(?![A-Za-z0-9])"), "."),
     (re.compile(r"\(\s+"), "("),
     (re.compile(r"(?:[,;:]\s*)+([,;:])"), r"\1"),
@@ -511,7 +513,7 @@ def clean_text(s):
         s = _NOTE_MARKER.sub("", s)
     if "==" in s:
         s = _HEADING_MARKS.sub("", s)
-    if "PROT" in s:
+    if "PROT" in s or "QINU" in s:
         s = _PROT.sub("", s)
     if "{{" in s:
         s = _TEMPLATE.sub("", s)
@@ -963,10 +965,11 @@ def strip_undrawable(text, stats, lead=False):
     if n:
         removed += 1
         stats["inline_gaps_closed"] = stats.get("inline_gaps_closed", 0) + n
-    if removed:
-        for rx, rep in _TIDY:
-            text = rx.sub(rep, text)
-        text = text.strip()
+    # the seams a removal leaves, and the same seams the dump itself has
+    # ("(e.g.:)", "apostrophe';)"): tidied whether or not anything went
+    for rx, rep in _TIDY:
+        text = rx.sub(rep, text)
+    text = text.strip()
     text, n = scrub_artifacts(text)
     if n:
         stats["artifacts_scrubbed"] = stats.get("artifacts_scrubbed", 0) + n
@@ -1032,7 +1035,7 @@ def _is_face(text, i):
         j -= 1
     if j < 0 or text[j] not in ":;":
         return False
-    return j == 0 or text[j - 1] in " \t\"'\u201c\u2018"
+    return j == 0 or text[j - 1] in " \t\"\u201c\u2018"
 
 
 def _balance(text, opener, closer):
@@ -1968,8 +1971,8 @@ _INLINE_EMPTY_LABEL = re.compile(
 )
 _EMPTY_ANCHOR = re.compile(r'<a href="[^"]*">\s*</a>')
 _INLINE_TIDY = (
-    (re.compile(r"\(\s*[;,]\s*"), "("),
-    (re.compile(r"\s*[;,]\s*\)"), ")"),
+    (re.compile(r"\(\s*[;,:]\s*"), "("),
+    (re.compile(r"(?<![\s(]\")\s*[;,:]\s*\)"), ")"),
     (re.compile(r"\s?\(\s*\)"), ""),
     (re.compile(r"\s+([,;)])"), r"\1"),
 )
