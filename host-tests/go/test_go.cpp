@@ -1022,7 +1022,7 @@ void testEasyMissesThingsWithoutLookingBroken() {
 // --- Navigation and what is written down -----------------------------------
 
 void testBackIsTotalAndAlwaysReachesTheTop() {
-  const go::Screen screens[] = {go::Screen::Menu, go::Screen::HowTo, go::Screen::Board, go::Screen::Count,
+  const go::Screen screens[] = {go::Screen::Menu, go::Screen::Settings, go::Screen::Board, go::Screen::Count,
                                 go::Screen::Result};
   for (const go::Screen start : screens) {
     go::Screen at = start;
