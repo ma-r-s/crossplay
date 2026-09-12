@@ -101,6 +101,7 @@ function meta(id) {
 
 const state = {
   manifest: null,
+  card: null, // what the reader said it has, from install.json on the chosen card
   replanned: false, // the pack moved on under one copy already; the next time it is a reload
   manifestText: "",
   route: "essentials",
@@ -277,8 +278,25 @@ async function pick() {
   }
   state.root = root;
   state.acknowledged = false;
+  // What the reader wrote before handing the card over: which pack it has,
+  // so the page can say what this copy changes rather than just "Done".
+  state.card = null;
+  try {
+    const wiki = await root.getDirectoryHandle("wikipedia");
+    const text = await readText(wiki, "install.json");
+    const info = text ? JSON.parse(text) : null;
+    if (info && typeof info.snapshot === "string" && info.snapshot) {
+      state.card = { pack: info.pack, snapshot: info.snapshot, shardsPresent: info.shardsPresent };
+    }
+  } catch (e) {
+    state.card = null;
+  }
   setPickStatus(
-    "This is the reader's card" + (root.name ? " (" + root.name + ")" : "") + ".",
+    "This is the reader's card" +
+      (root.name ? " (" + root.name + ")" : "") +
+      (state.card
+        ? ", with Wikipedia from " + formatSnapshot(state.card.snapshot) + " on it."
+        : ", with no Wikipedia on it yet."),
     "good",
   );
   run();
@@ -515,7 +533,15 @@ async function run() {
       create: true,
     });
     let markers = parseMarkers(await readText(wiki, MARKER_FILE));
-    setCopyStatus("Looking at what is on the card already.");
+    setCopyStatus(
+      state.card && state.card.snapshot !== m.snapshot
+        ? "The card has " +
+            formatSnapshot(state.card.snapshot) +
+            "; this copies " +
+            formatSnapshot(m.snapshot) +
+            ", the parts that changed. Looking at what is on the card already."
+        : "Looking at what is on the card already.",
+    );
     const existing = {};
     for (const f of filesForTier(m, route.tier)) {
       const size = await sizeOf(wiki, f.file);
