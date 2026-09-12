@@ -3,6 +3,8 @@
 #
 #   ./scripts_local/check.sh              # host tests, both builds
 #   ./scripts_local/check.sh --tests      # host tests only (fast)
+#   ./scripts_local/check.sh --flash      # build x4pro under the lock and flash it, no suites (~3 min)
+#   ./scripts_local/check.sh --flash sticky --ip 192.168.1.42   # env first, then wifi-flash.sh's own flags
 #   ./scripts_local/check.sh --committed  # verify HEAD, not your working tree
 #
 # HOW TO READ THE RESULT -- grep the token, never tail the output:
@@ -195,6 +197,29 @@ for _a in "$@"; do
 done
 # shellcheck disable=SC2086
 set -- $_rest
+# --flash [env]: build ONE device env under the firmware lock and hand the
+# image to wifi-flash.sh, with no host suite in between. Change, compile,
+# flash, in about three minutes; the full gate front-loads eight minutes of
+# suites and two more envs before an image exists, and on 2026-09-11 that
+# was the wait between a one-line fix and the panel. Its verdict token is
+# `flashed`, never `green`: nothing was verified beyond the compiler.
+FLASH_MODE=""
+FLASH_ENV=""
+FLASH_ARGS=""
+if [ "${1:-}" = "--flash" ]; then
+  FLASH_MODE=1
+  shift
+  FLASH_ENV="x4pro"
+  case "${1:-}" in
+    x4pro|sticky|gh_release_x4pro|gh_release_sticky) FLASH_ENV="$1"; shift ;;
+    --*|"") ;;
+    *) die "--flash: '$1' is not a device env (x4pro, sticky, gh_release_x4pro, gh_release_sticky)" ;;
+  esac
+  # Whatever follows goes to wifi-flash.sh as it is: --ip when discovery
+  # cannot hear the unit, --pair on a fresh Developer Mode session.
+  FLASH_ARGS="$*"
+  set --
+fi
 if [ "$_committed" = "1" ]; then
   # One trial directory PER RUN ($$), never shared. It used to be per tree,
   # which serialised nothing: sessions never close here, and two of them
@@ -538,6 +563,9 @@ infra_fault_note() {  # label, T0, logfile
 # accumulated and how one PR ate three CI cycles for other people's whitespace.
 # --check is the same file list the fixer uses, reporting instead of rewriting,
 # so it cannot drift from what CI enforces.
+if [ -n "${FLASH_MODE:-}" ]; then
+  echo "--flash ${FLASH_ENV:-x4pro}: no host suite runs; this builds one image and flashes it, and is not a gate."
+else
 echo "formatting"
 T0=$(date +%s)
 if ./bin/clang-format-fix --check > "$LOGS/clang-format.log" 2>&1; then
@@ -954,6 +982,7 @@ if [ -n "$STUDY_PY" ] && [ -f tools_local/site/precompress.py ]; then
     FAILED=1
   fi
 fi
+fi  # not --flash
 
 if [ "${1:-}" != "--tests" ]; then
   # Shared, content-addressed object cache: a tree that has never built before
@@ -979,6 +1008,7 @@ if [ "${1:-}" != "--tests" ]; then
   FW_LOCK="${PLATFORMIO_BUILD_CACHE_DIR:-$WS/.pio-cache}/x4pro.lock"
 
   BUILD_ENVS="simulator_x4_pro x4pro sticky"
+  [ -n "${FLASH_MODE:-}" ] && BUILD_ENVS="${FLASH_ENV:-x4pro}"
   # --committed SWAPS the dev pair for the release pair. It used to APPEND, and
   # built four device images where two would do.
   #
@@ -1030,7 +1060,9 @@ if [ "${1:-}" != "--tests" ]; then
   DEVICE_SKIP_WHY="nothing in this diff reaches a device image"
   _scope="${REPO:-}/scripts_local/device-build-needed.sh"
   _dev_envs="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
-  if [ -n "${CHECK_FORCE_DEVICE_BUILDS:-}" ]; then
+  if [ -n "${FLASH_MODE:-}" ]; then
+    echo "device build: ${FLASH_ENV:-x4pro} (--flash); the diff was not consulted"
+  elif [ -n "${CHECK_FORCE_DEVICE_BUILDS:-}" ]; then
     echo "device builds: forced (CHECK_FORCE_DEVICE_BUILDS is set); the diff was not consulted"
   elif [ -n "${REPO:-}" ] && [ -x "$_scope" ]; then
     # --build-loop, not the default question: --committed exports
@@ -1473,6 +1505,21 @@ if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLO
   fi
 fi
 
+# --flash: the image is built; hand it to the unit. A failed flash is a
+# failed run, so the token below cannot say flashed over a device that is
+# still on the old image.
+if [ -n "${FLASH_MODE:-}" ] && [ "$FAILED" -eq 0 ]; then
+  echo
+  echo "flash"
+  # shellcheck disable=SC2086
+  if ./scripts_local/wifi-flash.sh --env "${FLASH_ENV:-x4pro}" ${FLASH_ARGS:-}; then
+    echo "  flashed ${FLASH_ENV:-x4pro}"
+  else
+    echo "  FLASH FAILED (the image is built; ./scripts_local/wifi-flash.sh again once the unit answers)"
+    FAILED=1
+  fi
+fi
+
 # --tests asked for the host suites and nothing else. Card #317 turned the
 # verdict into a TOKEN a reader acts on without ever having seen the command
 # line, and `green` from a run that compiled nothing is exactly the
@@ -1600,6 +1647,12 @@ fi
 # Printed unconditionally, after the fi, so no branch can be added later that
 # forgets it: a verdict this file can reach without emitting a token is the
 # defect coming back.
+# --flash covered one compiler and one cable: whatever the block above
+# concluded from suites that never ran, the token says what happened.
+if [ -n "${FLASH_MODE:-}" ] && [ "$FAILED" -eq 0 ]; then
+  VERDICT=flashed; STATUS=0
+  echo "BUILT ${FLASH_ENV:-x4pro} AND FLASHED -- no host suite ran; run the gate before you land."
+fi
 echo "CHECKSH-VERDICT: $VERDICT exit=$STATUS transcript=${CHECK_RUNLOG:-none}"
 # 0 green (and host-green-device-skipped), 1 failed, 3 withheld. Withheld used
 # to exit 0, which is why "$? is meaningless here" had to be written into four

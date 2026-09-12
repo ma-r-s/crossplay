@@ -122,9 +122,7 @@ void WikipediaActivity::onEnter() {
     withCommas(count, sizeof(count), pack_.manifest().articles);
     char when[32];
     snapshotWords(when, sizeof(when), pack_.manifest().snapshot);
-    // "... GET NEWER": the line is a door to the install screen (a newer
-    // pack is copied over this one, changed parts only).
-    footer_ = std::string(count) + " ARTICLES, " + when + "  \xc2\xb7  GET NEWER";
+    footer_ = std::string(count) + " ARTICLES, " + when;
     if (pack_.shardsPresent() < pack_.shardsTotal()) {
       char line[64];
       snprintf(line, sizeof(line), "%d OF %d PARTS ON THE CARD", pack_.shardsPresent(), pack_.shardsTotal());
