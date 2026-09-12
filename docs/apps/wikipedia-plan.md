@@ -267,8 +267,11 @@ measured at 300 to 500 MB a month) is the v2 of this screen.
 ## What is deliberately not there
 
 - No full-text search. No images. No references, citations, navboxes,
-  external links, coordinates, categories. Math keeps its TeX text. Complex
-  tables are dropped with a one-line note; simple ones stay.
+  external links, categories. Math keeps its words and loses its TeX. A
+  table the panel's grid can hold stays a table; a wider one becomes one
+  paragraph per row, each cell labelled by its column header; a table the
+  row does not carry leaves a one-line note. A section with nothing left
+  under it (its only content was an image or a navbox) has no heading.
 - No settings inside the app beyond the pack row. Font, size, margins are the
   reader's settings, so Wikipedia changes when the reader does.
 - No account, no server of ours in the reading path. The pack is files on a
@@ -386,6 +389,68 @@ files are under Cloudflare's 512 MB per-file cache limit, so with a cache
 rule on the host the edge serves them; the full pack would be the one to
 move to R2 if its downloads ever weigh on the uplink.
 
+All of English Wikipedia does not fit that builder: 7.2 million articles'
+XHTML is some forty gigabytes held in memory on a machine with 24.
+`build_full.py` is the same build in three passes over the rows and a
+working directory: titles, order and aliases first (from here on every
+title's place is known, so links can be judged); then each row converted
+in a worker pool and written into a bucket file by its place, with a
+reservoir of records for the dictionary; then bucket by bucket, sorted in
+memory, into the writer in order. `test_build_full.py` checks it writes
+the pack `build_pack.py` writes from the same rows, byte for byte in the
+articles; only the dictionary's sample differs.
+
+**The content gate (2026-09-11).** Mario's standard is correct
+information, not just legible text: a diaeresis, a Greek letter or a maths
+sign removed can change what a sentence says. So the text rules are
+written from counts, not from imagination, and every build is measured
+before it ships:
+
+- `census.py --rows <rows> --json <out> --md <report>` counts every code
+  point above ASCII the converter feeds its strip step, across every
+  article: occurrences, articles, share inside a parenthetical, what the
+  pipeline does to it (drawn, spelled, folded, dropped) and real sentences
+  before and after, plus the collateral (drawable letters lost with an
+  undrawable run) and the articles that lost the most. The outcome column
+  is decided by the same tables the converter uses, so it cannot drift.
+- `quality.py <pack> --summary <summary.json> --report <report.md>
+  --sample 30 --plain <sample.md>` runs eighty detectors over the built
+  pack (structure, headings, words, balance, source remnants, encoding,
+  formulas, tables, links), prints the shape percentiles with the named
+  extremes, judges the census of removed characters by block, and writes
+  thirty random articles as plain text for a reviewer to read. A detector
+  firing is a thing to look at, not a verdict.
+- `twenty.sh` opens the app in the simulator and photographs twenty
+  random articles, the test no regex replaces.
+
+**Maths (2026-09-11, Mario's constraint: nothing more in flash).** The
+dump writes every formula twice, flattened words and TeX; the words lose
+every index. `tex_text.py` renders the TeX into linear text the serif
+draws (real superscript and subscript digits, "a/b", "sqrt(x)", "sum from
+i = 1 to n of", "[a, b; c, d]") and replaces the words when they match
+what MathML would have shown for that TeX; otherwise the words stay and
+the TeX goes. Counted per build (formulas_rendered, formulas_unmatched);
+96% of formulas render on the essentials.
+
+What the census decided, in order: a pronunciation between slashes or
+brackets goes whole and first; a symbol the serif lacks is spelled
+(`symbols.py`, written from the census, most frequent first); a letter
+becomes its compatibility form when that is drawable, else its base letter
+alone, counted (letter plus combining mark would draw, EpdFont overlays
+marks, but the reader composes every word to NFC before layout and then
+looks up the precomposed letter the serif lacks: a box on the panel,
+measured on the simulator); a letter of an orthography the serif lacks
+becomes the plain letter it stands in for, inside a word only; a Greek
+word or a native-script name goes with its label, the romanisation beside
+it stays. Mario's call (2026-09-11): Greek is defensible, IPA, Cyrillic
+and the other scripts are not ("if I can't even read them why would I
+want them here"); so Greek and Cyrillic words are romanised in place
+(`symbols.romanize`), pronunciations go whole, the rest goes with its
+label, and nothing more goes into flash. A font on the card stays a
+possible later card, measured on the device for page-turn cost first. The full pack does
+not publish until the gate passes on the essentials built from the same
+rules.
+
 ### The site: `site/wikipedia/`
 
 Static HTML and JS: fetch the manifest, folder picker, marker check, speed
@@ -455,7 +520,8 @@ in the format:
   (the source has no inline styling; this one is recoverable and it is the
   Wikipedia convention people recognise). Ordered lists carry their
   numbers as text. "Simple table" means what the engine draws without
-  stacking: at most four columns, at most 32 words and 512 bytes a cell.
+  stacking: at most four columns, at most 32 words and 512 bytes a cell;
+  anything wider is listed row by row (`table_rows` in article_html.py).
   The infobox is a QUICK FACTS section of `<p><b>Key</b> value</p>` rows,
   listed in CONTENTS.
 - **The reader.** `Section` gets an explicit-path constructor (html path,

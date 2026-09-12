@@ -194,5 +194,37 @@ class Build(unittest.TestCase):
         self.assertEqual(vital.load(p), {"A": 2, "B": 4})
 
 
+
+class CaseVariants(unittest.TestCase):
+    def test_stub_and_disambiguation_variants_go_when_the_listed_spelling_is_present(self):
+        levels = {"Alps": 3, "Paris": 2, "Ali": 4}
+        articles = {
+            "Alps": ([], b"<html><body><h1>Alps</h1>" + b"<p>Mountains.</p>" * 400 + b"</body></html>"),
+            "ALPS": ([], b"<html><body><h1>ALPS</h1><p>ALPS may refer to:</p><ul><li>x</li></ul></body></html>"),
+            "Paris": ([], b"<html><body><h1>Paris</h1>" + b"<p>City.</p>" * 400 + b"</body></html>"),
+            "PariS": ([], b"<html><body><h1>PariS</h1><p>#REDIRECT Paris</p></body></html>"),
+            # a genuine other page with a long body keeps its place
+            "ALI": ([], b"<html><body><h1>ALI</h1>" + b"<p>A real page about something else.</p>" * 200 + b"</body></html>"),
+            "Ali": ([], b"<html><body><h1>Ali</h1>" + b"<p>The caliph.</p>" * 400 + b"</body></html>"),
+            # a variant with no listed spelling present stays
+            "ROME": ([], b"<html><body><h1>ROME</h1><p>ROME may refer to:</p></body></html>"),
+        }
+        stats = {}
+        n = build_pack.drop_case_variants(articles, levels, stats)
+        self.assertEqual(n, 2)
+        self.assertEqual(sorted(articles), ["ALI", "Ali", "Alps", "Paris", "ROME"])
+        self.assertEqual(stats["case_variants_dropped"], 2)
+
+
+
+class FoldAlias(unittest.TestCase):
+    def test_variant_takes_the_listed_level_only_when_the_listed_spelling_is_absent(self):
+        levels = {"Alps": 3, "Paris": 2}
+        articles = {"Alps": 0, "ALPS": 0, "PARIS": 0}
+        order, matched = build_pack.order_articles(articles, levels, {})
+        self.assertEqual(matched, 2)  # Alps itself, and PARIS standing in for the absent Paris
+        self.assertEqual(sorted(order[:2]), ["Alps", "PARIS"])
+        self.assertEqual(order[-1], "ALPS")  # level 6, after the listed ones
+
 if __name__ == "__main__":
     unittest.main()

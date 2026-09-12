@@ -190,7 +190,12 @@ class Sample(unittest.TestCase):
         rows = read_rows(path)
         stats = {}
         for row in rows:
-            title, headings, xhtml = article_xhtml(row, stats)
+            try:
+                title, headings, xhtml = article_xhtml(row, stats)
+            except ValueError as e:
+                if str(e) == "redirect page":
+                    continue  # the builders skip these too
+                raise
             check_document(self, row, title, headings, xhtml)
         print(f"\n  article_html: {len(rows)} sample rows ok; {stats}", flush=True)
         self.assertEqual(len(rows), 3000)
@@ -527,9 +532,81 @@ class Rules(unittest.TestCase):
             "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2 &amp; 3</td></tr></table>",
             x,
         )
-        self.assertEqual(x.count(TABLE_OMITTED), 4)
+        # t2 has headers and no rows and t5 has nothing: neither leaves a
+        # mark. t3 (a 33-word cell) and t4 (a 513-byte cell) are too big for
+        # the panel's grid and become one paragraph per row. Only the table
+        # the row does not carry is a notice.
+        self.assertEqual(x.count(TABLE_OMITTED), 1)
         self.assertEqual(st["tables_kept"], 1)
-        self.assertEqual(st["tables_omitted"], 4)
+        self.assertEqual(st["tables_omitted"], 1)
+        self.assertEqual(st["tables_listed"], 2)
+        self.assertIn("<p><b>" + " ".join(["w"] * 33) + "</b></p>", x)
+
+    def test_wide_table_becomes_row_paragraphs(self):
+        tables = [
+            {
+                "identifier": "t1",
+                "headers": [[{"value": "Year"}, {"value": "Category"}, {"value": "Work"}, {"value": "Result"}, {"value": "Ref."}]],
+                "rows": [
+                    [{"value": "1984"}, {"value": "Best Comedy Recording"}, {"value": "Eat It"}, {"value": "Won"}, {}],
+                    [{"value": "1985"}, {"value": "Best Comedy Recording"}, {"value": ""}, {"value": "Nominated"}, {"value": "[3]"}],
+                ],
+            }
+        ]
+        secs = [{"type": "section", "name": "Awards", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
+        _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
+        self.assertIn("<p><b>1984</b>; Category: Best Comedy Recording; Work: Eat It; Result: Won</p>", x)
+        self.assertIn("<p><b>1985</b>; Category: Best Comedy Recording; Result: Nominated</p>", x)
+        self.assertNotIn("Ref", x)
+        self.assertEqual(st["tables_listed"], 1)
+        self.assertNotIn("tables_kept", st)
+
+    def test_spanning_row_is_said_once(self):
+        tables = [{"identifier": "t1", "headers": [[{"value": "Month"}, {"value": "Jan"}, {"value": "Feb"}, {"value": "Mar"}, {"value": "Apr"}]],
+                   "rows": [[{"value": "Source: Met Office"}] * 5]}]
+        secs = [{"type": "section", "name": "Climate", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, sections=secs, tables=json.dumps(tables))
+        self.assertIn("<p><b>Source: Met Office</b></p>", x)
+        self.assertNotIn("Jan: Source", x)
+
+    def test_colon_paragraph_before_a_lost_image(self):
+        long = "Both Bach and Handel featured canons in their works. The final variation of the Chaconne is a canon in which the right hand is imitated at one beat's distance:"
+        secs = [
+            {"type": "section", "name": "Baroque", "has_parts": [{"type": "paragraph", "value": long}, {"type": "image", "images": []}]},
+            {"type": "section", "name": "Fashion", "has_parts": [{"type": "paragraph", "value": "Typical fashions in the 1930s:"}, {"type": "image", "images": []}]},
+        ]
+        _, heads, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs)
+        self.assertIn("at one beat's distance.</p>", x)
+        self.assertIn("Baroque", heads)
+        self.assertNotIn("Fashion", heads)
+        self.assertNotIn("Typical fashions", x)
+        self.assertEqual(st["list_intros_dropped"], 2)
+
+    def test_may_refer_to_intro_stays(self):
+        secs = [{"type": "section", "name": "Arts", "has_parts": [{"type": "list", "has_parts": [{"type": "list_item", "value": "Art (band)"}]}]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "ART may refer to:"}, name="ART", sections=secs)
+        self.assertIn("<p><b>ART</b> may refer to:</p><h2", x)
+
+    def test_empty_sections_go_and_ids_renumber(self):
+        secs = [
+            {"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Lead."}]},
+            {"type": "section", "name": "Pictures", "has_parts": [{"type": "image", "images": []}]},
+            {
+                "type": "section",
+                "name": "Boxes",
+                "has_parts": [
+                    {"type": "section", "name": "Nav", "has_parts": [{"type": "table", "table_references": [{"identifier": "nav"}]}]},
+                ],
+            },
+            {"type": "section", "name": "Later", "has_parts": [{"type": "paragraph", "value": "More."}]},
+        ]
+        tables = [{"identifier": "nav", "rows": [[{"value": "This box: view talk edit"}, {"value": "x"}]]}]
+        _, heads, x, st = self.convert(name="Test", sections=json.dumps(secs), tables=json.dumps(tables))
+        self.assertEqual(heads, ["Later"])
+        self.assertEqual(x, '<html><body><h1>Test</h1><p>Lead.</p><h2 id="s1">Later</h2><p>More.</p></body></html>')
+        self.assertEqual(st["empty_sections_dropped"], 3)
+        self.assertEqual(st["navboxes_dropped"], 1)
+        self.assertNotIn("tables_omitted", st)
 
     def test_undrawable_runs(self):
         _, _, x, st = self.lead(
@@ -559,8 +636,9 @@ class Rules(unittest.TestCase):
         ]
         _, _, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs)
         self.assertIn("<p>Tokyo (Tōkyō) is written in kanji.</p>", x)
-        self.assertIn("<p>was the name.</p>", x)
-        self.assertEqual(st["runs_removed"], 3)
+        self.assertIn("<p>Ancient Greek: Athenai was the name.</p>", x)
+        self.assertEqual(st["runs_removed"], 2)
+        self.assertEqual(st["runs_romanized"], 1)
 
     def test_lead_parenthetical_keeps_its_dates(self):
         st = {}
@@ -570,7 +648,8 @@ class Rules(unittest.TestCase):
             st,
             lead=True,
         )
-        self.assertEqual(got, "Mahmud II (20 July 1785 - 1 July 1839) was the sultan")
+        # the Arabic goes with its label; the romanisation is information
+        self.assertEqual(got, "Mahmud II (Ottoman Turkish: X; 20 July 1785 - 1 July 1839) was the sultan")
         self.assertEqual(st["parentheticals_removed"], 1)
 
     def test_source_remnants(self):
@@ -600,6 +679,24 @@ class Rules(unittest.TestCase):
                 "The Tamils (TAM-ilz, TAHM-), also known; Chaos (KAY-oss) is; Foo (US-based) is",
                 "The Tamils, also known; Chaos (KAY-oss) is; Foo (US-based) is",
             ),
+            # Symbols the serif lacks are spelled, not dropped: "where a 0" said
+            # something false. A lone Greek letter is a symbol and gets its
+            # name; a Greek word is a run and goes.
+            ("where a \u2260 0 and x \u2264 \u22121", "where a != 0 and x <= \u22121"),
+            # the tidy after a removal must not glue "!=" to its left operand
+            ("where a \u2260 0 (Greek: \u03b1\u03bb\u03c6\u03b1) holds", "where a != 0 (Greek: alpha) holds"),
+            ("Goudreau \u2014on backup vocals, 1990\u2013 1995, and a spaced \u2014 dash stays", "Goudreau\u2014on backup vocals, 1990\u20131995, and a spaced \u2014 dash stays"),
+            # From a reviewer's read of thirty articles (2026-09-11): a letter whose
+            # accented form the serif lacks keeps its base letter; a pronunciation
+            # guide's word does not outlive the guide; the mixed-number template
+            # reads as a number; a spaced unit power is a power; an entity the
+            # source escaped twice is a character.
+            ("known as a ma\u1e47\u1e0dal\u012b.", "known as a mandal\u012b."),
+            ("Elchingen (pronounced [mi\u0283\u025bl ne]; 10 January 1769) was", "Elchingen (10 January 1769) was"),
+            ("6\u201312 cm (2 + 1 \u2044 4 \u2013 4 + 3 \u2044 4 in) long", "6\u201312 cm (2 1/4 \u2013 4 3/4 in) long"),
+            ("Density 3,855/km 2 (9,985/sq mi)", "Density 3,855/km\u00b2 (9,985/sq mi)"),
+            ("the angle \u03b8 and 10 \u03bcm of \u0394x", "the angle theta and 10 \u00b5m of Delta x"),
+            ("(Greek: \u1f08\u03bb\u03ad\u03be\u03b1\u03bd\u03b4\u03c1\u03bf\u03c2) then (\u8f9b\u4ea5, \u53d4) ok", "(Greek: Alexandros) then ok"),
             (
                 "A pinata (/ p \u026a n j a t a /, Spanish pronunciation:) is a container",
                 "A pinata is a container",
@@ -608,9 +705,51 @@ class Rules(unittest.TestCase):
                 "Oceania (UK: OH-s(h)ee-AH-nee-\u0259, -AY-, US: OH-shee-A(H)N-ee-\u0259) is a region",
                 "Oceania is a region",
             ),
+            # From the character census of the essentials (2026-09-11). A
+            # letter whose mark the serif has is drawn as letter plus mark,
+            # nothing lost; a compatibility character is its plain form; a
+            # flat or sharp is spelled, because "D major" is a different key;
+            # a suffix written on its own keeps its space.
+            ("Ma\u1e25m\u016bd Mu\u1e63\u1e6daf\u0101", "Mahm\u016bd Mustaf\u0101"),
+
+            ("at 25 \u2103, page \u216b, item \u2460, \U0001d513 4", "at 25 \u00b0C, page XII, item 1, P 4"),
+            ("in D \u266d major and F \u266f minor, B\u266e", "in D-flat major and F-sharp minor, B-natural"),
+            ("Final -m was dropped; the suffix -ing and -am, -em, -um; a Protestant -led group", "Final -m was dropped; the suffix -ing and -am, -em, -um; a Protestant-led group"),
+            ("Mass \u2273 10 5 M\u2609 and \u2205 \u2229 A", "Mass >~ 10 5 M(sun) and empty set intersect A"),
+            ("Hawai\u02bbi, \u02bfAl\u012b and the Qur\u02beān", "Hawai\u2018i, \u2018Al\u012b and the Qur\u2019\u0101n"),
+            # A letter of an orthography folds inside a word; a pronunciation
+            # goes whole before any spelling, so its theta is not "theta" and
+            # its schwa is not a letter; a respelling's "-\u0259-" is not a word.
+            ("C\u0259lil M\u0259mm\u0259dquluzad\u0259 wrote; laamii\u0257o; Bum\u00efn qa\u0263an; \u01c3Nanseb", "Celil Memmedquluzade wrote; laamiido; Bum\u00efn qa\u011fan; !Nanseb"),
+            ("Theophrastus (/ \u02cc \u03b8 i\u02d0. \u0259 /; Ancient Greek: \u0398\u03b5\u03cc\u03c6\u03c1\u03b1\u03c3\u03c4\u03bf\u03c2, romanized: Theophrastos) was", "Theophrastus (Ancient Greek: Theophrastos) was"),
+            ("Camogie (/ k \u0259 \u02c8 m o\u028a \u0261 i / k\u0259- MOH -ghee; Irish: cam\u00f3ga\u00edocht) is", "Camogie (Irish: cam\u00f3ga\u00edocht) is"),
+            # Mario, 2026-09-11: Greek is defensible, Cyrillic is not, and no
+            # removal may butcher the sentence. A Greek or Cyrillic word with
+            # no romanisation beside it is romanised where it stands; with
+            # one beside it, the word goes and the romanisation stays, label
+            # and all; two accentuations of one word are one spelling.
+            ("comes from the Greek word \u1f55\u03b2\u03bf\u03c2 or \u1f51\u03b2\u03cc\u03c2 meaning hump and \u1f40\u03b4\u03bf\u03cd\u03c2, meaning tooth.", "comes from the Greek word hybos meaning hump and odous, meaning tooth."),
+            ("(from Greek \u1f08\u03c1\u03b9\u03b8\u03bc\u03bf\u03af, Arithmoi, lit. 'numbers'; Biblical Hebrew: \u05d1\u05b0\u05bc\u05de\u05b4\u05d3\u05b0\u05d1\u05b7\u05bc\u05e8, B\u0259m\u012b\u1e0fbar, lit. 'In desert'; Latin: Liber Numeri) is", "(from Greek Arithmoi, lit. 'numbers'; Biblical Hebrew: Bem\u012bdbar, lit. 'In desert'; Latin: Liber Numeri) is"),
+            ("Seventeen Moments (Russian: \u0421\u0435\u043c\u043d\u0430\u0434\u0446\u0430\u0442\u044c, romanized: Semnadtsat') is a series about \u041c\u043e\u0441\u043a\u0432\u0430 and (\u0422\u043e\u043b\u0441\u0442\u043e\u0439).", "Seventeen Moments (Russian: Semnadtsat') is a series about Moskva and (Tolstoy)."),
+            ("The pentathlon (Greek: \u03c0\u03ad\u03bd\u03c4\u03b1\u03b8\u03bb\u03bf\u03bd) was", "The pentathlon (Greek: pentathlon) was"),
         ]
         for src, want in cases:
             self.assertEqual(ah.strip_undrawable(src, {}, lead=True), want, src)
+        # clean_text repairs what the source flattened before any rule runs:
+        # a lost space after a period, a power of ten as a spaced digit.
+        for src, want in [
+            ("lasted 28 days.The truce held, e.g.The end, Inc.The", "lasted 28 days. The truce held, e.g.The end, Inc.The"),
+            ("Mass 10 5 M and 10 -3 m, the year 10 and 10 5,000 and 10 5.5", "Mass 10\u2075 M and 10\u207b\u00b3 m, the year 10 and 10 5,000 and 10 5.5"),
+            # the invisible marks the panel smudges are gone, the words whole
+            ("left\u200eto\u200fright, word\u2060joiner, soft\u00adhyphen, zero\u200bwidth\ufeff", "lefttoright, wordjoiner, softhyphen, zerowidth"),
+            # every TeX wrapper goes, not just displaystyle; a citation template
+            # left in the prose goes with its maintenance note; nested list
+            # items the source ran together after a year come apart
+            ("log 10 (d + 1 d) {\\textstyle \\log _{10}\\left({\\frac {d+1}{d}}\\right)}. The", "log\u2081\u2080((d + 1)/d). The"),
+            ("teach it to me. {{ cite journal }}: CS1 maint: DOI inactive as of June 2024 (link) Next", "teach it to me. Next"),
+            ("Fowler & Bean, 1929Genus Naso, 1801 and 1990s", "Fowler & Bean, 1929 Genus Naso, 1801 and 1990s"),
+        ]:
+            self.assertEqual(ah.clean_text(src), want, src)
         # Left alone: a period that starts a word, an inch mark, an apostrophe,
         # a clock time, a label with a value.
         for src in [
@@ -627,7 +766,7 @@ class Rules(unittest.TestCase):
     def test_math_and_greek(self):
         self.assertEqual(
             ah.clean_text("in which n 2 {\\displaystyle n_{2}} is the density"),
-            "in which n 2 is the density",
+            "in which n\u2082 is the density",
         )
         self.assertEqual(
             ah.clean_text("= h 4 n 2 A 21, {\\displaystyle \\varepsilon ={\\frac {h\\nu }{4\\pi }}n_{2}A_{21},} where"),
@@ -668,6 +807,161 @@ class Rules(unittest.TestCase):
         self.assertIsNone(ah.person_alias({"name": "Einstein coefficients", "infoboxes": "[]"}))
         self.assertIsNone(ah.person_alias({"name": "Tokyo", "infoboxes": born}))
         self.assertIsNone(ah.person_alias({"name": "Battle of Hastings (1066)", "infoboxes": born}))
+
+    def test_redirect_page_refused(self):
+        with self.assertRaises(ValueError):
+            self.lead(
+                {"type": "paragraph", "value": "%5B%5BWikipedia%3ARedirects+for+discussion%5D%5D+debate"},
+                {"type": "paragraph", "value": "#REDIRECT Paris"},
+                name="PariS",
+            )
+
+    def test_hatnotes_and_orphan_list_intro_go(self):
+        secs = [
+            {"type": "section", "name": "Fashion", "has_parts": [
+                {"type": "paragraph", "value": "Main article: 1930s in fashion"},
+                {"type": "paragraph", "value": "Typical fashions in the 1930s:"},
+                {"type": "section", "name": "Hats", "has_parts": [
+                    {"type": "paragraph", "value": "For other uses, see Hat (disambiguation)."},
+                    {"type": "paragraph", "value": "Hats were worn. The list of hats is:"},
+                    {"type": "list", "has_parts": [{"type": "list_item", "value": "Fedora"}]},
+                ]},
+            ]},
+        ]
+        _, heads, x, st = self.lead({"type": "paragraph", "value": "Test."}, sections=secs)
+        self.assertNotIn("Main article", x)
+        self.assertNotIn("For other uses", x)
+        self.assertNotIn("Typical fashions", x)
+        self.assertIn("<p>Hats were worn. The list of hats is:</p><ul>", x)
+        self.assertEqual(st["hatnotes_dropped"], 2)
+        self.assertEqual(st["list_intros_dropped"], 1)
+
+    def test_cold_review_round_five(self):
+        # From the cold reviewer's read of the q4 sample (2026-09-11): a label
+        # left standing after its content went, a possessive apostrophe that
+        # jumped to the next word, quotes paired by count instead of by what
+        # touches them, the audio link's "(listen)".
+        cases = [
+            ("Karma (/ \u02c8 k \u0251\u02d0r m \u0259 /, from Sanskrit: \u0915\u0930\u094d\u092e, IPA:; Pali: kamma) is an ancient", "Karma (Pali: kamma) is an ancient"),
+            ("A raga (/ \u02c8 r \u0251\u02d0 \u0261 \u0259 / RAH-g\u0259; IAST: r\u0101ga, Sanskrit:; lit. ' colouring', 'tingeing ' or ' dyeing ') is", "A raga (IAST: r\u0101ga; lit. 'colouring', 'tingeing' or 'dyeing') is"),
+            ("won in Athens ' City Dionysia festival in 472 BC. It is Aeschylus' oldest play, the \" best \" one.", "won in Athens' City Dionysia festival in 472 BC. It is Aeschylus' oldest play, the \"best\" one."),
+            ("The Persians (Ancient Greek: \u03a0\u03ad\u03c1\u03c3\u03b1\u03b9, romanized: P\u00e9rsai, Latinised as Persae) is", "The Persians (Ancient Greek: P\u00e9rsai, Latinised as Persae) is"),
+            ("A samosa (listen) is a fried pastry with epsilon : Permittivity", "A samosa is a fried pastry with epsilon: Permittivity"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
+        self.assertEqual(ah.fact_value("Chemical formula", "C 20 H 8 Br 2 Hg Na 2 O 6"), "C\u2082\u2080H\u2088Br\u2082HgNa\u2082O\u2086")
+        self.assertEqual(ah.fact_value("Molar mass", "750.658 g\u00b7mol \u22121"), "750.658 g\u00b7mol\u207b\u00b9")
+        self.assertEqual(ah.fact_value("Coordination", "Tetrahedral (Zn 2+), Tetrahedral (S 2\u2212)"), "Tetrahedral (Zn\u00b2\u207a), Tetrahedral (S\u00b2\u207b)")
+        self.assertEqual(ah.fact_value("Declination", "6.63 \u00b0 to 35.69 \u00b0"), "6.63\u00b0 to 35.69\u00b0")
+
+    def test_cold_review_round_six(self):
+        # From the third cold read (2026-09-12): a unit rule that superscripted
+        # a date ("March 4" read "March⁴") because "March" ends in h; the
+        # whole token must be the unit, and an ion's charge follows an element
+        # symbol only. Citation page numbers in a row, a comma without its
+        # space, TeX the dump left outside any block, alternative years.
+        self.assertEqual(ah.fact_value("Died", "March 4, 1994, Durango"), "March 4, 1994, Durango")
+        self.assertEqual(ah.fact_value("Wade", "Li 3-ching 1"), "Li 3-ching 1")
+        self.assertEqual(ah.fact_value("Molar mass", "750.658 g\u00b7mol \u22121 and 3 m 2"), "750.658 g\u00b7mol\u207b\u00b9 and 3 m\u00b2")
+        self.assertEqual(ah.fact_value("Born", "26 May 1564: 90 /1563 Sirhind"), "26 May 1564/1563, Sirhind")
+        self.assertEqual(
+            ah.clean_text("over a phone.: S643 : S643 : 8 In adults; driven. : 32, 33, 105 : 184 Next; invasion,the land; A = A 1 A_{1}^{\\complement }\\quad A_{2}^{\\complement } end"),
+            "over a phone. In adults; driven. Next; invasion, the land; A = A 1 end",
+        )
+        # the assembled paragraph is scrubbed across its links: a label the
+        # dump left empty before ")" and a removed character at a boundary
+        secs = [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "The Hara (\"the quarter\"; Arabic:) and U+0374 \u02b9 GREEK sign.", "links": [{"url": "https://en.wikipedia.org/wiki/Hara", "text": "Hara"}, {"url": "https://en.wikipedia.org/wiki/Greek", "text": "GREEK"}]}]}]
+        _, _, x, _ = self.convert(name="D", sections=json.dumps(secs))
+        self.assertIn('("the quarter") and U+0374 <a href="Greek">GREEK</a> sign.', x)
+        self.assertNotIn("Arabic", x)
+        self.assertNotIn("  ", x)
+
+    def test_infobox_images_names_and_glued_lists(self):
+        boxes = [{"type": "infobox", "name": "Infobox settlement", "has_parts": [
+            {"type": "section", "name": "City", "has_parts": [
+                {"type": "field", "value": "Suspension bridge Memorial", "images": [{"caption": "x"}]},
+                {"type": "field", "name": "Country", "value": "Syria"},
+            ]},
+            {"type": "section", "name": "Korean name", "has_parts": [{"type": "field", "name": "Revised Romanization", "value": "Yegi"}]},
+            {"type": "section", "name": "Play", "has_parts": [{"type": "field", "name": "Characters", "value": "Atossa Ghost of Darius Xerxes", "links": [{"text": "Atossa"}, {"text": "Ghost of Darius"}, {"text": "Xerxes"}]}]},
+        ]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, infoboxes=json.dumps(boxes))
+        self.assertNotIn("Suspension", x)
+        self.assertIn("<tr><th>Korean name, Revised Romanization</th><td>Yegi</td></tr>", x)
+        self.assertIn("<tr><th>Characters</th><td>Atossa; Ghost of Darius; Xerxes</td></tr>", x)
+
+    def test_infobox_captions_are_not_facts(self):
+        boxes = [{"type": "infobox", "name": "Infobox settlement", "has_parts": [
+            {"type": "section", "name": "City", "has_parts": [
+                {"type": "image", "value": "Suspension bridge of Deir ez-Zor", "images": []},
+                {"type": "field", "value": "Suspension bridge of Deir ez-Zor Memorial of Armenian genocide"},
+                {"type": "field", "value": "Interactive map of Deir ez-Zor"},
+                {"type": "field", "name": "Country", "value": "Syria"},
+            ]},
+            {"type": "section", "name": "Korean name", "has_parts": [{"type": "field", "name": "Literal meaning", "value": "Rites Classic"}]},
+            {"type": "section", "name": "Japanese name", "has_parts": [{"type": "field", "name": "Literal meaning", "value": "Book of Rites"}]},
+            {"type": "section", "name": "Hazards", "has_parts": [{"type": "field", "name": "NFPA 704 (fire diamond)", "value": "1 0 0"}, {"type": "field", "name": "Reconstruction", "value": "* R ij\u2019 kr -s"}]},
+        ]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, infoboxes=json.dumps(boxes))
+        self.assertNotIn("Suspension bridge", x)
+        self.assertNotIn("Interactive map", x)
+        self.assertIn("<tr><th>Country</th><td>Syria</td></tr>", x)
+        self.assertIn("<tr><th>Korean name, Literal meaning</th><td>Rites Classic</td></tr>", x)
+        self.assertIn("<tr><th>Japanese name, Literal meaning</th><td>Book of Rites</td></tr>", x)
+        self.assertNotIn("NFPA", x)
+        self.assertNotIn("Reconstruction", x)
+
+    def test_artifacts_are_scrubbed(self):
+        # Mario, 2026-09-11: no consecutive parentheses or stray marks may
+        # remain, whoever left them. Chemistry's nesting stays.
+        cases = [
+            ("the united army captured Wulongshan, Mufushan), Yuhuatai) among others", "the united army captured Wulongshan, Mufushan, Yuhuatai among others"),
+            ("a name ((Latin)) and an empty pair ( ) and quotes \"\" here,, twice ; and a space , before", "a name (Latin) and an empty pair and quotes here, twice; and a space, before"),
+            ("the (+)-camphor ((1 R,4 R)-bornan-2-one) is rarer", "the (+)-camphor ((1 R,4 R)-bornan-2-one) is rarer"),
+            ("(an opener with no close", "an opener with no close"),
+            (", a leading comma and a trailing one,", "a leading comma and a trailing one"),
+            ("It is the \u201cbest\u201d ( really ) one [ ]", "It is the \u201cbest\u201d (really) one"),
+        ]
+        for src, want in cases:
+            self.assertEqual(ah.strip_undrawable(src, {}, lead=True), want, src)
+
+    def test_fact_groups_and_remnants(self):
+        boxes = [{"type": "infobox", "name": "Infobox officeholder", "has_parts": [
+            {"type": "section", "name": "Test", "has_parts": [{"type": "image", "value": "Test in 1931"}]},
+            {"type": "section", "name": "President of Austria", "has_parts": [
+                {"type": "field", "value": "In office 20 December 1945 \u2013 31 December 1950"},
+                {"type": "field", "name": "Chancellor", "value": "Leopold Figl"},
+                {"type": "field", "name": "Preceded by", "value": "Wilhelm Miklas"},
+            ]},
+            {"type": "section", "name": "Area", "has_parts": [{"type": "field", "name": "Total", "value": "303 km\u00b2 (117 sq mi)"}]},
+            {"type": "section", "name": "Personal life", "has_parts": [
+                {"type": "field", "name": "Born", "value": "26 May 1564: 90 /1563 Sirhind"},
+                {"type": "field", "name": "Preceded by", "value": "Succeeded by"},
+                {"type": "field", "name": "Imperial conversion", "value": "J F M A M J J A S O N D"},
+                {"type": "field", "name": "Months", "value": "J F M A M J J A S O N D"},
+            ]},
+        ]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, infoboxes=json.dumps(boxes))
+        self.assertIn("<tr><th>President of Austria</th><td>In office 20 December 1945 \u2013 31 December 1950</td></tr>", x)
+        self.assertIn("<tr><th>President of Austria, chancellor</th><td>Leopold Figl</td></tr>", x)
+        self.assertIn("<tr><th>President of Austria, preceded by</th><td>Wilhelm Miklas</td></tr>", x)
+        self.assertIn("<tr><th>Area, total</th><td>303 km\u00b2 (117 sq mi)</td></tr>", x)
+        self.assertIn("<tr><th>Born</th><td>26 May 1564/1563, Sirhind</td></tr>", x)
+        self.assertNotIn("Succeeded by", x)
+        self.assertNotIn("Imperial conversion", x)
+        self.assertNotIn("J F M A", x)
+
+    def test_fact_repeating_its_name_goes(self):
+        boxes = [{"name": "Infobox", "has_parts": [
+            {"type": "field", "name": "Works", "value": "Works"},
+            {"type": "field", "name": "Coordinates", "value": "34\u00b030\u2032N 109\u00b018\u2032E / 34.500\u00b0N 109.300\u00b0E"},
+            {"type": "field", "name": "Born", "value": "1959"},
+        ]}]
+        _, _, x, _ = self.lead({"type": "paragraph", "value": "Test."}, infoboxes=json.dumps(boxes))
+        self.assertNotIn("Works", x)
+        self.assertIn("<td>34\u00b030\u2032N 109\u00b018\u2032E</td>", x)
+        self.assertIn("1959", x)
 
     def test_fact_value(self):
         self.assertEqual(

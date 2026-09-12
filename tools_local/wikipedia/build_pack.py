@@ -114,6 +114,31 @@ def vital_levels(args, cache_dir):
     return vital.fetch_all(cache_dir, log=say)
 
 
+def drop_case_variants(articles, levels, stats):
+    """The essentials rows were matched to the Vital list case-blind, which
+    lets "ALPS" (a disambiguation page) and "PariS" (a redirect) in beside
+    "Alps" and "Paris". A title that is not on the list but folds to one
+    that is, when the listed spelling is present too, and whose body is a
+    stub or a "may refer to" list, goes. Mutates articles; returns n."""
+    by_fold = {}
+    for t in levels:
+        by_fold.setdefault(fold(t), t)
+    dropped = 0
+    for title in list(articles):
+        if title in levels:
+            continue
+        exact = by_fold.get(fold(title))
+        if not exact or exact == title or exact not in articles:
+            continue
+        xhtml = articles[title][1]
+        if len(xhtml) < 2500 or b"may refer to" in xhtml[:800]:
+            del articles[title]
+            dropped += 1
+    if dropped:
+        stats["case_variants_dropped"] = dropped
+    return dropped
+
+
 def order_articles(articles, levels, stats):
     by_fold = {}
     for t in levels:
@@ -123,8 +148,10 @@ def order_articles(articles, levels, stats):
     for title in articles:
         level = levels.get(title)
         if level is None:
+            # "ALPS" folds to "Alps": it takes the listed title's level only
+            # when the listed spelling itself is not in the pack
             alias = by_fold.get(fold(title))
-            level = levels.get(alias) if alias else None
+            level = levels.get(alias) if alias and alias not in articles else None
         if level is not None:
             matched += 1
         keyed.append((level or 6, fold_bytes(title), title.encode("utf-8"), title))
@@ -180,6 +207,11 @@ def main(argv=None):
     )
     ap.add_argument("--seed", type=int, default=20260911)
     ap.add_argument("--cache-dir", default=vital.CACHE_DIR)
+    ap.add_argument(
+        "--drop-case-variants",
+        action="store_true",
+        help="drop a stub or disambiguation page whose title only folds to a listed one (essentials builds)",
+    )
     ap.add_argument("--summary-json", help="also write the summary here")
     args = ap.parse_args(argv)
 
@@ -194,6 +226,9 @@ def main(argv=None):
     )
 
     levels = vital_levels(args, args.cache_dir)
+    if args.drop_case_variants and levels:
+        n = drop_case_variants(articles, levels, stats)
+        say(f"{n} case variants of listed titles dropped (stubs and disambiguation pages)")
     order, matched = order_articles(articles, levels, stats)
     say(f"{len(levels):,} vital titles known, {matched:,} matched")
 
@@ -274,6 +309,11 @@ def main(argv=None):
         "titles_too_long": stats.get("titles_too_long", 0),
         "articles": manifest["articles"],
         "links_in_pack": stats.get("links_in_pack", 0),
+        # What the run rules removed, most common first: the evidence the
+        # symbol table and the font's ranges are grown from.
+        "removed_chars": sorted(stats.get("removed_chars", {}).items(), key=lambda kv: -kv[1])[:300],
+        "symbols_translated": stats.get("symbols_translated", 0),
+        "diacritics_dropped": stats.get("diacritics_dropped", 0),
         "links_outside_pack": stats.get("links_outside_pack", 0),
         "vital_known": len(levels),
         "vital_matched": matched,
@@ -303,6 +343,12 @@ def main(argv=None):
         "seconds": round(time.time() - t0, 1),
         "built": manifest["built"],
     }
+    # every other counter the converter kept (tables_listed, hatnotes_dropped,
+    # navboxes_dropped, empty_sections_dropped, compat_folded, ...), so a new
+    # rule's count reaches the report without a summary edit
+    for k, v in sorted(stats.items()):
+        if isinstance(v, int) and k not in summary:
+            summary[k] = v
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     if args.summary_json:
         with open(args.summary_json, "w", encoding="utf-8") as f:

@@ -27,7 +27,12 @@ def articles_from(rows):
     out = []
     seen = set()
     for r in rows:
-        title, headings, xhtml = article_xhtml(r)
+        try:
+            title, headings, xhtml = article_xhtml(r)
+        except ValueError as e:
+            if str(e) == "redirect page":
+                continue  # the builders skip these too
+            raise
         if title in seen:
             continue
         seen.add(title)
