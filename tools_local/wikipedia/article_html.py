@@ -400,7 +400,7 @@ _EMPTY_LABEL_END = re.compile(
 # "(listen)": the audio link's text, with no audio to play
 _LISTEN = re.compile(r"\s?\(\s*(?:listen|more)\s*\)", re.I)
 # "April 26, 1994 (1994-04-26)": the start-date template's hidden ISO copy
-_ISO_DATE_DUP = re.compile(r"(?<=[a-z0-9])\s?\(\d{4}-\d{2}(?:-\d{2})?\)")
+_ISO_DATE_DUP = re.compile(r"(?<=[a-z0-9])\s?\(\d{4}-\d{2}(?:-\d{1,2})?\)")  # "(2015-03-2)" too
 # "(Pub. L. Tooltip Public Law (United States)107-252 (text) (PDF))": an
 # abbreviation's tooltip and the law template's link labels
 _TOOLTIP = re.compile(r"\s?\bTooltip [A-Z][A-Za-z .]{0,60}(?:\([^()]{0,40}\))? ?(?=\d|$)")
@@ -482,8 +482,10 @@ def clean_text(s):
         s = _TOOLTIP.sub(" ", s)
     if "v" in s:
         s = _VTE.sub("", s)
-    if "\u00b0" in s and _LEAD_COORDS.match(s):
-        s = _LEAD_COORDS.sub("", s, count=1)
+    if "\u00b0" in s:
+        if _LEAD_COORDS.match(s):
+            s = _LEAD_COORDS.sub("", s, count=1)
+        s = _DECIMAL_COORDS.sub("", s)
     if "," in s:
         s = _COMMA_GLUE.sub(", ", s)
     s = _YEAR_GLUE.sub(r"\1 ", s)
@@ -1261,9 +1263,11 @@ _NAME_FOOTNOTE = re.compile(r"(?<=[A-Za-z)]) \d$|(?<=[A-Za-z)])\*$")
 # a table's header row that arrived as a field: "Years: Team", "Source: Rating"
 _HEADER_WORDS = frozenset("years year team club title role source rating apps gls goals pos nation player name no. date opponent result venue competition".split())
 _SLASH_GAP = re.compile(r"(?<=\S) /(?=[A-Za-z0-9])(?!\d{4}\b)")  # not "1564 /1563", a year either way
+_UNIT_FRACTION = re.compile(r"(?<=[a-z\u00b2\u00b3]) / (?=(?:s|h|min|kg|km|m|mol|L|yr|day|ha)\b)")  # "m³ / s", "km / h"
 _FACT_LABELS = frozenset(("Preceded by", "Succeeded by", "In office"))
 _GENERIC_FIELDS = frozenset((
     "total", "rank", "density", "land", "water", "urban", "metro", "estimate", "census", "preceded by",
+    "left", "right", "average", "mean", "minimum", "maximum", "min", "max", "length", "width", "depth",
     "succeeded by", "in office", "term", "chancellor", "vice-chancellor", "president", "prime minister",
     "monarch", "governor", "deputy", "leader", "members", "seats",
 ))
@@ -1320,6 +1324,7 @@ def fact_value(name, value):
         value = _FORMULA_GAP.sub("", value)
     value = _ION.sub(_ion_charge, value)
     value = _UNIT_EXPONENT.sub(_unit_exponent, value)
+    value = _UNIT_FRACTION.sub("/", value)
     value = _DEGREE_GAP.sub("\u00b0", value)
     if name.lower() in _DATE_KEYS:
         value = re.sub(r"\b([A-Za-z]+) (?=(?:c\. )?\d{4}\b)", _word_then_year, value)  # "Kirkpatrick III 1951"

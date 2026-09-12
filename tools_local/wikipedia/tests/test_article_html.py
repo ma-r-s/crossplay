@@ -913,6 +913,21 @@ class Rules(unittest.TestCase):
             "The tuba (Latin, \"trumpet\") is a large",
         )
 
+    def test_round_twenty_one_twelfth_read(self):
+        # A twelfth cold read: a decimal copy of a DMS pair goes wherever it
+        # stands; a malformed hidden date "(2015-03-2)" goes; "left",
+        # "average" and the like carry their group; a unit fraction closes.
+        self.assertEqual(ah.clean_text("rises at 40°02′59″N 93°48′26″W / 40.04972°N 93.80722°W and flows"), "rises at 40°02′59″N 93°48′26″W and flows")
+        self.assertEqual(ah.clean_text("Released March 2, 2015 (2015-03-2) by"), "Released March 2, 2015 by")
+        self.assertEqual(ah.fact_value("Average", "13 m 3 / s (460 cu ft/s)"), "13 m³/s (460 cu ft/s)")
+        self.assertEqual(ah.fact_value("Ratio", "4 / 5"), "4 / 5")
+        row = {"name": "Wimmera River", "infoboxes": [{"name": "Infobox", "has_parts": [
+            {"type": "section", "name": "Tributaries", "has_parts": [{"type": "field", "name": "left", "value": "Mount Cole Creek; Six Mile Creek"}]},
+            {"type": "section", "name": "Discharge", "has_parts": [{"type": "field", "name": "average", "value": "13 m 3 / s (460 cu ft/s)"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]}]}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<tr><th>Tributaries, left</th><td>Mount Cole Creek; Six Mile Creek</td></tr><tr><th>Discharge, average</th><td>13 m³/s (460 cu ft/s)</td></tr>", x)
+
     def test_round_twenty_eleventh_read(self):
         # An eleventh cold read: a standings table the dump puts before the
         # lead sentence follows it; stacked header rows combine ("Conference
