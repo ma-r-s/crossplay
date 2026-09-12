@@ -413,6 +413,7 @@ _LEAD_COORDS = re.compile(
     r"(?:\s*/\s*[\d.\u2212-]+\u00b0[NS]\s*[\d.\u2212-]+\u00b0[EW])?(?:\s*/\s*[\d.\u2212-]+;\s*[\d.\u2212-]+)?\s*(?=[A-Z])"
 )
 # a paragraph that is only a coordinate pair (a fact's value may be one)
+_CAPS_TOKEN = re.compile(r"^[A-Z]{2,4}$")  # "KGT" on a line of its own after every match: a fixture template's time zone
 _COORDS_ONLY = re.compile(
     r"^\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[NS]\s*\d{1,3}\u00b0[\d\u2032\u2033'\"\s.]*[EW](?:\s*/.*)?$"
 )
@@ -490,6 +491,8 @@ def clean_text(s):
     if not s:
         return ""
     s = _CONTROL.sub("", s)
+    if "\u2011" in s or "\u2010" in s:
+        s = s.replace("\u2011", "-").replace("\u2010", "-")
     if "," in s:
         s = _COMMA_GLUE.sub(", ", s)  # again: a zero-width space after the comma just went
     if "style" in s and _TEX_OPEN.search(s):
@@ -1254,7 +1257,9 @@ _SUB = str.maketrans("0123456789", "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u
 # a climate table's month row; a link's caption with no link to follow
 _FACT_SKIP_VALUE = re.compile(r"^(?:[JFMASOND] ){11}[JFMASOND]$|^(?:(?:Listen live|Public file(?:; LMS)?|LMS|Website|Official website)(?: \([^()]*\))?(?:[,;] )?)+$", re.I)
 _DEAD_CELL = re.compile(r"^(?:Report|Match report|Highlights|Video|Stats|Box score)$", re.I)
-_NAME_FOOTNOTE = re.compile(r"(?<=[A-Za-z)]) \d$")
+_NAME_FOOTNOTE = re.compile(r"(?<=[A-Za-z)]) \d$|(?<=[A-Za-z)])\*$")
+# a table's header row that arrived as a field: "Years: Team", "Source: Rating"
+_HEADER_WORDS = frozenset("years year team club title role source rating apps gls goals pos nation player name no. date opponent result venue competition".split())
 _SLASH_GAP = re.compile(r"(?<=\S) /(?=[A-Za-z0-9])(?!\d{4}\b)")  # not "1564 /1563", a year either way
 _FACT_LABELS = frozenset(("Preceded by", "Succeeded by", "In office"))
 _GENERIC_FIELDS = frozenset((
@@ -1395,7 +1400,7 @@ class _Doc:
         text = strip_undrawable(
             clean_text(part.get("value") or ""), self.stats, lead=lead
         )
-        if not text or _COORDS_ONLY.match(text):
+        if not text or _COORDS_ONLY.match(text) or (not lead and _CAPS_TOKEN.match(text)):
             return ""
         links = self._place_links(text, part.get("links"), lead)
         bold = self._subject(text) if subject else None
@@ -1618,6 +1623,8 @@ class _Doc:
                 if len(c.split(" ")) >= TABLE_ROW_CELL_WORDS:
                     c, _ = scrub_artifacts(c)  # a cut can leave a parenthesis open
                 c = re.sub(r"  +", " ", c).strip()
+                if c in ("-", "\u2013", "\u2014", "\u2212"):
+                    continue  # an empty cell the dump wrote as a dash
                 if c == "#":
                     c = "Number"
                 if not parts and re.match(r"^\d+\.$", c):
@@ -1743,6 +1750,8 @@ class _Doc:
                 add(name, glued.group(1), group)
                 add(glued.group(2), glued.group(3), group)
                 return
+            if name.strip().lower() in _HEADER_WORDS and value.strip().lower() in _HEADER_WORDS:
+                return  # "Years: Team": a header row the dump made a field
             if name in (self.title, base) or _HEADER_VALUE.match(value):
                 return  # a taxobox's "<title>: Scientific classification", a link caption "Official Results"
             if value in _FACT_LABELS or value in (self.title, self.title.split(",")[0].strip(), base):

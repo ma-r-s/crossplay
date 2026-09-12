@@ -913,6 +913,24 @@ class Rules(unittest.TestCase):
             "The tuba (Latin, \"trumpet\") is a large",
         )
 
+    def test_round_nineteen_tenth_read(self):
+        # A tenth cold read: a Unicode hyphen is a hyphen; a table's header
+        # row that arrived as a field ("Years: Team") is no fact; a footnote
+        # asterisk on a group goes; an empty cell the dump wrote as a dash
+        # goes; a fixture template's time zone on a line of its own goes.
+        self.assertEqual(ah.clean_text("a 2022 Indian Bengali\u2011language romantic drama"), "a 2022 Indian Bengali-language romantic drama")
+        row = {"name": "Joseph Nixon", "infoboxes": [{"name": "Infobox", "has_parts": [{"type": "section", "name": "Senior career*", "has_parts": [
+            {"type": "field", "name": "Years", "value": "Team"}, {"type": "field", "name": "1957\u20131960", "value": "Niort"}, {"type": "field", "name": "Total", "value": "29 (1)"}]}]}],
+            "sections": [{"type": "section", "name": "Abstract", "has_parts": [{"type": "paragraph", "value": "Test."}]},
+                {"type": "section", "name": "Matches", "has_parts": [{"type": "table", "table_references": [{"identifier": "t1"}]}, {"type": "paragraph", "value": "KGT"}, {"type": "paragraph", "value": "NASA launched."}]}],
+            "tables": json.dumps([{"identifier": "t1", "headers": [[{"value": "Date"}, {"value": "Home"}, {"value": "Score"}, {"value": "Away"}, {"value": "Venue"}, {"value": "Att."}, {"value": "Ref"}, {"value": "Notes"}]],
+                "rows": [[{"value": "30 May 2021"}, {"value": "Alay"}, {"value": "BYE"}, {"value": "-"}, {"value": "Osh"}, {"value": "-"}, {"value": ""}, {"value": ""}]]}])}
+        x = ah.article_xhtml(row, {})[2].decode()
+        self.assertIn("<table><tr><th>1957\u20131960</th><td>Niort</td></tr><tr><th>Senior career, total</th><td>29 (1)</td></tr></table>", x)
+        self.assertNotIn("<th>Years</th>", x)
+        self.assertIn("<p><b>30 May 2021</b>; Home: Alay; Score: BYE; Venue: Osh</p><p>NASA launched.</p>", x)
+        self.assertNotIn("<p>KGT</p>", x)
+
     def test_round_eighteen_ninth_read(self):
         # A ninth cold read: a taxobox's "<title>: Scientific classification"
         # row and a link caption "Official Results" are no facts; an infobox's
