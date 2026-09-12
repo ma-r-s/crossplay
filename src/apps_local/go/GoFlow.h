@@ -131,7 +131,8 @@ enum class Tap : uint8_t {
   Commit,
 };
 
-constexpr Tap tapMeaning(const Game& game, const int aimed, const int point, const bool yourTurn, const bool legalHere) {
+constexpr Tap tapMeaning(const Game& game, const int aimed, const int point, const bool yourTurn,
+                         const bool legalHere) {
   if (!yourTurn) return Tap::Ignore;
   if (game.stage != static_cast<uint8_t>(go::Stage::Playing)) return Tap::Ignore;
   if (!legalHere) return Tap::Ignore;

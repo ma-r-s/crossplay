@@ -51,9 +51,7 @@ constexpr int16_t kBoardSide = static_cast<int16_t>(kGridSpan + kPad * 2);
 // A seat band's height, variant 2 only.
 constexpr int16_t kSeatBand = 58;
 
-int16_t boardLeft(const fui::DeviceContext& device) {
-  return static_cast<int16_t>((device.width - kBoardSide) / 2);
-}
+int16_t boardLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - kBoardSide) / 2); }
 
 int16_t boardTop() {
 #if GO_VARIANT == 2
@@ -109,12 +107,12 @@ void drawGrid(toybox::Screen& screen, const fui::DeviceContext& device) {
     const int16_t weight = outer ? toybox::kRule : toybox::kHairline;
     const int16_t x = static_cast<int16_t>(x0 + i * kPitch);
     const int16_t y = static_cast<int16_t>(y0 + i * kPitch);
-    screen.target().fill(fui::makeRect(static_cast<int16_t>(x - weight / 2), y0, weight,
-                                       static_cast<int16_t>(kGridSpan + 1)),
-                         fui::Paint::solid(fui::Color::Black));
-    screen.target().fill(fui::makeRect(x0, static_cast<int16_t>(y - weight / 2),
-                                       static_cast<int16_t>(kGridSpan + 1), weight),
-                         fui::Paint::solid(fui::Color::Black));
+    screen.target().fill(
+        fui::makeRect(static_cast<int16_t>(x - weight / 2), y0, weight, static_cast<int16_t>(kGridSpan + 1)),
+        fui::Paint::solid(fui::Color::Black));
+    screen.target().fill(
+        fui::makeRect(x0, static_cast<int16_t>(y - weight / 2), static_cast<int16_t>(kGridSpan + 1), weight),
+        fui::Paint::solid(fui::Color::Black));
   }
   (void)x1;
   (void)y1;
@@ -158,8 +156,8 @@ void drawAim(toybox::Screen& screen, const fui::DeviceContext& device, const int
   toybox::disc(screen, cx, cy, radius, fui::Color::Black);
   toybox::disc(screen, cx, cy, static_cast<int16_t>(radius - 3),
                fui::Paint::dither(colour == go::kBlack ? fui::Color::DarkGray : fui::Color::LightGray));
-  const fui::Rect box = fui::makeRect(static_cast<int16_t>(cx - kPitch / 2), static_cast<int16_t>(cy - kPitch / 2),
-                                      kPitch, kPitch);
+  const fui::Rect box =
+      fui::makeRect(static_cast<int16_t>(cx - kPitch / 2), static_cast<int16_t>(cy - kPitch / 2), kPitch, kPitch);
   toybox::bracket(screen, box, 12, 4);
 }
 
@@ -226,10 +224,9 @@ void prisonerStrip(toybox::Screen& screen, const fui::Rect& box, const uint8_t c
   std::snprintf(more, sizeof(more), "+%d", captured - room);
   fui::TextStyle rest = label;
   rest.align = fui::TextAlign::Right;
-  screen.target().text(
-      toybox::inkCentred(fui::makeRect(static_cast<int16_t>(box.right() - 60), box.y, 60, box.height),
-                         toybox::kTileCut),
-      more, rest);
+  screen.target().text(toybox::inkCentred(fui::makeRect(static_cast<int16_t>(box.right() - 60), box.y, 60, box.height),
+                                          toybox::kTileCut),
+                       more, rest);
 }
 
 const char* statusWords(const BoardModel& model) {
@@ -343,11 +340,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   rows[static_cast<int>(MenuRow::Level)].actionValue = static_cast<int16_t>(MenuRow::Level);
   rows[static_cast<int>(MenuRow::PlayAs)].label = "YOU PLAY";
   const bool colourIsYours = model.opponent == go::Opponent::Computer && model.handicap == 0;
-  rows[static_cast<int>(MenuRow::PlayAs)].value =
-      model.opponent != go::Opponent::Computer ? "--"
-      : model.handicap > 0                     ? "BLACK"
-      : model.playAs == go::kBlack             ? "BLACK"
-                                               : "WHITE";
+  rows[static_cast<int>(MenuRow::PlayAs)].value = model.opponent != go::Opponent::Computer ? "--"
+                                                  : model.handicap > 0                     ? "BLACK"
+                                                  : model.playAs == go::kBlack             ? "BLACK"
+                                                                                           : "WHITE";
   rows[static_cast<int>(MenuRow::PlayAs)].enabled = colourIsYours;
   rows[static_cast<int>(MenuRow::PlayAs)].actionValue = static_cast<int16_t>(MenuRow::PlayAs);
   rows[static_cast<int>(MenuRow::PlayNearby)].label = "PLAY NEARBY";
@@ -393,8 +389,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::TextStyle cap;
   cap.font = toybox::kTileFont;
   cap.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(top + 12 + span + 16), content.width, 24),
-                       caption, cap);
+  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(top + 12 + span + 16), content.width, 24), caption,
+                       cap);
 }
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
@@ -432,12 +428,11 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   status.action = fui::NO_ACTION;
   status.styles = capsuleStyles();
   status.borderEdges = fui::EdgesAll;
-  const fui::Rect statusBox = fui::makeRect(static_cast<int16_t>(passBox.right() + toybox::kGutter), bottom.y,
-                                            static_cast<int16_t>(bottom.width - passBox.width - toybox::kGutter),
-                                            bottom.height);
-  screen.button(status, model.opponentName != nullptr
-                            ? linkui::withOpponentFace(screen, statusBox, model.opponentName)
-                            : statusBox);
+  const fui::Rect statusBox =
+      fui::makeRect(static_cast<int16_t>(passBox.right() + toybox::kGutter), bottom.y,
+                    static_cast<int16_t>(bottom.width - passBox.width - toybox::kGutter), bottom.height);
+  screen.button(status, model.opponentName != nullptr ? linkui::withOpponentFace(screen, statusBox, model.opponentName)
+                                                      : statusBox);
 
   drawFrame(screen, device);
   drawGrid(screen, device);
@@ -454,13 +449,12 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   const int16_t zoneBottom = static_cast<int16_t>(bottom.y - toybox::kGutter);
   constexpr int16_t kStripHeight = 32;
   constexpr int16_t kStripGap = 16;
-  const int16_t stripsTop =
-      static_cast<int16_t>(zoneTop + (zoneBottom - zoneTop - (kStripHeight * 2 + kStripGap)) / 2);
+  const int16_t stripsTop = static_cast<int16_t>(zoneTop + (zoneBottom - zoneTop - (kStripHeight * 2 + kStripGap)) / 2);
   prisonerStrip(screen, fui::makeRect(boardLeft(device), stripsTop, kBoardSide, kStripHeight), go::kWhite,
                 model.game.capturedBy[go::kBlack]);
   prisonerStrip(screen,
-                fui::makeRect(boardLeft(device), static_cast<int16_t>(stripsTop + kStripHeight + kStripGap),
-                              kBoardSide, kStripHeight),
+                fui::makeRect(boardLeft(device), static_cast<int16_t>(stripsTop + kStripHeight + kStripGap), kBoardSide,
+                              kStripHeight),
                 go::kBlack, model.game.capturedBy[go::kWhite]);
 
 #elif GO_VARIANT == 2
@@ -548,7 +542,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     note.font = toybox::kTileFont;
     note.align = fui::TextAlign::Center;
     screen.target().text(
-        toybox::inkCentred(fui::makeRect(boardLeft(device), static_cast<int16_t>(bottom.y - 30), kBoardSide, 26), toybox::kTileCut),
+        toybox::inkCentred(fui::makeRect(boardLeft(device), static_cast<int16_t>(bottom.y - 30), kBoardSide, 26),
+                           toybox::kTileCut),
         statusWords(model), note);
   }
 
@@ -563,8 +558,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   pass.action = ActionPass;
   pass.enabled = model.yourTurn;
   pass.borderEdges = fui::EdgesNone;
-  const fui::Rect passBox =
-      fui::makeRect(static_cast<int16_t>(bottom.right() - 132), bottom.y, 132, bottom.height);
+  const fui::Rect passBox = fui::makeRect(static_cast<int16_t>(bottom.right() - 132), bottom.y, 132, bottom.height);
   screen.button(pass, passBox);
 
   drawGrid(screen, device);
@@ -597,10 +591,10 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   fui::TextStyle note;
   note.font = toybox::kTileFont;
   note.align = fui::TextAlign::Left;
-  screen.target().text(
-      toybox::inkCentred(fui::makeRect(boardLeft(device), static_cast<int16_t>(bottom.y + 12),
-                                       static_cast<int16_t>(bottom.width - 144), 26), toybox::kTileCut),
-      statusWords(model), note);
+  screen.target().text(toybox::inkCentred(fui::makeRect(boardLeft(device), static_cast<int16_t>(bottom.y + 12),
+                                                        static_cast<int16_t>(bottom.width - 144), 26),
+                                          toybox::kTileCut),
+                       statusWords(model), note);
 #endif
 }
 
@@ -641,9 +635,9 @@ void buildCount(toybox::Screen& screen, const CountModel& model) {
     if (go::isStone(here)) {
       if (go::marked(model.game.dead, point)) {
         toybox::disc(screen, cx, cy, radius, fui::Paint::dither(fui::Color::LightGray));
-        toybox::disc(screen, cx, cy, static_cast<int16_t>(radius - 3),
-                     here == go::kBlack ? fui::Paint::dither(fui::Color::DarkGray)
-                                        : fui::Paint::solid(fui::Color::White));
+        toybox::disc(
+            screen, cx, cy, static_cast<int16_t>(radius - 3),
+            here == go::kBlack ? fui::Paint::dither(fui::Color::DarkGray) : fui::Paint::solid(fui::Color::White));
       } else {
         stone(screen, cx, cy, radius, here);
       }
@@ -689,8 +683,8 @@ void buildCount(toybox::Screen& screen, const CountModel& model) {
   fui::TextStyle line;
   line.font = toybox::kUiFont;
   line.align = fui::TextAlign::Left;
-  screen.target().text(
-      toybox::inkCentred(fui::makeRect(boardLeft(device), bandTop, 220, 34), toybox::kUiCut), blackLine, line);
+  screen.target().text(toybox::inkCentred(fui::makeRect(boardLeft(device), bandTop, 220, 34), toybox::kUiCut),
+                       blackLine, line);
   screen.target().text(
       toybox::inkCentred(fui::makeRect(boardLeft(device), static_cast<int16_t>(bandTop + 36), 220, 34), toybox::kUiCut),
       whiteLine, line);
@@ -698,10 +692,10 @@ void buildCount(toybox::Screen& screen, const CountModel& model) {
   fui::TextStyle hint;
   hint.font = toybox::kTileFont;
   hint.align = fui::TextAlign::Right;
-  screen.target().text(
-      toybox::inkCentred(fui::makeRect(static_cast<int16_t>(boardLeft(device) + 220), bandTop,
-                                       static_cast<int16_t>(kBoardSide - 220), 70), toybox::kTileCut),
-      "TAP A DEAD GROUP", hint);
+  screen.target().text(toybox::inkCentred(fui::makeRect(static_cast<int16_t>(boardLeft(device) + 220), bandTop,
+                                                        static_cast<int16_t>(kBoardSide - 220), 70),
+                                          toybox::kTileCut),
+                       "TAP A DEAD GROUP", hint);
 }
 
 void buildResult(toybox::Screen& screen, const ResultModel& model) {
@@ -710,7 +704,8 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
 
   const bool blackWon = model.blackHalves > model.whiteHalves;
   const bool youWon = (blackWon ? go::kBlack : go::kWhite) == model.seat;
-  const char* headline = model.sharedDevice ? (blackWon ? "BLACK WINS" : "WHITE WINS") : (youWon ? "YOU WIN" : "THEY WIN");
+  const char* headline =
+      model.sharedDevice ? (blackWon ? "BLACK WINS" : "WHITE WINS") : (youWon ? "YOU WIN" : "THEY WIN");
 
   toyboxChrome(screen, headline, result);
   screen.insetContent(fui::Insets{0, toybox::kMargin, toybox::kMargin, toybox::kMargin});
@@ -772,7 +767,8 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   screen.target().text(toybox::inkCentred(fui::makeRect(boardLeft(device), bandTop, kBoardSide, 34), toybox::kUiCut),
                        blackLine, line);
   screen.target().text(
-      toybox::inkCentred(fui::makeRect(boardLeft(device), static_cast<int16_t>(bandTop + 36), kBoardSide, 34), toybox::kUiCut),
+      toybox::inkCentred(fui::makeRect(boardLeft(device), static_cast<int16_t>(bandTop + 36), kBoardSide, 34),
+                         toybox::kUiCut),
       whiteLine, line);
 }
 
@@ -784,10 +780,14 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   static const char* const kTitles[4] = {"PUT A STONE ON A LINE CROSSING", "SURROUND TO CAPTURE",
                                          "TWO EYES CANNOT BE TAKEN", "PASS TWICE TO COUNT"};
   static const char* const kBodies[4] = {
-      "Black plays first. A stone goes on a crossing, not in a square, and it never moves again. Tap once to aim, tap the same crossing again to place it.",
-      "A stone's liberties are the empty crossings next to it. Fill the last one and the stone comes off the board. Whole groups go together.",
-      "A group with two separate eyes can never be surrounded, because filling one eye is suicide. That is how a group lives.",
-      "When neither of you wants to play, pass twice. Then mark the stones that cannot live, and the bigger area wins. White gets 7.5 points for going second.",
+      "Black plays first. A stone goes on a crossing, not in a square, and it never moves again. Tap once to aim, tap "
+      "the same crossing again to place it.",
+      "A stone's liberties are the empty crossings next to it. Fill the last one and the stone comes off the board. "
+      "Whole groups go together.",
+      "A group with two separate eyes can never be surrounded, because filling one eye is suicide. That is how a group "
+      "lives.",
+      "When neither of you wants to play, pass twice. Then mark the stones that cannot live, and the bigger area wins. "
+      "White gets 7.5 points for going second.",
   };
 
   const fui::Rect content = screen.contentRect();

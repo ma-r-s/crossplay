@@ -22,9 +22,9 @@ int pack(const Save& save, char* out, const int capacity) {
   const go::Game& game = save.game;
 
   int used = std::snprintf(out, static_cast<size_t>(capacity), "%d %d %d %d %d %d %d %d %d %d %d %d", kVersion,
-                           save.wins, save.losses, save.hasHistory ? 1 : 0, save.lastWon ? 1 : 0,
-                           save.lastMarginHalves, static_cast<int>(save.opponent), static_cast<int>(save.level),
-                           save.playAs, save.inProgress ? 1 : 0, save.seat, static_cast<int>(go::kPoints));
+                           save.wins, save.losses, save.hasHistory ? 1 : 0, save.lastWon ? 1 : 0, save.lastMarginHalves,
+                           static_cast<int>(save.opponent), static_cast<int>(save.level), save.playAs,
+                           save.inProgress ? 1 : 0, save.seat, static_cast<int>(go::kPoints));
   if (used <= 0 || used >= capacity) return 0;
 
   for (int i = 0; i < go::kPoints; ++i) used = appendInt(out, capacity, used, save.lastPoints[i]);
