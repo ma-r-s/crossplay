@@ -107,7 +107,9 @@ _TEX_ENV = re.compile(r"\{?\\begin\{([a-z*]+)\}.*?\\end\{\1\}\}?\s*(?:\\right\.)
 # ": p.45–78 : p.1–46 : p.111–157": page ranges of citations in a row
 _CITE_PAGES = re.compile(r"(?:\s*:\s*p{1,2}\.\s?\d+(?:[\u2013-]\d+)?\b)+")
 # "## x:", "#; Key": a note marker the dump kept at a line's start
-_NOTE_MARKER = re.compile(r"^#+;?\s+")
+_NOTE_MARKER = re.compile(r"^#+[;:]?\s+")
+# a wikitext row marker the dump left as a paragraph of its own
+_ROW_MARKER = re.compile(r"^\s*(?:\|-|\|\}|\{\|)\s*$")
 # a raw reference tag the dump left in the prose
 _REF_TAG = re.compile(r"<ref\b[^>]*/>|<ref\b[^>]*>.*?</ref>|<ref\b[^>]*>|<ref\b[^<>]{0,160}$", re.S | re.I)
 # Parsoid's protection markers, leaked into a few articles: "\ufffdPROT139\ufffd"
@@ -511,6 +513,8 @@ def clean_text(s):
         s = _CITE_AFTER_WORD.sub("", _CITE_NUMERIC.sub("", _CITE_ROMAN.sub("", s)))
     if s.startswith("#"):
         s = _NOTE_MARKER.sub("", s)
+    if _ROW_MARKER.match(s):
+        return ""
     if "==" in s:
         s = _HEADING_MARKS.sub("", s)
     if "PROT" in s or "QINU" in s:
