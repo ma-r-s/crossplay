@@ -926,6 +926,21 @@ class Rules(unittest.TestCase):
         self.assertIn("<tr><th>Career statistics</th><td>Matches 14 39; Runs scored 46 462</td></tr>", x)
         self.assertIn("<tr><th>Population (2006)</th><td>1,234</td></tr><tr><th>Population (2006), density</th><td>3/km2</td></tr>", x)
         self.assertNotIn("Playing statistics", x)
+        # from the ess-q15 gate: a full-width comma before a capital, a comma
+        # after a parenthesis, and a comma a removed run left glued get their
+        # space; "French pronunciation:" whose IPA went with its slashes is
+        # empty; heading marks the dump left on a line go; a quote pair left
+        # around a dropped bracket goes
+        more = [
+            ("massacre\uff0cAnti-bourgeois liberalization", "massacre, Anti-bourgeois liberalization"),
+            ("carbonic acid, (H2CO3),characterized by", "carbonic acid, (H2CO3), characterized by"),
+            ("Cl\u00e9mentine (pronounced French pronunciation: /klem\u0251\u0303tin/) is a 1985", "Cl\u00e9mentine is a 1985"),
+            ("The Choctaw (Choctaw: Chahta Choctaw pronunciation: [t\u0283ahta]) people", "The Choctaw (Choctaw: Chahta) people"),
+            ("=== Neural engineering is a discipline", "Neural engineering is a discipline"),
+            ("another clause (as in \" ] \"). Human language", "another clause (as in). Human language"),
+        ]
+        for src, want in more:
+            self.assertEqual(ah.strip_undrawable(ah.clean_text(src), {}, lead=True), want, src)
 
     def test_round_fourteen_fifth_read(self):
         # A fifth cold read: "6 ft 3 1/2 in" is not six cubic feet; a taxon

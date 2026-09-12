@@ -100,7 +100,7 @@ _CITE = re.compile(r"\[\d+\]")
 # also "phone.: S643 : S643 : 8" and ". : 32, 33, 105 : 184" (rp templates in a row)
 _CITE_PAGE = re.compile(r"(?<=[.,;!?])(?:\s?:\s?[A-Z]?\d+(?:[\u2013-]\d+)?(?:,\s?\d+(?:[\u2013-]\d+)?)*)+(?=\s|$)")
 # "invasion,the territory": a comma the dump left without its space
-_COMMA_GLUE = re.compile(r"(?<=[a-z]),(?=[A-Za-z]{2,})")
+_COMMA_GLUE = re.compile(r"(?<=[a-z)]),(?=[A-Za-z]{2,})")
 # "A_{1}^{\\complement }\\quad": TeX the dump left outside any block
 _TEX_LOOSE = re.compile(r"(?:\\[A-Za-z]+\s*|[A-Za-z]?[_^]\{[^{}]*\}\s*){2,}")
 _TEX_ENV = re.compile(r"\{?\\begin\{([a-z*]+)\}.*?\\end\{\1\}\}?\s*(?:\\right\.)?", re.S)
@@ -127,7 +127,11 @@ _WIKI_QUOTE_LEFT = re.compile(r"'''(?=[A-Za-z])")
 _CULTIVAR_QUOTE = re.compile(r"(?<=[a-z])'(?=[A-Z][a-z])")
 # "(-infinity,infinity)": a comma between spelled words gets its space;
 # "epsilon,gamma-carotene" is a chemical name and stays tight
-_COMMA_WORDS = re.compile(r"\b([a-z]{2,}),(?=[a-z]{3,})")
+_COMMA_WORDS = re.compile(r"\b([a-z]{2,}),(?=[A-Za-z]{2,})")
+
+
+def _comma_words(m):
+    return m.group(0) if m.group(1) in _GREEK_WORDS else m.group(1) + ", "
 _GREEK_WORDS = frozenset(symbols.GREEK.values())
 # "{{rp}}" page references after a period: ".: ii. 161 : I.68 However"
 # the same with plain pages: "speciosa.: 86-95, 137)"
@@ -404,6 +408,10 @@ _LEAD_COORDS = re.compile(
 )
 _FUNCTION_WORDS = frozenset("from or and of the a an in at by to lit also see cf".split())
 _EMPTY_PAREN = re.compile(r"\s?\(\s*[,;:\s]*\)")
+# "(pronounced French pronunciation:)": the IPA went with its slashes
+_EMPTY_PRON = re.compile(r"(?:pronounced\s+)?(?:[A-Z][a-z]+\s+)?(?:pronunciation|IPA):\s*(?=[;,)]|$)")
+# "=== Neural is a discipline": heading marks the dump left on a line
+_HEADING_MARKS = re.compile(r"^\s*={2,}\s*|\s*={2,}\s*$")
 # IPA between slashes or brackets, when the serif cannot draw it.
 _SLASHED = re.compile(r" ?/[^/]{1,80}/")
 # what a pronunciation carries that prose never does: IPA letters, modifier
@@ -497,6 +505,8 @@ def clean_text(s):
         s = _CITE_NUMERIC.sub("", _CITE_ROMAN.sub("", s))
     if s.startswith("#"):
         s = _NOTE_MARKER.sub("", s)
+    if "==" in s:
+        s = _HEADING_MARKS.sub("", s)
     if "PROT" in s:
         s = _PROT.sub("", s)
     if "{{" in s:
@@ -901,7 +911,7 @@ def strip_undrawable(text, stats, lead=False):
     if "," in text:
         # a comma between spelled or folded words gets its space: "(-infinity,infinity)",
         # "clan,personal" (a full-width comma folded); "epsilon,gamma-carotene" stays
-        text = _COMMA_WORDS.sub(lambda m: m.group(0) if m.group(1) in _GREEK_WORDS else m.group(1) + ", ", text)
+        text = _COMMA_WORDS.sub(_comma_words, text)
     for k, n in folded.items():
         stats[k] = stats.get(k, 0) + n
     text, n = _fold_lookalikes(text)
@@ -934,7 +944,7 @@ def strip_undrawable(text, stats, lead=False):
             stats["runs_removed"] = stats.get("runs_removed", 0) + n
     if _MARK in text:
         text = _settle_marks(text)
-    for rx in (_EMPTY_LABEL, _EMPTY_PAREN):
+    for rx in (_EMPTY_PRON, _EMPTY_LABEL, _EMPTY_PAREN):
         text, n = rx.subn("", text)
         if n:
             removed += n
@@ -944,6 +954,8 @@ def strip_undrawable(text, stats, lead=False):
         removed += 1
         stats["quote_gaps_closed"] = stats.get("quote_gaps_closed", 0) + n
     text, n = _close_inline_gaps(text)
+    if "," in text:
+        text = _COMMA_WORDS.sub(_comma_words, text)  # a comma a removed run left glued
     if n:
         removed += 1
         stats["inline_gaps_closed"] = stats.get("inline_gaps_closed", 0) + n
@@ -1000,6 +1012,10 @@ def scrub_artifacts(text):
     if text.count("[") != text.count("]"):
         text, k = _balance(text, "[", "]")
         n += k
+    if n:
+        for rx, rep in _SCRUB:
+            text, k = rx.subn(rep, text)  # what a dropped mark left: (as in " ")
+            n += k
     return text.strip(), n
 
 
