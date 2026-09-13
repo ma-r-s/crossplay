@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "../../activities/Activity.h"
+#include "../../components/OptionPopup.h"
 
 class TodoActivity final : public Activity {
  public:
@@ -31,10 +32,16 @@ class TodoActivity final : public Activity {
   Task tasks_[kMaxTasks];
   int taskCount_ = 0;
 
+  OptionPopup taskMenu_;
+
   void loadTasks();
   void saveTasks();
   void toggleTask(int index);
   void openAddTask();
+  void openTaskMenu(int index);
+  void editTask(int index);
+  void confirmDeleteTask(int index);
+  void deleteTask(int index);
 
   int taskRowAt(int x, int y) const;
 };

@@ -8,6 +8,7 @@
 
 #include "../../components/UITheme.h"
 #include "../../activities/util/KeyboardEntryActivity.h"
+#include "../../activities/util/ConfirmationActivity.h"
 #include "../Shelf.h"
 #include "fontIds.h"
 
@@ -178,6 +179,115 @@ void TodoActivity::openAddTask() {
       handler);
 }
 
+
+void TodoActivity::openTaskMenu(int index) {
+  if (index < 0 || index >= taskCount_) {
+    return;
+  }
+
+  const char* options[] = {
+      "Edit",
+      "Delete",
+  };
+
+  taskMenu_.show(
+      tasks_[index].text,
+      options,
+      2,
+      0,
+      [this, index](int choice) {
+        if (choice == 0) {
+          editTask(index);
+        } else if (choice == 1) {
+          confirmDeleteTask(index);
+        }
+      });
+
+  requestUpdate();
+}
+
+void TodoActivity::editTask(int index) {
+  if (index < 0 || index >= taskCount_) {
+    return;
+  }
+
+  const std::string currentText = tasks_[index].text;
+
+  auto handler = [this, index](const ActivityResult& result) {
+    if (!result.isCancelled &&
+        index >= 0 &&
+        index < taskCount_) {
+      const auto& kb =
+          std::get<KeyboardResult>(result.data);
+
+      if (!kb.text.empty()) {
+        std::snprintf(
+            tasks_[index].text,
+            sizeof(tasks_[index].text),
+            "%s",
+            kb.text.c_str());
+
+        saveTasks();
+      }
+    }
+
+    requestUpdate();
+  };
+
+  startActivityForResult(
+      std::make_unique<KeyboardEntryActivity>(
+          renderer,
+          mappedInput,
+          "Edit task",
+          currentText,
+          kTaskTextBytes - 1,
+          InputType::Text),
+      handler);
+}
+
+void TodoActivity::confirmDeleteTask(int index) {
+  if (index < 0 || index >= taskCount_) {
+    return;
+  }
+
+  const std::string taskText = tasks_[index].text;
+
+  auto handler = [this, index](const ActivityResult& result) {
+    if (!result.isCancelled) {
+      deleteTask(index);
+    }
+
+    requestUpdate();
+  };
+
+  startActivityForResult(
+      std::make_unique<ConfirmationActivity>(
+          renderer,
+          mappedInput,
+          "Delete task?",
+          taskText),
+      handler);
+}
+
+void TodoActivity::deleteTask(int index) {
+  if (index < 0 || index >= taskCount_) {
+    return;
+  }
+
+  for (int i = index; i < taskCount_ - 1; ++i) {
+    tasks_[i] = tasks_[i + 1];
+  }
+
+  --taskCount_;
+
+  if (taskCount_ >= 0 && taskCount_ < kMaxTasks) {
+    tasks_[taskCount_] = Task{};
+  }
+
+  saveTasks();
+  requestUpdate();
+}
+
 int TodoActivity::taskRowAt(int x, int y) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
@@ -204,6 +314,16 @@ int TodoActivity::taskRowAt(int x, int y) const {
 }
 
 void TodoActivity::loop() {
+  // Modal Edit/Delete popup gets first chance at all input.
+  if (taskMenu_.isActive()) {
+    taskMenu_.handleInput(
+        mappedInput,
+        [this]() {
+          requestUpdate();
+        });
+    return;
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     shelf::leave(renderer, mappedInput);
     return;
@@ -214,6 +334,20 @@ void TodoActivity::loop() {
     return;
   }
 
+  // Native X4 Pro touch long-press event.
+  int holdX = 0;
+  int holdY = 0;
+
+  if (mappedInput.wasScreenLongPress(holdX, holdY)) {
+    const int row = taskRowAt(holdX, holdY);
+
+    if (row >= 0) {
+      openTaskMenu(row);
+    }
+
+    return;
+  }
+
   int tapX = 0;
   int tapY = 0;
 
@@ -221,7 +355,14 @@ void TodoActivity::loop() {
     const int row = taskRowAt(tapX, tapY);
 
     if (row >= 0) {
-      toggleTask(row);
+      // CrossPlay also tracks tap duration as a fallback in case an
+      // e-ink refresh caused the live long-press event to be missed.
+      if (mappedInput.tapWasHeldLong()) {
+        openTaskMenu(row);
+      } else {
+        toggleTask(row);
+      }
+
       return;
     }
 
@@ -365,6 +506,10 @@ void TodoActivity::render(RenderLock&&) {
       labels.btn2,
       labels.btn3,
       labels.btn4);
+
+  if (taskMenu_.processRender(renderer, mappedInput)) {
+    return;
+  }
 
   renderer.displayBuffer();
 }
