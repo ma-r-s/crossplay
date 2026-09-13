@@ -31,6 +31,7 @@ class TodoActivity final : public Activity {
 
   Task tasks_[kMaxTasks];
   int taskCount_ = 0;
+  bool hideCompleted_ = false;
 
   OptionPopup taskMenu_;
 
@@ -44,4 +45,8 @@ class TodoActivity final : public Activity {
   void deleteTask(int index);
 
   int taskRowAt(int x, int y) const;
+  int visibleTaskCount() const;
+  int taskIndexForVisibleRow(int row) const;
+  void sortCompletedLast();
+
 };

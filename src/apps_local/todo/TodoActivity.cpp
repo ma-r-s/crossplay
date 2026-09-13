@@ -134,6 +134,7 @@ void TodoActivity::toggleTask(int index) {
 
   tasks_[index].done = !tasks_[index].done;
 
+  sortCompletedLast();
   saveTasks();
   requestUpdate();
 }
@@ -288,6 +289,69 @@ void TodoActivity::deleteTask(int index) {
   requestUpdate();
 }
 
+
+int TodoActivity::visibleTaskCount() const {
+  if (!hideCompleted_) {
+    return taskCount_;
+  }
+
+  int count = 0;
+
+  for (int i = 0; i < taskCount_; ++i) {
+    if (!tasks_[i].done) {
+      ++count;
+    }
+  }
+
+  return count;
+}
+
+int TodoActivity::taskIndexForVisibleRow(int row) const {
+  if (row < 0) {
+    return -1;
+  }
+
+  int visibleRow = 0;
+
+  for (int i = 0; i < taskCount_; ++i) {
+    if (hideCompleted_ && tasks_[i].done) {
+      continue;
+    }
+
+    if (visibleRow == row) {
+      return i;
+    }
+
+    ++visibleRow;
+  }
+
+  return -1;
+}
+
+void TodoActivity::sortCompletedLast() {
+  // Stable partition without heap allocation:
+  // unfinished tasks retain their relative order,
+  // completed tasks retain theirs too.
+  Task sorted[kMaxTasks];
+  int out = 0;
+
+  for (int i = 0; i < taskCount_; ++i) {
+    if (!tasks_[i].done) {
+      sorted[out++] = tasks_[i];
+    }
+  }
+
+  for (int i = 0; i < taskCount_; ++i) {
+    if (tasks_[i].done) {
+      sorted[out++] = tasks_[i];
+    }
+  }
+
+  for (int i = 0; i < taskCount_; ++i) {
+    tasks_[i] = sorted[i];
+  }
+}
+
 int TodoActivity::taskRowAt(int x, int y) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
@@ -304,17 +368,18 @@ int TodoActivity::taskRowAt(int x, int y) const {
     return -1;
   }
 
-  const int index = (y - bodyTop) / kRowHeight;
+  const int visibleRow =
+      (y - bodyTop) / kRowHeight;
 
-  if (index < 0 || index >= taskCount_) {
+  if (visibleRow < 0 ||
+      visibleRow >= visibleTaskCount()) {
     return -1;
   }
 
-  return index;
+  return taskIndexForVisibleRow(visibleRow);
 }
 
 void TodoActivity::loop() {
-  // Modal Edit/Delete popup gets first chance at all input.
   if (taskMenu_.isActive()) {
     taskMenu_.handleInput(
         mappedInput,
@@ -334,15 +399,15 @@ void TodoActivity::loop() {
     return;
   }
 
-  // Native X4 Pro touch long-press event.
   int holdX = 0;
   int holdY = 0;
 
   if (mappedInput.wasScreenLongPress(holdX, holdY)) {
-    const int row = taskRowAt(holdX, holdY);
+    const int taskIndex =
+        taskRowAt(holdX, holdY);
 
-    if (row >= 0) {
-      openTaskMenu(row);
+    if (taskIndex >= 0) {
+      openTaskMenu(taskIndex);
     }
 
     return;
@@ -352,20 +417,6 @@ void TodoActivity::loop() {
   int tapY = 0;
 
   if (mappedInput.wasScreenTapped(tapX, tapY)) {
-    const int row = taskRowAt(tapX, tapY);
-
-    if (row >= 0) {
-      // CrossPlay also tracks tap duration as a fallback in case an
-      // e-ink refresh caused the live long-press event to be missed.
-      if (mappedInput.tapWasHeldLong()) {
-        openTaskMenu(row);
-      } else {
-        toggleTask(row);
-      }
-
-      return;
-    }
-
     const auto& metrics =
         UITheme::getInstance().getMetrics();
 
@@ -374,13 +425,42 @@ void TodoActivity::loop() {
         metrics.headerHeight +
         metrics.verticalSpacing;
 
+    const int visibleCount =
+        visibleTaskCount();
+
+    const int taskIndex =
+        taskRowAt(tapX, tapY);
+
+    if (taskIndex >= 0) {
+      if (mappedInput.tapWasHeldLong()) {
+        openTaskMenu(taskIndex);
+      } else {
+        toggleTask(taskIndex);
+      }
+
+      return;
+    }
+
     const int addY =
-        bodyTop + taskCount_ * kRowHeight;
+        bodyTop +
+        visibleCount * kRowHeight;
 
     if (taskCount_ < kMaxTasks &&
         tapY >= addY &&
         tapY < addY + kRowHeight) {
       openAddTask();
+      return;
+    }
+
+    const int filterY =
+        addY +
+        (taskCount_ < kMaxTasks ? kRowHeight : 0);
+
+    if (tapY >= filterY &&
+        tapY < filterY + kRowHeight) {
+      hideCompleted_ = !hideCompleted_;
+      requestUpdate();
+      return;
     }
   }
 }
@@ -421,19 +501,24 @@ void TodoActivity::render(RenderLock&&) {
         "No tasks",
         4);
   } else {
+    int visibleRow = 0;
+
     for (int i = 0; i < taskCount_; ++i) {
+      Task& task = tasks_[i];
+
+      if (hideCompleted_ && task.done) {
+        continue;
+      }
+
       const int y =
           bodyTop +
-          i * kRowHeight;
+          visibleRow * kRowHeight;
 
       if (y + kRowHeight >
           sh - metrics.buttonHintsHeight) {
         break;
       }
 
-      Task& task = tasks_[i];
-
-      // Checkbox.
       const int boxX = kLeftMargin;
       const int boxY =
           y +
@@ -455,42 +540,64 @@ void TodoActivity::render(RenderLock&&) {
             true);
       }
 
-      // Task text.
       renderer.drawText(
           UI_12_FONT_ID,
           boxX + kCheckboxSize + 16,
           y + 14,
           task.text);
 
-      // Row divider.
       renderer.drawLine(
           kLeftMargin,
           y + kRowHeight - 1,
           sw - kLeftMargin,
           y + kRowHeight - 1,
           true);
+
+      ++visibleRow;
     }
   }
 
-  if (taskCount_ < kMaxTasks) {
-    const int addY =
-        bodyTop + taskCount_ * kRowHeight;
+  const int visibleCount =
+      visibleTaskCount();
 
-    if (addY + kRowHeight <
+  int controlsY =
+      bodyTop +
+      visibleCount * kRowHeight;
+
+  if (taskCount_ < kMaxTasks) {
+    if (controlsY + kRowHeight <
         sh - metrics.buttonHintsHeight) {
       renderer.drawText(
           UI_12_FONT_ID,
           kLeftMargin,
-          addY + 14,
+          controlsY + 14,
           "+ ADD TASK");
 
       renderer.drawLine(
           kLeftMargin,
-          addY + kRowHeight - 1,
+          controlsY + kRowHeight - 1,
           sw - kLeftMargin,
-          addY + kRowHeight - 1,
+          controlsY + kRowHeight - 1,
           true);
     }
+
+    controlsY += kRowHeight;
+  }
+
+  if (controlsY + kRowHeight <
+      sh - metrics.buttonHintsHeight) {
+    renderer.drawText(
+        UI_12_FONT_ID,
+        kLeftMargin,
+        controlsY + 14,
+        hideCompleted_ ? "SHOW: OPEN" : "SHOW: ALL");
+
+    renderer.drawLine(
+        kLeftMargin,
+        controlsY + kRowHeight - 1,
+        sw - kLeftMargin,
+        controlsY + kRowHeight - 1,
+        true);
   }
 
   const auto labels =
