@@ -15,6 +15,7 @@
 namespace {
 
 constexpr char kTodoPath[] = "/.crosspoint/todo.txt";
+constexpr char kTodoSettingsPath[] = "/.crosspoint/todo.cfg";
 
 constexpr int kRowHeight = 48;
 constexpr int kLeftMargin = 24;
@@ -31,9 +32,53 @@ std::unique_ptr<Activity> TodoActivity::create(
 void TodoActivity::onEnter() {
   Activity::onEnter();
 
+  loadSettings();
   loadTasks();
 
   requestUpdate();
+}
+
+
+void TodoActivity::loadSettings() {
+  hideCompleted_ = false;
+
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  if (!Storage.exists(kTodoSettingsPath)) {
+    return;
+  }
+
+  char buffer[64] = {};
+
+  if (Storage.readFileToBuffer(
+          kTodoSettingsPath,
+          buffer,
+          sizeof(buffer)) == 0) {
+    return;
+  }
+
+  hideCompleted_ =
+      std::strstr(buffer, "hide_completed=1") != nullptr;
+
+  sleepScreenEnabled_ =
+      std::strstr(buffer, "sleep_screen=1") != nullptr;
+#endif
+}
+
+void TodoActivity::saveSettings() {
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  char buffer[64];
+
+  std::snprintf(
+      buffer,
+      sizeof(buffer),
+      "hide_completed=%d\nsleep_screen=%d\n",
+      hideCompleted_ ? 1 : 0,
+      sleepScreenEnabled_ ? 1 : 0);
+
+  Storage.writeFile(
+      kTodoSettingsPath,
+      String(buffer));
+#endif
 }
 
 void TodoActivity::loadTasks() {
@@ -185,26 +230,48 @@ void TodoActivity::openTaskMenu(int index) {
     return;
   }
 
-  const char* options[] = {
-      "Edit",
-      "Move up",
-      "Move down",
-      "Delete",
-  };
+  const bool canMoveUp = index > 0;
+  const bool canMoveDown = index < taskCount_ - 1;
+
+  const char* options[4];
+  int actions[4];
+  int count = 0;
+
+  options[count] = "Edit";
+  actions[count++] = 0;
+
+  if (canMoveUp) {
+    options[count] = "Move up";
+    actions[count++] = 1;
+  }
+
+  if (canMoveDown) {
+    options[count] = "Move down";
+    actions[count++] = 2;
+  }
+
+  options[count] = "Delete";
+  actions[count++] = 3;
 
   taskMenu_.show(
       tasks_[index].text,
       options,
-      4,
+      count,
       0,
-      [this, index](int choice) {
-        if (choice == 0) {
+      [this, index, actions](int choice) {
+        if (choice < 0) {
+          return;
+        }
+
+        const int action = actions[choice];
+
+        if (action == 0) {
           editTask(index);
-        } else if (choice == 1) {
+        } else if (action == 1) {
           moveTaskUp(index);
-        } else if (choice == 2) {
+        } else if (action == 2) {
           moveTaskDown(index);
-        } else if (choice == 3) {
+        } else if (action == 3) {
           confirmDeleteTask(index);
         }
       });
@@ -491,6 +558,18 @@ void TodoActivity::loop() {
     if (tapY >= filterY &&
         tapY < filterY + kRowHeight) {
       hideCompleted_ = !hideCompleted_;
+      saveSettings();
+      requestUpdate();
+      return;
+    }
+
+    const int sleepY =
+        filterY + kRowHeight;
+
+    if (tapY >= sleepY &&
+        tapY < sleepY + kRowHeight) {
+      sleepScreenEnabled_ = !sleepScreenEnabled_;
+      saveSettings();
       requestUpdate();
       return;
     }
@@ -572,9 +651,12 @@ void TodoActivity::render(RenderLock&&) {
             true);
       }
 
+      const int textX =
+          boxX + kCheckboxSize + 16;
+
       renderer.drawText(
           UI_12_FONT_ID,
-          boxX + kCheckboxSize + 16,
+          textX,
           y + 14,
           task.text);
 
@@ -623,6 +705,26 @@ void TodoActivity::render(RenderLock&&) {
         kLeftMargin,
         controlsY + 14,
         hideCompleted_ ? "SHOW: OPEN" : "SHOW: ALL");
+
+    renderer.drawLine(
+        kLeftMargin,
+        controlsY + kRowHeight - 1,
+        sw - kLeftMargin,
+        controlsY + kRowHeight - 1,
+        true);
+
+    controlsY += kRowHeight;
+  }
+
+  if (controlsY + kRowHeight <
+      sh - metrics.buttonHintsHeight) {
+    renderer.drawText(
+        UI_12_FONT_ID,
+        kLeftMargin,
+        controlsY + 14,
+        sleepScreenEnabled_
+            ? "SLEEP SCREEN: ON"
+            : "SLEEP SCREEN: OFF");
 
     renderer.drawLine(
         kLeftMargin,
