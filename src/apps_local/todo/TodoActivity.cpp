@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "../../components/UITheme.h"
+#include "../../activities/util/KeyboardEntryActivity.h"
 #include "../Shelf.h"
 #include "fontIds.h"
 
@@ -136,6 +137,47 @@ void TodoActivity::toggleTask(int index) {
   requestUpdate();
 }
 
+
+void TodoActivity::openAddTask() {
+  if (taskCount_ >= kMaxTasks) {
+    return;
+  }
+
+  auto handler = [this](const ActivityResult& result) {
+    if (!result.isCancelled) {
+      const auto& kb = std::get<KeyboardResult>(result.data);
+
+      if (!kb.text.empty()) {
+        Task& task = tasks_[taskCount_];
+
+        task.done = false;
+
+        std::snprintf(
+            task.text,
+            sizeof(task.text),
+            "%s",
+            kb.text.c_str());
+
+        ++taskCount_;
+
+        saveTasks();
+      }
+    }
+
+    requestUpdate();
+  };
+
+  startActivityForResult(
+      std::make_unique<KeyboardEntryActivity>(
+          renderer,
+          mappedInput,
+          "Add task",
+          "",
+          kTaskTextBytes - 1,
+          InputType::Text),
+      handler);
+}
+
 int TodoActivity::taskRowAt(int x, int y) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
@@ -167,6 +209,11 @@ void TodoActivity::loop() {
     return;
   }
 
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    openAddTask();
+    return;
+  }
+
   int tapX = 0;
   int tapY = 0;
 
@@ -175,6 +222,24 @@ void TodoActivity::loop() {
 
     if (row >= 0) {
       toggleTask(row);
+      return;
+    }
+
+    const auto& metrics =
+        UITheme::getInstance().getMetrics();
+
+    const int bodyTop =
+        metrics.topPadding +
+        metrics.headerHeight +
+        metrics.verticalSpacing;
+
+    const int addY =
+        bodyTop + taskCount_ * kRowHeight;
+
+    if (taskCount_ < kMaxTasks &&
+        tapY >= addY &&
+        tapY < addY + kRowHeight) {
+      openAddTask();
     }
   }
 }
@@ -266,10 +331,31 @@ void TodoActivity::render(RenderLock&&) {
     }
   }
 
+  if (taskCount_ < kMaxTasks) {
+    const int addY =
+        bodyTop + taskCount_ * kRowHeight;
+
+    if (addY + kRowHeight <
+        sh - metrics.buttonHintsHeight) {
+      renderer.drawText(
+          UI_12_FONT_ID,
+          kLeftMargin,
+          addY + 14,
+          "+ ADD TASK");
+
+      renderer.drawLine(
+          kLeftMargin,
+          addY + kRowHeight - 1,
+          sw - kLeftMargin,
+          addY + kRowHeight - 1,
+          true);
+    }
+  }
+
   const auto labels =
       mappedInput.mapLabels(
           "Back",
-          "",
+          "Add",
           "",
           "");
 

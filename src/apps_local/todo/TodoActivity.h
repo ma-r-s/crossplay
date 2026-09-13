@@ -34,6 +34,7 @@ class TodoActivity final : public Activity {
   void loadTasks();
   void saveTasks();
   void toggleTask(int index);
+  void openAddTask();
 
   int taskRowAt(int x, int y) const;
 };
