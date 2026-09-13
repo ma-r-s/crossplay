@@ -43,6 +43,8 @@ class TodoActivity final : public Activity {
   void editTask(int index);
   void confirmDeleteTask(int index);
   void deleteTask(int index);
+  void moveTaskUp(int index);
+  void moveTaskDown(int index);
 
   int taskRowAt(int x, int y) const;
   int visibleTaskCount() const;

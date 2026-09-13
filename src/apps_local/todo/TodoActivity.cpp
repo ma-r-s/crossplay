@@ -134,7 +134,6 @@ void TodoActivity::toggleTask(int index) {
 
   tasks_[index].done = !tasks_[index].done;
 
-  sortCompletedLast();
   saveTasks();
   requestUpdate();
 }
@@ -188,18 +187,24 @@ void TodoActivity::openTaskMenu(int index) {
 
   const char* options[] = {
       "Edit",
+      "Move up",
+      "Move down",
       "Delete",
   };
 
   taskMenu_.show(
       tasks_[index].text,
       options,
-      2,
+      4,
       0,
       [this, index](int choice) {
         if (choice == 0) {
           editTask(index);
         } else if (choice == 1) {
+          moveTaskUp(index);
+        } else if (choice == 2) {
+          moveTaskDown(index);
+        } else if (choice == 3) {
           confirmDeleteTask(index);
         }
       });
@@ -350,6 +355,33 @@ void TodoActivity::sortCompletedLast() {
   for (int i = 0; i < taskCount_; ++i) {
     tasks_[i] = sorted[i];
   }
+}
+
+
+void TodoActivity::moveTaskUp(int index) {
+  if (index <= 0 || index >= taskCount_) {
+    return;
+  }
+
+  Task tmp = tasks_[index - 1];
+  tasks_[index - 1] = tasks_[index];
+  tasks_[index] = tmp;
+
+  saveTasks();
+  requestUpdate();
+}
+
+void TodoActivity::moveTaskDown(int index) {
+  if (index < 0 || index >= taskCount_ - 1) {
+    return;
+  }
+
+  Task tmp = tasks_[index + 1];
+  tasks_[index + 1] = tasks_[index];
+  tasks_[index] = tmp;
+
+  saveTasks();
+  requestUpdate();
 }
 
 int TodoActivity::taskRowAt(int x, int y) const {
