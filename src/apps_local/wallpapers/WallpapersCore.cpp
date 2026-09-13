@@ -205,6 +205,8 @@ const char* sleepScreenModeName(const uint8_t sleepScreenMode) {
       return "Quick Resume";
     case kSleepTransparentCustom:
       return "Transparent";
+    case kSleepTodo:
+      return "Todo";
     default:
       return "Unknown";
   }
@@ -257,6 +259,8 @@ const char* modeTakeoverNote(const uint8_t previousMode) {
       return "Was Quick Resume, now Custom.";
     case kSleepTransparentCustom:
       return "Was Transparent, now Custom.";
+    case kSleepTodo:
+      return "Was Todo, now Custom.";
     default:
       return nullptr;
   }

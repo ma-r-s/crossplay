@@ -32,9 +32,7 @@ class TodoActivity final : public Activity {
   Task tasks_[kMaxTasks];
   int taskCount_ = 0;
   bool hideCompleted_ = false;
-  bool sleepScreenEnabled_ = false;
-
-  OptionPopup taskMenu_;
+OptionPopup taskMenu_;
 
   void loadTasks();
   void saveTasks();

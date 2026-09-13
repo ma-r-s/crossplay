@@ -207,7 +207,8 @@ enum SleepScreenMode : uint8_t {
   kSleepBlank = 5,
   kSleepQuickResume = 6,
   kSleepTransparentCustom = 7,
-  kSleepModeCount = 8,
+  kSleepTodo = 8,
+  kSleepModeCount = 9,
 };
 
 // True when SleepActivity would draw /sleep.bmp for this combination.

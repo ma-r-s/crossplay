@@ -58,9 +58,6 @@ void TodoActivity::loadSettings() {
 
   hideCompleted_ =
       std::strstr(buffer, "hide_completed=1") != nullptr;
-
-  sleepScreenEnabled_ =
-      std::strstr(buffer, "sleep_screen=1") != nullptr;
 #endif
 }
 
@@ -71,9 +68,8 @@ void TodoActivity::saveSettings() {
   std::snprintf(
       buffer,
       sizeof(buffer),
-      "hide_completed=%d\nsleep_screen=%d\n",
-      hideCompleted_ ? 1 : 0,
-      sleepScreenEnabled_ ? 1 : 0);
+      "hide_completed=%d\n",
+      hideCompleted_ ? 1 : 0);
 
   Storage.writeFile(
       kTodoSettingsPath,
@@ -562,18 +558,7 @@ void TodoActivity::loop() {
       requestUpdate();
       return;
     }
-
-    const int sleepY =
-        filterY + kRowHeight;
-
-    if (tapY >= sleepY &&
-        tapY < sleepY + kRowHeight) {
-      sleepScreenEnabled_ = !sleepScreenEnabled_;
-      saveSettings();
-      requestUpdate();
-      return;
-    }
-  }
+}
 }
 
 void TodoActivity::render(RenderLock&&) {
@@ -715,26 +700,7 @@ void TodoActivity::render(RenderLock&&) {
 
     controlsY += kRowHeight;
   }
-
-  if (controlsY + kRowHeight <
-      sh - metrics.buttonHintsHeight) {
-    renderer.drawText(
-        UI_12_FONT_ID,
-        kLeftMargin,
-        controlsY + 14,
-        sleepScreenEnabled_
-            ? "SLEEP SCREEN: ON"
-            : "SLEEP SCREEN: OFF");
-
-    renderer.drawLine(
-        kLeftMargin,
-        controlsY + kRowHeight - 1,
-        sw - kLeftMargin,
-        controlsY + kRowHeight - 1,
-        true);
-  }
-
-  const auto labels =
+const auto labels =
       mappedInput.mapLabels(
           "Back",
           "Add",

@@ -513,3 +513,5 @@ STR_WIKI_INSTALL_CONTINUE: "Plug in to continue the copy"
 STR_WIKI_INSTALL_FAILED: "The card could not be shared. Try again."
 STR_WIKI_READY: "Wikipedia is ready"
 STR_WIKI_EMPTY: "Nothing on this card yet"
+
+STR_TODO: "Todo"

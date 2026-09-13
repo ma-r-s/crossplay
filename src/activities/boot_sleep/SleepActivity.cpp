@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -493,6 +494,131 @@ void releaseSdFontCachesForDecode(const GfxRenderer& renderer) {
   }
 }
 
+
+void renderTodoSleepScreen(GfxRenderer& renderer) {
+  constexpr char kTodoPath[] = "/.crosspoint/todo.txt";
+  constexpr int kMaxVisibleTasks = 8;
+  constexpr int kTaskBytes = 64;
+
+  char fileBuffer[2048] = {};
+  char tasks[kMaxVisibleTasks][kTaskBytes] = {};
+
+  int visibleCount = 0;
+  int totalOpen = 0;
+
+  const size_t bytesRead =
+      Storage.readFileToBuffer(
+          kTodoPath,
+          fileBuffer,
+          sizeof(fileBuffer));
+
+  if (bytesRead > 0) {
+    char* line = std::strtok(fileBuffer, "\n");
+
+    while (line != nullptr) {
+      if (std::strncmp(line, "[ ] ", 4) == 0) {
+        ++totalOpen;
+
+        if (visibleCount < kMaxVisibleTasks) {
+          const char* text = line + 4;
+
+          std::snprintf(
+              tasks[visibleCount],
+              kTaskBytes,
+              "%.55s",
+              text);
+
+          ++visibleCount;
+        }
+      }
+
+      line = std::strtok(nullptr, "\n");
+    }
+  }
+
+  const int width = renderer.getScreenWidth();
+  const int height = renderer.getScreenHeight();
+
+  constexpr int margin = 28;
+  constexpr int checkboxSize = 20;
+  constexpr int rowHeight = 48;
+
+  renderer.clearScreen();
+
+  renderer.drawText(
+      UI_12_FONT_ID,
+      margin,
+      34,
+      "TO DO",
+      true,
+      EpdFontFamily::BOLD);
+
+  renderer.drawLine(
+      margin,
+      66,
+      width - margin,
+      66,
+      true);
+
+  if (totalOpen == 0) {
+    renderer.drawCenteredText(
+        UI_12_FONT_ID,
+        height / 2,
+        "All tasks complete");
+  } else {
+    int y = 94;
+
+    for (int i = 0; i < visibleCount; ++i) {
+      renderer.drawRect(
+          margin,
+          y,
+          checkboxSize,
+          checkboxSize,
+          true);
+
+      renderer.drawText(
+          UI_12_FONT_ID,
+          margin + 34,
+          y + 2,
+          tasks[i]);
+
+      y += rowHeight;
+    }
+
+    if (totalOpen > visibleCount) {
+      char more[32] = {};
+
+      std::snprintf(
+          more,
+          sizeof(more),
+          "+ %d more",
+          totalOpen - visibleCount);
+
+      renderer.drawText(
+          UI_12_FONT_ID,
+          margin + 34,
+          y + 2,
+          more);
+    }
+  }
+
+  char footer[48] = {};
+
+  std::snprintf(
+      footer,
+      sizeof(footer),
+      "%d task%s remaining",
+      totalOpen,
+      totalOpen == 1 ? "" : "s");
+
+  renderer.drawCenteredText(
+      SMALL_FONT_ID,
+      height - 42,
+      footer);
+
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+}
+
 }  // namespace
 
 void SleepActivity::onEnter() {
@@ -552,6 +678,9 @@ void SleepActivity::onEnter() {
       } else {
         return renderCustomSleepScreen();
       }
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::TODO):
+      renderTodoSleepScreen(renderer);
+      return;
     default:
       return renderDefaultSleepScreen();
   }
