@@ -35,6 +35,7 @@
 #include "study/StudyActivity.h"
 #include "sudoku/SudokuActivity.h"
 #include "toybattle/ToyBattleActivity.h"
+#include "todo/TodoActivity.h"
 #include "trivia/TriviaActivity.h"
 #include "ui/ToyboxIcons.h"
 #include "wallpapers/WallpapersActivity.h"
@@ -73,6 +74,7 @@ constexpr shelf::Item kGames[] = {
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},
+    {"TO DO", &icon_todo_32, &TodoActivity::create},
     {"HACKER NEWS", &icon_hackernews_32, &HackerNewsActivity::create},
     {"XKCD", &icon_xkcd_32, &XkcdActivity::create},
     {"GET BOOKS", &icon_getbooks_32, &OpdsBookBrowserActivity::create},

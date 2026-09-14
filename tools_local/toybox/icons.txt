@@ -412,3 +412,5 @@ wiki_contents = list
 # waited quietly until the first file that did. It is the only name the two
 # manifests have ever shared.
 tick = check
+
+todo = list-checks

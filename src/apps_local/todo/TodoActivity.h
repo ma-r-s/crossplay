@@ -1,0 +1,55 @@
+#pragma once
+
+#include <memory>
+
+#include "../../activities/Activity.h"
+#include "../../components/OptionPopup.h"
+
+class TodoActivity final : public Activity {
+ public:
+  TodoActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
+      : Activity("Todo", renderer, mappedInput) {}
+
+  ~TodoActivity() override = default;
+
+  static std::unique_ptr<Activity> create(
+      GfxRenderer& renderer,
+      MappedInputManager& mappedInput);
+
+  void onEnter() override;
+  void loop() override;
+  void render(RenderLock&&) override;
+
+ private:
+  static constexpr int kMaxTasks = 16;
+  static constexpr int kTaskTextBytes = 80;
+
+  struct Task {
+    bool done = false;
+    char text[kTaskTextBytes] = {};
+  };
+
+  Task tasks_[kMaxTasks];
+  int taskCount_ = 0;
+  bool hideCompleted_ = false;
+OptionPopup taskMenu_;
+
+  void loadTasks();
+  void saveTasks();
+  void loadSettings();
+  void saveSettings();
+  void toggleTask(int index);
+  void openAddTask();
+  void openTaskMenu(int index);
+  void editTask(int index);
+  void confirmDeleteTask(int index);
+  void deleteTask(int index);
+  void moveTaskUp(int index);
+  void moveTaskDown(int index);
+
+  int taskRowAt(int x, int y) const;
+  int visibleTaskCount() const;
+  int taskIndexForVisibleRow(int row) const;
+  void sortCompletedLast();
+
+};
