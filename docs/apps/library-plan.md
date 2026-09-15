@@ -52,8 +52,14 @@ bring back.
     questions are at the end of this document, each with the default I take
     if he never answers.
 
+15. **The premise is a thought experiment, and the question is the method.**
+    Mario, 2026-09-15, after the first research pass drifted into which
+    books can legally be shipped: "I didn't ask about legal sources, I asked
+    about if I had all the books in existence." So: assume every book exists,
+    with its size known, and answer how to rank, whether to ask, and what to
+    say at the end. Where the books come from is an appendix, not the
+    subject.
+
 Things he did not say and I am treating as open until he does: what the
 app is called; which languages; whether a device-side app is needed to make
-thousands of books findable on the reader; whether the pool is public-domain
-books only (the only pool a public website can legally ship) or something
-else he has in mind.
+thousands of books findable on the reader.
