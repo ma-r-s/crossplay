@@ -130,13 +130,33 @@ struct MenuModel {
   const char* title = "";
   const freeink::Icon* menuIcon = nullptr;
   bool anyDone = false;
-  // Null when the reader is not on Wi-Fi. The row is still drawn, because a
-  // control that appears and disappears teaches nobody where it lives; it says
-  // what is missing instead.
+  // The address, once the page is up; null otherwise. Never a reason the row is
+  // unavailable, because it never is: tapping it with no Wi-Fi offers to join
+  // one.
   const char* phoneHint = nullptr;
 };
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
+
+// --- Typing from a phone -------------------------------------------------
+
+struct PhoneModel {
+  const char* title = "";
+  const freeink::Icon* menuIcon = nullptr;
+  // What the QR carries: the device's own address. Generated from the live IP
+  // at the moment of drawing, so the only way it can be wrong is DHCP moving
+  // this reader between the paint and the scan.
+  const char* url = "";
+  // What a person reads and can type or bookmark. The mDNS name when the
+  // responder started, the dotted address when it did not -- never a name that
+  // cannot resolve, because the prose would then blame their Wi-Fi.
+  const char* readable = "";
+  bool saved = false;
+};
+
+// Returns the square the caller draws the code into: QrUtils needs a renderer,
+// which this layer does not have.
+fui::Rect buildPhone(toybox::Screen& screen, const PhoneModel& model);
 
 // --- The delete confirm --------------------------------------------------
 

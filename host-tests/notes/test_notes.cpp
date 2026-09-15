@@ -166,6 +166,6 @@ int main() {
   testStripHeading();
   testClearing();
 
-  std::printf("notes: %d checks, %d failures\n", checks, failures);
+  std::printf("%s  notes: %d checks, %d failed\n", failures ? "FAIL" : "ok  ", checks, failures);
   return failures == 0 ? 0 : 1;
 }

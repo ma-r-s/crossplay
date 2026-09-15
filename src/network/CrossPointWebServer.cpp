@@ -32,6 +32,7 @@
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
+#include "html/NotesPageHtml.generated.h"
 #include "html/SettingsPageHtml.generated.h"
 #include "html/WallpaperPageHtml.generated.h"
 #include "html/js/jszip_minJs.generated.h"
@@ -223,8 +224,18 @@ void CrossPointWebServer::begin() {
     server->on("/w/upload", HTTP_PUT, [this] { handleWallpaperUpload(); }, [this] { handleWallpaperUploadData(); });
   }
 
+  if (isNotes()) {
+    server->on("/n", HTTP_GET, [this] { handleNotesPage(); });
+    server->on("/n/text", HTTP_GET, [this] { handleNotesText(); });
+    // PUT rather than POST for the same reason /w/upload is: this core hands
+    // one callback to both the multipart and the raw paths with nothing to tell
+    // them apart. A note is small enough to arrive as a plain body, so there is
+    // no raw handler at all here -- server->arg("plain") is the whole read.
+    server->on("/n/text", HTTP_PUT, [this] { handleNotesSave(); });
+  }
+
   // The developer surface. Present for Full and DeveloperOnly and DELIBERATELY
-  // NOT for WallpapersOnly: these routes flash firmware, and the whole point of
+  // NOT for WallpapersOnly or NotesOnly: these routes flash firmware, and the whole point of
   // that surface is that its address is printed in a QR code for anyone in the
   // room to scan. "Always present" was true when there were two surfaces; a
   // third one that quietly inherited a flashing API would be the worst kind of
@@ -2349,6 +2360,78 @@ void CrossPointWebServer::handleDevScreen() {
 // ---------------------------------------------------------------------------
 // The Wallpapers surface: one page, its script, and one upload.
 // ---------------------------------------------------------------------------
+
+// One screen of text a person typed, with room to spare. A page left open on a
+// laptop can paste a book, and this is the only door a client can push bytes
+// through.
+constexpr size_t kNotesMaxBytes = 16 * 1024;
+
+void CrossPointWebServer::handleNotesPage() const {
+  sendStaticContent(server.get(), NotesPageHtml, sizeof(NotesPageHtml), NotesPageHtmlETag, "text/html");
+}
+
+void CrossPointWebServer::handleNotesText() {
+  if (notesPath.empty()) {
+    server->send(503, "text/plain", "No note is open on the reader.");
+    return;
+  }
+  // The name rides in a header rather than in the body, so the body is the note
+  // and nothing else: a page that has to strip a prelude off the text it shows
+  // is one bug away from saving the prelude back into the file.
+  String encoded;
+  for (const char c : notesName) {
+    if (static_cast<unsigned char>(c) < 0x80 && (isalnum(c) || c == '-' || c == '_' || c == '.' || c == ' ')) {
+      encoded += c;
+    } else {
+      char hex[4];
+      std::snprintf(hex, sizeof(hex), "%%%02X", static_cast<unsigned char>(c));
+      encoded += hex;
+    }
+  }
+  server->sendHeader("X-Note-Name", encoded);
+  server->sendHeader("Cache-Control", "no-store");
+  server->send(200, "text/plain; charset=utf-8", Storage.readFile(notesPath.c_str()));
+}
+
+void CrossPointWebServer::handleNotesSave() {
+  if (notesPath.empty()) {
+    server->send(503, "text/plain", "No note is open on the reader.");
+    return;
+  }
+  const String body = server->arg("plain");
+  // A note is one screen of text somebody typed. The cap is here rather than in
+  // the app because this is the only door a client can push bytes through, and
+  // a page left open on a laptop can paste a book.
+  if (body.length() > kNotesMaxBytes) {
+    server->send(413, "text/plain", "That is too long for a note.");
+    return;
+  }
+
+  // Beside itself, then renamed. Opening the real path truncates it first, so a
+  // connection dropped mid-write would leave a note that parses as empty --
+  // which reads exactly like a note somebody deleted.
+  const std::string part = notesPath + ".part";
+  {
+    HalFile file;
+    if (!Storage.openFileForWrite("NOTES", part.c_str(), file)) {
+      server->send(500, "text/plain", "The card would not take it.");
+      return;
+    }
+    if (body.length() > 0 && file.write(body.c_str(), body.length()) != static_cast<int>(body.length())) {
+      Storage.remove(part.c_str());
+      server->send(500, "text/plain", "The card would not take it.");
+      return;
+    }
+  }
+  Storage.remove(notesPath.c_str());
+  if (!Storage.rename(part.c_str(), notesPath.c_str())) {
+    Storage.remove(part.c_str());
+    server->send(500, "text/plain", "The card would not take it.");
+    return;
+  }
+  notesChanged = true;
+  server->send(200, "text/plain", "saved");
+}
 
 void CrossPointWebServer::handleWallpaperPage() const {
   // sendStaticContent since upstream #2560: the same generated page, now

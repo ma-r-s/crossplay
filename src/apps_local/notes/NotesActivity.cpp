@@ -1,11 +1,17 @@
 #include "NotesActivity.h"
 
+#include <ESPmDNS.h>
 #include <Memory.h>
+#include <WiFi.h>
 
 #include <cstdio>
 
+#include "../../DevMode.h"
 #include "../../activities/ActivityResult.h"
+#include "../../activities/network/WifiSelectionActivity.h"
 #include "../../activities/util/KeyboardEntryActivity.h"
+#include "../../util/DeviceHostname.h"
+#include "../../util/QrUtils.h"
 #include "../Shelf.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxIcons.h"
@@ -49,7 +55,7 @@ void NotesActivity::rebuildRows() {
   deckTallies_.clear();
   deckTallies_.reserve(entries.size());
   for (const notes::Entry& entry : entries) {
-    char tally[16];
+    char tally[28];
     std::snprintf(tally, sizeof(tally), "%d/%d", entry.done, entry.total);
     deckTallies_.emplace_back(entry.hasTasks ? tally : "");
   }
@@ -115,7 +121,7 @@ void NotesActivity::relabelDeck() {
   const int count = static_cast<int>(deckRows_.size());
   deckPage_.clear();
   if (page <= 0 || count <= page) return;
-  char label[24];
+  char label[32];
   std::snprintf(label, sizeof(label), "%d / %d", deckTop_ / page + 1, (count + page - 1) / page);
   deckPage_ = label;
 }
@@ -125,7 +131,7 @@ void NotesActivity::relabelNote() {
   const int count = static_cast<int>(taskRows_.size());
   notePage_.clear();
   if (page <= 0 || count <= page) return;
-  char label[24];
+  char label[32];
   std::snprintf(label, sizeof(label), "%d / %d", noteTop_ / page + 1, (count + page - 1) / page);
   notePage_ = label;
 }
@@ -322,6 +328,108 @@ void NotesActivity::askLine() {
   });
 }
 
+// --- Typing from a phone -------------------------------------------------
+
+void NotesActivity::startPhone() {
+#ifndef SIMULATOR
+  // NEVER launch the picker unconditionally: WifiSelectionActivity::startWifiScan
+  // calls WiFi.disconnect() on every path, so an unguarded launch drops a
+  // working association and shows a redundant chooser. Four other apps guard it
+  // exactly this way.
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.mode(WIFI_STA);
+    startActivityForResult(makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput),
+                           [this](const ActivityResult& result) {
+                             if (result.isCancelled || WiFi.status() != WL_CONNECTED) {
+                               showNotice("Typing on your phone needs Wi-Fi. Nothing changed.");
+                               return;
+                             }
+                             startPhone();
+                           });
+    return;
+  }
+#endif
+
+  // Developer Mode holds 80, 81 and UDP 8134 for as long as its toggle is on,
+  // and Mario keeps a device on it. Two binds on one port fail in a way that
+  // reads as "the screen is broken", so dev mode yields while this screen is up.
+  // Every failure below leaves through stopPhone(), so the yield is released in
+  // exactly ONE place no matter which way this goes wrong.
+  devmode::pause();
+  devPaused_ = true;
+
+  server_ = makeUniqueNoThrow<CrossPointWebServer>(CrossPointWebServer::Surface::NotesOnly);
+  if (!server_) {
+    stopPhone();
+    showNotice("There was not enough memory to start.");
+    return;
+  }
+  server_->setNotesFile(std::string("/notes/") + openName_ + ".md", openName_);
+  server_->begin();
+  // The simulator has no networking shim, so begin() never leaves the server
+  // running there. The SCREEN is still drawn, because its layout is the half
+  // that can be checked without hardware; what cannot be checked on a laptop is
+  // said out loud in the commit rather than assumed.
+#ifndef SIMULATOR
+  if (!server_->isRunning()) {
+    stopPhone();
+    showNotice("The reader could not open its web server. Try again in a moment.");
+    return;
+  }
+#endif
+
+#ifdef SIMULATOR
+  // No radio here, so no name and no address to read off one. The screen is
+  // still worth drawing: its layout is the half that can be checked without
+  // hardware, and the server underneath it really does serve on the host.
+  const bool mdnsUp = false;
+  const std::string dotted = "127.0.0.1";
+#else
+  MDNS.end();
+  const bool mdnsUp = MDNS.begin(devicehost::mdnsName());
+  const std::string dotted = std::string(WiFi.localIP().toString().c_str());
+#endif
+  // THE CODE CARRIES THE ADDRESS, ALWAYS. It is generated from WiFi.localIP()
+  // at the moment of drawing and depends on no service, so the only way it can
+  // be wrong is DHCP moving this reader between the paint and the scan. The
+  // NAME depends on a responder that can fail to start -- and this function
+  // already knows when it has -- so encoding that would put a detected fault
+  // into the one element a person cannot read.
+  phoneUrl_ = "http://" + dotted + "/n";
+#ifdef SIMULATOR
+  phoneReadable_ = phoneUrl_;
+  (void)mdnsUp;
+#else
+  phoneReadable_ = mdnsUp ? std::string("http://") + devicehost::mdnsName() + ".local/n" : phoneUrl_;
+#endif
+  phoneSaved_ = false;
+  view_ = View::Phone;
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+void NotesActivity::stopPhone() {
+  if (server_) {
+    server_->stop();
+    server_.reset();
+#ifndef SIMULATOR
+    MDNS.end();
+#endif
+  }
+  // Guarded by the flag rather than by whether a server exists: the
+  // out-of-memory path never got one, and resuming a yield this screen does not
+  // hold drops the count out from under whoever does.
+  if (devPaused_) {
+    devPaused_ = false;
+    devmode::resume();
+  }
+}
+
+void NotesActivity::onExit() {
+  stopPhone();
+  Activity::onExit();
+}
+
 // --- Input ---------------------------------------------------------------
 
 void NotesActivity::loop() {
@@ -337,6 +445,12 @@ void NotesActivity::loop() {
         return;
       case View::Note:
         openDeck();
+        return;
+      case View::Phone:
+        stopPhone();
+        view_ = View::Note;
+        interactionsReady_ = false;
+        requestUpdate();
         return;
       case View::Menu:
       case View::Confirm:
@@ -379,6 +493,19 @@ void NotesActivity::loop() {
     }
   }
 
+  if (server_ && server_->isRunning()) {
+    // Pumped from loop() rather than a task: there are no background threads in
+    // this firmware, and a blocking handler on the render path is what makes a
+    // screen look frozen.
+    for (int i = 0; i < 8 && server_->isRunning(); ++i) server_->handleClient();
+    if (server_->takeNotesChanged()) {
+      reloadNote();
+      phoneSaved_ = true;
+      interactionsReady_ = false;
+      requestUpdate();
+    }
+  }
+
   int x = 0;
   int y = 0;
   // Interactions::route() refuses a tap routed against a table the panel has
@@ -417,8 +544,7 @@ void NotesActivity::loop() {
       askRename();
       return;
     case notesui::ActionUsePhone:
-      // The phone route is the next slice. Until it exists the row is drawn
-      // disabled and says why, so it never reaches here.
+      startPhone();
       return;
     case notesui::ActionDelete:
       // On the menu this OPENS the confirm; on the confirm it does the thing.
@@ -435,6 +561,7 @@ void NotesActivity::loop() {
       openDeck();
       return;
     case notesui::ActionDismiss:
+      stopPhone();
       view_ = openName_.empty() ? View::Deck : View::Note;
       interactionsReady_ = false;
       requestUpdate();
@@ -490,6 +617,17 @@ void NotesActivity::render(RenderLock&&) {
       model.menuIcon = &icon_go_settings_32;
       model.prose = "Delete this note and everything written in it? There is no way back.";
       notesui::buildConfirm(screen, model);
+      break;
+    }
+    case View::Phone: {
+      notesui::PhoneModel model;
+      model.title = openName_.c_str();
+      model.menuIcon = &icon_go_settings_32;
+      model.url = phoneUrl_.c_str();
+      model.readable = phoneReadable_.c_str();
+      model.saved = phoneSaved_;
+      const fui::Rect qr = notesui::buildPhone(screen, model);
+      QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, phoneUrl_);
       break;
     }
     case View::Notice: {

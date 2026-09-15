@@ -15,11 +15,13 @@
 // and destructive things are on a menu sheet over the note they belong to,
 // which is where Wallpapers put its own.
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "../../activities/Activity.h"
+#include "../../network/CrossPointWebServer.h"
 #include "../ui/ToyboxScreen.h"
 #include "NotesCore.h"
 #include "NotesLibrary.h"
@@ -33,11 +35,16 @@ class NotesActivity final : public Activity {
   static std::unique_ptr<Activity> create(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  // The reader must not fall asleep with its own web server up: the page would
+  // stop answering mid-sentence and the phone would blame the network.
+  bool preventAutoSleep() override { return server_ && server_->isRunning(); }
+  bool skipLoopDelay() override { return server_ && server_->isRunning(); }
 
  private:
-  enum class View : uint8_t { Deck, Note, Menu, Confirm, Notice };
+  enum class View : uint8_t { Deck, Note, Menu, Confirm, Notice, Phone };
 
   void openNote(int index);
   void openDeck();
@@ -47,6 +54,8 @@ class NotesActivity final : public Activity {
   void askRename();
   void askLine();
   void showNotice(const std::string& text);
+  void startPhone();
+  void stopPhone();
   void reloadNote();
   void rebuildRows();
   bool anyDone() const;
@@ -79,6 +88,15 @@ class NotesActivity final : public Activity {
   std::string deckPage_;
   std::string notePage_;
   std::string notice_;
+
+  // The phone page. Owned here and torn down in exactly one place, because a
+  // yield taken and not returned leaves Developer Mode without its ports for
+  // the rest of the session.
+  std::unique_ptr<CrossPointWebServer> server_;
+  bool devPaused_ = false;
+  bool phoneSaved_ = false;
+  std::string phoneUrl_;
+  std::string phoneReadable_;
 
   toybox::Interactions interactions_;
   bool interactionsReady_ = false;

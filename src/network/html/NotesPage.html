@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Type on your phone</title>
+<style>
+:root{--ink:#111;--paper:#faf9f7;--line:#111}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+header{background:#111;color:#faf9f7;padding:14px 18px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;display:flex;justify-content:space-between;gap:12px}
+header span{font-weight:400;letter-spacing:0;text-transform:none;opacity:.75}
+main{padding:18px;max-width:560px;margin:0 auto}
+p{margin:0 0 14px}
+textarea{width:100%;min-height:50vh;padding:12px;border:3px solid var(--line);background:var(--paper);color:var(--ink);font:16px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical}
+.btn{display:block;width:100%;padding:16px;border:3px solid var(--line);background:#111;color:#faf9f7;font:inherit;font-weight:700;text-align:center;cursor:pointer;margin-top:14px}
+.btn[disabled]{opacity:.4;cursor:default}
+.hint{font-size:14px;opacity:.75;margin-top:14px}
+.bad{border-left:6px solid var(--line);padding-left:12px}
+</style>
+</head>
+<body>
+<header><b id="name">Notes</b><span id="state">loading</span></header>
+<main>
+<p class="hint">One line per item. A line starting <code>- [ ]</code> is a tick box on the reader.</p>
+<textarea id="text" spellcheck="true" autocapitalize="sentences" aria-label="The note"></textarea>
+<button class="btn" id="save" disabled>SAVE TO THE READER</button>
+<p class="hint" id="note">Nothing is sent anywhere else. This page is served by the reader itself, over your own network.</p>
+</main>
+<script>
+// The whole page. It talks to one device, over plain http, same origin: no
+// mixed content to escape and no preflight. A page hosted anywhere else could
+// not make this request at all -- a browser blocks https -> http to a private
+// address outright, with no prompt and no workaround on iOS.
+// Wrapped, and nothing is called `name`. A top-level `var name` ASSIGNS TO
+// window.name, which is a string property of Window, so the element is coerced
+// to "[object HTMLElement]" and every write to it is silently dropped. The page
+// then shows its fallback title forever and nothing anywhere reports a fault.
+(function () {
+var textEl = document.getElementById('text');
+var saveEl = document.getElementById('save');
+var stateEl = document.getElementById('state');
+var nameEl = document.getElementById('name');
+var loaded = null;
+
+function say(msg) { stateEl.textContent = msg; }
+
+function load() {
+  fetch('/n/text', { cache: 'no-store' }).then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    nameEl.textContent = decodeURIComponent(r.headers.get('X-Note-Name') || 'Notes');
+    return r.text();
+  }).then(function (body) {
+    // Only when the box is untouched. Reloading over what somebody is halfway
+    // through typing is the one failure this page could cause that costs real
+    // work, and the reader is not the authority while a phone has the keyboard.
+    if (loaded === null || textEl.value === loaded) {
+      textEl.value = body;
+      loaded = body;
+    }
+    saveEl.disabled = false;
+    say('ready');
+  }).catch(function () {
+    say('cannot reach the reader');
+    document.getElementById('note').className = 'hint bad';
+  });
+}
+
+saveEl.addEventListener('click', function () {
+  saveEl.disabled = true;
+  say('saving');
+  fetch('/n/text', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    body: textEl.value
+  }).then(function (r) {
+    if (!r.ok) return r.text().then(function (m) { throw new Error(m || r.status); });
+    loaded = textEl.value;
+    saveEl.disabled = false;
+    say('saved');
+  }).catch(function (e) {
+    saveEl.disabled = false;
+    say(String(e.message || e).slice(0, 60));
+  });
+});
+
+load();
+})();
+</script>
+</body>
+</html>

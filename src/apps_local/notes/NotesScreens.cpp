@@ -91,6 +91,17 @@ void separator(toybox::Screen& screen, const fui::Rect& row) {
       fui::Paint::solid(fui::Color::Black));
 }
 
+// One line that must not overflow its box, set at the largest cut that holds it.
+// Toybox's rule is that nothing is elided, and the cuts above toybox_10 carry no
+// ellipsis glyph at all -- an overflow there draws as a sentence that stops at a
+// plausible place, and the screenshot looks fine.
+void fittedLine(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::TextAlign align,
+                const fui::FontId font) {
+  fui::TextStyle style = plain(font, align);
+  const std::string drawn = toybox::fittedTitle(screen.target(), text, box.width, style);
+  screen.target().text(box, drawn.c_str(), style);
+}
+
 // The tick box: an outline, filled with a smaller solid square when done. Pure
 // black on pure white in the one small rect that changes, which is the fastest
 // and least ghost-prone update this panel can perform. No tick glyph -- the
@@ -528,6 +539,41 @@ void buildConfirm(toybox::Screen& screen, const ConfirmModel& model) {
   footerButton(screen, fui::makeRect(keepRow.x, keepTop, keepRow.width, buttonHeight), "KEEP IT", ActionDismiss, false);
 }
 
+fui::Rect buildPhone(toybox::Screen& screen, const PhoneModel& model) {
+  chrome(screen, model.title, nullptr, model.menuIcon);
+  const fui::DeviceContext& device = screen.device();
+  const int16_t width = pageWidth(device);
+  const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
+
+  const int16_t lineHeight = screen.target().lineHeight(toybox::kTileFont);
+  const fui::Rect caption =
+      fui::makeRect(toybox::kMargin, static_cast<int16_t>(kBodyTop + toybox::kGutter), width, lineHeight);
+  fittedLine(screen, caption, "POINT YOUR PHONE CAMERA HERE", fui::TextAlign::Center, toybox::kTileFont);
+
+  // The code, the address under it, and the state under that, stacked from the
+  // caption down rather than from the footer up: the block grows downward into
+  // space that is empty, instead of upward into the button.
+  const int16_t top = static_cast<int16_t>(caption.y + caption.height + toybox::kGutter * 2);
+  const int16_t room = static_cast<int16_t>(footerY - toybox::kGutter * 2 - top - lineHeight * 3);
+  int16_t side = room < width ? room : width;
+  if (side < 120) side = 120;
+  const fui::Rect qr = fui::makeRect(static_cast<int16_t>((device.width - side) / 2), top, side, side);
+
+  const fui::Rect url =
+      fui::makeRect(toybox::kMargin, static_cast<int16_t>(qr.y + qr.height + toybox::kGutter), width, lineHeight);
+  fittedLine(screen, url, model.readable, fui::TextAlign::Center, toybox::kTileFont);
+
+  // The state line says whether anything has arrived. A screen whose whole
+  // promise is "type over there and it appears here" has to answer "did it".
+  const fui::Rect state =
+      fui::makeRect(toybox::kMargin, static_cast<int16_t>(url.y + url.height + toybox::kGutter), width, lineHeight);
+  fittedLine(screen, state, model.saved ? "SAVED FROM YOUR PHONE" : "WAITING", fui::TextAlign::Center,
+             toybox::kTileFont);
+
+  footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "DONE", ActionDismiss, false);
+  return qr;
+}
+
 void buildNotice(toybox::Screen& screen, const ConfirmModel& model) {
   chrome(screen, model.title, nullptr, nullptr);
   const fui::DeviceContext& device = screen.device();
@@ -565,11 +611,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     bool enabled;
   };
   const Row rows[] = {
-      // The hint is the ADDRESS when there is one and the REASON when there is
-      // not. A disabled row drawn with no note at all looks exactly like an
-      // enabled one, which is how the no-Wi-Fi menu shipped saying nothing.
-      {"TYPE ON YOUR PHONE", model.phoneHint != nullptr ? model.phoneHint : "join Wi-Fi first", ActionUsePhone,
-       model.phoneHint != nullptr},
+      // ALWAYS enabled, even with no Wi-Fi: tapping it is what OFFERS to join
+      // one. A row disabled with "join Wi-Fi first" would send a person to
+      // Settings to do by hand the job this row is holding the tools for.
+      {"TYPE ON YOUR PHONE", model.phoneHint, ActionUsePhone, true},
       {"CLEAR DONE", model.anyDone ? nullptr : "nothing is ticked", ActionClearDone, model.anyDone},
       {"RENAME", nullptr, ActionRename, true},
       {"DELETE NOTE", nullptr, ActionDelete, true},
