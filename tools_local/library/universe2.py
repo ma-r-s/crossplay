@@ -65,7 +65,8 @@ def load_goodreads(d):
         for line in f:
             w = json.loads(line)
             works[w["work_id"]] = {"title": w.get("original_title") or "", "ratings": int(w.get("ratings_count") or 0),
-                                   "year": w.get("original_publication_year") or "", "author": None, "toread": 0}
+                                   "year": w.get("original_publication_year") or "", "author": None, "toread": 0,
+                                   "best": w.get("best_book_id")}
     n = 0
     with gzip.open(os.path.join(d, "goodreads_books.json.gz"), "rt") as f:
         for line in f:
@@ -76,8 +77,11 @@ def load_goodreads(d):
             w = works.get(b.get("work_id"))
             if w is None:
                 continue
-            if not w["title"]:
-                w["title"] = b.get("title_without_series") or b.get("title") or ""
+            # The "best book" is the edition Goodreads shows for the work, in
+            # practice the English one; the original title can be Dutch or
+            # Swedish (Anne Frank, Stieg Larsson) and then joins nothing.
+            if not w["title"] or b.get("book_id") == w["best"]:
+                w["title"] = b.get("title_without_series") or b.get("title") or w["title"]
             if w["author"] is None and b.get("authors"):
                 w["author"] = names.get(b["authors"][0].get("author_id"))
             for shelf in b.get("popular_shelves") or []:
@@ -85,6 +89,12 @@ def load_goodreads(d):
                     w["toread"] += int(shelf.get("count") or 0)
                     break
     return works
+
+
+AMAZON_DRESSING = re.compile(
+    r"\s*(\[.*$|\b(paperback|hardcover|mass market|kindle edition|large print|deluxe edition|export|"
+    r"international edition|audio cd|library binding|board book|spiral-bound)\b.*$|\bby\s+[A-Z][^,]*,.*$|"
+    r"\((spanish|french|german|italian|portuguese) edition\).*$)", re.I)
 
 
 def load_amazon(path):
@@ -101,6 +111,7 @@ def load_amazon(path):
             except ValueError:
                 continue
             title = b.get("title") or ""
+            title = AMAZON_DRESSING.sub("", title)
             author = None
             a = b.get("author")
             if isinstance(a, dict):
@@ -194,8 +205,13 @@ def main():
 
     def slot(k, title, author):
         e = merged[k]
-        if not e["title"]:
-            e["title"], e["author"] = title, author
+        cur = e["title"]
+        better = (not cur) or (cur.startswith("[") and not title.startswith("[")) or \
+                 (not title.startswith("[") and 0 < len(title) < len(cur) and not cur.startswith("["))
+        if better and title:
+            e["title"] = title
+        if not e["author"] and author:
+            e["author"] = author
         return e
 
     print("goodreads", file=sys.stderr, flush=True)
