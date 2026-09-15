@@ -1,28 +1,38 @@
 #pragma once
 
-// The Notes screens, in three proposals each, for Mario to choose between.
+// The Notes screens.
 //
 // Freestanding builders in the InstapaperScreens mould: a model in, a drawn
 // frame out, no renderer and no Activity, so host-tests/ui can assert what they
 // drew and what they made tappable.
 //
 // ---------------------------------------------------------------------------
-// What every variant here has to survive
+// Three rules these obey, all three paid for by a render
 // ---------------------------------------------------------------------------
 //
-// These are drawn with hostile content on purpose, because the interesting
-// question is not what a shopping list looks like with "Milk" in it. Every
-// model below carries at least one item longer than its box, one empty state,
-// and a count wide enough to crowd the title. Toybox's rule is that NOTHING IS
-// EVER ELIDED, and the Toybox cuts above toybox_10 do not even carry an
-// ellipsis glyph -- an overflow there draws as a sentence that simply stops.
-// So every string that can vary is either fitted down a cut (`toybox::fitted*`)
-// or wrapped, never trusted.
+// **NOTHING IS EVER ELIDED.** Not by us and not by the list component either,
+// which will happily truncate a label to "Packing for Lisbon an..." if it is
+// handed one too long. So every variable string is measured here first and the
+// row is given a cut it fits in, or two lines of one. `notes::pickCut` returns
+// 0 when even the smallest cut cannot hold a string in the lines available,
+// and the only caller that can happen to breaks the line instead.
 //
-// The other constant: a phone is OPTIONAL. Nothing in the deck or the note
-// screen mentions one, every variant of the add screen can add an item with no
-// second device, and the phone is one route among several rather than the way
-// in.
+// **PEERS SHARE A CUT.** The rows of a deck, and the lines of a list, mean
+// "compare these with each other". Sized one by one, a long row comes out
+// smaller than the rows beside it and reads as a different kind of thing. So
+// the cut is chosen once, from the widest member, and every row is set in it.
+// The Connections board paid for this on 58% of its archive.
+//
+// **ROWS FILL THE PAGE.** A screen that holds its image for hours cannot have a
+// slab of nothing above its footer. The row height is derived from the band and
+// the number of rows on the page, within a finger-sized floor and a ceiling, so
+// a full page is full rather than top-aligned with 280px of air under it.
+//
+// There is no OFTEN row and no add screen. Both existed to make re-adding a
+// frequent item one tap; Mario cut them, and the whole add screen went with
+// them, because a list of frequent items was all that screen held. Adding is
+// the keyboard, and the phone route lives on the menu sheet where it is one
+// choice among four rather than a second way of looking at the note.
 
 #include <cstdint>
 
@@ -37,42 +47,54 @@ namespace fui = freeink::ui;
 enum : fui::ActionId {
   ActionOpenNote = 340,
   ActionNewNote = 341,
-  ActionToggleTask = 342,  // actionValue carries the row index
-  ActionAdd = 343,
-  ActionAddOften = 344,  // actionValue carries the pill index
-  ActionTypeHere = 345,
-  ActionUsePhone = 346,
-  ActionClearDone = 347,
-  ActionNoteMenu = 348,
+  ActionToggleTask = 342,
+  ActionAddLine = 343,
+  ActionMenu = 344,
+  ActionClearDone = 345,
+  ActionRename = 346,
+  ActionDelete = 347,
+  ActionUsePhone = 348,
+  ActionDismiss = 349,
 };
+
+// --- Shared measuring ----------------------------------------------------
+
+// The largest cut in which every one of `strings` fits `width` in at most
+// `maxLines` lines, with nothing dropped. Returns 0 when even the smallest
+// cannot, which is the caller's signal to break rather than to shrink.
+fui::FontId pickCut(const fui::DrawTarget& target, const char* const* strings, int count, int16_t width, int maxLines,
+                    const fui::TextStyle& probe);
+
+// How many lines `text` needs at `style`'s cut, or 0 if more than `maxLines`.
+int linesNeeded(const fui::DrawTarget& target, const char* text, int16_t width, int maxLines,
+                const fui::TextStyle& style);
 
 // --- The deck ------------------------------------------------------------
 
-struct DeckModel {
-  const fui::ListItem* items = nullptr;  // label = title, value = "4/9" or null
-  int count = 0;
-  int selected = 0;
-  int topIndex = 0;
+struct DeckItem {
+  const char* title = "";
+  const char* tally = nullptr;  // "4/9", or null for a note with no tasks
 };
 
-// A: a list with the count in the value slot, and NEW NOTE on the footer bar.
-void buildDeckList(toybox::Screen& screen, const DeckModel& model);
+struct DeckModel {
+  const DeckItem* items = nullptr;
+  int count = 0;
+  int firstVisible = 0;
+};
 
-// B: the same rows with the count drawn as a bracketed tally in the row's own
-// right-hand gutter, and no footer: NEW NOTE is a row at the end of the list,
-// so the deck is one column of things and the page never has a dead bar.
-void buildDeckTally(toybox::Screen& screen, const DeckModel& model);
+// A: rows with a pinned NEW NOTE bar at the foot.
+void buildDeckBar(toybox::Screen& screen, const DeckModel& model);
 
-// C: two-up cards. A note is a card, so it is drawn as one: a framed box with
-// the title inside it and the tally in the corner marks.
-void buildDeckCards(toybox::Screen& screen, const DeckModel& model);
+// B: the same rows with NEW NOTE as the last row of the column, so the page is
+// one list of things and there is no bar under it to leave a gap above.
+void buildDeckRow(toybox::Screen& screen, const DeckModel& model);
 
 // --- A note, open --------------------------------------------------------
 
 struct Task {
   const char* text = "";
   bool checked = false;
-  bool isTask = true;  // false draws the line as prose, with no box
+  bool isTask = true;
 };
 
 struct NoteModel {
@@ -80,55 +102,37 @@ struct NoteModel {
   const Task* tasks = nullptr;
   int count = 0;
   int firstVisible = 0;
-  // The OFTEN row: what this note has held before and is not holding now.
-  const char* const* often = nullptr;
-  int oftenCount = 0;
   bool anyDone = false;
+  // "1 / 2", set by the Activity only when the note does not fit one page. A
+  // list that silently stops at the sixth of eight lines is the worst thing
+  // this screen can do, and the gap above the footer is where it goes, because
+  // that gap is the only space on the page that is otherwise doing nothing.
+  const char* pageLabel = nullptr;
+  // The menu control on the band. Owned by the Activity, which knows the
+  // glyphs; a square icon button sits centred on the band where a text label
+  // sits on the component's own baseline, low against the title.
+  const freeink::Icon* menuIcon = nullptr;
 };
 
-// A: box on the left, text beside it, OFTEN pills along the bottom.
-void buildNoteBoxes(toybox::Screen& screen, const NoteModel& model);
+// A: tick boxes, with ADD and CLEAR DONE on a footer bar.
+void buildNoteBar(toybox::Screen& screen, const NoteModel& model);
 
-// B: no boxes. A done line is struck and carries a heavy left bar, so the ink
-// that marks it is in the margin rather than in a column of empty squares.
-void buildNoteBars(toybox::Screen& screen, const NoteModel& model);
+// B: tick boxes, with ADD A LINE as the last row. Everything else is on the
+// menu, so the page is the list and nothing else.
+void buildNoteRow(toybox::Screen& screen, const NoteModel& model);
 
-// C: boxes on the left, and the bottom bar is two buttons (ADD, CLEAR DONE)
-// rather than pills, so the OFTEN list lives one tap away on the add screen and
-// this screen is nothing but the list.
-void buildNoteQuiet(toybox::Screen& screen, const NoteModel& model);
+// --- The menu ------------------------------------------------------------
 
-// The row band and row height, shared with the Activity so its hit-testing and
-// the drawn rows come from one function rather than two that can disagree.
-fui::Rect noteBand(const fui::DeviceContext& device, bool withPills);
-int16_t noteRowHeight(const fui::DrawTarget& target);
-
-// --- Adding, without a phone ---------------------------------------------
-
-struct AddModel {
-  const char* noteTitle = "";
-  const char* const* often = nullptr;
-  int oftenCount = 0;
-  // Drawn only by buildAddSplit, and only when the Activity has an address to
-  // put in it. Null means the device is not on Wi-Fi, and that variant then
-  // draws its bottom half as the reason rather than as a broken code.
-  const char* phoneUrl = nullptr;
+struct MenuModel {
+  const char* title = "";
+  const freeink::Icon* menuIcon = nullptr;
+  bool anyDone = false;
+  // Null when the reader is not on Wi-Fi. The row is still drawn, because a
+  // control that appears and disappears teaches nobody where it lives; it says
+  // what is missing instead.
+  const char* phoneHint = nullptr;
 };
 
-// A: a full page of OFTEN pills in two columns, with TYPE and PHONE on the
-// footer. The things you have bought before are the fastest way to add one.
-void buildAddPills(toybox::Screen& screen, const AddModel& model);
-
-// B: a plain list of the same items, one per row, with TYPE IT as the first
-// row. Rows hold a long item that a pill cannot.
-void buildAddList(toybox::Screen& screen, const AddModel& model);
-
-// C: split page -- pills on top, the phone route drawn underneath with its
-// address, so both ways are visible at once and neither is a mode.
-void buildAddSplit(toybox::Screen& screen, const AddModel& model);
-
-// The QR square buildAddSplit reserves. The Activity draws the code into it
-// with QrUtils, which needs a renderer this layer does not have.
-fui::Rect addQrBox(const fui::DeviceContext& device);
+void buildMenu(toybox::Screen& screen, const MenuModel& model);
 
 }  // namespace notesui

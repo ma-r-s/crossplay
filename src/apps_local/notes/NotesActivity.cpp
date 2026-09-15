@@ -4,6 +4,7 @@
 
 #include "../Shelf.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxTheme.h"
 #include "NotesScreens.h"
 
@@ -11,58 +12,47 @@ namespace fui = freeink::ui;
 
 namespace {
 
-// The gallery's content is deliberately hostile. Every list here carries an
-// item longer than its box, a name longer than the band, a tally wide enough
-// to crowd a title, and a prose line among the tasks -- because a proposal
-// that only survives "Milk" has not been judged at all.
+// The gallery's content is deliberately hostile. A note name longer than the
+// band, a task longer than its row, a tally of 11/34, and a prose line among
+// the tasks -- because a proposal that only survives "Milk" has not been judged.
 
-const fui::ListItem kDeckItems[] = {
-    {"Shopping", nullptr, "4/9"},
-    {"Packing for Lisbon and the wedding", nullptr, "0/12"},
-    {"Bread", nullptr, nullptr},
-    {"Bike service before the Pyrenees trip", nullptr, "2/5"},
-    {"Guest wifi", nullptr, nullptr},
-    {"Things to ask the landlord about the flat", nullptr, "11/34"},
+const notesui::DeckItem kDeckItems[] = {
+    {"Shopping", "4/9"},     {"Packing for Lisbon and the wedding", "0/12"},
+    {"Bread", nullptr},      {"Bike service before the Pyrenees trip", "2/5"},
+    {"Guest wifi", nullptr}, {"Things to ask the landlord about the flat", "11/34"},
 };
 
 const notesui::Task kTasks[] = {
-    {"Milk", true, true},
-    {"Eggs", true, true},
-    {"Bread flour", false, true},
-    {"Ask Nuria about the ferry tickets for Sunday", false, true},
-    {"Olive oil", true, true},
-    {"the good one, not the cooking one", false, false},
-    {"Lemons", false, true},
-    {"Coffee beans", false, true},
+    {"Milk", true, true},         {"Eggs", true, true},
+    {"Bread flour", false, true}, {"Ask Nuria about the ferry tickets for Sunday", false, true},
+    {"Olive oil", true, true},    {"the good one, not the cooking one", false, false},
+    {"Lemons", false, true},      {"Coffee beans", false, true},
 };
-
-const char* const kOften[] = {"milk", "bananas", "butter", "tinned tomatoes", "rice"};
 
 notesui::DeckModel deck(const int count) {
   notesui::DeckModel model;
   model.items = kDeckItems;
   model.count = count;
-  model.selected = 1;
   return model;
 }
 
-notesui::NoteModel note() {
+notesui::NoteModel note(const int count, const char* pageLabel = nullptr) {
   notesui::NoteModel model;
   model.title = "SHOPPING";
   model.tasks = kTasks;
-  model.count = static_cast<int>(sizeof(kTasks) / sizeof(kTasks[0]));
-  model.often = kOften;
-  model.oftenCount = static_cast<int>(sizeof(kOften) / sizeof(kOften[0]));
+  model.count = count;
   model.anyDone = true;
+  model.pageLabel = pageLabel;
+  model.menuIcon = &icon_go_settings_32;
   return model;
 }
 
-notesui::AddModel add(const char* url) {
-  notesui::AddModel model;
-  model.noteTitle = "SHOPPING";
-  model.often = kOften;
-  model.oftenCount = static_cast<int>(sizeof(kOften) / sizeof(kOften[0]));
-  model.phoneUrl = url;
+notesui::MenuModel menu(const char* phoneHint) {
+  notesui::MenuModel model;
+  model.title = "SHOPPING";
+  model.anyDone = true;
+  model.phoneHint = phoneHint;
+  model.menuIcon = &icon_go_settings_32;
   return model;
 }
 
@@ -107,38 +97,32 @@ void NotesActivity::render(RenderLock&&) {
   toybox::Screen screen(frame);
 
   switch (proposal_) {
-    case Proposal::DeckList:
-      notesui::buildDeckList(screen, deck(6));
+    case Proposal::DeckBar:
+      notesui::buildDeckBar(screen, deck(6));
       break;
-    case Proposal::DeckTally:
-      notesui::buildDeckTally(screen, deck(6));
+    case Proposal::DeckRow:
+      notesui::buildDeckRow(screen, deck(6));
       break;
-    case Proposal::DeckCards:
-      notesui::buildDeckCards(screen, deck(6));
+    case Proposal::NoteBar:
+      notesui::buildNoteBar(screen, note(8, "1 / 2"));
       break;
-    case Proposal::NoteBoxes:
-      notesui::buildNoteBoxes(screen, note());
+    case Proposal::NoteRow:
+      notesui::buildNoteRow(screen, note(8, "1 / 2"));
       break;
-    case Proposal::NoteBars:
-      notesui::buildNoteBars(screen, note());
+    case Proposal::Menu:
+      notesui::buildMenu(screen, menu("192.168.1.42"));
       break;
-    case Proposal::NoteQuiet:
-      notesui::buildNoteQuiet(screen, note());
+    case Proposal::MenuNoWifi:
+      notesui::buildMenu(screen, menu(nullptr));
       break;
-    case Proposal::AddPills:
-      notesui::buildAddPills(screen, add("http://192.168.1.42"));
+    case Proposal::DeckShort:
+      notesui::buildDeckRow(screen, deck(3));
       break;
-    case Proposal::AddList:
-      notesui::buildAddList(screen, add("http://192.168.1.42"));
-      break;
-    case Proposal::AddSplit:
-      notesui::buildAddSplit(screen, add("http://192.168.1.42"));
+    case Proposal::NoteShort:
+      notesui::buildNoteRow(screen, note(3));
       break;
     case Proposal::DeckEmpty:
-      notesui::buildDeckList(screen, deck(0));
-      break;
-    case Proposal::AddNoWifi:
-      notesui::buildAddSplit(screen, add(nullptr));
+      notesui::buildDeckBar(screen, deck(0));
       break;
     case Proposal::kCount:
       break;

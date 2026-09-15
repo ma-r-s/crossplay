@@ -1,6 +1,7 @@
 #include "NotesScreens.h"
 
 #include <string>
+#include <vector>
 
 #include "../ui/ToyboxText.h"
 
@@ -9,32 +10,11 @@ namespace {
 
 constexpr int kBodyTop = toybox::kBodyTop;
 constexpr int kFooterHeight = toybox::kPillHeight;
-constexpr int kBoxSide = 40;      // the tick box; 40 + its padding clears a finger
-constexpr int kPillGap = toybox::kGutter;
+constexpr int kBoxSide = 40;
+constexpr int kRowPad = toybox::kGutter;
+constexpr int kMinRow = 72;  // a finger, with room to miss
 
-int16_t pageWidth(const fui::DeviceContext& device) {
-  return static_cast<int16_t>(device.width - 2 * toybox::kMargin);
-}
-
-// Header band, rule, page margin. rightLabel is drawn in PAPER: the band is
-// solid black and the header component styles a right label with subtitleText,
-// whose default colour is Black, so a label left at the default is painted
-// black on black and simply is not there. Study, Hacker News and Instapaper
-// each paid for this once; it is copied rather than rediscovered.
-void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
-  fui::HeaderProps header;
-  header.title = title;
-  header.rightLabel = rightLabel;
-  header.borderEdges = fui::EdgesNone;
-  if (rightLabel != nullptr) {
-    header.subtitleText = screen.theme().smallText;
-    header.subtitleText.color = fui::Color::White;
-    header.subtitleText.align = fui::TextAlign::Right;
-  }
-  toybox::absoluteChrome(screen);
-  toybox::headerBand(screen, header);
-  screen.insetContent(fui::Insets{toybox::kBodyGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-}
+int16_t pageWidth(const fui::DeviceContext& device) { return static_cast<int16_t>(device.width - 2 * toybox::kMargin); }
 
 fui::TextStyle plain(const fui::FontId font, const fui::TextAlign align = fui::TextAlign::Left,
                      const uint8_t maxLines = 1) {
@@ -46,125 +26,119 @@ fui::TextStyle plain(const fui::FontId font, const fui::TextAlign align = fui::T
   return style;
 }
 
-// A line of text that must not overflow its box, set at the largest cut that
-// holds it. Toybox's rule is that nothing is elided, and the cuts above
-// toybox_10 carry no ellipsis glyph at all -- an overflow there draws as a
-// sentence that stops at a plausible place and a screenshot looks fine. So
-// every variable string on these screens goes through here.
-void fittedLine(toybox::Screen& screen, const fui::Rect& box, const char* text, fui::TextAlign align,
-                fui::FontId font) {
-  fui::TextStyle style = plain(font, align);
-  const std::string drawn = toybox::fittedTitle(screen.target(), text, box.width, style);
-  // The line box is what gets centred, not the ink, and Screen clamps the
-  // offset at zero -- so a box shorter than the chosen cut's line box drops the
-  // text's foot out of the bottom. Give it the whole row and let it centre.
-  screen.target().text(box, drawn.c_str(), style);
+// Header band, rule, page margin. The title is fitted before it goes on the
+// band: the header component elides, kHeaderHeight is load-bearing so the band
+// cannot grow, and the Toybox cuts above toybox_10 carry no ellipsis glyph at
+// all -- an overflow there draws as a name that simply stops.
+void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr,
+            const freeink::Icon* trailing = nullptr) {
+  const int16_t band = static_cast<int16_t>(screen.device().width - 2 * toybox::kMargin);
+  fui::TextStyle titleStyle = screen.theme().titleText;
+  int16_t room = band;
+  if (rightLabel != nullptr) {
+    fui::TextStyle right = screen.theme().smallText;
+    right.font = toybox::kTileFont;
+    room = static_cast<int16_t>(band - screen.target().measureText(right.font, rightLabel, right).width -
+                                toybox::kGutter * 2);
+  }
+  static std::string fitted;
+  fitted = toybox::fittedTitle(screen.target(), title, room, titleStyle);
+
+  fui::HeaderProps header;
+  header.title = fitted.c_str();
+  header.titleText = titleStyle;
+  header.rightLabel = rightLabel;
+  header.borderEdges = fui::EdgesNone;
+  if (rightLabel != nullptr) {
+    header.subtitleText = screen.theme().smallText;
+    header.subtitleText.font = toybox::kTileFont;
+    header.subtitleText.color = fui::Color::White;
+    header.subtitleText.align = fui::TextAlign::Right;
+  }
+  if (trailing != nullptr) {
+    header.trailingIcon = fui::bitmapFromIcon(*trailing);
+    header.trailingAction = ActionMenu;
+    header.trailingStyles = toybox::rowStyles();
+  }
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
+  screen.insetContent(fui::Insets{toybox::kBodyGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
-// The tick box: an outlined square, filled with a smaller solid square when
-// done. Pure black on pure white in the one small rect that changes, which is
-// the fastest and least ghost-prone update this panel can perform. No tick
-// glyph: the Toybox face is ASCII-only and a check mark is not in it.
+// A row's tap target, invisible: the whole row, because a 40px box is a miss
+// waiting to happen and a miss costs two refreshes, the wrong one and the undo.
+void rowHit(toybox::Screen& screen, const fui::Rect& row, const fui::ActionId action, const int index) {
+  fui::ButtonProps hit;
+  hit.label = "";
+  hit.action = action;
+  hit.value = static_cast<int16_t>(index);
+  hit.styles = toybox::rowStyles();
+  hit.styles.normal.background = fui::Paint::none();
+  hit.styles.normal.border = fui::Paint::none();
+  screen.button(hit, row);
+}
+
+// Never on the last row of a page: a rule against the band edge, or against the
+// bar under it, reads as a double line and is the one place a list looks
+// unfinished rather than divided.
+void separator(toybox::Screen& screen, const fui::Rect& row) {
+  screen.target().fill(
+      fui::makeRect(row.x, static_cast<int16_t>(row.y + row.height - toybox::kHairline), row.width, toybox::kHairline),
+      fui::Paint::solid(fui::Color::Black));
+}
+
+// The tick box: an outline, filled with a smaller solid square when done. Pure
+// black on pure white in the one small rect that changes, which is the fastest
+// and least ghost-prone update this panel can perform. No tick glyph -- the
+// Toybox face is ASCII and a check mark is not in it.
 void tickBox(toybox::Screen& screen, const fui::Rect& box, const bool checked) {
   screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kRule, 4);
   if (!checked) return;
-  const int16_t inset = 10;
-  screen.target().fill(fui::makeRect(static_cast<int16_t>(box.x + inset), static_cast<int16_t>(box.y + inset),
-                                     static_cast<int16_t>(box.width - 2 * inset),
-                                     static_cast<int16_t>(box.height - 2 * inset)),
-                       fui::Paint::solid(fui::Color::Black), 2);
+  const int16_t inset = 9;
+  screen.target().fill(
+      fui::makeRect(static_cast<int16_t>(box.x + inset), static_cast<int16_t>(box.y + inset),
+                    static_cast<int16_t>(box.width - 2 * inset), static_cast<int16_t>(box.height - 2 * inset)),
+      fui::Paint::solid(fui::Color::Black), 2);
 }
 
-// A done line is struck through, not greyed: grey is a dither on this panel and
-// a dithered flat field ghosts, while a rule is one crisp row of pixels. The
-// strike is measured against the DRAWN string, so a line that had to shrink to
-// fit gets a strike the length of what is actually on the glass.
-void strike(toybox::Screen& screen, const fui::Rect& box, const char* drawn, const fui::TextStyle& style) {
-  const int16_t width = screen.target().measureText(style.font, drawn, style).width;
-  const int16_t y = static_cast<int16_t>(box.y + box.height / 2);
-  screen.target().line(fui::Point{box.x, y}, fui::Point{static_cast<int16_t>(box.x + width), y},
-                       toybox::kHairline * 2, fui::Paint::solid(fui::Color::Black));
+// Text drawn from the top of its box rather than centred, so a one-line row and
+// a two-line row start their first line at the same height. Screen::text
+// centres the LINE BOX, which would put a one-liner's baseline somewhere a
+// two-liner's is not, and a column of rows that disagree about that reads as
+// bad spacing even when every row is correct on its own.
+void topText(toybox::Screen& screen, const fui::Rect& box, const std::string& text, const fui::TextStyle& style,
+             const int lines) {
+  const int16_t lineHeight = screen.target().lineHeight(style.font);
+  const fui::Rect drawn = fui::makeRect(box.x, box.y, box.width, static_cast<int16_t>(lineHeight * lines));
+  screen.target().text(drawn, text.c_str(), style);
 }
 
-// One task row, drawn by hand because a tick box is not a ListItem: the
-// component's toggle slot draws a switch, which means "a setting is on", not
-// "you have bought this".
-void taskRow(toybox::Screen& screen, const fui::Rect& row, const Task& task, const int index, const bool withBox,
-             const bool withBar) {
-  int16_t textX = row.x;
-  if (withBox && task.isTask) {
-    const fui::Rect box = fui::makeRect(row.x, static_cast<int16_t>(row.y + (row.height - kBoxSide) / 2), kBoxSide,
-                                        kBoxSide);
-    tickBox(screen, box, task.checked);
-    textX = static_cast<int16_t>(row.x + kBoxSide + toybox::kGutter);
-  }
-  if (withBar) {
-    // The margin bar: present for every task so the column is straight, solid
-    // only when done. An indicator that appears and disappears moves the text
-    // beside it; one that changes weight does not.
-    const fui::Rect bar = fui::makeRect(row.x, static_cast<int16_t>(row.y + 6), 6,
-                                        static_cast<int16_t>(row.height - 12));
-    if (!task.isTask) {
-      // Prose gets no bar at all, and no indent either: it is not a thing to do.
-    } else if (task.checked) {
-      screen.target().fill(bar, fui::Paint::solid(fui::Color::Black), 3);
-    } else {
-      screen.target().stroke(bar, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 3);
-    }
-    if (task.isTask) textX = static_cast<int16_t>(row.x + 6 + toybox::kGutter);
-  }
-
-  const fui::Rect textBox =
-      fui::makeRect(textX, row.y, static_cast<int16_t>(row.x + row.width - textX), row.height);
-  fui::TextStyle style = plain(task.isTask ? toybox::kBodyFont : toybox::kTileFont);
-  const std::string drawn = toybox::fittedTitle(screen.target(), task.text, textBox.width, style);
-  screen.target().text(textBox, drawn.c_str(), style);
-  if (task.checked) strike(screen, textBox, drawn.c_str(), style);
-
-  // The whole row is the target, not the box: a 40px square is a miss waiting
-  // to happen and a miss costs two refreshes, the wrong one and the undo.
-  if (task.isTask) {
-    fui::ButtonProps hit;
-    hit.label = "";
-    hit.action = ActionToggleTask;
-    hit.value = static_cast<int16_t>(index);
-    hit.styles = toybox::rowStyles();
-    hit.styles.normal.background = fui::Paint::none();
-    hit.styles.normal.border = fui::Paint::none();
-    screen.button(hit, row);
+// The strike is measured against the LONGEST DRAWN LINE, not the source string,
+// so a line that wrapped gets a rule the width of what is really on the glass.
+void strikeLines(toybox::Screen& screen, const fui::Rect& box, const std::string& drawn, const fui::TextStyle& style,
+                 const int lines) {
+  const int16_t lineHeight = screen.target().lineHeight(style.font);
+  size_t start = 0;
+  for (int i = 0; i < lines; i++) {
+    size_t stop = drawn.find('\n', start);
+    if (stop == std::string::npos) stop = drawn.size();
+    const std::string run = drawn.substr(start, stop - start);
+    const int16_t width = screen.target().measureText(style.font, run.c_str(), style).width;
+    const int16_t y = static_cast<int16_t>(box.y + i * lineHeight + lineHeight / 2);
+    screen.target().fill(fui::makeRect(box.x, y, width, 2), fui::Paint::solid(fui::Color::Black));
+    if (stop >= drawn.size()) break;
+    start = stop + 1;
   }
 }
 
-// The OFTEN strip: pills of things this list has held before. Each is sized to
-// its own word, because these are not peers being compared -- unlike a grid of
-// Connections tiles, a row of shopping items has no meaning in their relative
-// size. A pill that will not fit the row is simply not drawn; the add screen
-// holds the whole list.
-void oftenStrip(toybox::Screen& screen, const fui::Rect& strip, const char* const* items, const int count) {
-  fui::TextStyle label = plain(toybox::kTileFont, fui::TextAlign::Center);
-  screen.target().line(fui::Point{0, strip.y}, fui::Point{static_cast<int16_t>(strip.x + strip.width), strip.y},
-                       toybox::kRule, fui::Paint::solid(fui::Color::Black));
-
-  const fui::Rect tag = fui::makeRect(strip.x, static_cast<int16_t>(strip.y + toybox::kGutter / 2), 90,
-                                      screen.target().lineHeight(toybox::kTileFont));
-  fui::TextStyle tagStyle = plain(toybox::kTileFont);
-  screen.target().text(tag, "OFTEN", tagStyle);
-
-  const int16_t pillTop = static_cast<int16_t>(tag.y + tag.height + toybox::kGutter / 2);
-  const int16_t pillHeight = static_cast<int16_t>(screen.target().lineHeight(toybox::kBodyFont) + toybox::kGutter);
-  int16_t x = strip.x;
-  for (int i = 0; i < count; i++) {
-    const int16_t textWidth = screen.target().measureText(label.font, items[i], label).width;
-    const int16_t pillWidth = static_cast<int16_t>(textWidth + toybox::kMargin * 2);
-    if (x + pillWidth > strip.x + strip.width) break;
-    fui::ButtonProps pill;
-    pill.label = items[i];
-    pill.action = ActionAddOften;
-    pill.value = static_cast<int16_t>(i);
-    pill.styles = toybox::rowStyles();
-    screen.button(pill, fui::makeRect(x, pillTop, pillWidth, pillHeight));
-    x = static_cast<int16_t>(x + pillWidth + kPillGap);
-  }
+// Row height comes from the TYPE, never from how many rows there are. Dividing
+// the band by the count fills a short page, but it also means the same note is
+// drawn with different spacing after one line is added, and a list whose rhythm
+// changes as you use it reads worse than one that ends early. So: the lines the
+// cut needs plus air, floored at a finger.
+int16_t typeRowHeight(const int16_t lineHeight, const int lines) {
+  const int height = lineHeight * lines + kRowPad * 2;
+  return static_cast<int16_t>(height < kMinRow ? kMinRow : height);
 }
 
 void footerButton(toybox::Screen& screen, const fui::Rect& box, const char* label, const fui::ActionId action,
@@ -176,421 +150,410 @@ void footerButton(toybox::Screen& screen, const fui::Rect& box, const char* labe
   screen.button(button, box);
 }
 
-}  // namespace
-
-// --- The deck ------------------------------------------------------------
-
-namespace {
-
-int16_t deckRowHeight(const fui::DrawTarget& target) {
-  return static_cast<int16_t>(target.lineHeight(toybox::kBodyFont) + toybox::kGutter * 2);
+// "1 / 2" in the strip under the band. It is small, centred and the only thing
+// down there, so it reads as a page number rather than as a control.
+void pageLabel(toybox::Screen& screen, const fui::Rect& band, const char* label) {
+  if (label == nullptr) return;
+  fui::TextStyle style = plain(toybox::kTileFont, fui::TextAlign::Center);
+  const int16_t lineHeight = screen.target().lineHeight(style.font);
+  screen.target().text(
+      fui::makeRect(band.x, static_cast<int16_t>(band.y + band.height - lineHeight), band.width, lineHeight), label,
+      style);
 }
 
-void deckEmpty(toybox::Screen& screen, const fui::Rect& band) {
-  // The first thing a stranger sees. It says what a note is here and how one
-  // arrives, in the two sentences the panel can hold, and it never mentions a
-  // phone: the device alone is the whole product.
-  fui::TextStyle style = plain(toybox::kBodyFont, fui::TextAlign::Center, 4);
-  const fui::Rect box = fui::makeRect(band.x, static_cast<int16_t>(band.y + band.height / 4), band.width,
-                                      static_cast<int16_t>(screen.target().lineHeight(toybox::kBodyFont) * 4));
-  const std::string drawn =
-      toybox::fitLines(screen.target(), "Nothing here yet. A note is a list you tick, or a page you keep.",
-                       box.width, 4, style);
+void centredNotice(toybox::Screen& screen, const fui::Rect& band, const char* text) {
+  fui::TextStyle style = plain(toybox::kBodyFont, fui::TextAlign::Center, 3);
+  const int16_t lineHeight = screen.target().lineHeight(style.font);
+  const fui::Rect box = fui::makeRect(band.x, static_cast<int16_t>(band.y + (band.height - lineHeight * 3) / 2),
+                                      band.width, static_cast<int16_t>(lineHeight * 3));
+  const std::string drawn = toybox::fitLines(screen.target(), text, box.width, 3, style);
   screen.target().text(box, drawn.c_str(), style);
 }
 
 }  // namespace
 
-void buildDeckList(toybox::Screen& screen, const DeckModel& model) {
-  chrome(screen, "NOTES");
-  const fui::DeviceContext& device = screen.device();
-  const int16_t width = pageWidth(device);
-  const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
-  const fui::Rect band = fui::makeRect(toybox::kMargin, kBodyTop, width,
-                                       static_cast<int16_t>(footerY - toybox::kGutter - kBodyTop));
+// --- Shared measuring ----------------------------------------------------
 
-  // Taken first so the list can never grow into it, and drawn on the empty
-  // deck too: an empty deck is exactly when someone needs the way to start.
-  footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "NEW NOTE", ActionNewNote,
-               false);
-
-  if (model.count == 0) {
-    deckEmpty(screen, band);
-    return;
-  }
-
-  fui::ListProps list;
-  list.items = model.items;
-  list.count = static_cast<uint16_t>(model.count);
-  list.topIndex = static_cast<uint16_t>(model.topIndex);
-  list.selectedIndex = static_cast<int16_t>(model.selected);
-  list.action = ActionOpenNote;
-  list.rowHeight = deckRowHeight(screen.target());
-  list.labelText = screen.theme().bodyText;
-  list.labelText.maxLines = 1;
-  list.valueText = screen.theme().smallText;
-  list.valueText.font = toybox::kTileFont;
-  list.valueText.align = fui::TextAlign::Right;
-  // The title is the content and the tally is a footnote, so the title is not
-  // capped at 60% of the row to sit prettily beside it.
-  list.balanceWrappedLabelWithValue = false;
-  screen.list(list, band.height, fui::LayoutAnchor::Top);
-}
-
-void buildDeckTally(toybox::Screen& screen, const DeckModel& model) {
-  chrome(screen, "NOTES");
-  const fui::DeviceContext& device = screen.device();
-  const int16_t width = pageWidth(device);
-  const fui::Rect band = fui::makeRect(toybox::kMargin, kBodyTop, width,
-                                       static_cast<int16_t>(device.height - toybox::kMargin - kBodyTop));
-
-  const int16_t rowHeight = deckRowHeight(screen.target());
-  int16_t y = band.y;
-  for (int i = 0; i < model.count; i++) {
-    if (y + rowHeight > band.y + band.height - rowHeight) break;  // keep room for the last row
-    const fui::Rect row = fui::makeRect(band.x, y, band.width, rowHeight);
-
-    // The tally sits in its own reserved gutter whether or not this note has
-    // one, so a prose note and a list note keep the same left edge and the
-    // column of titles does not jog.
-    const int16_t tallyWidth = 86;
-    const fui::Rect titleBox =
-        fui::makeRect(row.x, row.y, static_cast<int16_t>(row.width - tallyWidth - toybox::kGutter), row.height);
-    fittedLine(screen, titleBox, model.items[i].label, fui::TextAlign::Left, toybox::kBodyFont);
-    if (model.items[i].value != nullptr) {
-      const fui::Rect tally = fui::makeRect(static_cast<int16_t>(row.x + row.width - tallyWidth), row.y, tallyWidth,
-                                            row.height);
-      fittedLine(screen, tally, model.items[i].value, fui::TextAlign::Right, toybox::kTileFont);
+int linesNeeded(const fui::DrawTarget& target, const char* text, const int16_t width, const int maxLines,
+                const fui::TextStyle& style) {
+  if (text == nullptr || *text == '\0') return 1;
+  if (width <= 0) return 0;
+  int lines = 1;
+  int16_t used = 0;
+  const std::string whole(text);
+  size_t i = 0;
+  while (i < whole.size()) {
+    size_t end = whole.find(' ', i);
+    if (end == std::string::npos) end = whole.size();
+    const std::string word = whole.substr(i, end - i);
+    const int16_t wordWidth = target.measureText(style.font, word.c_str(), style).width;
+    const int16_t spaceWidth = used == 0 ? 0 : target.measureText(style.font, " ", style).width;
+    // A single word wider than the whole line can never be placed: the rule is
+    // shrink, never hyphenate, so this cut is simply not available.
+    if (wordWidth > width) return 0;
+    if (used + spaceWidth + wordWidth > width) {
+      lines++;
+      if (lines > maxLines) return 0;
+      used = wordWidth;
+    } else {
+      used = static_cast<int16_t>(used + spaceWidth + wordWidth);
     }
-
-    fui::ButtonProps hit;
-    hit.label = "";
-    hit.action = ActionOpenNote;
-    hit.value = static_cast<int16_t>(i);
-    hit.styles = toybox::rowStyles();
-    hit.styles.normal.background = fui::Paint::none();
-    hit.styles.normal.border = fui::Paint::none();
-    screen.button(hit, row);
-
-    screen.target().line(fui::Point{row.x, static_cast<int16_t>(row.y + row.height)},
-                         fui::Point{static_cast<int16_t>(row.x + row.width),
-                                        static_cast<int16_t>(row.y + row.height)},
-                         toybox::kHairline, fui::Paint::solid(fui::Color::Black));
-    y = static_cast<int16_t>(y + rowHeight);
+    i = end + 1;
   }
-
-  if (model.count == 0) deckEmpty(screen, band);
-
-  // NEW NOTE is the last row rather than a footer bar, so the page is one
-  // column of things and there is no dead bar at the bottom of a short deck.
-  // Dead space at the bottom is a real defect on a screen that holds still.
-  const fui::Rect newRow = fui::makeRect(band.x, static_cast<int16_t>(band.y + band.height - kFooterHeight),
-                                         band.width, kFooterHeight);
-  footerButton(screen, newRow, "+  NEW NOTE", ActionNewNote, true);
+  return lines;
 }
 
-void buildDeckCards(toybox::Screen& screen, const DeckModel& model) {
-  chrome(screen, "NOTES");
-  const fui::DeviceContext& device = screen.device();
-  const int16_t width = pageWidth(device);
-  const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
-  const fui::Rect band = fui::makeRect(toybox::kMargin, kBodyTop, width,
-                                       static_cast<int16_t>(footerY - toybox::kGutter - kBodyTop));
-
-  const int16_t cardWidth = static_cast<int16_t>((band.width - toybox::kGutter) / 2);
-  const int16_t cardHeight = 140;
-  const int rows = 3;
-  for (int i = 0; i < model.count && i < rows * 2; i++) {
-    const int16_t cx = static_cast<int16_t>(band.x + (i % 2) * (cardWidth + toybox::kGutter));
-    const int16_t cy = static_cast<int16_t>(band.y + (i / 2) * (cardHeight + toybox::kGutter));
-    const fui::Rect card = fui::makeRect(cx, cy, cardWidth, cardHeight);
-    screen.target().stroke(card, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 6);
-
-    // The title gets three lines inside the card, wrapped rather than shrunk:
-    // a card is a box of text and a long name is the normal case, not the
-    // exception. The tally is reserved its own line at the foot whether or not
-    // it is used, so two cards side by side agree on where their text ends.
-    const int16_t pad = toybox::kGutter;
-    fui::TextStyle title = plain(toybox::kTileFont, fui::TextAlign::Left, 3);
-    const int16_t tallyLine = screen.target().lineHeight(toybox::kTileFont);
-    const fui::Rect titleBox =
-        fui::makeRect(static_cast<int16_t>(card.x + pad), static_cast<int16_t>(card.y + pad),
-                      static_cast<int16_t>(card.width - 2 * pad),
-                      static_cast<int16_t>(card.height - 2 * pad - tallyLine));
-    const std::string drawn =
-        toybox::fitLines(screen.target(), model.items[i].label, titleBox.width, 3, title);
-    screen.target().text(titleBox, drawn.c_str(), title);
-
-    if (model.items[i].value != nullptr) {
-      const fui::Rect tally =
-          fui::makeRect(static_cast<int16_t>(card.x + pad),
-                        static_cast<int16_t>(card.y + card.height - pad - tallyLine),
-                        static_cast<int16_t>(card.width - 2 * pad), tallyLine);
-      fittedLine(screen, tally, model.items[i].value, fui::TextAlign::Left, toybox::kTileFont);
+fui::FontId pickCut(const fui::DrawTarget& target, const char* const* strings, const int count, const int16_t width,
+                    const int maxLines, const fui::TextStyle& probe) {
+  // The three slots a target binds, largest first. There is no fourth: the fui
+  // components resolve only these and fall back to BODY for anything else.
+  const fui::FontId rungs[3] = {fui::FONT_SLOT_TITLE, fui::FONT_SLOT_BODY, fui::FONT_SLOT_SMALL};
+  fui::FontId best = 0;
+  int16_t bestHeight = 0;
+  for (const fui::FontId rung : rungs) {
+    const int16_t height = target.lineHeight(rung);
+    if (height > target.lineHeight(probe.font)) continue;  // fitting only goes down
+    fui::TextStyle trial = probe;
+    trial.font = rung;
+    bool all = true;
+    for (int i = 0; i < count; i++) {
+      if (linesNeeded(target, strings[i], width, maxLines, trial) == 0) {
+        all = false;
+        break;
+      }
     }
-
-    if (i == model.selected) screen.target().stroke(card, fui::Paint::solid(fui::Color::Black), toybox::kFrame, 6);
-
-    fui::ButtonProps hit;
-    hit.label = "";
-    hit.action = ActionOpenNote;
-    hit.value = static_cast<int16_t>(i);
-    hit.styles = toybox::rowStyles();
-    hit.styles.normal.background = fui::Paint::none();
-    hit.styles.normal.border = fui::Paint::none();
-    screen.button(hit, card);
+    if (!all) continue;
+    if (best == 0 || height > bestHeight) {
+      best = rung;
+      bestHeight = height;
+    }
   }
-
-  if (model.count == 0) deckEmpty(screen, band);
-  footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "NEW NOTE", ActionNewNote,
-               false);
+  return best;
 }
 
-// --- A note, open --------------------------------------------------------
-
-int16_t noteRowHeight(const fui::DrawTarget& target) {
-  // One line of body plus air, and never less than a finger: 64px is the floor
-  // every control in this fork keeps.
-  const int16_t line = static_cast<int16_t>(target.lineHeight(toybox::kBodyFont) + toybox::kGutter);
-  return line < 64 ? 64 : line;
-}
-
-fui::Rect noteBand(const fui::DeviceContext& device, const bool withPills) {
-  const int bottom = withPills ? toybox::kMargin + 120 : toybox::kMargin + kFooterHeight + toybox::kGutter;
-  return fui::makeRect(toybox::kMargin, kBodyTop, static_cast<int16_t>(device.width - 2 * toybox::kMargin),
-                       static_cast<int16_t>(device.height - bottom - kBodyTop));
-}
+// --- The deck ------------------------------------------------------------
 
 namespace {
 
-// The title goes on the band, and the band is a fixed height, so a long note
-// name is fitted DOWN rather than allowed to push the rule. kHeaderHeight is
-// load-bearing; a taller band would move every body on the device.
-void noteChrome(toybox::Screen& screen, const NoteModel& model, const char* rightLabel) {
-  chrome(screen, model.title, rightLabel);
+// Everything both deck arrangements agree on: how wide the tally gutter is,
+// which cut the titles share, and how the rows are drawn. Two arrangements that
+// differ only in where NEW NOTE lives must not differ anywhere else.
+struct DeckLayout {
+  int16_t tallyWidth = 0;
+  fui::TextStyle title{};
+  int16_t rowHeight = 0;
+  int visible = 0;
+};
+
+DeckLayout deckLayout(toybox::Screen& screen, const DeckModel& model, const fui::Rect& band, const int reservedRows) {
+  DeckLayout layout;
+  fui::TextStyle tally = plain(toybox::kTileFont, fui::TextAlign::Right);
+
+  // The gutter is the widest tally in the deck, reserved for every row whether
+  // or not that row has one, so a prose note and a list note keep the same left
+  // edge and the column of titles does not jog.
+  for (int i = 0; i < model.count; i++) {
+    if (model.items[i].tally == nullptr) continue;
+    const int16_t width = screen.target().measureText(tally.font, model.items[i].tally, tally).width;
+    if (width > layout.tallyWidth) layout.tallyWidth = width;
+  }
+  if (layout.tallyWidth > 0) layout.tallyWidth = static_cast<int16_t>(layout.tallyWidth + toybox::kGutter);
+
+  const int16_t titleWidth = static_cast<int16_t>(band.width - layout.tallyWidth - toybox::kGutter);
+  std::vector<const char*> titles;
+  titles.reserve(static_cast<size_t>(model.count));
+  for (int i = 0; i < model.count; i++) titles.push_back(model.items[i].title);
+
+  layout.title = plain(toybox::kBodyFont, fui::TextAlign::Left, 2);
+  fui::FontId cut = model.count > 0 ? pickCut(screen.target(), titles.data(), model.count, titleWidth, 1, layout.title)
+                                    : layout.title.font;
+  int lines = 1;
+  if (cut == 0) {
+    // Nothing holds every title on one line. Two lines at the largest cut that
+    // does beats one line at a cut so small the deck reads as a footnote.
+    cut = pickCut(screen.target(), titles.data(), model.count, titleWidth, 2, layout.title);
+    lines = 2;
+  }
+  if (cut == 0) {
+    cut = fui::FONT_SLOT_SMALL;
+    lines = 2;
+  }
+  layout.title.font = cut;
+  layout.title.maxLines = static_cast<uint8_t>(lines);
+
+  layout.rowHeight = typeRowHeight(screen.target().lineHeight(cut), lines);
+  layout.visible = band.height / layout.rowHeight - reservedRows;
+  if (layout.visible < 0) layout.visible = 0;
+  return layout;
 }
 
-void noteRows(toybox::Screen& screen, const NoteModel& model, const fui::Rect& band, const bool withBox,
-              const bool withBar) {
-  const int16_t rowHeight = noteRowHeight(screen.target());
-  int16_t y = band.y;
-  for (int i = model.firstVisible; i < model.count; i++) {
-    if (y + rowHeight > band.y + band.height) break;
-    taskRow(screen, fui::makeRect(band.x, y, band.width, rowHeight), model.tasks[i], i, withBox, withBar);
-    y = static_cast<int16_t>(y + rowHeight);
-  }
-  if (model.count == 0) {
-    fui::TextStyle style = plain(toybox::kBodyFont, fui::TextAlign::Center, 2);
-    const fui::Rect box = fui::makeRect(band.x, static_cast<int16_t>(band.y + band.height / 3), band.width,
-                                        static_cast<int16_t>(screen.target().lineHeight(toybox::kBodyFont) * 2));
+void deckRows(toybox::Screen& screen, const DeckModel& model, const fui::Rect& band, const DeckLayout& layout,
+              int16_t& y) {
+  fui::TextStyle tally = plain(toybox::kTileFont, fui::TextAlign::Right);
+  for (int i = model.firstVisible; i < model.count && i - model.firstVisible < layout.visible; i++) {
+    const fui::Rect row = fui::makeRect(band.x, y, band.width, layout.rowHeight);
+    const int16_t titleWidth = static_cast<int16_t>(row.width - layout.tallyWidth - toybox::kGutter);
+    const int lines =
+        linesNeeded(screen.target(), model.items[i].title, titleWidth, layout.title.maxLines, layout.title);
+    const int drawnLines = lines < 1 ? 1 : lines;
+    const int16_t lineHeight = screen.target().lineHeight(layout.title.font);
+    const int16_t textTop = static_cast<int16_t>(row.y + (row.height - lineHeight * drawnLines) / 2);
+    const fui::Rect titleBox = fui::makeRect(row.x, textTop, titleWidth, static_cast<int16_t>(lineHeight * drawnLines));
     const std::string drawn =
-        toybox::fitLines(screen.target(), "This note is empty. Add the first line.", box.width, 2, style);
-    screen.target().text(box, drawn.c_str(), style);
+        toybox::fitLines(screen.target(), model.items[i].title, titleBox.width, layout.title.maxLines, layout.title);
+    topText(screen, titleBox, drawn, layout.title, drawnLines);
+
+    if (model.items[i].tally != nullptr) {
+      // On the first line of the title, not centred in the row: a tally beside a
+      // two-line name belongs to its first line, the way a page number does.
+      const fui::Rect tallyBox = fui::makeRect(static_cast<int16_t>(row.x + row.width - layout.tallyWidth), textTop,
+                                               layout.tallyWidth, screen.target().lineHeight(tally.font));
+      screen.target().text(tallyBox, model.items[i].tally, tally);
+    }
+
+    rowHit(screen, row, ActionOpenNote, i);
+    const bool last = (i + 1 >= model.count) || (i + 1 - model.firstVisible >= layout.visible);
+    if (!last) separator(screen, row);
+    y = static_cast<int16_t>(y + layout.rowHeight);
   }
 }
 
 }  // namespace
 
-void buildNoteBoxes(toybox::Screen& screen, const NoteModel& model) {
-  noteChrome(screen, model, nullptr);
-  const fui::DeviceContext& device = screen.device();
-  const fui::Rect band = noteBand(device, true);
-  noteRows(screen, model, band, true, false);
-
-  const fui::Rect strip =
-      fui::makeRect(toybox::kMargin, static_cast<int16_t>(band.y + band.height + toybox::kGutter), pageWidth(device),
-                    static_cast<int16_t>(device.height - band.y - band.height - toybox::kGutter));
-  if (model.oftenCount > 0) oftenStrip(screen, strip, model.often, model.oftenCount);
-}
-
-void buildNoteBars(toybox::Screen& screen, const NoteModel& model) {
-  noteChrome(screen, model, nullptr);
-  const fui::DeviceContext& device = screen.device();
-  const fui::Rect band = noteBand(device, true);
-  noteRows(screen, model, band, false, true);
-
-  const fui::Rect strip =
-      fui::makeRect(toybox::kMargin, static_cast<int16_t>(band.y + band.height + toybox::kGutter), pageWidth(device),
-                    static_cast<int16_t>(device.height - band.y - band.height - toybox::kGutter));
-  if (model.oftenCount > 0) oftenStrip(screen, strip, model.often, model.oftenCount);
-}
-
-void buildNoteQuiet(toybox::Screen& screen, const NoteModel& model) {
-  noteChrome(screen, model, nullptr);
+void buildDeckBar(toybox::Screen& screen, const DeckModel& model) {
+  chrome(screen, "NOTES");
   const fui::DeviceContext& device = screen.device();
   const int16_t width = pageWidth(device);
   const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
-  noteRows(screen, model, noteBand(device, false), true, false);
+  const fui::Rect band =
+      fui::makeRect(toybox::kMargin, kBodyTop, width, static_cast<int16_t>(footerY - toybox::kGutter - kBodyTop));
 
-  // ADD keeps the left edge, which is the fork-wide home for a primary action
-  // and the pixel a thumb learns. CLEAR DONE appears only when there is
-  // something done to clear, and it appears on the RIGHT, so the control that
-  // removes lines never occupies the pixels ADD had a moment ago.
+  footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "NEW NOTE", ActionNewNote, false);
+  if (model.count == 0) {
+    centredNotice(screen, band, "Nothing here yet. A note is a list you tick, or a page you keep.");
+    return;
+  }
+  const DeckLayout layout = deckLayout(screen, model, band, 0);
+  int16_t y = band.y;
+  deckRows(screen, model, band, layout, y);
+}
+
+void buildDeckRow(toybox::Screen& screen, const DeckModel& model) {
+  chrome(screen, "NOTES");
+  const fui::DeviceContext& device = screen.device();
+  const int16_t width = pageWidth(device);
+  const fui::Rect band =
+      fui::makeRect(toybox::kMargin, kBodyTop, width, static_cast<int16_t>(device.height - toybox::kMargin - kBodyTop));
+
+  if (model.count == 0) {
+    centredNotice(screen, band, "Nothing here yet. A note is a list you tick, or a page you keep.");
+  }
+  // One row is reserved for NEW NOTE, which is why the layout is asked for it:
+  // the rows divide the band knowing the last one is already spoken for, so the
+  // column ends flush at the bottom of the page instead of above a gap.
+  const DeckLayout layout = deckLayout(screen, model, band, 1);
+  int16_t y = band.y;
+  deckRows(screen, model, band, layout, y);
+
+  const int16_t newTop =
+      y + layout.rowHeight <= band.y + band.height ? y : static_cast<int16_t>(band.y + band.height - layout.rowHeight);
+  const fui::Rect newRow = fui::makeRect(band.x, newTop, band.width, layout.rowHeight);
+  fui::ButtonProps add;
+  add.label = "+  NEW NOTE";
+  add.action = ActionNewNote;
+  add.styles = toybox::rowStyles();
+  screen.button(add, newRow);
+}
+
+// --- A note, open --------------------------------------------------------
+
+namespace {
+
+struct NoteLayout {
+  fui::TextStyle body{};
+  int16_t textWidth = 0;
+  int16_t rowHeight = 0;
+};
+
+NoteLayout noteLayout(toybox::Screen& screen, const NoteModel& model, const fui::Rect& band, const int reservedRows) {
+  NoteLayout layout;
+  // The page label owns the last line of the band when there is one, so the
+  // rows are laid out against what is left rather than drawn over it.
+  layout.textWidth = static_cast<int16_t>(band.width - kBoxSide - toybox::kGutter);
+
+  std::vector<const char*> texts;
+  texts.reserve(static_cast<size_t>(model.count));
+  for (int i = 0; i < model.count; i++) texts.push_back(model.tasks[i].text);
+
+  layout.body = plain(toybox::kBodyFont, fui::TextAlign::Left, 2);
+  fui::FontId cut = model.count > 0
+                        ? pickCut(screen.target(), texts.data(), model.count, layout.textWidth, 1, layout.body)
+                        : layout.body.font;
+  int lines = 1;
+  if (cut == 0) {
+    // A long line wraps rather than shrinking. A shopping list is a list of
+    // things and a long thing takes two lines, exactly as it would on paper;
+    // shrinking it instead makes one item look less important than its
+    // neighbours, which is the one thing a list must never say.
+    cut = pickCut(screen.target(), texts.data(), model.count, layout.textWidth, 2, layout.body);
+    lines = 2;
+  }
+  if (cut == 0) {
+    cut = fui::FONT_SLOT_SMALL;
+    lines = 2;
+  }
+  layout.body.font = cut;
+  layout.body.maxLines = static_cast<uint8_t>(lines);
+
+  layout.rowHeight = typeRowHeight(screen.target().lineHeight(cut), lines);
+  return layout;
+}
+
+void noteRows(toybox::Screen& screen, const NoteModel& model, const fui::Rect& band, const NoteLayout& layout,
+              int16_t& y) {
+  for (int i = model.firstVisible; i < model.count; i++) {
+    if (y + layout.rowHeight > band.y + band.height) break;
+    const fui::Rect row = fui::makeRect(band.x, y, band.width, layout.rowHeight);
+    const Task& task = model.tasks[i];
+
+    int16_t textX = row.x;
+    if (task.isTask) {
+      tickBox(screen,
+              fui::makeRect(row.x, static_cast<int16_t>(row.y + (row.height - kBoxSide) / 2), kBoxSide, kBoxSide),
+              task.checked);
+      textX = static_cast<int16_t>(row.x + kBoxSide + toybox::kGutter);
+    }
+
+    fui::TextStyle style = layout.body;
+    if (!task.isTask) style.font = toybox::kTileFont;  // prose is the app's aside, not one of the things to do
+    const int16_t boxWidth = static_cast<int16_t>(row.x + row.width - textX);
+    const int lines = linesNeeded(screen.target(), task.text, boxWidth, style.maxLines, style);
+    const std::string drawn = toybox::fitLines(screen.target(), task.text, boxWidth, style.maxLines, style);
+    const int16_t lineHeight = screen.target().lineHeight(style.font);
+    const int drawnLines = lines < 1 ? 1 : lines;
+    // Vertically centred as a BLOCK, so a two-line row and a one-line row share
+    // a centre line and the tick boxes beside them stay on one axis.
+    const fui::Rect textBox =
+        fui::makeRect(textX, static_cast<int16_t>(row.y + (row.height - lineHeight * drawnLines) / 2), boxWidth,
+                      static_cast<int16_t>(lineHeight * drawnLines));
+    topText(screen, textBox, drawn, style, drawnLines);
+    if (task.checked) strikeLines(screen, textBox, drawn, style, drawnLines);
+
+    if (task.isTask) rowHit(screen, row, ActionToggleTask, i);
+    y = static_cast<int16_t>(y + layout.rowHeight);
+  }
+  if (model.count == 0) centredNotice(screen, band, "This note is empty. Add the first line.");
+}
+
+}  // namespace
+
+void buildNoteBar(toybox::Screen& screen, const NoteModel& model) {
+  chrome(screen, model.title, nullptr, model.menuIcon);
+  const fui::DeviceContext& device = screen.device();
+  const int16_t width = pageWidth(device);
+  const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
+  const fui::Rect band =
+      fui::makeRect(toybox::kMargin, kBodyTop, width, static_cast<int16_t>(footerY - toybox::kGutter * 2 - kBodyTop));
+
+  const NoteLayout layout = noteLayout(screen, model, band, 0);
+  int16_t y = band.y;
+  noteRows(screen, model, band, layout, y);
+  pageLabel(screen, band, model.pageLabel);
+
+  // ADD keeps the left edge, the fork-wide home for a primary action and the
+  // pixel a thumb learns. CLEAR DONE appears only when there is something to
+  // clear, and it appears on the RIGHT, so the control that removes lines never
+  // occupies the pixels ADD had a moment ago.
   if (model.anyDone) {
     const int16_t half = static_cast<int16_t>((width - toybox::kGutter) / 2);
-    footerButton(screen, fui::makeRect(toybox::kMargin, footerY, half, kFooterHeight), "ADD", ActionAdd, false);
-    footerButton(screen,
-                 fui::makeRect(static_cast<int16_t>(toybox::kMargin + half + toybox::kGutter), footerY, half,
-                               kFooterHeight),
-                 "CLEAR DONE", ActionClearDone, true);
+    footerButton(screen, fui::makeRect(toybox::kMargin, footerY, half, kFooterHeight), "ADD", ActionAddLine, false);
+    footerButton(
+        screen,
+        fui::makeRect(static_cast<int16_t>(toybox::kMargin + half + toybox::kGutter), footerY, half, kFooterHeight),
+        "CLEAR DONE", ActionClearDone, true);
   } else {
-    footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "ADD", ActionAdd, false);
+    footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "ADD", ActionAddLine, false);
   }
 }
 
-// --- Adding --------------------------------------------------------------
-
-fui::Rect addQrBox(const fui::DeviceContext& device) {
-  const int16_t side = 200;
-  return fui::makeRect(static_cast<int16_t>((device.width - side) / 2),
-                       static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight - toybox::kGutter - side),
-                       side, side);
-}
-
-void buildAddPills(toybox::Screen& screen, const AddModel& model) {
-  chrome(screen, "ADD", model.noteTitle);
+void buildNoteRow(toybox::Screen& screen, const NoteModel& model) {
+  chrome(screen, model.title, nullptr, model.menuIcon);
   const fui::DeviceContext& device = screen.device();
   const int16_t width = pageWidth(device);
-  const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
+  const fui::Rect band =
+      fui::makeRect(toybox::kMargin, kBodyTop, width, static_cast<int16_t>(device.height - toybox::kMargin - kBodyTop));
 
-  // Two columns of equal width. These pills ARE peers -- the eye runs down them
-  // as one set -- so unlike the OFTEN strip they take one shared cut, chosen
-  // from the widest of them, and a long item shrinks the whole grid rather than
-  // being the odd one out.
-  const int16_t colWidth = static_cast<int16_t>((width - toybox::kGutter) / 2);
-  fui::TextStyle label = plain(toybox::kBodyFont, fui::TextAlign::Center);
-  for (int i = 0; i < model.oftenCount; i++) {
-    fui::TextStyle probe = label;
-    toybox::fittedTitle(screen.target(), model.often[i], static_cast<int16_t>(colWidth - toybox::kMargin), probe);
-    if (screen.target().lineHeight(probe.font) < screen.target().lineHeight(label.font)) label.font = probe.font;
-  }
+  const NoteLayout layout = noteLayout(screen, model, band, 1);
+  int16_t y = band.y;
+  noteRows(screen, model, band, layout, y);
 
-  const int16_t pillHeight = static_cast<int16_t>(screen.target().lineHeight(toybox::kBodyFont) + toybox::kGutter * 2);
-  int16_t y = kBodyTop;
-  for (int i = 0; i < model.oftenCount; i++) {
-    if (y + pillHeight > footerY - toybox::kGutter) break;
-    const int16_t x = static_cast<int16_t>(toybox::kMargin + (i % 2) * (colWidth + toybox::kGutter));
-    fui::ButtonProps pill;
-    pill.label = model.often[i];
-    pill.action = ActionAddOften;
-    pill.value = static_cast<int16_t>(i);
-    pill.styles = toybox::rowStyles();
-    pill.text = label;
-    screen.button(pill, fui::makeRect(x, y, colWidth, pillHeight));
-    if (i % 2 == 1) y = static_cast<int16_t>(y + pillHeight + toybox::kGutter);
-  }
-
-  const int16_t half = static_cast<int16_t>((width - toybox::kGutter) / 2);
-  footerButton(screen, fui::makeRect(toybox::kMargin, footerY, half, kFooterHeight), "TYPE IT", ActionTypeHere,
-               false);
-  footerButton(screen,
-               fui::makeRect(static_cast<int16_t>(toybox::kMargin + half + toybox::kGutter), footerY, half,
-                             kFooterHeight),
-               "USE PHONE", ActionUsePhone, true);
+  const int16_t addTop =
+      y + layout.rowHeight <= band.y + band.height ? y : static_cast<int16_t>(band.y + band.height - layout.rowHeight);
+  const fui::Rect addRow = fui::makeRect(band.x, addTop, band.width, layout.rowHeight);
+  fui::ButtonProps add;
+  add.label = "+  ADD A LINE";
+  add.action = ActionAddLine;
+  add.styles = toybox::rowStyles();
+  screen.button(add, addRow);
+  pageLabel(screen, fui::makeRect(band.x, band.y, band.width, static_cast<int16_t>(addTop - band.y)), model.pageLabel);
 }
 
-void buildAddList(toybox::Screen& screen, const AddModel& model) {
-  chrome(screen, "ADD", model.noteTitle);
+// --- The menu ------------------------------------------------------------
+
+void buildMenu(toybox::Screen& screen, const MenuModel& model) {
+  chrome(screen, model.title, nullptr, model.menuIcon);
   const fui::DeviceContext& device = screen.device();
   const int16_t width = pageWidth(device);
-  const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
+  const fui::Rect band =
+      fui::makeRect(toybox::kMargin, kBodyTop, width, static_cast<int16_t>(device.height - toybox::kMargin - kBodyTop));
 
-  // A row holds a long item that a pill cannot, at the price of half the
-  // density. TYPE IT is the first row rather than a footer button, so the two
-  // ways of adding are one column of choices instead of two grammars.
-  const int16_t rowHeight = noteRowHeight(screen.target());
-  int16_t y = kBodyTop;
+  // Four rows, and the destructive one is last and outlined rather than filled.
+  // The rows fill the band, so the sheet is a page rather than a stack of
+  // controls with a slab under it.
+  struct Row {
+    const char* label;
+    const char* note;
+    fui::ActionId action;
+    bool enabled;
+  };
+  const Row rows[] = {
+      // The hint is the ADDRESS when there is one and the REASON when there is
+      // not. A disabled row drawn with no note at all looks exactly like an
+      // enabled one, which is how the no-Wi-Fi menu shipped saying nothing.
+      {"TYPE ON YOUR PHONE", model.phoneHint != nullptr ? model.phoneHint : "join Wi-Fi first", ActionUsePhone,
+       model.phoneHint != nullptr},
+      {"CLEAR DONE", model.anyDone ? nullptr : "nothing is ticked", ActionClearDone, model.anyDone},
+      {"RENAME", nullptr, ActionRename, true},
+      {"DELETE NOTE", nullptr, ActionDelete, true},
+  };
+  const int count = static_cast<int>(sizeof(rows) / sizeof(rows[0]));
+  const int16_t rowHeight = static_cast<int16_t>(band.height / count);
 
-  fui::ButtonProps type;
-  type.label = "TYPE IT";
-  type.action = ActionTypeHere;
-  screen.button(type, fui::makeRect(toybox::kMargin, y, width, rowHeight));
-  y = static_cast<int16_t>(y + rowHeight + toybox::kGutter);
+  fui::TextStyle label = plain(toybox::kBodyFont);
+  fui::TextStyle note = plain(toybox::kTileFont);
+  for (int i = 0; i < count; i++) {
+    const fui::Rect row = fui::makeRect(band.x, static_cast<int16_t>(band.y + i * rowHeight), band.width, rowHeight);
+    const int16_t labelHeight = screen.target().lineHeight(label.font);
+    const int16_t noteHeight = rows[i].note != nullptr ? screen.target().lineHeight(note.font) : 0;
+    const int16_t top = static_cast<int16_t>(row.y + (row.height - labelHeight - noteHeight) / 2);
+    const fui::Rect labelBox = fui::makeRect(static_cast<int16_t>(row.x + toybox::kGutter), top,
+                                             static_cast<int16_t>(row.width - toybox::kGutter * 2), labelHeight);
+    fui::TextStyle drawStyle = label;
+    const std::string drawn = toybox::fittedTitle(screen.target(), rows[i].label, labelBox.width, drawStyle);
+    screen.target().text(labelBox, drawn.c_str(), drawStyle);
 
-  for (int i = 0; i < model.oftenCount; i++) {
-    if (y + rowHeight > footerY - toybox::kGutter) break;
-    const fui::Rect row = fui::makeRect(toybox::kMargin, y, width, rowHeight);
-    const fui::Rect textBox = fui::makeRect(static_cast<int16_t>(row.x + toybox::kGutter), row.y,
-                                            static_cast<int16_t>(row.width - toybox::kGutter * 2), row.height);
-    fittedLine(screen, textBox, model.often[i], fui::TextAlign::Left, toybox::kBodyFont);
-    fui::ButtonProps hit;
-    hit.label = "";
-    hit.action = ActionAddOften;
-    hit.value = static_cast<int16_t>(i);
-    hit.styles = toybox::rowStyles();
-    hit.styles.normal.background = fui::Paint::none();
-    hit.styles.normal.border = fui::Paint::none();
-    screen.button(hit, row);
-    screen.target().line(fui::Point{row.x, static_cast<int16_t>(row.y + row.height)},
-                         fui::Point{static_cast<int16_t>(row.x + row.width),
-                                        static_cast<int16_t>(row.y + row.height)},
-                         toybox::kHairline, fui::Paint::solid(fui::Color::Black));
-    y = static_cast<int16_t>(y + rowHeight);
-  }
-
-  footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "USE PHONE", ActionUsePhone,
-               true);
-}
-
-void buildAddSplit(toybox::Screen& screen, const AddModel& model) {
-  chrome(screen, "ADD", model.noteTitle);
-  const fui::DeviceContext& device = screen.device();
-  const int16_t width = pageWidth(device);
-  const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
-  const fui::Rect qr = addQrBox(device);
-
-  const int16_t pillHeight = static_cast<int16_t>(screen.target().lineHeight(toybox::kBodyFont) + toybox::kGutter);
-  fui::TextStyle label = plain(toybox::kTileFont, fui::TextAlign::Center);
-  int16_t x = toybox::kMargin;
-  int16_t y = kBodyTop;
-  for (int i = 0; i < model.oftenCount; i++) {
-    const int16_t textWidth = screen.target().measureText(label.font, model.often[i], label).width;
-    const int16_t pillWidth = static_cast<int16_t>(textWidth + toybox::kMargin * 2);
-    if (x + pillWidth > toybox::kMargin + width) {
-      x = toybox::kMargin;
-      y = static_cast<int16_t>(y + pillHeight + kPillGap);
+    // A disabled row says WHY under its label instead of vanishing. A control
+    // that appears and disappears teaches nobody where it lives, and the two
+    // that can be unavailable here are unavailable for reasons a sentence
+    // fixes.
+    if (rows[i].note != nullptr) {
+      const fui::Rect noteBox =
+          fui::makeRect(labelBox.x, static_cast<int16_t>(top + labelHeight), labelBox.width, noteHeight);
+      screen.target().text(noteBox, rows[i].note, note);
     }
-    if (y + pillHeight > qr.y - toybox::kGutter * 3) break;
-    fui::ButtonProps pill;
-    pill.label = model.often[i];
-    pill.action = ActionAddOften;
-    pill.value = static_cast<int16_t>(i);
-    pill.styles = toybox::rowStyles();
-    pill.text = label;
-    screen.button(pill, fui::makeRect(x, y, pillWidth, pillHeight));
-    x = static_cast<int16_t>(x + pillWidth + kPillGap);
+    if (rows[i].enabled) rowHit(screen, row, rows[i].action, i);
+    if (i + 1 < count) separator(screen, row);
   }
-
-  // The divider says the bottom half is a different route, not more of the
-  // same list.
-  const int16_t ruleY = static_cast<int16_t>(qr.y - toybox::kGutter * 2 - toybox::kRule);
-  screen.target().fill(fui::makeRect(toybox::kMargin, ruleY, width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
-
-  const fui::Rect caption =
-      fui::makeRect(toybox::kMargin, static_cast<int16_t>(ruleY + toybox::kGutter), width,
-                    static_cast<int16_t>(screen.target().lineHeight(toybox::kTileFont)));
-  if (model.phoneUrl != nullptr) {
-    fittedLine(screen, caption, "OR TYPE ON YOUR PHONE", fui::TextAlign::Center, toybox::kTileFont);
-    screen.target().stroke(qr, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 0);
-    const fui::Rect url = fui::makeRect(toybox::kMargin, static_cast<int16_t>(qr.y + qr.height + toybox::kGutter / 2),
-                                        width, static_cast<int16_t>(screen.target().lineHeight(toybox::kTileFont)));
-    fittedLine(screen, url, model.phoneUrl, fui::TextAlign::Center, toybox::kTileFont);
-  } else {
-    // No Wi-Fi: say so where the code would have been, rather than drawing a
-    // code that cannot be reached. A screen whose promise is "point your camera
-    // at this" has no worse failure than a square that does nothing.
-    fui::TextStyle style = plain(toybox::kTileFont, fui::TextAlign::Center, 3);
-    const fui::Rect box = fui::makeRect(toybox::kMargin, static_cast<int16_t>(ruleY + toybox::kGutter * 2), width,
-                                        static_cast<int16_t>(screen.target().lineHeight(toybox::kTileFont) * 3));
-    const std::string drawn = toybox::fitLines(
-        screen.target(), "Join Wi-Fi to type on your phone. You do not need one to use this note.", box.width, 3,
-        style);
-    screen.target().text(box, drawn.c_str(), style);
-  }
-
-  footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "TYPE IT HERE", ActionTypeHere,
-               false);
 }
 
 }  // namespace notesui

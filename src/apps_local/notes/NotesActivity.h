@@ -32,20 +32,18 @@ class NotesActivity final : public Activity {
   // The order the gallery walks. Deck, note, add: three proposals each, then
   // the two states every one of them has to survive.
   enum class Proposal : uint8_t {
-    DeckList,
-    DeckTally,
-    DeckCards,
-    NoteBoxes,
-    NoteBars,
-    NoteQuiet,
-    AddPills,
-    AddList,
-    AddSplit,
+    DeckBar,
+    DeckRow,
+    NoteBar,
+    NoteRow,
+    Menu,
+    MenuNoWifi,
+    DeckShort,
+    NoteShort,
     DeckEmpty,
-    AddNoWifi,
     kCount,
   };
 
-  Proposal proposal_ = Proposal::DeckList;
+  Proposal proposal_ = Proposal::DeckBar;
   toybox::Interactions interactions_;
 };
