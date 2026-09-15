@@ -64,7 +64,9 @@ def main():
 
     bookish = collections.Counter()   # (lang, folded) -> views of the disambiguated book article
     plain = collections.Counter()     # (lang, folded) -> views of the plain-title article
-    pattern = r"^(" + "|".join(LANGS) + r")\.wikipedia "
+    # A character class, not an escaped dot: the pattern goes through repr()
+    # into a single-quoted shell string, and a backslash would be doubled.
+    pattern = "^(" + "|".join(LANGS) + ")[.]wikipedia "
     proc = subprocess.Popen(f"bzcat {args.dump!r} | grep -E {pattern!r}", shell=True,
                             stdout=subprocess.PIPE, text=True, errors="replace", bufsize=1 << 20)
     n = 0
