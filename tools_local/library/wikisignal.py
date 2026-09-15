@@ -67,14 +67,14 @@ def views(lang, title, start, end):
     t = urllib.parse.quote(title.replace(" ", "_"), safe="")
     url = (f"https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/"
            f"{lang}.wikipedia/all-access/user/{t}/monthly/{start}/{end}")
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             data = get(url)
             return sum(item["views"] for item in data.get("items", []))
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return 0
-            time.sleep(1 + attempt)
+            time.sleep(5 * (attempt + 1) if e.code == 429 else 1 + attempt)
         except Exception:
             time.sleep(1 + attempt)
     return None
@@ -100,20 +100,39 @@ def main():
     print(f"{len(by_id)} gutenberg ids on wikidata, {len(articles)} articles, views {s}..{e}",
           file=sys.stderr, flush=True)
 
+    # Per-article cache beside the output, appended as results land, so a
+    # rerun after a rate-limited or interrupted run fetches only what is missing.
+    cache_path = args.out + ".cache"
     cache = {}
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for (lang, title), v in zip(articles, pool.map(lambda a: views(a[0], a[1], s, e), articles)):
-            cache[(lang, title)] = v
-            if len(cache) % 500 == 0:
-                print(f"{len(cache)} articles fetched", file=sys.stderr, flush=True)
+    try:
+        for line in open(cache_path):
+            d = json.loads(line)
+            cache[(d["lang"], d["title"])] = d["views"]
+    except FileNotFoundError:
+        pass
+    todo = [a for a in articles if a not in cache]
+    print(f"{len(cache)} cached, {len(todo)} to fetch, window {s}..{e}", file=sys.stderr, flush=True)
+    with ThreadPoolExecutor(max_workers=args.workers) as pool, open(cache_path, "a") as cf:
+        done = 0
+        for (lang, title), v in zip(todo, pool.map(lambda a: views(a[0], a[1], s, e), todo)):
+            done += 1
+            if v is not None:
+                cache[(lang, title)] = v
+                cf.write(json.dumps({"lang": lang, "title": title, "views": v}) + "\n")
+                cf.flush()
+            if done % 500 == 0:
+                print(f"{done} fetched, {len(cache)} known", file=sys.stderr, flush=True)
 
-    missing = sum(1 for v in cache.values() if v is None)
+    failed = [a for a in articles if a not in cache]
     with open(args.out, "w") as out:
         for pg, arts in sorted(by_id.items()):
-            total = sum(cache.get(a) or 0 for a in arts)
-            out.write(json.dumps({"id": pg, "views": total,
-                                  "articles": [f"{l}:{t}" for l, t in sorted(arts)]}) + "\n")
-    print(f"wrote {len(by_id)} rows; {missing} articles failed", file=sys.stderr)
+            known = [a for a in arts if a in cache]
+            if not known:
+                continue  # unknown, not zero: leave the id out rather than demote it
+            out.write(json.dumps({"id": pg, "views": sum(cache[a] for a in known),
+                                  "articles": [f"{l}:{t}" for l, t in sorted(known)],
+                                  "unfetched": len(arts) - len(known)}) + "\n")
+    print(f"wrote rows for ids with any fetched article; {len(failed)} articles still unfetched", file=sys.stderr)
 
 
 if __name__ == "__main__":

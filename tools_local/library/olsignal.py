@@ -91,15 +91,19 @@ def main():
             seen += 1
             if seen % 5_000_000 == 0:
                 print(f"{seen} works scanned, {len(cands)} candidates", file=sys.stderr, flush=True)
-            m = TITLE_RE.search(line)
-            if not m:
-                continue
-            try:
-                raw_title = json.loads('"' + m.group(1) + '"')
-            except ValueError:
-                continue
-            t = work_key({"title": raw_title, "creators": [], "languages": []})[1]
-            if t not in index:
+            # Pre-filter on every "title" string in the line (a record's links
+            # carry titles too, and one of them comes before the work's own);
+            # only a folded hit pays for the JSON parse, and the parse decides.
+            hit = False
+            for raw in TITLE_RE.findall(line):
+                try:
+                    cand = json.loads('"' + raw + '"')
+                except ValueError:
+                    continue
+                if work_key({"title": cand, "creators": [], "languages": []})[1] in index:
+                    hit = True
+                    break
+            if not hit:
                 continue
             cols = line.rstrip("\n").split("\t")
             if len(cols) < 5:
@@ -107,6 +111,9 @@ def main():
             try:
                 data = json.loads(cols[4])
             except ValueError:
+                continue
+            t = work_key({"title": data.get("title") or "", "creators": [], "languages": []})[1]
+            if t not in index:
                 continue
             akeys = []
             for a in data.get("authors", []) or []:
