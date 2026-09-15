@@ -1,44 +1,98 @@
-# Library data: how many books fit, and how the list is made
+# Library data: every book ranked, and what a card holds of it
 
-Status: measured 2026-09-15, card #517, the first data pass for
-[`library-plan.md`](library-plan.md). Everything here is reproducible from
-`tools_local/library/` in about forty minutes, most of it downloads:
+Status: measured 2026-09-15, card #517, the data pass for
+[`library-plan.md`](library-plan.md). Two universes, kept apart on purpose
+because the first report confused them:
+
+1. **Every book.** Open Library's catalog of all works and its reading log,
+   the largest open record of people reaching for a book. This is the
+   universe the brief is about, and the list generator is run over it.
+2. **The pool a site can copy today.** The public-domain books, which is
+   what the page can actually write to a card. It carries 1.9% of the
+   intent in the first universe. Nothing below calls it "everything".
+
+Reproducible from `tools_local/library/`, about forty minutes, mostly
+downloads; the data lives in the workspace's `library-data/`:
 
 ```
-catalog.py    --rdf rdf-files.tar.bz2 --out catalog.jsonl        # Gutenberg's daily RDF, 127 MB, one minute
-rank.py       --catalog catalog.jsonl --report r.md --list-json ranked.jsonl          # v0, three seconds
-olsignal.py   --catalog catalog.jsonl --pool ranked.jsonl --ol DIR --out ol.jsonl     # Open Library dumps, 4.7 GB, fifteen minutes
-wikisignal.py --out wiki.jsonl --pool ranked.jsonl                                    # Wikidata + Wikipedia, ten minutes
-rank.py       ... --ol ol.jsonl --wiki wiki.jsonl                                     # v1, the report appended below
+universe.py   --ol DIR --out universe.md --pd ol.jsonl                # every book: Open Library dumps, 4.7 GB
+catalog.py    --rdf rdf-files.tar.bz2 --out catalog.jsonl              # the pool: Gutenberg's daily RDF, 127 MB
+rank.py       --catalog catalog.jsonl --report r.md --list-json ranked.jsonl --ol ol.jsonl --wiki wiki.jsonl
+olsignal.py   --catalog catalog.jsonl --pool ranked.jsonl --ol DIR --out ol.jsonl
+wikisignal.py --out wiki.jsonl --pool ranked.jsonl
 ```
 
-The pool is the one a public site can ship today (the plan's appendix); the
-method is the plan's and does not depend on the pool. The data lives in the
-workspace's `library-data/` beside `library-research/`.
+## Every book
 
-## How many books fit
+Open Library catalogs 41.6 million works. 3.3 million of them have at least
+one reader event (want to read, currently reading, already read, or a
+rating), 13.9 million events in all, 10.6 million of them want-to-read.
+Those events are the intent signal: someone heard of the book and reached
+for it, which is the objective Mario set ("if I somehow hear of a book,
+it is there").
 
-After the filters (text only, public domain, has a text-only EPUB, reads on
-the panel, one edition per work) the pool is **63,443 works, 15.4 GB**,
-median 205 KB per book. Card sizes as printed, nothing else on the card:
+**How concentrated intent is across all books.** Share of all events held
+by the top N works when every book is ranked by intent:
+
+| top 100 | top 1,000 | top 10,000 | top 50,000 | top 200,000 | top 1,000,000 |
+| --- | --- | --- | --- | --- | --- |
+| 6.5% | 14.2% | 26.8% | 40.4% | 56.0% | 79.2% |
+
+Books are far longer-tailed than films: the same measure on Netflix puts
+87% of viewing in the top 3,000 titles. Seattle's library checkouts and
+Open Library's log agree with each other (41% and 40% in the top 50,000).
+
+**What a card holds of it**, filling in rank order at 300 KB a book (a
+text-only EPUB is 200 to 500 KB; the pool below measures 205 KB):
+
+| card | fill to 30% | fill to 95% |
+| --- | --- | --- |
+| 16 GB | 16,000 books, 30% of all intent | 50,666 books, 41% |
+| 32 GB | 32,000 books, 36% | 101,333 books, 48% |
+| 64 GB | 64,000 books, 43% | 202,666 books, 56% |
+| 128 GB | 128,000 books, 51% | 405,333 books, 65% |
+| 256 GB | 256,000 books, 59% | 810,666 books, 76% |
+
+So the dream's closing line, if every book existed, is about 40% on the
+card the X4 Pro ships with and about 75% on the largest card it takes.
+Those are aggregate shares; a head inventory covers most of aggregate
+demand and almost nobody completely (the plan's Goel argument), and this
+log is one population (Internet Archive patrons, nine years, English-heavy
+with a strong Portuguese and Spanish presence).
+
+**What the list looks like.** The generator over all books puts this
+decade's bestsellers and self-help at the head: Atomic Habits, The 48 Laws
+of Power, It Ends With Us, Rich Dad Poor Dad, then Harry Potter at 8,
+A Game of Thrones at 14, Nineteen Eighty-Four at 25, and the first
+public-domain book, Pride and Prejudice, at 28. Four of the top 25 are
+Portuguese or Spanish titles, which is the language question showing
+itself unprompted. The full top 100 is in the first generated report
+below.
+
+**Where the pool sits in it.** The public-domain pool a site can copy
+today carries 1.9% of all intent. Filling a card with it is filling the
+card with 2% of what people reach for, and the other 98% is a question of
+having the books, not of ranking them.
+
+## The pool a site can copy today
+
+After the filters (text only, public domain, has a text-only EPUB, reads
+on the panel, one edition per work) the pool is **63,443 works, 15.4 GB**,
+median 205 KB per book. Card sizes as printed, nothing else on the card;
+the shares are of the pool's own demand, not of all intent:
 
 | card | fill to 30% | fill to 50% | fill to 75% | fill to 95% |
 | --- | --- | --- | --- | --- |
-| 16 GB (what the X4 Pro ships with) | 23,856 books, 89% of demand | 39,255 books, 94% | 54,594 books, 98% | everything |
-| 32 GB | 45,786 books, 96% | everything | everything | everything |
-| 64 GB and up | everything | everything | everything | everything |
+| 16 GB (what the X4 Pro ships with) | 23,856 books, 89% of the pool's demand | 39,255 books, 94% | 54,594 books, 98% | the whole pool |
+| 32 GB | 45,786 books, 96% | the whole pool | the whole pool | the whole pool |
+| 64 GB and up | the whole pool | the whole pool | the whole pool | the whole pool |
 
-So the slider decides something only on the stock card. On anything larger
-the whole pool fits with room over, and the page's work is ordering the copy
-so a partial or interrupted one is the most useful subset.
+Per language, the pool is 49,300 English works (12.2 GB, 88% of its
+demand), then Finnish 3,600, French 3,100, German 2,200, Dutch 950,
+Italian 940, Spanish 810, Hungarian 630, Portuguese 600. Every non-English
+language fits in under a gigabyte.
 
-Per language, the pool is 49,300 English works (12.2 GB, 88% of demand),
-then Finnish 3,600, French 3,100, German 2,200, Dutch 950, Italian 940,
-Spanish 810, Hungarian 630, Portuguese 600. Every non-English language fits
-in under a gigabyte, which is why the language question is the one that
-matters: a Spanish reader's whole pool is 220 MB.
-
-## How the list is made
+### How the pool's list is made
 
 Each work carries a value, its share of demand, and the card is filled in
 order of value per byte (the plan's knapsack argument: within one book of
@@ -48,6 +102,11 @@ as a share of its own total over the pool:
     value = 0.4 x share of Gutenberg downloads (30 days)
           + 0.4 x share of Open Library shelvings (want-to-read, reading, read, ratings)
           + 0.2 x share of Wikipedia page views by humans (a year, eight languages)
+
+Over every book the same generator would use the same shape with the
+signals that exist there: shelvings and ratings (Open Library; Goodreads
+if its licence allowed), sales rank, library checkouts, page views. The
+pool needed downloads because the other two signals only reach its head.
 
 Why each, and why those weights:
 
@@ -77,10 +136,9 @@ Why each, and why those weights:
 
 A mixture rather than a product: multiplying the three heavy-tailed
 signals put 74% of all value in the top 1,000 works, where every demand
-curve measured for this project (downloads, shelvings, Seattle's
-checkouts, Open Library's intent log) puts 15 to 44%.
+curve measured for this project puts 6 to 44%.
 
-## How concentrated demand is
+### How concentrated the pool's demand is
 
 Share of the pool's value in the top N works, in fill order:
 
@@ -88,26 +146,25 @@ Share of the pool's value in the top N works, in fill order:
 | --- | --- | --- | --- | --- | --- |
 | 29% | 62% | 78% | 83% | 88% | 97% |
 
-That curve is what makes "fill to 30%" on a 16 GB card hold 89% of demand:
-the first 24,000 books are almost all of it. It is also why the closing
-line has to be an aggregate: the last 11% is spread over 40,000 books that
-each matter to someone.
+Steeper than the universe's curve (29% against 6.5% in the top 100)
+because the pool's head is the canon everyone has heard of and its tail is
+what nobody has.
 
-## What the list looks like
+### What the pool's list looks like
 
-The top 100 is in the generated report below. The head is Gatsby, Alice,
-Romeo and Juliet, Jekyll and Hyde, Wuthering Heights, Pride and Prejudice,
-the Odyssey, Hamlet, Frankenstein, Peter Rabbit, the Time Machine, the
-Wizard of Oz, Dracula: a bookshop's classics table, with the two odd
-seven-figure view counts (Wuthering Heights, the Odyssey) explained by this
-year's films. The samples down the list say what the tail is: at rank 500,
-period fiction and translated drama; at 2,000, Plato's Meno and Martin
-Chuzzlewit; at 5,000, a Frank Herbert story and a mushroom-growing manual;
-at 20,000, sermons and a USDA canning pamphlet; at 40,000, series fiction
-for children from the 1910s. The tail is worth having at 200 KB a book and
-worth nothing as a list, which is the case for the device-side search.
+The top 100 is in the second generated report below. The head is Gatsby,
+Alice, Romeo and Juliet, Jekyll and Hyde, Wuthering Heights, Pride and
+Prejudice, the Odyssey, Hamlet, Frankenstein, Peter Rabbit, the Time
+Machine, the Wizard of Oz, Dracula: a bookshop's classics table, with the
+two odd seven-figure view counts (Wuthering Heights, the Odyssey)
+explained by this year's films. At rank 500, period fiction and translated
+drama; at 2,000, Plato's Meno and Martin Chuzzlewit; at 5,000, a Frank
+Herbert story and a mushroom-growing manual; at 20,000, sermons and a USDA
+canning pamphlet; at 40,000, series fiction for children from the 1910s.
+The tail is worth having at 200 KB a book and worth nothing as a list,
+which is the case for the device-side search.
 
-## What is still rough
+### What is still rough
 
 Named so nobody rediscovers it:
 
@@ -131,12 +188,151 @@ Named so nobody rediscovers it:
 - **Only 2,081 works carry page views.** The title search covered the top
   8,000 by value; extending it to the whole pool costs an hour of API time
   and would mostly find nothing, which is itself the signal.
-- **"Share of demand" is share of this model's value.** It is the honest
-  headline within the pool, and it says nothing about books outside it.
+- **"Share of demand" is share of this model's value over the pool.** It
+  says nothing about books outside the pool; the universe section does.
 
-## The generated report
+## The generated reports
 
-What follows is `rank.py`'s output for the run above, verbatim.
+What follows is `universe.py`'s output, then `rank.py`'s, verbatim.
+
+# The universe: every book, ranked by reading intent
+
+Open Library catalogs 41,591,088 works. 3,319,286 of them have at least one reader event (want to read, reading, read, or a rating); 13,884,657 events in all, 10,558,404 of them want-to-read. Produced by `tools_local/library/universe.py`.
+
+**The public-domain pool a site can copy today carries 1.9% of that intent.**
+
+## How concentrated intent is across all books
+
+| top N works | share of all intent | events at rank N |
+| --- | --- | --- |
+| 100 | 6.5% | 3,500 |
+| 1,000 | 14.2% | 584 |
+| 10,000 | 26.8% | 97 |
+| 50,000 | 40.4% | 28 |
+| 100,000 | 47.7% | 16 |
+| 200,000 | 56.0% | 9 |
+| 500,000 | 68.4% | 4 |
+| 1,000,000 | 79.2% | 2 |
+| 2,000,000 | 90.5% | 1 |
+| all 3,319,286 | 100% | 1 |
+
+## What fits, at 300 KB per book
+
+A text-only EPUB with its images stripped is 200 to 500 KB; the public-domain pool measures a median of 205 KB. 300 KB is the working figure. The share is of all intent, filling in rank order.
+
+| card | fill to 30% | fill to 50% | fill to 75% | fill to 95% |
+| --- | --- | --- | --- | --- |
+| 16 GB | 16,000 books, 30% | 26,666 books, 35% | 40,000 books, 38% | 50,666 books, 41% |
+| 32 GB | 32,000 books, 36% | 53,333 books, 41% | 80,000 books, 45% | 101,333 books, 48% |
+| 64 GB | 64,000 books, 43% | 106,666 books, 48% | 160,000 books, 53% | 202,666 books, 56% |
+| 128 GB | 128,000 books, 51% | 213,333 books, 57% | 320,000 books, 62% | 405,333 books, 65% |
+| 256 GB | 256,000 books, 59% | 426,666 books, 66% | 640,000 books, 72% | 810,666 books, 76% |
+
+## The top 100 of all books, by reading intent
+
+| # | title | author | want to read | all events |
+| --- | --- | --- | --- | --- |
+| 1 | Atomic Habits | James Clear | 56,029 | 63,992 |
+| 2 | The 48 Laws of Power | Robert Greene | 46,119 | 52,360 |
+| 3 | It Ends With Us | Colleen Hoover | 40,409 | 45,430 |
+| 4 | Rich Dad, Poor Dad | Robert T. Kiyosaki, Sharon L. Lechter | 31,727 | 37,916 |
+| 5 | The Subtle Art of Not Giving a F*ck | Mark Manson | 31,709 | 35,313 |
+| 6 | Control Your Mind and Master Your Feelings | Eric Robertson | 22,413 | 25,787 |
+| 7 | Um casamento arranjado | Zana Kheiron | 20,775 | 24,801 |
+| 8 | Harry Potter and the Philosopher's Stone | J. K. Rowling | 20,213 | 24,717 |
+| 9 | It Starts with Us | Colleen Hoover | 18,141 | 19,924 |
+| 10 | Think and Grow Rich | Napoleon Hill | 15,685 | 18,621 |
+| 11 | The Psychology of Money | Morgan Housel | 13,291 | 15,291 |
+| 12 | Twisted Love | Ana Huang | 13,328 | 15,018 |
+| 13 | How to Win Friends and Influence People | Dale Carnegie | 12,324 | 14,413 |
+| 14 | A Game of Thrones | George R. R. Martin | 11,627 | 14,177 |
+| 15 | Haunting Adeline | H. D. Carlton | 10,750 | 12,382 |
+| 16 | It | Stephen King | 10,602 | 12,372 |
+| 17 | I Don't Love You Anymore | Rithvik Singh | 9,565 | 11,250 |
+| 18 | The Power of Your Subconscious Mind | Joseph Murphy | 8,888 | 10,552 |
+| 19 | Latidos Que No Dije | Roos | 8,882 | 10,324 |
+| 20 | Icebreaker | Hannah Grace | 9,194 | 10,109 |
+| 21 | O Alquimista | Paulo Coelho | 8,124 | 10,021 |
+| 22 | Una corte de niebla y furia | Sarah J. Maas | 8,111 | 9,765 |
+| 23 | The Love Hypothesis | Ali Hazelwood | 8,285 | 9,284 |
+| 24 | Shatter Me | Tahereh Mafi | 8,114 | 9,241 |
+| 25 | Nineteen Eighty-Four | George Orwell | 7,088 | 8,910 |
+| 26 | Can't Hurt Me | David Goggins | 7,257 | 8,224 |
+| 27 | Diary of a Wimpy Kid | Jeff Kinney | 6,428 | 8,090 |
+| 28 | Pride and Prejudice | Jane Austen | 6,388 | 8,016 |
+| 29 | The 7 Habits of Highly Effective People | Stephen R. Covey, Sean Covey | 6,678 | 7,914 |
+| 30 | The Hunger Games | Suzanne Collins | 5,914 | 7,898 |
+| 31 | The Lightning Thief | Rick Riordan | 5,617 | 7,433 |
+| 32 | Fifty Shades of Grey | E. L. James | 6,011 | 7,303 |
+| 33 | Girl in Pieces | Kathleen Glasgow | 6,510 | 7,287 |
+| 34 | Ugly Love | Colleen Hoover | 6,212 | 7,258 |
+| 35 | Harry Potter and the Chamber of Secrets | J. K. Rowling | 5,285 | 7,135 |
+| 36 | Twilight | Stephenie Meyer | 5,286 | 6,819 |
+| 37 | To Kill a Mockingbird | Harper Lee | 5,447 | 6,604 |
+| 38 | A Good Girl's Guide to Murder | Holly Jackson | 5,670 | 6,478 |
+| 39 | Harry Potter and the Deathly Hallows | J. K. Rowling | 4,844 | 6,376 |
+| 40 | Harry Potter and the Prisoner of Azkaban | J. K. Rowling | 4,230 | 6,323 |
+| 41 | Thinking, fast and slow | Daniel Kahneman, Daniel Kahneman | 5,332 | 6,250 |
+| 42 | The Art of Seduction | Robert Greene, Joost Elffers | 5,568 | 6,233 |
+| 43 | Sapiens | Yuval Noah Harari | 5,205 | 6,160 |
+| 44 | Read People Like a Book | Patrick King | 5,443 | 6,141 |
+| 45 | The Art of War | 孙武 (Sun Tzu), Stephen F. Kaufman, Lionel | 5,228 | 6,028 |
+| 46 | Twisted Lies | Ana Huang | 5,293 | 5,973 |
+| 47 | The Silent Patient | Alex Michaelides | 5,119 | 5,896 |
+| 48 | Twisted Games | Ana Huang | 5,168 | 5,843 |
+| 49 | The Cruel Prince | Holly Black | 5,147 | 5,839 |
+| 50 | Animal Farm | George Orwell | 3,794 | 5,823 |
+| 51 | The Laws of Human Nature | Robert Greene | 5,099 | 5,660 |
+| 52 | The Hobbit | J.R.R. Tolkien | 3,906 | 5,606 |
+| 53 | The Seven Husbands of Evelyn Hugo | Taylor Jenkins Reid | 4,903 | 5,527 |
+| 54 | Harry Potter and the Goblet of Fire | J. K. Rowling | 3,874 | 5,267 |
+| 55 | Ikigai | Héctor García, Francesc Miralles | 4,619 | 5,267 |
+| 56 | Verity | Colleen Hoover | 4,696 | 5,230 |
+| 57 | Red, White & Royal Blue | Casey McQuiston | 4,663 | 5,224 |
+| 58 | Harry Potter and the Order of the Phoenix | J. K. Rowling | 3,618 | 4,917 |
+| 59 | Fahrenheit 451 | Ray Bradbury | 3,502 | 4,849 |
+| 60 | Le petit prince | Antoine de Saint-Exupéry | 3,794 | 4,821 |
+| 61 | Dune | Frank Herbert | 3,392 | 4,812 |
+| 62 | Charlotte's Web | E. B. White | 3,439 | 4,776 |
+| 63 | The Summer I Turned Pretty | Jenny Han | 4,193 | 4,774 |
+| 64 | The Intelligent Investor | Benjamin Graham, Jason Zweig, Atsuhiro D | 4,143 | 4,771 |
+| 65 | The Fault in Our Stars | John Green | 3,779 | 4,728 |
+| 66 | Deep Work | Cal Newport | 3,964 | 4,716 |
+| 67 | The Power of Positive Thinking | Norman Vincent Peale | 4,059 | 4,687 |
+| 68 | A Little Life | Hanya Yanagihara | 4,096 | 4,657 |
+| 69 | 人間失格 | 太宰 治 | 4,052 | 4,596 |
+| 70 | Twisted Hate | Ana Huang | 4,063 | 4,545 |
+| 71 | We Were Never Meant To Be | Palle Vasu | 3,872 | 4,542 |
+| 72 | A Court of Thorns and Roses | Sarah J. Maas | 3,879 | 4,533 |
+| 73 | A Gentle Reminder | Bianca Sparacino | 3,832 | 4,398 |
+| 74 | The Power of Now | Eckhart Tolle | 3,702 | 4,336 |
+| 75 | Hunting Adeline | H. D. Carlton | 3,694 | 4,296 |
+| 76 | ... Trotzdem Ja zum Leben sagen | Viktor E. Frankl | 3,499 | 4,294 |
+| 77 | Metamorphosis | Franz Kafka | 3,415 | 4,268 |
+| 78 | /works/OL24150460W | ? | 3,893 | 4,231 |
+| 79 | I'm Glad My Mom Died | Jennette McCurdy, Jannettte Mcury | 3,812 | 4,074 |
+| 80 | 101 Essays That Will Change The Way You Think | Brianna Wiest, Andrea Hernández González | 3,661 | 4,015 |
+| 81 | The Shining | Stephen King | 3,034 | 3,992 |
+| 82 | Harry Potter and the Half-Blood Prince | J. K. Rowling | 2,995 | 3,961 |
+| 83 | Brave New World | Aldous Huxley | 2,609 | 3,945 |
+| 84 | The Song of Achilles | Madeline Miller | 3,327 | 3,910 |
+| 85 | Wuthering Heights | Emily Brontë | 2,974 | 3,882 |
+| 86 | The Richest Man in Babylon | George S. Clason | 3,255 | 3,879 |
+| 87 | Wonder | R. J. Palacio | 2,974 | 3,797 |
+| 88 | The Eye of the World | Robert Jordan | 2,879 | 3,789 |
+| 89 | Can We Be Strangers Again? | Shrijeet Shandilya | 3,180 | 3,773 |
+| 90 | The Summer I Turned Pretty Trilogy | Jenny Han | 3,258 | 3,757 |
+| 91 | King of Wrath | Ana Huang | 3,350 | 3,722 |
+| 92 | The Da Vinci Code | Dan Brown | 2,910 | 3,693 |
+| 93 | Lord of the Flies | William Golding | 2,613 | 3,684 |
+| 94 | Heartstopper, Volume 1 | Alice Oseman | 3,103 | 3,670 |
+| 95 | /works/OL32521579W | ? | 3,243 | 3,647 |
+| 96 | How to Talk to Anyone | Leil Lowndes | 3,175 | 3,643 |
+| 97 | The Great Gatsby | F. Scott Fitzgerald | 2,591 | 3,550 |
+| 98 | Lolita | Vladimir Nabokov | 3,031 | 3,535 |
+| 99 | L’étranger | Albert Camus | 2,835 | 3,503 |
+| 100 | Преступление и наказание | Fiódor Dostoievski | 2,842 | 3,500 |
+
 
 # Library data: what is in the catalog, what fits, what the list looks like
 
@@ -291,15 +487,15 @@ Share of the pool's value held by the top N works, in the order the card is fill
 
 ## What fits
 
-Card sizes as printed (decimal gigabytes); the budget is the slider's share of the card, with nothing else on it. A real card loses a few percent to the file system and to whatever is already there. 'all' means the whole pool fits with room over.
+Card sizes as printed (decimal gigabytes); the budget is the slider's share of the card, with nothing else on it. A real card loses a few percent to the file system and to whatever is already there. 'The whole pool' means every book in this pool fits with room over; the pool is not every book, see universe.py for that.
 
 | card | fill to 30% | fill to 50% | fill to 75% | fill to 95% |
 | --- | --- | --- | --- | --- |
 | 16 GB | 23,856 books, 4.8 GB, 89.0% of demand | 39,255 books, 8.0 GB, 94.1% of demand | 54,594 books, 12.0 GB, 98.1% of demand | 63,232 books, 15.2 GB, 100.0% of demand |
-| 32 GB | 45,786 books, 9.6 GB, 95.9% of demand | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) |
-| 64 GB | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) |
-| 128 GB | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) |
-| 256 GB | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) | all (63,443, 15.4 GB) |
+| 32 GB | 45,786 books, 9.6 GB, 95.9% of demand | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) |
+| 64 GB | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) |
+| 128 GB | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) |
+| 256 GB | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) | the whole pool (63,443 books, 15.4 GB) |
 
 ## The top 100, in fill order
 

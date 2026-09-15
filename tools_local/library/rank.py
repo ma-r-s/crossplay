@@ -333,7 +333,8 @@ def main():
     p("## What fits\n")
     p("Card sizes as printed (decimal gigabytes); the budget is the slider's share of the "
       "card, with nothing else on it. A real card loses a few percent to the file system "
-      "and to whatever is already there. 'all' means the whole pool fits with room over.\n")
+      "and to whatever is already there. 'The whole pool' means every book in this pool "
+      "fits with room over; the pool is not every book, see universe.py for that.\n")
     p("| card | " + " | ".join(f"fill to {s}%" for s in SLIDER) + " |")
     p("| --- | " + " | ".join("---" for _ in SLIDER) + " |")
     for card in CARDS_GB:
@@ -341,7 +342,7 @@ def main():
         for s in SLIDER:
             budget = card * 1e9 * s / 100
             if budget >= pool_bytes:
-                cells.append(f"all ({fmt_int(len(pool))}, {gb(pool_bytes):.1f} GB)")
+                cells.append(f"the whole pool ({fmt_int(len(pool))} books, {gb(pool_bytes):.1f} GB)")
             else:
                 count, used, cum = fill(budget)
                 cells.append(f"{fmt_int(count)} books, {gb(used):.1f} GB, {100 * cum / pool_demand:.1f}% of demand")

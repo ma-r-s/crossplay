@@ -95,7 +95,7 @@ edited.
 | | |
 | --- | --- |
 | [`library-plan.md`](library-plan.md) | Fill the card with every book you will ever want: the ranking method, whether to ask, what the page can see about the card. Research and design, 2026-09-15; six questions for Mario at the end. |
-| [`library-data.md`](library-data.md) | The measured half: how many books fit per card size and slider, how the list is valued and filled, the top 100 and what the tail looks like. |
+| [`library-data.md`](library-data.md) | The measured half: every book ranked by reading intent and what a card holds of it, then the pool a site can copy today, how its list is valued and filled, and what the tail looks like. |
 
 ## Decided, and nobody is on it
 
