@@ -111,15 +111,17 @@ void testATickIsOneByte() {
   CHECK(doc == untouched);
 }
 
-void testTitle() {
-  CHECK(title("# Bread recipe\nmix\n", parse("# Bread recipe\nmix\n")) == "Bread recipe");
-  CHECK(title("\n\n  Guest wifi  \npassword\n", parse("\n\n  Guest wifi  \npassword\n")) == "Guest wifi");
-  CHECK(title("- [ ] Milk\n", parse("- [ ] Milk\n")) == "Milk");
-  CHECK(title("### Deep heading\n", parse("### Deep heading\n")) == "Deep heading");
-  // A row of hashes is not a heading of nothing; it is what it is.
-  CHECK(title("###\nreal\n", parse("###\nreal\n")) == "###");
-  CHECK(title("", parse("")).empty());
-  CHECK(title("\n \n", parse("\n \n")).empty());
+void testStripHeading() {
+  CHECK(stripHeading("# Bread recipe") == "Bread recipe");
+  CHECK(stripHeading("### Deep heading") == "Deep heading");
+  CHECK(stripHeading("  ## Indented") == "Indented");
+  CHECK(stripHeading("no hashes here") == "no hashes here");
+  // Hashes with nothing after them ARE the content; stripping would empty the line.
+  CHECK(stripHeading("###") == "###");
+  CHECK(stripHeading("#  ") == "#  ");
+  CHECK(stripHeading("") == "");
+  // Only a LEADING run counts. A hash mid-line is a word.
+  CHECK(stripHeading("aisle #4") == "aisle #4");
 }
 
 void testClearing() {
@@ -156,63 +158,13 @@ void testClearing() {
   CHECK(crlf == "- [ ] stays\r\n");
 }
 
-void testOften() {
-  std::vector<often::Entry> history;
-  often::record(history, {"Milk", "Eggs"}, 1);
-  often::record(history, {"milk ", "Bananas"}, 2);
-  often::record(history, {" MILK"}, 3);
-
-  CHECK(history.size() == 3);  // one Milk, not three
-  CHECK(history[0].count == 3);
-  CHECK(history[0].text == " MILK");  // the newest spelling wins
-
-  // Most used first; ties fall back to most recent, so Bananas (stamp 2)
-  // comes before Eggs (stamp 1).
-  std::vector<std::string> pills = often::suggest(history, {}, 5);
-  CHECK(pills.size() == 3);
-  CHECK(fold(pills[0]) == "milk");
-  CHECK(fold(pills[1]) == "bananas");
-  CHECK(fold(pills[2]) == "eggs");
-
-  // Never offer what the note already holds, whatever its casing.
-  pills = often::suggest(history, {"milk", "  Eggs  "}, 5);
-  CHECK(pills.size() == 1);
-  CHECK(fold(pills[0]) == "bananas");
-
-  // The row is short; max is honoured.
-  CHECK(often::suggest(history, {}, 2).size() == 2);
-
-  // Blank items never enter the history and never reach the row.
-  std::vector<often::Entry> blanks;
-  often::record(blanks, {"", "   ", "\t"}, 1);
-  CHECK(blanks.empty());
-}
-
-void testWholeCycle() {
-  // add -> tick -> clear -> the pills offer it back. This is the loop the app
-  // exists for, and each half is asserted above; this is the join.
-  std::string doc = "- [ ] Milk\n- [ ] Coffee beans\n";
-  std::vector<often::Entry> history;
-
-  std::vector<Line> lines = parse(doc);
-  CHECK(toggle(doc, lines[0]));
-  often::record(history, clearChecked(doc), 1);
-
-  CHECK(doc == "- [ ] Coffee beans\n");
-  const std::vector<std::string> pills = often::suggest(history, taskTexts(doc), 4);
-  CHECK(pills.size() == 1);
-  CHECK(pills[0] == "Milk");
-}
-
 }  // namespace
 
 int main() {
   testWhatIsATask();
   testATickIsOneByte();
-  testTitle();
+  testStripHeading();
   testClearing();
-  testOften();
-  testWholeCycle();
 
   std::printf("notes: %d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;

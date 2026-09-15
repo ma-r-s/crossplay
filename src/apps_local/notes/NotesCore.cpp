@@ -1,6 +1,5 @@
 #include "NotesCore.h"
 
-#include <algorithm>
 #include <cctype>
 
 namespace notes {
@@ -90,46 +89,16 @@ std::string textOf(const std::string& doc, const Line& line) {
   return doc.substr(line.textBegin, line.end - line.textBegin);
 }
 
-std::string title(const std::string& doc, const std::vector<Line>& lines) {
-  for (const Line& line : lines) {
-    std::string text = textOf(doc, line);
-    // A task's own text is a fine title; textOf has already skipped its box.
-    size_t start = 0;
-    while (start < text.size() && isSpace(text[start])) start++;
-    size_t stop = text.size();
-    while (stop > start && isSpace(text[stop - 1])) stop--;
-    if (start >= stop) continue;
-    text = text.substr(start, stop - start);
-    if (!line.isTask && text.size() > 1 && text[0] == '#') {
-      size_t k = 0;
-      while (k < text.size() && text[k] == '#') k++;
-      while (k < text.size() && isSpace(text[k])) k++;
-      if (k < text.size()) text = text.substr(k);
-    }
-    return text;
-  }
-  return std::string();
-}
-
-std::string fold(const std::string& text) {
+std::string stripHeading(const std::string& text) {
   size_t start = 0;
   while (start < text.size() && isSpace(text[start])) start++;
-  size_t stop = text.size();
-  while (stop > start && isSpace(text[stop - 1])) stop--;
-  std::string out;
-  out.reserve(stop - start);
-  for (size_t i = start; i < stop; i++) {
-    out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(text[i]))));
-  }
-  return out;
-}
-
-std::vector<std::string> taskTexts(const std::string& doc) {
-  std::vector<std::string> out;
-  for (const Line& line : parse(doc)) {
-    if (line.isTask) out.push_back(textOf(doc, line));
-  }
-  return out;
+  size_t hashes = start;
+  while (hashes < text.size() && text[hashes] == '#') hashes++;
+  if (hashes == start) return text;
+  size_t after = hashes;
+  while (after < text.size() && isSpace(text[after])) after++;
+  if (after >= text.size()) return text;  // hashes and nothing else are the content
+  return text.substr(after);
 }
 
 std::vector<std::string> clearChecked(std::string& doc) {
@@ -158,59 +127,5 @@ std::vector<std::string> clearChecked(std::string& doc) {
   doc = kept;
   return removed;
 }
-
-namespace often {
-
-void record(std::vector<Entry>& history, const std::vector<std::string>& texts, long stamp) {
-  for (const std::string& text : texts) {
-    const std::string key = fold(text);
-    if (key.empty()) continue;
-    bool found = false;
-    for (Entry& entry : history) {
-      if (fold(entry.text) != key) continue;
-      entry.count++;
-      entry.lastSeen = stamp;
-      // Keep the newest spelling: a person who starts writing "Oat milk"
-      // instead of "oat milk" meant the change.
-      entry.text = text;
-      found = true;
-      break;
-    }
-    if (!found) history.push_back(Entry{text, 1, stamp});
-  }
-}
-
-std::vector<std::string> suggest(const std::vector<Entry>& history, const std::vector<std::string>& present,
-                                 size_t max) {
-  std::vector<std::string> presentKeys;
-  presentKeys.reserve(present.size());
-  for (const std::string& text : present) {
-    std::string key = fold(text);
-    if (!key.empty()) presentKeys.push_back(std::move(key));
-  }
-
-  std::vector<const Entry*> pool;
-  pool.reserve(history.size());
-  for (const Entry& entry : history) {
-    const std::string key = fold(entry.text);
-    if (key.empty()) continue;
-    if (std::find(presentKeys.begin(), presentKeys.end(), key) != presentKeys.end()) continue;
-    pool.push_back(&entry);
-  }
-
-  std::stable_sort(pool.begin(), pool.end(), [](const Entry* a, const Entry* b) {
-    if (a->count != b->count) return a->count > b->count;
-    return a->lastSeen > b->lastSeen;
-  });
-
-  std::vector<std::string> out;
-  for (const Entry* entry : pool) {
-    if (out.size() >= max) break;
-    out.push_back(entry->text);
-  }
-  return out;
-}
-
-}  // namespace often
 
 }  // namespace notes

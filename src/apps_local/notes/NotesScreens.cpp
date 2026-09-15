@@ -12,6 +12,10 @@ constexpr int kBodyTop = toybox::kBodyTop;
 constexpr int kFooterHeight = toybox::kPillHeight;
 constexpr int kBoxSide = 40;
 constexpr int kRowPad = toybox::kGutter;
+// Shared by the menu and by the confirm that lands on top of it. The confirm's
+// KEEP must occupy the pixels the menu's DELETE NOTE had, so both divide the
+// band by the same number and a static_assert in buildMenu holds the table to it.
+constexpr int kMenuRows = 4;
 constexpr int kMinRow = 72;  // a finger, with room to miss
 
 int16_t pageWidth(const fui::DeviceContext& device) { return static_cast<int16_t>(device.width - 2 * toybox::kMargin); }
@@ -245,7 +249,7 @@ struct DeckLayout {
   int visible = 0;
 };
 
-DeckLayout deckLayout(toybox::Screen& screen, const DeckModel& model, const fui::Rect& band, const int reservedRows) {
+DeckLayout deckLayoutFor(const fui::DrawTarget& target, const DeckModel& model, const fui::Rect& band) {
   DeckLayout layout;
   fui::TextStyle tally = plain(toybox::kTileFont, fui::TextAlign::Right);
 
@@ -254,7 +258,7 @@ DeckLayout deckLayout(toybox::Screen& screen, const DeckModel& model, const fui:
   // edge and the column of titles does not jog.
   for (int i = 0; i < model.count; i++) {
     if (model.items[i].tally == nullptr) continue;
-    const int16_t width = screen.target().measureText(tally.font, model.items[i].tally, tally).width;
+    const int16_t width = target.measureText(tally.font, model.items[i].tally, tally).width;
     if (width > layout.tallyWidth) layout.tallyWidth = width;
   }
   if (layout.tallyWidth > 0) layout.tallyWidth = static_cast<int16_t>(layout.tallyWidth + toybox::kGutter);
@@ -265,13 +269,13 @@ DeckLayout deckLayout(toybox::Screen& screen, const DeckModel& model, const fui:
   for (int i = 0; i < model.count; i++) titles.push_back(model.items[i].title);
 
   layout.title = plain(toybox::kBodyFont, fui::TextAlign::Left, 2);
-  fui::FontId cut = model.count > 0 ? pickCut(screen.target(), titles.data(), model.count, titleWidth, 1, layout.title)
-                                    : layout.title.font;
+  fui::FontId cut =
+      model.count > 0 ? pickCut(target, titles.data(), model.count, titleWidth, 1, layout.title) : layout.title.font;
   int lines = 1;
   if (cut == 0) {
     // Nothing holds every title on one line. Two lines at the largest cut that
     // does beats one line at a cut so small the deck reads as a footnote.
-    cut = pickCut(screen.target(), titles.data(), model.count, titleWidth, 2, layout.title);
+    cut = pickCut(target, titles.data(), model.count, titleWidth, 2, layout.title);
     lines = 2;
   }
   if (cut == 0) {
@@ -281,9 +285,9 @@ DeckLayout deckLayout(toybox::Screen& screen, const DeckModel& model, const fui:
   layout.title.font = cut;
   layout.title.maxLines = static_cast<uint8_t>(lines);
 
-  layout.rowHeight = typeRowHeight(screen.target().lineHeight(cut), lines);
-  layout.visible = band.height / layout.rowHeight - reservedRows;
-  if (layout.visible < 0) layout.visible = 0;
+  layout.rowHeight = typeRowHeight(target.lineHeight(cut), lines);
+  layout.visible = band.height / layout.rowHeight;
+  if (layout.visible < 1) layout.visible = 1;
   return layout;
 }
 
@@ -320,7 +324,25 @@ void deckRows(toybox::Screen& screen, const DeckModel& model, const fui::Rect& b
 
 }  // namespace
 
-void buildDeckBar(toybox::Screen& screen, const DeckModel& model) {
+namespace {
+// The band both deck functions measure against. One definition, so capacity and
+// drawing cannot drift apart.
+fui::Rect deckBand(const fui::DeviceContext& device) {
+  const int16_t width = static_cast<int16_t>(device.width - 2 * toybox::kMargin);
+  const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
+  return fui::makeRect(toybox::kMargin, kBodyTop, width, static_cast<int16_t>(footerY - toybox::kGutter - kBodyTop));
+}
+}  // namespace
+
+int deckCapacity(const fui::DrawTarget& target, const fui::DeviceContext& device, const DeckModel& model) {
+  const fui::Rect band = deckBand(device);
+  const DeckLayout layout = deckLayoutFor(target, model, band);
+  if (layout.rowHeight <= 0) return 1;
+  const int rows = band.height / layout.rowHeight;
+  return rows < 1 ? 1 : rows;
+}
+
+void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   chrome(screen, "NOTES");
   const fui::DeviceContext& device = screen.device();
   const int16_t width = pageWidth(device);
@@ -333,36 +355,10 @@ void buildDeckBar(toybox::Screen& screen, const DeckModel& model) {
     centredNotice(screen, band, "Nothing here yet. A note is a list you tick, or a page you keep.");
     return;
   }
-  const DeckLayout layout = deckLayout(screen, model, band, 0);
+  const DeckLayout layout = deckLayoutFor(screen.target(), model, band);
   int16_t y = band.y;
   deckRows(screen, model, band, layout, y);
-}
-
-void buildDeckRow(toybox::Screen& screen, const DeckModel& model) {
-  chrome(screen, "NOTES");
-  const fui::DeviceContext& device = screen.device();
-  const int16_t width = pageWidth(device);
-  const fui::Rect band =
-      fui::makeRect(toybox::kMargin, kBodyTop, width, static_cast<int16_t>(device.height - toybox::kMargin - kBodyTop));
-
-  if (model.count == 0) {
-    centredNotice(screen, band, "Nothing here yet. A note is a list you tick, or a page you keep.");
-  }
-  // One row is reserved for NEW NOTE, which is why the layout is asked for it:
-  // the rows divide the band knowing the last one is already spoken for, so the
-  // column ends flush at the bottom of the page instead of above a gap.
-  const DeckLayout layout = deckLayout(screen, model, band, 1);
-  int16_t y = band.y;
-  deckRows(screen, model, band, layout, y);
-
-  const int16_t newTop =
-      y + layout.rowHeight <= band.y + band.height ? y : static_cast<int16_t>(band.y + band.height - layout.rowHeight);
-  const fui::Rect newRow = fui::makeRect(band.x, newTop, band.width, layout.rowHeight);
-  fui::ButtonProps add;
-  add.label = "+  NEW NOTE";
-  add.action = ActionNewNote;
-  add.styles = toybox::rowStyles();
-  screen.button(add, newRow);
+  pageLabel(screen, band, model.pageLabel);
 }
 
 // --- A note, open --------------------------------------------------------
@@ -375,7 +371,7 @@ struct NoteLayout {
   int16_t rowHeight = 0;
 };
 
-NoteLayout noteLayout(toybox::Screen& screen, const NoteModel& model, const fui::Rect& band, const int reservedRows) {
+NoteLayout noteLayoutFor(const fui::DrawTarget& target, const NoteModel& model, const fui::Rect& band) {
   NoteLayout layout;
   // The page label owns the last line of the band when there is one, so the
   // rows are laid out against what is left rather than drawn over it.
@@ -386,16 +382,15 @@ NoteLayout noteLayout(toybox::Screen& screen, const NoteModel& model, const fui:
   for (int i = 0; i < model.count; i++) texts.push_back(model.tasks[i].text);
 
   layout.body = plain(toybox::kBodyFont, fui::TextAlign::Left, 2);
-  fui::FontId cut = model.count > 0
-                        ? pickCut(screen.target(), texts.data(), model.count, layout.textWidth, 1, layout.body)
-                        : layout.body.font;
+  fui::FontId cut =
+      model.count > 0 ? pickCut(target, texts.data(), model.count, layout.textWidth, 1, layout.body) : layout.body.font;
   int lines = 1;
   if (cut == 0) {
     // A long line wraps rather than shrinking. A shopping list is a list of
     // things and a long thing takes two lines, exactly as it would on paper;
     // shrinking it instead makes one item look less important than its
     // neighbours, which is the one thing a list must never say.
-    cut = pickCut(screen.target(), texts.data(), model.count, layout.textWidth, 2, layout.body);
+    cut = pickCut(target, texts.data(), model.count, layout.textWidth, 2, layout.body);
     lines = 2;
   }
   if (cut == 0) {
@@ -405,7 +400,7 @@ NoteLayout noteLayout(toybox::Screen& screen, const NoteModel& model, const fui:
   layout.body.font = cut;
   layout.body.maxLines = static_cast<uint8_t>(lines);
 
-  layout.rowHeight = typeRowHeight(screen.target().lineHeight(cut), lines);
+  layout.rowHeight = typeRowHeight(target.lineHeight(cut), lines);
   return layout;
 }
 
@@ -447,7 +442,24 @@ void noteRows(toybox::Screen& screen, const NoteModel& model, const fui::Rect& b
 
 }  // namespace
 
-void buildNoteBar(toybox::Screen& screen, const NoteModel& model) {
+namespace {
+fui::Rect noteBandFor(const fui::DeviceContext& device) {
+  const int16_t width = static_cast<int16_t>(device.width - 2 * toybox::kMargin);
+  const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
+  return fui::makeRect(toybox::kMargin, kBodyTop, width,
+                       static_cast<int16_t>(footerY - toybox::kGutter * 2 - kBodyTop));
+}
+}  // namespace
+
+int noteCapacity(const fui::DrawTarget& target, const fui::DeviceContext& device, const NoteModel& model) {
+  const fui::Rect band = noteBandFor(device);
+  const NoteLayout layout = noteLayoutFor(target, model, band);
+  if (layout.rowHeight <= 0) return 1;
+  const int rows = band.height / layout.rowHeight;
+  return rows < 1 ? 1 : rows;
+}
+
+void buildNote(toybox::Screen& screen, const NoteModel& model) {
   chrome(screen, model.title, nullptr, model.menuIcon);
   const fui::DeviceContext& device = screen.device();
   const int16_t width = pageWidth(device);
@@ -455,7 +467,7 @@ void buildNoteBar(toybox::Screen& screen, const NoteModel& model) {
   const fui::Rect band =
       fui::makeRect(toybox::kMargin, kBodyTop, width, static_cast<int16_t>(footerY - toybox::kGutter * 2 - kBodyTop));
 
-  const NoteLayout layout = noteLayout(screen, model, band, 0);
+  const NoteLayout layout = noteLayoutFor(screen.target(), model, band);
   int16_t y = band.y;
   noteRows(screen, model, band, layout, y);
   pageLabel(screen, band, model.pageLabel);
@@ -476,29 +488,65 @@ void buildNoteBar(toybox::Screen& screen, const NoteModel& model) {
   }
 }
 
-void buildNoteRow(toybox::Screen& screen, const NoteModel& model) {
-  chrome(screen, model.title, nullptr, model.menuIcon);
-  const fui::DeviceContext& device = screen.device();
-  const int16_t width = pageWidth(device);
+// --- The menu ------------------------------------------------------------
+
+fui::Rect menuRowRect(const fui::DeviceContext& device, const int index) {
+  const int16_t width = static_cast<int16_t>(device.width - 2 * toybox::kMargin);
   const fui::Rect band =
       fui::makeRect(toybox::kMargin, kBodyTop, width, static_cast<int16_t>(device.height - toybox::kMargin - kBodyTop));
-
-  const NoteLayout layout = noteLayout(screen, model, band, 1);
-  int16_t y = band.y;
-  noteRows(screen, model, band, layout, y);
-
-  const int16_t addTop =
-      y + layout.rowHeight <= band.y + band.height ? y : static_cast<int16_t>(band.y + band.height - layout.rowHeight);
-  const fui::Rect addRow = fui::makeRect(band.x, addTop, band.width, layout.rowHeight);
-  fui::ButtonProps add;
-  add.label = "+  ADD A LINE";
-  add.action = ActionAddLine;
-  add.styles = toybox::rowStyles();
-  screen.button(add, addRow);
-  pageLabel(screen, fui::makeRect(band.x, band.y, band.width, static_cast<int16_t>(addTop - band.y)), model.pageLabel);
+  const int16_t rowHeight = static_cast<int16_t>(band.height / kMenuRows);
+  return fui::makeRect(band.x, static_cast<int16_t>(band.y + index * rowHeight), band.width, rowHeight);
 }
 
-// --- The menu ------------------------------------------------------------
+void buildConfirm(toybox::Screen& screen, const ConfirmModel& model) {
+  chrome(screen, model.title, nullptr, model.menuIcon);
+  const fui::DeviceContext& device = screen.device();
+
+  // The prose gets the first three menu rows' worth of page, wrapped at the
+  // body cut. It says what the delete costs, because the only thing a person
+  // can do about a note they did not mean to delete is not delete it.
+  const fui::Rect top = menuRowRect(device, 0);
+  const fui::Rect third = menuRowRect(device, 2);
+  fui::TextStyle prose = plain(toybox::kBodyFont, fui::TextAlign::Left, 5);
+  const int16_t proseHeight = static_cast<int16_t>(third.y + third.height - top.y);
+  const fui::Rect box = fui::makeRect(top.x, top.y, top.width, proseHeight);
+  const int16_t lineHeight = screen.target().lineHeight(prose.font);
+  const int maxLines = proseHeight / lineHeight;
+  prose.maxLines = static_cast<uint8_t>(maxLines < 1 ? 1 : maxLines);
+  const std::string drawn = toybox::fitLines(screen.target(), model.prose, box.width, prose.maxLines, prose);
+  screen.target().text(box, drawn.c_str(), prose);
+
+  // KEEP is the LAST row, exactly where DELETE NOTE sat on the menu. DELETE is
+  // the row above it, where nothing was.
+  const fui::Rect keepRow = menuRowRect(device, kMenuRows - 1);
+  const fui::Rect deleteRow = menuRowRect(device, kMenuRows - 2);
+  const int16_t buttonHeight = kFooterHeight;
+  const int16_t keepTop = static_cast<int16_t>(keepRow.y + (keepRow.height - buttonHeight) / 2);
+  const int16_t deleteTop = static_cast<int16_t>(deleteRow.y + (deleteRow.height - buttonHeight) / 2);
+  footerButton(screen, fui::makeRect(deleteRow.x, deleteTop, deleteRow.width, buttonHeight), "DELETE IT", ActionDelete,
+               true);
+  footerButton(screen, fui::makeRect(keepRow.x, keepTop, keepRow.width, buttonHeight), "KEEP IT", ActionDismiss, false);
+}
+
+void buildNotice(toybox::Screen& screen, const ConfirmModel& model) {
+  chrome(screen, model.title, nullptr, nullptr);
+  const fui::DeviceContext& device = screen.device();
+  const fui::Rect top = menuRowRect(device, 0);
+  const fui::Rect third = menuRowRect(device, 2);
+  fui::TextStyle prose = plain(toybox::kBodyFont, fui::TextAlign::Left, 5);
+  const int16_t proseHeight = static_cast<int16_t>(third.y + third.height - top.y);
+  const int16_t lineHeight = screen.target().lineHeight(prose.font);
+  const int maxLines = proseHeight / lineHeight;
+  prose.maxLines = static_cast<uint8_t>(maxLines < 1 ? 1 : maxLines);
+  const std::string drawn = toybox::fitLines(screen.target(), model.prose, top.width, prose.maxLines, prose);
+  screen.target().text(fui::makeRect(top.x, top.y, top.width, proseHeight), drawn.c_str(), prose);
+
+  const fui::Rect row = menuRowRect(device, kMenuRows - 1);
+  footerButton(
+      screen,
+      fui::makeRect(row.x, static_cast<int16_t>(row.y + (row.height - kFooterHeight) / 2), row.width, kFooterHeight),
+      "BACK", ActionDismiss, false);
+}
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   chrome(screen, model.title, nullptr, model.menuIcon);
@@ -527,6 +575,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
       {"DELETE NOTE", nullptr, ActionDelete, true},
   };
   const int count = static_cast<int>(sizeof(rows) / sizeof(rows[0]));
+  static_assert(sizeof(rows) / sizeof(rows[0]) == kMenuRows,
+                "menuRowRect divides the band by kMenuRows; the confirm's KEEP lands on the last row of THIS table, "
+                "so a row added here without changing kMenuRows would put KEEP somewhere DELETE NOTE never was");
   const int16_t rowHeight = static_cast<int16_t>(band.height / count);
 
   fui::TextStyle label = plain(toybox::kBodyFont);

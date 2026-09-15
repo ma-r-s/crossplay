@@ -80,14 +80,21 @@ struct DeckModel {
   const DeckItem* items = nullptr;
   int count = 0;
   int firstVisible = 0;
+  // "1 / 2" when the deck does not fit one page. A list that silently stops at
+  // the fifth of six is the worst thing either of these screens can do.
+  const char* pageLabel = nullptr;
 };
 
-// A: rows with a pinned NEW NOTE bar at the foot.
-void buildDeckBar(toybox::Screen& screen, const DeckModel& model);
+// The NEW NOTE bar is PINNED to the foot. Mario chose it over the alternative
+// (the action as the last row of the column) because the bar anchors the bottom
+// of the page: a three-note deck then reads as a list that ended, rather than as
+// a button floating in the middle of nothing.
+void buildDeck(toybox::Screen& screen, const DeckModel& model);
 
-// B: the same rows with NEW NOTE as the last row of the column, so the page is
-// one list of things and there is no bar under it to leave a gap above.
-void buildDeckRow(toybox::Screen& screen, const DeckModel& model);
+// How many rows a page of this deck holds. Asked of the same layout the drawing
+// uses, so the page label, the physical keys and the drawn rows cannot
+// disagree; two functions that must agree are two functions that can differ.
+int deckCapacity(const fui::DrawTarget& target, const fui::DeviceContext& device, const DeckModel& model);
 
 // --- A note, open --------------------------------------------------------
 
@@ -114,12 +121,8 @@ struct NoteModel {
   const freeink::Icon* menuIcon = nullptr;
 };
 
-// A: tick boxes, with ADD and CLEAR DONE on a footer bar.
-void buildNoteBar(toybox::Screen& screen, const NoteModel& model);
-
-// B: tick boxes, with ADD A LINE as the last row. Everything else is on the
-// menu, so the page is the list and nothing else.
-void buildNoteRow(toybox::Screen& screen, const NoteModel& model);
+void buildNote(toybox::Screen& screen, const NoteModel& model);
+int noteCapacity(const fui::DrawTarget& target, const fui::DeviceContext& device, const NoteModel& model);
 
 // --- The menu ------------------------------------------------------------
 
@@ -134,5 +137,29 @@ struct MenuModel {
 };
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
+
+// --- The delete confirm --------------------------------------------------
+
+struct ConfirmModel {
+  const char* title = "";
+  const freeink::Icon* menuIcon = nullptr;
+  const char* prose = "";
+};
+
+// KEEP occupies EXACTLY the pixels DELETE NOTE had on the menu, so a repeat of
+// the press that opened this -- a double tap, an impatient second jab during a
+// 0.3-2s repaint, a finger that never moved -- cancels. DELETE sits where no
+// menu control was. See same-pixel-different-action.
+void buildConfirm(toybox::Screen& screen, const ConfirmModel& model);
+
+// The same page with one way off it. Used for every refusal the card can hand
+// back, which are the only failures this app has: the message is shown verbatim
+// rather than summarised, because "the card is nearly full" and "the card would
+// not take the change" want different things from the person reading them.
+void buildNotice(toybox::Screen& screen, const ConfirmModel& model);
+
+// The rect the menu's last row occupies, so the confirm and the menu agree by
+// construction rather than by two functions that are only ever wrong together.
+fui::Rect menuRowRect(const fui::DeviceContext& device, int index);
 
 }  // namespace notesui

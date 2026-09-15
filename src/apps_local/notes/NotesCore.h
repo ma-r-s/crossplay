@@ -31,22 +31,13 @@
 // would be lost for the sake of a typo.
 //
 // ---------------------------------------------------------------------------
-// Why clearing is the primitive, and where OFTEN comes from
+// Why clearing is the primitive
 // ---------------------------------------------------------------------------
 //
 // The real cycle of a list is add -> tick -> clear, not add -> tick -> keep.
-// So `clearChecked()` removes the ticked lines and RETURNS THEIR TEXT, and the
-// caller files that text into a small per-note history. `often::suggest()`
-// then offers the things this list has held before and is not holding now,
-// which is the row of one-tap pills at the bottom of the screen.
-//
-// That row exists because the complaint in every list app is re-entering the
-// same forty items, not slow typing. It is the rung of the input ladder that
-// keeps a person off the keyboard entirely.
-//
-// Matching is case-insensitive and ignores surrounding whitespace throughout:
-// "Milk", "milk" and " milk " are one item, or the history fills with
-// near-duplicates that push the useful pills off the row.
+// `clearChecked()` removes the ticked lines in one pass, which is the only
+// bulk edit the device performs and the reason a list does not have to be
+// emptied a line at a time on a panel that repaints in 0.3s.
 
 #include <cstddef>
 #include <string>
@@ -77,45 +68,20 @@ struct Counts {
 };
 Counts counts(const std::vector<Line>& lines);
 
-// The card's name in the deck: the first line with anything on it, with a
-// leading "# " removed so a Markdown heading reads as a title rather than as
-// punctuation. Empty when the note is empty.
-std::string title(const std::string& doc, const std::vector<Line>& lines);
+// A prose line as it should be DRAWN: a leading run of '#' and the space after
+// it removed, so a Markdown heading dropped in from a desktop editor reads as a
+// line of the note rather than as punctuation. A row of hashes and nothing else
+// is left alone, because then the hashes are the content.
+//
+// The note's NAME is its filename, not any line inside it. One source of truth:
+// renaming is a file rename, a note whose first line is a task still has a
+// name, and nothing has to decide which of two titles wins.
+std::string stripHeading(const std::string& text);
 
 std::string textOf(const std::string& doc, const Line& line);
 
 // Removes every checked task line and returns their texts in file order, for
 // the caller to record. Prose is never removed, whatever it says.
 std::vector<std::string> clearChecked(std::string& doc);
-
-// The text of every task currently in the note, ticked or not. This is what
-// `often::suggest` must exclude.
-std::vector<std::string> taskTexts(const std::string& doc);
-
-// Trimmed and lowercased; the identity used for every comparison here.
-std::string fold(const std::string& text);
-
-namespace often {
-
-// One remembered item. `count` is how many times it has been cleared from this
-// note, `lastSeen` a monotonic stamp so that ties -- and at first everything
-// ties on count 1 -- fall back to recency rather than to whatever order the
-// file happened to be in.
-struct Entry {
-  std::string text;  // as the user last wrote it, not folded
-  int count = 0;
-  long lastSeen = 0;
-};
-
-// Files freshly cleared texts into the history, bumping counts and stamps.
-// `stamp` should increase between calls; the caller keeps it beside the file.
-void record(std::vector<Entry>& history, const std::vector<std::string>& texts, long stamp);
-
-// The pills: most-used first, ties broken by most-recent, never offering
-// something the note already holds.
-std::vector<std::string> suggest(const std::vector<Entry>& history, const std::vector<std::string>& present,
-                                 size_t max);
-
-}  // namespace often
 
 }  // namespace notes
