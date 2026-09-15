@@ -42,13 +42,13 @@ is Atomic Habits, The 48 Laws of Power, It Ends With Us, Rich Dad Poor
 Dad. Three populations, three decades, and the mixture's top ten is Harry
 Potter, The Hunger Games, Twilight, To Kill a Mockingbird, The Great
 Gatsby, The Fault in Our Stars, Atomic Habits, Pride and Prejudice,
-Nineteen Eighty-Four, The Hobbit.
+The Hobbit, Divergent.
 
 **How concentrated it is.** Share of all value held by the top N works:
 
 | top 100 | top 1,000 | top 10,000 | top 50,000 | top 200,000 | top 1,000,000 |
 | --- | --- | --- | --- | --- | --- |
-| 7.5% | 20% | 40% | 60% | 78% | 93% |
+| 7.5% | 20% | 41% | 60% | 78% | 94% |
 
 Steeper than Open Library's log alone (which put 40% in the top 50,000
 and 79% in the first million), because Goodreads and Amazon count every
@@ -60,10 +60,10 @@ longer-tailed than films: Netflix puts 87% of viewing in its top 3,000.
 | card | fill to 30% | fill to 95% |
 | --- | --- | --- |
 | 16 GB (what the X4 Pro ships with) | 16,000 books, 46% of all value | 50,666 books, 60% |
-| 32 GB | 32,000 books, 54% | 101,333 books, 69% |
+| 32 GB | 32,000 books, 55% | 101,333 books, 69% |
 | 64 GB | 64,000 books, 63% | 202,666 books, 78% |
-| 128 GB | 128,000 books, 72% | 405,333 books, 85% |
-| 256 GB | 256,000 books, 80% | 810,666 books, 92% |
+| 128 GB | 128,000 books, 72% | 405,333 books, 86% |
+| 256 GB | 256,000 books, 81% | 810,666 books, 92% |
 
 So the dream's closing line, if every book existed, is about 60% on the
 card the X4 Pro ships with and about 90% on the largest card it takes.
@@ -71,19 +71,18 @@ Aggregate shares, with the plan's caveat: a head inventory covers most of
 aggregate demand and almost nobody completely.
 
 **Where the pool sits in it.** The public-domain pool a site can copy
-today carries 2.7% of all value (1.9% of Open Library's intent alone).
+today carries 2.9% of all value (1.9% of Open Library's intent alone).
 Filling a card with it is filling the card with three percent of what
 people reach for; the other 97% is a question of having the books, not of
 ranking them.
 
-**Rough edges in this pass**, named: Goodreads' original titles are
-sometimes in the original language (Anne Frank as "Het Achterhuis", Stieg
-Larsson as "Man som hatar kvinnor"), so those works join nothing and keep
-one signal; Amazon lists editions as separate titles with the format
-appended ("Where the Crawdads Sing Paperback"), so a bestseller can count
-three times in Amazon's own total; and the Wikipedia join is not in yet.
-A rerun with those three fixed is in progress and replaces the numbers
-here when it lands; none of them moves the head.
+**Rough edges in this pass**, named: Amazon still lists a few editions
+under inverted or publisher-suffixed titles ("GIRL ON THE TRAIN,THE",
+"The Girl on the Train (Thorndike Press...)"), so a bestseller can count
+twice in Amazon's own total; and the Wikipedia join is not in yet. The
+rerun that fixed Goodreads' foreign original titles and Amazon's format
+suffixes moved the pool's share from 2.7% to 2.9% and nothing else by
+more than a point.
 
 The Open Library-only pass that preceded this one is kept in the
 workspace's `library-data/universe.md`.
@@ -211,9 +210,9 @@ What follows is `universe2.py`'s output, then `rank.py`'s, verbatim.
 
 # Every book, ranked on Goodreads, Amazon and Open Library together
 
-5,023,695 merged works. Sources and totals: Goodreads ratings 977,797,795 over 2.4 M books (site-wide counters, crawled 2017); Amazon review counts 701,770,083 over 4.4 M books (to 2023); Open Library intent 11,919,695 events (to 2026). Weights: gr 0.44, az 0.33, ol 0.22.
+4,982,941 merged works. Sources and totals: Goodreads ratings 972,631,852 over 2.4 M books (site-wide counters, crawled 2017); Amazon review counts 696,642,123 over 4.4 M books (to 2023); Open Library intent 11,919,695 events (to 2026). Weights: gr 0.44, az 0.33, ol 0.22.
 
-**The public-domain pool a site can copy today carries 2.7% of this value.**
+**The public-domain pool a site can copy today carries 2.9% of this value.**
 
 ## Each source's own top 20
 
@@ -221,154 +220,154 @@ So the mixture can be judged against its parts.
 
 | # | Goodreads ratings | Amazon reviews | Open Library intent |
 | --- | --- | --- | --- |
-| 1 | The Hunger Games (5,066,596) | Where the Crawdads Sing (616,040) | [By James Clear] Atomic Habits: An Eas (64,004) |
-| 2 | Harry Potter and the Philosopher's Sto (4,972,886) | Where the Crawdads Sing Paperback - 12 (611,548) | The 48 Laws of Power (52,365) |
-| 3 | Twilight (4,052,303) | Where the Crawdads Sing Deluxe Edition (609,879) | It Ends with Us (45,430) |
-| 4 | To Kill a Mockingbird (3,402,363) | The Girl on the Train (492,222) | Rich Dad , Poor Dad (37,916) |
-| 5 | The Great Gatsby (2,852,829) | The Girl on the Train (491,970) | The Subtle Art of Not Giving a F*ck: A (35,316) |
-| 6 | The Fault in Our Stars (2,564,692) | GIRL ON THE TRAIN,THE (491,874) | Control Your Mind and Master Your Feel (25,787) |
-| 7 | Divergent (2,277,881) | Verity: The thriller that will capture (304,071) | Um casamento arranjado (24,801) |
-| 8 | Pride and Prejudice (2,239,983) | It Ends with Us (295,980) | Harry Potter and the Philosopher's Sto (24,754) |
-| 9 | The Hobbit : or There and Back Again (2,228,818) | The Nightingale (288,444) | It Starts With Us (It Ends With Us, 2) (19,924) |
-| 10 | The Catcher in the Rye (2,166,748) | The Nightingale by Hannah, Kristin (Fe (286,663) | Think and Grow Rich (18,739) |
-| 11 | Angels & Demons (2,126,047) | The Nightingale [Paperback] [Jan 01, 2 (286,227) | The Psychology of Money: Timeless less (15,291) |
-| 12 | Nineteen Eighty-Four (2,125,871) | The Silent Patient (271,262) | Twisted Love: Twisted, Book 1 (15,018) |
-| 13 | Het Achterhuis: Dagboekbrieven 14 juni (2,082,057) | [1250301696] [9781250301697] The Silen (270,768) | How to Win Friends and Influence Peopl (14,415) |
-| 14 | Animal Farm: A Fairy Story (2,035,585) | Silent Patient EXPORT (269,517) | A Game of Thrones (14,214) |
-| 15 | Harry Potter and the Prisoner of Azkab (2,019,176) | The Silent Patient The Richard and Jud (259,482) | It (12,469) |
-| 16 | Catching Fire (2,015,024) | Reminders of Him (Center Point Large P (242,240) | Haunting Adeline (Cat and Mouse Duet) (12,382) |
-| 17 | Man som hatar kvinnor (1,982,596) | The Midnight Library: A Novel (235,586) | Diary of a Wimpy Kid: #1-6 [Collection (11,327) |
-| 18 | Harry Potter and the Chamber of Secret (1,955,192) | BEST SELLER NO.1 AUTHOR The Midnight L (232,620) | I Don't Love You Anymore (11,320) |
-| 19 | The Kite Runner (1,924,586) | The Midnight Library Paperback 18 Feb  (232,310) | The Power of Your Subconscious Mind (10,558) |
-| 20 | Harry Potter and the Goblet of Fire (1,912,948) | Bestseller_the midnight library matt h (227,625) | Latidos que no dije (Spanish Edition) (10,324) |
+| 1 | The Hunger Games (5,066,596) | Where the Crawdads Sing (616,040) | Atomic Habits : Lets Change Your Atomi (64,004) |
+| 2 | Harry Potter and the Sorcerer's Stone (4,972,886) | The Girl on the Train (492,222) | The 48 Laws of Power (52,365) |
+| 3 | Twilight (Twilight, #1) (4,052,303) | The Girl On The Train (Thorndike Press (492,077) | It Ends with Us (45,430) |
+| 4 | To Kill a Mockingbird (3,402,363) | The Girl on the Train (491,970) | Rich Dad, Poor Dad (37,916) |
+| 5 | The Great Gatsby (2,852,829) | GIRL ON THE TRAIN,THE (491,874) | The Subtle Art of Not Giving a F*ck (35,316) |
+| 6 | The Fault in Our Stars (2,564,656) | Verity (304,071) | Control Your Mind and Master Your Feel (25,787) |
+| 7 | Divergent (2,277,881) | It Ends with Us (295,980) | Um casamento arranjado (24,801) |
+| 8 | Pride and Prejudice (2,239,983) | The Nightingale (288,444) | Harry Potter and the Philosopher's Sto (24,754) |
+| 9 | The Hobbit (2,228,898) | The Silent Patient (271,262) | It Starts with Us (19,924) |
+| 10 | The Catcher in the Rye (2,166,748) | Silent Patient (269,517) | Think and Grow Rich (18,739) |
+| 11 | Angels & Demons (2,126,047) | The Silent Patient (Thorndike Press (267,580) | The Psychology of Money (15,291) |
+| 12 | 1984 (2,125,928) | The Silent Patient The Richard and Jud (259,482) | Twisted Love (15,018) |
+| 13 | The Diary of a Young Girl (2,082,057) | Reminders of Him (Center Point (242,240) | How to Win Friends and Influence Peopl (14,415) |
+| 14 | Animal Farm (2,035,585) | Reminders of Him (236,673) | A Game of Thrones (14,214) |
+| 15 | Harry Potter and the Prisoner of Azkab (2,019,176) | The Midnight Library (235,586) | It (12,469) |
+| 16 | Catching Fire (2,015,024) | The Midnight Library (Wheeler Publishi (233,970) | Haunting Adeline (12,382) |
+| 17 | The Girl with the Dragon Tattoo (Mille (1,982,596) | BEST SELLER NO.1 AUTHOR The Midnight L (232,620) | Diary of a Wimpy Kid (11,327) |
+| 18 | Harry Potter and the Chamber of Secret (1,955,192) | Bestseller_the midnight library matt h (227,625) | I Don't Love You Anymore (11,320) |
+| 19 | The Kite Runner (1,924,586) | Eleanor Oliphant is Completely Fine (227,221) | Power of Your Subconscious Mind (10,558) |
+| 20 | Harry Potter and the Goblet of Fire (1,912,948) | Eleanor Oliphant is Completely Fine (T (225,854) | Latidos que no dije (10,324) |
 
 ## How concentrated it is
 
 | top N works | share of all value | 
 | --- | --- |
 | 100 | 7.5% |
-| 1,000 | 19.8% |
-| 10,000 | 40.4% |
-| 50,000 | 59.9% |
-| 100,000 | 68.9% |
-| 200,000 | 77.6% |
-| 500,000 | 87.5% |
-| 1,000,000 | 93.4% |
+| 1,000 | 20.0% |
+| 10,000 | 40.7% |
+| 50,000 | 60.3% |
+| 100,000 | 69.3% |
+| 200,000 | 77.9% |
+| 500,000 | 87.7% |
+| 1,000,000 | 93.5% |
 
 ## What fits, at 300 KB per book
 
 | card | fill to 30% | fill to 95% |
 | --- | --- | --- |
 | 16 GB | 16,000 books, 46% | 50,666 books, 60% |
-| 32 GB | 32,000 books, 54% | 101,333 books, 69% |
+| 32 GB | 32,000 books, 55% | 101,333 books, 69% |
 | 64 GB | 64,000 books, 63% | 202,666 books, 78% |
-| 128 GB | 128,000 books, 72% | 405,333 books, 85% |
-| 256 GB | 256,000 books, 80% | 810,666 books, 92% |
+| 128 GB | 128,000 books, 72% | 405,333 books, 86% |
+| 256 GB | 256,000 books, 81% | 810,666 books, 92% |
 
 ## The top 100
 
 | # | title | author | year | Goodreads ratings | Amazon reviews | OL intent |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Harry Potter and the Philosopher's Stone | J.K. Rowling | 1997 | 4,972,886 | 25,473 | 24,754 |
-| 2 | The Hunger Games | Suzanne Collins | 2008 | 5,066,596 | 81,557 | 7,898 |
-| 3 | Twilight | Stephenie Meyer | 2005 | 4,052,303 | 35,518 | 6,875 |
+| 1 | The Hunger Games | Suzanne Collins | 2008 | 5,066,596 | 81,557 | 7,898 |
+| 2 | Harry Potter and the Sorcerer's Stone | J.K. Rowling | 1997 | 4,972,886 | 25,692 | 5 |
+| 3 | Twilight (Twilight, #1) | Stephenie Meyer | 2005 | 4,052,303 | 35,518 | 6,875 |
 | 4 | To Kill a Mockingbird | Harper Lee | 1960 | 3,402,363 | 132,041 | 6,604 |
 | 5 | The Great Gatsby | F. Scott Fitzgerald | 1925 | 2,852,829 | 17,069 | 3,751 |
-| 6 | The Fault in Our Stars | John Green | 2012 | 2,564,692 | 160,059 | 4,728 |
-| 7 | [By James Clear] Atomic Habits: An Easy & Proven Way to | James Clear |  | 0 | 115,186 | 64,004 |
+| 6 | The Fault in Our Stars | John Green | 2012 | 2,564,656 | 160,059 | 4,728 |
+| 7 | Atomic Habits : Lets Change Your Atomic Habits! | James Clear |  | 0 | 109,230 | 64,004 |
 | 8 | Pride and Prejudice | Jane Austen | 1813 | 2,239,983 | 45,465 | 8,431 |
-| 9 | Nineteen Eighty-Four | George Orwell | 1949 | 2,125,871 | 111,687 | 8,922 |
-| 10 | The Hobbit : or There and Back Again | J.R.R. Tolkien | 1937 | 2,228,818 | 66,644 | 5,606 |
-| 11 | Divergent | Veronica Roth | 2011 | 2,277,881 | 57,633 | 2,378 |
-| 12 | Harry Potter and the Prisoner of Azkaban | J.K. Rowling | 1999 | 2,019,176 | 83,126 | 6,323 |
-| 13 | The Catcher in the Rye | J.D. Salinger | 1951 | 2,166,748 | 38,584 | 3,438 |
-| 14 | Animal Farm: A Fairy Story | George Orwell | 1945 | 2,035,585 | 67,685 | 5,823 |
-| 15 | Harry Potter and the Chamber of Secrets | J.K. Rowling | 1998 | 1,955,192 | 88,889 | 7,144 |
-| 16 | It Ends with Us | Colleen Hoover | 2016 | 104,937 | 295,980 | 45,430 |
+| 9 | The Hobbit | J.R.R. Tolkien | 1937 | 2,228,898 | 66,644 | 5,606 |
+| 10 | Divergent | Veronica Roth | 2011 | 2,277,881 | 57,633 | 2,378 |
+| 11 | Harry Potter and the Prisoner of Azkaban | J.K. Rowling | 1999 | 2,019,176 | 83,126 | 6,323 |
+| 12 | The Catcher in the Rye | J.D. Salinger | 1951 | 2,166,748 | 38,584 | 3,438 |
+| 13 | Animal Farm | George Orwell | 1945 | 2,035,585 | 67,685 | 5,823 |
+| 14 | Harry Potter and the Chamber of Secrets | J.K. Rowling | 1998 | 1,955,192 | 88,889 | 7,144 |
+| 15 | It Ends with Us | Colleen Hoover | 2016 | 104,937 | 295,980 | 45,430 |
+| 16 | 1984 | George Orwell | 1949 | 2,125,928 | 111,713 | 119 |
 | 17 | Harry Potter and the Deathly Hallows | J.K. Rowling | 2007 | 1,889,600 | 88,904 | 6,410 |
 | 18 | Angels & Demons | Dan Brown | 2000 | 2,126,047 | 20,888 | 2,132 |
-| 19 | The 48 Laws of Power | Robert Greene |  | 0 | 66,990 | 52,365 |
-| 20 | Harry Potter and the Goblet of Fire | J.K. Rowling | 2000 | 1,912,948 | 77,345 | 5,267 |
-| 21 | Het Achterhuis: Dagboekbrieven 14 juni 1942 - 1 augustu | Anne Frank | 1947 | 2,082,057 | 78 | 2,887 |
-| 22 | Harry Potter and the Order of the Phoenix | J.K. Rowling | 2003 | 1,892,452 | 78,308 | 4,967 |
-| 23 | A Game of Thrones | George R.R. Martin | 1996 | 1,501,820 | 73,279 | 14,214 |
+| 19 | Harry Potter and the Goblet of Fire | J.K. Rowling | 2000 | 1,912,948 | 77,345 | 5,267 |
+| 20 | The 48 Laws of Power | Robert Greene |  | 0 | 66,990 | 52,365 |
+| 21 | Harry Potter and the Order of the Phoenix [2/2] | J.K. Rowling | 2003 | 1,892,452 | 78,308 | 4,967 |
+| 22 | A Game of Thrones | George R.R. Martin | 1996 | 1,496,066 | 73,279 | 14,214 |
+| 23 | The Diary of a Young Girl | Anne Frank | 1947 | 2,082,057 | 43,281 | 51 |
 | 24 | The Kite Runner | Khaled Hosseini | 2003 | 1,924,586 | 51,246 | 3,093 |
 | 25 | Catching Fire | Suzanne Collins | 2009 | 2,015,024 | 65,272 | 6 |
-| 26 | Harry Potter and the Half-Blood Prince | J.K. Rowling | 2005 | 1,824,878 | 73,521 | 3,981 |
+| 26 | Harry Potter and the Half-Blood Prince | J.K. Rowling | 2005 | 1,824,878 | 73,587 | 3,981 |
 | 27 | Mockingjay | Suzanne Collins | 2010 | 1,897,651 | 80,464 | 1,779 |
-| 28 | The Fellowship of the Ring | J.R.R. Tolkien | 1954 | 1,881,999 | 21,299 | 2,875 |
-| 29 | Man som hatar kvinnor | Stieg Larsson | 2005 | 1,982,596 | 20 | 842 |
+| 28 | The Fellowship of the Ring | J.R.R. Tolkien | 1954 | 1,880,521 | 21,299 | 2,875 |
+| 29 | The Girl with the Dragon Tattoo (Millennium, #1) | Stieg Larsson | 2005 | 1,982,596 | 31,623 | 0 |
 | 30 | Lord of the Flies | William Golding | 1954 | 1,707,618 | 46,614 | 3,691 |
 | 31 | Gone Girl | Gillian Flynn | 2012 | 1,667,157 | 161,723 | 1,616 |
-| 32 | O Alquimista | Paulo Coelho | 1988 | 1,455,095 | 10,360 | 10,040 |
-| 33 | Fifty Shades of Grey | E.L. James | 2011 | 1,448,482 | 111,806 | 7,305 |
-| 34 | The Girl on the Train | Paula Hawkins | 2015 | 1,301,700 | 492,222 | 1,006 |
-| 35 | Rich Dad , Poor Dad | Robert T. Kiyosaki | 1997 | 186,289 | 91,924 | 37,916 |
+| 32 | Fifty Shades of Grey | E.L. James | 2011 | 1,448,482 | 111,806 | 7,305 |
+| 33 | The Girl on the Train | Paula Hawkins | 2015 | 1,301,700 | 492,222 | 1,006 |
+| 34 | Romeo and Juliet | William Shakespeare | 1597 | 1,702,565 | 8,487 | 3,510 |
+| 35 | Rich Dad, Poor Dad | Robert T. Kiyosaki | 1997 | 186,289 | 91,924 | 37,916 |
 | 36 | The Lightning Thief | Rick Riordan | 2005 | 1,472,245 | 49,371 | 7,433 |
-| 37 | The Da Vinci code | Dan Brown | 2003 | 1,578,627 | 19,291 | 3,742 |
+| 37 | The Da Vinci Code | Dan Brown | 2003 | 1,578,627 | 19,291 | 3,742 |
 | 38 | The Lovely Bones | Alice Sebold | 2002 | 1,685,957 | 13,415 | 829 |
-| 39 | The Lion, the Witch and the Wardrobe | C.S. Lewis | 1950 | 1,629,782 | 18,777 | 2,035 |
+| 39 | Lion, the Witch, and the Wardrobe | C.S. Lewis | 1950 | 1,629,782 | 18,777 | 2,035 |
 | 40 | The Help | Kathryn Stockett | 2009 | 1,638,864 | 33,082 | 1,233 |
-| 41 | An Excellent conceited Tragedie of Romeo and Juliet | William Shakespeare | 1597 | 1,702,565 | 0 | 0 |
-| 42 | Of Mice and Men | John Steinbeck | 1937 | 1,548,931 | 38,982 | 2,646 |
-| 43 | The Subtle Art of Not Giving a F*ck: A Counterintuitive | Mark  Manson | 2016 | 70,642 | 139,452 | 35,316 |
+| 41 | Of Mice and Men | John Steinbeck | 1937 | 1,548,931 | 38,982 | 2,646 |
+| 42 | The Subtle Art of Not Giving a F*ck | Mark  Manson | 2016 | 70,642 | 139,452 | 35,316 |
+| 43 | The Alchemist | Paulo Coelho | 1988 | 1,457,088 | 142,965 | 2 |
 | 44 | The Giver | Lois Lowry | 1993 | 1,361,154 | 39,454 | 3,342 |
 | 45 | The Book Thief | Markus Zusak | 2005 | 1,326,169 | 67,648 | 3,053 |
-| 46 | Little Women | Louisa May Alcott | 1868 | 1,336,690 | 20,620 | 3,121 |
+| 46 | Little Women | Louisa May Alcott | 1868 | 1,336,336 | 20,620 | 3,121 |
 | 47 | Memoirs of a Geisha | Arthur Golden | 1997 | 1,439,510 | 16,759 | 578 |
-| 48 | Fahrenheit 451 | Ray Bradbury | 1953 | 1,203,859 | 50,028 | 4,913 |
-| 49 | Jane Eyre | Charlotte Bronte | 1847 | 1,298,660 | 24,132 | 2,074 |
+| 48 | Fahrenheit 451 | Ray Bradbury | 1953 | 1,204,152 | 50,028 | 4,913 |
+| 49 | Jane Eyre | Charlotte Bronte | 1847 | 1,298,373 | 24,132 | 2,074 |
 | 50 | The Time Traveler's Wife | Audrey Niffenegger | 2003 | 1,329,358 | 10,945 | 670 |
-| 51 | City of Bones | Cassandra Clare | 2007 | 1,277,122 | 23,695 | 1,306 |
+| 51 | City of Bones | Cassandra Clare | 2007 | 1,276,443 | 23,695 | 1,306 |
 | 52 | Charlotte's Web | E.B. White | 1952 | 1,117,276 | 28,277 | 4,776 |
 | 53 | Brave New World | Aldous Huxley | 1932 | 1,103,420 | 42,797 | 3,953 |
-| 54 | New Moon (Twilight, #2) | Stephenie Meyer | 2006 | 1,217,539 | 21,148 | 1,311 |
-| 55 | Eat, pray, love: one woman's search for everything acro | Elizabeth Gilbert | 2006 | 1,226,472 | 15,284 | 538 |
+| 54 | New Moon | Stephenie Meyer | 2006 | 1,217,539 | 21,148 | 1,311 |
+| 55 | Eat, Pray, Love | Elizabeth Gilbert | 2006 | 1,226,472 | 15,284 | 538 |
 | 56 | Eclipse | Stephenie Meyer | 2007 | 1,189,270 | 20,479 | 1,196 |
 | 57 | Eragon | Christopher Paolini | 2002 | 1,150,741 | 14,252 | 1,790 |
-| 58 | The Hitchhiker's Guide to the Galaxy: A Trilogy in Five | Douglas Adams | 1992 | 1,076,105 | 24,130 | 2,736 |
-| 59 | Wuthering Heights | Emily Bronte | 1847 | 1,024,801 | 26,554 | 3,914 |
+| 58 | Wuthering Heights | Emily Bronte | 1847 | 1,022,330 | 26,554 | 3,914 |
+| 59 | The Hitchhiker's Guide to the Galaxy | Douglas Adams | 1979 | 1,065,802 | 24,130 | 2,736 |
 | 60 | Breaking Dawn | Stephenie Meyer | 2008 | 1,116,839 | 25,490 | 1,119 |
 | 61 | Life of Pi | Yann Martel | 2001 | 1,087,878 | 21,102 | 1,289 |
 | 62 | Water for Elephants | Sara Gruen | 2006 | 1,124,517 | 11,740 | 276 |
 | 63 | The Perks of Being a Wallflower | Stephen Chbosky | 1999 | 974,361 | 38,378 | 3,005 |
 | 64 | The Notebook | Nicholas Sparks | 1996 | 1,088,680 | 11,699 | 875 |
-| 65 | The Adventures of Huckleberry Finn | Mark Twain | 1884 | 1,018,244 | 15,140 | 1,821 |
-| 66 | Le Petit Prince | Antoine de Saint-Exupery | 1943 | 889,022 | 12,180 | 4,855 |
-| 67 | Northern Lights | Philip Pullman | 1995 | 1,016,379 | 10,536 | 1,394 |
-| 68 | It | Stephen King | 1986 | 516,629 | 47,076 | 12,469 |
-| 69 | Where the Sidewalk Ends: The Poems and Drawings of Shel | Shel Silverstein | 1974 | 1,036,312 | 11,428 | 551 |
-| 70 | Insurgent | Veronica Roth | 2012 | 961,923 | 60,303 | 907 |
+| 65 | Adventures of Huckleberry Finn | Mark Twain | 1884 | 1,018,244 | 15,140 | 1,821 |
+| 66 | It | Stephen King | 1986 | 515,463 | 47,076 | 12,469 |
+| 67 | Where the Sidewalk Ends | Shel Silverstein | 1974 | 1,036,312 | 11,428 | 551 |
+| 68 | Insurgent | Veronica Roth | 2012 | 961,923 | 60,303 | 907 |
+| 69 | The Shining | Stephen King | 1977 | 845,784 | 42,724 | 3,992 |
+| 70 | Frankenstein | Mary Wollstonecraft Shelley | 1818 | 904,994 | 22,989 | 3,024 |
 | 71 | Control Your Mind and Master Your Feelings | Eric Robertson |  | 0 | 0 | 25,787 |
-| 72 | The Shining | Stephen King | 1977 | 845,784 | 42,724 | 3,992 |
-| 73 | Frankenstein; or, The Modern Prometheus | Mary Wollstonecraft Shelley | 1818 | 904,994 | 22,989 | 3,024 |
-| 74 | The Curious Incident of the Dog in the Night-Time | Mark Haddon | 2003 | 928,719 | 33,418 | 2,027 |
-| 75 | A Thousand Splendid Suns | Khaled Hosseini | 2007 | 884,890 | 46,487 | 2,677 |
-| 76 | The Handmaid's Tale | Margaret Atwood | 1985 | 737,910 | 155,561 | 3,431 |
+| 72 | The Curious Incident of the Dog in the Night-Time | Mark Haddon | 2003 | 928,719 | 33,418 | 2,027 |
+| 73 | A Thousand Splendid Suns | Khaled Hosseini | 2007 | 884,890 | 46,487 | 2,677 |
+| 74 | Handmaid's Tale | Margaret Atwood | 1985 | 737,910 | 155,561 | 3,431 |
+| 75 | Harry Potter and the Philosopher's Stone | J.K. Rowling |  | 0 | 25,473 | 24,754 |
+| 76 | The Golden Compass (His Dark Materials, 1) | Philip Pullman | 1995 | 1,016,116 | 10,533 | 0 |
 | 77 | How to Win Friends and Influence People | Dale Carnegie | 1936 | 321,072 | 112,233 | 14,415 |
-| 78 | Ender's Game | Orson Scott Card | 1985 | 891,095 | 40,286 | 2,218 |
+| 78 | Ender's Game [1/2] | Orson Scott Card | 1985 | 890,890 | 40,160 | 2,218 |
 | 79 | Um casamento arranjado | Zana Kheiron |  | 0 | 0 | 24,801 |
 | 80 | The Secret Life of Bees | Sue Monk Kidd | 2001 | 950,440 | 32,040 | 550 |
 | 81 | Think and Grow Rich | Napoleon Hill | 1937 | 122,396 | 98,293 | 18,739 |
-| 82 | Gone with the Wind (1 vol.) | Margaret Mitchell | 1936 | 914,241 | 17,247 | 919 |
-| 83 | The Maze Runner | James Dashner | 2009 | 813,471 | 42,496 | 2,684 |
-| 84 | Looking for Alaska | John Green | 2005 | 853,773 | 31,881 | 1,905 |
-| 85 | It Starts With Us (It Ends With Us, 2) | Colleen Hoover |  | 0 | 139,815 | 19,924 |
+| 82 | Gone with the Wind | Margaret Mitchell | 1936 | 913,780 | 17,247 | 919 |
+| 83 | Looking for Alaska | John Green | 2005 | 853,773 | 31,881 | 1,905 |
+| 84 | Maze Runner | James Dashner | 2009 | 805,362 | 42,496 | 2,684 |
+| 85 | It Starts with Us | Colleen Hoover |  | 0 | 139,815 | 19,924 |
 | 86 | My Sister's Keeper | Jodi Picoult | 2004 | 900,732 | 8,316 | 473 |
 | 87 | Holes | Louis Sachar | 1998 | 784,203 | 31,110 | 2,483 |
-| 88 | Slaughterhouse-Five, or The Children's Crusade: A Duty- | Kurt Vonnegut Jr. | 1969 | 909,128 | 0 | 0 |
-| 89 | Dune | Frank Herbert | 1965 | 608,902 | 89,851 | 4,957 |
+| 88 | Slaughterhouse-Five | Kurt Vonnegut Jr. | 1969 | 909,128 | 0 | 0 |
+| 89 | Little Prince | Antoine de Saint-Exupery | 1943 | 888,952 | 14,387 | 47 |
 | 90 | All the Light We Cannot See | Anthony Doerr | 2014 | 580,709 | 216,285 | 1,511 |
-| 91 | Dracula | Bram Stoker | 1897 | 711,528 | 24,641 | 3,031 |
+| 91 | Dracula | Bram Stoker | 1897 | 711,183 | 24,641 | 3,031 |
 | 92 | Me Before You | Jojo Moyes | 2012 | 767,013 | 6,535 | 2,027 |
 | 93 | Sense and Sensibility | Jane Austen | 1811 | 786,130 | 11,317 | 1,252 |
-| 94 | Outsiders (Littérature & Documents) | S.E. Hinton | 2013 | 698,475 | 36,834 | 2,376 |
-| 95 | The Picture of Dorian Gray | Oscar Wilde | 1890 | 694,772 | 23,780 | 2,412 |
-| 96 | The Host | Stephenie Meyer | 2008 | 784,707 | 13,333 | 303 |
-| 97 | The Secret Garden | Frances Hodgson Burnett | 1911 | 707,050 | 20,988 | 1,673 |
-| 98 | The Martian | Andy Weir | 2012 | 545,278 | 171,358 | 1,738 |
-| 99 | The Giving Tree | Shel Silverstein | 1964 | 726,368 | 32,548 | 800 |
-| 100 | Bridget Jones's Diary | Helen Fielding | 1996 | 767,502 | 4,811 | 475 |
+| 94 | Dune | Frank Herbert | 1965 | 538,013 | 89,851 | 4,957 |
+| 95 | The Outsiders | S.E. Hinton | 2013 | 698,475 | 36,834 | 2,376 |
+| 96 | Picture of Dorian Gray | Oscar Wilde | 1890 | 694,769 | 23,780 | 2,412 |
+| 97 | The Host | Stephenie Meyer | 2008 | 784,707 | 13,332 | 303 |
+| 98 | Diary of a Wimpy Kid | Jeff Kinney | 2004 | 298,120 | 47,403 | 11,327 |
+| 99 | Secret Garden | Frances Hodgson Burnett | 1911 | 707,050 | 20,988 | 1,673 |
+| 100 | The Martian | Andy Weir | 2012 | 545,278 | 171,358 | 1,738 |
 
 
 # Library data: what is in the catalog, what fits, what the list looks like
