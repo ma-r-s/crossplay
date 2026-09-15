@@ -46,7 +46,11 @@ def main():
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    pool_ids = {json.loads(l)["id"] for l in open(args.pool)}
+    pool_dl = {}
+    for l in open(args.pool):
+        d = json.loads(l)
+        pool_dl[d["id"]] = d["downloads"]
+    pool_ids = set(pool_dl)
     index = collections.defaultdict(list)  # folded title -> [(id, surname)]
     n = 0
     for line in open(args.catalog):
@@ -138,23 +142,31 @@ def main():
                     pass
     print(f"{len(names)} of {len(need)} author names found", file=sys.stderr, flush=True)
 
-    sig = collections.defaultdict(lambda: {"want": 0, "reading": 0, "read": 0, "ratings": 0, "works": 0})
+    # An Open Library work spans every translation (one Hamlet for all
+    # languages), so its counts are split across the pool works it matches in
+    # proportion to their downloads: the English Hamlet takes nearly all of it,
+    # the Finnish one a sliver, instead of each taking the whole.
+    sig = collections.defaultdict(lambda: {"want": 0.0, "reading": 0.0, "read": 0.0, "ratings": 0.0, "works": 0})
     for wkey, t, akeys in cands:
         ol_surnames = {surname(names.get(k)) for k in akeys if names.get(k)}
-        for gid, s in index[t]:
-            ok = (s and s in ol_surnames) or (not s and not ol_surnames)
-            if not ok:
-                continue
-            w, c, r = log.get(wkey, (0, 0, 0))
+        hits = [gid for gid, s in index[t] if (s and s in ol_surnames) or (not s and not ol_surnames)]
+        if not hits:
+            continue
+        total_dl = sum(pool_dl[g] for g in hits) or len(hits)
+        w, c, r = log.get(wkey, (0, 0, 0))
+        k = ratings.get(wkey, 0)
+        for gid in hits:
+            share = (pool_dl[gid] / total_dl) if sum(pool_dl[g] for g in hits) else 1 / len(hits)
             d = sig[gid]
-            d["want"] += w
-            d["reading"] += c
-            d["read"] += r
-            d["ratings"] += ratings.get(wkey, 0)
+            d["want"] += w * share
+            d["reading"] += c * share
+            d["read"] += r * share
+            d["ratings"] += k * share
             d["works"] += 1
     with open(args.out, "w") as out:
         for gid in sorted(sig):
-            out.write(json.dumps({"id": gid, **sig[gid]}) + "\n")
+            d = {k: (round(v) if isinstance(v, float) else v) for k, v in sig[gid].items()}
+            out.write(json.dumps({"id": gid, **d}) + "\n")
     matched_with_signal = sum(1 for d in sig.values() if d["want"] + d["read"] + d["reading"] + d["ratings"] > 0)
     print(f"{len(sig)} pool works matched an OL work; {matched_with_signal} carry any count", file=sys.stderr)
 

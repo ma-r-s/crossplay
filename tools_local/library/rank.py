@@ -65,6 +65,7 @@ def work_key(row):
     title = re.split(r"[:\n;]", title, maxsplit=1)[0]
     # "Volume 1", "Part 2", "Complete" and the like distinguish editions, not works.
     title = re.sub(r"\b(vol(ume)?|part|book|tome)\.?\s*([0-9]+|[ivxlc]+)\b.*$", "", title, flags=re.I)
+    title = re.sub(r",?\s*\b(complete|unabridged|illustrated|annotated)\b\.?\s*$", "", title, flags=re.I)
     creators = [c["name"] or "" for c in row["creators"]]
     surname = fold(creators[0].split(",")[0]) if creators else ""
     lang = row["languages"][0] if row["languages"] else "?"
@@ -85,19 +86,23 @@ def form_rule(row):
 
 
 def blend(pool, ol_path, wiki_path):
-    """Give every work a value: the probability someone will ever want it, up to scale.
+    """Give every work a value: its share of demand, up to scale.
 
-    v0 (no signal files): the Gutenberg 30-day download count alone.
-    v1: a weighted geometric mean of three signals, each in log space:
-    downloads (weight 0.4), Open Library shelvings (want-to-read + reading +
-    read + ratings, 0.3) and Wikipedia page views by humans over a year (0.3).
-    The two "heard of" signals are scaled so their median matched work equals
-    the median download count, and a work with no match takes the floor (1),
-    so a title nobody shelves and nobody looks up cannot sit at the head on
-    downloads alone. That is the objective: if you hear of it, it is there.
+    v0 (no signal files): Gutenberg's 30-day download count alone.
+    v1: a mixture of three demand distributions. Each signal is turned into
+    a share of its own total over the pool (downloads, Open Library
+    shelvings = want-to-read + reading + read + ratings, Wikipedia page views
+    by humans over a year), and the value is 0.4 x downloads share + 0.4 x
+    shelvings share + 0.2 x views share: shelvings are the most direct "want
+    to read", and an article's traffic can belong to the subject rather than
+    the book (Magna Carta the charter, not the text). A work with no shelvings and no
+    article keeps only its downloads term, so a crawler-inflated title
+    sinks below any work real people shelve or look up, and the tail stays
+    ordered by downloads. A mixture, not a product: multiplying three
+    heavy-tailed signals put 74% of all value in the top 1,000 works, where
+    every real demand curve measured for this project puts 15 to 44%.
     Returns the paragraph the report prints about it.
     """
-    import math
     if not ol_path and not wiki_path:
         for r in pool:
             r["value"] = float(r["downloads"])
@@ -116,31 +121,22 @@ def blend(pool, ol_path, wiki_path):
     for r in pool:
         r["ol"] = ol.get(r["id"], 0)
         r["pv"] = pv.get(r["id"], 0)
-
-    def median(xs):
-        xs = sorted(xs)
-        return xs[len(xs) // 2] if xs else 1
-
-    med_dl = median([r["downloads"] for r in pool])
-    med_ol = median([r["ol"] for r in pool if r["ol"] > 0])
-    med_pv = median([r["pv"] for r in pool if r["pv"] > 0])
-    k_ol = med_dl / max(med_ol, 1)
-    k_pv = med_dl / max(med_pv, 1)
-    w_dl, w_ol, w_pv = 0.4, 0.3, 0.3
+    tot_dl = sum(r["downloads"] for r in pool) or 1
+    tot_ol = sum(r["ol"] for r in pool) or 1
+    tot_pv = sum(r["pv"] for r in pool) or 1
+    w_dl, w_ol, w_pv = 0.4, 0.4, 0.2
     for r in pool:
-        lv = (w_dl * math.log(1 + r["downloads"]) + w_ol * math.log(1 + k_ol * r["ol"])
-              + w_pv * math.log(1 + k_pv * r["pv"]))
-        r["value"] = math.exp(lv)
+        r["value"] = 1e6 * (w_dl * r["downloads"] / tot_dl + w_ol * r["ol"] / tot_ol + w_pv * r["pv"] / tot_pv)
     n_ol = sum(1 for r in pool if r["ol"] > 0)
     n_pv = sum(1 for r in pool if r["pv"] > 0)
     top = sorted(pool, key=lambda r: -r["downloads"])[:1000]
-    return (f"v1: value = downloads^0.4 x (1 + {k_ol:.1f} x OL shelvings)^0.3 x "
-            f"(1 + {k_pv:.3f} x Wikipedia views)^0.3, the scale factors putting each signal's "
-            f"median matched work at the median download count ({med_dl:,}). Matched: "
-            f"{n_ol:,} works carry Open Library shelvings and {n_pv:,} carry Wikipedia views; "
-            f"of the 1,000 most downloaded, {sum(1 for r in top if r['ol'] > 0):,} have shelvings and "
-            f"{sum(1 for r in top if r['pv'] > 0):,} have an article. A work with neither takes the "
-            "floor on those two factors, which is what demotes crawler-inflated titles.")
+    return (f"v1: value = 0.4 x share of downloads + 0.4 x share of Open Library shelvings "
+            f"+ 0.2 x share of Wikipedia page views, each share taken over the pool "
+            f"({tot_dl:,} downloads in 30 days, {tot_ol:,} shelvings, {tot_pv:,} views in a year). "
+            f"Matched: {n_ol:,} works carry shelvings and {n_pv:,} carry views; of the 1,000 most "
+            f"downloaded, {sum(1 for r in top if r['ol'] > 0):,} have shelvings and "
+            f"{sum(1 for r in top if r['pv'] > 0):,} have an article. A work with neither keeps only "
+            "its downloads term, which is what demotes crawler-inflated titles.")
 
 
 def gb(n):

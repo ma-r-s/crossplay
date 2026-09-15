@@ -17,6 +17,7 @@ is the point: the tail has no such link because nobody hears of it.
 import argparse
 import datetime
 import json
+import re
 import sys
 import time
 import urllib.parse
@@ -80,11 +81,66 @@ def views(lang, title, start, end):
     return None
 
 
+def fold(t):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", t or "")
+    t = "".join(c for c in t if not unicodedata.combining(c)).lower()
+    t = re.sub(r"\(.*?\)", " ", t)          # "(novel)", "(1897 novel)"
+    t = re.sub(r"[^a-z0-9 ]+", " ", t)
+    t = re.sub(r"^(the|a|an) ", "", t.strip())
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def search_article(lang, title, author):
+    """The Wikipedia article for a book, by title and author, or None."""
+    q = f'intitle:"{title}" {author}'.strip()
+    url = (f"https://{lang}.wikipedia.org/w/api.php?action=query&list=search&format=json"
+           f"&srlimit=5&srsearch=" + urllib.parse.quote(q))
+    try:
+        data = get(url)
+    except Exception:
+        return None
+    want = fold(title)
+    for hit in data.get("query", {}).get("search", []):
+        got = fold(hit["title"])
+        # The article's title must be the book's title, allowing a bracketed
+        # disambiguator; "Emma (novel)" folds to "emma". Anything longer is
+        # another subject that happens to contain the words.
+        if got == want:
+            return hit["title"]
+    return None
+
+
+def search_fallback(pool_path, by_id, top_n, workers):
+    rows = [json.loads(l) for l in open(pool_path)]
+    rows.sort(key=lambda r: -r.get("value", r.get("downloads", 0)))
+    todo = []
+    for r in rows[:top_n]:
+        if r["id"] in by_id and by_id[r["id"]]:
+            continue
+        lang = r["lang"] if r["lang"] in LANGS else "en"
+        title = re.split(r"[:;\n]", r["title"] or "", maxsplit=1)[0].strip()
+        title = re.sub(r",?\s*(complete|unabridged)$", "", title, flags=re.I)
+        author = (r["creators"][0].split(",")[0] if r.get("creators") else "").strip()
+        if len(title) >= 2:
+            todo.append((r["id"], lang, title, author))
+    found = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for (gid, lang, title, author), hit in zip(todo, pool.map(lambda x: search_article(x[1], x[2], x[3]), todo)):
+            if hit:
+                by_id.setdefault(gid, set()).add((lang, hit))
+                found += 1
+    return found
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", required=True)
     ap.add_argument("--months", type=int, default=12)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--pool", help="ranked.jsonl: works without a Wikidata link are looked up by title")
+    ap.add_argument("--search-top", type=int, default=8000,
+                    help="how many of the pool's top works (by value) to look up by title")
     args = ap.parse_args()
 
     today = datetime.date.today().replace(day=1)
@@ -96,6 +152,9 @@ def main():
     s, e = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
 
     by_id = sparql()
+    if args.pool:
+        found = search_fallback(args.pool, by_id, args.search_top, args.workers)
+        print(f"title search added articles for {found} works", file=sys.stderr, flush=True)
     articles = sorted({a for arts in by_id.values() for a in arts})
     print(f"{len(by_id)} gutenberg ids on wikidata, {len(articles)} articles, views {s}..{e}",
           file=sys.stderr, flush=True)
