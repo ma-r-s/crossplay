@@ -28,6 +28,7 @@
 #include "knucklebones/KnucklebonesActivity.h"
 #include "minesweeper/MinesweeperActivity.h"
 #include "murdle/MurdleActivity.h"
+#include "notes/NotesActivity.h"
 #include "picross/PicrossActivity.h"
 #include "player/PlayerActivity.h"
 #include "seasalt/SeaSaltActivity.h"
@@ -79,6 +80,9 @@ constexpr shelf::Item kApps[] = {
     {"INSTAPAPER", &icon_instapaper_32, &InstapaperActivity::create},
     {"WALLPAPERS", &icon_wallpapers_32, &WallpapersActivity::create},
     {"WIKIPEDIA", &icon_wikipedia_32, &WikipediaActivity::create},
+    // Card #516. The icon is the Lucide list mark borrowed from Murdle while
+    // the screens are being chosen; a Notes mark comes with the real app.
+    {"NOTES", &icon_murdle_face_clues_32, &NotesActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because
