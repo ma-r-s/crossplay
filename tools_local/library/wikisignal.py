@@ -91,6 +91,11 @@ def fold(t):
     return re.sub(r"\s+", " ", t).strip()
 
 
+BOOKISH = re.compile(r"novel|book|play|poem|poetry|story|stories|essay|epic|memoir|autobiograph|"
+                     r"novella|comedy|tragedy|treatise|dialogue|libro|roman|Roman|romanzo|livre|"
+                     r"Buch|romaani|kirja|\b1[0-9]{3}\b", re.I)
+
+
 def search_article(lang, title, author):
     """The Wikipedia article for a book, by title and author, or None."""
     q = f'intitle:"{title}" {author}'.strip()
@@ -105,9 +110,15 @@ def search_article(lang, title, author):
         got = fold(hit["title"])
         # The article's title must be the book's title, allowing a bracketed
         # disambiguator; "Emma (novel)" folds to "emma". Anything longer is
-        # another subject that happens to contain the words.
-        if got == want:
-            return hit["title"]
+        # another subject that happens to contain the words, and a
+        # disambiguator that names a film, album or band is another work
+        # with the same name ("Wuthering Heights (2026 film)").
+        if got != want:
+            continue
+        m = re.search(r"\(([^)]*)\)\s*$", hit["title"])
+        if m and not BOOKISH.search(m.group(1)):
+            continue
+        return hit["title"]
     return None
 
 

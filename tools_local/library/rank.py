@@ -126,7 +126,11 @@ def blend(pool, ol_path, wiki_path):
     tot_pv = sum(r["pv"] for r in pool) or 1
     w_dl, w_ol, w_pv = 0.4, 0.4, 0.2
     for r in pool:
-        r["value"] = 1e6 * (w_dl * r["downloads"] / tot_dl + w_ol * r["ol"] / tot_ol + w_pv * r["pv"] / tot_pv)
+        # An article's traffic counts only when reading intent corroborates it:
+        # a text nobody shelves and few download (Magna Carta, the Rosary) is
+        # looked up as a subject, not reached for as a book.
+        pv = r["pv"] if (r["ol"] > 0 or r["downloads"] >= 5000) else 0
+        r["value"] = 1e6 * (w_dl * r["downloads"] / tot_dl + w_ol * r["ol"] / tot_ol + w_pv * pv / tot_pv)
     n_ol = sum(1 for r in pool if r["ol"] > 0)
     n_pv = sum(1 for r in pool if r["pv"] > 0)
     top = sorted(pool, key=lambda r: -r["downloads"])[:1000]
@@ -136,7 +140,9 @@ def blend(pool, ol_path, wiki_path):
             f"Matched: {n_ol:,} works carry shelvings and {n_pv:,} carry views; of the 1,000 most "
             f"downloaded, {sum(1 for r in top if r['ol'] > 0):,} have shelvings and "
             f"{sum(1 for r in top if r['pv'] > 0):,} have an article. A work with neither keeps only "
-            "its downloads term, which is what demotes crawler-inflated titles.")
+            "its downloads term, which is what demotes crawler-inflated titles; views count only "
+            "for a work with some shelvings or at least 5,000 downloads, so a subject looked up "
+            "but not read (Magna Carta) does not ride its article.")
 
 
 def gb(n):
