@@ -97,12 +97,41 @@ control was. A `static_assert` in `buildMenu` holds the menu's row table to the
 row count `menuRowRect` divides by, because a row added to the menu without
 changing it would put KEEP somewhere DELETE NOTE never was.
 
+## Typing from a phone
+
+The note's menu opens a screen with a QR and the address under it. Scanning it
+opens one page, served by the reader itself over your own network, holding THAT
+note in a textarea; saving writes it back and the panel redraws.
+
+`Surface::NotesOnly` exists for the reason `WallpapersOnly` does, one step
+further: what is behind a code printed on a screen is one note, not the card.
+The app sets the path before `begin()` and the client can never name it, so
+there is nothing to validate because nothing is accepted. No dev routes, no file
+manager, no WebDAV.
+
+**The menu row is always enabled, even with no Wi-Fi**, because tapping it is
+what offers to join one. It was drawn disabled saying "join Wi-Fi first", which
+sends a person to Settings to do by hand the job the row is holding the tools
+for.
+
+**The code carries the address, always.** It is generated from `WiFi.localIP()`
+at the moment of drawing and depends on no service, so the only way it can be
+wrong is DHCP moving the reader between the paint and the scan. The mDNS name
+goes where a human reads it, and only when the responder actually started: an
+address that cannot resolve is worse than one line fewer, because the prose then
+blames their Wi-Fi.
+
+**Nothing in the app needs it.** Every screen works with no second device, which
+is the point.
+
+The one thing to know when reading the page's source: a top-level
+`var name = document.getElementById('name')` assigns to `window.name`, a string
+property of Window, so the element is coerced to `"[object HTMLElement]"` and
+every write is silently dropped. The script is an IIFE and nothing in it is
+called `name`.
+
 ## Not built
 
-- **The phone route.** The menu row is drawn and says "join Wi-Fi first"; the
-  `Surface::NotesOnly` page behind it is the next slice. Everything else works
-  with no second device, which is the point: the phone is one row on a menu, not
-  a prerequisite.
 - **OFTEN.** A row of one-tap pills of what this list has held before. Cut by
   Mario, and the whole add screen went with it, because a list of frequent items
   was all that screen held.
