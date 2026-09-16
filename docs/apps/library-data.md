@@ -67,6 +67,16 @@ longer-tailed than films: Netflix puts 87% of viewing in its top 3,000.
 | 128 GB | 128,000 books, 72% | 405,333 books, 86% |
 | 256 GB | 256,000 books, 81% | 810,666 books, 92% |
 
+![Probability a recommended book is on the card, by space given to books](../images/library-coverage-by-space.svg)
+
+| space for books | 200 KB a book | 300 KB a book | 500 KB a book |
+| --- | --- | --- | --- |
+| 1 GB | 31% | 28% | 23% |
+| 4 GB | 47% | 42% | 36% |
+| 16 GB | 65% | 59% | 53% |
+| 64 GB | 84% | 79% | 72% |
+| 256 GB | 96% | 93% | 89% |
+
 So the dream's closing line, if every book existed, is about 60% on the
 card the X4 Pro ships with and about 90% on the largest card it takes.
 Aggregate shares, with the plan's caveat: a head inventory covers most of
