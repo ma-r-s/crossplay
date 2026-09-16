@@ -31,7 +31,9 @@ author, each turned into a share of its own total, and mixed:
     value = 0.4 x Goodreads ratings (site-wide counters, 2.4 M books, crawled 2017)
           + 0.3 x Amazon review counts (4.4 M books, to 2023)
           + 0.2 x Open Library intent (want to read, reading, read, ratings; 3.3 M works, to 2026)
-          + 0.1 x Wikipedia page views (a month, eight languages; joins in the next pass)
+
+(Wikipedia page views were tried as a fourth signal at 0.1 and dropped;
+see the rough edges below.)
 
 5.0 million merged works. Each source's own top 20 is printed beside the
 mixture in the generated report, so the blend can be judged against its
@@ -79,10 +81,19 @@ ranking them.
 **Rough edges in this pass**, named: Amazon still lists a few editions
 under inverted or publisher-suffixed titles ("GIRL ON THE TRAIN,THE",
 "The Girl on the Train (Thorndike Press...)"), so a bestseller can count
-twice in Amazon's own total; and the Wikipedia join is not in yet. The
-rerun that fixed Goodreads' foreign original titles and Amazon's format
-suffixes moved the pool's share from 2.7% to 2.9% and nothing else by
-more than a point.
+twice in Amazon's own total. And Wikipedia page views, joined to every
+book by article title, were tried at a tenth of the weight and dropped:
+without Wikidata to say which article is the book (its query service
+times out on the paged list of literary works), a title join hands "The
+File" the article "File", a children's biography called "Dolly Parton"
+the singer's traffic, and a book about The Rocky Horror Picture Show the
+film's; a cap on plain-title matches removed the worst 19,525 and the
+head of the mixture did not move by a single title in either direction,
+which is the measure of what the signal was adding. The pool's ranking
+keeps its Wikipedia signal because there the join goes through Wikidata's
+Gutenberg ids and was checked by hand. The month's per-title counters
+are cached in `library-data/wiki/titleviews.json` for a better join
+later.
 
 The Open Library-only pass that preceded this one is kept in the
 workspace's `library-data/universe.md`.
