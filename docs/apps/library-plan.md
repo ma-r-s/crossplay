@@ -391,11 +391,17 @@ asks it.
 ## What gets built first
 
 1. `tools_local/library/`: the census (what each filter rule removes,
-   counted), the ranking (signals, aggregation, density), the optimiser
-   (the six steps every X4 EPUB tool converges on, from `epub-tools/`),
-   the sharder and the manifest, and the publish script for the packs
-   host. Tests on the ranking's invariants: one edition per work, greedy
-   within one book of the fractional bound, the language split.
+   counted), the ranking (signals, aggregation, density), the sharder and
+   the manifest, and the publish script for the packs host. **Built
+   2026-09-15 through the sharder** (`catalog.py`, `rank.py`,
+   `olsignal.py`, `wikisignal.py`, `build_pack.py`; the all-books side is
+   `universe.py`, `universe2.py`, `wikiviews.py`), measured in
+   [`library-data.md`](library-data.md). Still to do here: the optimiser
+   pass (the six steps every X4 EPUB tool converges on, from
+   `epub-tools/`; Gutenberg's text-only EPUBs carry no fonts or images,
+   so it is CSS and structure only), the publish script, and tests on the
+   ranking's invariants: one edition per work, greedy within one book of
+   the fractional bound, the language split.
 2. `site/library/`: the page, built from the Wikipedia page's writer,
    with the walk, the chips, the slider and the language question added,
    and the same Playwright harness.
