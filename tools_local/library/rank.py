@@ -54,6 +54,7 @@ TITLE_OUT = re.compile(
 def fold(s):
     s = unicodedata.normalize("NFKD", s or "")
     s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+    s = re.sub(r"['\u2019]", "", s)  # Handmaid's and HANDMAIDS are one word
     s = re.sub(r"[^a-z0-9 ]+", " ", s)
     s = re.sub(r"^(the|a|an|le|la|les|el|los|las|der|die|das|il|lo|un|una|une) ", "", s.strip())
     return re.sub(r"\s+", " ", s).strip()

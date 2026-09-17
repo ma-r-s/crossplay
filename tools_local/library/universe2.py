@@ -162,6 +162,20 @@ def load_amazon(path):
             author = amazon_author(b)
             if author is None:
                 continue  # only narrators, actors or artists credited: not a book listing either
+            # "-Fawcett-" as author and "Atwood: The Handmaid's Tale" as title: a marketplace
+            # listing that put the publisher in the author field and the author in the title.
+            m = re.match(r"^-.*-$", author.strip())
+            if m:
+                parts = title.split(":", 1)
+                if len(parts) == 2 and len(parts[0].split()) <= 2:
+                    author, title = parts[0].strip(), parts[1].strip()
+                else:
+                    continue
+            # "MORIARTY  LIANE", "HARARI  YUVAL NOAH": all caps with a double space is
+            # surname-first data entry, whatever the token count.
+            if "  " in author.strip() and author == author.upper():
+                first, rest = author.strip().split("  ", 1)
+                author = rest.strip().title() + " " + first.strip().title()
             # An Amazon marketplace title can carry the author's name at either end
             # ("Anthony Doerr All the Light We Cannot See", "the midnight library matt haig").
             an = fold(author)
