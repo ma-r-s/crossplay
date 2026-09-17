@@ -36,8 +36,13 @@ CURVE_N = [100, 1000, 10000, 50000, 100000, 200000, 500000, 1000000]
 W = {"gr": 0.4, "az": 0.3, "ol": 0.2, "pv": 0.1}
 
 
+BOX_SET = re.compile(r"\b(box(ed)? set|boxset|complete (book )?series|complete collection|collection of \d|\d+ books? (set|collection)|"
+                     r"books? \d+\s*-\s*\d+|volumes? \d+\s*-\s*\d+|\d+ book set|bundle)\b", re.I)
+NOT_AN_AUTHOR = {"na", "n/a", "unknown", "various", "anonymous", "none", "author", "various authors", "unknown author"}
+
+
 def title_key(title):
-    t = title or ""
+    t = (title or "").replace("&", " and ")
     t = re.sub(r"\(.*?\)|\[.*?\]", " ", t)          # (Harry Potter, #1), [Illustrated]
     t = re.split(r"[:;\n]", t, maxsplit=1)[0]          # subtitle
     t = re.sub(r"\b(vol(ume)?|part|book|tome)\.?\s*([0-9]+|[ivxlc]+)\b.*$", "", t, flags=re.I)
@@ -160,8 +165,13 @@ def load_amazon(path):
             if NOT_A_BOOK_FORMAT.search(fmt) or NOT_A_BOOK_CATEGORY.search(cats):
                 continue  # an audiobook, a film, a calendar, a toy: filed under Books, not a book
             author = amazon_author(b)
-            if author is None:
-                continue  # only narrators, actors or artists credited: not a book listing either
+            if author is None or author.strip().lower() in NOT_AN_AUTHOR:
+                continue  # only narrators, actors or artists credited, or no author at all
+            if BOX_SET.search(title):
+                continue  # a box set is the books it contains, which are listed on their own
+            words = fold(title).split()
+            if words and max(words.count(w) for w in set(words)) >= 3 and len(words) >= 6:
+                continue  # "Goldfinch: GOLDFINCH : GOLD FINCH : By Donna Tartt THE GOLDFINCH": keyword spam
             # "-Fawcett-" as author and "Atwood: The Handmaid's Tale" as title: a marketplace
             # listing that put the publisher in the author field and the author in the title.
             m = re.match(r"^-.*-$", author.strip())
@@ -173,9 +183,11 @@ def load_amazon(path):
                     continue
             # "MORIARTY  LIANE", "HARARI  YUVAL NOAH": all caps with a double space is
             # surname-first data entry, whatever the token count.
-            if "  " in author.strip() and author == author.upper():
+            if "  " in author.strip() and (author == author.upper() or re.search(r"\b[A-Z]\.?$", author.strip())):
+                # all caps, or ending in an initial ("Trump  Mary L."): surname first
                 first, rest = author.strip().split("  ", 1)
-                author = rest.strip().title() + " " + first.strip().title()
+                author = (rest.strip().title() if author == author.upper() else rest.strip()) + " " + \
+                         (first.strip().title() if author == author.upper() else first.strip())
             # An Amazon marketplace title can carry the author's name at either end
             # ("Anthony Doerr All the Light We Cannot See", "the midnight library matt haig").
             an = fold(author)
