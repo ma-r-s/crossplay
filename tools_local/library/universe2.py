@@ -64,6 +64,8 @@ def load_goodreads(d):
     with gzip.open(os.path.join(d, "goodreads_book_works.json.gz"), "rt") as f:
         for line in f:
             w = json.loads(line)
+            if (w.get("media_type") or "book") in NOT_A_BOOK:
+                continue  # Goodreads' own label: periodicals, articles, "not a book"
             works[w["work_id"]] = {"title": w.get("original_title") or "", "ratings": int(w.get("ratings_count") or 0),
                                    "year": w.get("original_publication_year") or "", "author": None, "toread": 0,
                                    "best": w.get("best_book_id")}
@@ -97,6 +99,30 @@ AMAZON_DRESSING = re.compile(
     r"\((spanish|french|german|italian|portuguese) edition\).*$)", re.I)
 
 
+NOT_A_BOOK = {"not a book", "periodical", "article"}
+NOT_A_BOOK_FORMAT = re.compile(r"audio|audible|\bcd\b|cassette|mp3|dvd|blu-ray|vhs|calendar|poster|cards?\b|game|toy|puzzle|"
+                               r"sticker|stationery|journal\b|notebook|planner|diary\b", re.I)
+NOT_A_BOOK_CATEGORY = re.compile(r"Movies & TV|Music|Calendars|Video Games|Toys & Games|Office Products|Software", re.I)
+AUTHOR_ROLES = ("Author", "Editor", "Translator", "Illustrator", "Contributor", "Introduction", "Foreword", "Compiler")
+NOT_AUTHOR_ROLES = ("Narrator", "Reader", "Actor", "Director", "Artist", "Performer", "Producer", "Composer")
+
+
+def amazon_author(b):
+    """The person credited as the book's author, or None when the listing credits only performers."""
+    store = b.get("store") or ""
+    credits = re.findall(r"([^,()]+?)\s*\(([A-Za-z ]+)\)", store)
+    if credits:
+        for name, role in credits:
+            if role.strip() in AUTHOR_ROLES:
+                return name.strip()
+        if all(role.strip() in NOT_AUTHOR_ROLES for _, role in credits):
+            return None
+    a = b.get("author")
+    if isinstance(a, dict) and a.get("name"):
+        return a["name"]
+    return credits[0][0].strip() if credits else None
+
+
 def load_amazon(path):
     """(title key, surname) -> (title, author, reviews): the max over editions."""
     out = {}
@@ -112,13 +138,13 @@ def load_amazon(path):
                 continue
             title = b.get("title") or ""
             title = AMAZON_DRESSING.sub("", title)
-            author = None
-            a = b.get("author")
-            if isinstance(a, dict):
-                author = a.get("name")
-            if not author:
-                m = re.match(r"(.+?)\s*\((Author|Editor|Translator)", b.get("store") or "")
-                author = m.group(1) if m else None
+            fmt = re.split(r"\s[–-]\s", b.get("subtitle") or "", maxsplit=1)[0]
+            cats = " ".join(b.get("categories") or [])
+            if NOT_A_BOOK_FORMAT.search(fmt) or NOT_A_BOOK_CATEGORY.search(cats):
+                continue  # an audiobook, a film, a calendar, a toy: filed under Books, not a book
+            author = amazon_author(b)
+            if author is None:
+                continue  # only narrators, actors or artists credited: not a book listing either
             k = (title_key(title), surname(author))
             if not k[0]:
                 continue
