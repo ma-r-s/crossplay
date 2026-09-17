@@ -68,7 +68,7 @@ def main():
     owner = {}          # isbn -> index in keep of the book that owns it
     by_author = collections.defaultdict(list)  # surname -> [(folded title, keep index)]
     for r in rows:
-        i = isbn.get(r["rank"])
+        i = isbn.get(r["merged_rank"])  # isbns.py keyed on the merge's rank, not the re-sorted one
         isbns = i["isbns"] if i else []
         title_f = fold(r["title"] or "")
         surname = r["key"][1] if r.get("key") else ""
@@ -119,7 +119,7 @@ def main():
 
     with open(args.out, "w") as out:
         for n, r in enumerate(keep, 1):
-            r["was"] = r["rank"]
+            r["was"] = r["merged_rank"]
             r["rank"] = n
             out.write(json.dumps(r, ensure_ascii=False) + "\n")
     print(f"{len(keep)} books kept", file=sys.stderr)
