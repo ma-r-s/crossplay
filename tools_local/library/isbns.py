@@ -14,7 +14,10 @@ the list when it is not already there. Writes one line per merged rank:
 {"rank": 8, "isbn": "9780141439518", "isbns": [...], "editions": 213}.
 
 "Most downloaded version" is not measurable from open data; the
-most-rated edition is the same idea from the readers' side.
+most-rated edition is the same idea from the readers' side. --lang en
+prefers English editions over the book's own language, and records the
+chosen edition's language as isbnLang so a page can mark the ones that
+had no English edition.
 """
 
 import argparse
@@ -53,6 +56,7 @@ def main():
     ap.add_argument("--amazon", required=True)
     ap.add_argument("--merged", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--lang", default="", help="prefer editions in this language (e.g. en) over the book's own; empty = the book's own")
     args = ap.parse_args()
 
     want = {}
@@ -135,18 +139,28 @@ def main():
     with open(args.out, "w") as out:
         for r, eds in cands.items():
             langs = collections.Counter(e[2] for e in eds if e[2] and e[6] == "goodreads")
-            lang = langs.most_common(1)[0][0] if langs else ""
+            own = langs.most_common(1)[0][0] if langs else ""
+            # The wanted language first (unknown counts as a match), the book's own
+            # language next, so a Spanish novel gets its English translation's
+            # ISBN when one exists and its own otherwise.
+            lang = args.lang or own
 
             def score(e):
                 i13, ratings, l, fmt, ebook, year, src = e
                 lang_ok = (not l) or (not lang) or (l == lang)
-                return (lang_ok, not AUDIO.search(fmt), src == "goodreads", ratings)
-            seen, ordered = set(), []
+                own_ok = (not l) or (not own) or (l == own)
+                return (lang_ok, own_ok, not AUDIO.search(fmt), src == "goodreads", ratings)
+            seen, ordered, best_lang = set(), [], None
             for e in sorted(eds, key=score, reverse=True):
                 if e[0] not in seen:
                     seen.add(e[0])
                     ordered.append(e[0])
-            out.write(json.dumps({"rank": r, "isbn": ordered[0], "isbns": ordered[:3], "editions": len(seen)}) + "\n")
+                    if best_lang is None:
+                        best_lang = e[2]
+            row = {"rank": r, "isbn": ordered[0], "isbns": ordered[:3], "editions": len(seen)}
+            if args.lang:
+                row["isbnLang"] = best_lang or ""  # empty = unknown; the page marks anything else
+            out.write(json.dumps(row) + "\n")
             out_n += 1
     print(f"wrote {out_n} works with an ISBN of {len(want)}", file=sys.stderr)
 
