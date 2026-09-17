@@ -33,6 +33,7 @@ from universe2 import title_key, surname, AMAZON_DRESSING  # noqa: E402
 
 AMAZON_LANG = {"english": "en", "spanish": "es", "french": "fr", "german": "de", "italian": "it",
                "portuguese": "pt", "dutch": "nl", "finnish": "fi", "japanese": "ja", "chinese": "zh"}
+EBOOK = re.compile(r"ebook|e-book|epub|kindle|nook|kobo|digital", re.I)
 AUDIO = re.compile(r"audio|audible|cd\b|cassette|mp3", re.I)
 LANG = {"eng": "en", "en-US": "en", "en-GB": "en", "en-CA": "en", "spa": "es", "fre": "fr", "ger": "de",
         "ita": "it", "por": "pt", "dut": "nl", "fin": "fi", "": ""}
@@ -94,8 +95,9 @@ def main():
             i13 = clean13(b.get("isbn13")) or isbn13(b.get("isbn"))
             if not i13:
                 continue
+            fmt = b.get("format") or ""
             w["eds"].append((i13, int(b.get("ratings_count") or 0), LANG.get(b.get("language_code") or "", b.get("language_code") or ""),
-                             b.get("format") or "", b.get("is_ebook") == "true", b.get("publication_year") or ""))
+                             fmt, b.get("is_ebook") == "true" or bool(EBOOK.search(fmt)), b.get("publication_year") or ""))
     del names
     cands = collections.defaultdict(list)  # rank -> [(isbn13, ratings, lang, format, ebook, year, source)]
     for w in works.values():
@@ -160,6 +162,11 @@ def main():
                     if best_lang is None:
                         best_lang = e[2]
             row = {"rank": r, "isbn": ordered[0], "isbns": ordered[:3], "editions": len(seen)}
+            # The ebook edition's own ISBN, by the same language and rating rules;
+            # the sources never say EPUB or PDF, but a trade ebook ISBN is the EPUB's.
+            ebooks = sorted((e for e in eds if e[4] and not AUDIO.search(e[3])), key=score, reverse=True)
+            if ebooks:
+                row["ebookIsbn"] = ebooks[0][0]
             if args.lang:
                 row["isbnLang"] = best_lang or ""  # empty = unknown; the page marks anything else
             out.write(json.dumps(row) + "\n")
