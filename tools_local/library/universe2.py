@@ -42,6 +42,7 @@ def title_key(title):
     t = re.split(r"[:;\n]", t, maxsplit=1)[0]          # subtitle
     t = re.sub(r"\b(vol(ume)?|part|book|tome)\.?\s*([0-9]+|[ivxlc]+)\b.*$", "", t, flags=re.I)
     t = re.sub(r",?\s*\b(complete|unabridged|illustrated|annotated)\b\.?\s*$", "", t, flags=re.I)
+    t = re.sub(r",\s*(the|a|an)\s*$", "", t, flags=re.I)  # "Girl on the Train, The"
     return fold(t)[:60]
 
 
@@ -49,6 +50,8 @@ def surname(name):
     name = name or ""
     if "," in name:
         return fold(name.split(",", 1)[0])
+    if "  " in name.strip():
+        return fold(name.strip().split("  ", 1)[0])  # "Hawkins  Paula": Amazon's surname-first form
     parts = fold(name).split()
     return parts[-1] if parts else ""
 
@@ -107,6 +110,9 @@ AUTHOR_ROLES = ("Author", "Editor", "Translator", "Illustrator", "Contributor", 
 NOT_AUTHOR_ROLES = ("Narrator", "Reader", "Actor", "Director", "Artist", "Performer", "Producer", "Composer")
 
 
+AUTHOR_DRESSING = re.compile(r"\b(spanish|french|german|italian|portuguese|english|chinese|japanese)\s+edition\b", re.I)
+
+
 def amazon_author(b):
     """The person credited as the book's author, or None when the listing credits only performers."""
     store = b.get("store") or ""
@@ -119,7 +125,7 @@ def amazon_author(b):
             return None
     a = b.get("author")
     if isinstance(a, dict) and a.get("name"):
-        return a["name"]
+        return AUTHOR_DRESSING.sub("", a["name"]).strip(" .") or None
     return credits[0][0].strip() if credits else None
 
 
