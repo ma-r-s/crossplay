@@ -31,6 +31,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from universe2 import title_key, surname, AMAZON_DRESSING  # noqa: E402
 
+AMAZON_LANG = {"english": "en", "spanish": "es", "french": "fr", "german": "de", "italian": "it",
+               "portuguese": "pt", "dutch": "nl", "finnish": "fi", "japanese": "ja", "chinese": "zh"}
 AUDIO = re.compile(r"audio|audible|cd\b|cassette|mp3", re.I)
 LANG = {"eng": "en", "en-US": "en", "en-GB": "en", "en-CA": "en", "spa": "es", "fre": "fr", "ger": "de",
         "ita": "it", "por": "pt", "dut": "nl", "fin": "fi", "": ""}
@@ -131,7 +133,7 @@ def main():
             if r is None:
                 continue
             fmt = re.split(r"\s[–-]\s", b.get("subtitle") or "", maxsplit=1)[0].strip()
-            lang = (det.get("Language") or "").lower()[:2]
+            lang = AMAZON_LANG.get((det.get("Language") or "").strip().lower(), "")
             cands[r].append((i13, int(b.get("rating_number") or 0), lang, fmt, "kindle" in fmt.lower(), "", "amazon"))
     print(f"editions for {len(cands)} works after amazon", file=sys.stderr, flush=True)
 
