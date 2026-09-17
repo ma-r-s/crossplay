@@ -16,7 +16,10 @@ Two rules, from Mario on 2026-09-17 ("I want this list as clean as possible"):
   survivor's list (after the survivor's own, which are already in
   popularity order).
 
-Writes one line per kept book with a new contiguous rank, the original
+Also: a book only Open Library knows counts a quarter, so one library's
+patrons cannot alone put a book in the head of the list.
+
+Writes one line per kept book with a new contiguous rank, the merge's
 rank kept as "was", and prints what each rule removed.
 """
 
@@ -45,7 +48,19 @@ def main():
         d = json.loads(line)
         isbn[d["rank"]] = d
     rows = [json.loads(line) for line in open(args.merged)]
-    rows.sort(key=lambda r: r["rank"])
+    # A book that only Open Library's log knows is vouched for by one library's
+    # patrons and nobody else; its share counts a quarter. 'Control Your Mind
+    # and Master Your Feelings' sat at #71 on that log alone, sixth on Open
+    # Library, absent from Goodreads (2017) and Amazon. Goodreads-only and
+    # Amazon-only books keep their value: those sources are site-wide.
+    tot = {s: (sum(r[s] for r in rows) or 1) for s in ("gr", "az", "ol")}
+    w = {"gr": 0.4, "az": 0.3, "ol": 0.2}
+    for r in rows:
+        ol = r["ol"] * (0.25 if (r["gr"] == 0 and r["az"] == 0) else 1.0)
+        r["value"] = 1e6 * (w["gr"] * r["gr"] / tot["gr"] + w["az"] * r["az"] / tot["az"] + w["ol"] * ol / tot["ol"]) / sum(w.values())
+    rows.sort(key=lambda r: (-r["value"], r["rank"]))
+    for n, r in enumerate(rows, 1):
+        r["merged_rank"], r["rank"] = r["rank"], n
     print(f"{len(rows)} books in, {len(isbn)} with edition data", file=sys.stderr, flush=True)
 
     removed = collections.Counter()
