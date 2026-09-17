@@ -239,6 +239,8 @@ def main():
     with open(args.out, "w") as out:
         for r, eds in cands.items():
             langs = collections.Counter(e[2] for e in eds if e[2] and e[6] == "goodreads")
+            if not langs:
+                langs = collections.Counter(e[2] for e in eds if e[2])
             own = langs.most_common(1)[0][0] if langs else ""
             lang = args.lang or own
             # Every edition in the wanted language (an edition with no language
@@ -252,7 +254,11 @@ def main():
                     seen.add(e[0])
                     ordered.append(e[0])
             if not ordered:
+                # Editions exist and none is in the wanted language: say which
+                # language the book lives in, so the cleaning pass can drop it.
                 dropped_lang += 1
+                out.write(json.dumps({"rank": r, "isbn": "", "isbns": [], "editions": len({e[0] for e in eds}),
+                                      "only": own or (langs.most_common(1)[0][0] if langs else "")}) + "\n")
                 continue
             out.write(json.dumps({"rank": r, "isbn": ordered[0], "isbns": ordered, "editions": len({e[0] for e in eds})}) + "\n")
             out_n += 1
