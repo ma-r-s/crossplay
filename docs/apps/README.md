@@ -1,6 +1,6 @@
 # What is in docs/apps/
 
-One directory, 34 files, and until this index they were a raw file listing. A
+One directory, 38 files, and until this index they were a raw file listing. A
 doc lands here when something about an app would otherwise be rediscovered the
 hard way; not every app has one, and some have several.
 
@@ -62,6 +62,7 @@ The on-disk shapes. Read these before changing a writer.
 | [`study-anki-compatibility.md`](study-anki-compatibility.md) | What converts, what is reduced, what stays behind. |
 | [`trivia-pack-format.md`](trivia-pack-format.md) | |
 | [`xkcd-pack-format.md`](xkcd-pack-format.md) | |
+| [`wikipedia-pack-format.md`](wikipedia-pack-format.md) | The shards, the title index, and what the device writes for the page. |
 
 ## Decision records for things that shipped
 
@@ -81,12 +82,20 @@ top; the rest is this row.
 | [`wallpapers-phone-flow.md`](wallpapers-phone-flow.md) | From a picture on a phone to the sleep screen. |
 | [`wallpapers-shuffle.md`](wallpapers-shuffle.md) | Choosing a set and letting it take turns. |
 | [`xkcd-viewing-plan.md`](xkcd-viewing-plan.md) | Reworking how comics are shown. |
+| [`wikipedia-plan.md`](wikipedia-plan.md) | All of Wikipedia on the card: the two routes, the twenty-minute rule, the search screen. |
 
 ## Generated, not written
 
 [`study-quick-reference.pdf`](study-quick-reference.pdf) is the one file here
 that is not prose: a printable page for the Study app, produced rather than
 edited.
+
+## Designed, waiting on a decision
+
+| | |
+| --- | --- |
+| [`library-plan.md`](library-plan.md) | Fill the card with every book you will ever want: the ranking method, whether to ask, what the page can see about the card. Research and design, 2026-09-15; six questions for Mario at the end. |
+| [`library-data.md`](library-data.md) | The measured half: every book ranked by reading intent and what a card holds of it, then the pool a site can copy today, how its list is valued and filled, and what the tail looks like. |
 
 ## Decided, and nobody is on it
 
