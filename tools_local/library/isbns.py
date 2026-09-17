@@ -140,37 +140,28 @@ def main():
     print(f"editions for {len(cands)} works after amazon", file=sys.stderr, flush=True)
 
     out_n = 0
+    dropped_lang = 0
     with open(args.out, "w") as out:
         for r, eds in cands.items():
             langs = collections.Counter(e[2] for e in eds if e[2] and e[6] == "goodreads")
             own = langs.most_common(1)[0][0] if langs else ""
-            # The wanted language first (unknown counts as a match), the book's own
-            # language next, so a Spanish novel gets its English translation's
-            # ISBN when one exists and its own otherwise.
             lang = args.lang or own
-
-            def score(e):
-                i13, ratings, l, fmt, ebook, year, src = e
-                lang_ok = (not l) or (not lang) or (l == lang)
-                own_ok = (not l) or (not own) or (l == own)
-                return (lang_ok, own_ok, not AUDIO.search(fmt), src == "goodreads", ratings)
-            seen, ordered, best_lang = set(), [], None
-            for e in sorted(eds, key=score, reverse=True):
+            # Every edition in the wanted language (an edition with no language
+            # recorded counts), audiobooks out, most-rated first: all of them,
+            # not a top three. A book with no such edition gets an empty list.
+            keep = [e for e in eds if ((not e[2]) or (not lang) or (e[2] == lang)) and not AUDIO.search(e[3])]
+            keep.sort(key=lambda e: (e[6] == "goodreads", e[1]), reverse=True)
+            seen, ordered = set(), []
+            for e in keep:
                 if e[0] not in seen:
                     seen.add(e[0])
                     ordered.append(e[0])
-                    if best_lang is None:
-                        best_lang = e[2]
-            row = {"rank": r, "isbn": ordered[0], "isbns": ordered[:3], "editions": len(seen)}
-            # The ebook edition's own ISBN, by the same language and rating rules;
-            # the sources never say EPUB or PDF, but a trade ebook ISBN is the EPUB's.
-            ebooks = sorted((e for e in eds if e[4] and not AUDIO.search(e[3])), key=score, reverse=True)
-            if ebooks:
-                row["ebookIsbn"] = ebooks[0][0]
-            if args.lang:
-                row["isbnLang"] = best_lang or ""  # empty = unknown; the page marks anything else
-            out.write(json.dumps(row) + "\n")
+            if not ordered:
+                dropped_lang += 1
+                continue
+            out.write(json.dumps({"rank": r, "isbn": ordered[0], "isbns": ordered, "editions": len({e[0] for e in eds})}) + "\n")
             out_n += 1
+    print(f"{dropped_lang} works had editions but none in {lang or 'their language'}", file=sys.stderr)
     print(f"wrote {out_n} works with an ISBN of {len(want)}", file=sys.stderr)
 
 
