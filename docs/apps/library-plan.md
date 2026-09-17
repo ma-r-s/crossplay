@@ -359,7 +359,10 @@ product, and that is the reader we have. Facts from the code:
   capped at 34; the pack uses the same budget.
 
 So the layout is `/Library/<language>/<A>/<Author, Name>/<Title>.epub`,
-with any bucket over about two hundred entries split further, and the
+with any bucket over about two hundred entries split further (measured
+on the full pack, 2026-09-17: `Anonymous` alone holds 2,088 books and
+the `B` letter folder 1,969 authors, ten times what the browser's own
+comment calls large), and the
 recommendation is a Library app on the device: a search field with
 prefix matching over a title-and-author index the site writes beside the
 books (the Wikipedia app's folded title index, built for 19 million
@@ -393,7 +396,10 @@ asks it.
 1. `tools_local/library/`: the census (what each filter rule removes,
    counted), the ranking (signals, aggregation, density), the sharder and
    the manifest, and the publish script for the packs host. **Built
-   2026-09-15 through the sharder** (`catalog.py`, `rank.py`,
+   2026-09-15 through the sharder, and the full pack cut 2026-09-17:
+   63,438 books, 15.43 GB, 31 shards of 500 MB, an 18 MB manifest still
+   to be gzipped, in the workspace's `library-data/pack/`; 5 ranked books
+   are not on the mirror** (`catalog.py`, `rank.py`,
    `olsignal.py`, `wikisignal.py`, `build_pack.py`; the all-books side is
    `universe.py`, `universe2.py`, `wikiviews.py`), measured in
    [`library-data.md`](library-data.md). Still to do here: the optimiser
