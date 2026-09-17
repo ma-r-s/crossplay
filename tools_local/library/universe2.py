@@ -50,8 +50,6 @@ def surname(name):
     name = name or ""
     if "," in name:
         return fold(name.split(",", 1)[0])
-    if "  " in name.strip():
-        return fold(name.strip().split("  ", 1)[0])  # "Hawkins  Paula": Amazon's surname-first form
     parts = fold(name).split()
     return parts[-1] if parts else ""
 
@@ -96,6 +94,10 @@ def load_goodreads(d):
     return works
 
 
+AMAZON_MARKETING = re.compile(
+    r"^\s*(best ?seller[^a-z]*(no\.?\s*\d+)?\s*(author)?[\s_:-]*|by\s+[A-Z][\w.'-]+(\s+[A-Z][\w.'-]+)*\s+(?=[A-Z]))"
+    r"|\s+(the\s+)?(richard and judy|sunday times|new york times|book ?club|regular print|large print|thorndike press|"
+    r"tv tie-in|film tie-in|movie tie-in|now a major|export)\b.*$", re.I)
 AMAZON_DRESSING = re.compile(
     r"\s*(\[.*$|\b(paperback|hardcover|mass market|kindle edition|large print|deluxe edition|export|"
     r"international edition|audio cd|library binding|board book|spiral-bound)\b.*$|\bby\s+[A-Z][^,]*,.*$|"
@@ -143,7 +145,7 @@ def load_amazon(path):
             except ValueError:
                 continue
             title = b.get("title") or ""
-            title = AMAZON_DRESSING.sub("", title)
+            title = AMAZON_MARKETING.sub("", AMAZON_DRESSING.sub("", title)).strip(" :-_")
             fmt = re.split(r"\s[–-]\s", b.get("subtitle") or "", maxsplit=1)[0]
             cats = " ".join(b.get("categories") or [])
             if NOT_A_BOOK_FORMAT.search(fmt) or NOT_A_BOOK_CATEGORY.search(cats):
@@ -154,10 +156,17 @@ def load_amazon(path):
             k = (title_key(title), surname(author))
             if not k[0]:
                 continue
+            # "Rooney  Sally" is surname-first and "Michael  Grant" is not; the
+            # spacing cannot tell them apart, so the other reading rides along and
+            # the caller keeps whichever key Goodreads already has.
+            alt = None
+            parts = author.strip().split("  ", 1) if "  " in author.strip() else []
+            if len(parts) == 2:
+                alt = (k[0], fold(parts[0]).split()[-1] if fold(parts[0]).split() else "")
             r = int(b.get("rating_number") or 0)
             cur = out.get(k)
             if cur is None or r > cur[2]:
-                out[k] = (title, author, r)
+                out[k] = (title, author, r, alt)
     return out
 
 
@@ -260,7 +269,9 @@ def main():
     del gr
     if args.amazon:
         print("amazon", file=sys.stderr, flush=True)
-        for k, (title, author, r) in load_amazon(args.amazon).items():
+        for k, (title, author, r, alt) in load_amazon(args.amazon).items():
+            if k not in merged and alt and alt[1] and alt in merged:
+                k = alt  # the surname-first reading is the book Goodreads knows
             e = slot(k, title, author)
             e["az"] = max(e["az"], r)
     print("open library", file=sys.stderr, flush=True)
