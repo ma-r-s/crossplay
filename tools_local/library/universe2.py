@@ -146,6 +146,7 @@ def load_amazon(path):
                 continue
             title = b.get("title") or ""
             title = AMAZON_MARKETING.sub("", AMAZON_DRESSING.sub("", title)).strip(" :-_")
+            title = re.sub(r"\s*-\s*common\s*$", "", title, flags=re.I)
             fmt = re.split(r"\s[–-]\s", b.get("subtitle") or "", maxsplit=1)[0]
             cats = " ".join(b.get("categories") or [])
             if NOT_A_BOOK_FORMAT.search(fmt) or NOT_A_BOOK_CATEGORY.search(cats):
@@ -153,16 +154,25 @@ def load_amazon(path):
             author = amazon_author(b)
             if author is None:
                 continue  # only narrators, actors or artists credited: not a book listing either
+            # An Amazon marketplace title can carry the author's name at either end
+            # ("Anthony Doerr All the Light We Cannot See", "the midnight library matt haig").
+            an = fold(author)
+            if an:
+                ft = fold(title)
+                for name in (an, " ".join(reversed(an.split()))):
+                    if ft.startswith(name + " ") or ft.endswith(" " + name):
+                        title = re.sub(r"(?i)^\s*" + re.escape(name.split()[0]) + r"\b.*?\b" + re.escape(name.split()[-1]) + r"\s+|\s+\b" + re.escape(name.split()[0]) + r"\b.*?\b" + re.escape(name.split()[-1]) + r"\s*$", "", title, count=1) if len(name.split()) > 1 else title
+                        break
             k = (title_key(title), surname(author))
             if not k[0]:
                 continue
-            # "Rooney  Sally" is surname-first and "Michael  Grant" is not; the
-            # spacing cannot tell them apart, so the other reading rides along and
-            # the caller keeps whichever key Goodreads already has.
+            # "Rooney  Sally" and "Doerr Anthony" are surname-first and "Michael Grant" is
+            # not; nothing in the string tells them apart, so a two-token author's other
+            # reading rides along and the caller keeps whichever key Goodreads already has.
             alt = None
-            parts = author.strip().split("  ", 1) if "  " in author.strip() else []
-            if len(parts) == 2:
-                alt = (k[0], fold(parts[0]).split()[-1] if fold(parts[0]).split() else "")
+            toks = fold(author).split()
+            if len(toks) == 2:
+                alt = (k[0], toks[0])
             r = int(b.get("rating_number") or 0)
             cur = out.get(k)
             if cur is None or r > cur[2]:
