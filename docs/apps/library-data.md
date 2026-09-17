@@ -92,6 +92,29 @@ with an ISBN in either source. Spot checks: The Hunger Games
 9780439023481, Pride and Prejudice 9780679783268, The Hobbit
 9780618260300, all the editions Goodreads itself shows for the work.
 
+**The clean list.** Mario, 2026-09-17: a book that only exists in
+another language is out, and so is a duplicate of another book.
+`tools_local/library/clean.py` runs after `isbns.py` and drops: a book
+whose editions are all in another language (235,056), a title not in
+Latin script (2,308), a book only Open Library knows with no edition
+anywhere and a foreign function word in its title (5,056), a title that
+is only a fragment such as "A Novel" (103), a book sharing an ISBN with a
+higher-ranked one (241,144; its ISBNs join the survivor), and a no-ISBN
+book whose author has a higher-ranked title containing it or the same
+Amazon review count within 2% (100,648). A book only Open Library knows
+counts a quarter, so one library's patrons cannot alone put a book in
+the head. The merge itself drops Goodreads' periodicals, articles and
+"not a book" works, and Amazon listings that are audio, film, calendar,
+toy, stationery, box sets, keyword spam, or credit no author; it reads
+Amazon's surname-first, all-caps, double-spaced and dashed-publisher
+author fields and its glued-in author names. Result: **3,994,355 books,
+3,451,890 with at least one English ISBN (86.4%), every one of the top
+1,000, 97.8% of the top 10,000, 94.2% of the top million.** The first
+books without an English ISBN start past #1,000 and are one-off
+marketplace listings; each further round moves that boundary a few
+hundred places for two hours of rebuild, which is where it stopped. The
+exports live in the workspace's `library-data/exports/`.
+
 **Where the pool sits in it.** The public-domain pool a site can copy
 today carries 2.9% of all value (1.9% of Open Library's intent alone).
 Filling a card with it is filling the card with three percent of what
