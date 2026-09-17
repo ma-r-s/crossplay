@@ -118,17 +118,25 @@ AUTHOR_DRESSING = re.compile(r"\b(spanish|french|german|italian|portuguese|engli
 def amazon_author(b):
     """The person credited as the book's author, or None when the listing credits only performers."""
     store = b.get("store") or ""
-    credits = re.findall(r"([^,()]+?)\s*\(([A-Za-z ]+)\)", store)
+    credits = [(name.strip(), [r.strip() for r in roles.split(",")])
+               for name, roles in re.findall(r"([^,()]+?)\s*\(([A-Za-z ,]+)\)", store)]
     if credits:
-        for name, role in credits:
-            if role.strip() in AUTHOR_ROLES:
-                return name.strip()
-        if all(role.strip() in NOT_AUTHOR_ROLES for _, role in credits):
+        # "Michelle Obama (Author, Narrator), Penguin Audio (Publisher)" with no
+        # format line is the Audible listing: the book is elsewhere in the dump.
+        if any("Narrator" in roles for _, roles in credits) and not (b.get("subtitle") or "").strip():
+            return None
+        for name, roles in credits:
+            if any(r in AUTHOR_ROLES for r in roles):
+                return name
+        if all(all(r in NOT_AUTHOR_ROLES or r == "Publisher" for r in roles) for _, roles in credits):
             return None
     a = b.get("author")
     if isinstance(a, dict) and a.get("name"):
         return AUTHOR_DRESSING.sub("", a["name"]).strip(" .") or None
-    return credits[0][0].strip() if credits else None
+    for name, roles in credits:
+        if "Publisher" not in roles:
+            return name
+    return None
 
 
 def load_amazon(path):

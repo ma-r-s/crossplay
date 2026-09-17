@@ -33,6 +33,15 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from universe2 import fold  # noqa: E402
 
+# A listing whose whole title is one of these is a fragment of a subtitle, not a book.
+FRAGMENT = {"novel", "a novel", "memoir", "a memoir", "fiction", "nonfiction", "book", "the book", "hardcover",
+            "paperback", "large print", "edition", "stories", "poems", "essays", "untitled", "audiobook"}
+# Function words that do not occur in English titles; a title carrying one, for a book
+# only Open Library knows and no source has an edition for, is in that language.
+FOREIGN = {"um": "pt", "uma": "pt", "não": "pt", "você": "pt", "das": "de", "der": "de", "die": "de", "und": "de",
+           "el": "es", "los": "es", "las": "es", "una": "es", "del": "es", "que": "es", "les": "fr", "une": "fr",
+           "des": "fr", "du": "fr", "gli": "it", "della": "it", "nel": "it", "een": "nl", "het": "nl", "dan": "id",
+           "yang": "id", "och": "sv", "att": "sv"}
 NON_LATIN = re.compile(r"[Ѐ-ӿͰ-Ͽ֐-׿؀-ۿऀ-ॿ฀-๿぀-ヿ㐀-鿿가-힯]")
 
 
@@ -66,7 +75,8 @@ def main():
     removed = collections.Counter()
     keep = []
     owner = {}          # isbn -> index in keep of the book that owns it
-    by_author = collections.defaultdict(list)  # surname -> [(folded title, keep index)]
+    by_author = collections.defaultdict(list)  # surname -> [(folded title, amazon count, keep index)]
+    by_title = collections.defaultdict(list)   # folded title -> [(amazon count, keep index)]
     for r in rows:
         i = isbn.get(r["merged_rank"])  # isbns.py keyed on the merge's rank, not the re-sorted one
         isbns = i["isbns"] if i else []
@@ -80,6 +90,14 @@ def main():
         if not isbns and NON_LATIN.search(r["title"] or ""):
             removed["title not in Latin script"] += 1
             continue
+        if not i and r["gr"] == 0 and r["az"] == 0:
+            guess = next((FOREIGN[w] for w in title_f.split() if w in FOREIGN), None)
+            if guess:
+                removed["title looks " + guess + ", Open Library only, no edition"] += 1
+                continue
+        if not isbns and title_f in FRAGMENT:
+            removed["title is a fragment"] += 1
+            continue
 
         # rule 2: a duplicate of a higher-ranked book
         dup = None
@@ -89,13 +107,19 @@ def main():
                 break
         if dup is None and not isbns and surname and title_f:
             for other_title, other_az, idx in by_author.get(surname, ()):
-                # Amazon shares one review count across every listing of a book, so
-                # the same author with the same count is the same book ("memoir",
-                # "A Novel": listings whose title is a fragment of the subtitle).
+                # Amazon shares one review count across the listings of a book, give or
+                # take a crawl's drift, so the same author within 2% is the same book.
                 if other_title and (other_title in title_f or title_f in other_title):
                     dup = idx
                     break
-                if r["az"] > 100 and r["az"] == other_az:
+                if r["az"] > 100 and other_az and abs(r["az"] - other_az) <= 0.02 * other_az:
+                    dup = idx
+                    break
+        if dup is None and not isbns and title_f and r["az"] > 100:
+            # The same title under another name (a narrator, a publisher) with the
+            # same count within 2%: the Audible listing of a book already kept.
+            for other_az, idx in by_title.get(title_f, ()):
+                if other_az and abs(r["az"] - other_az) <= 0.02 * other_az:
                     dup = idx
                     break
         if dup is not None:
@@ -116,6 +140,8 @@ def main():
             owner[x] = idx
         if surname and title_f:
             by_author[surname].append((title_f, r["az"], idx))
+        if title_f:
+            by_title[title_f].append((r["az"], idx))
 
     with open(args.out, "w") as out:
         for n, r in enumerate(keep, 1):
