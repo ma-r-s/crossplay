@@ -82,6 +82,16 @@ card the X4 Pro ships with and about 90% on the largest card it takes.
 Aggregate shares, with the plan's caveat: a head inventory covers most of
 aggregate demand and almost nobody completely.
 
+**ISBNs.** An ISBN names an edition, so each book's is a choice:
+`tools_local/library/isbns.py` takes, per work, the editions Goodreads
+lists (ISBN, format, language, readers who rated that edition) and
+Amazon's ISBN-10/13, keeps the book's own language, drops audiobooks, and
+calls the most-rated edition "best" with the next two as fallbacks. 3.52
+million of the 4.98 million works got one (70%); the rest have no edition
+with an ISBN in either source. Spot checks: The Hunger Games
+9780439023481, Pride and Prejudice 9780679783268, The Hobbit
+9780618260300, all the editions Goodreads itself shows for the work.
+
 **Where the pool sits in it.** The public-domain pool a site can copy
 today carries 2.9% of all value (1.9% of Open Library's intent alone).
 Filling a card with it is filling the card with three percent of what
