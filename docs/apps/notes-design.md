@@ -1,23 +1,40 @@
 # Notes
 
-A deck of cards you tick with one hand. Card #516.
+Lists you tick with one hand. Card #516.
 
 The prior art behind the shape is in [notes-research.md](notes-research.md); this
 is what was built and why it is built that way.
 
-## One data type
+## One kind of line
 
-A note is a Markdown file in `/notes/`, and its NAME IS ITS FILENAME.
-`/notes/Shopping.md` is the note called Shopping. One source of truth: a note
-whose first line is a task still has a name, renaming is a file rename rather
-than a content rewrite, and a person who drops `.md` files on the card over the
-reader's own file transfer gets exactly the notes they expect with no import
-step and no database.
+A list is a Markdown file in `/notes/`, and its NAME IS ITS FILENAME.
+`/notes/Shopping.md` is the list called Shopping. One source of truth: renaming
+is a file rename rather than a content rewrite, and a person who drops `.md`
+files on the card over the reader's own file transfer gets exactly the lists
+they expect with no import step and no database.
 
-A line beginning `- [ ]` or `- [x]` is tickable; everything else is prose. There
-is no separate to-do list: a shopping list is a note whose lines are all tasks,
-a recipe is a note with none. One parser, one file format, one screen, and the
-only edit the device itself has to perform is a tick.
+**EVERY NON-EMPTY LINE IS AN ITEM.** There is no second kind. This is the rule
+the first version of this app got wrong, and everything else that was wrong with
+it followed:
+
+> A line the parser did not recognise as `- [ ] ` was "prose": not tickable, not
+> deletable on the device, drawn at `toybox_10` beside `toybox_20`, and worth
+> nothing in the deck's tally. And the way to produce one was to type a word on
+> your phone, which is what the phone is for. To get a real item you typed the
+> marker yourself: nine keyboard taps before the first letter on iOS, thirty for
+> a shopping list. The page's own hint taught a string that does not even work,
+> because `- [ ]Milk` with no space after the bracket is rejected by `classify`.
+
+The marker is still what the FILE holds, so a desktop editor sees ordinary
+Markdown checkboxes. It is simply never something a person types:
+
+- The phone surface coerces on the way IN (`notes::coerceToList`). Lines that
+  already carry a marker are left byte for byte alone, so a save from the phone
+  cannot disturb what was ticked on the device.
+- The device draws a box on every row, and ticking a line that has no marker
+  writes one -- so a file authored on a computer joins the rule instead of
+  sitting outside it forever.
+- `counts()` counts lines, not markers.
 
 **A tick flips exactly one byte.** `Line::markAt` is the offset of the `' '` or
 `'x'` between the brackets, so everything else in the file is preserved by
@@ -27,21 +44,31 @@ mean a tick had to insert a byte.
 
 ## The three screens, and no settings
 
-**The deck.** Rows with the tally in a reserved right-hand gutter, alphabetical
-because that is the order a person can predict; recency would move the row you
-are aiming at. NEW NOTE is a bar pinned to the foot: Mario chose it over the
-action-as-last-row alternative because the bar anchors the bottom, so a
-three-note deck reads as a list that ended rather than a button floating in
-space.
+**The deck.** Rows with the tally in a reserved right-hand gutter, at the SAME
+cut as the name beside it -- at `toybox_10` it read as a superscript rather than
+as this list's progress. Alphabetical, because that is the order a person can
+predict; recency would move the row you are aiming at. NEW LIST is a bar pinned
+to the foot: Mario chose it over the action-as-last-row alternative because the
+bar anchors the bottom, so a three-list deck reads as a list that ended rather
+than a button floating in space.
 
-**A note.** Tick boxes down the left, the text beside them, done lines struck
+**A list.** Tick boxes down the left, the text beside them, done lines struck
 through in place. ADD on the left of the footer, the fork-wide home for a
 primary action; CLEAR DONE only when there is something to clear, and on the
 RIGHT, so the control that removes lines never occupies the pixels ADD had a
 moment ago.
 
-**The menu**, behind the gear on the band: type on your phone, clear done,
-rename, delete. The rare and the destructive, over the note they belong to.
+**ADD keeps the keyboard up.** Type, done, type, done, Back. One visit per item
+cost two activity transitions and two full-screen repaints EACH -- six repaints
+to write three lines.
+
+**There is no per-line delete, and that is not a hole.** Tick the wrong line and
+press CLEAR DONE: two taps, with controls that already exist and already say
+what they do.
+
+**The menu**, behind the gear on the band: type on your phone, rename, delete.
+Three rows. CLEAR DONE is not among them -- it lives in the footer where it is
+needed, and a control in two places is two places to keep in step.
 
 **There is no settings screen**, deliberately. Nothing here has two defensible
 values, and the one thing that looks like a setting -- "type on your phone" --
@@ -52,13 +79,22 @@ is a per-note action that must never become a mode.
 - **Nothing is ever elided.** Not by us and not by the list component, which
   truncated three of six deck titles the first time it was handed them.
   `pickCut` returns the largest cut in which EVERY string fits in the lines
-  available, and 0 when none does, and the deck and the note fall to two lines
-  rather than to a smaller cut. The header title is fitted before the band draws
-  it for the same reason.
+  available, and 0 when none does.
 - **Peers share a cut.** The rows of a deck and the lines of a list are compared
   with each other, so the cut is chosen once from the widest member. Sized one
   by one, a long row comes out smaller than its neighbours and reads as a
   different kind of thing.
+- **Wrapping beats shrinking, and the ladder used to have it backwards.** The
+  order is body at one line, body at two, and the small cut only for a single
+  word too wide to break. It ran TITLE -> BODY -> SMALL before, so ONE long item
+  halved every row on the screen -- and bought nothing, because `typeRowHeight`
+  floors at a finger: small-on-one-line and body-on-two-lines produce the
+  identical 72px row and the same eight rows per page.
+- **THE BAND IS CHROME AND A FILENAME MUST NEVER RESIZE IT.** It ran through
+  `fittedTitle`, so a list called "Packing for Lisbon" dropped the app's own
+  title bar a whole cut and a longer name dropped it two. It is fixed now, and a
+  name that will not fit is refused at the keyboard rather than silently
+  shrinking the chrome later.
 - **Row height comes from the type, never from the count.** Dividing the band by
   the number of rows fills a short page, but it also redraws the same note with
   a different rhythm after one line is added.
@@ -99,9 +135,27 @@ changing it would put KEEP somewhere DELETE NOTE never was.
 
 ## Typing from a phone
 
-The note's menu opens a screen with a QR and the address under it. Scanning it
+The list's menu opens a screen with a QR and the address under it. Scanning it
 opens one page, served by the reader itself over your own network, holding THAT
-note in a textarea; saving writes it back and the panel redraws.
+list; saving writes it back and the panel redraws.
+
+**The page is one row per item -- a real checkbox and a real text field -- not a
+textarea.** A textarea showed a person their own list as source, `- [x] Milk`
+and all, and made the marker something they had to type. The empty row at the
+foot grows a fresh one as soon as you type in it, so a list is written without
+reaching for a button between items.
+
+**It is built from `site/styles.css`, not from memory of it.** Warm paper
+`#f5f2ea` and ink `#111110`; the display stack at weight 400 in sentence case,
+never bold; ALL CAPS only for the mono eyebrow; square corners; 1/2/3px borders;
+the black band with its 3px rule; disabled at `opacity: .42`; and the dark theme
+the first version had none of, which matters for a page read in a shop at night.
+The previous one was a cold `#faf9f7`, bold everywhere and uppercase prose: not
+a near-miss, a different look.
+
+**The QR is capped so the address under it can be read at the body cut.** It
+used to grow into every spare pixel, which pushed the one string somebody may
+have to type into a browser to the bottom in the smallest type on the screen.
 
 `Surface::NotesOnly` exists for the reason `WallpapersOnly` does, one step
 further: what is behind a code printed on a screen is one note, not the card.
@@ -135,4 +189,8 @@ called `name`.
 - **OFTEN.** A row of one-tap pills of what this list has held before. Cut by
   Mario, and the whole add screen went with it, because a list of frequent items
   was all that screen held.
+- **Prose.** Deleted in the rework, with `stripHeading`, `Task::isTask` and the
+  prose branch in `noteRows`. "A note is text and some of it happens to be
+  tickable" is a data model; "a list you tick" is a product, and it is the one
+  that was asked for.
 - Folders, tags, search, rich text, sync, accounts, handwriting.
