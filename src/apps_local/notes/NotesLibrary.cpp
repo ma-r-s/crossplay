@@ -80,9 +80,7 @@ bool Library::exists(const std::vector<Entry>& entries, const std::string& name)
   return false;
 }
 
-std::string Library::pathFor(const std::string& name) const {
-  return std::string(kDir) + "/" + name + kExt;
-}
+std::string Library::pathFor(const std::string& name) const { return std::string(kDir) + "/" + name + kExt; }
 
 std::string Library::partPathFor(const std::string& name) const {
   return std::string(kDir) + "/" + name + kExt + kPartExt;
