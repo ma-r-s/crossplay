@@ -239,6 +239,55 @@ def main(env):
         marker="HalStorage::usbDriveState",
     )
 
+    # The same About screen reads three BoardProfile members the simulator's
+    # copy of the struct does not have -- displayWidth, displayHeight and
+    # touch.controller -- and names all six values of a TouchController enum the
+    # simulator does not declare at all.
+    #
+    # The three members are APPENDED, after viewableInsets: every profile in the
+    # package is aggregate-initialised positionally, so a member added anywhere
+    # but the end silently shifts the values of the ones after it, and adding
+    # them with defaults keeps all nine existing initialisers compiling
+    # untouched.
+    #
+    # 800x480 mirrors the SDK's XTEINK_X4_PRO profile, and is right for every
+    # board this package carries -- they are all the same panel size. It is a
+    # literal only because BoardConfig.h here includes <cstdint> and nothing
+    # else, deliberately, so HalDisplay::DISPLAY_WIDTH cannot be referenced from
+    # it without giving the native build the display dependency the package
+    # author kept out.
+    #
+    # touch.controller defaults to None, which is the truthful answer for a host
+    # process: the simulator has no touch CHIP, and its taps are synthetic. The
+    # About screen therefore reads "No" for Touch in the simulator while touch
+    # input still works, and that is the honest reading rather than a hardware
+    # fact invented for a debug screen.
+    patch(
+        src / "BoardConfig.h",
+        "struct ViewableInsets {",
+        "enum class TouchController : uint8_t { None, Chsc6x, Gt911, Ft5x06, Ft6336u, Gslx680 };\n"
+        "\n"
+        "struct TouchConfig {\n"
+        "  TouchController controller = TouchController::None;\n"
+        "};\n"
+        "\n"
+        "struct ViewableInsets {",
+        "BoardConfig::TouchController + TouchConfig",
+        marker="enum class TouchController",
+    )
+
+    patch(
+        src / "BoardConfig.h",
+        "  ViewableInsets viewableInsets = {};\n};",
+        "  ViewableInsets viewableInsets = {};\n"
+        "  uint16_t displayWidth = 800;\n"
+        "  uint16_t displayHeight = 480;\n"
+        "  TouchConfig touch = {};\n"
+        "};",
+        "BoardProfile displayWidth/displayHeight/touch",
+        marker="uint16_t displayWidth",
+    )
+
     # Upstream's new About screen names every display controller the SDK knows
     # (src/activities/settings/AboutActivity.cpp switches on all eight). The
     # simulator ships a four-value copy of the enum -- SSD1677, UC8253, UC8279,
