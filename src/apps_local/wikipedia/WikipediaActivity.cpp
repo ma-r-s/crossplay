@@ -36,6 +36,14 @@ constexpr int kCachedArticles = 32;
 constexpr int16_t kPageSide = 18;
 constexpr int16_t kPageTop = 6;
 constexpr size_t kBuildMinHeap = 40 * 1024;
+// A cue costs one panel waveform. It is worth painting only while the work
+// behind it lasts at least that long, and how long the work lasts depends on
+// the machine: the simulator stages and lays out an 84 KB article in 14ms,
+// where the device's own PERF lines put a full repaint's CPU at 54ms. Rather
+// than carry a constant nobody can calibrate off the hardware, the app times
+// its own opens and predicts the next one from the last: bytes times the
+// measured cost per KiB. Until it has measured one, it shows no cue.
+constexpr uint32_t kWaveformMs = 700;  // a FAST refresh, from the PERF logs
 
 // "7,238,251"
 void withCommas(char* out, const size_t cap, const uint32_t n) {
@@ -311,12 +319,50 @@ void WikipediaActivity::drawKeyboard() {
 
 // --------------------------------------------------------------- article
 
+// What staging and laying out this many bytes took last time, scaled. Zero
+// until an open has been timed, so the first article of a session never waits
+// on a cue.
+// The article's own band, with the title and an empty page, pushed with a
+// DEFERRED refresh: the panel spends its ~700ms waveform showing this while
+// this core stages the html and lays the first page out. The cost is one
+// waveform, and it is only free while the work behind it lasts at least that
+// long, so short articles skip it and simply appear (see kCueBytes).
+void WikipediaActivity::paintOpeningCue() {
+  // A blocking cue would be pure added wait, which is the one thing asked not
+  // to happen. Panels that cannot defer therefore get no cue.
+  if (!renderer.supportsAsyncRefresh()) return;
+  renderer.clearScreen();
+  const int readerFont = SETTINGS.getReaderFontId();
+  const int readerSmall =
+      SETTINGS.fontFamily == CrossPointSettings::NOTOSANS ? NOTOSANS_12_FONT_ID : NOTOSERIF_12_FONT_ID;
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer, toybox::Faces{readerSmall, readerFont, readerFont});
+  const fui::InputSnapshot noInput{};
+  // Its own interactions: the cue is not touchable, and the render that
+  // follows publishes the real ones a moment later.
+  toybox::Interactions untouched;
+  toybox::Frame frame(target, target.deviceContext(), noInput, untouched);
+  toybox::Screen screen(frame);
+  wikiui::ArticleChromeModel chrome;
+  chrome.title = article_.title.c_str();
+  chrome.contents = false;  // nothing to jump to until the layout exists
+  wikiui::buildArticleChrome(screen, chrome);
+  wikiui::ArticleFooterModel foot;
+  foot.left = tr(STR_LOADING);
+  wikiui::buildArticleFooter(screen, foot);
+  renderer.displayBufferAsync();
+  cuePainted_ = true;
+}
+
 bool WikipediaActivity::stageArticle(const uint32_t locator) {
   const char* error = nullptr;
   if (!pack_.readArticle(locator, article_, &error)) {
     LOG_ERR(kTag, "article %lu: %s", static_cast<unsigned long>(locator), error ? error : "");
     return false;
   }
+  // Everything from here is proportional to the article: the staging write,
+  // then the parse and layout in render(). That is what the cue hides, and
+  // only when the last open says there is enough of it to hide.
+  if (openCost_.predictMs(article_.xhtml.size()) >= kWaveformMs) paintOpeningCue();
   cacheDir_ = std::string(kCacheRoot) + "/" + std::to_string(locator);
   if (!ensureDir("/.crosspoint") || !ensureDir(kCacheRoot) || !ensureDir(cacheDir_.c_str())) return false;
   const std::string html = cacheDir_ + "/article.html";
@@ -337,6 +383,7 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
       fresh = file.size() != article_.xhtml.size() - stripped;
     }
   }
+  stagedFresh_ = fresh;
   if (fresh) {
     std::string staged = article_.xhtml;
     if (stripped) staged.erase(h1, stripped);
@@ -371,12 +418,18 @@ bool WikipediaActivity::openLocator(const uint32_t locator, const int page, cons
   // reader takes before touching its own.
   RenderLock lock;
   closeArticle();
+  const uint32_t stageStart = millis();
   if (!stageArticle(locator)) {
     showNotice("SORRY", tr(STR_WIKI_OPEN_FAILED), "BACK", wikiui::ActionBack);
     return false;
   }
+  stageMs_ = millis() - stageStart;
+  LOG_INF(kTag, "PERF open %lu: %u bytes, stage %lums, predicted %lums, cue %s", static_cast<unsigned long>(locator),
+          static_cast<unsigned>(article_.xhtml.size()), static_cast<unsigned long>(stageMs_),
+          static_cast<unsigned long>(openCost_.predictMs(article_.xhtml.size())), cuePainted_ ? "yes" : "no");
   locator_ = locator;
   targetPage_ = page;
+  buildLogged_ = false;
   pendingAnchor_ = anchor;
   buildFailed_ = false;
   headingPages_.assign(article_.headings.size(), -1);
@@ -514,7 +567,21 @@ void WikipediaActivity::renderArticle(toybox::Screen& screen) {
       }
     }
   }
-  if (!buildFailed_) ensureBuilt();
+  {
+    // The other half of an open: the parse and the layout up to the page
+    // being shown. Logged once per article, beside the stage time.
+    const uint32_t buildStart = millis();
+    if (!buildFailed_) ensureBuilt();
+    if (!buildLogged_) {
+      buildLogged_ = true;
+      const uint32_t buildMs = millis() - buildStart;
+      if (stagedFresh_) openCost_.note(article_.xhtml.size(), stageMs_ + buildMs);
+      LOG_INF(kTag, "PERF build %lu: %lums to page %d%s; %s, cost now %luus per KiB",
+              static_cast<unsigned long>(locator_), static_cast<unsigned long>(buildMs), targetPage_ + 1,
+              section_ && section_->isBuildComplete() ? ", complete" : "", stagedFresh_ ? "fresh" : "cached",
+              static_cast<unsigned long>(openCost_.usPerKib()));
+    }
+  }
 
   links_.clear();
   if (section_ && !buildFailed_ && section_->pageCount > 0) {
@@ -939,6 +1006,12 @@ void WikipediaActivity::loop() {
 // ---------------------------------------------------------------- render
 
 void WikipediaActivity::render(RenderLock&&) {
+  // A cue may still be on the panel's waveform; the framebuffer is its
+  // until it lands. No-op when none is outstanding.
+  if (cuePainted_) {
+    renderer.waitRefreshComplete();
+    cuePainted_ = false;
+  }
   renderer.clearScreen();
   // Titles are somebody else's words, and the toybox reading cuts stop at
   // Latin-1: the band showed "Chisinau" without its s-comma and a-breve. So
