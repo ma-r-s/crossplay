@@ -16,3 +16,20 @@ mkdir -p "$BUILD_DIR"
   "$SDK/src/FreeInkUI.cpp" \
   test_readersheet.cpp -o "$BUILD_DIR/test_readersheet"
 "$BUILD_DIR/test_readersheet"
+
+# The C++ half proves the ARITHMETIC. It cannot see which gap buildPanel hands
+# that arithmetic, so on its own a revert to the raw theme token would leave
+# this suite green. This is that missing half: the reader panel must not reach
+# for tokens.listRowGap at all. Comments are stripped first, so the explanation
+# of the bug is allowed to name it (a detector satisfied by a mention of the
+# thing is no detector).
+SRC=../../src/activities/reader/ReaderToolbarUi.cpp
+if sed 's://.*::' "$SRC" | grep -q "tokens\.listRowGap"; then
+  echo "FAIL: ReaderToolbarUi.cpp uses tokens.listRowGap (the RAW theme token)."
+  echo "      The list resolves its gap through Screen::resolveListProps(), which"
+  echo "      raises it to listTouchRowGap on touch boards. Size the sheet and sync"
+  echo "      the nav with the resolved gap. Card #546."
+  sed 's://.*::' "$SRC" | grep -n "tokens\.listRowGap"
+  exit 1
+fi
+echo "source guard: reader panel does not use the raw listRowGap  ok"

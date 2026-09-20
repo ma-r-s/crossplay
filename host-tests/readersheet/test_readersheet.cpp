@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "../../src/activities/reader/ReaderPanelRows.h"
 #include "FreeInkApp.h"
 #include "FreeInkUICore.h"
 
@@ -57,67 +58,77 @@ fui::DeviceContext deviceCtx(bool touch) {
 
 int main() {
   const fui::ThemeTokens tokens = fui::themeTokensForLineHeight(20);
-  std::printf("theme: rowHeight=%d listRowGap=%d listTouchRowGap=%d listTouchMinRowHeight=%d\n",
-              (int)tokens.rowHeight, (int)tokens.listRowGap, (int)tokens.listTouchRowGap,
-              (int)tokens.listTouchMinRowHeight);
+  std::printf("theme: rowHeight=%d listRowGap=%d listTouchRowGap=%d\n", (int)tokens.rowHeight,
+              (int)tokens.listRowGap, (int)tokens.listTouchRowGap);
 
-  // THE CLAIM UNDER TEST: on a touch device the gap the panel reserves
-  // (tokens.listRowGap, what it hands nav_.syncToProps) equals the gap the list
-  // actually draws with. Red today: 0 reserved, listTouchRowGap drawn.
-  check(tokens.listTouchRowGap == tokens.listRowGap ||
-            tokens.listTouchRowGap <= tokens.listRowGap,
-        "touch row gap exceeds the raw listRowGap the reader panel reserves "
-        "(reserved=" + std::to_string(tokens.listRowGap) +
-            " drawn=" + std::to_string(tokens.listTouchRowGap) + ")");
-
-  // And the consequence, in rows: a sheet sized for N rows at the reserved
-  // stride cannot hold N rows at the drawn stride.
+  // Representative panel chrome and budget. The numbers only have to be
+  // plausible: what is under test is whether the sheet and the renderer agree
+  // about the row stride, which is independent of how tall the chrome is.
   const int16_t rowH = 44;
-  const int rows = 6;
-  const int reservedStride = rowH + tokens.listRowGap;
-  const int drawnStride = rowH + (tokens.listTouchRowGap > tokens.listRowGap ? tokens.listTouchRowGap
-                                                                             : tokens.listRowGap);
-  const int reservedHeight = rows * reservedStride - tokens.listRowGap;
-  const int neededHeight = rows * drawnStride - tokens.listTouchRowGap;
-  std::printf("6-row panel: sheet reserves %dpx, list needs %dpx (short by %dpx)\n",
-              reservedHeight, neededHeight, neededHeight - reservedHeight);
-  check(neededHeight <= reservedHeight,
-        "a 6-row reader panel needs more height than its sheet reserved");
+  const int chrome = 220;
+  const int safeH = 790;  // 800 less the X4 Pro's measured top bezel inset
+  const int items = 6;
 
-  // The discriminator: button-only boards keep gap 0 and the geometry is exact.
-  // That is why upstream, whose PR was titled "on button-only devices", cannot
-  // see this. If this ever fails, the test is measuring the wrong thing.
   for (bool touch : {false, true}) {
+    const char* who = touch ? "touch " : "button";
+    // Ask the REAL SDK what gap it resolves for a panel that leaves rowGap at
+    // its sentinel, by measuring what it actually draws.
     RowTarget target;
     fui::InteractionBuffer<24> interactions;
     const fui::InputSnapshot noInput{};
     const fui::DeviceContext ctx = deviceCtx(touch);
     fui::Frame frame(target, ctx, noInput, interactions);
     fui::Screen screen(frame, tokens);
-    fui::ListProps props;
     static const char* kLabels[] = {"Contents", "Text", "More", "Bookmarks", "Search", "Sync"};
-    std::vector<fui::ListItem> items;
-    for (int i = 0; i < rows; ++i) {
+    std::vector<fui::ListItem> list;
+    for (int i = 0; i < items; ++i) {
       fui::ListItem it{};
       it.label = kLabels[i];
-      items.push_back(it);
+      list.push_back(it);
     }
-    props.items = items.data();
-    props.count = static_cast<uint16_t>(items.size());
-    props.itemsWindowCount = static_cast<uint16_t>(items.size());
-    props.rowHeight = rowH;   // explicit, as the reader sets it
+    fui::ListProps props;
+    props.items = list.data();
+    props.count = static_cast<uint16_t>(list.size());
+    props.itemsWindowCount = static_cast<uint16_t>(list.size());
+    props.rowHeight = rowH;
     props.labelText = tokens.bodyText;
-    // props.rowGap deliberately left at its -1 sentinel, as the reader leaves it.
-    screen.list(props, static_cast<int16_t>(reservedHeight));
-    int stride = 0;
-    if (target.texts.size() >= 2) stride = target.texts[1].y - target.texts[0].y;
-    std::printf("%s: drawn row stride = %d (reader reserved %d)\n",
-                touch ? "touch " : "button", stride, reservedStride);
-    if (!touch)
-      check(stride == reservedStride, "button-only board: drawn stride must match the reserved one");
-    else
-      check(stride == reservedStride,
-            "touch board: drawn stride must match the stride the panel reserved");
+    // rowGap deliberately left at its -1 sentinel, exactly as the panel leaves it.
+    screen.list(props, static_cast<int16_t>(items * rowH));
+    check(target.texts.size() >= 2, std::string(who) + ": the list drew rows to measure");
+    const int drawnGap = target.texts.size() >= 2
+                             ? (target.texts[1].y - target.texts[0].y) - rowH
+                             : 0;
+    std::printf("%s: SDK draws rows with gap %d (raw theme token is %d)\n", who, drawnGap,
+                (int)tokens.listRowGap);
+
+    // THE CONTRACT: a sheet sized with the gap the renderer will use must hold
+    // its own rows. This calls the shipped helper, not a copy of it.
+    const readerpanel::Geometry good =
+        readerpanel::panelGeometry(safeH, rowH, drawnGap, chrome, items, 62, 72);
+    const int need = readerpanel::rowsDrawnHeight(good.rows, rowH, drawnGap);
+    const int band = good.sheetHeight - chrome;
+    std::printf("%s: sized with the drawn gap -> %d rows, band %dpx, rows need %dpx\n", who,
+                good.rows, band, need);
+    check(need <= band, std::string(who) + ": a panel sized with the DRAWN gap must hold its rows");
+
+    // THE REGRESSION GUARD: sizing with the raw theme token -- what this code
+    // did until card #546 -- must be detectably wrong wherever the two gaps
+    // differ, and harmless where they do not. Without this, reverting the fix
+    // would leave the suite green.
+    const readerpanel::Geometry raw =
+        readerpanel::panelGeometry(safeH, rowH, tokens.listRowGap, chrome, items, 62, 72);
+    const int rawBand = raw.sheetHeight - chrome;
+    const int rawNeed = readerpanel::rowsDrawnHeight(raw.rows, rowH, drawnGap);
+    if (drawnGap == tokens.listRowGap) {
+      check(rawNeed <= rawBand,
+            std::string(who) + ": no touch gap here, so the raw token is the drawn gap and fits");
+    } else {
+      std::printf("%s: sized with the RAW token -> band %dpx but rows need %dpx (short by %d)\n",
+                  who, rawBand, rawNeed, rawNeed - rawBand);
+      check(rawNeed > rawBand,
+            std::string(who) + ": the raw-token sizing must still be provably short, or this "
+                               "suite would not catch the bug coming back");
+    }
   }
 
   std::printf("%d checks, %d failed\n", checks, failures);

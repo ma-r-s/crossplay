@@ -10,6 +10,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "ReaderPanelRows.h"
 #include "components/icons/readerToolbarIcons.h"
 
 namespace fui = freeink::ui;
@@ -242,18 +243,13 @@ void ReaderToolbarUi::buildPanel(UiScreen& screen) {
   fui::ListProps gapProbe;
   gapProbe.rowHeight = rowH;
   const int16_t rowGap = screen.resolveListProps(gapProbe).rowGap;
-  const int16_t rowStride = static_cast<int16_t>(rowH + rowGap);
   const int16_t grabberBand =
       static_cast<int16_t>(sheetProps.grabberMargin + sheetProps.grabberHeight + sheetProps.grabberInset);
   const int16_t chrome =
       static_cast<int16_t>(grabberBand + titleH + tokens.spaceMd + tokens.spaceSm + kToolRowH + tokens.spaceSm);
-  const int16_t target = static_cast<int16_t>((safe.height * kPanelHeightPercent) / 100);
-  const int16_t cap = static_cast<int16_t>((safe.height * kPanelHeightMaxPercent) / 100);
-  int sheetRows = (target - chrome + rowGap) / rowStride;
-  if (static_cast<int16_t>(chrome + (sheetRows + 1) * rowStride - rowGap) <= cap) ++sheetRows;
-  if (model_.itemCount > 0 && sheetRows > model_.itemCount) sheetRows = model_.itemCount;
-  if (sheetRows < 1) sheetRows = 1;
-  screen.sheet(sheetProps, static_cast<int16_t>(chrome + sheetRows * rowStride - rowGap));
+  const readerpanel::Geometry geo = readerpanel::panelGeometry(
+      safe.height, rowH, rowGap, chrome, model_.itemCount, kPanelHeightPercent, kPanelHeightMaxPercent);
+  screen.sheet(sheetProps, static_cast<int16_t>(geo.sheetHeight));
   // No blanket side inset: Screen::list() draws in the content band, and the
   // scroll track must reach the sheet's edge like a full-screen list's does.
   // The title insets itself; the rows inset via rowInset below.
