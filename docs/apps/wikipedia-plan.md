@@ -239,18 +239,20 @@ main page. A link into an article that is not on the card
 yet (a partial copy, or a title the pack does not have) shows one line, "Not
 on the card yet", and BACK; fetching it over Wi-Fi is v2.
 
-Opening a long article says so. The header band and the title paint
-first, with "Loading" where the page count goes, and that refresh is
-started and never waited for (`displayBufferAsync`), so the cue costs the
-wait nothing: the article is read, decompressed and laid out while the
-waveform runs, and the finished page lands as soon as the panel is free.
-It appears only where there would otherwise be a silent wait. The app
-times its own opens, keeps microseconds per KiB, and predicts the next
-open from the article's size; the cue is painted only when that prediction
-reaches a panel refresh (700ms). A short article gets none, and neither
-does the first article after a restart, because nothing has been measured
-yet. A panel that cannot defer a refresh gets none either (the simulator),
-since there the cue would be exactly the delay it exists to cover.
+Opening an article says so. The header band paints first with the
+article's title (the caller always has it before the article is read: the
+index entry, the recent row, the link's target) and "Loading" where the page
+count goes. That refresh is started and never waited for
+(`displayBufferAsync`), and the article is read, decompressed and laid out
+underneath it, so the panel's waveform is paid for with work rather than
+waiting: measured on an X4 Pro, an article read from the pack for the first
+time costs 600 to 800ms against a waveform of about 680ms. An article whose
+staged html is already on the card costs about 190ms and gets no cue, and
+that is the whole test: not the article's size, not a prediction from past
+opens, but whether this device has ever laid this article out. It is
+therefore right on the first article of a session, which a prediction never
+is. A panel that cannot defer a refresh (the simulator) gets no cue either,
+since there it would be exactly the delay it exists to cover.
 
 CONTENTS, top right in the header, opens an overlay list of the section
 headings, each with the page it starts on once the layout has reached it;
@@ -370,8 +372,7 @@ is pruned to the last 32 articles.
 - `WikipediaCore` (freestanding, host-tested): title folding (ASCII fast
   path, a few KB of case and diacritic tables for the 8% of non-ASCII
   titles), index block decode, locator math, overlay shadowing, manifest
-  parsing, tier state ("which parts are here"), the open-cost
-  estimator behind the loading cue.
+  parsing, tier state ("which parts are here").
 - `WikipediaPack`: the card side: block read into an internal bounce buffer,
   zstd decode with the dictionary into PSRAM (`lib/zstd/`, the single-file
   decoder, 40 to 70 KB of flash; DCtx 96 KB and DDict 27 KB placed in PSRAM
