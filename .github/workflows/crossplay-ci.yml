@@ -45,7 +45,36 @@ on:
     paths-ignore:
       - 'site/emulator/**'
       - 'site/emulator-manifest.json'
+      - '**/*.md'
+      - '*.md'
+      - 'docs/**'
+      - '!docs/release-notes.md'
+      - '!docs/release-body.md'
   pull_request:
+    # Mario, 2026-09-20 (card #547): "a docs change shouldn't need any
+    # pipeline run". A paragraph added to docs/apps/wikipedia-plan.md ran
+    # four cross-compiles, the simulator and every host suite: about twenty
+    # minutes by this workflow's own measured comment, for text no device
+    # and no reader of the site can see. scripts_local/device-build-needed.sh
+    # already classifies docs/* as "no no" and check.sh already skips the
+    # device envs for them locally; nothing on GitHub was asking.
+    #
+    # The two exceptions are not documentation in the sense that matters:
+    # docs/release-notes.md is the published history and docs/release-body.md
+    # is the page a release publishes, and host-tests/release compares them
+    # against the previous tag. A hand edit to either must still be checked,
+    # so they are negated back in. The negations come last, because a later
+    # pattern wins.
+    #
+    # Safe because xteink has NO required status checks (branch protection
+    # blocks force pushes and deletion only), so a pull request with no runs
+    # is mergeable rather than stuck waiting for a check that never starts.
+    paths-ignore:
+      - '**/*.md'
+      - '*.md'
+      - 'docs/**'
+      - '!docs/release-notes.md'
+      - '!docs/release-body.md'
   workflow_dispatch:
 
 permissions:

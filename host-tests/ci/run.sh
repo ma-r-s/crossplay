@@ -984,5 +984,77 @@ if [ "$seen" -eq 0 ]; then
   echo "FAIL ci  found no workflow files at all; the fork-marker rule just checked nothing"
 fi
 
+# -- what the pull_request filter may and may not silence (card #547) ---------
+#
+# Mario, 2026-09-20: a documentation change should not run a pipeline. The
+# filter that does that is four lines of glob in another file, and the way it
+# fails is SILENT IN THE RIGHT DIRECTION: a pattern one character too wide
+# (`'**/*.*'`, `'src/**'` pasted in by mistake) does not break a build, it
+# stops one from ever running, and a pull request that changed firmware then
+# merges with no check having looked at it. Nothing else in this repository
+# would notice. So the property is constructed here from sample paths rather
+# than read off the file: the paths that MUST still run CI, and the ones that
+# must not.
+#
+# The matcher below is GitHub's rule as this filter uses it: later pattern
+# wins, `!` un-ignores. It is deliberately a few lines, because a test that
+# reimplements a glob engine tests the reimplementation.
+ci_ignored() {  # path -- prints yes/no against the pull_request block
+  local path="$1" verdict=no p core
+  # set -f, because the patterns are globs and an unquoted expansion makes the
+  # SHELL expand them against this working directory first: `docs/**` became a
+  # list of real files and every sample then read as "not covered". It runs in
+  # a subshell (the caller uses $( )), so nothing outside sees the flag.
+  set -f
+  for p in $PR_IGNORE; do
+    case "$p" in
+      '!'*) core="${p#!}"; case "$path" in $core) verdict=no ;; esac ;;
+      *)    case "$path" in $p) verdict=yes ;; esac ;;
+    esac
+  done
+  printf '%s' "$verdict"
+}
+
+CI_WF="$HERE/../../.github/workflows/crossplay-ci.yml"
+PR_IGNORE="$(sed -n '/^  pull_request:/,/^  [a-z_]*:/p' "$CI_WF" | grep -oE "'[^']+'" | tr -d "'")"
+
+checks=$((checks + 1))
+if [ -z "$PR_IGNORE" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  crossplay-ci.yml's pull_request trigger has no paths-ignore, so every documentation change runs four cross-compiles and every host suite again (card #547)"
+fi
+
+for path in \
+  src/main.cpp \
+  src/apps_local/wikipedia/WikipediaCore.cpp \
+  lib/hal/HalDisplay.h \
+  platformio.ini \
+  scripts_local/check.sh \
+  host-tests/ci/run.sh \
+  site/wikipedia/plan.js \
+  .github/workflows/crossplay-ci.yml \
+  .github/workflows/crossplay-release.yml \
+  docs/release-notes.md \
+  docs/release-body.md
+do
+  checks=$((checks + 1))
+  if [ "$(ci_ignored "$path")" = yes ]; then
+    failed=$((failed + 1))
+    echo "FAIL ci  the pull_request paths-ignore silences $path, so a pull request changing it would merge with no run at all"
+  fi
+done
+
+for path in \
+  docs/apps/wikipedia-plan.md \
+  docs/workflow/worker-contract.md \
+  README.md
+do
+  checks=$((checks + 1))
+  if [ "$(ci_ignored "$path")" != yes ]; then
+    failed=$((failed + 1))
+    echo "FAIL ci  the pull_request paths-ignore does not cover $path, which is the documentation case card #547 exists to stop building"
+  fi
+done
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
