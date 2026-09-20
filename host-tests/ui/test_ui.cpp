@@ -2591,9 +2591,17 @@ void checkShelfIconsSitOnTheirRows(const int page) {
   Rendered menu;
   buildShelf(menu, model);
 
-  // Half a row: an icon one row out of place is a whole rowHeight + gap away,
-  // so this is generous about text metrics and still exact about rows.
-  const int tolerance = tokens.rowHeight / 2;
+  // Tight, because half a row was not. This read `tokens.rowHeight / 2` (31px)
+  // on the reasoning that an icon one row out of place is a whole row away --
+  // true of a clean off-by-one, and false of the drift that actually happened.
+  // v1.13.4 moved each icon 4px further down than the last, so the eighth was a
+  // full row out while the first was 3px out, and the average stayed under 31.
+  // The suite was green on the screen in qa-artifacts/games-broken.png.
+  //
+  // An icon and its label are centred on the same row, so their midpoints agree
+  // to within text metrics alone. Anything larger is a grid disagreement, which
+  // is the whole class of bug this test exists for.
+  const int tolerance = 8;
   int paired = 0;
   for (int i = 0; i < kCount; ++i) {
     const fui::Rect* icon = nullptr;
@@ -3070,6 +3078,43 @@ void testAnEmptyFolderIsItsOwnWayBack() {
 
   // And nothing claims to be a row.
   CHECK(!menu.interactions.overflowed());
+}
+
+// The token the fork positions rows BY is the geometry the list draws WITH.
+//
+// These are two different numbers in the SDK and nothing makes them agree.
+// Screen::resolveListProps() sizes a row from its label font, its padding and
+// the device touch minimum; theme().rowHeight is not an input to it. But
+// toybox::listRowRect -- and so every icon drawn by iconAtRowRight, on nine
+// screens -- computes its row grid from theme().rowHeight and listRowGap.
+// While the two agree the icons sit on their rows. When they stopped agreeing
+// (v1.13.4: 62/4 intended, 56/6 resolved) every icon walked 4px further down
+// per row until the last one fell outside the band, and the shelf reserved
+// rows at the wrong pitch and left dead space under the list.
+//
+// Asserted on BOTH device shapes because the divergence was touch-only: the
+// clamps that overrode the theme are listTouchMinRowHeight and
+// listTouchRowGap, so a non-touch check alone would have stayed green through
+// the whole regression.
+void testToyboxRowGeometryIsWhatTheListActuallyUses() {
+  const fui::ThemeTokens tokens = toybox::themeTokens();
+
+  for (const bool touch : {true, false}) {
+    fui::DeviceContext ctx = device();
+    ctx.hasTouch = touch;
+
+    Rendered out;
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, tokens);
+
+    // A list with nothing set: exactly what every Toybox screen passes, and
+    // the case resolveListProps computes rather than takes.
+    const fui::ListProps resolved = screen.resolveListProps(fui::ListProps{});
+
+    CHECK(resolved.rowHeight == tokens.rowHeight);
+    CHECK(resolved.rowGap == tokens.listRowGap);
+  }
 }
 
 void testShelfIconsFollowTheRowsWhenTheListScrolls() {
@@ -13037,6 +13082,7 @@ int main() {
   testTheCheckersHowToPagesAndEnds();
   testShelfFolderDrawsItsOwnNameAndRows();
   testShelfFolderMarksNoRow();
+  testToyboxRowGeometryIsWhatTheListActuallyUses();
   testShelfIconsFollowTheRowsWhenTheListScrolls();
   testTheHeaderBandOpensAndClosesTheChooser();
   testThePageCounterClearsTheCorner();
