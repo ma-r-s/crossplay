@@ -143,5 +143,14 @@ class WikipediaActivity final : public Activity {
   freeink::ui::ActionId noticeActionId_ = 0;
 
   toybox::Interactions interactions_;
+  // Painted before a long article is staged and laid out, deferred so the
+  // panel's waveform runs while that work happens. render() lands it.
+  void paintOpeningCue();
+  bool cuePainted_ = false;
+  bool buildLogged_ = false;
+  // How long an open costs on THIS device, measured rather than assumed.
+  wikipedia::OpenCost openCost_;
+  bool stagedFresh_ = false;
+  uint32_t stageMs_ = 0;
   bool interactionsReady_ = false;
 };

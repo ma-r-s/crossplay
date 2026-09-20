@@ -69,6 +69,34 @@ struct Manifest {
 // false when the text is not a format-1 manifest at all.
 bool parseManifest(const char* json, size_t len, Manifest& out);
 
+// ------------------------------------------------------------- open cost
+
+// What opening an article costs on THIS machine, measured rather than assumed.
+// The app paints a "loading" cue with a deferred refresh, which is free only
+// while the work behind it lasts at least one panel waveform; whether a given
+// article clears that bar depends on the hardware (the simulator stages and
+// lays out an 84 KB article in 14ms, where the device's own logs put a single
+// repaint's CPU at 54ms). So the app times its opens and predicts the next one.
+//
+// Held in MICROSECONDS per KiB: milliseconds truncate to nothing on a fast
+// host, and a rate of zero predicts zero forever.
+class OpenCost {
+ public:
+  // 0 until an open has been measured, so the first article never waits on a
+  // cue drawn from a guess.
+  uint32_t predictMs(size_t bytes) const;
+  // Only an open that did the work teaches anything: re-opening an article
+  // whose html and layout are both cached costs nearly nothing, and averaging
+  // those in talks the estimate down until no cue ever shows.
+  void note(size_t bytes, uint32_t totalMs);
+  uint32_t usPerKib() const { return usPerKib_; }
+  uint8_t samples() const { return samples_; }
+
+ private:
+  uint32_t usPerKib_ = 0;
+  uint8_t samples_ = 0;
+};
+
 // ------------------------------------------------------------- blocks.dir
 
 struct BlockRecord {
