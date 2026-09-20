@@ -46,7 +46,7 @@ int HomeActivity::getMenuItemCount() const {
   // upstream's indices never shift and indexToMenuItem()/menuItemToIndex() stay
   // untouched. Everything below returns NONE for our indices, which is what the
   // dispatch switch's default case picks up. See src/apps_local/Shelf.h.
-  int count = 4 + shelf::folderCount();  // File Browser, Recents, File transfer, Settings, + ours
+  int count = 4 + shelf::folderCount();  // File Browser, Library, File transfer, Settings, + ours
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -217,8 +217,8 @@ void HomeActivity::loop() {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
-      case HomeMenuItem::RECENTS:
-        onRecentsOpen();
+      case HomeMenuItem::LIBRARY:
+        onLibraryOpen();
         break;
       case HomeMenuItem::OPDS_BROWSER:
         onOpdsBrowserOpen();
@@ -342,9 +342,16 @@ void HomeActivity::render(RenderLock&&) {
                  metrics.homeContinueReadingInMenu && !recentBooks.empty() ? recentBooks[0].title.c_str() : nullptr);
 
   // Build menu items dynamically
-  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
+  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
                                         tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Settings};
+  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings};
+
+  // fork-local seam: upstream draws an OPDS row here when servers are
+  // configured. The fork does not -- Get Books lives in the APPS folder, and
+  // both dispatch helpers below are called with hasOpdsUrl=false to match. A
+  // sync that takes upstream's insertion draws a row the dispatch does not
+  // know about, which shifts every shelf folder by one and opens the wrong
+  // game. Leave it out; see the comment on indexToMenuItem() below.
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     // Insert Continue Reading at the top if enabled in theme
@@ -435,7 +442,7 @@ void HomeActivity::onSelectBook(const std::string& path) { activityManager.goToR
 
 void HomeActivity::onFileBrowserOpen() { activityManager.goToFileBrowser(); }
 
-void HomeActivity::onRecentsOpen() { activityManager.goToRecentBooks(); }
+void HomeActivity::onLibraryOpen() { activityManager.goToLibrary(); }
 
 void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 
