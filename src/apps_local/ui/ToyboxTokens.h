@@ -252,6 +252,17 @@ inline const fui::ThemeTokens& themeTokens() {
     tokens.minTouchSize = 44;
 
     tokens.listRowGap = 4;
+    // Lists stopped reading rowHeight. Screen::resolveListProps() sizes a row
+    // from its label font, its padding and the device touch minimum, and then
+    // clamps up to listMinRowHeight -- rowHeight above is not consulted at all.
+    // Toybox's rows are deliberately 62 and its gap deliberately 4, so both
+    // have to be stated in the tokens that function DOES read. Left unsaid, a
+    // touch device resolves 56 and 6 instead, and every fork helper that
+    // positions something on a row from theme().rowHeight (toybox::listRowRect,
+    // and so every icon drawn by iconAtRowRight) lands it 4px per row out of
+    // place, the last one outside the band entirely.
+    tokens.listMinRowHeight = kRowHeight;
+    tokens.listTouchRowGap = tokens.listRowGap;
     tokens.listSidePadding = kGutter;
     // Zero, not kMargin: the screen's content rect already carries the page
     // margin, and listInset is applied on top of it. Setting both indents the
