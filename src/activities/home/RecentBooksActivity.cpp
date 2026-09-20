@@ -45,7 +45,7 @@ void RecentBooksActivity::rebuildRowItems() {
 
   // One SD pass for every CJK title/author on the screen; repaints then hit
   // the resident tables instead of re-reading per-string. Titles draw bold
-  // (see buildScreen), authors regular — separate per-style prewarms. Getter
+  // (see buildScreen), authors regular: separate per-style prewarms. Getter
   // form: no concatenated copy (a bare-new string append aborts under heap
   // pressure). See GfxRenderer::prewarmFallbackText().
   const auto count = static_cast<uint32_t>(recentBooks.size());
