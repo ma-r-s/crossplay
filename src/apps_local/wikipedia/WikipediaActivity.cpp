@@ -410,7 +410,7 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
 }
 
 bool WikipediaActivity::openLocator(const uint32_t locator, const int page, const std::string& anchor,
-                                   const std::string& title) {
+                                    const std::string& title) {
   // The render task may be mid-layout on the old section; the lock is what the
   // reader takes before touching its own.
   RenderLock lock;
@@ -607,8 +607,8 @@ void WikipediaActivity::renderArticle(toybox::Screen& screen) {
       buildLogged_ = true;
       // Zero here when layOutUnderCue() already did it, which is the point.
       const uint32_t buildMs = buildMs_ + (millis() - buildStart);
-      LOG_INF(kTag, "PERF build %lu: %lums to page %d%s; %s, open total %lums",
-              static_cast<unsigned long>(locator_), static_cast<unsigned long>(buildMs), targetPage_ + 1,
+      LOG_INF(kTag, "PERF build %lu: %lums to page %d%s; %s, open total %lums", static_cast<unsigned long>(locator_),
+              static_cast<unsigned long>(buildMs), targetPage_ + 1,
               section_ && section_->isBuildComplete() ? ", complete" : "", stagedFresh_ ? "fresh" : "cached",
               static_cast<unsigned long>(stageMs_ + buildMs));
     }
