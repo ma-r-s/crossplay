@@ -221,11 +221,20 @@ identified by its MAC immediately before anything is written to it.
 
 | name | MAC | notes |
 | --- | --- | --- |
-| device 2 | `B8:1F:3F:D4:82:60` | the one on the cable as of 2026-09-20, serial `X4CB02EN26080301594`; the Wikipedia pack (49,715 articles, May 2026) is on its card |
+| device 1 | `B8:1F:3F:D4:83:24` | |
+| device 2 | `B8:1F:3F:D4:82:60` | serial `X4CB02EN26080301594`; the Wikipedia pack (49,715 articles, May 2026) is on its card |
+
+The numbers are what Mario says in chat; the MAC is what a number means. One
+command on his Mac turns a number into a port and an address, and a unit that
+is neither prints as UNNUMBERED rather than passing for one of them:
 
 ```bash
-ioreg -r -c IOUSBHostDevice -l | awk '/USB Serial Number/{s=$NF} /IODialinDevice/{print s,$NF}'
+/Users/mario/Projects/Personal/Code/Xteink/device-map.sh
 ```
+
+Anything older than 2026-09-20 that says "unit 1" or "unit 2" means the
+OPPOSITE device: that naming went by arrival date. Resolve it to a MAC before
+acting on it.
 
 Over Wi-Fi, where there is no `ioreg`, `GET /api/dev/serial` leads with the same
 MAC, read from efuse rather than from `WiFi`.
