@@ -23,8 +23,12 @@
 // MappedInputManager's HalGPIO does not exist.
 template <typename Input>
 void pumpBlockingFetch(const Input& input, bool& cancelled, bool& goHome) {
-  // The pump an activity may run only because it blocked the loop.
-  input.update();
+  // The pump an activity may run only because it blocked the loop. `true` is
+  // upstream's deferHomeButtonAction: a configured Home-button action seen
+  // mid-transfer is kept for the next main-loop pass instead of firing inside
+  // a blocked loop. The home GESTURE below is still answered immediately --
+  // that is what leaves the screen.
+  input.update(true);
   if (input.wasReleased(Input::Button::Back)) cancelled = true;
   // That update() consumes the one-shot home event before the central
   // ActivityManager dispatch can see it, so a home gesture arriving mid

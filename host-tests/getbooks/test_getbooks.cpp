@@ -320,8 +320,14 @@ struct FakeInput {
   mutable int updates = 0;
   mutable bool backRelease = false;
   mutable bool homeGesture = false;
+  // What the pump asked for, so the test can assert that a blocked transfer
+  // defers configured Home-button actions rather than firing them in place.
+  mutable bool lastDeferHomeAction = false;
 
-  void update() const { ++updates; }
+  void update(const bool deferHomeButtonAction = false) const {
+    ++updates;
+    lastDeferHomeAction = deferHomeButtonAction;
+  }
   bool wasReleased(const Button button) const {
     if (button != Button::Back) return false;
     const bool edge = backRelease;
@@ -384,6 +390,18 @@ void theCancelSurvivesLaterPumps() {
   CHECK(cancelled);
 }
 
+// A configured Home-button action (upstream's 1.6.5 shortcuts) must not fire
+// inside a blocked transfer: the loop cannot service what it starts. The pump
+// asks for it to be held over to the next main-loop pass. The home GESTURE
+// above is separate and is still answered here, because that is what leaves.
+void theBlockedPumpDefersConfiguredHomeActions() {
+  FakeInput input;
+  bool cancelled = false;
+  bool goHome = false;
+  pumpBlockingFetch(input, cancelled, goHome);
+  CHECK(input.lastDeferHomeAction);
+}
+
 }  // namespace
 
 int main() {
@@ -399,6 +417,7 @@ int main() {
   aBackDuringTheFetchCancelsIt();
   aHomeGestureDuringTheFetchIsNotSwallowed();
   anUneventfulPumpCancelsNothing();
+  theBlockedPumpDefersConfiguredHomeActions();
   theCancelSurvivesLaterPumps();
   std::printf("getbooks: %d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

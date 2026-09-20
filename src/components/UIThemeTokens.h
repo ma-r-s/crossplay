@@ -19,6 +19,9 @@ inline freeink::ui::ThemeTokens uiThemeTokens(const freeink::ui::GfxRendererTarg
   // thing rather than to a copy of it. See the comment there for why the core
   // theme needs one at all.
   tokens.button = uiButtonStyles();
+  // Button-device lists retain the theme's preferred density. The SDK still
+  // grows individual rows for wrapping, subtitles and icons.
+  if (!BoardConfig::hasTouch()) tokens.listMinRowHeight = static_cast<int16_t>(metrics.listRowHeight);
   tokens.listRowGap = static_cast<int16_t>(metrics.listRowGap);
   tokens.listRowRadius = static_cast<uint8_t>(metrics.listRowRadius);
   tokens.listInset = static_cast<int16_t>(metrics.listInset);

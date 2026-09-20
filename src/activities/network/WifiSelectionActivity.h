@@ -165,4 +165,5 @@ class WifiSelectionActivity final : public Activity, private UiAppHost {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool preventAutoSleep() override { return true; }
 };

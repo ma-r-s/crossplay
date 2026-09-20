@@ -239,6 +239,240 @@ def main(env):
         marker="HalStorage::usbDriveState",
     )
 
+    # Upstream's new Library index asks every book for a modification time, to
+    # skip re-reading one whose bytes have not changed
+    # (lib/LibraryIndex/LibraryBuilder.cpp). The simulator's HalFile has no such
+    # method.
+    #
+    # Real, not a stub, and the same reasoning as freeBytes above: the
+    # simulator's card is a host directory, so fstat is the honest answer and
+    # the index's skip path actually gets exercised here.
+    #
+    # The ENCODINGS DIFFER AND THAT IS FINE, which is worth saying out loud
+    # because it looks like a bug. The device packs a FAT date and time into one
+    # uint32 (HalStorage.cpp: date << 16 | time); this returns epoch seconds.
+    # Nothing decodes the value: LibraryBuilder only compares it for equality
+    # against the one it stored last time, and treats 0 as "unknown" and
+    # re-reads. The contract is "stable while the file is unchanged, different
+    # after a write, non-zero when known", and both satisfy it.
+    patch(
+        src / "HalStorage.h",
+        "  uint64_t fileSize64();",
+        "  uint64_t fileSize64();\n  uint32_t modificationTime();",
+        "HalFile::modificationTime (header)",
+        marker="modificationTime",
+    )
+
+    patch(
+        src / "HalStorage.cpp",
+        "uint64_t HalFile::fileSize64() { return size(); }",
+        "uint64_t HalFile::fileSize64() { return size(); }\n"
+        "uint32_t HalFile::modificationTime() {\n"
+        "  if (!impl || impl->fd < 0)\n"
+        "    return 0;\n"
+        "  struct stat st;\n"
+        "  if (fstat(impl->fd, &st) != 0)\n"
+        "    return 0;\n"
+        "  return static_cast<uint32_t>(st.st_mtime);\n"
+        "}",
+        "HalFile::modificationTime (impl)",
+        marker="HalFile::modificationTime",
+    )
+
+    # CrossPoint 1.6.5 replaced the raw UTC-offset setting with real timezones,
+    # and src/util/Timezones.cpp pushes the chosen POSIX rule into the clock
+    # through HalClock::setTimezone(). The simulator's HalClock predates that
+    # and still takes an explicit utcOffsetQuarterHoursBiased in its formatters.
+    #
+    # The body is the device's, minus one line. On device, setTimezone() also
+    # clears _lastPollMs so local time is re-derived under the new rule on the
+    # next read; the simulator's HalClock has no such cache and its formatters
+    # are handed an offset per call, so there is nothing to invalidate. What
+    # DOES carry over is setenv+tzset: the simulator runs against a real libc,
+    # so the process TZ it sets is the same mechanism the device uses, and
+    # anything reading localtime() here behaves as it does on hardware.
+    patch(
+        src / "HalClock.h",
+        "#include <cstddef>\n#include <cstdint>",
+        "#include <cstddef>\n#include <cstdint>\n#include <cstdlib>\n#include <ctime>",
+        "HalClock.h cstdlib/ctime for setTimezone",
+        marker="#include <ctime>",
+    )
+
+    patch(
+        src / "HalClock.h",
+        "  bool syncFromNTP();",
+        "  void setTimezone(const char *posixTz) {\n"
+        "    ::setenv(\"TZ\", posixTz && posixTz[0] != '\\0' ? posixTz : \"UTC0\", 1);\n"
+        "    ::tzset();\n"
+        "  }\n"
+        "  bool syncFromNTP();",
+        "HalClock::setTimezone",
+        marker="setTimezone",
+    )
+
+    # ...and three ESP.* accessors the simulator's ESPMock does not have.
+    # ESPMock carries the heap family (getFreeHeap and friends) and nothing
+    # about the chip, because until this screen existed nothing sim-compiled
+    # asked. Every OTHER ESP.* the firmware names -- getEfuseMac, getPsramSize,
+    # getFreePsram -- sits behind `#if defined(ARDUINO_ARCH_ESP32) &&
+    # !defined(SIMULATOR)` and never reaches this build, which is why ESPMock
+    # has gone without them for so long.
+    #
+    # The values describe the device the simulator stands in for, not the Mac
+    # running it: ESP32-S3 and the 16MB flash every fork env declares
+    # (board_build.flash_size in platformio.ini). That is the same convention
+    # BoardProfile already follows here -- the simulator reports the simulated
+    # board's panel, controller and name, not the host's. Reporting the host's
+    # actual CPU would make the About screen a different screen in the
+    # simulator than on hardware, which is the opposite of what it is for.
+    patch(
+        src / "Arduino.h",
+        "  void restart() {}",
+        "  void restart() {}\n"
+        "  const char *getChipModel() { return \"ESP32-S3\"; }\n"
+        "  uint8_t getChipRevision() { return 0; }\n"
+        "  uint32_t getFlashChipSize() { return 16u * 1024u * 1024u; }",
+        "ESPMock chip/flash accessors",
+        marker="getChipModel",
+    )
+
+    # The same About screen reads three BoardProfile members the simulator's
+    # copy of the struct does not have -- displayWidth, displayHeight and
+    # touch.controller -- and names all six values of a TouchController enum the
+    # simulator does not declare at all.
+    #
+    # The three members are APPENDED, after viewableInsets: every profile in the
+    # package is aggregate-initialised positionally, so a member added anywhere
+    # but the end silently shifts the values of the ones after it, and adding
+    # them with defaults keeps all nine existing initialisers compiling
+    # untouched.
+    #
+    # 800x480 mirrors the SDK's XTEINK_X4_PRO profile, and is right for every
+    # board this package carries -- they are all the same panel size. It is a
+    # literal only because BoardConfig.h here includes <cstdint> and nothing
+    # else, deliberately, so HalDisplay::DISPLAY_WIDTH cannot be referenced from
+    # it without giving the native build the display dependency the package
+    # author kept out.
+    #
+    # touch.controller defaults to None, which is the truthful answer for a host
+    # process: the simulator has no touch CHIP, and its taps are synthetic. The
+    # About screen therefore reads "No" for Touch in the simulator while touch
+    # input still works, and that is the honest reading rather than a hardware
+    # fact invented for a debug screen.
+    patch(
+        src / "BoardConfig.h",
+        "struct ViewableInsets {",
+        "enum class TouchController : uint8_t { None, Chsc6x, Gt911, Ft5x06, Ft6336u, Gslx680 };\n"
+        "\n"
+        "struct TouchConfig {\n"
+        "  TouchController controller = TouchController::None;\n"
+        "};\n"
+        "\n"
+        "struct ViewableInsets {",
+        "BoardConfig::TouchController + TouchConfig",
+        marker="enum class TouchController",
+    )
+
+    patch(
+        src / "BoardConfig.h",
+        "  ViewableInsets viewableInsets = {};\n};",
+        "  ViewableInsets viewableInsets = {};\n"
+        "  uint16_t displayWidth = 800;\n"
+        "  uint16_t displayHeight = 480;\n"
+        "  TouchConfig touch = {};\n"
+        "};",
+        "BoardProfile displayWidth/displayHeight/touch",
+        marker="uint16_t displayWidth",
+    )
+
+    # Upstream's new About screen names every display controller the SDK knows
+    # (src/activities/settings/AboutActivity.cpp switches on all eight). The
+    # simulator ships a four-value copy of the enum -- SSD1677, UC8253, UC8279,
+    # UC8179 -- so ED2208, LgfxEpd, IT8951 and UC8279C do not exist there and the
+    # switch stops the build.
+    #
+    # Mirrored from the SDK exactly, explicit values included
+    # (libs/hardware/BoardConfig/include/BoardConfig.h), rather than appending
+    # the four missing names. The simulator's implicit numbering had ALREADY
+    # drifted -- its UC8253 is 1 where the SDK's is 2, its UC8279 is 2 where the
+    # SDK's is 6 -- so appending would have left that divergence in place and
+    # added four more names on top of it. Safe to renumber because every use of
+    # this enum, in the simulator package and in src/ and lib/ alike, is by NAME:
+    # the one comparison outside the About screen is HalGPIO.cpp's
+    # `displayController == DisplayController::UC8279`. Nothing stores or
+    # transmits the number.
+    patch(
+        src / "BoardConfig.h",
+        "enum class DisplayController {\n"
+        "  SSD1677,\n"
+        "  UC8253,\n"
+        "  UC8279,\n"
+        "  UC8179,\n"
+        "};",
+        "enum class DisplayController : uint8_t {\n"
+        "  SSD1677 = 0,\n"
+        "  UC8253 = 2,\n"
+        "  ED2208 = 3,\n"
+        "  LgfxEpd = 4,\n"
+        "  IT8951 = 5,\n"
+        "  UC8279 = 6,\n"
+        "  UC8179 = 7,\n"
+        "  UC8279C = 8\n"
+        "};",
+        "BoardConfig::DisplayController (the SDK's full list)",
+        marker="UC8279C",
+    )
+
+    # The same SDK bump added a third grayscale mode. The SDK declares
+    # `enum class GrayscaleMode : uint8_t { Overlay, Absolute, Direct }`
+    # (libs/display/FreeInkDisplay/include/GrayscaleCapabilities.h), lib/hal
+    # aliases it, and upstream's SleepActivity now asks for Direct and falls back
+    # to Absolute when the panel cannot do it. The simulator declares its OWN copy
+    # of the enum with only the first two values, so the sleep screen stops the
+    # build on "no member named 'Direct'".
+    #
+    # Appended, never inserted: these are uint8_t values an on-disk or on-wire
+    # format could carry, and putting Direct anywhere but last would renumber
+    # Absolute. It matches the SDK's own order, which is what makes the two
+    # enums interchangeable at all.
+    patch(
+        src / "HalDisplay.h",
+        "  enum class GrayscaleMode : uint8_t { Overlay, Absolute };",
+        "  enum class GrayscaleMode : uint8_t { Overlay, Absolute, Direct };",
+        "HalDisplay::GrayscaleMode::Direct",
+        marker="Absolute, Direct",
+    )
+
+    # The 2026-09-19 SDK bump added UsbMassStorage::hostSuspended(), and lib/hal
+    # exposes it as HalStorage::usbDriveHostSuspended(). It needs its OWN patch
+    # rather than a line in the USB Drive block above, because that block is
+    # skipped now: the published simulator package ships usbDriveState() itself,
+    # so its marker matches and nothing inside it is reached. A method appended
+    # to a patch whose marker already matches is a method that never gets added,
+    # and the failure is silent until the sim build stops compiling.
+    #
+    # false is the honest answer, not a stub: a host-side simulator has no USB
+    # host attached, so the host is never suspended. Same reasoning as
+    # usbDriveState() answering Unsupported.
+    patch(
+        src / "HalStorage.h",
+        "  bool removeDir(const char *path);",
+        "  bool usbDriveHostSuspended() const;\n  bool removeDir(const char *path);",
+        "HalStorage::usbDriveHostSuspended (header)",
+        marker="usbDriveHostSuspended",
+    )
+
+    patch(
+        src / "HalStorage.cpp",
+        "bool HalStorage::begin() {",
+        "bool HalStorage::usbDriveHostSuspended() const { return false; }\n"
+        "\n"
+        "bool HalStorage::begin() {",
+        "HalStorage::usbDriveHostSuspended (impl)",
+        marker="HalStorage::usbDriveHostSuspended",
+    )
+
     patch(
         src / "HalStorage.cpp",
         "#include <sys/stat.h>",
