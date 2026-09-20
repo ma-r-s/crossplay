@@ -50,6 +50,10 @@ class WikipediaActivity final : public Activity {
   struct Visit {
     uint32_t locator;
     int page;
+    // Carried so the cue can name the article on the way BACK too: the card
+    // keeps 32 staged articles and the trail is 8 deep, so a step back can
+    // land on one that was evicted, which is a fresh open with a cue.
+    std::string title;
   };
   static constexpr int kHistoryDepth = 8;
   // Below this many bytes of XHTML, headings flow with the text; above it each

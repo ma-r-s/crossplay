@@ -502,7 +502,7 @@ void WikipediaActivity::turnPage(const int delta) {
 void WikipediaActivity::pushHistory() {
   if (!section_) return;
   if (static_cast<int>(history_.size()) >= kHistoryDepth) history_.erase(history_.begin());
-  history_.push_back({locator_, section_->currentPage});
+  history_.push_back({locator_, section_->currentPage, article_.title});
 }
 
 void WikipediaActivity::popHistory() {
@@ -513,7 +513,7 @@ void WikipediaActivity::popHistory() {
   }
   const Visit back = history_.back();
   history_.pop_back();
-  openLocator(back.locator, back.page, "", "");
+  openLocator(back.locator, back.page, "", back.title);
 }
 
 void WikipediaActivity::refreshHeadingPages() {
