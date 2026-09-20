@@ -21,8 +21,8 @@ struct Geometry {
   int sheetHeight;  // chrome + rows, with no trailing gap
 };
 
-inline Geometry panelGeometry(int safeHeight, int rowH, int rowGap, int chrome, int itemCount,
-                              int heightPercent, int heightMaxPercent) {
+inline Geometry panelGeometry(int safeHeight, int rowH, int rowGap, int chrome, int itemCount, int heightPercent,
+                              int heightMaxPercent) {
   const int stride = rowH + rowGap;
   // A non-positive stride would divide by zero below. It cannot happen with the
   // shipped tokens, but the sheet is sized from theme values and a theme is

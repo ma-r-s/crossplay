@@ -9,8 +9,8 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
-#include "components/UITheme.h"
 #include "ReaderPanelRows.h"
+#include "components/UITheme.h"
 #include "components/icons/readerToolbarIcons.h"
 
 namespace fui = freeink::ui;
@@ -247,8 +247,8 @@ void ReaderToolbarUi::buildPanel(UiScreen& screen) {
       static_cast<int16_t>(sheetProps.grabberMargin + sheetProps.grabberHeight + sheetProps.grabberInset);
   const int16_t chrome =
       static_cast<int16_t>(grabberBand + titleH + tokens.spaceMd + tokens.spaceSm + kToolRowH + tokens.spaceSm);
-  const readerpanel::Geometry geo = readerpanel::panelGeometry(
-      safe.height, rowH, rowGap, chrome, model_.itemCount, kPanelHeightPercent, kPanelHeightMaxPercent);
+  const readerpanel::Geometry geo = readerpanel::panelGeometry(safe.height, rowH, rowGap, chrome, model_.itemCount,
+                                                               kPanelHeightPercent, kPanelHeightMaxPercent);
   screen.sheet(sheetProps, static_cast<int16_t>(geo.sheetHeight));
   // No blanket side inset: Screen::list() draws in the content band, and the
   // scroll track must reach the sheet's edge like a full-screen list's does.

@@ -58,8 +58,8 @@ fui::DeviceContext deviceCtx(bool touch) {
 
 int main() {
   const fui::ThemeTokens tokens = fui::themeTokensForLineHeight(20);
-  std::printf("theme: rowHeight=%d listRowGap=%d listTouchRowGap=%d\n", (int)tokens.rowHeight,
-              (int)tokens.listRowGap, (int)tokens.listTouchRowGap);
+  std::printf("theme: rowHeight=%d listRowGap=%d listTouchRowGap=%d\n", (int)tokens.rowHeight, (int)tokens.listRowGap,
+              (int)tokens.listTouchRowGap);
 
   // Representative panel chrome and budget. The numbers only have to be
   // plausible: what is under test is whether the sheet and the renderer agree
@@ -95,39 +95,32 @@ int main() {
     // rowGap deliberately left at its -1 sentinel, exactly as the panel leaves it.
     screen.list(props, static_cast<int16_t>(items * rowH));
     check(target.texts.size() >= 2, std::string(who) + ": the list drew rows to measure");
-    const int drawnGap = target.texts.size() >= 2
-                             ? (target.texts[1].y - target.texts[0].y) - rowH
-                             : 0;
-    std::printf("%s: SDK draws rows with gap %d (raw theme token is %d)\n", who, drawnGap,
-                (int)tokens.listRowGap);
+    const int drawnGap = target.texts.size() >= 2 ? (target.texts[1].y - target.texts[0].y) - rowH : 0;
+    std::printf("%s: SDK draws rows with gap %d (raw theme token is %d)\n", who, drawnGap, (int)tokens.listRowGap);
 
     // THE CONTRACT: a sheet sized with the gap the renderer will use must hold
     // its own rows. This calls the shipped helper, not a copy of it.
-    const readerpanel::Geometry good =
-        readerpanel::panelGeometry(safeH, rowH, drawnGap, chrome, items, 62, 72);
+    const readerpanel::Geometry good = readerpanel::panelGeometry(safeH, rowH, drawnGap, chrome, items, 62, 72);
     const int need = readerpanel::rowsDrawnHeight(good.rows, rowH, drawnGap);
     const int band = good.sheetHeight - chrome;
-    std::printf("%s: sized with the drawn gap -> %d rows, band %dpx, rows need %dpx\n", who,
-                good.rows, band, need);
+    std::printf("%s: sized with the drawn gap -> %d rows, band %dpx, rows need %dpx\n", who, good.rows, band, need);
     check(need <= band, std::string(who) + ": a panel sized with the DRAWN gap must hold its rows");
 
     // THE REGRESSION GUARD: sizing with the raw theme token -- what this code
     // did until card #546 -- must be detectably wrong wherever the two gaps
     // differ, and harmless where they do not. Without this, reverting the fix
     // would leave the suite green.
-    const readerpanel::Geometry raw =
-        readerpanel::panelGeometry(safeH, rowH, tokens.listRowGap, chrome, items, 62, 72);
+    const readerpanel::Geometry raw = readerpanel::panelGeometry(safeH, rowH, tokens.listRowGap, chrome, items, 62, 72);
     const int rawBand = raw.sheetHeight - chrome;
     const int rawNeed = readerpanel::rowsDrawnHeight(raw.rows, rowH, drawnGap);
     if (drawnGap == tokens.listRowGap) {
-      check(rawNeed <= rawBand,
-            std::string(who) + ": no touch gap here, so the raw token is the drawn gap and fits");
+      check(rawNeed <= rawBand, std::string(who) + ": no touch gap here, so the raw token is the drawn gap and fits");
     } else {
-      std::printf("%s: sized with the RAW token -> band %dpx but rows need %dpx (short by %d)\n",
-                  who, rawBand, rawNeed, rawNeed - rawBand);
-      check(rawNeed > rawBand,
-            std::string(who) + ": the raw-token sizing must still be provably short, or this "
-                               "suite would not catch the bug coming back");
+      std::printf("%s: sized with the RAW token -> band %dpx but rows need %dpx (short by %d)\n", who, rawBand, rawNeed,
+                  rawNeed - rawBand);
+      check(rawNeed > rawBand, std::string(who) +
+                                   ": the raw-token sizing must still be provably short, or this "
+                                   "suite would not catch the bug coming back");
     }
   }
 
