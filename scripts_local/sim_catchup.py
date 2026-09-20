@@ -239,6 +239,26 @@ def main(env):
         marker="HalStorage::usbDriveState",
     )
 
+    # The same SDK bump added a third grayscale mode. The SDK declares
+    # `enum class GrayscaleMode : uint8_t { Overlay, Absolute, Direct }`
+    # (libs/display/FreeInkDisplay/include/GrayscaleCapabilities.h), lib/hal
+    # aliases it, and upstream's SleepActivity now asks for Direct and falls back
+    # to Absolute when the panel cannot do it. The simulator declares its OWN copy
+    # of the enum with only the first two values, so the sleep screen stops the
+    # build on "no member named 'Direct'".
+    #
+    # Appended, never inserted: these are uint8_t values an on-disk or on-wire
+    # format could carry, and putting Direct anywhere but last would renumber
+    # Absolute. It matches the SDK's own order, which is what makes the two
+    # enums interchangeable at all.
+    patch(
+        src / "HalDisplay.h",
+        "  enum class GrayscaleMode : uint8_t { Overlay, Absolute };",
+        "  enum class GrayscaleMode : uint8_t { Overlay, Absolute, Direct };",
+        "HalDisplay::GrayscaleMode::Direct",
+        marker="Absolute, Direct",
+    )
+
     # The 2026-09-19 SDK bump added UsbMassStorage::hostSuspended(), and lib/hal
     # exposes it as HalStorage::usbDriveHostSuspended(). It needs its OWN patch
     # rather than a line in the USB Drive block above, because that block is
