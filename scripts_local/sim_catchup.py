@@ -239,6 +239,35 @@ def main(env):
         marker="HalStorage::usbDriveState",
     )
 
+    # The 2026-09-19 SDK bump added UsbMassStorage::hostSuspended(), and lib/hal
+    # exposes it as HalStorage::usbDriveHostSuspended(). It needs its OWN patch
+    # rather than a line in the USB Drive block above, because that block is
+    # skipped now: the published simulator package ships usbDriveState() itself,
+    # so its marker matches and nothing inside it is reached. A method appended
+    # to a patch whose marker already matches is a method that never gets added,
+    # and the failure is silent until the sim build stops compiling.
+    #
+    # false is the honest answer, not a stub: a host-side simulator has no USB
+    # host attached, so the host is never suspended. Same reasoning as
+    # usbDriveState() answering Unsupported.
+    patch(
+        src / "HalStorage.h",
+        "  bool removeDir(const char *path);",
+        "  bool usbDriveHostSuspended() const;\n  bool removeDir(const char *path);",
+        "HalStorage::usbDriveHostSuspended (header)",
+        marker="usbDriveHostSuspended",
+    )
+
+    patch(
+        src / "HalStorage.cpp",
+        "bool HalStorage::begin() {",
+        "bool HalStorage::usbDriveHostSuspended() const { return false; }\n"
+        "\n"
+        "bool HalStorage::begin() {",
+        "HalStorage::usbDriveHostSuspended (impl)",
+        marker="HalStorage::usbDriveHostSuspended",
+    )
+
     patch(
         src / "HalStorage.cpp",
         "#include <sys/stat.h>",
