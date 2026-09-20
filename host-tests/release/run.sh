@@ -757,6 +757,38 @@ else
   # docs/release-BODY.md, which is what body_path publishes. docs/release-notes.md
   # is the history and is deliberately not this file: they were one until
   # 2026-09-04, and every release page carried every earlier release.
+  # -- what a pull request's "What is new" section actually contributes ------
+  #
+  # v1.13.5 published a quote of Mario, a sentence of analysis and four rows of
+  # a markdown table as four bullets, because what_is_new() took every non-empty
+  # line under the heading and stripped a leading dash. Nothing was malformed
+  # and the page was 976 characters, so every check below passed it. The rule is
+  # now "bullets if the section has any", and this asserts it on the exact body
+  # shape that shipped.
+  if python3 - "$ROOT" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("rn", sys.argv[1] + "/scripts_local/release_notes.py")
+rn = importlib.util.module_from_spec(spec); spec.loader.exec_module(rn)
+
+mixed = {"body": "## What is new\n\n- The shelves are back to their proper row height.\n\nMario said: *\"you messed up the UI.\"*\n\n| | a | b |\n|---|---|---|\n| row | 62 | 56 |\n\n## Cause\n\nupstream\n"}
+if rn.what_is_new(mixed) != ["The shelves are back to their proper row height."]:
+    print("mixed:", rn.what_is_new(mixed)); sys.exit(1)
+
+# A section of bare prose and no bullets still contributes, which is the shape
+# the forgiving version existed for.
+bare = {"body": "## What is new\n\nWikipedia shows a long article is opening.\n\n## Cause\n\nx\n"}
+if rn.what_is_new(bare) != ["Wikipedia shows a long article is opening."]:
+    print("bare:", rn.what_is_new(bare)); sys.exit(1)
+
+if rn.what_is_new({"body": "no section here"}) is not None:
+    sys.exit(1)
+PYEOF
+  then
+    ok
+  else
+    bad "what_is_new() does not take a pull request's bullets over the prose beside them; a body that explains itself under the heading publishes its explanation as bullets (v1.13.5)"
+  fi
+
   NOTES_FILE="$ROOT/docs/release-body.md"
   NOTES_BODY="$(cat "$NOTES_FILE" 2>/dev/null)"
   # The workflow must publish the body, not the history. A body_path pointing
