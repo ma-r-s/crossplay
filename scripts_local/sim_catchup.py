@@ -239,6 +239,32 @@ def main(env):
         marker="HalStorage::usbDriveState",
     )
 
+    # ...and three ESP.* accessors the simulator's ESPMock does not have.
+    # ESPMock carries the heap family (getFreeHeap and friends) and nothing
+    # about the chip, because until this screen existed nothing sim-compiled
+    # asked. Every OTHER ESP.* the firmware names -- getEfuseMac, getPsramSize,
+    # getFreePsram -- sits behind `#if defined(ARDUINO_ARCH_ESP32) &&
+    # !defined(SIMULATOR)` and never reaches this build, which is why ESPMock
+    # has gone without them for so long.
+    #
+    # The values describe the device the simulator stands in for, not the Mac
+    # running it: ESP32-S3 and the 16MB flash every fork env declares
+    # (board_build.flash_size in platformio.ini). That is the same convention
+    # BoardProfile already follows here -- the simulator reports the simulated
+    # board's panel, controller and name, not the host's. Reporting the host's
+    # actual CPU would make the About screen a different screen in the
+    # simulator than on hardware, which is the opposite of what it is for.
+    patch(
+        src / "Arduino.h",
+        "  void restart() {}",
+        "  void restart() {}\n"
+        "  const char *getChipModel() { return \"ESP32-S3\"; }\n"
+        "  uint8_t getChipRevision() { return 0; }\n"
+        "  uint32_t getFlashChipSize() { return 16u * 1024u * 1024u; }",
+        "ESPMock chip/flash accessors",
+        marker="getChipModel",
+    )
+
     # The same About screen reads three BoardProfile members the simulator's
     # copy of the struct does not have -- displayWidth, displayHeight and
     # touch.controller -- and names all six values of a TouchController enum the
