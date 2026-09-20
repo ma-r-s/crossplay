@@ -746,7 +746,16 @@ for gcc_dir in host-tests/*/; do
   printf '%s\n' "$gcc_body" | grep -q -- '-Werror' || continue
   # An app source is src/ or lib/ by path, or through the variables the
   # suites use for them ($LIB, $SRC) and the SDK's own sources ($SDK).
-  printf '%s\n' "$gcc_body" | grep -qE '(^|[ "])((\.\./\.\./|\$ROOT/|\$REPO/)?(src|lib)/|\$(LIB|SRC|SDK)/)' || continue
+  #
+  # The separator class includes '=' and the variables need no trailing slash,
+  # and both of those were missing. host-tests/calculator assigns
+  # `SRC=../../src/apps_local/calculator` at the start of a line and compiles
+  # with `-I$SRC`: an app source under -Werror, honouring CXX, and this detector
+  # classified it as neither. It skipped GCC entirely and went red on CI with a
+  # -Wformat-truncation clang does not emit, after a local gate that printed
+  # "gcc ok (40 suite(s))". A detector that silently drops a suite reports the
+  # same way as one that has nothing to drop.
+  printf '%s\n' "$gcc_body" | grep -qE '(^|[ "=])((\.\./\.\./|\$ROOT/|\$REPO/)?(src|lib)/|\$\{?(LIB|SRC|SDK)\}?/?)' || continue
   if grep -q 'CXX' "$gcc_run"; then
     gcc_suites="$gcc_suites $(basename "$gcc_dir")"
   else

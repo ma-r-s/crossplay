@@ -46,6 +46,7 @@
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
+#include "util/Timezones.h"
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -133,10 +134,17 @@ EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
 RTC_NOINIT_ATTR uint32_t silentRebootTarget;
+RTC_NOINIT_ATTR uint32_t silentRebootPayload;
 constexpr uint32_t SILENT_REBOOT_MAGIC = 0xC1EAB007;
 constexpr uint32_t SILENT_REBOOT_TARGET_HOME = 0;
 constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
-constexpr uint32_t SILENT_REBOOT_TARGET_APP = 2;  // the shelf app that was open
+constexpr uint32_t SILENT_REBOOT_TARGET_SETTINGS = 2;
+// The shelf app that was open. Numbered AFTER upstream's targets, never among
+// them: upstream took 2 for Settings in 1.6.5 and a fork value sitting on an
+// upstream number would resume the wrong screen the next time they add one.
+constexpr uint32_t SILENT_REBOOT_TARGET_APP = 3;
+constexpr uint32_t SILENT_REBOOT_TARGET_MAX = SILENT_REBOOT_TARGET_APP;
+constexpr uint32_t SILENT_REBOOT_LIGHT_ON = 1U << 0;
 
 // How the device is coming back to life, resolved once at boot. Both resume
 // flows suppress the splash and leave the panel holding its pre-boot frame; a
@@ -171,40 +179,50 @@ static bool finishWifiSessionWithoutRestart() {
 }
 #endif
 
-void silentRestart() {
+// A silent restart is internal maintenance, so the light must come back exactly
+// as the user left it. SETTINGS.frontlightOn is the saved preference and
+// legitimately diverges from the live state (a wake with Restore Light on Wake
+// off leaves the light off while the saved "was on" preference is kept), so
+// carry the live state across the reboot instead of re-deriving it from
+// settings. Cleared with the magic in setup().
+static void armSilentReboot(const uint32_t target) {
+  silentRebootTarget = target;
+  silentRebootPayload = Frontlight.isOn() ? SILENT_REBOOT_LIGHT_ON : 0;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
+}
+
+// Returns instead of rebooting when sleep supersedes the reboot; callers keep
+// running in that case.
+static void silentRestartTo(const uint32_t target, const char* targetName) {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
 #if FREEINK_CAP_TOUCH
+  // FORK: a touch device tears WiFi down in place rather than rebooting, so the
+  // externally powered touch and frontlight rails keep their state. Upstream
+  // folded the three callers into this helper in 1.6.5, so the guard has to sit
+  // here now: left on the callers it would reach none of them.
   if (finishWifiSessionWithoutRestart()) return;
 #endif
-  silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
-  LOG_DBG("MAIN", "Silent restart (target=home)");
-  // E-ink retains the previous frame until Home's first paint lands (~2-3s).
-  // Without an overlay, users don't see the reboot and fire input through to
-  // Home. Select on the default selectorIndex=0 then opens the most-recent
-  // book, looking like a trampoline back to the reader they just exited.
+  armSilentReboot(target);
+  LOG_DBG("MAIN", "Silent restart (target=%s)", targetName);
+  // E-ink retains the previous frame until the target's first paint lands
+  // (~2-3s). Without an overlay, users don't see the reboot and fire input
+  // through to the new activity. On Home, Select on the default
+  // selectorIndex=0 opens the most-recent book, looking like a trampoline back
+  // to the reader they just exited.
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
   ESP.restart();
 }
 
-void silentRestartToReader() {
-  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
-#if FREEINK_CAP_TOUCH
-  if (finishWifiSessionWithoutRestart()) return;
-#endif
-  silentRebootTarget = SILENT_REBOOT_TARGET_READER;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
-  LOG_DBG("MAIN", "Silent restart (target=reader)");
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-  delay(50);
-  ESP.restart();
-}
+void silentRestart() { silentRestartTo(SILENT_REBOOT_TARGET_HOME, "home"); }
+
+void silentRestartToReader() { silentRestartTo(SILENT_REBOOT_TARGET_READER, "reader"); }
+
+void silentRestartToSettings() { silentRestartTo(SILENT_REBOOT_TARGET_SETTINGS, "settings"); }
 
 void restartToHomeAfterStorageHandoff() {
   if (deepSleepInProgress) return;  // sleeping supersedes the storage handoff reboot
-  silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  armSilentReboot(SILENT_REBOOT_TARGET_HOME);
   LOG_DBG("MAIN", "Restart after storage handoff (target=home)");
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
@@ -213,9 +231,8 @@ void restartToHomeAfterStorageHandoff() {
 }
 
 void restartToAppAfterStorageHandoff() {
-  if (deepSleepInProgress) return;
-  silentRebootTarget = SILENT_REBOOT_TARGET_APP;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  if (deepSleepInProgress) return;  // sleeping supersedes the storage handoff reboot
+  armSilentReboot(SILENT_REBOOT_TARGET_APP);
   LOG_DBG("MAIN", "Restart after storage handoff (target=app)");
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
@@ -223,8 +240,17 @@ void restartToAppAfterStorageHandoff() {
   ESP.restart();
 }
 
+void toggleFrontlight() {
+  if (!Frontlight.present()) return;
+  const bool lightOn = !Frontlight.isOn();
+  Frontlight.setOn(lightOn);
+  SETTINGS.frontlightOn = lightOn ? 1 : 0;
+  SETTINGS.saveToFile();
+  LOG_INF("LIGHT", "Frontlight toggled %s", lightOn ? "on" : "off");
+}
+
 bool handleX4ProFrontlightDoubleClick() {
-  if (!BoardConfig::isX4Pro() || !gpio.wasReleased(HalGPIO::BTN_POWER)) {
+  if (!BoardConfig::isX4Pro() || !SETTINGS.doubleClickPwrLight || !gpio.wasReleased(HalGPIO::BTN_POWER)) {
     return false;
   }
 
@@ -240,11 +266,7 @@ bool handleX4ProFrontlightDoubleClick() {
   }
 
   lastX4ProPowerClickAt = 0;
-  const bool lightOn = !Frontlight.isOn();
-  Frontlight.setOn(lightOn);
-  SETTINGS.frontlightOn = lightOn ? 1 : 0;
-  SETTINGS.saveToFile();
-  LOG_INF("LIGHT", "Frontlight toggled %s by power-button double-click", lightOn ? "on" : "off");
+  toggleFrontlight();
   return true;
 }
 
@@ -397,9 +419,11 @@ void setup() {
   // Bound the target range too — RTC_NOINIT memory is uninitialized on cold boot.
   const bool isSilentReboot = (silentRebootMagic == SILENT_REBOOT_MAGIC);
   const uint32_t snapshotTarget =
-      (isSilentReboot && silentRebootTarget <= SILENT_REBOOT_TARGET_APP) ? silentRebootTarget : 0;
+      (isSilentReboot && silentRebootTarget <= SILENT_REBOOT_TARGET_MAX) ? silentRebootTarget : 0;
+  const bool silentRebootLightOn = isSilentReboot && (silentRebootPayload & SILENT_REBOOT_LIGHT_ON) != 0;
   silentRebootMagic = 0;
   silentRebootTarget = 0;
+  silentRebootPayload = 0;
 
   gpio.begin();
 
@@ -486,6 +510,9 @@ void setup() {
   // below the touch readerMenuStyle seeding, so this moved with it rather than
   // reading settings that were not loaded yet.
   devreport::begin(rebootedFromPanic, panicReasonRecorded);
+  // Push the saved timezone's POSIX rule into the clock (migrating the legacy
+  // UTC-offset setting on first boot after the update).
+  timezones::applyToClock();
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   KOREADER_STORE.loadFromFile();
@@ -497,14 +524,16 @@ void setup() {
   OPDS_STORE.importSeedFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
-  // Frontlight PWM up (no-op on boards without one). Brightness + warmth are always
-  // restored from persisted settings. The on/off state defaults to OFF at wake/boot —
-  // so the user isn't greeted by a surprise glow (or a silent battery drain) — unless
-  // "Restore Light on Wake" is enabled, which brings back the pre-sleep on/off state too.
-  // A silent restart is different: it's an automated heap-defrag reboot the user never
-  // asked for (e.g. leaving a WiFi activity), not a deliberate sleep, so we always bring
-  // the light back exactly as they left it rather than surprising them with darkness.
-  const bool restoreLightOn = SETTINGS.frontlightOn != 0 && (SETTINGS.frontlightRestoreOnWake != 0 || isSilentReboot);
+  // Frontlight PWM up (no-op on boards without one). Brightness and warmth are
+  // always restored from persisted settings. A normal wake starts with the
+  // light off unless Restore Light on Wake is enabled, so the user is not
+  // greeted by a surprise glow or a silent battery drain. A silent restart is
+  // different: it is an automated heap-defrag reboot the user never asked for
+  // (leaving a WiFi activity, say), not a deliberate sleep, so it replays the
+  // live state captured at restart and neither goes dark nor lights up against
+  // the wake preference.
+  const bool restoreLightOn =
+      isSilentReboot ? silentRebootLightOn : (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0);
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
 
   switch (wakeupReason) {
@@ -623,6 +652,9 @@ void setup() {
              shelf::resumeFromWake(renderer, mappedInputManager)) {
     // Back into the shelf app that handed its card to a USB host (Wikipedia's
     // install screen), now that the host has let go.
+  } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_SETTINGS) {
+    // Back out of the WiFi rows and the user is where they left off, not on Home.
+    activityManager.goToSettings();
   } else if (resume == BootResume::Silent) {
     // target == home (or reader with no open book): land on home — don't fall
     // through to the sleep-wake "resume reader" logic, which fires on stale
@@ -913,8 +945,12 @@ void loop() {
 #endif
 
   // Refresh screen when power button is short-pressed with FORCE_REFRESH setting.
-  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&
-      mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
+  if (mappedInputManager.homeButtonAction() == HomeButtonAction::ToggleFrontlight) {
+    toggleFrontlight();
+  }
+  if (mappedInputManager.homeButtonAction() == HomeButtonAction::Refresh ||
+      (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&
+       mappedInputManager.wasReleased(MappedInputManager::Button::Power))) {
     LOG_DBG("MAIN", "Manual screen refresh triggered");
     if (!activityManager.handleForcedRefresh()) {
       RenderLock lock;

@@ -95,6 +95,18 @@ struct Utf8TypographyFold {
 // re-asserting the rows somebody already thought about.
 const Utf8TypographyFold* utf8TypographyFolds(size_t* count);
 
+// The base letter a precomposed codepoint decomposes to, or 0 when there is
+// none ("é" -> "e", but "ø" -> 0: it is a letter in its own right, not
+// o-with-stroke). Lives here rather than in a caller because the compose table
+// is a ~5 KB static array in the header: a second includer is a second copy in
+// flash.
+//
+// A linear scan, unlike utf8ComposePair's binary search above it: the table is
+// sorted by (base, mark), which this lookup searches against the grain. Adding
+// a second table sorted by composed would cost more flash than sharing this one
+// saves.
+uint32_t utf8DecomposedBase(uint32_t cp);
+
 // Truncate a raw char buffer to the last complete UTF-8 codepoint boundary.
 // Returns the new length (<= len). If the buffer ends mid-sequence, the
 // incomplete trailing bytes are excluded.

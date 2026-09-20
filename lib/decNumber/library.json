@@ -1,0 +1,9 @@
+{
+  "name": "decNumber",
+  "version": "3.68",
+  "description": "Vendored IBM decNumber (arbitrary-precision DECIMAL arithmetic), ICU licence",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  }
+}

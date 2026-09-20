@@ -167,6 +167,11 @@ void OpdsFilterActivity::buildScreen(UiScreen& screen) {
   props.count = static_cast<uint16_t>(rowItems_.size());
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
-  syncListViewport(screen, props, /*hasSubtitle=*/false);
+  // No tab bar above this list, so nothing to reserve. The third parameter was
+  // `bool hasSubtitle` until CrossPoint 1.6.5 renamed it to `int selectionOffset`;
+  // false and 0 happen to mean the same thing, so the old spelling kept working
+  // while naming a parameter that no longer exists -- and `true` would now shift
+  // this list by a row.
+  syncListViewport(screen, props, /*selectionOffset=*/0);
   screen.list(props);
 }

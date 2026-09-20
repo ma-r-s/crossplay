@@ -31,6 +31,38 @@ intent" --from tooling --body "<both sides, in prose>"`, leave the
 4. **Verify.** Host suites (`for s in host-tests/*/run.sh; do bash $s; done`)
    and the simulator build. A red suite that is red on `crosspoint/develop`
    too is upstream's and is noted in the pull request, not fixed here.
+
+   **Before that, look for the seam the merge took without saying so.** A
+   conflict marker is the easy case; the dangerous one is upstream refactoring
+   the lines a fork seam hangs on, which deletes the seam cleanly and reports
+   nothing. On 2026-09-19 that removed `finishWifiSessionWithoutRestart()` and
+   all three of its call sites, the live WiFi-teardown path on every touch
+   device this fork targets. The check is mechanical and takes a minute: every
+   line the fork ever added to an upstream-owned file, tested for presence in
+   the merged tree.
+
+       git diff --name-only <base> HEAD | while read -r f; do
+         git cat-file -e "<base>:$f" 2>/dev/null || continue   # fork-only file
+         git diff -U0 "<base>" HEAD -- "$f" | grep '^+[^+]' | cut -c2- \
+         | while IFS= read -r l; do
+             [ ${#l} -gt 6 ] && ! grep -qF "$l" "$f" 2>/dev/null && echo "$f: $l"
+           done
+       done
+
+   Every hit is either a resolution you made on purpose or a seam the merge
+   ate. Read all of them; there is no safe skim. The seam table in
+   `LOCAL_SCOPE.md` is the second pass, not the first: this one found a seam
+   the table did not list.
+
+   **`check.sh --committed` refuses a sync branch by construction.** Its undo
+   guard intersects what the branch removes with what trunk added in the sixty
+   commits before the merge base, and the PREVIOUS sync merge is inside that
+   window -- so upstream deleting what upstream added reads as a revert. The
+   2026-09-19 run was flagged 112 lines: 74 from the previous sync, 38 of
+   generic boilerplate matched as bare text. `CHECK_ALLOW_UNDO=1` is the way
+   past it, and the pull request says so and says what the flagged lines were.
+   Card #534 is making the guard skip a merge whose second parent is
+   `crosspoint/develop`.
 5. **Pull request** `sync/upstream-<date>` into `xteink`, titled `chore:
 sync CrossPoint develop (<n> commits)`, body: what came in (their commit
    subjects), what was resolved and by which rule, what was not verified

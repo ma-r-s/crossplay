@@ -412,3 +412,8 @@ wiki_contents = list
 # waited quietly until the first file that did. It is the only name the two
 # manifests have ever shared.
 tick = check
+
+# The calculator's shelf row. Lucide's own `calculator`: a slab with a display
+# band and a four-by-something key field, which is the silhouette of the thing
+# and shares no shape with any other row in Apps.
+calculator = calculator

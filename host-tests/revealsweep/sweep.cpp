@@ -616,6 +616,19 @@ const Probe kProbes[] = {
     // The SYNC door is a list row: ActionStudy carrying value 2. The table
     // named ActionSync, which no screen registers, so this probe's producer
     // check printed nothing for its whole life.
+    // 9, and the history of this number is the warning. The 2026-09-19 sync
+    // moved the verdict screen's row from y=716 to y=722 and this was relaxed
+    // to 6 to take it, reasoned as "the collision got NARROWER, which is the
+    // direction this number is allowed to move". Both halves were true and the
+    // conclusion was wrong: that 6px was the SDK no longer reading
+    // theme.rowHeight, which shortened every Toybox row and walked the shelf
+    // icons off their rows (card #543). The suite SAW the regression, named the
+    // commit that caused it, and was edited to accept it.
+    //
+    // So it is back at 9, the value it held before the sync, and a drift in
+    // either direction fails now. A collision narrowing is not evidence of an
+    // improvement; it is evidence that something moved, and what moved is the
+    // question.
     {"study: DECK (SYNC door) -> SYNC VERDICT", false, studyDeck, studySyncVerdict, studyui::ActionStudy, 2,
      kProducerProbePoints, kStudyKnown, "genuine same-rect overlap, still open per REVEAL-FINDINGS.md"},
     {"instapaper: QUEUE (SYNC) -> NOTICE (the sync verdict)", false, instapaperQueue, instapaperNotice,

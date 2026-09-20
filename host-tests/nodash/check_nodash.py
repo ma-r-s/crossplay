@@ -42,10 +42,36 @@ ALLOWED = {
 }
 
 
+# The trees upstream owns, from the worker contract: the reader, the keyboard and
+# settings live in src/activities, the shared widgets in src/components, and lib/
+# is upstream's except for the directories this fork added. Ours is
+# src/apps_local plus fork additions upstream lacks.
+UPSTREAM_TREES = ("src/activities/", "src/components/", "src/network/", "src/util/")
+
+
 def upstream_owns(path):
-    return subprocess.run(
+    """Did upstream write this file?
+
+    Asking whether the path exists at upstream's TIP is not that question, and
+    the difference is a live trap rather than a nicety. On 2026-09-15 upstream
+    renamed src/activities/home/RecentBooksActivity.cpp. The file did not change
+    here at all, and the tip lookup started answering "no" -- so a file upstream
+    has owned all along became fork-owned overnight, its em-dash became ours, and
+    every pull request went red on a comment nobody on this side had touched.
+    CI was green on trunk right up to the rename and would have gone red on the
+    next run of the same commit.
+
+    That is one rename away from happening again: this suite's own note says 149
+    upstream files carry em-dashes. So the tip is the fast path and the trees are
+    the answer when it misses. A rename inside upstream's own trees does not move
+    a file across the fence.
+    """
+    at_tip = subprocess.run(
         ["git", "cat-file", "-e", f"crosspoint/develop:{path}"],
         cwd=ROOT, capture_output=True).returncode == 0
+    if at_tip:
+        return True
+    return path.startswith(UPSTREAM_TREES)
 
 
 def main():

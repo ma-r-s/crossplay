@@ -571,8 +571,8 @@ void WifiSelectionActivity::checkConnectionStatus() {
     // The DS3231 drifts ~2 ppm so a synced clock stays right, but it comes up
     // at 2000-01-01 after full power loss, and the synced-once flag alone
     // would suppress the correction forever; a pre-build-year date is not a
-    // time, it is a reset. Users can force a re-sync from Settings >
-    // Customise Status Bar > Sync clock now.
+    // time, it is a reset. Users can force a re-sync from Settings > System >
+    // Clock > Sync clock now.
     if (halClock.isAvailable() && (!SETTINGS.clockHasBeenSynced || clockPredatesBuild())) {
       if (halClock.syncFromNTP()) {
         SETTINGS.clockHasBeenSynced = 1;
@@ -1002,24 +1002,14 @@ void WifiSelectionActivity::buildListScreen(UiScreen& screen) {
   // Tap opens; long-press a saved network forgets it (physical buttons stay in loop()).
   props.inputMask = fui::InputTouch | fui::InputLongPress;
   props.valueInset = 8;  // air between the signal bars and the row edge
-  // Long SSIDs wrap onto a second line inside the row (two body lines always
-  // fit the theme row height) instead of truncating; the trailing value is
+  // Long SSIDs grow their row to a second line; the trailing value is
   // just the short status glyphs, so skip the balanced 60%-band wrap cap.
   props.labelText = screen.theme().bodyText;
   props.labelText.maxLines = 2;
   props.balanceWrappedLabelWithValue = false;
   listNav.selected = static_cast<int>(selectedNetworkIndex);
-  int16_t rowHeight = screen.theme().rowHeight;
-  if (!mappedInput.hasTouch()) {
-    // Non-touch hardware (X3/X4) keeps the original, denser row height
-    // instead of FreeInkUI's touch-target-sized default (see
-    // UiListActivity::syncListViewport; this screen predates that base and
-    // syncs its own viewport directly). A long SSID that wraps grows only
-    // its own row: list() sizes wrapped items per-row.
-    rowHeight = static_cast<int16_t>(metrics.listRowHeight);
-    props.rowHeight = rowHeight;
-  }
-  listNav.syncToProps(screen.body(), rowHeight, screen.theme().listRowGap, static_cast<int>(networks.size()), props);
+  props.partialTrailingRow = true;
+  screen.syncListViewport(listNav, props, static_cast<int>(networks.size()));
   screen.list(props);
 }
 

@@ -239,6 +239,21 @@ main page. A link into an article that is not on the card
 yet (a partial copy, or a title the pack does not have) shows one line, "Not
 on the card yet", and BACK; fetching it over Wi-Fi is v2.
 
+Opening an article says so. The header band paints first with the
+article's title (the caller always has it before the article is read: the
+index entry, the recent row, the link's target) and "Loading" where the page
+count goes. That refresh is started and never waited for
+(`displayBufferAsync`), and the article is read, decompressed and laid out
+underneath it, so the panel's waveform is paid for with work rather than
+waiting: measured on an X4 Pro, an article read from the pack for the first
+time costs 600 to 800ms against a waveform of about 680ms. An article whose
+staged html is already on the card costs about 190ms and gets no cue, and
+that is the whole test: not the article's size, not a prediction from past
+opens, but whether this device has ever laid this article out. It is
+therefore right on the first article of a session, which a prediction never
+is. A panel that cannot defer a refresh (the simulator) gets no cue either,
+since there it would be exactly the delay it exists to cover.
+
 CONTENTS, top right in the header, opens an overlay list of the section
 headings, each with the page it starts on once the layout has reached it;
 tap one to jump. TOP (page 1) and QUICK FACTS head the list, and the section

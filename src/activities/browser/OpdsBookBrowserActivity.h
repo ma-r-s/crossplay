@@ -143,5 +143,5 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   std::string fetchSearchTemplate(const std::string& descriptionUrl);
   void openDetail(const OpdsEntry& entry);
   void performSearch(const std::string& query);
-  bool preventAutoSleep() override { return true; }
+  bool preventAutoSleep() override;
 };

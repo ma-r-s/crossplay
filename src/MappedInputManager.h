@@ -3,6 +3,7 @@
 #include <HalGPIO.h>
 
 #include "util/ButtonReleaseGate.h"
+#include "util/HomeButtonInput.h"
 
 class GfxRenderer;
 namespace freeink {
@@ -48,7 +49,11 @@ class MappedInputManager {
   // the activity stack would keep an arm standing for the whole of a blocking
   // download and swallow the Back that cancels it. settle() is idempotent for
   // a given frame's edges, so the two paths cannot disagree.
-  void update() const;
+  //
+  // deferHomeButtonAction is upstream's: a blocking transfer loop keeps the
+  // first configured Home action for the next main-loop pass, while Home stays
+  // visible now so the transfer can still cancel.
+  void update(bool deferHomeButtonAction = false) const;
 
   // ---- The press/release seam. See util/ButtonReleaseGate.h for the bug.
   //
@@ -153,8 +158,12 @@ class MappedInputManager {
   // is intentionally unused. Other boards retain the bottom-edge Home gesture.
   // The reader menu remains on its existing top-edge gesture and middle tap.
   bool wasHomeGesture() const;
-  // A Home-key hold runs the configured long-press action in the reader.
-  bool wasHomeKeyHold() const;
+  // Configured one-frame action, independent of the gesture that triggered it.
+  HomeButtonAction homeButtonAction() const { return homeAction; }
+  void resetHomeButtonInput() const {
+    homeButtonInput.reset();
+    deferredHomeAction = HomeButtonAction::Ignore;
+  }
   bool wasMenuGesture() const;
   // Bottom-edge up-swipe as the reader-menu gesture (SHOW_READER_MENU's Swipe
   // Up option). Only meaningful on home-key boards, where Home lives on the
@@ -218,6 +227,9 @@ class MappedInputManager {
   // accessor on this class is const and the bookkeeping rides along with them.
   mutable ButtonReleaseGate releaseGate;
 
+  mutable HomeButtonInput homeButtonInput;
+  mutable HomeButtonAction homeAction = HomeButtonAction::Ignore;
+  mutable HomeButtonAction deferredHomeAction = HomeButtonAction::Ignore;
   mutable bool touchHeldOverrideValid = false;
   mutable unsigned long touchHeldOverrideMs = 0;
   mutable unsigned long touchHeldOverrideAt = 0;
