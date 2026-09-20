@@ -482,30 +482,9 @@
       <p class="eyebrow">Open firmware</p>
       <p class="hed">Nothing here asks permission.</p>
       <p>
-        There is no store between you and the device, no review, no account and
-        no subscription. It is a binary you flash and source you can read.
+        No store, no review, no account, no subscription. A binary you flash
+        and source you can read.
       </p>
-      <p>
-        The reasoning is written down beside it:
-        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/identity.md">what this is for</a> for why a screen that
-        holds still is the point rather than a limitation,
-        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/design-language.md">the design language</a> for what that means
-        on a 1-bit panel and the ink budget that governs it,
-        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/buttons.md">the two buttons</a> for why there are only
-        two and what that costs, and
-        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/games-at-scale.md">games at scale</a> for how one gets
-        built and torn apart before it ships.
-      </p>
-      <p class="untested">
-      <strong>This runs on real hardware.</strong> A person flashed v1.2.1,
-      played most of the shelf, and found three real problems; the fixes
-      shipped in v1.2.2 within the week. Since v1.3.0 there is an X4 Pro
-      on my own desk, joined on 2026-08-25 by a reTerminal Sticky, and
-      releases are flashed to both before they ship. That is still a
-      small record:
-      <a href="/report/" data-report-open>say what you
-      find</a>, either way. One box, under a minute, no account.
-    </p>
     <!-- The button that does the whole thing. It is first, and short, because
          the first person who could not install this said on Reddit that he had
          been looking for a tutorial. Anything a person does not need before
@@ -513,8 +492,7 @@
          the reasoning. -->
     <div class="installer" id="installer">
         <p class="installer-hed">Install it from this page</p>
-        <p class="installer-sub">Plug the device in, wake it, press the button.
-          Chrome or Edge, on a computer.</p>
+        <p class="installer-sub">Chrome or Edge, on a computer. Plug the device in and wake it.</p>
         <p class="installer-warn" id="installUnsupported" hidden></p>
         <fieldset class="installer-devices">
           <legend>Which device</legend>
@@ -530,15 +508,17 @@
           <summary>Show the log</summary>
           <pre id="installLog"></pre>
         </details>
-        <p class="installer-fine">Your books stay. The SD card is not touched.</p>
-        <p class="installer-fine">When your device talks to CrossPlay's own services it includes an anonymous device id, its version and board, and any crash it just recovered from; nothing else calls home, and <strong>Settings &rarr; System</strong> turns it off.</p>
+        <p class="installer-fine">Your books stay.</p>
       </div>
 
-      <ol class="steps">
-        <li><strong>These two devices only.</strong> The <strong>Xteink X4 Pro</strong> and the <strong>Seeed reTerminal Sticky</strong>. For every other supported device, <a href="https://crosspointreader.com/">CrossPoint</a> upstream is the right answer and is excellent.</li>
-        <li><strong>After this, no more cables.</strong> <strong>Settings &rarr; Check for updates</strong> does the rest over Wi-Fi.</li>
-        <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
-      </ol>
+      <details class="by-hand">
+        <summary>What it changes</summary>
+        <ul class="steps">
+          <li>Only the <strong>Xteink X4 Pro</strong> and the <strong>Seeed reTerminal Sticky</strong>. For any other device, <a href="https://crosspointreader.com/">CrossPoint</a> upstream is the right answer.</li>
+          <li>After this, no more cables: <strong>Settings &rarr; Check for updates</strong> does the rest over Wi-Fi.</li>
+          <li>Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
+        </ul>
+      </details>
 
       <details class="by-hand">
         <summary>Or install it by hand</summary>
@@ -555,6 +535,11 @@
         <a class="btn primary" href="https://github.com/ma-r-s/crossplay/releases">Releases</a>
         <a class="btn" href="https://github.com/ma-r-s/crossplay">Read the source</a>
       </div>
+      <p class="why-links">Why it is built this way:
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/identity.md">what this is for</a>,
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/design-language.md">the design language</a>,
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/buttons.md">the two buttons</a>,
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/games-at-scale.md">games at scale</a>.</p>
       <p class="release-stamp" id="releaseStamp" hidden></p>
     </div>
     <div class="bracket">
@@ -613,6 +598,7 @@
         <p>xkcd comics by Randall Munroe, <a href="https://xkcd.com/license.html">CC BY-NC 2.5</a>, fetched by the device from <a href="https://xkcd.com">xkcd.com</a>. Connections puzzles are the New York Times'; CrossPlay ships none of them and fetches the archive, when you ask it to, from the community mirror at <a href="https://github.com/Eyefyre/NYT-Connections-Answers">Eyefyre/NYT-Connections-Answers</a>.</p>
         <p>Hacker News comes from the public <a href="https://hn.algolia.com/api">Algolia API</a>, and opening an article sends its URL through <a href="https://r.jina.ai">r.jina.ai</a> to get readable text back, which means that third party learns what you are reading.</p>
         <p>Reading positions sync to CrossPoint's own server by default, which is upstream's infrastructure rather than ours. The address is a setting and can be pointed anywhere that speaks KOSync.</p>
+        <p>CrossPlay's own services are told an anonymous device id, the version and board it is running, and any crash it just recovered from. Nothing else calls home, and <strong>Settings &rarr; System</strong> turns it off.</p>
         <p>Where a game on the shelf carries the name of a published game, that name is its owner's trademark and is used to say what the thing is; game mechanics are not copyrightable. D&amp;Diagrams owes its puzzle form to Zachtronics' Dungeons &amp; Diagrams, and Trivia is built from a community transcription of aired Jeopardy! clues. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of their owners. Every notice is in <a href="https://github.com/ma-r-s/crossplay/blob/xteink/THIRD-PARTY-NOTICES.md">THIRD-PARTY-NOTICES.md</a>.</p>
         <p>Type is Jersey 25 and Instrument Serif, both SIL OFL.</p>
       </div>
