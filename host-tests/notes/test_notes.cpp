@@ -70,9 +70,16 @@ void testWhatIsATask() {
   CHECK(textOf(doc, lines[1]) == "Milk");
   CHECK(textOf(doc, lines[4]) == "Indented is still a task");
 
+  // Every non-empty line counts, marker or not: the deck's tally is "how much
+  // of this list is done", and a line somebody typed on their phone is part of
+  // the list whether or not it arrived with a marker on it.
   const Counts c = counts(lines);
-  CHECK(c.total == 7);
+  CHECK(c.total == 12);
   CHECK(c.done == 2);
+  // Blank lines are not items, and neither is the trailing empty line a file
+  // ending in a newline produces.
+  CHECK(counts(parse("a\n\nb\n")).total == 2);
+  CHECK(counts(parse("")).total == 0);
 }
 
 void testATickIsOneByte() {
@@ -111,17 +118,45 @@ void testATickIsOneByte() {
   CHECK(doc == untouched);
 }
 
-void testStripHeading() {
-  CHECK(stripHeading("# Bread recipe") == "Bread recipe");
-  CHECK(stripHeading("### Deep heading") == "Deep heading");
-  CHECK(stripHeading("  ## Indented") == "Indented");
-  CHECK(stripHeading("no hashes here") == "no hashes here");
-  // Hashes with nothing after them ARE the content; stripping would empty the line.
-  CHECK(stripHeading("###") == "###");
-  CHECK(stripHeading("#  ") == "#  ");
-  CHECK(stripHeading("") == "");
-  // Only a LEADING run counts. A hash mid-line is a word.
-  CHECK(stripHeading("aisle #4") == "aisle #4");
+void testCoercing() {
+  // What a person types on their phone, with no syntax at all.
+  std::string plain = "Milk\nEggs\nBread flour\n";
+  CHECK(coerceToList(plain));
+  CHECK(plain == "- [ ] Milk\n- [ ] Eggs\n- [ ] Bread flour\n");
+  // And every one of them is now tickable, which is the whole point.
+  CHECK(counts(parse(plain)).total == 3);
+
+  // A file that is already a list is left BYTE FOR BYTE alone, ticks included:
+  // a save from the phone must not disturb what was ticked on the device.
+  std::string already = "- [x] Milk\n- [ ] Eggs\n";
+  CHECK(!coerceToList(already));
+  CHECK(already == "- [x] Milk\n- [ ] Eggs\n");
+
+  // Mixed, which is what an edit of an existing list looks like.
+  std::string mixed = "- [x] Milk\nLemons\n";
+  CHECK(coerceToList(mixed));
+  CHECK(mixed == "- [x] Milk\n- [ ] Lemons\n");
+
+  // A blank line stays blank. Somebody who pressed return twice meant a gap,
+  // not a thing to do, and an empty tick box is a hole in the list.
+  std::string gap = "Milk\n\nEggs\n";
+  CHECK(coerceToList(gap));
+  CHECK(gap == "- [ ] Milk\n\n- [ ] Eggs\n");
+
+  // CRLF survives: the phone is not the only thing that writes this file.
+  std::string crlf = "Milk\r\nEggs\r\n";
+  CHECK(coerceToList(crlf));
+  CHECK(crlf == "- [ ] Milk\r\n- [ ] Eggs\r\n");
+
+  // The near-misses the parser rejects are coerced rather than left as a second
+  // kind of line. "- [] milk" is not a marker, so it becomes one.
+  std::string nearly = "- [] milk\n- [x]tra\n";
+  CHECK(coerceToList(nearly));
+  CHECK(counts(parse(nearly)).total == 2);
+
+  std::string empty;
+  CHECK(!coerceToList(empty));
+  CHECK(empty.empty());
 }
 
 void testClearing() {
@@ -163,7 +198,7 @@ void testClearing() {
 int main() {
   testWhatIsATask();
   testATickIsOneByte();
-  testStripHeading();
+  testCoercing();
   testClearing();
 
   std::printf("%s  notes: %d checks, %d failed\n", failures ? "FAIL" : "ok  ", checks, failures);

@@ -17,6 +17,7 @@
 #include <cctype>
 #include <cstring>
 
+#include "../apps_local/notes/NotesCore.h"
 #include "CrossPointSettings.h"
 #include "DevInputCommands.h"
 #include "DevMode.h"
@@ -2398,14 +2399,23 @@ void CrossPointWebServer::handleNotesSave() {
     server->send(503, "text/plain", "No note is open on the reader.");
     return;
   }
-  const String body = server->arg("plain");
+  const String raw = server->arg("plain");
   // A note is one screen of text somebody typed. The cap is here rather than in
   // the app because this is the only door a client can push bytes through, and
   // a page left open on a laptop can paste a book.
-  if (body.length() > kNotesMaxBytes) {
+  if (raw.length() > kNotesMaxBytes) {
     server->send(413, "text/plain", "That is too long for a note.");
     return;
   }
+
+  // EVERY LINE BECOMES AN ITEM. Without this, a person typing "Milk" on their
+  // phone got a line the reader could not tick, could not delete and drew at
+  // half the size of a real one -- and the only way to avoid it was to type
+  // "- [ ] " by hand, nine keyboard taps before the first letter on an iOS
+  // keyboard, thirty for a shopping list. The page now teaches no syntax
+  // because there is none to get wrong.
+  std::string body(raw.c_str(), raw.length());
+  notes::coerceToList(body);
 
   // Beside itself, then renamed. Opening the real path truncates it first, so a
   // connection dropped mid-write would leave a note that parses as empty --
@@ -2417,7 +2427,7 @@ void CrossPointWebServer::handleNotesSave() {
       server->send(500, "text/plain", "The card would not take it.");
       return;
     }
-    if (body.length() > 0 && file.write(body.c_str(), body.length()) != static_cast<int>(body.length())) {
+    if (!body.empty() && file.write(body.data(), body.size()) != static_cast<int>(body.size())) {
       Storage.remove(part.c_str());
       server->send(500, "text/plain", "The card would not take it.");
       return;

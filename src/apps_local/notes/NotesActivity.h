@@ -59,6 +59,7 @@ class NotesActivity final : public Activity {
   void reloadNote();
   void rebuildRows();
   bool anyDone() const;
+  bool nameFitsBand(const std::string& name);
   void relabelDeck();
   void relabelNote();
   // How many rows fit one page, asked of the same layout that draws them, so

@@ -98,10 +98,13 @@ int deckCapacity(const fui::DrawTarget& target, const fui::DeviceContext& device
 
 // --- A note, open --------------------------------------------------------
 
+// A line of a list. There is no second kind: every non-empty line is an item
+// with a box, drawn at the same cut as its neighbours. The app can no longer
+// author anything else, and a file written elsewhere that does is shown as
+// items too -- ticking one writes the marker.
 struct Task {
   const char* text = "";
   bool checked = false;
-  bool isTask = true;
 };
 
 struct NoteModel {

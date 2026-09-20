@@ -15,7 +15,7 @@ constexpr int kRowPad = toybox::kGutter;
 // Shared by the menu and by the confirm that lands on top of it. The confirm's
 // KEEP must occupy the pixels the menu's DELETE NOTE had, so both divide the
 // band by the same number and a static_assert in buildMenu holds the table to it.
-constexpr int kMenuRows = 4;
+constexpr int kMenuRows = 3;
 constexpr int kMinRow = 72;  // a finger, with room to miss
 
 int16_t pageWidth(const fui::DeviceContext& device) { return static_cast<int16_t>(device.width - 2 * toybox::kMargin); }
@@ -35,21 +35,18 @@ fui::TextStyle plain(const fui::FontId font, const fui::TextAlign align = fui::T
 // cannot grow, and the Toybox cuts above toybox_10 carry no ellipsis glyph at
 // all -- an overflow there draws as a name that simply stops.
 void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr,
-            const freeink::Icon* trailing = nullptr) {
-  const int16_t band = static_cast<int16_t>(screen.device().width - 2 * toybox::kMargin);
+            const freeink::Icon* trailing = nullptr, const fui::FontId nameCut = toybox::kDisplayFont) {
   fui::TextStyle titleStyle = screen.theme().titleText;
-  int16_t room = band;
-  if (rightLabel != nullptr) {
-    fui::TextStyle right = screen.theme().smallText;
-    right.font = toybox::kTileFont;
-    room = static_cast<int16_t>(band - screen.target().measureText(right.font, rightLabel, right).width -
-                                toybox::kGutter * 2);
-  }
-  static std::string fitted;
-  fitted = toybox::fittedTitle(screen.target(), title, room, titleStyle);
-
+  // FIXED, and not a function of the content. It used to run through
+  // fittedTitle, so a note called "Packing for Lisbon" dropped the band a whole
+  // cut and a longer one dropped it two -- the app's own title bar, the one
+  // element that is meant to be identical on every screen of the fork,
+  // resizing itself around a filename. Names the app creates are capped at what
+  // this cut holds (notes::Library::nameFits), so the only way to reach a name
+  // that does not fit is to write one on the card from a computer.
+  titleStyle.font = nameCut;
   fui::HeaderProps header;
-  header.title = fitted.c_str();
+  header.title = title;
   header.titleText = titleStyle;
   header.rightLabel = rightLabel;
   header.borderEdges = fui::EdgesNone;
@@ -219,13 +216,17 @@ int linesNeeded(const fui::DrawTarget& target, const char* text, const int16_t w
 }
 
 fui::FontId pickCut(const fui::DrawTarget& target, const char* const* strings, const int count, const int16_t width,
-                    const int maxLines, const fui::TextStyle& probe) {
+                    const int maxLines, const fui::TextStyle& probe, const bool onlyProbeCut) {
   // The three slots a target binds, largest first. There is no fourth: the fui
   // components resolve only these and fall back to BODY for anything else.
-  const fui::FontId rungs[3] = {fui::FONT_SLOT_TITLE, fui::FONT_SLOT_BODY, fui::FONT_SLOT_SMALL};
+  const fui::FontId all[3] = {fui::FONT_SLOT_TITLE, fui::FONT_SLOT_BODY, fui::FONT_SLOT_SMALL};
+  const fui::FontId one[1] = {probe.font};
+  const fui::FontId* rungs = onlyProbeCut ? one : all;
+  const int rungCount = onlyProbeCut ? 1 : 3;
   fui::FontId best = 0;
   int16_t bestHeight = 0;
-  for (const fui::FontId rung : rungs) {
+  for (int r = 0; r < rungCount; r++) {
+    const fui::FontId rung = rungs[r];
     const int16_t height = target.lineHeight(rung);
     if (height > target.lineHeight(probe.font)) continue;  // fitting only goes down
     fui::TextStyle trial = probe;
@@ -262,7 +263,7 @@ struct DeckLayout {
 
 DeckLayout deckLayoutFor(const fui::DrawTarget& target, const DeckModel& model, const fui::Rect& band) {
   DeckLayout layout;
-  fui::TextStyle tally = plain(toybox::kTileFont, fui::TextAlign::Right);
+  fui::TextStyle tally = plain(toybox::kBodyFont, fui::TextAlign::Right);
 
   // The gutter is the widest tally in the deck, reserved for every row whether
   // or not that row has one, so a prose note and a list note keep the same left
@@ -279,14 +280,25 @@ DeckLayout deckLayoutFor(const fui::DrawTarget& target, const DeckModel& model, 
   titles.reserve(static_cast<size_t>(model.count));
   for (int i = 0; i < model.count; i++) titles.push_back(model.items[i].title);
 
+  // BODY on one line, then BODY on two, and only then the small cut. The order
+  // matters and it used to be the other way round: a single long item would
+  // drop the WHOLE list to toybox_10, halving every row to fit one of them.
+  // That trade buys nothing -- typeRowHeight floors at a finger, so
+  // small-on-one-line and body-on-two-lines produce the identical 72px row and
+  // the same eight rows per page. The small cut survives only for a single word
+  // too wide for the body cut, which cannot be broken and must not be elided.
   layout.title = plain(toybox::kBodyFont, fui::TextAlign::Left, 2);
-  fui::FontId cut =
-      model.count > 0 ? pickCut(target, titles.data(), model.count, titleWidth, 1, layout.title) : layout.title.font;
+  fui::TextStyle bodyOnly = layout.title;
+  bodyOnly.font = toybox::kBodyFont;
   int lines = 1;
+  fui::FontId cut =
+      model.count > 0 ? pickCut(target, titles.data(), model.count, titleWidth, 1, bodyOnly, true) : toybox::kBodyFont;
   if (cut == 0) {
-    // Nothing holds every title on one line. Two lines at the largest cut that
-    // does beats one line at a cut so small the deck reads as a footnote.
-    cut = pickCut(target, titles.data(), model.count, titleWidth, 2, layout.title);
+    cut = pickCut(target, titles.data(), model.count, titleWidth, 2, bodyOnly, true);
+    lines = 2;
+  }
+  if (cut == 0) {
+    cut = pickCut(target, titles.data(), model.count, titleWidth, 2, layout.title, false);
     lines = 2;
   }
   if (cut == 0) {
@@ -304,7 +316,7 @@ DeckLayout deckLayoutFor(const fui::DrawTarget& target, const DeckModel& model, 
 
 void deckRows(toybox::Screen& screen, const DeckModel& model, const fui::Rect& band, const DeckLayout& layout,
               int16_t& y) {
-  fui::TextStyle tally = plain(toybox::kTileFont, fui::TextAlign::Right);
+  fui::TextStyle tally = plain(toybox::kBodyFont, fui::TextAlign::Right);
   for (int i = model.firstVisible; i < model.count && i - model.firstVisible < layout.visible; i++) {
     const fui::Rect row = fui::makeRect(band.x, y, band.width, layout.rowHeight);
     const int16_t titleWidth = static_cast<int16_t>(row.width - layout.tallyWidth - toybox::kGutter);
@@ -361,9 +373,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   const fui::Rect band =
       fui::makeRect(toybox::kMargin, kBodyTop, width, static_cast<int16_t>(footerY - toybox::kGutter - kBodyTop));
 
-  footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "NEW NOTE", ActionNewNote, false);
+  footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "NEW LIST", ActionNewNote, false);
   if (model.count == 0) {
-    centredNotice(screen, band, "Nothing here yet. A note is a list you tick, or a page you keep.");
+    centredNotice(screen, band, "No lists yet. Tap NEW LIST to make one.");
     return;
   }
   const DeckLayout layout = deckLayoutFor(screen.target(), model, band);
@@ -392,16 +404,25 @@ NoteLayout noteLayoutFor(const fui::DrawTarget& target, const NoteModel& model, 
   texts.reserve(static_cast<size_t>(model.count));
   for (int i = 0; i < model.count; i++) texts.push_back(model.tasks[i].text);
 
+  // BODY on one line, then BODY on two, and only then the small cut. The order
+  // matters and it used to be the other way round: a single long item would
+  // drop the WHOLE list to toybox_10, halving every row to fit one of them.
+  // That trade buys nothing -- typeRowHeight floors at a finger, so
+  // small-on-one-line and body-on-two-lines produce the identical 72px row and
+  // the same eight rows per page. The small cut survives only for a single word
+  // too wide for the body cut, which cannot be broken and must not be elided.
   layout.body = plain(toybox::kBodyFont, fui::TextAlign::Left, 2);
-  fui::FontId cut =
-      model.count > 0 ? pickCut(target, texts.data(), model.count, layout.textWidth, 1, layout.body) : layout.body.font;
+  fui::TextStyle bodyOnly = layout.body;
+  bodyOnly.font = toybox::kBodyFont;
   int lines = 1;
+  fui::FontId cut = model.count > 0 ? pickCut(target, texts.data(), model.count, layout.textWidth, 1, bodyOnly, true)
+                                    : toybox::kBodyFont;
   if (cut == 0) {
-    // A long line wraps rather than shrinking. A shopping list is a list of
-    // things and a long thing takes two lines, exactly as it would on paper;
-    // shrinking it instead makes one item look less important than its
-    // neighbours, which is the one thing a list must never say.
-    cut = pickCut(target, texts.data(), model.count, layout.textWidth, 2, layout.body);
+    cut = pickCut(target, texts.data(), model.count, layout.textWidth, 2, bodyOnly, true);
+    lines = 2;
+  }
+  if (cut == 0) {
+    cut = pickCut(target, texts.data(), model.count, layout.textWidth, 2, layout.body, false);
     lines = 2;
   }
   if (cut == 0) {
@@ -422,16 +443,17 @@ void noteRows(toybox::Screen& screen, const NoteModel& model, const fui::Rect& b
     const fui::Rect row = fui::makeRect(band.x, y, band.width, layout.rowHeight);
     const Task& task = model.tasks[i];
 
-    int16_t textX = row.x;
-    if (task.isTask) {
-      tickBox(screen,
-              fui::makeRect(row.x, static_cast<int16_t>(row.y + (row.height - kBoxSide) / 2), kBoxSide, kBoxSide),
-              task.checked);
-      textX = static_cast<int16_t>(row.x + kBoxSide + toybox::kGutter);
-    }
+    // EVERY row is an item, with a box, at the same cut. There used to be a
+    // second class -- a line the parser did not recognise as a task was drawn
+    // with no box at toybox_10, which is 13px of ink beside 25px. Two lines of
+    // one list, which a person reads as the same kind of thing, differed by
+    // half; and the way to get one was to type a line on the phone, which is
+    // exactly what the phone is for.
+    tickBox(screen, fui::makeRect(row.x, static_cast<int16_t>(row.y + (row.height - kBoxSide) / 2), kBoxSide, kBoxSide),
+            task.checked);
+    const int16_t textX = static_cast<int16_t>(row.x + kBoxSide + toybox::kGutter);
 
     fui::TextStyle style = layout.body;
-    if (!task.isTask) style.font = toybox::kTileFont;  // prose is the app's aside, not one of the things to do
     const int16_t boxWidth = static_cast<int16_t>(row.x + row.width - textX);
     const int lines = linesNeeded(screen.target(), task.text, boxWidth, style.maxLines, style);
     const std::string drawn = toybox::fitLines(screen.target(), task.text, boxWidth, style.maxLines, style);
@@ -444,11 +466,10 @@ void noteRows(toybox::Screen& screen, const NoteModel& model, const fui::Rect& b
                       static_cast<int16_t>(lineHeight * drawnLines));
     topText(screen, textBox, drawn, style, drawnLines);
     if (task.checked) strikeLines(screen, textBox, drawn, style, drawnLines);
-
-    if (task.isTask) rowHit(screen, row, ActionToggleTask, i);
+    rowHit(screen, row, ActionToggleTask, i);
     y = static_cast<int16_t>(y + layout.rowHeight);
   }
-  if (model.count == 0) centredNotice(screen, band, "This note is empty. Add the first line.");
+  if (model.count == 0) centredNotice(screen, band, "Nothing on this list. Tap ADD.");
 }
 
 }  // namespace
@@ -471,7 +492,7 @@ int noteCapacity(const fui::DrawTarget& target, const fui::DeviceContext& device
 }
 
 void buildNote(toybox::Screen& screen, const NoteModel& model) {
-  chrome(screen, model.title, nullptr, model.menuIcon);
+  chrome(screen, model.title, nullptr, model.menuIcon, toybox::kBodyFont);
   const fui::DeviceContext& device = screen.device();
   const int16_t width = pageWidth(device);
   const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
@@ -510,7 +531,7 @@ fui::Rect menuRowRect(const fui::DeviceContext& device, const int index) {
 }
 
 void buildConfirm(toybox::Screen& screen, const ConfirmModel& model) {
-  chrome(screen, model.title, nullptr, model.menuIcon);
+  chrome(screen, model.title, nullptr, model.menuIcon, toybox::kBodyFont);
   const fui::DeviceContext& device = screen.device();
 
   // The prose gets the first three menu rows' worth of page, wrapped at the
@@ -540,7 +561,7 @@ void buildConfirm(toybox::Screen& screen, const ConfirmModel& model) {
 }
 
 fui::Rect buildPhone(toybox::Screen& screen, const PhoneModel& model) {
-  chrome(screen, model.title, nullptr, model.menuIcon);
+  chrome(screen, model.title, nullptr, model.menuIcon, toybox::kBodyFont);
   const fui::DeviceContext& device = screen.device();
   const int16_t width = pageWidth(device);
   const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
@@ -554,8 +575,13 @@ fui::Rect buildPhone(toybox::Screen& screen, const PhoneModel& model) {
   // caption down rather than from the footer up: the block grows downward into
   // space that is empty, instead of upward into the button.
   const int16_t top = static_cast<int16_t>(caption.y + caption.height + toybox::kGutter * 2);
-  const int16_t room = static_cast<int16_t>(footerY - toybox::kGutter * 2 - top - lineHeight * 3);
+  // The code takes about half the panel, not all of it. It used to grow into
+  // every pixel left over, which pushed the address -- the one string somebody
+  // may have to read off the glass and type into a browser -- to the bottom in
+  // the smallest type on the screen, under a code they had already scanned.
+  const int16_t room = static_cast<int16_t>(footerY - toybox::kGutter * 2 - top - lineHeight * 5);
   int16_t side = room < width ? room : width;
+  if (side > 300) side = 300;
   if (side < 120) side = 120;
   const fui::Rect qr = fui::makeRect(static_cast<int16_t>((device.width - side) / 2), top, side, side);
 
@@ -567,7 +593,7 @@ fui::Rect buildPhone(toybox::Screen& screen, const PhoneModel& model) {
   // promise is "type over there and it appears here" has to answer "did it".
   const fui::Rect state =
       fui::makeRect(toybox::kMargin, static_cast<int16_t>(url.y + url.height + toybox::kGutter), width, lineHeight);
-  fittedLine(screen, state, model.saved ? "SAVED FROM YOUR PHONE" : "WAITING", fui::TextAlign::Center,
+  fittedLine(screen, state, model.saved ? "SAVED FROM YOUR PHONE" : "WAITING FOR YOUR PHONE", fui::TextAlign::Center,
              toybox::kTileFont);
 
   footerButton(screen, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight), "DONE", ActionDismiss, false);
@@ -575,7 +601,7 @@ fui::Rect buildPhone(toybox::Screen& screen, const PhoneModel& model) {
 }
 
 void buildNotice(toybox::Screen& screen, const ConfirmModel& model) {
-  chrome(screen, model.title, nullptr, nullptr);
+  chrome(screen, model.title, nullptr, nullptr, toybox::kBodyFont);
   const fui::DeviceContext& device = screen.device();
   const fui::Rect top = menuRowRect(device, 0);
   const fui::Rect third = menuRowRect(device, 2);
@@ -595,7 +621,7 @@ void buildNotice(toybox::Screen& screen, const ConfirmModel& model) {
 }
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
-  chrome(screen, model.title, nullptr, model.menuIcon);
+  chrome(screen, model.title, nullptr, model.menuIcon, toybox::kBodyFont);
   const fui::DeviceContext& device = screen.device();
   const int16_t width = pageWidth(device);
   const fui::Rect band =
@@ -615,7 +641,6 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
       // one. A row disabled with "join Wi-Fi first" would send a person to
       // Settings to do by hand the job this row is holding the tools for.
       {"TYPE ON YOUR PHONE", model.phoneHint, ActionUsePhone, true},
-      {"CLEAR DONE", model.anyDone ? nullptr : "nothing is ticked", ActionClearDone, model.anyDone},
       {"RENAME", nullptr, ActionRename, true},
       {"DELETE NOTE", nullptr, ActionDelete, true},
   };

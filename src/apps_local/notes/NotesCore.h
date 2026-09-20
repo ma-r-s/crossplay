@@ -64,24 +64,26 @@ bool toggle(std::string& doc, Line& line);
 
 struct Counts {
   int done = 0;
-  int total = 0;  // task lines only; prose is not counted
+  int total = 0;  // every non-empty line, because every one is an item
 };
 Counts counts(const std::vector<Line>& lines);
 
-// A prose line as it should be DRAWN: a leading run of '#' and the space after
-// it removed, so a Markdown heading dropped in from a desktop editor reads as a
-// line of the note rather than as punctuation. A row of hashes and nothing else
-// is left alone, because then the hashes are the content.
-//
 // The note's NAME is its filename, not any line inside it. One source of truth:
-// renaming is a file rename, a note whose first line is a task still has a
-// name, and nothing has to decide which of two titles wins.
-std::string stripHeading(const std::string& text);
-
+// renaming is a file rename, and nothing has to decide which of two titles
+// wins.
 std::string textOf(const std::string& doc, const Line& line);
 
-// Removes every checked task line and returns their texts in file order, for
-// the caller to record. Prose is never removed, whatever it says.
+// Removes every checked line and returns their texts in file order.
 std::vector<std::string> clearChecked(std::string& doc);
+
+// Every non-empty line that is not already a tick box becomes one, in place.
+// This is what a person typing on their phone gets, and it is why the page has
+// no syntax to teach: they write "Milk" and the reader shows a tick box.
+//
+// It runs on the way IN, not on the way out, so the file on the card stays
+// ordinary Markdown that a desktop editor understands. Lines that are already
+// markers are left byte-for-byte alone, so a save from the phone cannot disturb
+// what was ticked on the device. Returns true when anything changed.
+bool coerceToList(std::string& doc);
 
 }  // namespace notes

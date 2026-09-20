@@ -79,8 +79,7 @@ void NotesActivity::rebuildRows() {
     // line to somebody editing the file, and a blank row on a panel that holds
     // still is a hole, so the last empty one is not drawn.
     if (line.begin >= line.end && i + 1 == lines_.size()) break;
-    const std::string text = notes::textOf(doc_, line);
-    taskTexts_.push_back(line.isTask ? text : notes::stripHeading(text));
+    taskTexts_.push_back(notes::textOf(doc_, line));
   }
   taskRows_.clear();
   taskRows_.reserve(taskTexts_.size());
@@ -88,14 +87,13 @@ void NotesActivity::rebuildRows() {
     notesui::Task row;
     row.text = taskTexts_[i].c_str();
     row.checked = lines_[i].checked;
-    row.isTask = lines_[i].isTask;
     taskRows_.push_back(row);
   }
 }
 
 bool NotesActivity::anyDone() const {
   for (const notesui::Task& task : taskRows_) {
-    if (task.isTask && task.checked) return true;
+    if (task.checked) return true;
   }
   return false;
 }
@@ -185,14 +183,22 @@ void NotesActivity::showNotice(const std::string& text) {
 
 void NotesActivity::toggleTask(const int index) {
   if (index < 0 || index >= static_cast<int>(taskRows_.size())) return;
-  if (!notes::toggle(doc_, lines_[index])) return;
+  const std::string before = doc_;
+  if (!notes::toggle(doc_, lines_[index])) {
+    // A line written on a computer without the marker. Ticking it is how it
+    // becomes one, rather than the app carrying a second kind of line forever.
+    doc_.insert(lines_[index].begin, "- [x] ");
+    lines_ = notes::parse(doc_);
+  }
 
   // Written NOW, not on the way out. A tick a person saw and the card did not
   // is the failure mode of every app that saves on exit, and this one is used
   // one-handed in a shop with the power button under a thumb.
   std::string message;
   if (!library_.save(openName_, doc_, message)) {
-    notes::toggle(doc_, lines_[index]);  // put the model back beside the file
+    doc_ = before;  // the file is the truth; take back what RAM claimed
+    lines_ = notes::parse(doc_);
+    rebuildRows();
     showNotice(message);
     return;
   }
@@ -219,6 +225,14 @@ void NotesActivity::clearDone() {
   requestUpdate();
 }
 
+bool NotesActivity::nameFitsBand(const std::string& name) {
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+  fui::TextStyle style;
+  style.font = toybox::kBodyFont;
+  const int16_t room = static_cast<int16_t>(target.deviceContext().width - 2 * toybox::kMargin - toybox::kHeaderHeight);
+  return target.measureText(style.font, name.c_str(), style).width <= room;
+}
+
 void NotesActivity::askNewName() {
   auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, "NAME THIS NOTE", "", kNameMax);
   if (!keyboard) {
@@ -232,6 +246,13 @@ void NotesActivity::askNewName() {
       return;
     }
     const auto& entered = std::get<KeyboardResult>(result.data);
+    // Refused HERE rather than silently shrinking the title bar later. The band
+    // is chrome and carries one cut; a name that does not fit it is a name this
+    // app will not make.
+    if (!nameFitsBand(notes::Library::sanitise(entered.text))) {
+      showNotice("That name is too long to fit the title bar. Try a shorter one.");
+      return;
+    }
     std::string message;
     if (!library_.create(entered.text, message)) {
       showNotice(message);
@@ -265,6 +286,10 @@ void NotesActivity::askRename() {
       return;
     }
     const auto& entered = std::get<KeyboardResult>(result.data);
+    if (!nameFitsBand(notes::Library::sanitise(entered.text))) {
+      showNotice("That name is too long to fit the title bar. Try a shorter one.");
+      return;
+    }
     std::string message;
     if (!library_.rename(openName_, entered.text, message)) {
       showNotice(message);
@@ -324,7 +349,12 @@ void NotesActivity::askLine() {
     if (page > 0 && count > 0) noteTop_ = ((count - 1) / page) * page;
     relabelNote();
     view_ = View::Note;
-    requestUpdate();
+    // STRAIGHT BACK TO THE KEYBOARD. A list is made of several things, and the
+    // way out is Back or an empty line. One visit per item cost two activity
+    // transitions and two full-screen repaints EACH -- six repaints to write a
+    // three-line shopping list, with the keyboard torn down and rebuilt between
+    // every word.
+    askLine();
   });
 }
 

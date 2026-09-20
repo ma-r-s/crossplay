@@ -76,8 +76,11 @@ bool toggle(std::string& doc, Line& line) {
 
 Counts counts(const std::vector<Line>& lines) {
   Counts c;
-  for (const Line& line : lines) {
-    if (!line.isTask) continue;
+  for (size_t i = 0; i < lines.size(); i++) {
+    const Line& line = lines[i];
+    // A blank line is not an item, and the trailing one every file ending in a
+    // newline produces is not either.
+    if (line.begin >= line.end) continue;
     c.total++;
     if (line.checked) c.done++;
   }
@@ -87,18 +90,6 @@ Counts counts(const std::vector<Line>& lines) {
 std::string textOf(const std::string& doc, const Line& line) {
   if (line.textBegin >= line.end) return std::string();
   return doc.substr(line.textBegin, line.end - line.textBegin);
-}
-
-std::string stripHeading(const std::string& text) {
-  size_t start = 0;
-  while (start < text.size() && isSpace(text[start])) start++;
-  size_t hashes = start;
-  while (hashes < text.size() && text[hashes] == '#') hashes++;
-  if (hashes == start) return text;
-  size_t after = hashes;
-  while (after < text.size() && isSpace(text[after])) after++;
-  if (after >= text.size()) return text;  // hashes and nothing else are the content
-  return text.substr(after);
 }
 
 std::vector<std::string> clearChecked(std::string& doc) {
@@ -126,6 +117,33 @@ std::vector<std::string> clearChecked(std::string& doc) {
   }
   doc = kept;
   return removed;
+}
+
+bool coerceToList(std::string& doc) {
+  const std::vector<Line> lines = parse(doc);
+  std::string out;
+  out.reserve(doc.size() + lines.size() * 6);
+  bool changed = false;
+
+  for (size_t i = 0; i < lines.size(); i++) {
+    const Line& line = lines[i];
+    const bool last = (i + 1 == lines.size());
+    const bool blank = line.begin >= line.end;
+    // A blank line is left blank rather than turned into an empty tick box: a
+    // person who pressed return twice meant a gap, not a thing to do.
+    if (!blank && !line.isTask) {
+      out += "- [ ] ";
+      changed = true;
+    }
+    out.append(doc, line.begin, line.end - line.begin);
+    if (!last) {
+      const size_t eol = line.end;
+      if (eol < doc.size() && doc[eol] == '\r') out.push_back('\r');
+      out.push_back('\n');
+    }
+  }
+  doc = out;
+  return changed;
 }
 
 }  // namespace notes
