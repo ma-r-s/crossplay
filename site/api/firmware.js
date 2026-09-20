@@ -41,6 +41,7 @@ const REPO = "ma-r-s/crossplay";
 const DEVICES = {
   x4pro: "crossplay-{tag}-x4pro-full.bin",
   sticky: "crossplay-{tag}-sticky-full.bin",
+  papermono: "crossplay-{tag}-papermono-full.bin",
 };
 
 // v1.8.0 and nothing else. Anchored, bounded, digits only.
@@ -57,7 +58,7 @@ module.exports = async function handler(req, res) {
   if (!template) {
     res.statusCode = 400;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ error: "Unknown device. Use x4pro or sticky." }));
+    res.end(JSON.stringify({ error: "Unknown device. Use x4pro, sticky or papermono." }));
     return;
   }
   if (!TAG.test(tag)) {

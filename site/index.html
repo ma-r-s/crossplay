@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CrossPlay</title>
-<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro and the Seeed reTerminal Sticky. Games, flashcards and comics built for a screen whose talent is holding still, and two devices that find each other with nothing to configure.">
+<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro, Seeed reTerminal Sticky, and M5Stack PaperMono / Lite. Games, flashcards and comics built for a screen whose talent is holding still, and two devices that find each other with nothing to configure.">
 <meta property="og:title" content="CrossPlay">
-<meta property="og:description" content="Everything else a still screen is good at. A fork of CrossPoint for the Xteink X4 Pro and the Seeed reTerminal Sticky.">
+<meta property="og:description" content="Everything else a still screen is good at. A fork of CrossPoint for the Xteink X4 Pro, Seeed reTerminal Sticky, and M5Stack PaperMono / Lite.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://crossplay.ma-r-s.com/">
 <!-- Absolute, or no unfurler resolves it. Stamped by site/set-host.py; the
@@ -86,11 +86,11 @@
 <header class="hero wrap" id="top">
   <div class="hero-grid">
     <div class="hero-text">
-      <p class="eyebrow">Xteink X4 Pro <span class="eyebrow-sep">&middot;</span> Seeed reTerminal Sticky</p>
+      <p class="eyebrow">Xteink X4 Pro <span class="eyebrow-sep">&middot;</span> Seeed reTerminal Sticky <span class="eyebrow-sep">&middot;</span> M5Stack PaperMono / Lite</p>
       <h1>E-ink is good at waiting.</h1>
       <p class="lede">
         So is a chess position, a flashcard, a puzzle you are halfway through.
-        The Xteink X4 Pro and the Seeed reTerminal Sticky are cheap e-ink
+        The Xteink X4 Pro, Seeed reTerminal Sticky, and M5Stack PaperMono / Lite are e-ink
         devices, and <a href="https://crosspointreader.com/">CrossPoint</a>
         already makes them good at reading. CrossPlay is firmware that adds
         everything else, and lets two of them find each other with nothing to
@@ -520,7 +520,9 @@
           <legend>Which device</legend>
           <label><input type="radio" name="install-device" value="x4pro" checked> Xteink X4 Pro</label>
           <label><input type="radio" name="install-device" value="sticky"> Seeed reTerminal Sticky</label>
+          <label><input type="radio" name="install-device" value="papermono"> M5Stack PaperMono / Lite</label>
         </fieldset>
+        <p class="installer-fine">PaperMono / Lite: hold the power button for about two seconds until the red LED flashes, then release it to enter download mode.</p>
         <button class="btn primary" type="button" id="installButton">Install on Xteink X4 Pro</button>
         <div class="installer-bar" id="installBar" hidden><span id="installBarFill"></span></div>
         <p class="installer-status" id="installStatus" role="status" aria-live="polite"></p>
@@ -535,7 +537,7 @@
       </div>
 
       <ol class="steps">
-        <li><strong>These two devices only.</strong> The <strong>Xteink X4 Pro</strong> and the <strong>Seeed reTerminal Sticky</strong>. For every other supported device, <a href="https://crosspointreader.com/">CrossPoint</a> upstream is the right answer and is excellent.</li>
+        <li><strong>Supported devices.</strong> The <strong>Xteink X4 Pro</strong>, <strong>Seeed reTerminal Sticky</strong>, and <strong>M5Stack PaperMono / Lite</strong>. For every other supported device, <a href="https://crosspointreader.com/">CrossPoint</a> upstream is the right answer and is excellent.</li>
         <li><strong>After this, no more cables.</strong> <strong>Settings &rarr; Check for updates</strong> does the rest over Wi-Fi.</li>
         <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
       </ol>
@@ -543,11 +545,11 @@
       <details class="by-hand">
         <summary>Or install it by hand</summary>
         <ol class="steps">
-          <li><strong>Download your device's full image</strong> from the <a href="https://github.com/ma-r-s/crossplay/releases">releases page</a>: <code>crossplay-&lt;version&gt;-x4pro-full.bin</code> or <code>crossplay-&lt;version&gt;-sticky-full.bin</code>. Each is the whole firmware, bootloader and partition table included, so you do not need to have installed CrossPoint first. The firmware refuses an image built for the other board, so the worst a mixed-up download costs is a retry.</li>
-          <li><strong>Flash it over USB.</strong> You need <a href="https://github.com/espressif/esptool">esptool</a>, which is one <code>pip install esptool</code> on Windows, macOS or Linux alike. With the device plugged in (shown for the X4 Pro; swap in the sticky filename on a Sticky):
+          <li><strong>Download your device's full image</strong> from the <a href="https://github.com/ma-r-s/crossplay/releases">releases page</a>: <code>crossplay-&lt;version&gt;-x4pro-full.bin</code>, <code>crossplay-&lt;version&gt;-sticky-full.bin</code> or <code>crossplay-&lt;version&gt;-papermono-full.bin</code>. Each is the whole firmware, bootloader and partition table included, so you do not need to have installed CrossPoint first. The firmware refuses an image built for the other board, so the worst a mixed-up download costs is a retry.</li>
+          <li><strong>Flash it over USB.</strong> You need <a href="https://github.com/espressif/esptool">esptool</a>, which is one <code>pip install esptool</code> on Windows, macOS or Linux alike. With the device plugged in (shown for the X4 Pro; use your device’s filename):
             <br><code>esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-&lt;version&gt;-x4pro-full.bin</code>
           </li>
-          <li><strong>Updating an install you already have</strong> uses the app-only file instead -- <code>firmware.bin</code> for the X4 Pro, <code>firmware-sticky.bin</code> for the Sticky -- over Wi-Fi or from the SD card. The <code>-full.bin</code> is for USB only: handing it to the updater writes a bootloader into a slot meant for the application.</li>
+          <li><strong>Updating an install you already have</strong> uses the app-only file instead -- <code>firmware.bin</code> for the X4 Pro, <code>firmware-sticky.bin</code> for the Sticky, <code>firmware-papermono.bin</code> for PaperMono / Lite -- over Wi-Fi or from the SD card. The <code>-full.bin</code> is for USB only: handing it to the updater writes a bootloader into a slot meant for the application.</li>
         </ol>
       </details>
 
@@ -580,7 +582,7 @@
     <div class="foot-grid">
       <div>
         <h4>CrossPlay</h4>
-        <p class="foot-note">A fork of CrossPoint for the Xteink X4 Pro and the Seeed reTerminal Sticky. Built by one person, in the open. MIT licensed, like the project it forks.</p>
+        <p class="foot-note">A fork of CrossPoint for the Xteink X4 Pro, Seeed reTerminal Sticky, and M5Stack PaperMono / Lite. Built by one person, in the open. MIT licensed, like the project it forks.</p>
       </div>
       <div>
         <h4>Project</h4>

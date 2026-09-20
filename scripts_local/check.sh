@@ -1,7 +1,7 @@
 #!/bin/bash
 # Everything that can be verified without a device. Run before every commit.
 #
-#   ./scripts_local/check.sh              # host tests, both builds
+#   ./scripts_local/check.sh              # host tests and all device builds
 #   ./scripts_local/check.sh --tests      # host tests only (fast)
 #   ./scripts_local/check.sh --flash      # build x4pro under the lock and flash it, no suites (~3 min)
 #   ./scripts_local/check.sh --flash sticky --ip 192.168.1.42   # env first, then wifi-flash.sh's own flags
@@ -211,9 +211,9 @@ if [ "${1:-}" = "--flash" ]; then
   shift
   FLASH_ENV="x4pro"
   case "${1:-}" in
-    x4pro|sticky|gh_release_x4pro|gh_release_sticky) FLASH_ENV="$1"; shift ;;
+    x4pro|sticky|papermono|gh_release_x4pro|gh_release_sticky|gh_release_papermono) FLASH_ENV="$1"; shift ;;
     --*|"") ;;
-    *) die "--flash: '$1' is not a device env (x4pro, sticky, gh_release_x4pro, gh_release_sticky)" ;;
+    *) die "--flash: '$1' is not a device env (x4pro, sticky, papermono, gh_release_x4pro, gh_release_sticky, gh_release_papermono)" ;;
   esac
   # Whatever follows goes to wifi-flash.sh as it is: --ip when discovery
   # cannot hear the unit, --pair on a fresh Developer Mode session.
@@ -1016,22 +1016,11 @@ if [ "${1:-}" != "--tests" ]; then
   # would mean committed x4pro builds never took the lock at all.
   FW_LOCK="${PLATFORMIO_BUILD_CACHE_DIR:-$WS/.pio-cache}/x4pro.lock"
 
-  BUILD_ENVS="simulator_x4_pro x4pro sticky"
+  BUILD_ENVS="simulator_x4_pro x4pro sticky papermono"
   [ -n "${FLASH_MODE:-}" ] && BUILD_ENVS="${FLASH_ENV:-x4pro}"
-  # --committed SWAPS the dev pair for the release pair. It used to APPEND, and
-  # built four device images where two would do.
-  #
-  # x4pro and sticky are dev builds: they define CROSSPOINT_DEV_SERIAL_BRIDGE,
-  # and the code that is theirs alone is the serial bridge. A break in it costs
-  # the next person who wants to drive a device over the cable -- a real cost,
-  # but a deferred one, and not one worth gating every landing on. The release
-  # pair is different in kind (see the note in the --committed block): it is
-  # otherwise compiled for the FIRST time by the release workflow, after the tag
-  # exists, where a typo costs a delete and a retag.
-  #
-  # A plain check.sh still builds the dev pair, so a broken debug path surfaces
-  # on the next routine run rather than never.
-  [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="simulator_x4_pro gh_release_x4pro gh_release_sticky"
+  # --committed checks the release configurations that ship. A normal run
+  # builds the development configurations, including their serial bridge.
+  [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="simulator_x4_pro gh_release_x4pro gh_release_sticky gh_release_papermono"
 
   # ---- do these builds need to run for THIS change at all? ----------------
   #

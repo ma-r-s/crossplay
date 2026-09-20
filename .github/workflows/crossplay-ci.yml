@@ -188,7 +188,7 @@ jobs:
       # is a real cost but a deferred one, and it is not worth paying on every
       # pull request when a plain local check.sh still builds both.
       #
-      # ONE invocation for all three, and that is not an optimisation. `pio run`
+      # ONE invocation for all environments, and that is not an optimisation. `pio run`
       # calls clean_build_dir() once per INVOCATION against the whole
       # .pio/build root, and wipes it when compute_project_checksum() differs.
       # This project's pre-scripts write gitignored headers into src/ and lib/
@@ -201,7 +201,7 @@ jobs:
       # RELEASE images rather than the dev ones is also strictly better: it is
       # the stack of the binary a user actually runs.
       - name: Build everything
-        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e gh_release_x4pro -e gh_release_sticky -e simulator_x4_pro
+        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e gh_release_x4pro -e gh_release_sticky -e gh_release_papermono -e simulator_x4_pro
 
       # v1.0.0 shipped a render task that needed 8016 bytes of an 8192-byte
       # stack and crashed on the first device that ever ran it. Nothing here
@@ -222,6 +222,9 @@ jobs:
       # reasons.
       - name: Stack fits its task (sticky)
         run: python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_sticky
+
+      - name: Stack fits its task (papermono)
+        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_papermono
 
       # Nothing is forgiven. ui:paperOnTheBand was a real baseline failure
       # once, and this step carried a carefully shaped exemption for it until
