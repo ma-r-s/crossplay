@@ -239,6 +239,46 @@ def main(env):
         marker="HalStorage::usbDriveState",
     )
 
+    # Upstream's new Library index asks every book for a modification time, to
+    # skip re-reading one whose bytes have not changed
+    # (lib/LibraryIndex/LibraryBuilder.cpp). The simulator's HalFile has no such
+    # method.
+    #
+    # Real, not a stub, and the same reasoning as freeBytes above: the
+    # simulator's card is a host directory, so fstat is the honest answer and
+    # the index's skip path actually gets exercised here.
+    #
+    # The ENCODINGS DIFFER AND THAT IS FINE, which is worth saying out loud
+    # because it looks like a bug. The device packs a FAT date and time into one
+    # uint32 (HalStorage.cpp: date << 16 | time); this returns epoch seconds.
+    # Nothing decodes the value: LibraryBuilder only compares it for equality
+    # against the one it stored last time, and treats 0 as "unknown" and
+    # re-reads. The contract is "stable while the file is unchanged, different
+    # after a write, non-zero when known", and both satisfy it.
+    patch(
+        src / "HalStorage.h",
+        "  uint64_t fileSize64();",
+        "  uint64_t fileSize64();\n  uint32_t modificationTime();",
+        "HalFile::modificationTime (header)",
+        marker="modificationTime",
+    )
+
+    patch(
+        src / "HalStorage.cpp",
+        "uint64_t HalFile::fileSize64() { return size(); }",
+        "uint64_t HalFile::fileSize64() { return size(); }\n"
+        "uint32_t HalFile::modificationTime() {\n"
+        "  if (!impl || impl->fd < 0)\n"
+        "    return 0;\n"
+        "  struct stat st;\n"
+        "  if (fstat(impl->fd, &st) != 0)\n"
+        "    return 0;\n"
+        "  return static_cast<uint32_t>(st.st_mtime);\n"
+        "}",
+        "HalFile::modificationTime (impl)",
+        marker="HalFile::modificationTime",
+    )
+
     # CrossPoint 1.6.5 replaced the raw UTC-offset setting with real timezones,
     # and src/util/Timezones.cpp pushes the chosen POSIX rule into the clock
     # through HalClock::setTimezone(). The simulator's HalClock predates that
