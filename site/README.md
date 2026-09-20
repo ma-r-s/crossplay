@@ -441,11 +441,13 @@ that this is what the device shows.
 **The downsample is the step that gets skipped**, because skipping it looks like
 nothing. `index.html` declares the 1x width and height, so a 2x file has the
 right aspect and the card renders perfectly at four times the bytes -- on a page
-that lazy-loads two dozen of them. The `shoot-*.sh` scripts copy the simulator's
-output straight across, and on 2026-09-01 all four shots they produce (trivia,
-wavelength, toybattle, forehead) were 2x. `host-tests/site/page_structure.py`
-now compares every shot against the size the page declares, so the next one
-fails the site suite instead of shipping.
+that lazy-loads two dozen of them. The `shoot-*.sh` scripts copied the
+simulator's output straight across, and on 2026-09-01 all four shots they
+produce (trivia, wavelength, toybattle, forehead) were 2x. Two defences now:
+`host-tests/site/page_structure.py` compares every shot against the size the
+page declares, and every `shoot-*.sh` ends in `write_site_shot` from
+`scripts_local/lib-sim.sh`, which downsamples rather than copying. A shot
+captured by hand still has to go through that function.
 
 `assets/fonts/` is Jersey 25 and Instrument Serif, the two faces the device
 itself draws, converted to woff2. Both are SIL OFL and their licences ship
