@@ -125,6 +125,34 @@ build() {
   }
 }
 
+# Writes a capture to a site shot at the panel's own size. THE SIMULATOR
+# CAPTURES AT 2x: 960x1600 portrait, 1600x960 landscape. site/index.html
+# declares the 1x numbers, so a straight `cp` ships four times the pixels at
+# exactly the right aspect ratio -- which looks perfect on the page and is
+# invisible to everything except host-tests/site/page_structure.py. trivia,
+# wavelength, toybattle and forehead all shipped that way on 2026-09-01.
+# LANCZOS rather than NEAREST because it is what the committed shots were made
+# with: NEAREST keeps the capture's 12 tones and matches 70% of toybattle.png,
+# LANCZOS produces its 190 and matches 83%, the remainder being the rack the
+# recipe already documents as nondeterministic.
+write_site_shot() {
+  local src="$1" dest="$2"
+  [ -f "$src" ] || { echo "no capture at $src" >&2; return 1; }
+  uv run --quiet --with pillow python - "$src" "$dest" <<'PY'
+import sys
+from PIL import Image
+src, dest = sys.argv[1], sys.argv[2]
+im = Image.open(src).convert("RGB")
+w, h = im.size
+if (w, h) in ((960, 1600), (1600, 960)):
+    im = im.resize((w // 2, h // 2), Image.LANCZOS)
+elif (w, h) not in ((480, 800), (800, 480)):
+    sys.exit(f"unexpected capture size {w}x{h}: the panel is 480x800")
+im.save(dest)
+print(f"  {dest} {im.width}x{im.height}")
+PY
+}
+
 # Converts every .bmp the simulator wrote into a .png alongside it. The
 # simulator emits 32-bit BMPs that macOS `sips` refuses to read.
 bmp_to_png() {
