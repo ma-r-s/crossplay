@@ -213,6 +213,23 @@ Clearing stays on the on-device crash screen, when a human dismisses it. A
 corrupt ring is reported as `logsValid: false` rather than shown as empty --
 "nothing was logged" and "RTC memory was garbage" are different findings.
 
+## The two desk units, by name
+
+Mario named them, 2026-09-20. A port name is not an identity: `/dev/cu.usbmodem*`
+numbers track USB port position and swap across sleep and wake, so a unit is
+identified by its MAC immediately before anything is written to it.
+
+| name | MAC | notes |
+| --- | --- | --- |
+| device 2 | `B8:1F:3F:D4:82:60` | the one on the cable as of 2026-09-20, serial `X4CB02EN26080301594`; the Wikipedia pack (49,715 articles, May 2026) is on its card |
+
+```bash
+ioreg -r -c IOUSBHostDevice -l | awk '/USB Serial Number/{s=$NF} /IODialinDevice/{print s,$NF}'
+```
+
+Over Wi-Fi, where there is no `ioreg`, `GET /api/dev/serial` leads with the same
+MAC, read from efuse rather than from `WiFi`.
+
 ## Driving the device
 
 Since `app/linkradio`, a paired device takes synthetic input and hands back its
