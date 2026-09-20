@@ -2,7 +2,7 @@
 #
 # Upstream's release.yml is still in this tree, and it does NOT fire on a tag.
 # It builds gh_release, which is -DFREEINK_DEVICE_X4/X3 and therefore ESP32-C3,
-# while this fork's devices (X4 Pro, Sticky) are S3; two workflows on one tag
+# while this fork's devices (X4 Pro, Sticky, PaperMono) are S3; two workflows on one tag
 # would publish two binaries and let an updater pick the wrong chip. Its
 # trigger was cut to `on: workflow_dispatch` and nothing else, so this one owns
 # v* by being the only thing a tag starts.
@@ -122,7 +122,7 @@ jobs:
       - name: Install PlatformIO
         run: pip install -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
-      # ONE invocation for both devices, and that is load-bearing.
+      # ONE invocation for all devices, and that is load-bearing.
       #
       # pio run calls clean_build_dir() once per invocation, against the whole
       # .pio/build ROOT, and rmtree's all of it when compute_project_checksum()
@@ -151,13 +151,13 @@ jobs:
       # an ordering rule nothing states, which the next person to move a step
       # silently breaks. One invocation means there is no second clean to lose
       # a race with.
-      - name: Build both devices
-        run: pio run -e gh_release_x4pro -e gh_release_sticky
+      - name: Build all devices
+        run: pio run -e gh_release_x4pro -e gh_release_sticky -e gh_release_papermono
 
       # The condition itself, not a proxy for it.
       #
       # host-tests/release already asserts that this workflow says
-      # `pio run -e gh_release_x4pro -e gh_release_sticky` once, and that is
+      # `pio run -e gh_release_x4pro -e gh_release_sticky -e gh_release_papermono` once, and that is
       # the assertion that stops the known cause coming back. But it reads the
       # workflow TEXT, and its scope was chosen by an assumption: that a second
       # pio run is the only way these files go missing. Anything else that
@@ -174,10 +174,10 @@ jobs:
       # later, naming bootloader.bin because merge-bin happened to list it
       # first. firmware.bin and partitions.bin were gone too. Name all of them,
       # at the point where they were supposed to have been produced.
-      - name: Both builds are still on disk
+      - name: All builds are still on disk
         run: |
           missing=0
-          for env_name in gh_release_x4pro gh_release_sticky; do
+          for env_name in gh_release_x4pro gh_release_sticky gh_release_papermono; do
             for f in firmware.bin firmware.elf partitions.bin bootloader.bin; do
               if [ -f ".pio/build/$env_name/$f" ]; then
                 echo "  ok  .pio/build/$env_name/$f"
@@ -216,6 +216,19 @@ jobs:
              "dist/crossplay-${GITHUB_REF_NAME}-sticky.elf"
           ls -la dist
 
+      - name: Name the papermono artefacts
+        run: |
+          python -m esptool --chip esp32s3 merge-bin --format raw \
+            -o "dist/crossplay-${GITHUB_REF_NAME}-papermono-full.bin" \
+            -fm keep -fs keep -ff keep \
+            0x0     .pio/build/gh_release_papermono/bootloader.bin \
+            0x8000  .pio/build/gh_release_papermono/partitions.bin \
+            0x10000 .pio/build/gh_release_papermono/firmware.bin
+          cp .pio/build/gh_release_papermono/firmware.bin dist/firmware-papermono.bin
+          cp .pio/build/gh_release_papermono/firmware.elf \
+             "dist/crossplay-${GITHUB_REF_NAME}-papermono.elf"
+          ls -la dist
+
       # A merged image that is not actually merged is indistinguishable from
       # the app image it replaces until someone bricks a device with it, so
       # check the three magic numbers rather than trust the exit code.
@@ -223,7 +236,8 @@ jobs:
         run: |
           fail=0
           for full in "dist/crossplay-${GITHUB_REF_NAME}-x4pro-full.bin" \
-                      "dist/crossplay-${GITHUB_REF_NAME}-sticky-full.bin"; do
+                      "dist/crossplay-${GITHUB_REF_NAME}-sticky-full.bin" \
+                      "dist/crossplay-${GITHUB_REF_NAME}-papermono-full.bin"; do
             check() {  # offset, expected-magic, what
               got=$(dd if="$full" bs=1 skip=$1 count=2 2>/dev/null | xxd -p)
               if [ "$got" != "$2" ]; then

@@ -56,10 +56,10 @@ done
 # release without a cable. It is one-way, so it says so out loud.
 FAREWELL=0
 case "$ENV_NAME_FW" in
-  x4pro|sticky) ;;
-  gh_release_x4pro|gh_release_sticky)
+  x4pro|sticky|papermono) ;;
+  gh_release_x4pro|gh_release_sticky|gh_release_papermono)
     FAREWELL=1 ;;
-  *) echo "error: --env must be x4pro, sticky, gh_release_x4pro or gh_release_sticky" >&2
+  *) echo "error: --env must be x4pro, sticky, papermono, gh_release_x4pro, gh_release_sticky or gh_release_papermono" >&2
      echo "       (got '$ENV_NAME_FW')" >&2
      exit 2 ;;
 esac

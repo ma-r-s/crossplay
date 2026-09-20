@@ -143,3 +143,6 @@ these docs assume rather than state.
 say a person, and `open-items.md` is the record of what people found. These
 files are also written _to_ Mario rather than _by_ him, which is why they say
 "Mario's rule" and not "my rule": a decision credited to him is one he made.
+
+[PaperMono support](papermono.md) documents the PaperMono / Lite hardware,
+build environments, installation assets and device verification steps.

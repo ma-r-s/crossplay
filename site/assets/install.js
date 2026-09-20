@@ -34,7 +34,7 @@
   "use strict";
 
 
-  // Both boards are ESP32-S3. The check is not X4-Pro-vs-Sticky (nothing on
+  // All supported boards are ESP32-S3. The check is not X4-Pro-vs-Sticky (nothing on
   // the wire tells those apart); it is "this is not one of the ESP32-C3
   // Xteinks", which is a real mistake someone will make, and one that used to
   // cost them a bricked device. CrossPoint upstream is the right answer there
@@ -48,6 +48,10 @@
       restart:
         "Unplug the USB cable and plug it back in, then hold the power button " +
         "until the screen changes.",
+    },
+    papermono: {
+      name: "M5Stack PaperMono / Lite",
+      restart: "If the screen does not change, double-click the power button to turn it off, then press it once to start.",
     },
     sticky: {
       name: "Seeed reTerminal Sticky",
@@ -282,6 +286,9 @@
       );
     }
     if (/Timed out waiting for packet|Failed to connect/i.test(message)) {
+      if (state.device === "papermono") {
+        return "The device did not answer. Hold the power button for about two seconds until the red LED flashes, release it, then try again with a data-capable USB cable.";
+      }
       return (
         "The device did not answer. Wake it with a button press, make sure the " +
         "cable carries data and not only power, and try again. If the browser " +

@@ -3,7 +3,8 @@
 This is a personal fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader).
 Target devices: the **Xteink X4 Pro** (ESP32-S3, 480x800 touch panel,
 frontlight) and, since 2026-08-25, the **Seeed reTerminal Sticky** (same S3,
-same 800x480 panel and GT911 touch; three buttons, no frontlight). The design
+same 800x480 panel and GT911 touch; three buttons, no frontlight). The **M5Stack PaperMono / Lite** uses the same S3 memory class and
+800x480 panel, with FT6336G touch, two buttons and a frontlight. The design
 floor stays the X4 Pro -- two side keys plus touch; see
 [docs/buttons.md](docs/buttons.md).
 

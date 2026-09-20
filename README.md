@@ -21,9 +21,9 @@
 
 ![CrossPlay on the Xteink X4 Pro](site/assets/shots/og.png)
 
-The **Xteink X4 Pro** and the **Seeed reTerminal Sticky** are cheap e-ink
+The **Xteink X4 Pro**, **Seeed reTerminal Sticky**, and **M5Stack PaperMono / Lite** are e-ink
 devices with an 800x480 panel, capacitive touch and two physical buttons
-(three on the Sticky, and the design targets the two both boards share), and
+(three on the Sticky; the design uses the two shared buttons), and
 [CrossPoint](https://crosspointreader.com/) already makes them good at reading.
 CrossPlay is firmware that keeps all of that and adds the other things a screen
 that holds still is good at: **21 games and 8 apps**,
@@ -114,14 +114,14 @@ short version of one of them:
 ## Install it
 
 > **The X4 Pro is not the X4.** CrossPlay is for the Xteink **X4 Pro** and the
-> Seeed reTerminal Sticky, both ESP32-S3. The plain **X4** and the **X3** are
+> Seeed reTerminal Sticky and M5Stack PaperMono / Lite, all ESP32-S3. The plain **X4** and the **X3** are
 > ESP32-C3, and writing an S3 image to one of those used to brick it. Install
 > [CrossPoint](https://crosspointreader.com/) on those instead: it is excellent,
 > and it is what this is built on.
 >
 > **You do not have to work out which you have.** The browser installer below
 > reads the chip off the device before it writes anything, and stops with
-> "Nothing was written" if it is a C3. Between the two S3 devices every image
+> "Nothing was written" if it is a C3. Between the supported S3 devices every image
 > carries its board name and both updaters refuse an image built for the other
 > board.
 

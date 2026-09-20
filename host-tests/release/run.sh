@@ -53,7 +53,7 @@ done
 # reformatting the workflow does not turn a passing check into a failing one,
 # and reordering the arguments does not turn a failing one into a pass. One
 # merge-bin per board; each must place all three parts.
-for board in x4pro sticky; do
+for board in x4pro sticky papermono; do
   merge="$(tr '\n' ' ' < "$WF" | grep -o "merge-bin[^;]*gh_release_$board/firmware\.bin" || true)"
   if [ -z "$merge" ]; then
     bad "the release workflow never calls esptool merge-bin for $board"
@@ -91,14 +91,16 @@ elif grep -qE "dist/$legacy( |\"|$)" "$WF"; then
 else
   bad "the release does not publish '$legacy', so every fielded X4 Pro's Check for updates finds nothing"
 fi
-sticky_name="$(grep -A1 'FREEINK_DEVICE_STICKY$' "$TAGH" | grep -oE 'CROSSPOINT_BOARD_NAME "[^"]+"' | sed 's/.*"\(.*\)"/\1/')"
-if [ -z "$sticky_name" ]; then
-  bad "cannot find the sticky board name in FirmwareBoardTag.h"
-elif grep -qE "dist/firmware-$sticky_name\.bin( |\"|$)" "$WF"; then
-  ok
-else
-  bad "the release does not publish 'firmware-$sticky_name.bin', so a Sticky's Check for updates finds nothing"
-fi
+for board in STICKY PAPERMONO; do
+  board_name="$(grep -A1 "FREEINK_DEVICE_$board\$" "$TAGH" | grep -oE 'CROSSPOINT_BOARD_NAME "[^"]+"' | sed 's/.*"\(.*\)"/\1/')"
+  if [ -z "$board_name" ]; then
+    bad "cannot find the $board board name in FirmwareBoardTag.h"
+  elif grep -qE "dist/firmware-$board_name\.bin( |\"|$)" "$WF"; then
+    ok
+  else
+    bad "the release does not publish 'firmware-$board_name.bin', so its Check for updates finds nothing"
+  fi
+done
 
 # -- 3. every documented flash command names a file the release actually makes -
 #
@@ -226,9 +228,9 @@ for flag in CROSSPOINT_DEV_SERIAL_BRIDGE; do
   bad_home=""
   for section in $homes; do
     case "$section" in
-      # Only these two. A *_common section is inherited by its release env, and
+      # Only development environments. A *_common section is inherited by its release env, and
       # any gh_release/slim env is something a tag actually builds.
-      env:x4pro|env:sticky) ;;
+      env:x4pro|env:sticky|env:papermono) ;;
       *) bad_home="${bad_home:+$bad_home }$section" ;;
     esac
   done

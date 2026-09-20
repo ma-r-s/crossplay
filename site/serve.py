@@ -42,6 +42,7 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8899
 FIRMWARE_NAMES = {
     "x4pro": "crossplay-{tag}-x4pro-full.bin",
     "sticky": "crossplay-{tag}-sticky-full.bin",
+    "papermono": "crossplay-{tag}-papermono-full.bin",
 }
 TAG_RE = re.compile(r"^v\d{1,3}\.\d{1,3}\.\d{1,3}$")
 RELEASES = "https://github.com/ma-r-s/crossplay/releases/download"
@@ -135,7 +136,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         device = (query.get("device") or [""])[0]
         tag = (query.get("tag") or [""])[0]
         if device not in FIRMWARE_NAMES:
-            self.fail(400, "Unknown device. Use x4pro or sticky.")
+            self.fail(400, "Unknown device. Use x4pro, sticky or papermono.")
             return
         if not TAG_RE.match(tag):
             self.fail(400, "Malformed release tag.")
