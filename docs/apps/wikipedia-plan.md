@@ -239,6 +239,19 @@ main page. A link into an article that is not on the card
 yet (a partial copy, or a title the pack does not have) shows one line, "Not
 on the card yet", and BACK; fetching it over Wi-Fi is v2.
 
+Opening a long article says so. The header band and the title paint
+first, with "Loading" where the page count goes, and that refresh is
+started and never waited for (`displayBufferAsync`), so the cue costs the
+wait nothing: the article is read, decompressed and laid out while the
+waveform runs, and the finished page lands as soon as the panel is free.
+It appears only where there would otherwise be a silent wait. The app
+times its own opens, keeps microseconds per KiB, and predicts the next
+open from the article's size; the cue is painted only when that prediction
+reaches a panel refresh (700ms). A short article gets none, and neither
+does the first article after a restart, because nothing has been measured
+yet. A panel that cannot defer a refresh gets none either (the simulator),
+since there the cue would be exactly the delay it exists to cover.
+
 CONTENTS, top right in the header, opens an overlay list of the section
 headings, each with the page it starts on once the layout has reached it;
 tap one to jump. TOP (page 1) and QUICK FACTS head the list, and the section
@@ -357,7 +370,8 @@ is pruned to the last 32 articles.
 - `WikipediaCore` (freestanding, host-tested): title folding (ASCII fast
   path, a few KB of case and diacritic tables for the 8% of non-ASCII
   titles), index block decode, locator math, overlay shadowing, manifest
-  parsing, tier state ("which parts are here").
+  parsing, tier state ("which parts are here"), the open-cost
+  estimator behind the loading cue.
 - `WikipediaPack`: the card side: block read into an internal bounce buffer,
   zstd decode with the dictionary into PSRAM (`lib/zstd/`, the single-file
   decoder, 40 to 70 KB of flash; DCtx 96 KB and DDict 27 KB placed in PSRAM
