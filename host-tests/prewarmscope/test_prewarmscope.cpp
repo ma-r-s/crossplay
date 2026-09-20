@@ -48,7 +48,13 @@ void SdCardFont::logStats(const char*) {}
 // pass. This fake is a single-face font -- that is the premise of the
 // "one font is one prewarm" case below -- so every style folds to regular.
 uint8_t SdCardFont::resolveStyle(uint8_t) const { return 0; }
-int SdCardFont::prewarm(const char* utf8Text, const uint8_t styleMask, bool, bool) {
+// The trailing `accumulate` is upstream's (2026-09-19 sync): an incremental
+// prewarm adds to the resident set instead of replacing it, so adjacent calls
+// for one page share a build. This suite counts prewarms and their text, not
+// what each one retained, so the fake ignores it -- but the parameter has to
+// be here, because a stub that no longer matches the declaration does not
+// compile, which is how this suite noticed.
+int SdCardFont::prewarm(const char* utf8Text, const uint8_t styleMask, bool, bool, bool) {
   counts.prewarms++;
   counts.lastText = utf8Text ? utf8Text : "";
   counts.lastStyleMask = styleMask;

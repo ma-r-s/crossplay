@@ -616,8 +616,16 @@ const Probe kProbes[] = {
     // The SYNC door is a list row: ActionStudy carrying value 2. The table
     // named ActionSync, which no screen registers, so this probe's producer
     // check printed nothing for its whole life.
-    {"study: DECK (SYNC door) -> SYNC VERDICT", false, studyDeck, studySyncVerdict, studyui::ActionStudy, 2,
-     kProducerProbePoints, kStudyKnown, "genuine same-rect overlap, still open per REVEAL-FINDINGS.md"},
+    // 6, not 9: the 2026-09-19 SDK bump (list row heights computed from content
+    // and touch targets) moved the verdict screen's row from y=716 to y=722, so
+    // the top row of probe points inside the SYNC door now lands above it. The
+    // collision got NARROWER, which is the direction this number is allowed to
+    // move -- and it is recorded rather than relaxed to kAnyValue so it widening
+    // again is still a failure. Measured, not reasoned: every fork file this
+    // suite compiles is byte-identical across that sync, so the SDK is the only
+    // variable, and the suite passes at 9 on the old pin.
+    {"study: DECK (SYNC door) -> SYNC VERDICT", false, studyDeck, studySyncVerdict, studyui::ActionStudy, 2, 6,
+     kStudyKnown, "genuine same-rect overlap, still open per REVEAL-FINDINGS.md"},
     {"instapaper: QUEUE (SYNC) -> NOTICE (the sync verdict)", false, instapaperQueue, instapaperNotice,
      instapaperui::ActionSync, kAnyValue, kProducerProbePoints, kInstapaperKnown,
      "genuine same-rect overlap, still open per REVEAL-FINDINGS.md"},

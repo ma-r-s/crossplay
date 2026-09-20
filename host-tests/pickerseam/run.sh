@@ -125,10 +125,18 @@ fi
 #    leave an arm standing for the whole of a blocking download and swallow the
 #    Back that cancels it.
 grep -q "mappedInput.settleReleaseGate()" "$AM" && ok || bad "ActivityManager::loop() no longer settles the gate"
-awk '/void update\(\) const/ { inside = 1 }
-     inside && /settleReleaseGate\(\)/ { found = 1 }
-     inside && /^  }/ { exit }
-     END { exit found ? 0 : 1 }' "$MIM_H" && ok || bad "MappedInputManager::update() no longer settles the gate"
+# Scanned in the .cpp, where the CALL is. This read the HEADER until the
+# 2026-09-19 sync, where `void update() const` matched the declaration and
+# `settleReleaseGate()` then matched the prose of the comment block below it --
+# so the check passed by finding a mention of the thing rather than the act,
+# and would have kept passing with the call deleted. Upstream giving update() a
+# parameter (deferHomeButtonAction) broke the match and is the only reason
+# anybody looked. Anchored on the definition, closed on the function's own
+# closing brace, and the semicolon is required so a comment cannot satisfy it.
+awk '/^void MappedInputManager::update\(/ { inside = 1; next }
+     inside && /settleReleaseGate\(\);/ && !/^[[:space:]]*\/\// { found = 1 }
+     inside && /^}/ { exit found ? 0 : 1 }
+     END { exit found ? 0 : 1 }' "$MIM_C" && ok || bad "MappedInputManager::update() no longer settles the gate"
 
 echo "$checks checks, $failed failed"
 [ "$gate_status" -eq 0 ] && [ "$failed" -eq 0 ]
