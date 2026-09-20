@@ -1040,8 +1040,15 @@ void WikipediaActivity::render(RenderLock&&) {
   // A cue may still be on the panel's waveform; the framebuffer is its
   // until it lands. No-op when none is outstanding.
   if (cuePainted_) {
+    // What the cue actually costs: the part of its waveform the work did not
+    // cover. Logged rather than reasoned about, because the work's length
+    // varies by an order of magnitude between opens and the whole first
+    // attempt died of predicting it.
+    const uint32_t waitStart = millis();
     renderer.waitRefreshComplete();
     cuePainted_ = false;
+    LOG_INF(kTag, "PERF cue cost %lums of waveform not covered by the work",
+            static_cast<unsigned long>(millis() - waitStart));
   }
   renderer.clearScreen();
   // Titles are somebody else's words, and the toybox reading cuts stop at
