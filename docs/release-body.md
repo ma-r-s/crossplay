@@ -1,11 +1,14 @@
 [Install it](https://crossplay.ma-r-s.com/#get) · [which file, and by hand](https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md) · [earlier releases](https://github.com/ma-r-s/crossplay/blob/xteink/docs/release-notes.md)
 
-### What is new in 1.13.4
+### What is new in 1.13.5
 
-- A Library on Home, in place of Recent Books: search every book on the card by title or author, browse by folder, or see what arrived most recently.
-- The Home button takes three actions of its own: one for a tap, one for a double tap, one for a long press. The frontlight is one of them.
-- Files and bookmarks can be renamed on the device.
-- Time is set by timezone now, daylight saving included, instead of a raw UTC offset.
-- A new About screen under Settings, and an Arabic keyboard layout.
-- Reading is lighter on memory: images, font caches and EPUB chapters fragment the heap less, and the card is read in batches.
-- Fixes: WiFi switches off when you leave the network screen, the reader toolbar works again on button-only devices, ordered lists number correctly, progressive JPEGs render, and a press is no longer dropped while a list repaints.
+- The app and game shelves are back to their proper row height, and every icon sits on its own row again. 1.13.4 made the rows shorter and walked each icon down into its neighbour until the last one dropped off the list.
+- Mario, on v1.13.4: *"you really messed up the UI. Seems like you made each row on the app or game selector shorter (without reason) and broke all the icons and such."*
+- Both halves are one bug, and the icons are a consequence of the rows.
+- | | intended | v1.13.4 resolved |
+- |---|---|---|
+- | row height | `theme.rowHeight` = **62** | **56** |
+- | row gap | `listRowGap` = **4** | **6** |
+- | pitch | 66 | 62 |
+- Wikipedia: show that a long article is opening, without adding to the wait
+
