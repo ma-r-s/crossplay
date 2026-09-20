@@ -75,7 +75,10 @@ class WikipediaActivity final : public Activity {
   void drawKeyboard();
 
   // article
-  bool openLocator(uint32_t locator, int page, const std::string& anchor);
+  // The title comes from the caller because every path into an article has
+  // one before the article is read (the index entry, the recent row, the
+  // link), and the cue needs it BEFORE the read rather than after.
+  bool openLocator(uint32_t locator, int page, const std::string& anchor, const std::string& title);
   bool stageArticle(uint32_t locator);
   bool ensureBuilt();
   void closeArticle();
@@ -85,6 +88,11 @@ class WikipediaActivity final : public Activity {
   void refreshHeadingPages();
   int headingForPage(int page) const;
   void renderArticle(toybox::Screen& screen);
+  // Creates the section against a body rect, from render() or from the cue.
+  void ensureSection(const freeink::ui::Rect& body);
+  // The work the cue's waveform pays for: staging and laying out while the
+  // panel is busy. Does nothing when no cue is flying.
+  void layOutUnderCue();
   void saveState();
   void pruneCache();
 
@@ -143,13 +151,16 @@ class WikipediaActivity final : public Activity {
   freeink::ui::ActionId noticeActionId_ = 0;
 
   toybox::Interactions interactions_;
-  // Painted before a long article is staged and laid out, deferred so the
-  // panel's waveform runs while that work happens. render() lands it.
-  void paintOpeningCue();
+  // Painted before an article is read and laid out, deferred so the panel's
+  // waveform runs while that work happens. render() lands it.
+  void paintOpeningCue(const std::string& title);
   bool cuePainted_ = false;
+  // The body rect the cue's own chrome produced, so the layout under the
+  // waveform is made for the same viewport render() will draw into.
+  freeink::ui::Rect cueBody_{};
   bool buildLogged_ = false;
-  // How long an open costs on THIS device, measured rather than assumed.
-  wikipedia::OpenCost openCost_;
+  // Layout time, wherever it ran: under the cue or in render().
+  uint32_t buildMs_ = 0;
   bool stagedFresh_ = false;
   uint32_t stageMs_ = 0;
   bool interactionsReady_ = false;

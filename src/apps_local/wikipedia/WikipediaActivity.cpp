@@ -36,14 +36,9 @@ constexpr int kCachedArticles = 32;
 constexpr int16_t kPageSide = 18;
 constexpr int16_t kPageTop = 6;
 constexpr size_t kBuildMinHeap = 40 * 1024;
-// A cue costs one panel waveform. It is worth painting only while the work
-// behind it lasts at least that long, and how long the work lasts depends on
-// the machine: the simulator stages and lays out an 84 KB article in 14ms,
-// where the device's own PERF lines put a full repaint's CPU at 54ms. Rather
-// than carry a constant nobody can calibrate off the hardware, the app times
-// its own opens and predicts the next one from the last: bytes times the
-// measured cost per KiB. Until it has measured one, it shows no cue.
-constexpr uint32_t kWaveformMs = 700;  // a FAST refresh, from the PERF logs
+// A cue costs one panel waveform (about 680ms on the X4 Pro), and it is free
+// only while real work runs underneath it. Which opens have that work is not
+// a guess: see openLocator(), where the card's own cache answers it.
 
 // "7,238,251"
 void withCommas(char* out, const size_t cap, const uint32_t n) {
@@ -256,7 +251,7 @@ void WikipediaActivity::openTitle(const std::string& title) {
     noticeAbout("NOT YET", tr(STR_WIKI_NOT_ON_CARD_FMT), title);
     return;
   }
-  openLocator(entry.locator, 0, "");
+  openLocator(entry.locator, 0, "", entry.title);
 }
 
 void WikipediaActivity::openRandom() {
@@ -265,7 +260,7 @@ void WikipediaActivity::openRandom() {
     showNotice("NOTHING YET", tr(STR_WIKI_NOT_ON_CARD), "BACK", wikiui::ActionBack);
     return;
   }
-  openLocator(entry.locator, 0, "");
+  openLocator(entry.locator, 0, "", entry.title);
 }
 
 fui::Rect WikipediaActivity::keyboardRect() const {
@@ -327,7 +322,7 @@ void WikipediaActivity::drawKeyboard() {
 // this core stages the html and lays the first page out. The cost is one
 // waveform, and it is only free while the work behind it lasts at least that
 // long, so short articles skip it and simply appear (see kCueBytes).
-void WikipediaActivity::paintOpeningCue() {
+void WikipediaActivity::paintOpeningCue(const std::string& title) {
   // A blocking cue would be pure added wait, which is the one thing asked not
   // to happen. Panels that cannot defer therefore get no cue.
   if (!renderer.supportsAsyncRefresh()) return;
@@ -343,9 +338,11 @@ void WikipediaActivity::paintOpeningCue() {
   toybox::Frame frame(target, target.deviceContext(), noInput, untouched);
   toybox::Screen screen(frame);
   wikiui::ArticleChromeModel chrome;
-  chrome.title = article_.title.c_str();
+  chrome.title = title.c_str();
   chrome.contents = false;  // nothing to jump to until the layout exists
-  wikiui::buildArticleChrome(screen, chrome);
+  // The same builder render() uses, so the rect it returns is the viewport the
+  // page will be laid out for; the contents icon does not move it.
+  cueBody_ = wikiui::buildArticleChrome(screen, chrome);
   wikiui::ArticleFooterModel foot;
   foot.left = tr(STR_LOADING);
   wikiui::buildArticleFooter(screen, foot);
@@ -362,7 +359,6 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
   // Everything from here is proportional to the article: the staging write,
   // then the parse and layout in render(). That is what the cue hides, and
   // only when the last open says there is enough of it to hide.
-  if (openCost_.predictMs(article_.xhtml.size()) >= kWaveformMs) paintOpeningCue();
   cacheDir_ = std::string(kCacheRoot) + "/" + std::to_string(locator);
   if (!ensureDir("/.crosspoint") || !ensureDir(kCacheRoot) || !ensureDir(cacheDir_.c_str())) return false;
   const std::string html = cacheDir_ + "/article.html";
@@ -413,27 +409,46 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
   return true;
 }
 
-bool WikipediaActivity::openLocator(const uint32_t locator, const int page, const std::string& anchor) {
+bool WikipediaActivity::openLocator(const uint32_t locator, const int page, const std::string& anchor,
+                                   const std::string& title) {
   // The render task may be mid-layout on the old section; the lock is what the
   // reader takes before touching its own.
   RenderLock lock;
   closeArticle();
+  // MEASURED on an X4 Pro (unit 82:60, 2026-09-20), which is what decides the
+  // cue rather than a prediction: an article read from the pack and laid out
+  // for the first time costs 600 to 800ms (10 KB: 447 + 326; 23 KB: 201 + 420),
+  // against a panel waveform of about 680ms. The same article opened again off
+  // the card's cache costs about 190ms and no layout at all. So the question
+  // is not how big the article is, it is whether this device has ever laid it
+  // out: the cache file is the answer, and it is right on the FIRST open,
+  // which is the one a prediction can never be.
+  const std::string staged = std::string(kCacheRoot) + "/" + std::to_string(locator) + "/article.html";
+  const bool cached = Storage.exists(staged.c_str());
+  if (!cached) paintOpeningCue(title);
   const uint32_t stageStart = millis();
   if (!stageArticle(locator)) {
+    if (cuePainted_) {
+      // The cue is on the waveform and the notice is about to draw over it.
+      renderer.waitRefreshComplete();
+      cuePainted_ = false;
+    }
     showNotice("SORRY", tr(STR_WIKI_OPEN_FAILED), "BACK", wikiui::ActionBack);
     return false;
   }
   stageMs_ = millis() - stageStart;
-  LOG_INF(kTag, "PERF open %lu: %u bytes, stage %lums, predicted %lums, cue %s", static_cast<unsigned long>(locator),
+  LOG_INF(kTag, "PERF open %lu: %u bytes, stage %lums, %s, cue %s", static_cast<unsigned long>(locator),
           static_cast<unsigned>(article_.xhtml.size()), static_cast<unsigned long>(stageMs_),
-          static_cast<unsigned long>(openCost_.predictMs(article_.xhtml.size())), cuePainted_ ? "yes" : "no");
+          cached ? "cached" : "fresh", cuePainted_ ? "yes" : "no");
   locator_ = locator;
   targetPage_ = page;
   buildLogged_ = false;
+  buildMs_ = 0;
   pendingAnchor_ = anchor;
   buildFailed_ = false;
   headingPages_.assign(article_.headings.size(), -1);
   headingPagesFinal_ = false;
+  layOutUnderCue();
   state_.touch({article_.title, locator});
   state_.current = {article_.title, locator};
   state_.currentPage = page;
@@ -498,7 +513,7 @@ void WikipediaActivity::popHistory() {
   }
   const Visit back = history_.back();
   history_.pop_back();
-  openLocator(back.locator, back.page, "");
+  openLocator(back.locator, back.page, "", "");
 }
 
 void WikipediaActivity::refreshHeadingPages() {
@@ -524,6 +539,55 @@ int WikipediaActivity::headingForPage(const int page) const {
   return best;
 }
 
+void WikipediaActivity::ensureSection(const fui::Rect& body) {
+  if (section_) return;
+  const uint16_t viewportWidth = static_cast<uint16_t>(body.width - kPageSide * 2);
+  const uint16_t viewportHeight = static_cast<uint16_t>(body.height - kPageTop);
+  ReaderRenderSpec spec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
+  spec.embeddedStyle = false;
+  // Ragged right, whatever the reader's setting for books: Wikipedia prose
+  // is link-dense and name-dense on a 28-character measure, and two cold
+  // reviews found rivers a fifth of the measure wide even with hyphenation
+  // on. Hyphenation stays on; it tidies a ragged edge too.
+  spec.paragraphAlignment = CrossPointSettings::LEFT_ALIGN;
+  spec.hyphenationEnabled = true;
+  // In a long article every prose section starts a fresh page. Quick facts
+  // flows on after the lead: a grid on its own page left the first page
+  // turn a third empty, which reads as the article having ended.
+  std::vector<std::string> anchors;
+  if (article_.xhtml.size() > kFreshPageBytes) {
+    anchors.reserve(article_.headings.size());
+    for (size_t i = 0; i < article_.headings.size(); ++i) {
+      if (article_.headings[i] == "Quick facts") continue;
+      anchors.push_back("s" + std::to_string(i + 1));
+    }
+  }
+  section_ = makeUniqueNoThrow<Section>(cacheDir_ + "/article.html", cacheDir_, 0, renderer, std::move(anchors), false);
+  if (!section_) {
+    LOG_ERR(kTag, "OOM: Section");
+    buildFailed_ = true;
+  } else if (!section_->loadSectionFile(spec) || section_->isPartial()) {
+    if (!section_->startBuild(spec, nullptr)) {
+      LOG_ERR(kTag, "layout could not start");
+      buildFailed_ = true;
+    }
+  }
+}
+
+// The whole point of the cue: the panel is busy for about 680ms after
+// displayBufferAsync() returns, and this is the work that goes into that
+// window. Before, render() waited for the waveform FIRST and only then laid
+// the page out, so the cue could only ever add to the wait; the article was
+// already decompressed by the time it was painted, and the layout came after
+// it. Now the read happens under the cue and so does this.
+void WikipediaActivity::layOutUnderCue() {
+  if (!cuePainted_ || buildFailed_) return;
+  const uint32_t start = millis();
+  ensureSection(cueBody_);
+  if (!buildFailed_) ensureBuilt();
+  buildMs_ = millis() - start;
+}
+
 void WikipediaActivity::renderArticle(toybox::Screen& screen) {
   wikiui::ArticleChromeModel model;
   model.title = article_.title.c_str();
@@ -532,41 +596,8 @@ void WikipediaActivity::renderArticle(toybox::Screen& screen) {
 
   const int pageX = body.x + kPageSide;
   const int pageY = body.y + kPageTop;
-  const uint16_t viewportWidth = static_cast<uint16_t>(body.width - kPageSide * 2);
-  const uint16_t viewportHeight = static_cast<uint16_t>(body.height - kPageTop);
 
-  if (!section_) {
-    ReaderRenderSpec spec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
-    spec.embeddedStyle = false;
-    // Ragged right, whatever the reader's setting for books: Wikipedia prose
-    // is link-dense and name-dense on a 28-character measure, and two cold
-    // reviews found rivers a fifth of the measure wide even with hyphenation
-    // on. Hyphenation stays on; it tidies a ragged edge too.
-    spec.paragraphAlignment = CrossPointSettings::LEFT_ALIGN;
-    spec.hyphenationEnabled = true;
-    // In a long article every prose section starts a fresh page. Quick facts
-    // flows on after the lead: a grid on its own page left the first page
-    // turn a third empty, which reads as the article having ended.
-    std::vector<std::string> anchors;
-    if (article_.xhtml.size() > kFreshPageBytes) {
-      anchors.reserve(article_.headings.size());
-      for (size_t i = 0; i < article_.headings.size(); ++i) {
-        if (article_.headings[i] == "Quick facts") continue;
-        anchors.push_back("s" + std::to_string(i + 1));
-      }
-    }
-    section_ =
-        makeUniqueNoThrow<Section>(cacheDir_ + "/article.html", cacheDir_, 0, renderer, std::move(anchors), false);
-    if (!section_) {
-      LOG_ERR(kTag, "OOM: Section");
-      buildFailed_ = true;
-    } else if (!section_->loadSectionFile(spec) || section_->isPartial()) {
-      if (!section_->startBuild(spec, nullptr)) {
-        LOG_ERR(kTag, "layout could not start");
-        buildFailed_ = true;
-      }
-    }
-  }
+  ensureSection(body);
   {
     // The other half of an open: the parse and the layout up to the page
     // being shown. Logged once per article, beside the stage time.
@@ -574,12 +605,12 @@ void WikipediaActivity::renderArticle(toybox::Screen& screen) {
     if (!buildFailed_) ensureBuilt();
     if (!buildLogged_) {
       buildLogged_ = true;
-      const uint32_t buildMs = millis() - buildStart;
-      if (stagedFresh_) openCost_.note(article_.xhtml.size(), stageMs_ + buildMs);
-      LOG_INF(kTag, "PERF build %lu: %lums to page %d%s; %s, cost now %luus per KiB",
+      // Zero here when layOutUnderCue() already did it, which is the point.
+      const uint32_t buildMs = buildMs_ + (millis() - buildStart);
+      LOG_INF(kTag, "PERF build %lu: %lums to page %d%s; %s, open total %lums",
               static_cast<unsigned long>(locator_), static_cast<unsigned long>(buildMs), targetPage_ + 1,
               section_ && section_->isBuildComplete() ? ", complete" : "", stagedFresh_ ? "fresh" : "cached",
-              static_cast<unsigned long>(openCost_.usPerKib()));
+              static_cast<unsigned long>(stageMs_ + buildMs));
     }
   }
 
@@ -684,7 +715,7 @@ void WikipediaActivity::routeAction(const int action, const int value) {
           noticeAbout("NOT YET", tr(STR_WIKI_NOT_ON_CARD_FMT), entry.title);
         } else {
           history_.clear();
-          openLocator(entry.locator, 0, "");
+          openLocator(entry.locator, 0, "", entry.title);
         }
       }
       return;
@@ -692,12 +723,12 @@ void WikipediaActivity::routeAction(const int action, const int value) {
       if (value >= 0 && value < wikiui::kMaxRecent && recentRows_[value] >= 0 &&
           recentRows_[value] < static_cast<int>(state_.recent.size())) {
         history_.clear();
-        openLocator(state_.recent[recentRows_[value]].locator, 0, "");
+        openLocator(state_.recent[recentRows_[value]].locator, 0, "", state_.recent[recentRows_[value]].title);
       }
       return;
     case wikiui::ActionContinue:
       history_.clear();
-      openLocator(state_.current.locator, state_.currentPage, "");
+      openLocator(state_.current.locator, state_.currentPage, "", state_.current.title);
       return;
     case wikiui::ActionRandom:
       history_.clear();
@@ -984,7 +1015,7 @@ void WikipediaActivity::loop() {
         } else {
           LOG_INF(kTag, "link \"%s\" -> %lu", link->href, static_cast<unsigned long>(entry.locator));
           pushHistory();
-          openLocator(entry.locator, 0, "");
+          openLocator(entry.locator, 0, "", entry.title);
         }
         return;
       }

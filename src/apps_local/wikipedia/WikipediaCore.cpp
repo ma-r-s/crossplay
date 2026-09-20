@@ -302,23 +302,6 @@ bool parseManifest(const char* json, const size_t len, Manifest& out) {
   return out.valid;
 }
 
-// ------------------------------------------------------------- open cost
-
-uint32_t OpenCost::predictMs(const size_t bytes) const {
-  if (samples_ == 0 || usPerKib_ == 0) return 0;
-  return static_cast<uint32_t>(static_cast<uint64_t>(bytes / 1024) * usPerKib_ / 1000);
-}
-
-void OpenCost::note(const size_t bytes, const uint32_t totalMs) {
-  const uint32_t kib = static_cast<uint32_t>(bytes / 1024);
-  if (kib == 0) return;
-  const uint32_t rate = static_cast<uint32_t>(static_cast<uint64_t>(totalMs) * 1000 / kib);
-  // Halfway towards each new reading: one cold cache or one warm one moves the
-  // estimate without owning it.
-  usPerKib_ = samples_ == 0 ? rate : (usPerKib_ + rate) / 2;
-  if (samples_ < 255) ++samples_;
-}
-
 // ------------------------------------------------------------- blocks.dir
 
 bool BlocksDir::open(ByteSource& source) {
