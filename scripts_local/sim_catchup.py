@@ -239,6 +239,44 @@ def main(env):
         marker="HalStorage::usbDriveState",
     )
 
+    # Upstream's new About screen names every display controller the SDK knows
+    # (src/activities/settings/AboutActivity.cpp switches on all eight). The
+    # simulator ships a four-value copy of the enum -- SSD1677, UC8253, UC8279,
+    # UC8179 -- so ED2208, LgfxEpd, IT8951 and UC8279C do not exist there and the
+    # switch stops the build.
+    #
+    # Mirrored from the SDK exactly, explicit values included
+    # (libs/hardware/BoardConfig/include/BoardConfig.h), rather than appending
+    # the four missing names. The simulator's implicit numbering had ALREADY
+    # drifted -- its UC8253 is 1 where the SDK's is 2, its UC8279 is 2 where the
+    # SDK's is 6 -- so appending would have left that divergence in place and
+    # added four more names on top of it. Safe to renumber because every use of
+    # this enum, in the simulator package and in src/ and lib/ alike, is by NAME:
+    # the one comparison outside the About screen is HalGPIO.cpp's
+    # `displayController == DisplayController::UC8279`. Nothing stores or
+    # transmits the number.
+    patch(
+        src / "BoardConfig.h",
+        "enum class DisplayController {\n"
+        "  SSD1677,\n"
+        "  UC8253,\n"
+        "  UC8279,\n"
+        "  UC8179,\n"
+        "};",
+        "enum class DisplayController : uint8_t {\n"
+        "  SSD1677 = 0,\n"
+        "  UC8253 = 2,\n"
+        "  ED2208 = 3,\n"
+        "  LgfxEpd = 4,\n"
+        "  IT8951 = 5,\n"
+        "  UC8279 = 6,\n"
+        "  UC8179 = 7,\n"
+        "  UC8279C = 8\n"
+        "};",
+        "BoardConfig::DisplayController (the SDK's full list)",
+        marker="UC8279C",
+    )
+
     # The same SDK bump added a third grayscale mode. The SDK declares
     # `enum class GrayscaleMode : uint8_t { Overlay, Absolute, Direct }`
     # (libs/display/FreeInkDisplay/include/GrayscaleCapabilities.h), lib/hal
