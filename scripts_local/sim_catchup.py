@@ -239,6 +239,38 @@ def main(env):
         marker="HalStorage::usbDriveState",
     )
 
+    # CrossPoint 1.6.5 replaced the raw UTC-offset setting with real timezones,
+    # and src/util/Timezones.cpp pushes the chosen POSIX rule into the clock
+    # through HalClock::setTimezone(). The simulator's HalClock predates that
+    # and still takes an explicit utcOffsetQuarterHoursBiased in its formatters.
+    #
+    # The body is the device's, minus one line. On device, setTimezone() also
+    # clears _lastPollMs so local time is re-derived under the new rule on the
+    # next read; the simulator's HalClock has no such cache and its formatters
+    # are handed an offset per call, so there is nothing to invalidate. What
+    # DOES carry over is setenv+tzset: the simulator runs against a real libc,
+    # so the process TZ it sets is the same mechanism the device uses, and
+    # anything reading localtime() here behaves as it does on hardware.
+    patch(
+        src / "HalClock.h",
+        "#include <cstddef>\n#include <cstdint>",
+        "#include <cstddef>\n#include <cstdint>\n#include <cstdlib>\n#include <ctime>",
+        "HalClock.h cstdlib/ctime for setTimezone",
+        marker="#include <ctime>",
+    )
+
+    patch(
+        src / "HalClock.h",
+        "  bool syncFromNTP();",
+        "  void setTimezone(const char *posixTz) {\n"
+        "    ::setenv(\"TZ\", posixTz && posixTz[0] != '\\0' ? posixTz : \"UTC0\", 1);\n"
+        "    ::tzset();\n"
+        "  }\n"
+        "  bool syncFromNTP();",
+        "HalClock::setTimezone",
+        marker="setTimezone",
+    )
+
     # ...and three ESP.* accessors the simulator's ESPMock does not have.
     # ESPMock carries the heap family (getFreeHeap and friends) and nothing
     # about the chip, because until this screen existed nothing sim-compiled
