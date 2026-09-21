@@ -50,6 +50,8 @@ class NotesActivity final : public Activity {
   void openDeck();
   void toggleTask(int index);
   void clearDone();
+  // Rewrites the note as the other kind: a tick box on every line, or none.
+  void switchKind();
   void askNewName();
   // What the note being made is for. Only consulted while it is still empty;
   // the first line written settles the kind in the file itself.

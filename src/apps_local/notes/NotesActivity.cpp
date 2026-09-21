@@ -234,6 +234,35 @@ void NotesActivity::toggleTask(const int index) {
   requestUpdate();
 }
 
+void NotesActivity::switchKind() {
+  const bool wasList = !openIsPage();
+  const std::string before = doc_;
+  if (wasList ? !notes::stripMarkers(doc_) : !notes::coerceToList(doc_)) {
+    // Nothing to rewrite: an empty note has no line to carry a box. The kind it
+    // will take is remembered instead, so the first line added gets it.
+    newIsList_ = !wasList;
+    view_ = View::Note;
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
+  std::string message;
+  // Putting a box on every line grows the file; taking them off cannot.
+  if (!library_.save(openName_, doc_, message, /*growing=*/!wasList)) {
+    doc_ = before;  // the file is the truth; take back what RAM claimed
+    lines_ = notes::parse(doc_);
+    rebuildRows();
+    showNotice(message);
+    return;
+  }
+  newIsList_ = !wasList;
+  noteTop_ = 0;
+  reloadNote();
+  view_ = View::Note;
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
 void NotesActivity::clearDone() {
   if (!anyDone()) return;
   const std::string before = doc_;
@@ -606,6 +635,9 @@ void NotesActivity::loop() {
       return;
     case notesui::ActionClearDone:
       clearDone();
+      return;
+    case notesui::ActionSwitchKind:
+      switchKind();
       return;
     case notesui::ActionRename:
       askRename();
