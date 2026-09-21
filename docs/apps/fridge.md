@@ -55,11 +55,31 @@ is quantified:
   (`HalPowerManager.cpp:92-111`) so the next press fast-wakes, which leaves the
   peripheral rail powered all night, including the frontlight driver IC.
 - `FrontlightManager::park()` exists to fix the resulting leakage and is called
-  from nowhere. `FrontlightManager.cpp` is ours, so this is our dead code.
-  Worse, `Frontlight.begin()` runs unconditionally on every wake
-  (`main.cpp:535-537`) and does a `gpio_hold_dis` that clears exactly the hold
-  `park()` would set, so a Live wake would also switch the light on at 4am with
-  nobody there.
+  from nowhere. `FrontlightManager.cpp` is ours, so this is our dead code, and
+  `Frontlight.begin()` still does a `gpio_hold_dis` on every boot that would
+  clear exactly the hold `park()` sets. **Still open.**
+
+  The other half of this paragraph is fixed. It predicted that "a Live wake
+  would also switch the light on at 4am with nobody there", and that is exactly
+  what shipped: Mario reported it on hardware on 2026-09-21, "the backlight is
+  turning on on refresh". `Frontlight.begin()` was handed the restored
+  on/off state and ran BEFORE the switch on the wake reason, so every scheduled
+  check lit the panel for the length of a radio join whether or not it found
+  anything. The light is now brought up dark and turned on, if at all, only
+  after that switch, and only for a boot `util/WakePolicy.h` calls
+  attended. `host-tests/wakepolicy` holds both halves of the rule.
+
+  The light was only the half that could be named from across a room. The
+  same wake also booted the whole reader whenever it found a picture:
+  `isSleepWake` is PowerButton-only, so a timer wake fell to
+  `BootResume::Splash` and drew the CrossPlay splash, then Home or whatever
+  book was last open, and only then the picture. Three full e-ink repaints
+  and an EPUB load where one repaint is meant. An unattended boot now takes
+  its own exit straight after the wake switch: display and fonts up, sleep
+  screen repainted, back down. It captures no state on the way -- the book
+  that was open, the app the shelf must reopen, the Quick Resume frame all
+  belong to the user's own sleep and would otherwise be overwritten with the
+  empty answers of a boot that never created an activity.
 
 A plausible floor spans ~150 uA to ~1.5 mA, and the frontlight owns almost all
 of that spread. At 150 uA a fridge lasts most of a year; at 1.5 mA it lasts a
@@ -452,13 +472,13 @@ Three things, and none of them was visible from inside the code.
 **The service stamps it once, at the check-in**, from the interval in that
 reply, and never recomputes it. The reader sends one header on the pull,
 `X-Live-On`, which is the only schedule fact the service cannot derive: it can
-work out *when* the next check is, because it is the one handing out the
+work out _when_ the next check is, because it is the one handing out the
 interval, but not whether somebody has switched Live off since the last one.
 
 **The reader cannot report its own alarm**, which a version of this tried. The
 headers are composed before the reply is read, and a pull that gets an answer
 clears the reader's failures and makes it adopt that reply's interval, so any
-figure it sends is the alarm for the state it was in *before* the request. One
+figure it sends is the alarm for the state it was in _before_ the request. One
 failed check was enough to make the website count down to a moment eighteen
 hours early. The one state whose alarm the service could not derive -- a reader
 in backoff -- is exactly the state whose pulls never arrive.

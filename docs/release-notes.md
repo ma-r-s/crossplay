@@ -21,6 +21,11 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.16
+
+- Live: a scheduled refresh shows nobody anything
+- A Live refresh must not light the panel
+
 ### 1.13.15
 
 - Live: the QR carried a stub code, the next check had no time, and the upload had no way in
