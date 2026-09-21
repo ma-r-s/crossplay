@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.12
+
+- Notes: adding an item was 5.3s of asking the card how full it was
+
 ### 1.13.11
 
 - Live: add and remove phones, and a screen that says one thing
