@@ -61,9 +61,13 @@ SITE = REPO / "site"
 EMU = SITE / "emulator"
 MANIFEST = SITE / "emulator-manifest.json"
 
-# The rolling release the assets hang off. Not `v*`, deliberately:
-# crossplay-release.yml triggers on `push: tags: v*` and a version-shaped tag
-# here would build and publish a whole firmware release for a wasm rebuild.
+# The rolling release the assets hang off. Not `v*`, deliberately: a
+# version-shaped tag is what a firmware release is named with, and
+# scripts_local/ship.sh is the only thing that may create one. (Until
+# 2026-09-21 the reason was sharper still -- crossplay-release.yml triggered
+# on `push: tags: v*`, so a tag here BUILT and published a whole firmware
+# release for a wasm rebuild. That workflow is deleted; the naming rule
+# stands, because /releases/latest and the updater both read it.)
 TAG = "emulator"
 RELEASE_TITLE = "Browser emulator assets"
 RELEASE_NOTES = (

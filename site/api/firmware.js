@@ -33,9 +33,10 @@ const { pipeline } = require("node:stream/promises");
 
 const REPO = "ma-r-s/crossplay";
 
-// Must match the artefact names in .github/workflows/crossplay-release.yml
-// ("Name the x4pro artefacts" / "Name the sticky artefacts"). Renaming them
-// there without changing this line breaks the Install button and nothing else
+// Must match the artefact names in scripts_local/ship.sh, which packages and
+// publishes the release since 2026-09-21 (crossplay-release.yml did it before
+// and is deleted). Renaming them there without changing this line breaks the
+// Install button and nothing else
 // -- no build fails, no test goes red on its own -- so host-tests/release
 // asserts the two spellings against each other.
 const DEVICES = {

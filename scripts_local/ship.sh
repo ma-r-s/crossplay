@@ -281,19 +281,60 @@ else
 fi
 TAG="v${NEXT:-0.0.0}"
 
+# THE VERSION AND THE NOTES ARE TWO CONDITIONS, NOT ONE.
+#
+# This was `if the version needs bumping`, with the notes written inside it.
+# A retry whose earlier attempt had already bumped -- or, as here, a branch
+# off a trunk that carries an unreleased bump -- then skipped the block
+# entirely and left the notes a version behind, which is the exact tree the
+# gate refuses. Two failed live runs in a row died that way, the second
+# after the first was supposedly fixed.
+#
+# So ask about each separately: the version, because it is compiled in, and
+# the notes, because the gate compares them against it.
+NOTES_CURRENT=0
+[ -n "$NEXT" ] && grep -q "### What is new in $NEXT" docs/release-body.md 2>/dev/null && NOTES_CURRENT=1
+
 if [ -n "$NEXT" ]; then
-  if [ "$HAVE_VER" != "$NEXT" ]; then
+  if [ "$HAVE_VER" != "$NEXT" ] || [ "$NOTES_CURRENT" = 0 ]; then
     # platformio.ini ONLY. A dry run cannot ask "did the bump change
     # something?" of the working tree, because in a dry run the bump did not
     # run; comparing the versions is the same question and answerable in both
     # modes.
-    run "python3 -c \"import pathlib,re; p=pathlib.Path('platformio.ini'); t=p.read_text(); p.write_text(re.sub(r'(?m)^(\\[crossplay\\](?:[^\\[]*?\\n)version *= *).*$', r'\\g<1>$NEXT', t, count=1))\""
-    run "git add platformio.ini"
+    if [ "$HAVE_VER" != "$NEXT" ]; then
+      run "python3 -c \"import pathlib,re; p=pathlib.Path('platformio.ini'); t=p.read_text(); p.write_text(re.sub(r'(?m)^(\\[crossplay\\](?:[^\\[]*?\\n)version *= *).*$', r'\\g<1>$NEXT', t, count=1))\""
+    fi
+    # AND THE NOTES, IN THE SAME COMMIT, because the gate checks them against
+    # the version. host-tests/release refuses a tree whose release-body.md
+    # names a different version than platformio.ini -- rightly, since that is
+    # a release about to publish the previous one's text. Bumping the version
+    # here and writing the notes only after the squash left exactly that
+    # tree in front of the gate, so ship.sh could never pass its own gate.
+    # Caught on the first live run; no dry run reaches it, because the gate
+    # does not execute in dry mode.
+    #
+    # The pull request is not merged yet, so its data is handed over rather
+    # than looked up: release_notes.py maps by mergeCommit.oid and there is
+    # no merge commit until the squash. Pointing it at this branch's tip is
+    # what makes the mapping land on the pull request that is being shipped.
+    # These notes are provisional -- the `release notes` step regenerates
+    # them after the squash, when GitHub has set the real oid -- and only
+    # docs differ between the two, which nothing compiles.
+    PRJSON="$(mktemp -t ship-prs)"
+    run "gh pr view '$PR_NUMBER' --repo ma-r-s/crossplay --json number,title,body,labels \
+        | python3 -c 'import json,sys; d=json.load(sys.stdin); d[\"mergeCommit\"]={\"oid\": sys.argv[1]}; print(json.dumps([d]))' \
+          \"\$(git rev-parse HEAD)\" > '$PRJSON'"
+    run "python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --version '$NEXT' --pr-json '$PRJSON' --write"
+    run "git add platformio.ini docs/release-notes.md docs/release-body.md"
     run "git commit -q -m 'chore: crossplay $NEXT'"
     run "git push -q origin '$BRANCH'"
-    say "  bumped $HAVE_VER -> $NEXT, pushed. The gate below builds the images that ship."
+    if [ "$HAVE_VER" != "$NEXT" ]; then
+      say "  bumped $HAVE_VER -> $NEXT with its notes, pushed. The gate below builds the images that ship."
+    else
+      say "  version was already $NEXT; wrote the notes it was missing, pushed."
+    fi
   else
-    say "  already at $NEXT."
+    say "  already at $NEXT, notes current."
   fi
 fi
 

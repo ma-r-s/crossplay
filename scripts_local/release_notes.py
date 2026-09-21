@@ -489,9 +489,14 @@ def main():
             # a build workflow is exactly the developer prose this file exists
             # to keep off the page -- Mario read one and called the notes
             # nonsense. So no bullet, and a loud line below rather than a
-            # silent drop: the fix is one sentence in the pull request, which
-            # crossplay-ci.yml asks for at pull-request time so this branch
-            # should never be reached in practice.
+            # silent drop: the fix is one sentence in the pull request.
+            #
+            # This branch IS reached now. crossplay-ci.yml used to ask for
+            # that sentence at pull-request time, which is why this once said
+            # it could not happen; there is no pull-request run left to ask.
+            # scripts_local/ship.sh prints the line below and carries on, so
+            # the landing reaches the page with no bullet of its own rather
+            # than stopping a release.
             unsaid.append((humanize(title), lines))
         else:
             kept.append((humanize(title), lines))
