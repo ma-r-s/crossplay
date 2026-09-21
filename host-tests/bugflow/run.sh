@@ -116,6 +116,25 @@ expect "listing tags allowed"                   0 pretool "{\"session_id\":\"$WO
 expect "pushing a work branch allowed"          0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin app/shipfast\"}}"
 expect "a non-version tag allowed"              0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag baseline-before-sync\"}}"
 
+# The bypasses a cold review found on the first version, all of which worked:
+# the anchor was not re.MULTILINE so any multi-line command walked through,
+# and the ship.sh escape was a SUBSTRING test, so a trailing `# ship.sh`
+# disabled the guard -- one copy-paste from the refusal text, which tells you
+# to run ./scripts_local/ship.sh.
+expect "a newline is a command separator too" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x\\ngh release create v1.2.3\"}}"
+expect "mentioning ship.sh is not running it" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release create v1.2.3  # ship.sh says no\"}}"
+expect "a quoted version tag refused"         2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag \\\"v1.2.3\\\"\"}}"
+expect "pushing refs/tags/v refused"          2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin refs/tags/v1.2.3\"}}"
+expect "git push --tags refused"              2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin --tags\"}}"
+
+# UNDOING a bad publish must stay possible. A guard that blocks recovery is a
+# guard people disable, and the moment you need these is right after
+# something went wrong.
+expect "deleting a bad release allowed"       0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release delete v1.2.3\"}}"
+expect "deleting a bad tag allowed"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag -d v1.2.3\"}}"
+expect "deleting a remote tag allowed"        0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin :v1.2.3\"}}"
+expect "git tag --contains allowed"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag --contains HEAD\"}}"
+
 echo "quotes are stripped before the command is split"
 bashjson() { python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' "$WORKER" "$1"; }
 expect "a pipe inside quotes does not cut the quotes"     0 pretool "$(bashjson "cd $ROOT/firmware-next && echo \"in: \$(git tag --contains abc | tr '\\n' ' ')\"")"

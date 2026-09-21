@@ -99,12 +99,24 @@ RAW_PIO = re.compile(r"(^|[;&|(]\s*|&&\s*)pio\s+run\b")
 # calls, which is the point -- the hook sees the Bash tool's command, and
 # ship.sh runs these inside itself.
 MANUAL_RELEASE = re.compile(
-    r"(^|[;&|(]\s*|&&\s*)(?:"
-    r"gh\s+release\s+(?:create|upload|delete)"
-    r"|git\s+tag\s+(?:-[a-zA-Z]+\s+)*v[0-9]"
-    r"|git\s+push\s+\S+\s+v[0-9]"
-    r")"
+    r"(?:^|[;&|(\n]\s*|&&\s*)(?:"
+    r"gh\s+release\s+(?:create|upload)"
+    # CREATING a version tag. Reading and DELETING one are explicitly not
+    # refused: `git tag -d` and `--list` are how you inspect and how you undo,
+    # and the moment you need them most is right after a publish went wrong.
+    r"|git\s+tag\s+(?!-d\b|--delete\b|-l\b|--list\b|--contains\b|--points-at\b|--merged\b|-n)"
+    r"(?:-[a-zA-Z]+\s+|--[a-z-]+\s+)*['\"]?v[0-9]"
+    r"|git\s+push\s+\S+\s+(?:refs/tags/)?['\"]?v[0-9]"
+    r"|git\s+push\s+(?:\S+\s+)?--tags"
+    r")",
+    re.M,
 )
+
+# An actual invocation of ship.sh, not the string appearing anywhere in the
+# command. `gh release create v1 # ship.sh` disabled the guard above, and the
+# refusal text itself tells you to run ./scripts_local/ship.sh, so the bypass
+# was one copy-paste from the error message.
+SHIP_INVOCATION = re.compile(r"(?:^|[;&|(\n]\s*|&&\s*)(?:\S*/)?ship\.sh(?:\s|$)", re.M)
 
 # `tee out.txt`, `tee -a out.txt`: the other way output reaches a file.
 TEE_TARGET = re.compile(r"(?<![\w-])tee(?:\s+-[\w-]+)*\s+(\S+)")
@@ -700,7 +712,7 @@ def pretool(board, data):
                 "Refused: a raw `pio run` bypasses the workspace build lock and can corrupt another "
                 "tree's build. Use ./scripts_local/check.sh (or dev.sh / sim-shot.sh) from your tree."
             )
-        if MANUAL_RELEASE.search(cmd) and "ship.sh" not in cmd:
+        if MANUAL_RELEASE.search(cmd) and not SHIP_INVOCATION.search(cmd):
             block(
                 "Refused: releases are cut by ./scripts_local/ship.sh, which is now the only path "
                 "from a green gate to a public release.\n"
@@ -711,7 +723,10 @@ def pretool(board, data):
                 "numbers that tell a merged image from an unmerged one, and the asset named "
                 "exactly firmware.bin, which is the only name the OTA updater matches.\n"
                 "    ./scripts_local/ship.sh --dry-run    # say what would happen\n"
-                "    ./scripts_local/ship.sh              # land this branch and publish"
+                "    ./scripts_local/ship.sh              # land this branch and publish\n"
+                "Undoing a bad publish is NOT refused: `gh release delete`, `git tag -d` and "
+                "`git push origin :v<n>` all pass, because the moment you need them most is "
+                "right after something went wrong."
             )
         board.leave_claimant(data, cmd)
         # A write into a worktree: from the shell's cwd, from a `cd` earlier

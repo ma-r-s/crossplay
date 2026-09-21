@@ -136,6 +136,26 @@ else
   echo "FAIL ship  ship.sh does not compare the handover directory against HEAD, so images built from a different commit would publish under this tag"
 fi
 
+# -- 1c. the binary must report the version the tag names ------------------
+#
+# The only check in ship.sh that reads the FIRMWARE rather than a fact about
+# the file. Names, lengths and magic numbers are all satisfied by a stale
+# image: it is a real image, of the wrong commit. This asks what
+# OtaUpdater.cpp:119 asks on every device, and getting it wrong is not a
+# build error -- it is an update prompt that never goes away, on every unit
+# in the field, with nothing red anywhere.
+#
+# The anchor is the User-Agent BridgeHttp.cpp and StudySync.cpp build from
+# CROSSPOINT_VERSION, so it is in every release image by construction rather
+# than a debug line a LOG_LEVEL could compile out.
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -q 'strings -a' && printf '%s' "$CODE" | grep -q 'CrossPlay-ESP32-\$NEXT'; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  ship.sh does not read the version out of the images it is about to publish. Every other check here passes for a stale image built from a different commit, because a stale image is a real image; this is the one that cannot."
+fi
+
 # -- 2. each merged image gets all three parts, at the ROM's offsets --------
 #
 # Offset-then-file pairs rather than one literal line, so reformatting does

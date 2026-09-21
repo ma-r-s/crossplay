@@ -382,6 +382,34 @@ if [ "$DRY" = 0 ]; then
   done
   [ "$fail" = 0 ] || die "a published 'full' image that is not merged bricks the device that installs it. Nothing published."
   [ -f "$DIST/firmware.bin" ] || die "dist/firmware.bin is missing, and the OTA updater matches that literal name and nothing else."
+
+  # THE ONE PROBE THAT READS THE BINARY RATHER THAN A DESCRIPTION OF IT.
+  #
+  # Everything else here checks a file's name, its length or a header's magic
+  # number, and a stale image passes all of those -- it IS a real image, just
+  # of the wrong commit. This asks the thing nobody else asks: does the
+  # firmware about to be published report the version the tag names?
+  #
+  # That is the question OtaUpdater.cpp:119 asks on every device, so getting
+  # it wrong is not a build error, it is an update prompt that never goes
+  # away, on every unit in the field, with nothing red anywhere. It is the
+  # failure this whole script is ordered around, and until a cold review
+  # found ship.sh packaging from the wrong directory entirely, nothing here
+  # could have detected it.
+  #
+  # The string is the User-Agent that BridgeHttp.cpp and StudySync.cpp build
+  # from CROSSPOINT_VERSION, so it is in every release image by construction
+  # and is not a debug line a LOG_LEVEL could compile out.
+  for _img in "$DIST/firmware.bin" "$DIST/firmware-sticky.bin"; do
+    if ! strings -a "$_img" | grep -qxF "CrossPlay-ESP32-$NEXT"; then
+      _found="$(strings -a "$_img" | sed -n 's/^CrossPlay-ESP32-//p' | sort -u | tr '\n' ' ')"
+      die "$(basename "$_img") reports version [${_found:-none found}] and the tag is $TAG.
+    These images were not built from the commit being published. Every device
+    that installed this would keep being offered the update it had just
+    applied, forever, with nothing anywhere saying why. Nothing published."
+    fi
+  done
+  say "  version   both images report $NEXT"
   say "  $(ls "$DIST" | wc -l | tr -d ' ') artefacts, magic numbers verified"
 fi
 

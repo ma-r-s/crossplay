@@ -1241,39 +1241,25 @@ fi
 
 # The release must not be started twice for one tag.
 #
-# crossplay-release.yml triggers on a tag push AND on workflow_dispatch. A tag
-# pushed with GITHUB_TOKEN starts nothing, so autorelease dispatches; a tag
-# pushed with RELEASE_TOKEN starts it, and dispatching as well builds the same
-# tag twice. v1.12.16 did: event=push and event=workflow_dispatch, one second
-# apart, both ~14 minutes, both exiting 0 having raced to publish the same
-# assets. Silent in both directions, which is why it needs asserting.
-checks=$((checks + 1))
-AR="$ROOT/.github/workflows/crossplay-autorelease.yml"
-if ! grep -q "gh workflow run crossplay-release.yml" "$AR"; then
-  ok  # nothing dispatches, so nothing can double up
-elif grep -q "RELEASE_TOKEN != ''" "$AR"; then
-  ok
-else
-  failed=$((failed + 1))
-  echo "FAIL release  crossplay-autorelease.yml dispatches crossplay-release.yml unconditionally; with RELEASE_TOKEN set the tag push starts it too, and the tag builds twice"
-fi
-
-# And the other direction, which is worse. Skipping the dispatch is only safe
-# because the tag push starts the build instead. Remove that trigger and
-# NOTHING starts it: no duplicate, no build, no release, and no error either --
-# strictly worse than the double build this guards against. So the skip and the
-# trigger are asserted together, or the skip is not safe to assert at all.
-checks=$((checks + 1))
-if grep -q "secrets.RELEASE_TOKEN" "$AR"; then
-  if awk '/^on:/,/^jobs:/' "$WF" | grep -q '"v\*"'; then
-    ok
-  else
-    failed=$((failed + 1))
-    echo "FAIL release  autorelease skips its dispatch when RELEASE_TOKEN is set, but crossplay-release.yml has no push trigger on v* tags, so nothing would start the build at all"
-  fi
-else
-  ok
-fi
+# THE DOUBLE-BUILD PAIR RETIRED WITH BOTH WORKFLOWS IT SPANNED.
+#
+# Two checks lived here: that crossplay-autorelease.yml dispatched
+# crossplay-release.yml only when the tag push would not start it, and the
+# other direction, that the tag trigger existed at all so skipping the
+# dispatch was safe. v1.12.16 was built and published twice for want of the
+# first, one second apart, both exiting 0.
+#
+# Both read crossplay-autorelease.yml, and after that file was deleted they
+# did not fail: `grep` on a missing file exits 1, `!` inverts it, and both
+# took the "nothing dispatches, so nothing can double up" arm. Two checks
+# passing for the wrong reason, plus a "No such file or directory" on stderr
+# of every gate run. Found by a cold review, and it is the exact shape this
+# suite warns about elsewhere -- a check satisfied by the ABSENCE of the
+# thing it was asserting.
+#
+# The race is not gone, it moved to this Mac, and the assertion moved with
+# it: ship.sh takes a workspace-wide mkdir lock, asserted above along with
+# its crashed-holder check.
 
 # -- the workflow that PUBLISHES must serialise against itself ----------------
 #
@@ -1378,23 +1364,27 @@ else
   echo "FAIL release  ship.sh does not compare this Mac's PlatformIO against the repository's pin. It publishes what the local gate built, so without that check the image a user installs is compiled by whatever version happens to be here and nothing ever says so."
 fi
 
-ALL_INSTALLS="$(sed 's/#.*//' "$ROOT"/.github/workflows/*.yml | grep -E 'pip +install')"
-
 # The "crossplay-release.yml installs the pin" check retired with the
-# workflow; what replaced it is the check further up that ship.sh compares
-# this Mac's PlatformIO against the pin before publishing. WANT is still
-# discovered from the remaining workflows and still used by the check below,
-# which is the half that survives: no workflow may install an UNPINNED
-# platformio beside the pinned one.
-
-# And the other direction, because the check above only asks whether the right
-# pin appears SOMEWHERE among the installs. An install of bare `platformio`
-# beside it is still an unpinned toolchain, in whatever spelling: with a flag,
-# without one, quoted, or version-pinned to something else on PyPI.
+# workflow; what replaced it is the check further up, that ship.sh compares
+# this Mac's PlatformIO against the pin before publishing.
+#
+# THIS half survives and widens. It asks the other direction: nothing may
+# install an UNPINNED platformio, in any spelling -- with a flag, without
+# one, quoted, or version-pinned to something else on PyPI. It used to read
+# the release workflow alone; there is no release workflow, so it reads every
+# remaining workflow AND ship.sh, which is where an install would go now.
+#
+# (An earlier edit left ALL_INSTALLS assigned here with nothing reading it,
+# beside a comment claiming a deleted variable was still in use -- in a suite
+# whose stated principle is that comments describe and only code ships.)
+PIN_SOURCES="$(sed 's/#.*//' "$ROOT"/.github/workflows/*.yml "$WF" 2>/dev/null | grep -E 'pip +install')"
 checks=$((checks + 1))
-if printf '%s\n' "$INSTALLS" | grep -qE 'pip +install +([^|&;]*[[:space:]])?("|'"'"')?platformio("|'"'"')?([=<>!~][^[:space:]]*)?[[:space:]]*$'; then
+if [ -z "$PIN_SOURCES" ]; then
   failed=$((failed + 1))
-  echo "FAIL release  crossplay-release.yml installs PyPI 'platformio' rather than the pioarduino archive; whatever PyPI published most recently would build the release"
+  echo "FAIL release  no 'pip install' line anywhere in the workflows or ship.sh, so this check has no input and cannot fail: the toolchain pin is unasserted rather than correct"
+elif printf '%s\n' "$PIN_SOURCES" | grep -qE 'pip +install +([^|&;]*[[:space:]])?("|'"'"')?platformio("|'"'"')?([=<>!~][^[:space:]]*)?[[:space:]]*$'; then
+  failed=$((failed + 1))
+  echo "FAIL release  something installs PyPI 'platformio' rather than the pioarduino archive; whatever PyPI published most recently would build what ships"
 else
   ok
 fi
