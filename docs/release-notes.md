@@ -21,6 +21,11 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.6
+
+- The reader's toolbar panel no longer sizes its bottom sheet with a row gap the renderer does not use, which left a six-row panel 30px shorter than its own contents on every touch board.
+- Wikipedia: make the loading cue actually show, and pay for itself
+
 ### 1.13.5
 
 - The app and game shelves are back to their proper row height, and every icon sits on its own row again. 1.13.4 made the rows shorter and walked each icon down into its neighbour until the last one dropped off the list.
