@@ -41,20 +41,28 @@ constexpr uint32_t kBotThinkMs = 420;
 
 const char* seatName(const Seat seat) {
   switch (seat) {
-    case Seat::South: return "YOU";
-    case Seat::West: return "WEST";
-    case Seat::North: return "NORTH";
-    case Seat::East: return "EAST";
+    case Seat::South:
+      return "YOU";
+    case Seat::West:
+      return "WEST";
+    case Seat::North:
+      return "NORTH";
+    case Seat::East:
+      return "EAST";
   }
   return "?";
 }
 
 const char* passName(const Pass pass) {
   switch (pass) {
-    case Pass::Left: return "LEFT";
-    case Pass::Right: return "RIGHT";
-    case Pass::Across: return "ACROSS";
-    case Pass::Hold: return "NOBODY";
+    case Pass::Left:
+      return "LEFT";
+    case Pass::Right:
+      return "RIGHT";
+    case Pass::Across:
+      return "ACROSS";
+    case Pass::Hold:
+      return "NOBODY";
   }
   return "?";
 }
@@ -286,12 +294,15 @@ void HeartsActivity::loop() {
               newGame();
             }
             break;
-          case ui::ButtonMenu: newGame(); break;
+          case ui::ButtonMenu:
+            newGame();
+            break;
           case ui::ButtonHint:
             skill = skill == Skill::Sharp ? Skill::Rookie : Skill::Sharp;
             requestUpdate();
             break;
-          default: break;
+          default:
+            break;
         }
       } else {
         routeButton(action.value);
@@ -335,9 +346,8 @@ void HeartsActivity::fillLegal(ui::BoardModel& model) const {
     // In the pass everything is choosable; in play the rules decide. Asked of
     // the same function the tap asks, so the board cannot offer what the tap
     // then refuses.
-    model.legal[i] = game.phase == Phase::Passing
-                         ? true
-                         : (game.turn == Seat::South && isLegalPlay(game, Seat::South, hand.at(i)));
+    model.legal[i] =
+        game.phase == Phase::Passing ? true : (game.turn == Seat::South && isLegalPlay(game, Seat::South, hand.at(i)));
   }
 }
 
@@ -358,23 +368,24 @@ const char* HeartsActivity::statusLine() const {
         std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "YOUR LEAD");
         return self->statusBuffer;
       }
-      std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "FOLLOW %s",
-                    cards::suitName(game.trick.ledSuit()));
+      std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "FOLLOW %s", cards::suitName(game.trick.ledSuit()));
       return self->statusBuffer;
     case Phase::TrickTaken:
       if (hasLastWinner) {
         const int points = game.trick.points();
         if (points > 0) {
-          std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "%s TAKES IT, %d POINT%s",
-                        seatName(lastWinner), points, points == 1 ? "" : "S");
+          std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "%s TAKES IT, %d POINT%s", seatName(lastWinner),
+                        points, points == 1 ? "" : "S");
         } else {
           std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "%s TAKES IT", seatName(lastWinner));
         }
         return self->statusBuffer;
       }
       return "";
-    case Phase::HandOver: return "HAND OVER";
-    case Phase::GameOver: return "GAME OVER";
+    case Phase::HandOver:
+      return "HAND OVER";
+    case Phase::GameOver:
+      return "GAME OVER";
   }
   return "";
 }
@@ -408,7 +419,14 @@ void HeartsActivity::render(RenderLock&&) {
   }();
   toybox::Screen screen(frame, tokens);
 
-  if (view == View::Board) {
+  // WHICH IN-GAME SCREEN IS SHOWING IS DERIVED FROM THE PHASE, never held
+  // beside it. `view` used to carry it too, and the two came apart: a frame
+  // landed with view still Board while the phase had moved to HandOver, so the
+  // panel drew an empty table over an empty hand with "HAND OVER" underneath
+  // it -- a screen that exists in no design. Two facts that must agree are one
+  // fact stored once; `view` now only says whether we are in the menu.
+  const bool handFinished = game.phase == Phase::HandOver || game.phase == Phase::GameOver;
+  if (view != View::Menu && !handFinished) {
     ui::BoardModel model;
     model.game = &game;
     fillSeats(model.seats);
@@ -421,7 +439,7 @@ void HeartsActivity::render(RenderLock&&) {
     model.confirmLabel = "PASS";
     model.confirmEnabled = pickedCount == kPassCount;
     ui::buildBoard(screen, model, layout);
-  } else if (view == View::Score) {
+  } else if (view != View::Menu) {
     ui::ScoreModel model;
     model.game = &game;
     fillSeats(model.seats);

@@ -34,11 +34,28 @@ constexpr int16_t kHandH = cardart::kCardH;
 constexpr int16_t kHandBottomMargin = 12;
 constexpr int16_t kHandTop = kScreenH - kHandBottomMargin - kHandH;  // 346
 constexpr int16_t kStatusH = 34;
-constexpr int16_t kStatusTop = kHandTop - kStatusH - 4;              // 308
-constexpr int16_t kTableTop = kHeaderBand + 6;
+constexpr int16_t kStatusTop = kHandTop - kStatusH - 4;  // 308
+// DERIVED FROM THE CHROME, not typed. The band is 56, its rule sits 4 below it
+// and is 3 tall, and the fork's gutter is 12 more -- so content starts at 75,
+// not at the 62 this was. Six pixels under the band looked fine and put the
+// table three pixels INSIDE the rule, which host-tests/ui's chrome probe
+// reported to the pixel and no screenshot of mine had caught.
+constexpr int16_t kTableTop = static_cast<int16_t>(toybox::chromeBelow(kHeaderBand) + toybox::kGutter);
 constexpr int16_t kTableBottom = kStatusTop - 4;
 
 constexpr int16_t kPageMargin = 16;
+
+// An outline on the black band: present, legible, clearly not available.
+fui::StyleSet outlinedOnBlackStyles() {
+  fui::StyleSet styles;
+  styles.explicitlySet = true;
+  styles.normal.background = fui::Paint::none();
+  styles.normal.foreground = fui::Paint::solid(fui::Color::White);
+  styles.normal.borderWidth = toybox::kHairline;
+  styles.selected = styles.normal;
+  styles.disabled = styles.normal;
+  return styles;
+}
 
 fui::StyleSet knockedOutStyles() {
   fui::StyleSet styles;
@@ -48,6 +65,29 @@ fui::StyleSet knockedOutStyles() {
   styles.selected = styles.normal;
   styles.disabled = styles.normal;
   return styles;
+}
+
+// A label that STEPS ITS CUT DOWN rather than running over its neighbour.
+//
+// label() below draws at the cut it is given and the text layer does not clip,
+// so a word wider than its box is simply painted across whatever is next to it:
+// "NORTH" at the UI cut is 107px in a 108px slot and its plaque's points pill
+// starts at 126, so the two overlapped by nine pixels and the rail read
+// "NORTH+4". fittedTitle is the fork's own answer -- pick the largest cut the
+// string fits in, and only break a word when the smallest still overflows.
+void fittedLabel(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::FontId font,
+                 const fui::TextAlign align, const bool white) {
+  fui::TextStyle style;
+  style.font = font;
+  style.align = align;
+  style.color = white ? fui::Color::White : fui::Color::Black;
+  const std::string drawn = toybox::fittedTitle(screen.target(), text, box.width, style);
+  // The cut fittedTitle chose decides where the ink has to sit, so the box is
+  // re-centred against THAT cut rather than the one we asked for.
+  const toybox::CutMetrics& cut = style.font == toybox::kSmallFont
+                                      ? toybox::kTileCut
+                                      : (style.font == toybox::kDisplayFont ? toybox::kDisplayCut : toybox::kUiCut);
+  screen.target().text(toybox::inkCentred(box, cut), drawn.c_str(), style);
 }
 
 void label(toybox::Screen& screen, const fui::Rect& box, const char* text, const toybox::CutMetrics& cut,
@@ -83,9 +123,13 @@ void seatPlaque(toybox::Screen& screen, const fui::Rect& box, const SeatView& se
   target.fill(box, invert ? black : white, 8);
   target.stroke(box, black, invert ? 0 : toybox::kHairline, 8);
 
+  // The name gets whatever the numbers leave it, and steps its cut down if that
+  // is not enough. Derived from the box rather than typed, so widening the rail
+  // widens the name instead of leaving a gap nobody notices.
   const int16_t pad = 12;
-  label(screen, fui::makeRect(box.x + pad, box.y, 108, box.height), seat.name, toybox::kUiCut, toybox::kUiFont,
-        fui::TextAlign::Left, invert);
+  const int16_t numbersW = static_cast<int16_t>(46 + 10 + 46 + pad);
+  fittedLabel(screen, fui::makeRect(box.x + pad, box.y, static_cast<int16_t>(box.width - pad - numbersW), box.height),
+              seat.name, toybox::kUiFont, fui::TextAlign::Left, invert);
 
   char running[16];
   std::snprintf(running, sizeof(running), "%d", seat.total);
@@ -126,10 +170,14 @@ fui::Rect trickSlot(const fui::Rect& felt, const Seat seat, const int16_t cw, co
   const int16_t cx = static_cast<int16_t>(felt.x + (felt.width - cw) / 2);
   const int16_t cy = static_cast<int16_t>(felt.y + (felt.height - ch) / 2);
   switch (seat) {
-    case Seat::North: return fui::makeRect(cx, felt.y + gap, cw, ch);
-    case Seat::South: return fui::makeRect(cx, felt.bottom() - gap - ch, cw, ch);
-    case Seat::West: return fui::makeRect(static_cast<int16_t>(cx - cw - gap * 2), cy, cw, ch);
-    case Seat::East: return fui::makeRect(static_cast<int16_t>(cx + cw + gap * 2), cy, cw, ch);
+    case Seat::North:
+      return fui::makeRect(cx, felt.y + gap, cw, ch);
+    case Seat::South:
+      return fui::makeRect(cx, felt.bottom() - gap - ch, cw, ch);
+    case Seat::West:
+      return fui::makeRect(static_cast<int16_t>(cx - cw - gap * 2), cy, cw, ch);
+    case Seat::East:
+      return fui::makeRect(static_cast<int16_t>(cx + cw + gap * 2), cy, cw, ch);
   }
   return fui::makeRect(cx, cy, cw, ch);
 }
@@ -152,8 +200,7 @@ void drawPlace(toybox::Screen& screen, const fui::Rect& rect, const char initial
   // The letter sits in a knocked-out disc so it is readable on the dither,
   // which a glyph drawn straight onto 50% texture is not.
   const int16_t d = static_cast<int16_t>((rect.width < rect.height ? rect.width : rect.height) * 3 / 5);
-  const fui::Rect disc =
-      fui::makeRect(rect.x + (rect.width - d) / 2, rect.y + (rect.height - d) / 2, d, d);
+  const fui::Rect disc = fui::makeRect(rect.x + (rect.width - d) / 2, rect.y + (rect.height - d) / 2, d, d);
   target.fill(disc, fui::Paint::solid(fui::Color::White), static_cast<uint8_t>(d / 2));
   target.stroke(disc, black, toybox::kHairline, static_cast<uint8_t>(d / 2));
   const char text[2] = {initial, '\0'};
@@ -294,7 +341,13 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
     confirm.action = ActionButton;
     confirm.value = ButtonConfirm;
     confirm.enabled = model.confirmEnabled;
-    confirm.styles = knockedOutStyles();
+    // A DISABLED BUTTON MUST NOT LOOK LIKE A LIVE ONE. knockedOutStyles sets
+    // normal, selected and disabled to the same white-on-black plate, so PASS
+    // with one card chosen was pixel-identical to PASS with three and did
+    // nothing when tapped: a dead control that advertises itself. Outlined on
+    // the black band is the same thing Solitaire's UNDO does when there is
+    // nothing to undo.
+    confirm.styles = model.confirmEnabled ? knockedOutStyles() : outlinedOnBlackStyles();
     confirm.borderEdges = fui::EdgesNone;
     screen.button(confirm, fui::makeRect(kScreenW - 150, buttonY, 134, buttonH));
   }
@@ -302,7 +355,10 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   // RAIL: the seats are a column down the left, in table order from the top, so
   // the rail reads the way the play goes round.
   const int16_t railW = 224;
-  const int16_t plaqueH = 54;
+  // Four of these plus their gaps have to fit the panel, which the gutter above
+  // made 14px shorter. 54 did not, and a rail that overflows is four plaques
+  // walking off the bottom of the screen.
+  const int16_t plaqueH = 48;
   const int16_t railGap = 10;
   const int16_t railTop =
       static_cast<int16_t>(kTableTop + ((kTableBottom - kTableTop) - (plaqueH * 4 + railGap * 3)) / 2);
@@ -345,8 +401,12 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   // hand you are is the one thing about its shape that nothing else on screen
   // says, and thirteen tricks is short enough that the count means something.
   {
+    // trickNumber counts tricks SWEPT, so after the thirteenth it is 13 and a
+    // bare +1 printed "TRICK 14/13". Clamped rather than special-cased: the
+    // last trick stays on screen as the thirteenth while it is being read.
+    const int shown = game.trickNumber >= kTricks ? kTricks : game.trickNumber + 1;
     char trick[24];
-    std::snprintf(trick, sizeof(trick), "TRICK %d/%d", game.trickNumber + 1, kTricks);
+    std::snprintf(trick, sizeof(trick), "TRICK %d/%d", shown, kTricks);
     label(screen, fui::makeRect(felt.x + 18, static_cast<int16_t>(felt.y + 12), 160, 28), trick, toybox::kButtonCut,
           toybox::kSmallFont, fui::TextAlign::Left, false);
   }
@@ -398,8 +458,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const int16_t colW = 372;
 
   // Left: where you are, in one loud line and one quiet one.
-  label(screen, fui::makeRect(32, top, colW, 56), model.hasSave ? "TABLE WAITING" : "FOUR SEATS",
-        toybox::kDisplayCut, toybox::kDisplayFont, fui::TextAlign::Left, false);
+  label(screen, fui::makeRect(32, top, colW, 56), model.hasSave ? "TABLE WAITING" : "FOUR SEATS", toybox::kDisplayCut,
+        toybox::kDisplayFont, fui::TextAlign::Left, false);
 
   char line[64];
   if (model.hasSave) {
@@ -422,14 +482,15 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   std::snprintf(played, sizeof(played), "%d", model.gamesPlayed);
   std::snprintf(won, sizeof(won), "%d", model.gamesWon);
   static const char* kPlaces[] = {"-", "1ST", "2ND", "3RD", "4TH"};
-  std::snprintf(best, sizeof(best), "%s", kPlaces[(model.bestPlace >= 0 && model.bestPlace <= 4) ? model.bestPlace : 0]);
+  std::snprintf(best, sizeof(best), "%s",
+                kPlaces[(model.bestPlace >= 0 && model.bestPlace <= 4) ? model.bestPlace : 0]);
   static const char* kCaps[3] = {"GAMES", "WON", "BEST"};
   const char* values[3] = {played, won, best};
   for (int i = 0; i < 3; ++i) {
     const fui::Rect cell = fui::makeRect(static_cast<int16_t>(32 + i * 124), recTop, 112, 92);
     target.stroke(cell, black, toybox::kHairline, 8);
-    label(screen, fui::makeRect(cell.x, static_cast<int16_t>(cell.y + 6), cell.width, 52), values[i],
-          toybox::kLargeCut, toybox::kDisplayFont, fui::TextAlign::Center, false);
+    label(screen, fui::makeRect(cell.x, static_cast<int16_t>(cell.y + 6), cell.width, 52), values[i], toybox::kLargeCut,
+          toybox::kDisplayFont, fui::TextAlign::Center, false);
     label(screen, fui::makeRect(cell.x, static_cast<int16_t>(cell.y + 58), cell.width, 28), kCaps[i],
           toybox::kButtonCut, toybox::kSmallFont, fui::TextAlign::Center, false);
   }
@@ -437,8 +498,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // Right: the table itself, so the shape of the game is visible before it
   // starts. Three seats round a felt and your own hand fanned at the foot of
   // it: nobody has to be told it is a four-player trick game.
-  const fui::Rect felt = fui::makeRect(444, top, static_cast<int16_t>(kScreenW - 444 - 32),
-                                       static_cast<int16_t>(footY - top - 20));
+  const fui::Rect felt =
+      fui::makeRect(444, top, static_cast<int16_t>(kScreenW - 444 - 32), static_cast<int16_t>(footY - top - 20));
   drawTablePanel(screen, felt);
 
   static const Seat kRing[3] = {Seat::North, Seat::West, Seat::East};
@@ -532,8 +593,7 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   int16_t rowTop = top;
   if (game.lastHand.moon) {
     char moon[64];
-    std::snprintf(moon, sizeof(moon), "%s SHOT THE MOON",
-                  model.seats[seatIndex(game.lastHand.shooter)].name);
+    std::snprintf(moon, sizeof(moon), "%s SHOT THE MOON", model.seats[seatIndex(game.lastHand.shooter)].name);
     const fui::Rect banner = fui::makeRect(kPageMargin, top, kScreenW - kPageMargin * 2, 50);
     target.fill(banner, black, 8);
     label(screen, banner, moon, toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Center, true);
@@ -545,9 +605,8 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   static const Seat kOrder[kSeats] = {Seat::South, Seat::West, Seat::North, Seat::East};
   for (int i = 0; i < kSeats; ++i) {
     const int s = seatIndex(kOrder[i]);
-    const fui::Rect row =
-        fui::makeRect(kPageMargin, static_cast<int16_t>(rowTop + i * (rowH + rowGap)),
-                      static_cast<int16_t>(kScreenW - kPageMargin * 2), rowH);
+    const fui::Rect row = fui::makeRect(kPageMargin, static_cast<int16_t>(rowTop + i * (rowH + rowGap)),
+                                        static_cast<int16_t>(kScreenW - kPageMargin * 2), rowH);
     const bool me = model.seats[s].isMe;
     target.stroke(row, black, me ? toybox::kRule : toybox::kHairline, 8);
 
@@ -602,8 +661,8 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
                   game.total[me] - game.total[best]);
   }
   label(screen, fui::makeRect(kPageMargin, noteY, kScreenW - kPageMargin * 2, 44), note,
-        model.gameOver ? toybox::kDisplayCut : toybox::kUiCut,
-        model.gameOver ? toybox::kDisplayFont : toybox::kUiFont, fui::TextAlign::Left, false);
+        model.gameOver ? toybox::kDisplayCut : toybox::kUiCut, model.gameOver ? toybox::kDisplayFont : toybox::kUiFont,
+        fui::TextAlign::Left, false);
 
   fui::ButtonProps go;
   go.label = model.gameOver ? "PLAY AGAIN" : "NEXT HAND";
@@ -616,8 +675,7 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   // above it. Hearts is the wrong way round from most games and a player two
   // hands in is still checking.
   char rule[48];
-  std::snprintf(rule, sizeof(rule), "LOWEST WINS  %s  FIRST TO %d ENDS IT",
-                model.gameOver ? "-" : "-", kTargetScore);
+  std::snprintf(rule, sizeof(rule), "LOWEST WINS  %s  FIRST TO %d ENDS IT", model.gameOver ? "-" : "-", kTargetScore);
   label(screen, fui::makeRect(316, footY, static_cast<int16_t>(kScreenW - 316 - kPageMargin), footH), rule,
         toybox::kButtonCut, toybox::kSmallFont, fui::TextAlign::Right, false);
 }

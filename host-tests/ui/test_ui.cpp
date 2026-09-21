@@ -24,6 +24,8 @@
 #include "../../src/apps_local/forehead/ForeheadScreens.h"
 #include "../../src/apps_local/go/GoScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
+#include "../../src/apps_local/hearts/HeartsBrain.h"
+#include "../../src/apps_local/hearts/HeartsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/instapaper/InstapaperScreens.h"
 #include "../../src/apps_local/jaipur/JaipurScreens.h"
@@ -1004,6 +1006,257 @@ void testSettingsRouting() {
 // headerBand() itself rather than against any one app's screen: a per-app
 // assertion is precisely what let 12 of the fork's 41 band sites ship with no
 // rule at all, the Yahtzee card among them.
+
+// --- Hearts ---------------------------------------------------------------
+//
+// The three checks below are mechanical versions of the three things a person
+// looking at a screen calls "butchered": something on top of something else,
+// something off the edge, and a control that draws but cannot be tapped.
+//
+// They exist because a play-tester found all three classes on this app's first
+// renders -- a trick card 26px through the place underneath it, an empty seat
+// marker whose NAME was cut to "...", and a table drawn during a phase that has
+// no table -- and every one of them was invisible to a suite that only asked
+// whether a builder ran.
+fui::DeviceContext heartsDevice() {
+  fui::DeviceContext ctx;
+  ctx.width = 800;
+  ctx.height = 480;
+  ctx.hasTouch = true;
+  ctx.hasButtons = true;
+  return ctx;
+}
+
+toybox::Screen heartsScreen(toybox::Frame& frame, fui::ThemeTokens& tokens) {
+  tokens = toybox::themeTokens();
+  tokens.headerHeight = heartsui::kHeaderBand;
+  return toybox::Screen(frame, tokens);
+}
+
+bool rectsOverlap(const fui::Rect& a, const fui::Rect& b) {
+  return a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom();
+}
+
+// Deals and passes so the game is in Phase::Playing with a real hand.
+void heartsDealIntoPlay(hearts::Game& game, uint32_t& seed) {
+  hearts::newGame(game, seed);
+  for (int s = 0; s < hearts::kSeats; ++s) {
+    uint8_t three[hearts::kPassCount] = {game.hands[s].at(0), game.hands[s].at(1), game.hands[s].at(2)};
+    hearts::setPass(game, static_cast<hearts::Seat>(s), three, hearts::kPassCount);
+  }
+  hearts::commitPass(game);
+}
+
+void heartsFillModel(heartsui::BoardModel& model, const hearts::Game& game) {
+  static const char* kNames[hearts::kSeats] = {"YOU", "WEST", "NORTH", "EAST"};
+  model.game = &game;
+  for (int s = 0; s < hearts::kSeats; ++s) {
+    model.seats[s].name = kNames[s];
+    model.seats[s].initial = kNames[s][0];
+    model.seats[s].total = 10 * s;
+    model.seats[s].taken = s;
+    model.seats[s].isMe = s == 0;
+    model.seats[s].isTurn = game.turn == static_cast<hearts::Seat>(s);
+  }
+  const hearts::Hand& hand = game.hands[0];
+  for (int i = 0; i < hand.count; ++i) {
+    model.legal[i] = hearts::isLegalPlay(game, hearts::Seat::South, hand.at(i));
+  }
+  model.status = "FOLLOW CLUBS";
+  model.subStatus = "HEARTS SHUT";
+}
+
+void heartsDrawsNothingOnTopOfAnythingElse() {
+  const fui::DeviceContext ctx = heartsDevice();
+  const fui::InputSnapshot noInput{};
+  uint32_t seed = 4242;
+  hearts::Game game;
+  heartsDealIntoPlay(game, seed);
+  // Put three cards on the table so the diamond is at its fullest.
+  for (int i = 0; i < 3; ++i) {
+    uint8_t legal[hearts::kHandSize];
+    const int n = hearts::legalPlays(game, game.turn, legal);
+    CHECK(n > 0);
+    if (n > 0) hearts::playCard(game, legal[0]);
+  }
+
+  Rendered board;
+  heartsui::Layout layout;
+  {
+    toybox::Frame frame(board.target, ctx, noInput, board.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::BoardModel model;
+    heartsFillModel(model, game);
+    heartsui::buildBoard(screen, model, layout);
+  }
+
+  // The probe SAW this screen. Without this, a render that drew no chrome at
+  // all would pass exactly as well as one that drew it correctly.
+  CHECK(bandRectOf(board.target).height == heartsui::kHeaderBand);
+  CHECK(board.target.drew("HEARTS"));
+  CHECK(board.target.drew("FOLLOW CLUBS"));
+
+  // 1. THE FOUR PLACES DO NOT TOUCH. North's card ran six pixels into South's
+  //    place once, and the two read as one object.
+  for (int a = 0; a < hearts::kSeats; ++a) {
+    for (int b = a + 1; b < hearts::kSeats; ++b) {
+      CHECK(!rectsOverlap(layout.trickCard[a], layout.trickCard[b]));
+    }
+  }
+
+  // 2. THE DIAMOND IS INSIDE ITS PANEL. A card that fits the screen but not the
+  //    table still reads as spilled.
+  for (int i = 0; i < hearts::kSeats; ++i) {
+    const fui::Rect& slot = layout.trickCard[i];
+    CHECK(slot.x >= layout.felt.x);
+    CHECK(slot.y >= layout.felt.y);
+    CHECK(slot.right() <= layout.felt.right());
+    CHECK(slot.bottom() <= layout.felt.bottom());
+  }
+
+  // 3. NOTHING RUNS OFF THE PANEL, and the hand never reaches the table.
+  CHECK(layout.handCount == game.hands[0].count);
+  for (int i = 0; i < layout.handCount; ++i) {
+    const fui::Rect& card = layout.handCard[i];
+    CHECK(card.x >= 0);
+    CHECK(card.right() <= ctx.width);
+    CHECK(card.bottom() <= ctx.height);
+    CHECK(card.y >= layout.felt.bottom());
+  }
+
+  // 4. EVERY CARD IS REACHABLE, AND A TAP LANDS ON THE CARD IT LOOKS LIKE.
+  //    kMaxInteractions is 24 and the buffer drops silently past it, so a
+  //    thirteen-card hand is close enough to the ceiling to be worth asserting.
+  CHECK(!board.interactions.overflowed());
+  for (int i = 0; i < layout.handCount; ++i) {
+    const fui::Rect& card = layout.handCard[i];
+    // The left edge of a fanned card is the part of it you can see.
+    const fui::ActionEvent hit = board.tap(card.x + 4, card.y + 20);
+    CHECK(hit.action == heartsui::ActionHandCard);
+    CHECK(hit.value == i);
+  }
+}
+
+// The pass is a different screen wearing the same frame, and it was the one
+// that drew a table for a phase that has none.
+void heartsPassOwnsTheTable() {
+  const fui::DeviceContext ctx = heartsDevice();
+  const fui::InputSnapshot noInput{};
+  uint32_t seed = 77;
+  hearts::Game game;
+  hearts::newGame(game, seed);
+  CHECK(game.phase == hearts::Phase::Passing);
+
+  Rendered pass;
+  heartsui::Layout layout;
+  {
+    toybox::Frame frame(pass.target, ctx, noInput, pass.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::BoardModel model;
+    heartsFillModel(model, game);
+    model.picked[0] = true;
+    model.picked[1] = true;
+    model.picked[2] = true;
+    model.pickedCount = 3;
+    model.status = "PICK THREE CARDS TO PASS LEFT";
+    model.showConfirm = true;
+    model.confirmLabel = "PASS";
+    model.confirmEnabled = true;
+    heartsui::buildBoard(screen, model, layout);
+  }
+  CHECK(pass.target.drew("PASSING LEFT"));
+  CHECK(pass.target.drew("PICK THREE CARDS TO PASS LEFT"));
+  // The confirm button is registered, not merely drawn.
+  CHECK(pass.has(heartsui::ActionButton));
+  CHECK(!pass.interactions.overflowed());
+  // A full thirteen-card hand is still individually tappable during the pass.
+  CHECK(layout.handCount == hearts::kHandSize);
+  for (int i = 0; i < layout.handCount; ++i) {
+    CHECK(layout.handCard[i].right() <= ctx.width);
+    CHECK(layout.handCard[i].x >= 0);
+  }
+}
+
+// The score screen, at the two shapes it has: an ordinary hand and a moon.
+void heartsScoreSaysWhatHappened() {
+  const fui::DeviceContext ctx = heartsDevice();
+  const fui::InputSnapshot noInput{};
+  hearts::Game game;
+  for (int s = 0; s < hearts::kSeats; ++s) game.total[s] = 0;
+  game.taken[0] = 5;
+  game.taken[1] = 8;
+  game.taken[2] = 13;
+  game.taken[3] = 0;
+  hearts::scoreHand(game);
+
+  static const char* kNames[hearts::kSeats] = {"YOU", "WEST", "NORTH", "EAST"};
+  {
+    Rendered score;
+    toybox::Frame frame(score.target, ctx, noInput, score.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::ScoreModel model;
+    model.game = &game;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].isMe = s == 0;
+    }
+    heartsui::buildScore(screen, model);
+    CHECK(score.target.drew("HAND OVER"));
+    CHECK(score.target.drew("NEXT HAND"));
+    CHECK(bandRectOf(score.target).height == heartsui::kHeaderBand);
+  }
+
+  // A moon inverts the whole hand. A scoreboard that just shows three seats
+  // gaining 26 looks like a bug, so it is said in words.
+  hearts::Game moon;
+  for (int s = 0; s < hearts::kSeats; ++s) moon.total[s] = 0;
+  moon.taken[1] = hearts::kMoonPoints;
+  hearts::scoreHand(moon);
+  CHECK(moon.lastHand.moon);
+  {
+    Rendered score;
+    toybox::Frame frame(score.target, ctx, noInput, score.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::ScoreModel model;
+    model.game = &moon;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].isMe = s == 0;
+    }
+    heartsui::buildScore(screen, model);
+    CHECK(score.target.drew("WEST SHOT THE MOON"));
+  }
+}
+
+void heartsMenuFillsItsPanel() {
+  const fui::DeviceContext ctx = heartsDevice();
+  const fui::InputSnapshot noInput{};
+  Rendered menu;
+  toybox::Frame frame(menu.target, ctx, noInput, menu.interactions);
+  fui::ThemeTokens tokens;
+  toybox::Screen screen = heartsScreen(frame, tokens);
+  heartsui::MenuModel model;
+  model.hasSave = true;
+  model.savedHand = 3;
+  model.gamesPlayed = 7;
+  model.gamesWon = 2;
+  model.bestPlace = 1;
+  model.sharp = true;
+  heartsui::buildMenu(screen, model);
+  CHECK(menu.target.drew("HEARTS"));
+  CHECK(menu.target.drew("TABLE WAITING"));
+  CHECK(menu.target.drew("RESUME"));
+  CHECK(menu.target.drew("TABLE: SHARP"));
+  CHECK(!menu.interactions.overflowed());
+  CHECK(bandRectOf(menu.target).height == heartsui::kHeaderBand);
+}
+
 // --- Solitaire ------------------------------------------------------------
 //
 // The one app the ui suite COMPILED and never rendered. That is not a gap in
@@ -12920,6 +13173,10 @@ void testWikipediaInstallSaysTheAddressFirst() {
 }
 
 int main() {
+  heartsDrawsNothingOnTopOfAnythingElse();
+  heartsPassOwnsTheTable();
+  heartsScoreSaysWhatHappened();
+  heartsMenuFillsItsPanel();
   testWallpapersGridHasTwoColumns();
   testWallpapersCellsStayOnScreen();
   testWallpapersCellHitTestMatchesDraw();

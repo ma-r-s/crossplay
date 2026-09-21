@@ -82,6 +82,7 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/solitaire/SolitaireScreens.cpp \
   ../../src/apps_local/cards/CardArt.cpp \
   ../../src/apps_local/hearts/HeartsCore.cpp \
+  ../../src/apps_local/hearts/HeartsBrain.cpp \
   ../../src/apps_local/hearts/HeartsScreens.cpp \
   ../../src/apps_local/yahtzee/YahtzeeScreens.cpp \
   ../../src/apps_local/wikipedia/WikipediaScreens.cpp \

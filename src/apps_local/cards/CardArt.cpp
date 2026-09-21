@@ -69,8 +69,8 @@ void drawCardFace(toybox::Screen& screen, const fui::Rect& rect, const uint8_t c
   // this panel: GfxRendererTarget::text() decides ink with
   // `style.color != Color::White`, so a DarkGray label draws solid black and
   // the dimming silently does nothing.
-  target.fill(rect, ink == Ink::Dimmed ? fui::Paint::dither(fui::Color::DarkGray)
-                                       : fui::Paint::solid(fui::Color::White),
+  target.fill(rect,
+              ink == Ink::Dimmed ? fui::Paint::dither(fui::Color::DarkGray) : fui::Paint::solid(fui::Color::White),
               kRadius);
   target.stroke(rect, black, ink == Ink::Picked ? kEdge * 2 : kEdge, kRadius);
 
@@ -122,7 +122,9 @@ void drawCardBack(toybox::Screen& screen, const fui::Rect& rect, const int visib
   // the 46px art gets the 18px art rather than a squashed one. A menu drawing
   // 48x64 cards with a 46px mark on them is a spade with a card behind it.
   const int mark = (rect.width >= 72 && rect.height >= 96) ? 46 : 18;
-  const int pad = mark / 4;
+  // 5 at the full size is Klondike's own number, kept exactly so migrating it
+  // onto this file changes no pixel of a game that already shipped.
+  const int pad = mark == 46 ? 5 : 4;
   const fui::Rect halo = fui::makeRect(rect.x + (rect.width - mark) / 2 - pad, rect.y + (rect.height - mark) / 2 - pad,
                                        mark + pad * 2, mark + pad * 2);
   target.fill(halo, fui::Paint::solid(fui::Color::White), 6);

@@ -18,12 +18,31 @@
 
 #include <cstdint>
 
+#include "../cards/Cards.h"
+
 namespace solitaire {
 
-constexpr uint8_t kNoCard = 0xFF;
-constexpr int kRanks = 13;
-constexpr int kSuits = 4;
-constexpr int kDeck = kRanks * kSuits;
+// THE DECK IS cards/Cards.h, and these names are what it used to be called.
+//
+// The encoding was written here and moved out verbatim when Hearts became the
+// second game to deal from a standard 52. Aliases rather than a rename because
+// this game is shipped and soaked by 536,697 assertions: every one of them, and
+// every line of its rules, goes on saying `solitaire::Suit` and meaning exactly
+// what it always did. What changes is that there is now ONE Suit in the fork,
+// so a card drawn by the shared card face is the same type as a card compared
+// by these rules.
+using cards::faceDown;
+using cards::faceUp;
+using cards::isFaceUp;
+using cards::isRed;
+using cards::kDeck;
+using cards::kNoCard;
+using cards::kRanks;
+using cards::kSuits;
+using cards::makeCard;
+using cards::rankOf;
+using cards::Suit;
+using cards::suitOf;
 
 constexpr int kTableauPiles = 7;
 constexpr int kFoundationPiles = 4;
@@ -39,25 +58,6 @@ constexpr int kPileCount = kFirstTableau + kTableauPiles;           // 13
 // A tableau pile tops out at six face-down cards plus a full king-to-ace run,
 // and the stock starts at twenty-four. One size fits every pile.
 constexpr int kPileCapacity = 24;
-
-enum class Suit : uint8_t { Clubs = 0, Diamonds = 1, Spades = 2, Hearts = 3 };
-
-inline uint8_t makeCard(const Suit suit, const int rank) {
-  return static_cast<uint8_t>((static_cast<int>(suit) << 4) | rank);
-}
-inline int rankOf(const uint8_t card) { return card & 0x0F; }
-inline Suit suitOf(const uint8_t card) { return static_cast<Suit>((card >> 4) & 0x03); }
-inline bool isFaceUp(const uint8_t card) { return (card & 0x80) != 0; }
-inline uint8_t faceUp(const uint8_t card) { return static_cast<uint8_t>(card | 0x80); }
-inline uint8_t faceDown(const uint8_t card) { return static_cast<uint8_t>(card & 0x7F); }
-
-// Diamonds and hearts are the red suits. On a one-bit panel this decides
-// outline versus solid rather than colour, but the rule it drives -- tableau
-// runs alternate colour -- is the same rule.
-inline bool isRed(const uint8_t card) {
-  const Suit suit = suitOf(card);
-  return suit == Suit::Diamonds || suit == Suit::Hearts;
-}
 
 struct Pile {
   uint8_t cards[kPileCapacity] = {};
