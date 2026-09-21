@@ -467,6 +467,7 @@ void heartsRules() {
     heartsui::HowToModel model;
     model.page = page;
     heartsui::buildHowTo(screen, model);
+    expectNothingCut(rules, paint.target, "rules");
     expectAtCut(rules, paint.target, heartsui::howToTitle(page), toybox::kDisplayFont);
     for (int line = 0; line < heartsui::howToLines(page); ++line) {
       expectAtCut(rules, paint.target, heartsui::howToLine(page, line), toybox::kUiFont);
@@ -520,8 +521,11 @@ void heartsStatusLines() {
     for (int s = 0; s < hearts::kSeats; ++s) {
       model.seats[s].name = kNames[s];
       model.seats[s].initial = kNames[s][0];
-      model.seats[s].total = 88;
-      model.seats[s].taken = 13;
+      // THE WIDEST NUMBER THE PLAQUE CAN EVER SHOW. It draws total + taken, so
+      // a seat on 99 that takes all 26 projects 125: three digits, which is
+      // what the column has to hold and what it did not.
+      model.seats[s].total = 99;
+      model.seats[s].taken = hearts::kMoonPoints;
       model.legal[s] = true;
     }
     model.status = main;
@@ -534,6 +538,14 @@ void heartsStatusLines() {
     // rail rendered three at cap 50 and NORTH at 26 when they were fitted
     // independently.
     for (int s = 0; s < hearts::kSeats; ++s) expectAtCut(status, paint.target, kNames[s], toybox::kUiFont);
+    // AND EVERYTHING ELSE THE BOARD DREW. This tally was an explicit list of
+    // six strings while the score and menu had been generalised, so the seat
+    // plaques' running totals were in no corpus anywhere -- and that is exactly
+    // where the next defect landed: 114 rendered as "1" on the largest number
+    // on the board, for the whole last hand of every game. The same complement
+    // that put the status-line defect and the three fittedLabel strings outside
+    // their own suites, one screen over.
+    expectNothingCut(status, paint.target, "board");
   }
   report(status);
 }

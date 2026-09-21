@@ -127,9 +127,20 @@ void seatPlaque(toybox::Screen& screen, const fui::Rect& box, const SeatView& se
   // seat name fits at the shared cut, which is what keeps them a set. The width
   // is derived from what the numbers leave, so widening the rail widens the name
   // rather than opening a gap nobody notices.
+  // THREE DIGITS, because the last hand of every game has some of them.
+  //
+  // This was 42, which holds two: one digit is 16px at the UI cut and two are
+  // 36, so 114 needed ~56 and the renderer cut it to "1...". Not an edge case
+  // but the guaranteed end state -- the plaque shows the PROJECTED total and
+  // the game runs to 100, so in the final hand at least one seat crosses it
+  // mid-play and stays there until the hand scores. A tester watched the
+  // board's largest number read "1" for twenty-two seconds.
+  //
+  // The ceiling is real and small: a seat on 99 that takes all 26 reaches 125,
+  // so three digits is the most this can ever need.
   const int16_t pad = 12;
   const int16_t pillW = 40;
-  const int16_t totalW = 42;
+  const int16_t totalW = 60;
   const int16_t numbersW = static_cast<int16_t>(pillW + 8 + totalW + pad);
   label(screen, fui::makeRect(box.x + pad, box.y, static_cast<int16_t>(box.width - pad - numbersW), box.height),
         seat.name, toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Left, invert);
@@ -419,7 +430,11 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   // seat a cut and the rail rendered three names at cap 50 and one at 26. Four
   // plaques in a column are the definitive pair, and a pair sized per string
   // stops being a pair.
-  const int16_t railW = 244;
+  // The name box is what the numbers leave, so widening the total column eats
+  // into it: at 244 with a 60px total, "NORTH" (118px) no longer fits its 112.
+  // The rail carries the extra rather than the name losing its cut, and the
+  // table panel has 108px of margin either side of the diamond to give.
+  const int16_t railW = 264;
   // Four of these plus their gaps have to fit the panel, which the gutter above
   // made 14px shorter. 54 did not, and a rail that overflows is four plaques
   // walking off the bottom of the screen.
