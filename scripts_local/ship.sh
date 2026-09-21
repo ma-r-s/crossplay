@@ -409,8 +409,13 @@ if [ "$DRY" = 0 ] && [ "$TAG" != "v$BUILT" ]; then
     installs it still being offered the same update. Nothing published."
 fi
 
-run "git tag '$TAG'"
-run "git push -q origin '$TAG'"
+# THE TAG IS PUSHED AFTER PACKAGING, down in `publish`. It used to be
+# pushed here, which put it before every check that can still refuse: the
+# eight-file handover, the three magic numbers, and the probe that reads the
+# version out of the firmware. A packaging failure then left a pushed tag
+# with no release against it -- a version in the history that never shipped,
+# and a delete-and-retag to clear. Nothing between here and there moves HEAD,
+# so the tag still lands on this commit.
 
 # ----------------------------------------------------------------- package
 #
@@ -523,6 +528,13 @@ fi
 # 1,319 of CrossPoint's commits as what is new in CrossPlay. The body is
 # docs/release-body.md, which release_notes.py just wrote.
 step "publish"
+
+# Everything that can refuse has refused by now: the handover matched HEAD,
+# all eight files were present, the three magic numbers checked out, and both
+# images reported $NEXT. This is the first irreversible step.
+run "git tag '$TAG'"
+run "git push -q origin '$TAG'"
+
 run "gh release create '$TAG' --repo ma-r-s/crossplay \
     --title 'CrossPlay $NEXT' \
     --notes-file docs/release-body.md \
