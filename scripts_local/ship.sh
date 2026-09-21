@@ -209,17 +209,35 @@ for env_name in gh_release_x4pro gh_release_sticky; do
 done
 
 TAG="v${NEXT:-0.0.0}"
-for pair in "x4pro:gh_release_x4pro:firmware.bin" "sticky:gh_release_sticky:firmware-sticky.bin"; do
-  label="${pair%%:*}"; rest="${pair#*:}"; env_name="${rest%%:*}"; plain="${rest#*:}"
-  run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
-      -o '$DIST/crossplay-$TAG-$label-full.bin' \
-      -fm keep -fs keep -ff keep \
-      0x0     .pio/build/$env_name/bootloader.bin \
-      0x8000  .pio/build/$env_name/partitions.bin \
-      0x10000 .pio/build/$env_name/firmware.bin"
-  run "cp .pio/build/$env_name/firmware.bin '$DIST/$plain'"
-  run "cp .pio/build/$env_name/firmware.elf '$DIST/crossplay-$TAG-$label.elf'"
-done
+
+# BOTH BOARDS SPELLED OUT, and that is deliberate rather than lazy. A loop
+# over the two envs reads better and hides the two things worth reading: the
+# offsets the S3 boot ROM expects, and which env each artefact came from.
+# crossplay-release.yml spelled them out for the same reason, and a comment in
+# it records why -- gh_release_x4pro and gh_release_sticky were appended to
+# one hardcoded list once and the release published the wrong pair. Anything
+# auditing this (host-tests/ship) can then read the offsets rather than
+# re-derive them from a loop variable.
+run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
+    -o '$DIST/crossplay-$TAG-x4pro-full.bin' \
+    -fm keep -fs keep -ff keep \
+    0x0     .pio/build/gh_release_x4pro/bootloader.bin \
+    0x8000  .pio/build/gh_release_x4pro/partitions.bin \
+    0x10000 .pio/build/gh_release_x4pro/firmware.bin"
+# The OTA updater matches this literal name and nothing else
+# (ReleaseJsonParser.cpp). It is the x4pro image, unmerged, under the plain
+# name; v1.0.1 renamed it and every device went quiet about updates.
+run "cp .pio/build/gh_release_x4pro/firmware.bin '$DIST/firmware.bin'"
+run "cp .pio/build/gh_release_x4pro/firmware.elf '$DIST/crossplay-$TAG-x4pro.elf'"
+
+run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
+    -o '$DIST/crossplay-$TAG-sticky-full.bin' \
+    -fm keep -fs keep -ff keep \
+    0x0     .pio/build/gh_release_sticky/bootloader.bin \
+    0x8000  .pio/build/gh_release_sticky/partitions.bin \
+    0x10000 .pio/build/gh_release_sticky/firmware.bin"
+run "cp .pio/build/gh_release_sticky/firmware.bin '$DIST/firmware-sticky.bin'"
+run "cp .pio/build/gh_release_sticky/firmware.elf '$DIST/crossplay-$TAG-sticky.elf'"
 
 # A merged image that is not actually merged is indistinguishable from the app
 # image it replaces until somebody bricks a device with it. Check the three
