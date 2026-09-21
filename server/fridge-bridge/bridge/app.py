@@ -1,0 +1,242 @@
+"""fridge.ma-r-s.com -- Live.
+
+Somebody draws a note on their phone; a reader asleep on a fridge in another
+country shows it in the morning. This service is the only thing between them.
+
+THE READER IS ASLEEP AND UNREACHABLE. Nothing here ever pushes, polls or opens
+a connection to a device: deep sleep drops the radio and the USB, so a sleeping
+reader cannot be asked anything at all. It wakes on its own schedule, makes one
+request, and goes back down. Everything this service knows about a reader it
+learned the last time the reader spoke.
+
+ONE ROUND TRIP PER WAKE. /api/pull answers "is there anything new" and "when
+should I wake next" together, and answers 304 when the answer is no. A wake
+that finds nothing spends a few kilobytes and no SD write and no repaint.
+
+Host must be exactly one label below the apex: Cloudflare's Universal SSL on
+the free plan covers ma-r-s.com and *.ma-r-s.com and nothing deeper, and the
+reader's baked root bundle carries the chain that edge serves.
+"""
+
+import os
+import time
+
+from fastapi import Cookie, FastAPI, Header, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+
+from . import store
+from .pairing import Pairings, token_hash
+from .ratelimit import Window
+
+app = FastAPI(title="Live", docs_url=None, redoc_url=None, openapi_url=None)
+PAIRINGS = Pairings()
+
+# Copied in spirit from read-bridge's table. The claim limits are the ones that
+# matter here: a six-digit code is a million, so the caps are what makes
+# guessing hopeless rather than the size of the space.
+CLAIM_IP = Window(10, 300)
+CLAIM_GLOBAL = Window(120, 60)
+PAIR_IP = Window(10, 300)
+PULL_DEVICE = Window(30, 300)
+POST_SENDER = Window(60, 300)
+
+
+def client_ip(request: Request) -> str:
+    # Behind Cloudflare and cloudflared, so the first hop is always local.
+    fwd = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "")
+    return fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
+
+
+def refused(reason: str, code: int = 429) -> JSONResponse:
+    # One sentence, ready to show. The reader must never invent its own wording
+    # for a decision this service made (see BridgeHttp.h).
+    return JSONResponse({"error": reason}, status_code=code)
+
+
+@app.get("/healthz")
+def healthz() -> PlainTextResponse:
+    return PlainTextResponse("ok")
+
+
+# ---------------------------------------------------------------- the reader
+
+
+@app.post("/api/pair/start")
+def pair_start(request: Request) -> JSONResponse:
+    if not PAIR_IP.allow(client_ip(request)):
+        return refused("Too many attempts from this address. Try again in a few minutes.")
+    # The fridge and its device token are made HERE, not when somebody claims
+    # the code. The browser is handed its cookie the moment it claims, and a
+    # fridge that did not exist yet would make the page say it is not
+    # connected until the reader next spoke -- which for a sleeping reader is
+    # hours.
+    import secrets
+
+    fridge_id = store.new_fridge_id()
+    device_token = secrets.token_urlsafe(32)
+    fridge = store.Fridge(fridge_id)
+    fridge.create(token_hash(device_token))
+    store.index_token(device_token, fridge_id)
+    return JSONResponse(PAIRINGS.start(fridge_id, device_token))
+
+
+@app.get("/api/pair/poll")
+def pair_poll(pollToken: str = "") -> JSONResponse:
+    got = PAIRINGS.poll(pollToken)
+    if got is None:
+        return JSONResponse({"paired": False})
+    return JSONResponse({"paired": True, "deviceToken": got["device_token"], "fridgeId": got["fridge_id"]})
+
+
+@app.post("/api/pair/abandon")
+def pair_abandon(pollToken: str = "") -> JSONResponse:
+    PAIRINGS.abandon(pollToken)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/pull")
+def pull(
+    request: Request,
+    authorization: str = Header(default=""),
+    if_none_match: str = Header(default="", alias="If-None-Match"),
+) -> Response:
+    """The only request a sleeping reader ever makes.
+
+    304 means nothing changed: read the next-wake header and go back to sleep
+    without touching the card or the panel. 200 carries the image.
+    """
+    token = authorization.removeprefix("Bearer ").strip()
+    fridge = store.fridge_for_device(token) if token else None
+    if fridge is None or not fridge.exists():
+        return refused("This reader is not connected to anything.", 401)
+    if not PULL_DEVICE.allow(fridge.id):
+        return refused("Too many checks. Slow down.", 429)
+
+    fridge.touch_checkin()
+    state = fridge.load()
+    interval = int(state.get("interval_s", store.DEFAULT_INTERVAL_S))
+    image_id = state.get("image_id")
+
+    headers = {
+        # Seconds, not a wall-clock time: the reader arms a relative timer and
+        # has no trustworthy clock of its own to convert one against.
+        "X-Next-Wake": str(interval),
+        "X-Server-Time": str(int(time.time())),
+        "Cache-Control": "no-store",
+    }
+    if image_id is None:
+        # Nothing has ever been sent. Not an error: the reader keeps whatever
+        # is on the glass and asks again later.
+        return Response(status_code=204, headers=headers)
+    if if_none_match.strip('"') == image_id:
+        return Response(status_code=304, headers=headers)
+    payload = fridge.read_image()
+    if payload is None:
+        return Response(status_code=204, headers=headers)
+    headers["ETag"] = f'"{image_id}"'
+    return Response(content=payload, media_type="image/bmp", headers=headers)
+
+
+# --------------------------------------------------------------- the browser
+
+
+@app.post("/api/claim")
+async def claim(request: Request) -> JSONResponse:
+    ip = client_ip(request)
+    if not CLAIM_IP.allow(ip) or not CLAIM_GLOBAL.allow("*"):
+        return refused("Too many attempts. Try again in a few minutes.")
+    body = await request.json()
+    got = PAIRINGS.claim(str(body.get("code", "")))
+    if got is None:
+        return refused("That code did not work. Check the reader's screen.", 404)
+    fridge = store.Fridge(got["fridge_id"])
+    store.index_token(got["sender_token"], fridge.id)
+    s = fridge.load()
+    s.setdefault("senders", []).append(
+        {"name": "A phone", "paired_at": int(time.time()), "token_hash": token_hash(got["sender_token"])}
+    )
+    fridge.save(s)
+    resp = JSONResponse({"ok": True, "fridgeId": got["fridge_id"]})
+    # Secure follows the scheme the request actually arrived on rather than
+    # being hardcoded. In production that is always https (Cloudflare
+    # terminates and cloudflared forwards the header), so this is Secure where
+    # it matters. Hardcoding it broke the only environment where it is not:
+    # a browser silently DROPS a Secure cookie from an http origin, so the
+    # claim returned 200, the page believed it had connected, and every later
+    # request arrived with no cookie at all. No error anywhere.
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    resp.set_cookie(
+        "live_sender",
+        got["sender_token"],
+        max_age=400 * 86400,
+        httponly=True,
+        samesite="lax",
+        secure=(proto == "https"),
+    )
+    return resp
+
+
+def _sender_fridge(live_sender: str | None) -> store.Fridge | None:
+    return store.fridge_for_sender(live_sender) if live_sender else None
+
+
+@app.get("/api/state")
+def state(live_sender: str = Cookie(default=None)) -> JSONResponse:
+    fridge = _sender_fridge(live_sender)
+    if fridge is None or not fridge.exists():
+        return JSONResponse({"connected": False})
+    s = fridge.load()
+    return JSONResponse(
+        {
+            "connected": True,
+            "lastCheckin": s.get("last_checkin", 0),
+            "intervalSeconds": s.get("interval_s", store.DEFAULT_INTERVAL_S),
+            "nextExpected": fridge.next_expected(),
+            "imageId": s.get("image_id"),
+            "imageSetAt": s.get("image_set_at", 0),
+            "senders": len(s.get("senders", [])),
+        }
+    )
+
+
+@app.put("/api/image")
+async def put_image(request: Request, live_sender: str = Cookie(default=None)) -> JSONResponse:
+    fridge = _sender_fridge(live_sender)
+    if fridge is None or not fridge.exists():
+        return refused("This browser is not connected to a reader.", 401)
+    if not POST_SENDER.allow(fridge.id):
+        return refused("Too many pictures at once. Try again shortly.")
+    payload = await request.body()
+    if len(payload) not in store.IMAGE_SIZES:
+        # Bounded before anything is written. A wrong-sized file that still
+        # parses is drawn half-rendered on the reader forever.
+        expected = " or ".join(str(n) for n in store.IMAGE_SIZES)
+        return refused(f"That is not a reader picture ({len(payload)} bytes, expected {expected}).", 400)
+    image_id = fridge.set_image(payload)
+    return JSONResponse({"ok": True, "imageId": image_id, "nextExpected": fridge.next_expected()})
+
+
+@app.put("/api/interval")
+async def put_interval(request: Request, live_sender: str = Cookie(default=None)) -> JSONResponse:
+    fridge = _sender_fridge(live_sender)
+    if fridge is None or not fridge.exists():
+        return refused("This browser is not connected to a reader.", 401)
+    body = await request.json()
+    try:
+        seconds = int(body.get("seconds", 0))
+    except (TypeError, ValueError):
+        seconds = 0
+    if not store.MIN_INTERVAL_S <= seconds <= store.MAX_INTERVAL_S:
+        return refused("Pick a interval between fifteen minutes and a week.", 400)
+    s = fridge.load()
+    s["interval_s"] = seconds
+    fridge.save(s)
+    return JSONResponse({"ok": True, "nextExpected": fridge.next_expected()})
+
+
+# The page lives on the same host as the API on purpose: one name to remember,
+# one certificate, and no CORS between the thing you draw on and the thing that
+# stores it.
+STATIC = os.path.join(os.path.dirname(__file__), "..", "static")
+app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
