@@ -66,8 +66,20 @@ is quantified:
   on/off state and ran BEFORE the switch on the wake reason, so every scheduled
   check lit the panel for the length of a radio join whether or not it found
   anything. The light is now brought up dark and turned on, if at all, only
-  after that switch, and only for a boot `util/WakeLightPolicy.h` calls
-  attended. `host-tests/wakelight` holds both halves of the rule.
+  after that switch, and only for a boot `util/WakePolicy.h` calls
+  attended. `host-tests/wakepolicy` holds both halves of the rule.
+
+  The light was only the half that could be named from across a room. The
+  same wake also booted the whole reader whenever it found a picture:
+  `isSleepWake` is PowerButton-only, so a timer wake fell to
+  `BootResume::Splash` and drew the CrossPlay splash, then Home or whatever
+  book was last open, and only then the picture. Three full e-ink repaints
+  and an EPUB load where one repaint is meant. An unattended boot now takes
+  its own exit straight after the wake switch: display and fonts up, sleep
+  screen repainted, back down. It captures no state on the way -- the book
+  that was open, the app the shelf must reopen, the Quick Resume frame all
+  belong to the user's own sleep and would otherwise be overwritten with the
+  empty answers of a boot that never created an activity.
 
 A plausible floor spans ~150 uA to ~1.5 mA, and the frontlight owns almost all
 of that spread. At 150 uA a fridge lasts most of a year; at 1.5 mA it lasts a

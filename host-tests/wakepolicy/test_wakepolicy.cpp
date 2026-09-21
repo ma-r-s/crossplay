@@ -20,7 +20,7 @@
 #include <cstdio>
 #include <initializer_list>
 
-#include "../../src/util/WakeLightPolicy.h"
+#include "../../src/util/WakePolicy.h"
 
 static int failures = 0;
 // Counted because check.sh reads sub-suites with `grep -c "checks, 0 failed"`:
@@ -36,9 +36,9 @@ static void check(const bool ok, const char* what) {
   }
 }
 
-using wakelight::Boot;
-using wakelight::restoreFrontlight;
-using wakelight::Saved;
+using wakepolicy::Boot;
+using wakepolicy::restoreFrontlight;
+using wakepolicy::Saved;
 
 // The four settings combinations a user can actually be in. silentRebootLightOn
 // is not one of them: it is the live state captured at a restart, so it is
@@ -95,15 +95,40 @@ static void testSilentRestartReplaysLiveState() {
         "silent restart: light was live-off -> stays dark, against both settings");
 }
 
+// The other half of the same rule, and the other half of the same complaint.
+// A refresh that found a drawing used to boot the whole reader to put it on the
+// glass: splash, then home or whatever book was open, then the drawing. On
+// e-ink those are full visible repaints, so a picture arriving at 3am
+// announced itself with a startup screen.
+//
+// Asserted in both directions for the same reason as the light: a build that
+// never presents a UI is not a fixed reader, it is a brick.
+static void testOnlyAnAttendedBootShowsAnything() {
+  check(!presentsUi(Boot::Unattended), "unattended wake: no splash, no home, no book");
+  check(presentsUi(Boot::User), "user wake: the UI comes up as it always has");
+  check(presentsUi(Boot::Silent), "silent restart: the UI comes up, the user is still holding the device");
+}
+
+// The two halves must never disagree about who is in the room. Lighting a
+// panel nobody is shown, or showing a UI in the dark, are both incoherent.
+static void testTheTwoHalvesAgree() {
+  const Saved lit = {/*lightOn=*/true, /*restoreOnWake=*/true, /*silentRebootLightOn=*/true};
+  for (const Boot boot : {Boot::User, Boot::Silent, Boot::Unattended}) {
+    check(!restoreFrontlight(boot, lit) || presentsUi(boot), "a boot that lights the panel also shows something");
+  }
+}
+
 int main() {
   testTheReportedCase();
   testUnattendedIsAlwaysDark();
   testUserWakeIsUnchanged();
   testSilentRestartReplaysLiveState();
+  testOnlyAnAttendedBootShowsAnything();
+  testTheTwoHalvesAgree();
   if (failures != 0) {
-    std::printf("wakelight: %d checks, %d failed\n", checks, failures);
+    std::printf("wakepolicy: %d checks, %d failed\n", checks, failures);
     return 1;
   }
-  std::printf("wakelight: %d checks, 0 failed\n", checks);
+  std::printf("wakepolicy: %d checks, 0 failed\n", checks);
   return 0;
 }

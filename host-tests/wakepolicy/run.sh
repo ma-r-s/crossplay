@@ -1,11 +1,11 @@
 #!/bin/sh
 # Which boots may light the frontlight.
 #
-#   host-tests/wakelight/run.sh
+#   host-tests/wakepolicy/run.sh
 #
 # Two halves, and neither is worth anything alone:
 #
-#   test_wakelight  walks the policy itself, in both directions, so "never
+#   test_wakepolicy  walks the policy itself, in both directions, so "never
 #                   light anything" is as red as "always light it".
 #   the source check below wires that policy to the only place it can matter.
 #                   A pure function nobody calls compiles, passes and ships the
@@ -14,12 +14,12 @@
 #                   exactly the line a later edit would put back.
 set -e
 cd "$(dirname "$0")"
-BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-wakelight-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
+BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-wakepolicy-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 
-"${CXX:-c++}" -std=c++17 -O1 -Wall -Wextra -Werror \
-  test_wakelight.cpp -o "$BUILD_DIR/test_wakelight"
-"$BUILD_DIR/test_wakelight"
+"${CXX:-c++}" -std=c++20 -O1 -Wall -Wextra -Werror \
+  test_wakepolicy.cpp -o "$BUILD_DIR/test_wakepolicy"
+"$BUILD_DIR/test_wakepolicy"
 
 # The wiring. Everything asserted here is about src/main.cpp's boot path, which
 # no host suite can link: it pulls in the display, the SD card, the radio and
@@ -54,9 +54,9 @@ def line_of(pattern):
 
 # 1. The policy is the thing main.cpp actually asks. A header nobody includes
 #    is a tested opinion with no effect on the device.
-check("util/WakeLightPolicy.h" in src, "main.cpp includes util/WakeLightPolicy.h")
-call = line_of(r"wakelight::restoreFrontlight\s*\(")
-check(call is not None, "main.cpp calls wakelight::restoreFrontlight()")
+check("util/WakePolicy.h" in src, "main.cpp includes util/WakePolicy.h")
+call = line_of(r"wakepolicy::restoreFrontlight\s*\(")
+check(call is not None, "main.cpp calls wakepolicy::restoreFrontlight()")
 
 # 2. Frontlight.begin() must not carry the restore decision any more. This is
 #    the literal line the bug was: begin(brightness, warmth, restoreLightOn)
@@ -94,8 +94,48 @@ check(len(lit) == 1, "main.cpp has exactly one unconditional Frontlight.setOn(tr
 if lit and call is not None:
     check(0 <= lit[0] - call <= 3, "that setOn(true) is the body of the restoreFrontlight() check")
 
+# 5. THE CLASSIFICATION ITSELF. Everything above tests how the answer is USED
+#    and none of it tests that the question is ever asked. A cold reviewer
+#    deleted the two lines below from a copy of main.cpp and this suite stayed
+#    green on all nine checks with the reported bug fully restored, because a
+#    policy that is never handed Boot::Unattended returns the old answer for
+#    every boot. These are the checks that would have caught that.
+unattended = [i for i, line in enumerate(lines) if re.search(r"bootKind\s*=\s*wakepolicy::Boot::Unattended", line)]
+check(len(unattended) >= 1, "main.cpp classifies some boot as Boot::Unattended (found %d)" % len(unattended))
+timer_test = any(re.search(r"WakeupReason::Timer", lines[i - 1]) or re.search(r"WakeupReason::Timer", lines[i])
+                 for i in unattended)
+check(timer_test, "one of those classifications is driven by the Timer wake reason")
+
+# 6. The unattended boot draws nothing. presentsUi() is the other half of the
+#    same rule and the same complaint: a refresh that found a picture used to
+#    boot the splash and the reader to put it on the glass.
+ui_call = line_of(r"if\s*\(\s*!\s*wakepolicy::presentsUi\s*\(")
+check(ui_call is not None, "main.cpp guards the boot on !wakepolicy::presentsUi()")
+boot_activity = line_of(r"activityManager\.goToBoot\(\)")
+check(boot_activity is not None, "main.cpp still has a splash to skip")
+if ui_call is not None and boot_activity is not None:
+    check(ui_call < boot_activity, "the presentsUi() exit runs BEFORE anything can draw the splash")
+enter_sleep = [i for i, line in enumerate(lines)
+               if re.search(r"enterDeepSleep\([^)]*/\*unattended=\*/\s*true", line)]
+check(len(enter_sleep) == 1, "the unattended boot leaves through enterDeepSleep(..., unattended) (found %d)"
+      % len(enter_sleep))
+
+# 7. savedLight is built from the real settings, not from constants. A literal
+#    here would make the policy correct and the inputs a lie.
+for field, source in (("lightOn", "SETTINGS.frontlightOn"),
+                      ("restoreOnWake", "SETTINGS.frontlightRestoreOnWake"),
+                      ("silentRebootLightOn", "silentRebootLightOn")):
+    check(re.search(r"\.%s\s*=\s*%s\b" % (field, re.escape(source)), src) is not None,
+          "savedLight.%s comes from %s" % (field, source))
+
+# 8. startDeepSleepArmed is [[noreturn]], which is what makes "a boot that
+#    sleeps again cannot reach the light" a compiler-enforced fact rather than
+#    a paragraph. Every sleeping branch ends in it with a `break;` after.
+check(re.search(r"CROSSPLAY_SLEEP_NORETURN\s+static void startDeepSleepArmed", src) is not None,
+      "startDeepSleepArmed carries CROSSPLAY_SLEEP_NORETURN, so the unreachability is compiler-enforced")
+
 for what in failures:
     print("  FAIL %s" % what)
-print("wakelight-source: %d checks, %d failed" % (checks, len(failures)))
+print("wakepolicy-source: %d checks, %d failed" % (checks, len(failures)))
 sys.exit(1 if failures else 0)
 PY

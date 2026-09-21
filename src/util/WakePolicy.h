@@ -16,12 +16,12 @@
 // header because the value of writing it down is that it can be asserted on a
 // laptop: the failure it prevents is a light in a dark room at 4am and a
 // battery gone in weeks, neither of which any build, suite or screenshot can
-// see. host-tests/wakelight walks every case.
+// see. host-tests/wakepolicy walks every case.
 //
 // No Arduino, HAL or SDK include belongs here, and none is needed: the inputs
 // are three booleans and a reason.
 
-namespace wakelight {
+namespace wakepolicy {
 
 // Why setup() is running, as far as the light is concerned. Not the HAL's
 // WakeupReason: that enum names the electrical cause, and the simulator's own
@@ -73,4 +73,20 @@ constexpr bool restoreFrontlight(const Boot boot, const Saved& saved) {
   return false;
 }
 
-}  // namespace wakelight
+// May this boot put a user interface on the glass: the splash, the home screen,
+// the book that was open.
+//
+// The same rule as the light, and it is the same complaint. The light was only
+// the half Mario could name. A refresh that found a drawing used to boot the
+// whole reader to draw it -- splash, then home or whatever book was open, then
+// the drawing -- and on e-ink each of those is a full visible repaint. A
+// picture arriving at 3am announced itself with a startup screen first. Both
+// halves are setup() doing something because a person is presumably there,
+// when for this one caller there is not.
+//
+// What an unattended boot may still do is bring up the display and the fonts
+// and repaint the sleep screen, because that is the image the panel is meant
+// to be showing anyway. What it may not do is answer questions nobody asked.
+constexpr bool presentsUi(const Boot boot) { return boot != Boot::Unattended; }
+
+}  // namespace wakepolicy
