@@ -101,10 +101,23 @@ class Fridge:
 
     def create(self, device_token_hash: str) -> dict:
         state = {
+            # WHEN THE READER WAS SYNCED, and the anchor the first countdown is
+            # measured from. A fridge is made by /api/pair/start, which is the
+            # reader showing its code, so this is within a minute of the moment
+            # somebody finished pairing -- and a reader that pairs again gets a
+            # NEW fridge with a new stamp, so re-pairing re-anchors by
+            # construction rather than by a migration.
             "created": int(time.time()),
             "device_token_hash": device_token_hash,
             "interval_s": DEFAULT_INTERVAL_S,
             "last_checkin": 0,
+            # WHAT THE READER SAID ITS OWN ALARM IS, converted to this clock
+            # when it said it. 0 until it has spoken once.
+            "next_wake": 0,
+            # Pairing turns Live on at the reader, so a fridge starts on. It
+            # goes false when the reader says so (POST /api/off) and true again
+            # on the check-in that follows switching it back on.
+            "live_on": True,
             "image_id": None,
             "image_set_at": 0,
             "senders": [],
@@ -135,23 +148,71 @@ class Fridge:
         except OSError:
             return None
 
-    def touch_checkin(self) -> None:
+    def touch_checkin(self, wake_in: int, live_on: bool) -> None:
+        """The reader spoke, and said when it will be back.
+
+        `wake_in` is SECONDS FROM NOW, converted here to this service's clock.
+        Never an absolute time from the reader: its only clock comes from
+        X-Server-Time, and a device whose battery went flat comes back at the
+        epoch, so a timestamp it sent would be a number from 1970 stored as a
+        fact.
+        """
+        now = int(time.time())
         state = self.load()
-        state["last_checkin"] = int(time.time())
+        state["last_checkin"] = now
+        state["live_on"] = bool(live_on)
+        state["next_wake"] = now + int(wake_in) if live_on and wake_in > 0 else 0
         self.save(state)
 
-    def next_expected(self) -> int:
-        """When the reader is due to look again, as an epoch.
+    def set_live(self, on: bool) -> None:
+        """The reader saying Live was switched off on it.
 
-        The SERVICE owns this number, not the reader: a sleeping device is
-        unreachable by construction, so nothing can ask it. It is an ESTIMATE
-        and the page must say so in words -- the reader's sleep timer runs off
-        an RC oscillator and drifts percent-level, a refresh taken on the way
-        into sleep shifts the schedule until the next check-in, and a wake
-        missed for want of Wi-Fi is invisible until the one after it.
+        Off clears the alarm rather than leaving the last one standing: there
+        is no next check while Live is off, and a countdown to a moment nothing
+        will happen at is exactly the fake number this field exists to avoid.
         """
         state = self.load()
-        return int(state.get("last_checkin", 0)) + int(state.get("interval_s", DEFAULT_INTERVAL_S))
+        state["live_on"] = bool(on)
+        if not on:
+            state["next_wake"] = 0
+        self.save(state)
+
+    def live_on(self) -> bool:
+        return bool(self.load().get("live_on", True))
+
+    def next_expected(self) -> int:
+        """When the reader is due to look again, as an epoch. 0 means never.
+
+        THE READER OWNS THIS NUMBER, not the service. It is the thing holding
+        the timer, so it reports the alarm it is about to arm on every check-in
+        and this is that alarm on this clock. Derived instead from
+        `last_checkin + interval_s`, the figure was wrong every time somebody
+        changed the schedule from the website: the reader was still asleep on
+        its old alarm and the countdown had already jumped to the new one. A
+        stored alarm cannot do that. It moves when the reader says it moved,
+        which is the check-in after it picks the new interval up.
+
+        BEFORE THE FIRST CHECK-IN there is no reported alarm, so the anchor is
+        the pairing instant: `created + interval_s`. That is the one number
+        anybody can know then, and without it the page had nothing at all to
+        show in the minute after pairing, which is the minute somebody watches
+        to find out whether this thing works.
+
+        It is an ESTIMATE either way and both surfaces say so in words: the
+        reader's sleep timer runs off an RC oscillator and drifts
+        percent-level, it only fetches on its way into sleep, and a wake missed
+        for want of Wi-Fi is invisible until the one after it.
+        """
+        state = self.load()
+        if not state.get("live_on", True):
+            return 0
+        wake = int(state.get("next_wake", 0))
+        if wake > 0:
+            return wake
+        anchor = int(state.get("last_checkin", 0)) or int(state.get("created", 0))
+        if anchor <= 0:
+            return 0
+        return anchor + int(state.get("interval_s", DEFAULT_INTERVAL_S))
 
 
 def fridge_for_sender(sender_token: str) -> Fridge | None:
@@ -197,7 +258,13 @@ def add_sender(fridge: "Fridge", token: str, name: str) -> bool:
     senders = state.setdefault("senders", [])
     if len(senders) >= MAX_SENDERS:
         return False
-    senders.append({"name": name[:24] or "A phone", "paired_at": int(time.time()), "token_hash": _hash(token)})
+    senders.append(
+        {
+            "name": name[:24] or "A phone",
+            "paired_at": int(time.time()),
+            "token_hash": _hash(token),
+        }
+    )
     fridge.save(state)
     index_token(token, fridge.id)
     return True

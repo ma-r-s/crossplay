@@ -71,6 +71,10 @@
       <input class="lv-code" id="code" inputmode="numeric" autocomplete="one-time-code"
              maxlength="6" placeholder="000000" aria-label="Six digit code"></label>
     <p class="lv-error" id="codeError" role="status" aria-live="polite"></p>
+    <!-- The service says what went wrong; this says what to do about it. Its
+         own line, because the sentence above is the service's verbatim and
+         nothing here may reword it. -->
+    <p class="lv-gate-fine" id="codeHint" role="status" aria-live="polite"></p>
     <div class="cta-row">
       <button class="btn primary" id="pair" type="button">Connect</button>
     </div>

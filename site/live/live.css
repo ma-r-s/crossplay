@@ -87,6 +87,16 @@
   font-size: 0.85rem;
   color: var(--muted);
 }
+/* The recovery line under a refusal, and it RESERVES ITS ROOM the way the error
+   line above it does. It is two or three lines when it has words and nothing
+   when it does not, so without this, reading the refusal walks the Connect
+   button down the page and out from under the thumb already travelling to it --
+   which is the exact thing .lv-error's min-height was added to prevent, one
+   element lower. */
+#codeHint {
+  min-height: 2.6em;
+  margin-top: 0.4rem;
+}
 
 /* --- when they will see it ----------------------------------------------
  * The first thing anybody came to find out, so it is the biggest thing on the

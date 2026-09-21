@@ -169,7 +169,25 @@ int pairPoll(const std::string& pollToken, std::string& deviceToken, std::string
   return 1;
 }
 
-bool pull(const std::string& deviceToken, const std::string& knownEtag, const char* destPath, PullResult& out) {
+bool reportOff(const std::string& deviceToken, std::string& message) {
+  std::string response;
+  const int status = bridge::request(kEndpoint, "POST", "/api/off", deviceToken, nullptr, 0, response, message);
+  if (status == 200) {
+    LOG_INF("LIVE", "told Live this reader is off");
+    return true;
+  }
+  // Logged and returned, never escalated. The caller has already written the
+  // toggle to the card; this call is a courtesy to the website and the page
+  // has an answer for its absence.
+  if (status != 0 && !bridge::takeServerError(response, message)) {
+    message = "Live did not answer, so the website will not know for a while.";
+  }
+  LOG_ERR("LIVE", "could not tell Live this reader is off: %d", status);
+  return false;
+}
+
+bool pull(const std::string& deviceToken, const std::string& knownEtag, const bool liveOn, const char* destPath,
+          PullResult& out) {
   out = PullResult{};
 
   bridge::Headers headers;
@@ -177,6 +195,10 @@ bool pull(const std::string& deviceToken, const std::string& knownEtag, const ch
   // have, and an empty one would be a header asserting a value it does not
   // hold.
   if (!knownEtag.empty()) headers.add("If-None-Match", "\"" + knownEtag + "\"");
+  // THE ONE FACT ONLY THE READER HAS, on the same request as the question: the
+  // service cannot ask a sleeping device anything, and a call of its own would
+  // double the round trips a wake costs.
+  headers.add("X-Live-On", liveOn ? "1" : "0");
   headers.collect("ETag");
   headers.collect("X-Next-Wake");
   headers.collect("X-Server-Time");

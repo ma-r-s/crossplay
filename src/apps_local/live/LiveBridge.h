@@ -100,7 +100,32 @@ bool revokeSender(const std::string& deviceToken, const std::string& id, int& re
 // is the normal answer for as long as somebody is walking to a phone.
 int pairPoll(const std::string& pollToken, std::string& deviceToken, std::string& fridgeId, std::string& message);
 
+// POST /api/off: Live was switched off on this reader.
+//
+// FIRE AND FORGET, and the caller is expected to treat it that way. The whole
+// value is that the website can say "off on the reader" instead of guessing
+// from silence -- and silence already means a flat battery, a router that
+// moved, or a reader carried to another house, none of which this service can
+// tell apart. If the call does not get out, the fridge simply goes quiet and
+// the page falls back to the deadline passing, which is the same answer it
+// gives a device whose battery died. Nothing is at risk either way: the toggle
+// is already written to the card before this is attempted.
+bool reportOff(const std::string& deviceToken, std::string& message);
+
 // GET /api/pull with the bearer token and, when we have one, If-None-Match.
+//
+// `liveOn` goes out as X-Live-On, on this request rather than in a call of its
+// own because a wake is one round trip by design. It is the one fact about the
+// schedule only the device has: the service can work out WHEN the next check
+// is (it is the interval in its own reply), but not whether somebody has
+// switched Live off since the last one.
+//
+// The reader deliberately does NOT report its own alarm. It cannot: the
+// headers are composed before the reply is read, and a pull the reader gets an
+// answer to clears its failures and makes it adopt the interval in that reply,
+// so any figure sent here is the alarm for the state it was in BEFORE the
+// request. Sending one made the website count down to moments the reader was
+// never going to wake at.
 //
 // On 200 the body is written to `destPath`, bounded by kMaxImageBytes and then
 // judged by its own BMP header rather than by a magic length: a short write is
@@ -108,7 +133,8 @@ int pairPoll(const std::string& pollToken, std::string& deviceToken, std::string
 // valid size. On 304 and 204 NOTHING is written and nothing is repainted: that
 // is the wake this whole design is built around, and a card write on it would
 // be the cost the 304 exists to avoid.
-bool pull(const std::string& deviceToken, const std::string& knownEtag, const char* destPath, PullResult& out);
+bool pull(const std::string& deviceToken, const std::string& knownEtag, bool liveOn, const char* destPath,
+          PullResult& out);
 
 // The CEILING on what a pull may write to the card, not an expected size.
 //
