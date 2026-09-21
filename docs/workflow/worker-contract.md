@@ -28,8 +28,21 @@ are enforced by hooks and will refuse rather than remind.
   `./scripts_local/whose-gate.sh` says which tree each running build belongs to,
   because every session runs an identically named script and `pgrep` cannot tell
   them apart.
-- **Say who reported it when you file a card.** `board new ... --reporter
-  session` for something you found yourself, `--reporter mario` for something
+- **What you notice and are not fixing is a NOTICE, not a card.** `board
+  noticed '<one line>' --from <app>`. It expires by itself in 14 days, counts
+  up when anyone sees it again, and reaches Mario as one line at three
+  sightings. You owe it nothing further. On 2026-09-20 the board held 547
+  cards after 17 days: 145 of the 203 open ones were sessions' finds "for
+  later", which on a board where nothing is worked without Mario's word means
+  for never, and most were already fixed, wrong, or corrections to other
+  cards. So `board new --reporter session` is refused unless the work starts
+  in the same call (`--session <your id>`: the card is yours, in `working`).
+  If it is small and inside your card, fix it; otherwise notice it and move on.
+- **Closing is not yours to remember.** A merged pull request closes its card
+  by itself, an alarm that goes quiet for a week closes itself, and a card a
+  session filed that nobody claims expires. Never file a card to say another
+  card is wrong: `board note <id>` on the card itself.
+- **Say who reported it when you file a card.** `--reporter mario` for something
   he said, `--reporter user` for a GitHub issue or a stranger's report. Without
   it the card reads `unknown`, which is the deliberate default: a card wrongly
   credited to him ruins `board list --from-mario`, and that list is the whole

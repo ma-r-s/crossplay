@@ -97,7 +97,7 @@ async function photoUrl(path) {
 }
 
 async function opList() {
-  const [inbox, cards, people, triage] = await Promise.all([
+  const [inbox, cards, people, boardNow, recurring] = await Promise.all([
     rest("inbox?select=*"),
     rest("cards?select=id,title,app,state,parent,updated_at&order=id.desc"),
     // What people reported through the site and he has not read. Not blockers,
@@ -117,10 +117,14 @@ async function opList() {
       (rows) => ({ rows: rows || [] }),
       (err) => ({ rows: [], error: err.message || "the board did not answer" }),
     ),
-    // How far behind triage is, for one line at the top of the page. A board
-    // without the view (or a failing read) leaves the line out; the inbox
-    // itself must not depend on it.
-    rest("triage_backlog?select=*").catch(() => []),
+    // The board in one row, for one line at the top of the page: what people
+    // asked for and is open, what is being worked on, which alarms ring. It
+    // replaced a line about the triage backlog on 2026-09-20, when the
+    // backlog itself was replaced (20260920000100_board_rethink.sql). A board
+    // without the view leaves the line out; the inbox must not depend on it.
+    rest("board_now?select=*").catch(() => []),
+    // What sessions noticed three times or more and nobody asked to fix.
+    rest("notices_recurring?select=*&limit=10").catch(() => []),
   ]);
   // Mario, 2026-09-11: "I need a way to see everything they sent, including
   // images." The photo rides as a signed link, made here so the key stays
@@ -135,7 +139,8 @@ async function opList() {
     cards: cards || [],
     people: rows,
     people_error: people.error || null,
-    triage: (triage || [])[0] || null,
+    now: (boardNow || [])[0] || null,
+    recurring: recurring || [],
   };
 }
 

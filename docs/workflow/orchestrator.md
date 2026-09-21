@@ -65,9 +65,15 @@ integrator --session <your id>`) only while you resolve a conflict or
    hooks, the `board` command and every runbook a session reads are the
    ones in firmware-next, so a merge nobody pulls changes nothing on this
    Mac; the guard once stayed a version behind for a whole evening that way.
-6. **Close.** For each `released` card: worktree dropped, session archived,
-   leftovers filed as new cards, `board state <id> done`. A session never
-   outlives its card. Once a tick, `./scripts/wt.sh prune`: it drops every
+6. **Close.** The board closes cards by itself since 2026-09-20, because
+   closing by memory left 203 open: a merged pull request closes the card
+   bound to its branch (`crossplay-board.yml` posts `workflow`/`merged`), and
+   `board_expire()` runs daily: an alarm quiet for 7 days is done, a `merged`
+   card is done after 2, a card a session filed that nobody claimed in 14
+   days is parked as expired, and so is a session's own work untouched for
+   14. Cards a person filed are never touched by the clock. What is left to
+   you: worktree dropped, session archived. Leftovers are NOTICES (`board
+   noticed`), never new cards. A session never outlives its card. Once a tick, `./scripts/wt.sh prune`: it drops every
    tree that is merged, clean and idle, and nothing else; a tree it keeps
    has work in it, and that work has a card or needs one.
 7. **Cards nobody dispatched.** Two arrive by themselves; GitHub is a command
