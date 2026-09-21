@@ -1,6 +1,6 @@
 [Install it](https://crossplay.ma-r-s.com/#get) · [which file, and by hand](https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md) · [earlier releases](https://github.com/ma-r-s/crossplay/blob/xteink/docs/release-notes.md)
 
-### What is new in 1.13.14
+### What is new in 1.13.15
 
 - Setting up Live works by scanning the square on the reader. It used to carry a code that was never real, so scanning could not work and you had to type the digits instead. The square and the digits now always match.
 - Live says when the reader will next look, on the website and on the reader, from the moment you connect it. There was no time shown anywhere until it had checked in once, which is when you most want to know it worked.
