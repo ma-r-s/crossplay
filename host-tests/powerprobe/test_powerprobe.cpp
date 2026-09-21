@@ -5,8 +5,8 @@
 // exactly as plausible in a log, and the whole go/no-go for Live rests on
 // which side of ~300uA the answer lands.
 
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 
 #include "PowerProbe.h"
@@ -14,13 +14,13 @@
 static int failures = 0;
 static int checks = 0;
 
-#define CHECK(cond)                                                       \
-  do {                                                                    \
-    ++checks;                                                             \
-    if (!(cond)) {                                                        \
-      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);         \
-      ++failures;                                                         \
-    }                                                                     \
+#define CHECK(cond)                                               \
+  do {                                                            \
+    ++checks;                                                     \
+    if (!(cond)) {                                                \
+      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); \
+      ++failures;                                                 \
+    }                                                             \
   } while (0)
 
 namespace {
@@ -30,9 +30,7 @@ constexpr int32_t kCell = 1100;  // mAh, the X4 Pro's cell
 // One whole percent of an 1100mAh cell is 11mAh. Drawn over an hour that is
 // 11mA, which is 11000uA. Worked by hand so the test does not agree with the
 // code by repeating it.
-void testAWholePercentInAnHour() {
-  CHECK(powerprobe::microampsFrom(256, 3600, kCell) == 11000);
-}
+void testAWholePercentInAnHour() { CHECK(powerprobe::microampsFrom(256, 3600, kCell) == 11000); }
 
 // The resolution claim this whole approach rests on: ONE step of the fraction
 // register is 1/256 of a percent, which on this cell is about 0.043mAh. Over
@@ -80,8 +78,8 @@ void testALongSleepComputesCorrectly() {
 void testThirtyTwoBitsWouldHaveWrapped() {
   const int32_t dropQ8 = 25600, cell = kCell;
   int32_t narrow = dropQ8;
-  narrow *= cell;          // 2.8e7, still fine
-  narrow *= 3600;          // 1.0e11 -- wraps
+  narrow *= cell;  // 2.8e7, still fine
+  narrow *= 3600;  // 1.0e11 -- wraps
   const int64_t wide = static_cast<int64_t>(dropQ8) * cell * 3600LL;
   CHECK(static_cast<int64_t>(narrow) != wide);
 }

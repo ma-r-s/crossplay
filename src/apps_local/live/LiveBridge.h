@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -19,17 +20,18 @@ namespace live {
 // statuses, because X-Next-Wake and X-Server-Time arrive on 200, 304 and 204
 // alike: a wake that finds nothing still learns when to come back.
 struct PullResult {
-  int status = 0;             // 200, 304, 204, 401, or 0 for "could not reach"
-  std::string etag;           // quotes stripped; empty on anything but a 200
+  int status = 0;                // 200, 304, 204, 401, or 0 for "could not reach"
+  std::string etag;              // quotes stripped; empty on anything but a 200
   uint32_t nextWakeSeconds = 0;  // clamped by LiveCore, 0 when the header was absent
-  int64_t serverEpoch = 0;    // 0 when absent
-  std::string message;        // a sentence for a screen, when there is one to show
+  int64_t serverEpoch = 0;       // 0 when absent
+  size_t bytes = 0;              // what a 200 actually wrote, for the completeness check
+  std::string message;           // a sentence for a screen, when there is one to show
 };
 
 struct PairStart {
-  std::string code;       // six digits
+  std::string code;  // six digits
   std::string pollToken;
-  int expiresIn = 0;      // seconds
+  int expiresIn = 0;  // seconds
 };
 
 // POST /api/pair/start. No token: this is the call that mints one.
@@ -44,17 +46,27 @@ int pairPoll(const std::string& pollToken, std::string& deviceToken, std::string
 
 // GET /api/pull with the bearer token and, when we have one, If-None-Match.
 //
-// On 200 the body is written to `destPath` -- 48062 bytes, refused at any other
-// size, because a short write is how a half-arrived image reaches the glass.
-// On 304 and 204 NOTHING is written and nothing is repainted: that is the wake
-// this whole design is built around, and a card write on it would be the cost
-// the 304 exists to avoid.
+// On 200 the body is written to `destPath`, bounded by kMaxImageBytes and then
+// judged by its own BMP header rather than by a magic length: a short write is
+// how a half-arrived image reaches the glass, and the image has more than one
+// valid size. On 304 and 204 NOTHING is written and nothing is repainted: that
+// is the wake this whole design is built around, and a card write on it would
+// be the cost the 304 exists to avoid.
 bool pull(const std::string& deviceToken, const std::string& knownEtag, const char* destPath, PullResult& out);
 
-// The image the service sends, exactly. A 480x800 1-bit BMP: 62 bytes of header
-// and palette, then 800 rows of 60. The service refuses anything else on the
-// way in, and the device refuses anything else on the way out, so neither end
-// is the only one checking.
-constexpr size_t kImageBytes = 48062;
+// The CEILING on what a pull may write to the card, not an expected size.
+//
+// The sleep screen is not one bit. The X4 Pro's panel driver declares
+// AbsolutePlanes grayscale and renderCustomSleepScreen takes the grayscale
+// path, so the device's own format is 2bpp four-level: 480x800 at two bits is
+// 96000 bytes of pixels over a 70-byte header and palette. The one-bit file
+// (48062) is the other thing the same reader handles, and lib/GfxRenderer's
+// Bitmap takes 1, 2, 4, 8, 24 and 32.
+//
+// So this bounds the DOWNLOAD -- a runaway response must not fill the card --
+// and live::bmpIsComplete decides whether what arrived is a whole picture.
+// Bounding by an exact size instead would refuse the format the panel actually
+// wants the moment the website started sending it.
+constexpr size_t kMaxImageBytes = 96070;
 
 }  // namespace live

@@ -39,6 +39,16 @@ std::string unquoteEtag(const std::string& raw) {
   return out;
 }
 
+bool bmpIsComplete(const uint8_t* header, const size_t headerLen, const size_t received) {
+  // 14 bytes of file header and 40 of info is the smallest thing that can call
+  // itself a BMP; anything shorter is not a short download, it is not a BMP.
+  if (header == nullptr || headerLen < 6 || received < 54) return false;
+  if (header[0] != 'B' || header[1] != 'M') return false;
+  const uint32_t declared = static_cast<uint32_t>(header[2]) | (static_cast<uint32_t>(header[3]) << 8) |
+                            (static_cast<uint32_t>(header[4]) << 16) | (static_cast<uint32_t>(header[5]) << 24);
+  return declared == received;
+}
+
 bool clockIsUsable(const int64_t nowEpoch) { return nowEpoch >= kPlausibleEpochFloor; }
 
 Decision decide(const Schedule& schedule, const int64_t nowEpoch) {
@@ -48,8 +58,8 @@ Decision decide(const Schedule& schedule, const int64_t nowEpoch) {
   // to discover there is nothing to do is still a wake.
   if (!schedule.on || !schedule.paired) return out;
 
-  const uint32_t wait = schedule.consecutiveFailures > 0 ? retryDelaySeconds(schedule.consecutiveFailures)
-                                                         : schedule.intervalSeconds;
+  const uint32_t wait =
+      schedule.consecutiveFailures > 0 ? retryDelaySeconds(schedule.consecutiveFailures) : schedule.intervalSeconds;
 
   // Never asked, or no clock to reason with. Fetch once; the answer carries
   // X-Server-Time, which sets the clock, so this path runs at most once per

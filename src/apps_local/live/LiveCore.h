@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -23,9 +24,9 @@ namespace live {
 // an input: a zero or a negative would busy-wake the radio flat in a night, and
 // a number past a week is indistinguishable from Live being off while still
 // costing a wake to discover.
-constexpr uint32_t kMinIntervalSeconds = 15 * 60;         // the service's own floor
-constexpr uint32_t kMaxIntervalSeconds = 7 * 24 * 3600;   // and its own ceiling
-constexpr uint32_t kDefaultIntervalSeconds = 6 * 3600;    // until a server says otherwise
+constexpr uint32_t kMinIntervalSeconds = 15 * 60;        // the service's own floor
+constexpr uint32_t kMaxIntervalSeconds = 7 * 24 * 3600;  // and its own ceiling
+constexpr uint32_t kDefaultIntervalSeconds = 6 * 3600;   // until a server says otherwise
 
 // Clamped, and an unparseable or absent header keeps what we already had --
 // never the default, because a single bad reply would otherwise reset a
@@ -92,6 +93,24 @@ bool clockIsUsable(int64_t nowEpoch);
 std::string unquoteEtag(const std::string& raw);
 
 // ---------------------------------------------------------------------------
+// Did the whole picture arrive?
+//
+// Live's images are BMPs the website makes, and their SIZE IS NOT FIXED: the
+// X4 Pro's sleep screen is not one bit. The panel driver declares AbsolutePlanes
+// grayscale and renderCustomSleepScreen takes the grayscale path, so the
+// device's own format is 2bpp four-level (96070 bytes at 480x800) and the
+// one-bit file (48062) is merely the other thing it reads. lib/GfxRenderer's
+// Bitmap reader handles 1, 2, 4, 8, 24 and 32.
+//
+// So the download cannot be bounded by a magic number. A BMP declares its own
+// total length in bytes 2..5, and comparing that with what actually arrived
+// catches a truncated download at ANY colour depth -- including depths this
+// firmware has not met yet. A constant would have to be revisited every time
+// the website learns a new one, and the revision that gets forgotten ships a
+// torn picture to a fridge.
+bool bmpIsComplete(const uint8_t* header, size_t headerLen, size_t received);
+
+// ---------------------------------------------------------------------------
 // The one rule, in one function.
 //
 // "On every sleep, if a refresh is due, fetch it; otherwise arm the timer for
@@ -105,8 +124,8 @@ struct Schedule {
   // The last time we ASKED, successful or not, in the server's clock. 0 means
   // never, which is always due.
   int64_t lastAttemptEpoch = 0;
-  int consecutiveFailures = 0;                          // 0 after any success
-  uint32_t intervalSeconds = kDefaultIntervalSeconds;   // last X-Next-Wake, clamped
+  int consecutiveFailures = 0;                         // 0 after any success
+  uint32_t intervalSeconds = kDefaultIntervalSeconds;  // last X-Next-Wake, clamped
 };
 
 struct Decision {

@@ -240,6 +240,13 @@ int getToFile(const Endpoint& endpoint, const std::string& path, const std::stri
       }
       opened = true;
     }
+    if (written + len > maxBytes) {
+      // A body past the ceiling is stopped MID-STREAM rather than after: the
+      // point of a ceiling is that the card never receives the overrun.
+      LOG_ERR(endpoint.tag, "%s: body passed the %u-byte ceiling", path.c_str(), static_cast<unsigned>(maxBytes));
+      writeFailed = true;
+      return false;
+    }
     if (out.write(data, len) != static_cast<int>(len)) {
       writeFailed = true;
       return false;
@@ -258,16 +265,13 @@ int getToFile(const Endpoint& endpoint, const std::string& path, const std::stri
     Storage.remove(destPart.c_str());
     return 0;
   }
-  if (status == 200 && written != expectedSize) {
-    // A short body is a torn picture, and a torn picture on a sleep screen is
-    // indistinguishable from a broken device. Refused here, so the caller never
-    // gets far enough to rename it over what is on the glass.
-    LOG_ERR(endpoint.tag, "%s: %u bytes, expected %u", path.c_str(), static_cast<unsigned>(written),
-            static_cast<unsigned>(expectedSize));
+  if (status == 200 && written == 0) {
+    LOG_ERR(endpoint.tag, "%s: a 200 with no body", path.c_str());
     message = "Live sent an image this reader could not use.";
     Storage.remove(destPart.c_str());
     return 0;
   }
+  if (received != nullptr) *received = written;
   return status;
 }
 
@@ -414,7 +418,8 @@ int request(const Endpoint& endpoint, const char* method, const std::string& pat
 }
 
 int getToFile(const Endpoint& endpoint, const std::string& path, const std::string& token, const std::string& destPart,
-              const size_t expectedSize, std::string& message, Headers* headers) {
+              const size_t maxBytes, std::string& message, Headers* headers, size_t* received) {
+  if (received != nullptr) *received = 0;
   std::string response;
   const int status = request(endpoint, "GET", path, token, nullptr, 0, response, message, headers);
   // The card is touched on a 200 and on nothing else, which is the same
@@ -423,9 +428,9 @@ int getToFile(const Endpoint& endpoint, const std::string& path, const std::stri
   // the status, and a simulator that wrote an empty file on a 304 would make
   // the one behaviour this feature is built on untestable on a laptop.
   if (status != 200) return status;
-  if (response.size() != expectedSize) {
-    LOG_ERR(endpoint.tag, "%s: %u bytes, expected %u", path.c_str(), static_cast<unsigned>(response.size()),
-            static_cast<unsigned>(expectedSize));
+  if (response.empty() || response.size() > maxBytes) {
+    LOG_ERR(endpoint.tag, "%s: %u bytes, ceiling %u", path.c_str(), static_cast<unsigned>(response.size()),
+            static_cast<unsigned>(maxBytes));
     message = "Live sent an image this reader could not use.";
     return 0;
   }
@@ -436,6 +441,7 @@ int getToFile(const Endpoint& endpoint, const std::string& path, const std::stri
   }
   out.write(reinterpret_cast<const uint8_t*>(response.data()), response.size());
   out.close();
+  if (received != nullptr) *received = response.size();
   return status;
 }
 

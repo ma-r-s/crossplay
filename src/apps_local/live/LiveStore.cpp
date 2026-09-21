@@ -55,7 +55,8 @@ bool save(const State& state) {
       LOG_ERR("LIVE", "cannot write %s", tempPath.c_str());
       return false;
     }
-    const bool ok = file.write(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) == static_cast<int>(raw.size());
+    const bool ok =
+        file.write(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) == static_cast<int>(raw.size());
     file.close();
     if (!ok) {
       LOG_ERR("LIVE", "short write to %s", tempPath.c_str());

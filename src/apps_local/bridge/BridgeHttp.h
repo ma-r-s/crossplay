@@ -104,8 +104,14 @@ int request(const Endpoint& endpoint, const char* method, const std::string& pat
 // is never opened, never truncated and never written -- which is the entire
 // point of the conditional request. Opening it up front would put an SD write
 // on exactly the wake that exists to avoid one.
+//
+// `maxBytes` is a CEILING, not an expected size, and it is the difference
+// between this and streamToFile. Live's images have more than one valid length
+// -- the sleep screen is not one bit -- so the body is bounded here, to stop a
+// runaway response filling the card, and judged by its own content afterwards.
+// `received` reports what arrived so the caller can do that judging.
 int getToFile(const Endpoint& endpoint, const std::string& path, const std::string& token, const std::string& destPart,
-              size_t expectedSize, std::string& message, Headers* headers);
+              size_t maxBytes, std::string& message, Headers* headers, size_t* received = nullptr);
 
 // Stream a GET into `destPart`. No rename: the caller decides when a set of
 // files becomes visible together, because per-file atomicity is not the same

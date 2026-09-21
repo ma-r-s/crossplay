@@ -5,6 +5,7 @@
 // rule that only misbehaves on the sleep after the one you watched, and an
 // ETag round trip whose failure mode is a redundant 48KB write nobody sees.
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -119,6 +120,63 @@ static void testEtag() {
   // A value with an inner quote is left alone rather than mangled: only a
   // matching outer PAIR is stripped.
   checkStr(live::unquoteEtag("\"ab"), "\"ab", "a lone leading quote is not a pair");
+}
+
+// --------------------------------------------------------------------------
+// Did the whole picture arrive?
+//
+// The size is NOT fixed. The X4 Pro's sleep screen is 2bpp four-level (96070
+// bytes at 480x800) and the one-bit file (48062) is the other thing the same
+// reader handles, so this asserts that BOTH are accepted -- and that the check
+// is derived from the file rather than from either number.
+
+static void headerFor(uint8_t* out, const uint32_t declared) {
+  out[0] = 'B';
+  out[1] = 'M';
+  out[2] = static_cast<uint8_t>(declared & 0xff);
+  out[3] = static_cast<uint8_t>((declared >> 8) & 0xff);
+  out[4] = static_cast<uint8_t>((declared >> 16) & 0xff);
+  out[5] = static_cast<uint8_t>((declared >> 24) & 0xff);
+}
+
+static void testImageCompleteness() {
+  std::printf("image completeness\n");
+  uint8_t h[6];
+
+  // THE TWO REAL FORMATS. Neither is privileged and neither is hardcoded in
+  // the code under test: both pass because the file says how long it is.
+  headerFor(h, 48062);
+  check(live::bmpIsComplete(h, sizeof(h), 48062), "the 1-bit image is accepted");
+  headerFor(h, 96070);
+  check(live::bmpIsComplete(h, sizeof(h), 96070), "the 2bpp four-level image is accepted");
+
+  // And a depth this firmware has not been handed yet. The point of deriving
+  // the length from the file is that the website can learn a new one without
+  // a firmware release, so a size nobody has written down still works.
+  headerFor(h, 384054);  // 8bpp
+  check(live::bmpIsComplete(h, sizeof(h), 384054), "a depth nobody wrote down is accepted");
+
+  // TRUNCATION, which is the thing this exists to catch, at both real sizes.
+  headerFor(h, 96070);
+  check(!live::bmpIsComplete(h, sizeof(h), 96069), "one byte short is refused");
+  check(!live::bmpIsComplete(h, sizeof(h), 48062), "the 2bpp header with a 1-bit body is refused");
+  headerFor(h, 48062);
+  check(!live::bmpIsComplete(h, sizeof(h), 96070), "and the other way round");
+
+  // Not a BMP at all. A service that answered an error page with a 200 would
+  // otherwise have it renamed over the sleep screen.
+  h[0] = '<';
+  h[1] = 'h';
+  check(!live::bmpIsComplete(h, sizeof(h), 48062), "something that is not a BMP is refused");
+
+  // Degenerate inputs, none of which may be read as "complete".
+  headerFor(h, 48062);
+  check(!live::bmpIsComplete(nullptr, 6, 48062), "no header is not a picture");
+  check(!live::bmpIsComplete(h, 3, 48062), "too few header bytes is not a picture");
+  headerFor(h, 10);
+  check(!live::bmpIsComplete(h, sizeof(h), 10), "a file too small to be a BMP is refused");
+  headerFor(h, 0);
+  check(!live::bmpIsComplete(h, sizeof(h), 0), "an empty body is refused");
 }
 
 // --------------------------------------------------------------------------
@@ -241,6 +299,7 @@ int main() {
   testClampInterval();
   testBackoff();
   testEtag();
+  testImageCompleteness();
   testClock();
   testDecide();
   if (failures != 0) {

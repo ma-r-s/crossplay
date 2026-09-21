@@ -97,7 +97,10 @@ bool pull(const std::string& deviceToken, const std::string& knownEtag, const ch
   headers.collect("X-Next-Wake");
   headers.collect("X-Server-Time");
 
-  out.status = bridge::getToFile(kEndpoint, "/api/pull", deviceToken, destPath, kImageBytes, out.message, &headers);
+  size_t received = 0;
+  out.status = bridge::getToFile(kEndpoint, "/api/pull", deviceToken, destPath, kMaxImageBytes, out.message, &headers,
+                                 &received);
+  out.bytes = received;
 
   // Read the schedule headers FIRST and on every status. They arrive on 200,
   // 304 and 204 alike, and the wake that finds nothing is exactly the wake that
@@ -109,7 +112,7 @@ bool pull(const std::string& deviceToken, const std::string& knownEtag, const ch
   switch (out.status) {
     case 200:
       out.etag = unquoteEtag(headers.value("ETag"));
-      LOG_INF("LIVE", "new image, etag %s, next wake %us", out.etag.c_str(),
+      LOG_INF("LIVE", "new image, %u bytes, etag %s, next wake %us", static_cast<unsigned>(out.bytes), out.etag.c_str(),
               static_cast<unsigned>(out.nextWakeSeconds));
       return true;
     case 304:
