@@ -83,6 +83,9 @@ class EpubReaderActivity final : public ReaderActivity {
   // be running on the panel. settleOverlayRefresh() must run before the
   // framebuffer is touched or another differential refresh is pushed.
   bool overlayRefreshPending = false;
+  // A deferred overlay refresh whose paint nobody has counted yet. Until it is,
+  // UiAppHost::revealed() is false and every tap on the menu is dropped.
+  bool overlayPaintPending = false;
   void pushOverlayRefresh();
   void settleOverlayRefresh();
   int autoTurnOption = 0;  // current auto page-turn rate index (More panel)
