@@ -245,7 +245,7 @@
       $("inbox-login").hidden = true;
       say("");
       render();
-      triage(res.triage);
+      triage(res.now, res.recurring);
       loadNumbers();
     }).catch(function (err) {
       if (err.status === 401) { savePass(null); showLogin("That is not the passphrase."); return; }
@@ -254,21 +254,19 @@
     });
   }
 
-  // One line on how far behind triage is: what waits in `reported` with no
-  // session bound, the oldest of it, how many of those are Mario's own
-  // decisions, what is claimed but never moved, and when anything was last
-  // triaged. Bold once the oldest has waited a day; the question "is triage
-  // up to date?" once took a database query.
+  // The board in one line: what people asked for and is open, what is being
+  // worked on, which alarms are ringing; and under it, what sessions keep
+  // noticing. It used to be a line about the triage backlog, and the backlog
+  // was 203 cards nobody was going to read. Sessions' finds are notices now
+  // and expire by themselves; only one seen three times reaches this page.
   function hours(h) { return h >= 48 ? Math.round(h / 24) + " days" : h + " h"; }
-  function triage(t) {
+  function triage(t, recurring) {
     var el = $("inbox-triage");
-    if (!t || typeof t.waiting !== "number") { el.hidden = true; return; }
-    var s = !t.waiting ? "Triage: nothing waiting."
-      : "Triage: " + t.waiting + (t.waiting === 1 ? " card" : " cards") + " waiting, oldest " + hours(t.oldest_h) +
-        (t.for_mario ? ", " + t.for_mario + " of them for you" : "") +
-        (t.claimed ? "; " + t.claimed + " claimed but never moved" : "") +
-        (t.since_triage_h != null ? "; last triage " + hours(t.since_triage_h) + " ago" : "") + ".";
-    el.innerHTML = (t.waiting && t.oldest_h >= 24) ? "<b>" + esc(s) + "</b>" : esc(s);
+    if (!t || typeof t.from_people !== "number") { el.hidden = true; return; }
+    var s = "Board: " + t.from_people + " asked by you or users and open, " + t.in_progress + " being worked on, " +
+      t.alarms + (t.alarms === 1 ? " alarm" : " alarms") + " ringing.";
+    var again = (recurring || []).map(function (note) { return esc(note.what) + " (seen " + note.seen + " times)"; });
+    el.innerHTML = esc(s) + (again.length ? "<br>Keeps coming up: " + again.join("; ") + "." : "");
     el.hidden = false;
   }
 

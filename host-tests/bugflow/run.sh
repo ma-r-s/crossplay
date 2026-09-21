@@ -670,7 +670,7 @@ board show "$NOSTAMP" | grep -q "reported by unknown" \
   && ok "a card filed without --reporter is unknown, never session" \
   || bad "an unstamped card did not read unknown: $(board show "$NOSTAMP" | head -2)"
 MINE=$(board new "Yahtzee: the dice sit under the header rule" --from yahtzee --kind bug --reporter mario | sed 's/^#\([0-9]*\).*/\1/')
-OURS=$(board new "Yahtzee: contentTop derives from the constant, not the chrome" --from yahtzee --kind bug --reporter session --anyway | sed 's/^#\([0-9]*\).*/\1/')
+OURS=$(board new "Yahtzee: contentTop derives from the constant, not the chrome" --from yahtzee --kind bug --reporter session --session reporter-suite --anyway | sed 's/^#\([0-9]*\).*/\1/')
 THEIRS=$(board new "Study: pairing says the bridge is invitation-only" --from study --kind bug --reporter user | sed 's/^#\([0-9]*\).*/\1/')
 board show "$MINE" | grep -q "reported by mario" && ok "--reporter mario is recorded" || bad "--reporter mario was not stored"
 board show "$THEIRS" | grep -q "reported by user" && ok "--reporter user is recorded" || bad "--reporter user was not stored"
@@ -948,6 +948,35 @@ print(m.MARIO_SAID)")
 [ -n "$JS_SAID" ] && [ "$JS_SAID" = "$PY_SAID" ] \
   && ok "the CLI and the page file his note under the same prefix" \
   || bad "his note is prefixed '$PY_SAID' by the CLI and '$JS_SAID' by the page"
+
+echo "what a session notices is a notice, not a card"
+# 2026-09-20: 547 cards in 17 days, 145 of the 203 open ones filed by sessions
+# "for later", which on a board where nothing is worked without Mario's word
+# means for never. A session's observation is now one line that expires; a
+# card a session files for itself is work that starts in the same call.
+CARDS_BEFORE="$(ls "$ROOT/.board/cards" | wc -l | tr -d ' ')"
+if board new "The shelf draws one pixel into the bezel on the last row" --from shelf --kind bug --reporter session >"$WORK/n.out" 2>&1; then bad "a session's unbound observation was filed as a card"; else grep -q "board noticed" "$WORK/n.out" && ok "a session's unbound card is refused, and the refusal names board noticed" || bad "wrong refusal: $(cat "$WORK/n.out")"; fi
+[ "$(ls "$ROOT/.board/cards" | wc -l | tr -d ' ')" = "$CARDS_BEFORE" ] && ok "and nothing was filed" || bad "the refused card exists"
+board noticed "The shelf draws one pixel into the bezel on the last row" --from shelf --session note-a | grep -q "^noticed (n" && ok "board noticed takes the line" || bad "board noticed refused a line"
+[ "$(ls "$ROOT/.board/cards" | wc -l | tr -d ' ')" = "$CARDS_BEFORE" ] && ok "without making a card" || bad "a notice made a card"
+board noticed "Last row of the shelf draws a pixel into the bezel" --from shelf --session note-b | grep -q "noticed again, 2 times" && ok "the same thing in other words counts up instead of adding a line" || bad "a rewording was a second notice"
+board noticed "shelf: the last row draws one pixel into the bezel" --from shelf --session note-c | grep -q "3 times now.*shown to Mario" && ok "seen three times, it is shown to Mario" || bad "the third sighting did not surface"
+board notices | grep -q "x3 .*shelf" && ok "board notices lists it, most seen first" || bad "board notices: $(board notices)"
+board new "Yahtzee scores a full house of five sixes as zero" --from yahtzee --kind bug --reporter mario >/dev/null
+board noticed "Yahtzee: a full house of five sixes scores zero" --from yahtzee | grep -q "already a card" && ok "what is already a card is not noticed a second time" || bad "a notice duplicated an open card"
+NID="$(board notices | head -1 | sed 's/^n\([0-9]*\).*/\1/')"
+board promote "n$NID" --reporter mario | grep -q "^#" && ok "a person asking for it turns the notice into a card" || bad "promote failed"
+board notices | grep -q "bezel" && bad "a promoted notice is still listed" || ok "and the notice is gone from the list"
+OUT="$(board new "Fix the gate's stale sweep now" --from tooling --kind bug --reporter session --session note-d)"
+NEWID="$(printf '%s' "$OUT" | sed 's/^#\([0-9]*\).*/\1/')"
+board show "$NEWID" | grep -q "working" && board show "$NEWID" | grep -q "note-d" && ok "a card a session files WITH its id is its own work, bound and working at once" || bad "new --session did not bind: $(board show "$NEWID" | head -3)"
+python3 - "$ROOT/.board/notices.json" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+rows.append({"id": 999, "app": "x", "what": "an old line nobody saw again since then", "seen": 1, "sessions": [], "last_seen": "2020-01-01T00:00:00+00:00", "expires_at": "2020-01-15T00:00:00+00:00"})
+json.dump(rows, open(sys.argv[1], "w"))
+PY
+board notices | grep -q "old line nobody" && bad "an expired notice is still listed" || ok "a notice past its date is not listed: expiry needs nobody"
 
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

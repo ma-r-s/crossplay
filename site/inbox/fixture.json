@@ -411,31 +411,89 @@
         "updated_at": "2026-08-25T13:50:00Z"
       }
     ],
-    "triage": {
-      "waiting": 36,
-      "claimed": 1,
-      "for_mario": 2,
-      "oldest_h": 47,
-      "last_triaged_at": "2026-09-04T05:04:11+00:00",
-      "since_triage_h": 25
-    }
+    "now": {
+      "from_people": 35,
+      "in_progress": 13,
+      "alarms": 18,
+      "notices": 4
+    },
+    "recurring": [
+      {
+        "id": 7,
+        "app": "shelf",
+        "what": "The shelf draws one pixel into the bezel on its last row",
+        "seen": 3,
+        "first_seen": "2026-09-18T10:00:00Z",
+        "last_seen": "2026-09-20T09:00:00Z"
+      }
+    ]
   },
   "numbers": {
-    "heard": { "h24": 15, "d7": 51, "d30": 51, "d90": 51 },
-    "fresh": { "this_week": 9, "last_week": 6 },
+    "heard": {
+      "h24": 15,
+      "d7": 51,
+      "d30": 51,
+      "d90": 51
+    },
+    "fresh": {
+      "this_week": 9,
+      "last_week": 6
+    },
     "now": [
-      { "version": "1.12.50", "board": "x4pro", "devices": 21 },
-      { "version": "1.12.48", "board": "x4pro", "devices": 6 },
-      { "version": "1.12.50", "board": "sticky", "devices": 5 }
+      {
+        "version": "1.12.50",
+        "board": "x4pro",
+        "devices": 21
+      },
+      {
+        "version": "1.12.48",
+        "board": "x4pro",
+        "devices": 6
+      },
+      {
+        "version": "1.12.50",
+        "board": "sticky",
+        "devices": 5
+      }
     ],
     "devices": [
-      { "device": "a2c219f7e1c9a0b4d8f2c6e3b7a1d5f9c0e4b8a2d6f0c4e8b2a6d0f4c8e2b6a0", "board": "sticky", "version": "1.12.50", "since": "2026-09-11T01:54:00Z", "first_seen": "2026-09-11T01:54:00Z", "last_seen": "2026-09-11T02:30:00Z", "versions_run": 1 },
-      { "device": "d42c28cb0e5a9f3b7c1d6e2a8f4b0c9d5e1a7f3b9c5d1e7a3f9b5c1d7e3a9f5b", "board": "x4pro", "version": "1.12.50", "since": "2026-09-09T23:24:00Z", "first_seen": "2026-09-04T23:19:00Z", "last_seen": "2026-09-10T21:00:00Z", "versions_run": 4 }
+      {
+        "device": "a2c219f7e1c9a0b4d8f2c6e3b7a1d5f9c0e4b8a2d6f0c4e8b2a6d0f4c8e2b6a0",
+        "board": "sticky",
+        "version": "1.12.50",
+        "since": "2026-09-11T01:54:00Z",
+        "first_seen": "2026-09-11T01:54:00Z",
+        "last_seen": "2026-09-11T02:30:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "d42c28cb0e5a9f3b7c1d6e2a8f4b0c9d5e1a7f3b9c5d1e7a3f9b5c1d7e3a9f5b",
+        "board": "x4pro",
+        "version": "1.12.50",
+        "since": "2026-09-09T23:24:00Z",
+        "first_seen": "2026-09-04T23:19:00Z",
+        "last_seen": "2026-09-10T21:00:00Z",
+        "versions_run": 4
+      }
     ],
-    "field": { "crashed": 18, "update_failed": 1, "updated": 15 },
+    "field": {
+      "crashed": 18,
+      "update_failed": 1,
+      "updated": 15
+    },
     "crashes": [
-      { "message": "panic without a recorded reason (reset: panic; last log: XKCD)", "devices": 10, "times": 10, "last": "2026-09-10T20:00:00Z" },
-      { "message": "abort() was called at PC 0x4037e6eb on core 0 (reset: panic)", "devices": 1, "times": 1, "last": "2026-09-09T11:00:00Z" }
+      {
+        "message": "panic without a recorded reason (reset: panic; last log: XKCD)",
+        "devices": 10,
+        "times": 10,
+        "last": "2026-09-10T20:00:00Z"
+      },
+      {
+        "message": "abort() was called at PC 0x4037e6eb on core 0 (reset: panic)",
+        "devices": 1,
+        "times": 1,
+        "last": "2026-09-09T11:00:00Z"
+      }
     ],
     "byVersion": [
       {
