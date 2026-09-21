@@ -53,7 +53,13 @@
   font-size: 1.5rem;
   margin: 0 0 0.6rem;
 }
-.lv-gate p {
+/* The INTRO paragraph by name, not `.lv-gate p`. An element selector here
+   catches the refusal line too and outranks `.lv-error` (0,1,1 against 0,1,0),
+   so the one sentence on this page that reports a failure was drawn in the same
+   grey as the instructions above it -- and only looked different at all because
+   an unguarded dark-mode rule was accidentally winning. A class cannot reach
+   past the element it is on. */
+.lv-gate-intro {
   margin: 0 0 1.1rem;
   color: var(--muted);
 }
@@ -320,9 +326,20 @@
   margin: 0.6rem 0 0;
   min-height: 1.3em;
 }
-:root[data-theme="dark"] .lv-error,
-:root:not([data-theme="light"]) .lv-error {
-  color: #f2a; /* readable on the dark paper */
+/* THE DARK COLOUR IS INSIDE THE MEDIA QUERY, and it has to be.
+   `:root:not([data-theme="light"])` is not a dark-mode selector: it matches on
+   a light system too, because the attribute is absent by default. Unguarded,
+   every refusal on this page was drawn in the dark paper's hot pink on cream,
+   which reads as a decoration rather than as something that went wrong. The
+   shape is styles.css's own for tokens: the media query for the system, the
+   explicit attribute for the toggle. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .lv-error {
+    color: #f2a; /* readable on the dark paper */
+  }
+}
+:root[data-theme="dark"] .lv-error {
+  color: #f2a;
 }
 
 .lv-foot {

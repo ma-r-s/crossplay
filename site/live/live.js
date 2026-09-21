@@ -477,10 +477,14 @@ codeInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") pair();
 });
 
-async function pair() {
+// Returns the service's refusal, or null once this browser has a reader.
+// `quiet` holds the sentence back rather than printing it: the link path at the
+// foot of this file has a second thing to try before a refusal is news.
+async function pair(quiet) {
   if (codeInput.value.length !== 6) {
-    codeError.textContent = "Six digits, from the reader’s screen.";
-    return;
+    const short = "Six digits, from the reader’s screen.";
+    if (!quiet) codeError.textContent = short;
+    return short;
   }
   codeError.textContent = "";
   const r = await api("/api/claim", {
@@ -490,12 +494,14 @@ async function pair() {
   });
   // The service's own sentence, never one invented here.
   if (!r.ok) {
-    codeError.textContent = (r.body && r.body.error) || "That did not work.";
-    return;
+    const said = (r.body && r.body.error) || "That did not work.";
+    if (!quiet) codeError.textContent = said;
+    return said;
   }
   await refresh();
+  return null;
 }
-document.getElementById("pair").onclick = pair;
+document.getElementById("pair").onclick = () => pair(false);
 
 document.getElementById("interval").addEventListener("change", async (e) => {
   const r = await api("/api/interval", {
@@ -530,13 +536,27 @@ render();
 
 // A code in the address claims itself: there is nothing else to decide on that
 // screen, and a filled box with a button still to find reads as "did it work?".
+//
+// THE CLAIM IS TRIED FIRST, not the state, because scanning a code is an
+// explicit request for THAT reader -- a browser already connected to another
+// one still has to be moved. But it is tried QUIETLY, because the commonest way
+// this path fails is somebody RELOADING the page they already connected with:
+// the code in the address has been spent, the service rightly refuses it, and
+// printing "That code did not work" over a page that is about to connect
+// perfectly well is a screen calling a success a failure. The refusal is held
+// until /api/state has said this browser has no reader either.
 const fromLink = new URLSearchParams(location.search).get("c");
 if (fromLink && /^\d{4,8}$/.test(fromLink)) {
   codeInput.value = fromLink.slice(0, 6);
-  // The claim is tried FIRST and refresh() only runs if it did not connect, so
-  // a scanned code does not spend a round trip finding out it has no cookie yet.
-  pair().then(() => {
-    if (app.hidden) refresh();
+  pair(true).then(async (refusal) => {
+    if (!refusal) {
+      // Spent, and it worked. Take it out of the address so a reload is not a
+      // second attempt at a code that can only be used once.
+      history.replaceState(null, "", location.pathname);
+      return;
+    }
+    await refresh();
+    if (app.hidden) codeError.textContent = refusal;
   });
 } else {
   refresh();
