@@ -24,7 +24,6 @@ Everything above the marker is written by hand.
 ### 1.13.16
 
 - Live: a scheduled refresh shows nobody anything
-- A Live refresh must not light the panel
 
 ### 1.13.15
 

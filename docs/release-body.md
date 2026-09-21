@@ -3,5 +3,4 @@
 ### What is new in 1.13.16
 
 - Live: a scheduled refresh shows nobody anything
-- A Live refresh must not light the panel
 
