@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "../../src/apps_local/live/LiveCore.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/fonts/reading_serif_14.h"
 #include "../../src/apps_local/ui/fonts/toybox_10.h"
@@ -217,6 +218,62 @@ class LiveTarget final : public fui::DrawTarget {
  private:
   bool paired_ = false;
 };
+
+// EVERY PAIR OF LINES THE DEVICE CAN PUT AT THE TOP OF THE PAIRED SCREEN,
+// composed by the code that really composes them.
+//
+// The suite used to hand this screen "Tomorrow, 6:00" and "Once a day", which
+// are strings the product cannot emit in any state. They fitted, so everything
+// passed, and the headline's actual failure mode went unmeasured: fittedTitle
+// steps a too-wide title DOWN a cut instead of refusing it, and at the display
+// cut "In about 45 minutes" is 464px against a 448px body. A screen that loses
+// its hierarchy looks fine in every assertion that asks whether text fits.
+//
+// So: every interval the service may ask for, at several points inside each
+// one, both toggle positions and the backoff, through live::nextCheckPhrase and
+// live::scheduleNote -- and then measured in the face that will draw them.
+struct LivePhrases {
+  std::string headline;
+  std::string note;
+};
+
+std::vector<LivePhrases> liveHeadlines() {
+  std::vector<LivePhrases> out;
+  const int64_t base = live::kPlausibleEpochFloor + 1000000;
+  const uint32_t intervals[] = {live::kMinIntervalSeconds, 1800, 3299, 3600, 5400, 21600, 43200, 86400, 172800, 604740,
+                                live::kMaxIntervalSeconds};
+  for (const uint32_t interval : intervals) {
+    for (int on = 0; on < 2; ++on) {
+      for (const int fails : {0, 1, 4, 99}) {
+        // Several moments inside the interval, so every band of the countdown
+        // is reached rather than only the one a single elapsed time lands in.
+        for (const uint32_t part : {0u, 1u, 2u, 4u, 8u, 64u}) {
+          live::Schedule schedule;
+          schedule.on = on == 1;
+          schedule.paired = true;
+          schedule.intervalSeconds = interval;
+          schedule.consecutiveFailures = fails;
+          schedule.lastAttemptEpoch = base;
+          const int64_t now = base + static_cast<int64_t>(part == 0 ? 0 : interval - interval / part);
+          out.push_back(LivePhrases{live::nextCheckPhrase(schedule, now), live::scheduleNote(schedule)});
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// The one example pair, for the blocks that only need A headline rather than
+// every headline. Composed like the rest: nothing in this file types a phrase
+// the device would have to be able to produce.
+LivePhrases liveSample() {
+  live::Schedule schedule;
+  schedule.on = true;
+  schedule.paired = true;
+  schedule.intervalSeconds = 21600;
+  schedule.lastAttemptEpoch = live::kPlausibleEpochFloor + 1000000;
+  return LivePhrases{live::nextCheckPhrase(schedule, schedule.lastAttemptEpoch + 600), live::scheduleNote(schedule)};
+}
 
 fui::DeviceContext device() {
   fui::DeviceContext ctx;
@@ -821,8 +878,11 @@ int main() {
     wallpapersui::LiveModel model;
     model.code = "482 160";
     model.url = "fridge.ma-r-s.com";
-    model.nextCheck = "Tomorrow, 6:00";
-    model.cadence = "Once a day";
+    // Composed by live::, not typed: see liveHeadlines() above. The whole set
+    // is walked in its own block below; this pair carries the rest of this one.
+    const LivePhrases sample = liveSample();
+    model.nextCheck = sample.headline.c_str();
+    model.cadence = sample.note.c_str();
     model.senders[0] = {"Mario's phone", "12 Sep"};
     model.senders[1] = {"Abuela", "18 Sep"};
     model.senderCount = 2;
@@ -834,6 +894,22 @@ int main() {
       // defect that pair exists to prevent.
       model.configured = state > 0;
       model.on = state == 1;
+      // The line under the headline follows the toggle, because on the device
+      // it does: composing it once for the ON case and drawing it over a
+      // stopped screen is the model telling a lie this screen would then be
+      // asserted to repeat. "Paused" over "Every 6 hours" is the contradiction
+      // the layout was built to remove.
+      live::Schedule shown;
+      shown.on = model.on;
+      shown.paired = model.configured;
+      shown.intervalSeconds = 21600;
+      shown.lastAttemptEpoch = live::kPlausibleEpochFloor + 1000000;
+      const std::string stateNote = live::scheduleNote(shown);
+      const std::string stateHeadline = live::nextCheckPhrase(shown, shown.lastAttemptEpoch + 600);
+      if (model.configured) {
+        model.nextCheck = stateHeadline.c_str();
+        model.cadence = stateNote.c_str();
+      }
       const std::string where = std::string(" [state ") + std::to_string(state) + "]";
 
       // EVERY fixed status sentence goes through the same checks below, plus
@@ -1016,17 +1092,29 @@ int main() {
           // all any assertion here was asking. Three words that are meant to be
           // read as a set have to be set alike, and the ladder will do this
           // again to whatever the words become.
-          fui::FontId labelFonts[3] = {};
+          // The cut is named OUTRIGHT rather than compared between the three,
+          // and a missing label is counted rather than inferred from the array.
+          // FONT_SLOT_SMALL is 0 and so is a zero-initialised FontId, so
+          // "nothing was drawn in this button" and "drawn at the button cut"
+          // were the same value: suppressing two of the three label draws
+          // entirely left three zeros, which agreed with each other, and the
+          // suite passed with two empty buttons on the panel.
           for (int i = 0; i < 3; ++i) {
+            int labels = 0;
             for (const LiveTarget::Run& run : target.runs) {
-              if (contains(hits[i], run.box)) labelFonts[i] = run.style.font;
+              if (!contains(hits[i], run.box)) continue;
+              ++labels;
+              check(run.style.font == fui::FONT_SLOT_SMALL,
+                    "Live control " + std::to_string(i) + "'s label \"" + run.text +
+                        "\" is not set in the button cut, so the row is two typefaces" + where);
             }
+            check(labels == 1, "Live control " + std::to_string(i) + " carries " + std::to_string(labels) +
+                                   " labels instead of one word" + where);
           }
-          for (int i = 1; i < 3; ++i) {
-            check(labelFonts[i] == labelFonts[0],
-                  "Live control " + std::to_string(i) +
-                      "'s label is set in a different cut from the first one's, so the row is two typefaces" + where);
-          }
+          // And the words themselves are on the panel. A mark with no word
+          // beside it is the thing this screen is not allowed to be.
+          check(drew("CHECK"), "the check control has lost its word" + where);
+          check(drew("ADD"), "the add control has lost its word" + where);
         }
         check(interactions.count() <= toybox::kMaxInteractions,
               "the Live screen overflows the interaction table" + where);
@@ -1035,7 +1123,7 @@ int main() {
   }
 
   // -------------------------------------------------------------------------
-  // WHO CAN SEND: the list, the confirm that guards it, and the empty state.
+  // THE SENDER LIST, the confirm that guards it, and the empty state.
   //
   // This is the half of the Live screen that TAKES SOMEBODY'S ACCESS AWAY, and
   // the person it happens to is in another country and is told nothing. So the
@@ -1077,14 +1165,15 @@ int main() {
 
     // ---------------------------------------------------------------------
     // THE FULL LIST. Four phones, which is the cap, so this is the tallest the
-    // screen can be -- and the state that pushed ADD SOMEBODY off the bottom
+    // screen can be -- and the state that pushed the add control off the bottom
     // when the rows were still untappable text.
     for (int names = 0; names < 2; ++names) {
       wallpapersui::LiveModel model;
       model.configured = true;
       model.on = true;
-      model.nextCheck = "In about 6 hours";
-      model.cadence = "Every 6 hours";
+      const LivePhrases sample = liveSample();
+      model.nextCheck = sample.headline.c_str();
+      model.cadence = sample.note.c_str();
       model.senderCount = wallpapersui::LiveModel::kMaxSenders;
       for (int i = 0; i < model.senderCount; ++i) {
         model.senders[i].who = names == 0 ? kRealNames[i] : kWidest;
@@ -1183,9 +1272,9 @@ int main() {
       }
 
       // 4. AND THE THREE ORDINARY CONTROLS SURVIVED THE LIST. The full list is
-      //    the state that used to push ADD SOMEBODY off the bottom of an 800px
-      //    panel -- the control that adds a phone, gone on the screen that has
-      //    four of them.
+      //    the state that used to push the add control off the bottom of an
+      //    800px panel -- the control that adds a phone, gone on the screen
+      //    that has four of them.
       const fui::ActionId wanted[3] = {wallpapersui::ActionLiveToggle, wallpapersui::ActionLiveCheck,
                                        wallpapersui::ActionLiveAdd};
       for (const fui::ActionId id : wanted) {
@@ -1221,16 +1310,73 @@ int main() {
     }
 
     // ---------------------------------------------------------------------
+    // EVERY HEADLINE THE DEVICE CAN COMPOSE, IN THE FACE THAT DRAWS IT.
+    //
+    // This is the assertion the screen's hierarchy rests on, and it is the one
+    // nothing else here can make. fittedTitle does not refuse a title too wide
+    // for its cut -- it steps DOWN a rung and returns it whole -- so a headline
+    // an inch too long passes every "does the text fit" check in this file and
+    // arrives the same size as the small line under it. "In about 45 minutes"
+    // is 464px at toybox_30 against a 448px body, which is how close this is.
+    //
+    // Walked over every interval the service may ask for, at several moments
+    // inside each, both toggle positions and the backoff, with the phrases
+    // composed by live:: rather than typed here.
+    {
+      const std::vector<LivePhrases> phrases = liveHeadlines();
+      check(phrases.size() > 100, "the headline sweep is too small to have covered the bands");
+      for (const LivePhrases& pair : phrases) {
+        wallpapersui::LiveModel model;
+        model.configured = true;
+        model.on = true;
+        model.nextCheck = pair.headline.c_str();
+        model.cadence = pair.note.c_str();
+        model.senderCount = 2;
+        model.senders[0] = {kRealNames[0], "12 Sep"};
+        model.senders[1] = {kWidest, "12 Sep"};
+
+        LiveTarget target(true);
+        toybox::Interactions interactions;
+        toybox::Frame frame(target, ctx, noInput, interactions);
+        toybox::Screen screen(frame);
+        wallpapersui::buildLive(screen, model);
+
+        bool headlineDrawn = false;
+        bool noteDrawn = false;
+        for (const LiveTarget::Run& run : target.runs) {
+          if (run.text == pair.headline) {
+            headlineDrawn = true;
+            check(run.style.font == fui::FONT_SLOT_TITLE,
+                  "the headline \"" + pair.headline +
+                      "\" was stepped down a cut to fit, so it is no longer the biggest thing on the screen");
+          }
+          if (run.text == pair.note) noteDrawn = true;
+          const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+          const std::string laid = toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style);
+          check(laid == run.text,
+                "the panel cuts \"" + run.text + "\" to \"" + laid + "\" with headline \"" + pair.headline + "\"");
+        }
+        check(headlineDrawn, "the headline \"" + pair.headline + "\" never reached the panel");
+        check(noteDrawn, "the line \"" + pair.note + "\" under headline \"" + pair.headline + "\" never reached it");
+        // The two lines must not say the same thing. "Paused" over "Every 6
+        // hours" and "In 15 minutes" over "Every week" are both the screen
+        // contradicting itself, and both shipped before this check existed.
+        check(pair.headline != pair.note, "the headline and the line under it are the same string");
+      }
+    }
+
+    // ---------------------------------------------------------------------
     // THE EMPTY LIST. A reader whose last phone was just removed. It is
-    // RECOVERABLE, not broken: the picture stays on the glass and ADD SOMEBODY
-    // is still there. An empty region under a heading is this fork's most
+    // RECOVERABLE, not broken: the picture stays on the glass and ADD is
+    // still there. An empty region where content belongs is this fork's most
     // repeated user-visible failure, reported as a crash by cold testers twice.
     {
       wallpapersui::LiveModel model;
       model.configured = true;
       model.on = true;
-      model.nextCheck = "In about 6 hours";
-      model.cadence = "Every 6 hours";
+      const LivePhrases sample = liveSample();
+      model.nextCheck = sample.headline.c_str();
+      model.cadence = sample.note.c_str();
       model.senderCount = 0;
 
       LiveTarget target(true);
@@ -1265,7 +1411,7 @@ int main() {
     }
 
     // ---------------------------------------------------------------------
-    // ADD SOMEBODY's CODE. A paired reader showing a six-digit number: the same
+    // ADD's CODE. A paired reader showing a six-digit number: the same
     // screen the first setup code uses, which is what liveShowsCode exists to
     // keep true in both the face the Activity binds and the stack this builds.
     {
@@ -1275,8 +1421,9 @@ int main() {
       model.joining = true;
       model.code = "482 160";
       model.url = "fridge.ma-r-s.com";
-      model.nextCheck = "In about 6 hours";
-      model.cadence = "Every 6 hours";
+      const LivePhrases sample = liveSample();
+      model.nextCheck = sample.headline.c_str();
+      model.cadence = sample.note.c_str();
       model.senderCount = 1;
       model.senders[0] = {"iPhone", "12 Sep"};
 
@@ -1298,7 +1445,7 @@ int main() {
         check(run.box.y >= 0 && run.box.y + run.box.height <= panelRect.height,
               "\"" + run.text + "\" runs off the panel on the join screen");
       }
-      check(drewCode, "ADD SOMEBODY's code is not on the screen");
+      check(drewCode, "the join code is not on the screen");
       check(qr.width > 0 && qr.height > 0, "the join screen asks for no QR, so the code cannot be scanned");
       // It says WHICH code this is. Both halves of the screen are six digits
       // under the word LIVE, and the person typing this one has to know it adds
@@ -1336,8 +1483,9 @@ int main() {
       wallpapersui::LiveModel model;
       model.configured = true;
       model.on = true;
-      model.nextCheck = "In about 6 hours";
-      model.cadence = "Every 6 hours";
+      const LivePhrases sample = liveSample();
+      model.nextCheck = sample.headline.c_str();
+      model.cadence = sample.note.c_str();
       model.status = refusal;
       // The FULL list, because that is when the report region is most boxed in
       // and when the cap refusal actually happens.
@@ -1407,10 +1555,27 @@ int main() {
                   where);
         if (dated == 0) {
           bool dateShown = false;
+          bool labelShown = false;
           for (const LiveTarget::Run& run : target.runs) {
             if (run.text == std::string(model.since)) dateShown = true;
+            if (run.text == std::string(wallpapersui::liveAddedLabel())) labelShown = true;
           }
           check(dateShown, "the confirm drops the date the list showed beside the name" + where);
+          // And says what it is. The rows show a bare date under no heading,
+          // which reads as when that phone last SENT; this is the one screen
+          // with room to define it, and the one where acting on the wrong
+          // reading takes somebody's access away.
+          check(labelShown, "the confirm shows a bare date, so nothing on the device says what it means" + where);
+        }
+        // The name keeps the display cut. Writing the label INLINE with the
+        // date ("Added 12 Sep", 147px) left 285px for a name, and "Abuela
+        // phone" is 315px there -- the ladder would have stepped the name down
+        // a rung on the one screen whose whole job is to name a person.
+        for (const LiveTarget::Run& run : target.runs) {
+          if (!isName(run.text, model.who)) continue;
+          if (std::string(model.who) == kWidest) continue;  // 24 W's fits no cut, by construction
+          check(run.style.font == fui::FONT_SLOT_TITLE,
+                "the confirm's name \"" + run.text + "\" was stepped down a cut to make room beside it" + where);
         }
 
         // 2. THE SAFE HALF COVERS EVERY ROW. The confirm cannot know which row

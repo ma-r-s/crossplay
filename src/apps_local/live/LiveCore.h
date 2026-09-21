@@ -204,9 +204,27 @@ Decision decide(const Schedule& schedule, int64_t nowEpoch, bool timerFired = fa
 // keep; a figure that is visibly rounded says so without spending a word.
 std::string nextCheckPhrase(const Schedule& schedule, int64_t nowEpoch);
 
-// "Every 30 minutes", "Every hour", "Every 6 hours", "Every day", "Every week".
+// The small line UNDER the headline, and it answers whatever the headline
+// cannot. It takes the whole schedule rather than the interval alone because
+// two of its three answers are not about the interval at all:
+//
+//   "Last check failed." / "3 checks failed."   while anything is failing
+//   "Every 6 hours when on"                     while the toggle is off
+//   "Every 6 hours"                             otherwise
+//
+// THE FAILING CASE IS THE REASON THIS TAKES A SCHEDULE. In backoff the headline
+// is the RETRY -- "In 15 minutes" on a weekly cadence -- and with the interval
+// printed underneath it, a reader that cannot reach the service showed "In 15
+// minutes" over "Every week" and nothing anywhere saying why the two disagree.
+// That reads as broken, or as lying, and it is neither.
+//
+// THE STOPPED CASE IS A CONTRADICTION OTHERWISE. "Paused" over "Every 6 hours"
+// is the screen saying it is not checking and then naming how often it checks:
+// the same defect this layout was built to remove, one line further down.
+// "when on" makes it a setting rather than a schedule.
+//
 // Days and weeks as well as hours, because the cap IS a week and "Every 168
 // hours" is a number nobody reads.
-std::string cadencePhrase(uint32_t intervalSeconds);
+std::string scheduleNote(const Schedule& schedule);
 
 }  // namespace live

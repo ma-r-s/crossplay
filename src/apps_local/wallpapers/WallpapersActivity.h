@@ -163,12 +163,12 @@ class WallpapersActivity final : public Activity {
   // flag is: render() runs on the other FreeRTOS task, and a std::string this
   // one reallocates under it is a read of freed memory.
   live::State liveState_;
-  std::string livePollToken_;  // the pairing in flight, empty when there is none
-  std::string liveCode_;       // "601 663" -- grouped for reading down a phone
-  std::string liveQrLink_;     // built from the code, never typed beside it
-  std::string liveStatus_;     // the one line under the code or the switch
-  std::string liveNextCheck_;  // "In about 6 hours"
-  std::string liveCadence_;    // "Every 6 hours"
+  std::string livePollToken_;     // the pairing in flight, empty when there is none
+  std::string liveCode_;          // "601 663" -- grouped for reading down a phone
+  std::string liveQrLink_;        // built from the code, never typed beside it
+  std::string liveStatus_;        // the one line under the code or the switch
+  std::string liveNextCheck_;     // "In about 6 hours"
+  std::string liveScheduleNote_;  // "Every 6 hours"
   // Work the loop task does AFTER the paint, never inside a tap: both of these
   // block on the radio for seconds, and an activity that blocks inside route()
   // is the #306 family this app has already been bitten by twice.

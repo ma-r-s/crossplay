@@ -1415,6 +1415,10 @@ bool WallpapersActivity::liveShowingCode() const { return !liveConfigured() || l
 void WallpapersActivity::openLive() {
   view_ = View::Live;
   interactionsReady_ = false;
+  // The headline counts DOWN, so it is stale the moment it is not recomputed.
+  // Ten minutes spent in the grid used to be ten minutes of drift on the one
+  // figure this screen exists to show.
+  refreshLiveLines();
   // Nothing from a previous visit is on this screen. A confirm left standing
   // would come back naming a row this visit's list has not even fetched yet,
   // and a join code left up would hide the list behind a code nobody asked for.
@@ -1511,6 +1515,12 @@ void WallpapersActivity::pollLivePairing() {
   liveState_.on = true;
   liveRunning_ = true;
   live::save(liveState_);
+  // The headline is computed from the SCHEDULE, and the schedule was unpaired
+  // until the line above. Without this the paired screen arrives with its
+  // largest element blank -- nextCheckPhrase answers "" for a reader that is
+  // not paired, and liveNextCheck_ still holds what onEnter worked out -- at
+  // the exact moment the feature succeeds.
+  refreshLiveLines();
   applyLiveSleepSettings();
   liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Connected);
   // And fetch immediately, from loop(). The first thing a person does after
@@ -1709,8 +1719,16 @@ void WallpapersActivity::refreshLiveLines() {
   // live::decide, the same arithmetic that arms the timer on the way into
   // sleep, so the headline and the schedule cannot disagree; and both live
   // where host-tests/live can walk every band of them.
-  liveCadence_ = live::cadencePhrase(liveState_.intervalSeconds);
-  liveNextCheck_ = live::nextCheckPhrase(liveState_.schedule(), static_cast<int64_t>(std::time(nullptr)));
+  live::Schedule schedule = liveState_.schedule();
+  // PAIRED AS THE SCREEN UNDERSTANDS IT, not as the store does. The two differ
+  // by design under WALLPAPERS_LIVE_CONFIGURED, the screenshot harness's way of
+  // forcing the paired half with no service to pair against -- and a screen
+  // drawn paired while these lines were computed unpaired is a blank headline,
+  // which is exactly what the harness would have rendered.
+  schedule.paired = liveConfigured();
+  schedule.on = liveRunning_;
+  liveScheduleNote_ = live::scheduleNote(schedule);
+  liveNextCheck_ = live::nextCheckPhrase(schedule, static_cast<int64_t>(std::time(nullptr)));
 }
 
 // The address the phone opens. Station mode only: the hotspot has no NAT and a
@@ -2623,7 +2641,7 @@ void WallpapersActivity::render(RenderLock&&) {
     // stack and each has its own line for this.
     model.status = liveStatus_.empty() ? nullptr : liveStatus_.c_str();
     model.nextCheck = liveNextCheck_.c_str();
-    model.cadence = liveCadence_.c_str();
+    model.cadence = liveScheduleNote_.c_str();
     // The list, as /api/senders last answered it. Pointers into MEMBERS, never
     // into anything built here: the names are the service's and this paint runs
     // on the other task.

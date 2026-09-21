@@ -661,14 +661,29 @@ constexpr const char* kLiveAdd = "ADD";
 // broken one. A reader whose last phone was just removed is in exactly this
 // state and nothing is wrong with it.
 //
-// NOT shortened with the rest of this screen. It was cut to "Nobody can send
-// yet" on the assumption it would not fit two lines, and then measured: it is
-// 888px against a 448px box, which is two lines with room. "Yet" is also
-// false in the case this sentence exists for -- a reader whose last phone was
-// just revoked HAS had senders -- so the shorter one was less true as well as
-// unnecessary. Measure before cutting; this is the one region on the screen
-// with nothing else in it to read.
-constexpr const char* kLiveNobody = "Nobody can send to this reader. The picture on the screen stays.";
+// THREE FACTS, and it needs all three. Nobody can send; here is the control
+// that changes that; and nothing is broken. The middle one is new: with the
+// list unheaded there is no longer anything on the screen that says what ADD
+// adds, so a reader in this state had a button with no antecedent.
+//
+// NOT trimmed to fit. It was cut to "Nobody can send yet" on the assumption it
+// would not hold two lines, and then measured at 888px against a 448px box,
+// which is two with room; "yet" is false as well, since a reader whose last
+// phone was just revoked has had senders. This one is 894px over three lines,
+// and the box takes three because it sits inside a band reserved for four
+// 69px rows. Measure before cutting.
+constexpr const char* kLiveNobody = "Nobody can send. Press ADD to let a phone in. The picture stays.";
+// The word over the date on the confirm, and the only place on the device that
+// says what a bare "12 Sep" beside a name MEANS. The rows cannot afford it --
+// it would be the same word four times over a list whose whole point is that it
+// is short -- and without it somewhere the date reads as when that phone last
+// sent, which is a different fact and the one a person would act on.
+//
+// Stacked OVER the date rather than written in front of it: "Added 12 Sep" on
+// one line is 147px at the button cut, which leaves 285px for the name, and
+// "Abuela phone" is 315px at the display cut. Putting it inline would have
+// stepped the name down a rung on the one screen where the name is the point.
+constexpr const char* kLiveAddedLabel = "Added";
 // The confirm's headline and its two labels. THEM, not IT: the wallpaper
 // confirm removes a file and this one removes a person's access, and the
 // pronoun is the only thing on the screen that says which kind of thing is
@@ -1058,7 +1073,7 @@ fui::Rect buildLiveStackPaired(toybox::Screen& screen, const LiveModel& model) {
     // twice reported as a crash by cold testers. This is the one place on the
     // screen where a sentence is still worth its room, because there is nothing
     // else here to read.
-    drawProse(screen, fui::makeRect(body.x, g.rowsY, body.width, static_cast<int16_t>(g.lineH * 2)), kLiveNobody,
+    drawProse(screen, fui::makeRect(body.x, g.rowsY, body.width, static_cast<int16_t>(g.lineH * 3)), kLiveNobody,
               fui::TextAlign::Left);
   } else {
     const bool stacked = sendersStack(screen, senderTextWidth(body.width), model);
@@ -1173,6 +1188,7 @@ bool liveShowsCode(const LiveModel& model) { return !model.configured || model.j
 const char* liveNobodySends() { return kLiveNobody; }
 const char* liveJoinPrompt() { return kLiveJoinWhat; }
 const char* liveRevokeConsequence() { return kLiveRevokeWhy; }
+const char* liveAddedLabel() { return kLiveAddedLabel; }
 
 // THIS translation unit's copy, and that is the whole reason it is a function.
 // ToyboxIcons.h declares every icon `static const`, so a test that included the
@@ -1225,19 +1241,30 @@ void buildLiveRevoke(toybox::Screen& screen, const RevokeModel& model) {
   // Beside rather than under, because the two share this row with the prose
   // box's ceiling: an extra line here comes straight out of the sentence that
   // says what removing them costs, and the date is the less load-bearing half.
+  const fui::TextStyle dateCut = liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Right);
+  const bool dated = model.since != nullptr && model.since[0] != '\0';
+  // The column is the WIDER of the two stacked lines, so neither can be drawn
+  // through the name beside it.
+  const int16_t labelW = screen.target().measureText(dateCut.font, kLiveAddedLabel, dateCut).width;
+  const int16_t dateW = dated ? screen.target().measureText(dateCut.font, model.since, dateCut).width : 0;
   const int16_t sinceW =
-      model.since == nullptr || model.since[0] == '\0'
-          ? 0
-          : static_cast<int16_t>(screen.target()
-                                     .measureText(fui::FONT_SLOT_SMALL, model.since,
-                                                  liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Right))
-                                     .width +
-                                 toybox::kMargin);
+      dated ? static_cast<int16_t>((labelW > dateW ? labelW : dateW) + toybox::kMargin) : static_cast<int16_t>(0);
   drawFitted(screen, fui::makeRect(body.x, body.y, static_cast<int16_t>(body.width - sinceW), headH), model.who,
              liveCut(screen, kLiveAddressSlot, fui::TextAlign::Left));
   if (sinceW > 0) {
-    drawFitted(screen, fui::makeRect(static_cast<int16_t>(body.right() - sinceW), body.y, sinceW, headH), model.since,
-               liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Right));
+    // ADDED over the date, both in the column. The list's rows cannot carry
+    // this word -- four copies of it over a list whose point is brevity -- so
+    // this is the one place on the device that says what a bare date beside a
+    // name means. Without it somewhere it reads as when that phone last SENT,
+    // which is a different fact and the one somebody would act on.
+    const int16_t small = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
+    const int16_t columnX = static_cast<int16_t>(body.right() - sinceW);
+    const int16_t stackY = static_cast<int16_t>(body.y + (headH - small * 2) / 2);
+    drawFitted(screen, fui::makeRect(columnX, stackY > body.y ? stackY : body.y, sinceW, small), kLiveAddedLabel,
+               dateCut);
+    drawFitted(screen,
+               fui::makeRect(columnX, static_cast<int16_t>((stackY > body.y ? stackY : body.y) + small), sinceW, small),
+               model.since, dateCut);
   }
   const int16_t y = static_cast<int16_t>(body.y + headH + toybox::kGutter);
 

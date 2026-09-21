@@ -8,6 +8,14 @@
 # Links lib/EpdFont and the generated font headers on purpose: host-tests/ui
 # measures ten pixels a character, which cannot see a caption overflow a 165px
 # cell in a real face.
+#
+# It links LiveCore too, so the Live screen is driven by the phrases the DEVICE
+# composes rather than by plausible-looking strings typed here. The headline is
+# the one element on that screen whose failure is silent -- fittedTitle steps it
+# down a cut rather than refusing -- and "In about 45 minutes" is 464px against
+# a 448px body, so the question "does every phrase this can produce keep the
+# display cut" can only be answered by measuring the real phrases in the real
+# face. A list of examples in the test would answer it for the examples.
 set -e
 cd "$(dirname "$0")"
 BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-wallcaption-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
@@ -38,6 +46,7 @@ SRC=../../src/apps_local/wallpapers
   -I"$BUILD_DIR" -I"$SDK/include" -I"$ICONS/include" -I../../lib/EpdFont -I../../lib/Utf8 \
   "$SDK/src/FreeInkUI.cpp" \
   $SRC/WallpapersCore.cpp $SRC/WallpapersScreens.cpp \
+  ../../src/apps_local/live/LiveCore.cpp \
   ../../lib/EpdFont/EpdFont.cpp ../../lib/EpdFont/EpdFontFamily.cpp ../../lib/Utf8/Utf8.cpp \
   test_wallcaption.cpp -o "$BUILD_DIR/test_wallcaption"
 "$BUILD_DIR/test_wallcaption"

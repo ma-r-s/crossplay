@@ -189,23 +189,52 @@ std::string nextCheckPhrase(const Schedule& schedule, const int64_t nowEpoch) {
   return "In " + roughSpan(decision.timerSeconds);
 }
 
-std::string cadencePhrase(const uint32_t intervalSeconds) {
+std::string scheduleNote(const Schedule& schedule) {
   // "Every %u minutes" is 25 bytes at a ten-digit %u, which is one more than
   // the 24 this was written with. The interval is clamped to a week before it
   // ever gets here -- and the clamp is somebody else's invariant, on the other
-  // side of a plain uint32_t parameter.
-  char buf[32];
+  // side of a plain uint32_t field. host-tests/fmtwidth caught exactly that.
+  char buf[48];
+  // WHAT IS WRONG OUTRANKS HOW OFTEN. A reader in backoff is not keeping the
+  // cadence and must not print it as though it were: the headline above is the
+  // retry, and without this line the two figures contradict each other with
+  // nothing to explain them.
+  if (schedule.paired && schedule.on && schedule.consecutiveFailures > 0) {
+    if (schedule.consecutiveFailures == 1) return "Last check failed.";
+    std::snprintf(buf, sizeof(buf), "%d checks failed.", schedule.consecutiveFailures);
+    return std::string(buf);
+  }
+  const uint32_t intervalSeconds = schedule.intervalSeconds;
+  const char* suffix = schedule.on ? "" : " when on";
+  // BANDED, not "exact multiples or else minutes". The interval is whatever the
+  // service's X-Next-Wake asked for, clamped to 15 minutes..7 days and nothing
+  // finer, so it is routinely not a whole number of hours -- and the version
+  // that fell through to minutes answered "Every 10079 minutes" for an interval
+  // one minute under a week. Each band takes everything up to the point where
+  // the next unit rounds honestly, the way the countdown's own spans do.
   if (intervalSeconds >= 604800u && intervalSeconds % 604800u == 0u) {
     const unsigned weeks = intervalSeconds / 604800u;
-    std::snprintf(buf, sizeof(buf), weeks == 1u ? "Every week" : "Every %u weeks", weeks);
-  } else if (intervalSeconds >= 86400u && intervalSeconds % 86400u == 0u) {
-    const unsigned days = intervalSeconds / 86400u;
-    std::snprintf(buf, sizeof(buf), days == 1u ? "Every day" : "Every %u days", days);
-  } else if (intervalSeconds >= 3600u && intervalSeconds % 3600u == 0u) {
-    const unsigned hours = intervalSeconds / 3600u;
-    std::snprintf(buf, sizeof(buf), hours == 1u ? "Every hour" : "Every %u hours", hours);
+    if (weeks == 1u) {
+      std::snprintf(buf, sizeof(buf), "Every week%s", suffix);
+    } else {
+      std::snprintf(buf, sizeof(buf), "Every %u weeks%s", weeks, suffix);
+    }
+  } else if (intervalSeconds >= 23u * 3600u) {
+    const unsigned days = (intervalSeconds + 43200u) / 86400u;
+    if (days <= 1u) {
+      std::snprintf(buf, sizeof(buf), "Every day%s", suffix);
+    } else {
+      std::snprintf(buf, sizeof(buf), "Every %u days%s", days, suffix);
+    }
+  } else if (intervalSeconds >= 55u * 60u) {
+    const unsigned hours = (intervalSeconds + 1800u) / 3600u;
+    if (hours <= 1u) {
+      std::snprintf(buf, sizeof(buf), "Every hour%s", suffix);
+    } else {
+      std::snprintf(buf, sizeof(buf), "Every %u hours%s", hours, suffix);
+    }
   } else {
-    std::snprintf(buf, sizeof(buf), "Every %u minutes", intervalSeconds / 60u);
+    std::snprintf(buf, sizeof(buf), "Every %u minutes%s", intervalSeconds / 60u, suffix);
   }
   return std::string(buf);
 }

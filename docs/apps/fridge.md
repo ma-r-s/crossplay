@@ -311,6 +311,13 @@ several days it says so outright.
     screen in both states and the assertion that each is drawn cannot fail.
   - Seven of the 24 interaction slots, four phones listed. Reported by
     `host-tests/wallcaption` on every run.
+  - A sender row shows a bare date, and the confirm is the one place that says
+    what it means: `Added` stacked over `12 Sep`. Stacked rather than inline,
+    because "Added 12 Sep" on one line leaves 285px for the name and "Abuela
+    phone" is 315px at the display cut -- the ladder would have shrunk the name
+    on the one screen whose whole job is to name a person.
+  - The empty list names its own recovery ("Press ADD to let a phone in"). With
+    the list unheaded there is nothing else on the screen to say what ADD adds.
 - **"In about 24 hours" over "Every 24 hours" was a bug, not a wording
   problem.** The next check was printed from the INTERVAL, so a reader checked
   one minute ago and one checked twenty-three hours ago said the same thing. It
@@ -319,10 +326,33 @@ several days it says so outright.
   the headline cannot promise a check the schedule is not making. `Paused` while
   the toggle is off, `Soon` with no clock, `Any moment` inside three minutes,
   otherwise `In 45 minutes` / `In an hour` / `In 5 hours` / `In 2 days`, minutes
-  rounded to five. `host-tests/live` walks every band and every interval the
-  service may ask for; the length is part of the walk, because "In about 45
-  minutes" measures 464px at the display cut against a 448px body and would have
-  silently dropped the headline a rung rather than failed.
+  rounded to five.
+  - The line under it is `live::scheduleNote`, and it takes the whole schedule
+    because two of its three answers are not the interval: `Last check failed.`
+    / `3 checks failed.` in backoff, and `Every 6 hours when on` while the
+    toggle is off. Both were contradictions before. In backoff the headline is
+    the RETRY, so `In 15 minutes` sat over `Every week` with nothing saying the
+    reader could not reach the service; and `Paused` over `Every 6 hours` is the
+    screen saying it is not checking and then naming how often it checks, which
+    is the same defect this layout was built to remove, one line down.
+  - `host-tests/live` walks every band, every interval, both toggle positions
+    and the backoff. `host-tests/wallcaption` links `LiveCore` and drives the
+    real screen with the phrases `live::` composes, **measured in the face that
+    draws them** -- which is the only way to catch this screen's silent failure:
+    `fittedTitle` does not refuse a headline too wide for its cut, it steps it
+    DOWN a rung, and "In about 45 minutes" is 464px at the display cut against a
+    448px body. A suite fed plausible-looking strings could not see it, and the
+    one here was fed "Tomorrow, 6:00" and "Once a day" until it was.
+- **Two staleness bugs the layout made visible.** The headline is derived, so it
+  is wrong the moment it is not recomputed: pairing set the token and saved
+  without recomputing, so the paired screen arrived with its largest element
+  BLANK at the exact moment the feature succeeded (`nextCheckPhrase` answers ""
+  for an unpaired schedule); and `openLive()` did not recompute either, so ten
+  minutes in the grid was ten minutes of drift. Both call `refreshLiveLines()`
+  now, and it keys off `liveConfigured()` rather than the store, because
+  `WALLPAPERS_LIVE_CONFIGURED` makes those two disagree by design.
+  Reproduced and fixed in renders rather than argued: `07-harness-forced.png`
+  against `08-harness-before.png`, whose headline band holds zero ink.
 - Four tappable rows at a finger each plus a full-width ADD SOMEBODY was 145px
   more than an 800px panel has, and the control that fell off the bottom was the
   one that adds a phone. That is what put the controls on one row; the headline

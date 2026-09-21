@@ -386,7 +386,7 @@ struct LiveModel {
   // PAIRED, and this pair is the screen's whole hierarchy: `nextCheck` is the
   // headline at the display cut and `cadence` is the small line under it.
   //
-  // Both come from live::nextCheckPhrase and live::cadencePhrase, never
+  // Both come from live::nextCheckPhrase and live::scheduleNote, never
   // assembled per render -- a line built inside a paint is a line no test can
   // walk, and this one is the biggest thing on the panel. They are also short
   // BY CONSTRUCTION rather than by luck: "In about 45 minutes" measures 464px
@@ -394,7 +394,11 @@ struct LiveModel {
   // not fail, it would silently drop the headline a rung and the screen would
   // lose its hierarchy without ever looking broken.
   const char* nextCheck = "";  // "In 5 hours", "Any moment", "Paused", "Soon"
-  const char* cadence = "";    // "Every 6 hours", "Every day"
+  // NOT always the cadence, which is why live::scheduleNote takes the whole
+  // schedule: it is "Last check failed." in backoff, and "Every 6 hours when
+  // on" while the toggle is off. "Paused" over "Every 6 hours" is the screen
+  // saying it is not checking and then naming how often it checks.
+  const char* cadence = "";  // "Every 6 hours", "Every 6 hours when on", "3 checks failed."
   struct Sender {
     const char* who = nullptr;
     const char* since = nullptr;  // when they were let in: "12 Sep"
@@ -438,11 +442,18 @@ bool liveShowsCode(const LiveModel& model);
 // The sender list, when nobody is on it.
 //
 // A reader with no senders is RECOVERABLE, not broken: the picture already on
-// the glass stays there and ADD is in the row above. It has to say so in words,
+// the glass stays there and ADD is in the row above. It has to say so IN WORDS,
 // because an empty region where content belongs is this fork's most repeated
 // user-visible failure -- twice found by cold testers, both times reported as a
-// crash (a-silent-screen-reads-as-a-crash). It is the one sentence left on this
-// screen, and it is left because there is nothing else in that space to read.
+// crash (a-silent-screen-reads-as-a-crash).
+//
+// It NAMES the control, which it did not until the header said it did. With
+// the list unheaded there is nothing else on the screen to say what ADD adds,
+// so a reader in this state had a button with no antecedent -- and this file
+// claimed otherwise for as long as that was true.
+//
+// It is the one sentence left on this screen, and it is left because there is
+// nothing else in that space to read.
 const char* liveNobodySends();
 
 // The sentence that says which of the two six-digit codes is on the screen.
@@ -531,6 +542,19 @@ struct RevokeModel {
   const char* since = nullptr;
 };
 void buildLiveRevoke(toybox::Screen& screen, const RevokeModel& model);
+
+// The word the confirm stacks over the date, and the only place on the device
+// that says what a bare "12 Sep" beside a name MEANS.
+//
+// The list's rows cannot carry it: it would be the same word four times over a
+// list whose whole point is that it is short. But a bare date under no heading
+// reads as when that phone last SENT, which is a different fact and the one
+// somebody would act on -- so the screen that is about to remove a person says
+// it, where there is exactly one date and room for a word over it.
+//
+// Published so host-tests/wallcaption can assert it is drawn beside the date
+// rather than a literal here going stale the first time the wording moves.
+const char* liveAddedLabel();
 
 // What removing them actually costs, in the screen's own words. Fixed, and it
 // names no person: the person is the line above it.

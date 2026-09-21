@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 #include <string>
 
 #include "../../src/apps_local/live/LiveCore.h"
@@ -474,21 +475,77 @@ static void testNextCheckPhrase() {
   }
 }
 
-static void testCadencePhrase() {
-  std::printf("cadence phrase\n");
-  checkStr(live::cadencePhrase(900), "Every 15 minutes", "minutes");
-  checkStr(live::cadencePhrase(3600), "Every hour", "the singular hour");
-  checkStr(live::cadencePhrase(21600), "Every 6 hours", "hours");
-  checkStr(live::cadencePhrase(86400), "Every day", "the singular day");
-  checkStr(live::cadencePhrase(172800), "Every 2 days", "days");
+static void testScheduleNote() {
+  std::printf("schedule note\n");
+  const int64_t base = live::kPlausibleEpochFloor + 1000000;
+  live::Schedule s = pairedEvery(21600, base);
+
+  checkStr(live::scheduleNote(pairedEvery(900, base)), "Every 15 minutes", "minutes");
+  checkStr(live::scheduleNote(pairedEvery(3600, base)), "Every hour", "the singular hour");
+  checkStr(live::scheduleNote(s), "Every 6 hours", "hours");
+  checkStr(live::scheduleNote(pairedEvery(86400, base)), "Every day", "the singular day");
+  checkStr(live::scheduleNote(pairedEvery(172800, base)), "Every 2 days", "days");
+  // NOT A MULTIPLE OF ANYTHING, which is what the service actually sends: the
+  // version that fell through to minutes here answered "Every 10079 minutes".
+  checkStr(live::scheduleNote(pairedEvery(604740, base)), "Every 7 days", "one minute under a week");
+  checkStr(live::scheduleNote(pairedEvery(5400, base)), "Every 2 hours", "ninety minutes");
+  checkStr(live::scheduleNote(pairedEvery(3300, base)), "Every hour", "the bottom of the hours band");
+  checkStr(live::scheduleNote(pairedEvery(3299, base)), "Every 54 minutes", "and one second under it");
   // A WEEK IS A WEEK. The cap is seven days and the hours branch would have
   // answered "Every 168 hours", which is a number nobody reads.
-  checkStr(live::cadencePhrase(604800), "Every week", "the cap");
-  check(live::cadencePhrase(live::kMaxIntervalSeconds).find("168") == std::string::npos,
+  checkStr(live::scheduleNote(pairedEvery(604800, base)), "Every week", "the cap");
+  check(live::scheduleNote(pairedEvery(live::kMaxIntervalSeconds, base)).find("168") == std::string::npos,
         "the longest cadence is reported in hours");
-  // And nothing in the range is longer than the small line it sits on.
-  for (uint32_t s = live::kMinIntervalSeconds; s <= live::kMaxIntervalSeconds; s += 60) {
-    check(live::cadencePhrase(s).size() <= 20, "a cadence phrase is too long for the line under the headline");
+
+  // STOPPED. "Paused" over "Every 6 hours" is the screen saying it is not
+  // checking and then naming how often it checks -- the contradiction this
+  // layout exists to remove, one line further down. It has to read as a
+  // setting, so it says when it applies.
+  live::Schedule off = s;
+  off.on = false;
+  checkStr(live::scheduleNote(off), "Every 6 hours when on", "a stopped reader names a schedule it is not keeping");
+  checkStr(live::nextCheckPhrase(off, base + 60), "Paused", "and the headline above it says so");
+  for (uint32_t i = live::kMinIntervalSeconds; i <= live::kMaxIntervalSeconds; i += 3600) {
+    live::Schedule stopped = pairedEvery(i, base);
+    stopped.on = false;
+    check(live::scheduleNote(stopped).find(" when on") != std::string::npos,
+          "a stopped schedule reads as one that is running");
+  }
+
+  // FAILING. In backoff the headline is the RETRY, so the interval underneath
+  // it is a second figure that contradicts the first with nothing to explain
+  // the gap. What is wrong outranks how often.
+  live::Schedule failing = s;
+  failing.consecutiveFailures = 1;
+  checkStr(live::scheduleNote(failing), "Last check failed.", "one failure");
+  failing.consecutiveFailures = 3;
+  checkStr(live::scheduleNote(failing), "3 checks failed.", "several failures");
+  check(live::scheduleNote(failing).find("Every") == std::string::npos,
+        "a failing reader still prints a cadence it is not keeping");
+  // The headline and this line are about the same thing, so they must move
+  // together: the retry is sooner than the interval, and both say why.
+  check(live::nextCheckPhrase(failing, base + 60) != live::nextCheckPhrase(s, base + 60),
+        "the headline ignores the backoff while the line under it reports one");
+  // Stopped beats failing: a reader that is off is not retrying anything.
+  live::Schedule offAndFailing = failing;
+  offAndFailing.on = false;
+  check(offAndFailing.consecutiveFailures > 0 && live::scheduleNote(offAndFailing).find("failed") == std::string::npos,
+        "a stopped reader reports a failure it is not going to retry");
+
+  // AND NOTHING IT CAN SAY OVERFLOWS THE LINE. Walked over every interval, both
+  // toggle positions and a failure count past anything real, rather than over
+  // the handful of cases written above.
+  for (uint32_t i = live::kMinIntervalSeconds; i <= live::kMaxIntervalSeconds; i += 60) {
+    for (int on = 0; on < 2; ++on) {
+      for (const int fails : {0, 1, 2, 99, 100000}) {
+        live::Schedule walk = pairedEvery(i, base);
+        walk.on = on == 1;
+        walk.consecutiveFailures = fails;
+        const std::string note = live::scheduleNote(walk);
+        check(!note.empty(), "the line under the headline is blank");
+        check(note.size() <= 26, "a schedule note is too long for the line under the headline");
+      }
+    }
   }
 }
 
@@ -501,7 +558,7 @@ int main() {
   testDecide();
   testShortDate();
   testNextCheckPhrase();
-  testCadencePhrase();
+  testScheduleNote();
   if (failures != 0) {
     std::printf("live: %d checks, %d failed\n", checks, failures);
     return 1;
