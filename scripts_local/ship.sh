@@ -403,7 +403,11 @@ if [ "$DRY" = 0 ]; then
   for _img in "$DIST/firmware.bin" "$DIST/firmware-sticky.bin"; do
     if ! strings -a "$_img" | grep -qxF "CrossPlay-ESP32-$NEXT"; then
       _found="$(strings -a "$_img" | sed -n 's/^CrossPlay-ESP32-//p' | sort -u | tr '\n' ' ')"
-      die "$(basename "$_img") reports version [${_found:-none found}] and the tag is $TAG.
+      # Resolved before the message rather than inside it: a $( ) with its own
+      # quotes nested in a die string is unreadable to anything auditing which
+      # guards refuse, and host-tests/ship audits exactly that.
+      _name="$(basename "$_img")"
+      die "$_name reports version [${_found:-none found}] and the tag is $TAG.
     These images were not built from the commit being published. Every device
     that installed this would keep being offered the update it had just
     applied, forever, with nothing anywhere saying why. Nothing published."

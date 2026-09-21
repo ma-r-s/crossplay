@@ -188,6 +188,58 @@ for probe in e903 aa50 e907; do
   fi
 done
 
+# -- 3b. every guard must REFUSE, not merely notice -------------------------
+#
+# A cold review broke ship.sh eleven ways and this suite caught two. Most of
+# the misses were the same edit: turn a `die` into a `say`. The guard is
+# still there, its message is still there, every text check still passes, and
+# the release goes out anyway. That is the guard-shaped hole this file exists
+# to close, so the checks below read the ARM rather than the mention: the
+# lines between each detector and the end of its branch must reach a die.
+#
+# Still textual, and it does not prove reachability -- only a real publish
+# does that, and a real publish is not something a suite may perform. It does
+# make "noticed but did not stop" impossible to write by accident, which is
+# how every one of those mutations was spelled.
+# DIE_TEXT is every die() payload in the script and nothing else: from each
+# `die "` to the line that closes its quote. Asking whether a guard's own
+# MESSAGE is inside one is exact -- turning that die into a say removes the
+# message from this set and the check fails, which is the whole point.
+#
+# The first version instead looked for any `die` within twelve lines of the
+# detector, and two of six mutations walked straight through it by finding a
+# NEIGHBOURING guard's die. A proximity test is not a test of the arm.
+# DIE_TEXT is every die() payload and nothing else. Built in python rather
+# than awk: the first attempt was an awk state machine that never reset, so
+# once it saw one die it captured the rest of the file and two mutations
+# passed against a message that was no longer in any die at all. A detector
+# that over-captures is indistinguishable from one that works.
+DIE_TEXT="$(python3 - "$SHIP" <<'PYEOF'
+import re, sys
+src = re.sub(r'(?m)^\s*#.*$', '', open(sys.argv[1]).read())
+# each die "..." payload, quotes balanced, newlines allowed inside
+print("\n".join(m.group(1) for m in re.finditer(r'(?:^|[\s;&|])die\s+"((?:[^"\\]|\\.)*)"', src, re.S)))
+PYEOF
+)"
+
+guard_refuses() {  # <label> <a distinctive fragment of the guard message>
+  checks=$((checks + 1))
+  if printf '%s' "$DIE_TEXT" | grep -qE "$2"; then
+    ok
+  else
+    failed=$((failed + 1))
+    echo "FAIL ship  the $1 guard does not refuse: its message is not inside any die(), so it notices and carries on. A guard that prints and shrugs passes every other check in this file and publishes anyway, which is how nine of eleven mutations got through the first version of this suite."
+  fi
+}
+guard_refuses "magic-number"         'image that is not merged'
+guard_refuses "RELEASE_HOLD"         'RELEASE_HOLD is set'
+guard_refuses "fast-forward"         'has moved since this branch left it'
+guard_refuses "handover-versus-HEAD" 'images are from'
+guard_refuses "binary version"       'reports version'
+guard_refuses "dirty tree"           'working tree is dirty'
+guard_refuses "missing OTA asset"    'firmware\.bin is missing'
+guard_refuses "incomplete handover"  'no images to package'
+
 # -- 4. the gate's verdict is grepped, and its exit code is not trusted -----
 checks=$((checks + 1))
 if printf '%s' "$CODE" | grep -q "grep -o 'CHECKSH-VERDICT"; then
