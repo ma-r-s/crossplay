@@ -379,14 +379,21 @@ fi
 # seen, so every release was silently a patch bump.
 #
 # Safe to change the tree after the build because NOTHING HERE IS COMPILED.
-# release_notes.py touches platformio.ini (already at $NEXT, so idempotent),
-# docs/release-body.md and docs/release-notes.md. The tag lands on this
+# release_notes.py touches platformio.ini, docs/release-body.md and
+# docs/release-notes.md.
+#
+# --version IS NOT OPTIONAL HERE. Left to itself release_notes.py computes
+# bump(whatever platformio.ini says), and by this point platformio.ini says
+# $NEXT because the version step wrote it -- so it produced $NEXT + 1,
+# rewrote both notes files for a release that would never exist, pushed
+# that to xteink, and only then died on the tag guard. After the squash,
+# which is not undoable by re-running. The tag lands on this
 # commit, so the tagged tree's CODE is byte-identical to what was built and
 # the tag carries the notes it publishes -- which is what host-tests/release
 # wants when it compares a release against the previous tag.
 step "release notes"
 
-run "python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --write"
+run "python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --version '$NEXT' --write"
 if [ "$DRY" = 0 ]; then
   if [ -n "$(git status --porcelain)" ]; then
     run "git add platformio.ini docs/release-notes.md docs/release-body.md"
@@ -396,6 +403,16 @@ if [ "$DRY" = 0 ]; then
   else
     say "  already current"
   fi
+
+  # THE BODY MUST NAME THIS RELEASE. release_notes.py returns early without
+  # writing when merges_since() finds nothing (it filters `chore: crossplay`
+  # and `chore: emulator rebuilt` subjects), which leaves a clean tree, an
+  # "already current" that is not true, and docs/release-body.md still
+  # holding the PREVIOUS release's text -- which `gh release create
+  # --notes-file` would then publish under this tag. Nothing else here looks
+  # at the body's contents.
+  grep -q "### What is new in $NEXT" docs/release-body.md \
+    || die "docs/release-body.md does not name $NEXT, so publishing would put the previous release's text on this one's page. release_notes.py wrote nothing: most likely everything since the last tag is a chore commit it filters out. Nothing tagged, nothing published."
 fi
 
 # The tag must be the version the images were BUILT with, read out of

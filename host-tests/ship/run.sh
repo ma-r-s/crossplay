@@ -64,6 +64,15 @@ done
 # script with comments stripped, or a comment saying the right thing would
 # pass for the code doing it -- which is the exact shape of card #572.
 CODE="$(sed 's/#.*//' "$SHIP")"
+# CODE strips from the first `#` on a line, inside quotes or not, so any
+# check whose pattern contains a # has to read the file itself. Two do:
+# the release body must name "### What is new in $NEXT". Comments are a
+# false-positive risk there and the patterns below are specific enough that
+# no comment in this file matches them.
+RAWCODE="$(cat "$SHIP")"
+# And JOINED collapses the file to one line, for the commands that span
+# several with backslash continuations -- `gh release create` is four.
+JOINED="$(printf '%s' "$CODE" | tr '\n' ' ')"
 
 # -- 1. the OTA updater's literal, on both sides ----------------------------
 #
@@ -111,7 +120,10 @@ fi
 # So: every read of a built artefact must come from the handover directory,
 # and a bare .pio/build read is the defect itself.
 checks=$((checks + 1))
-if printf '%s' "$CODE" | grep -qE '(^|[^A-Za-z_/])\.pio/build/'; then
+# The character class here used to be [^A-Za-z_/], which EXCLUDES the slash
+# and so never matched "$REPO/.pio/build/..." -- the exact spelling of the
+# defect it was written for. It matched a bare .pio/build and nothing else.
+if printf '%s' "$CODE" | grep -qE '(^|[^A-Za-z_])\.pio/build'; then
   failed=$((failed + 1))
   echo "FAIL ship  ship.sh reads .pio/build directly. That directory belongs to whatever last built in THIS worktree, and the gate does not build here -- it builds in a throwaway worktree it then deletes. Package from the gate's handover (CHECKSH-IMAGES) instead."
 else
@@ -129,7 +141,9 @@ fi
 # And the handover must be checked against HEAD, or a directory left by an
 # earlier commit's run is indistinguishable from this one's.
 checks=$((checks + 1))
-if printf '%s' "$CODE" | grep -q 'basename "$IMAGES"' && printf '%s' "$CODE" | grep -q 'rev-parse HEAD'; then
+# The COMPARISON. Both names also appear in the die message that reports a
+# mismatch, so grepping for them passed a tautology that replaced the test.
+if printf '%s' "$CODE" | grep -qE '\[ "\$\(basename "\$IMAGES"\)" = "\$\(git rev-parse HEAD\)" \]'; then
   ok
 else
   failed=$((failed + 1))
@@ -239,6 +253,121 @@ guard_refuses "binary version"       'reports version'
 guard_refuses "dirty tree"           'working tree is dirty'
 guard_refuses "missing OTA asset"    'firmware\.bin is missing'
 guard_refuses "incomplete handover"  'no images to package'
+
+# -- 3c. run() itself must refuse, because everything depends on it --------
+#
+# THE ONE THIS SUITE MISSED WORST. Every state-changing command in ship.sh
+# goes through run(): the push, the squash, the tag, the release. Turning its
+# `die` into a `say` disarms all of them at once -- a rejected push, a failed
+# merge and a failed `gh release create` all print and carry on -- and the
+# eight guard_refuses checks below still pass, because each of those guards
+# is still there. ship.sh's own nine-line comment on run() describes exactly
+# this outcome ("a release of code that is on no branch, exiting 0 with
+# nothing red") and nothing asserted it.
+checks=$((checks + 1))
+RUN_BODY="$(printf '%s' "$CODE" | sed -n '/^run()  *{/,/^}/p')"
+if [ -z "$RUN_BODY" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ship  cannot find run() at all, and it is the helper every state-changing command in ship.sh goes through"
+elif printf '%s' "$RUN_BODY" | grep -qE '\|\| *die '; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  run() does not die when its command fails. It is the single helper the push, the squash, the tag and the release all pass through, so this one edit disarms every one of them while every guard in this file still reads as present."
+fi
+
+# -- 3d. the verdict arms must refuse, not just be spelled ------------------
+#
+# Both live outside guard_refuses because they are `case` arms rather than
+# messages: "" (a gate killed before it printed a verdict) and
+# host-green-device-skipped (a pass for check.sh, and no images to publish).
+# The checks above only assert the tokens APPEAR.
+for arm in '""' 'host-green-device-skipped'; do
+  checks=$((checks + 1))
+  # The arm's OWN line. `grep -A1` reached the next case arm, whose die is a
+  # different guard's -- so disarming either one passed on the other's.
+  if printf '%s' "$CODE" | grep -E "^ +$arm\)" | grep -q 'die '; then
+    ok
+  else
+    failed=$((failed + 1))
+    echo "FAIL ship  the $arm verdict arm does not die. An empty verdict is a gate that never reached one, and host-green-device-skipped means no device image was built: both publish nothing but look like a pass."
+  fi
+done
+
+# -- 3e. the release must actually carry its assets -------------------------
+#
+# `gh release create` without the file list publishes an empty release: the
+# tag exists, the page exists, and every device's updater finds no
+# firmware.bin. Nothing else here looks at the command's arguments.
+checks=$((checks + 1))
+if printf '%s' "$JOINED" | grep -qE "gh release create.{0,200}DIST[^ ]*/\*"; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  gh release create does not attach dist/*. An empty release is indistinguishable from a working one until a device looks for firmware.bin and finds nothing."
+fi
+
+# -- 3f. the version probe must match the WHOLE line ------------------------
+#
+# grep -qxF, not -qF: as a substring, an image built as 1.13.14 satisfies a
+# tag of v1.13.1.
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -q 'grep -qxF "CrossPlay-ESP32-\$NEXT"'; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  the firmware version probe is not a whole-line match (grep -qxF). As a substring, an image reporting 1.13.14 passes a tag of v1.13.1."
+fi
+
+# -- 3g. the notes are written AFTER the squash -----------------------------
+#
+# The other half of the ordering. The version must precede the build because
+# it is compiled in (checked above); the notes must FOLLOW the merge, because
+# release_notes.py maps commits to pull requests by mergeCommit.oid and that
+# oid does not exist until GitHub squashes. Written earlier, every line falls
+# back to a raw commit subject and the release:minor label is never seen.
+LAND_LINE="$(printf '%s' "$CODE" | grep -n 'run "gh pr merge' | head -1 | cut -d: -f1)"
+NOTES_LINE="$(printf '%s' "$CODE" | grep -n 'release_notes\.py.*--write' | head -1 | cut -d: -f1)"
+checks=$((checks + 1))
+if [ -z "$LAND_LINE" ] || [ -z "$NOTES_LINE" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ship  cannot find both the squash and the notes write, so the order they must keep cannot be checked"
+elif [ "$LAND_LINE" -lt "$NOTES_LINE" ]; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  ship.sh writes the release notes at line $NOTES_LINE and squashes at line $LAND_LINE. Before the squash the pull request is not merged, release_notes.py maps nothing to it, every note line becomes a raw commit subject and the release:minor label is never seen -- so every release silently becomes a patch bump."
+fi
+
+# -- 3h. the notes must name THIS release -----------------------------------
+#
+# release_notes.py returns early without writing when every commit since the
+# tag is one it filters (chore: crossplay, chore: emulator rebuilt). The tree
+# stays clean, ship.sh reads that as "already current", and
+# --notes-file docs/release-body.md then publishes the PREVIOUS release's
+# text under this tag.
+checks=$((checks + 1))
+if printf '%s' "$RAWCODE" | grep -q 'grep -q "### What is new in \$NEXT" docs/release-body\.md'; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  nothing checks that docs/release-body.md names \$NEXT before publishing it, so a run where release_notes.py wrote nothing puts the previous release's text on this release's page"
+fi
+
+# -- 3i. the version is handed to release_notes.py, not derived -------------
+#
+# Left to derive, it computes bump(what platformio.ini says) -- and by the
+# notes step platformio.ini already holds $NEXT, so it produces $NEXT + 1,
+# rewrites both notes files for a release that will never exist, pushes that
+# to xteink, and only then dies on the tag guard. After the squash, which a
+# re-run cannot undo.
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -qE "release_notes\.py[^\"]*--version '\\\$NEXT'"; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  release_notes.py is called without --version, so it derives bump(platformio.ini), which the version step has already set to \$NEXT. It writes notes for \$NEXT+1, pushes them, and dies afterwards -- with the pull request already squash-merged."
+fi
 
 # -- 4. the gate's verdict is grepped, and its exit code is not trusted -----
 checks=$((checks + 1))

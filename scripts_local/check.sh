@@ -289,6 +289,19 @@ if [ "$_committed" = "1" ]; then
   fi
   echo "  your working tree is untouched, and its uncommitted work is not in this build"
   git worktree add --quiet --detach "$TRIAL" HEAD || die
+  # THE COMMIT THIS RUN IS ABOUT, pinned here and not re-read later.
+  #
+  # The handover directory below is named after it, and ship.sh proves the
+  # images it publishes belong to the commit it tags by comparing that name
+  # against HEAD. Resolving HEAD at the END of the run instead -- after the
+  # host suites and two ESP32 builds, fifteen minutes later -- names the
+  # directory for whatever the branch has moved to since, while it holds the
+  # binaries of what it started with. Both of ship.sh's probes then pass and
+  # the wrong firmware ships under the right tag.
+  #
+  # Not hypothetical: two commits landed in this worktree during one such run
+  # on 2026-09-21. The detached clone cannot move, so it is the honest source.
+  TRIAL_SHA="$(git -C "$TRIAL" rev-parse HEAD)"
   # Clean up even when this run is interrupted. A killed --committed used to
   # leave ~600MB registered in TMPDIR until the same tree ran it again, and
   # long builds get killed on purpose here, so that is the normal case rather
@@ -402,7 +415,8 @@ if [ "$_committed" = "1" ]; then
   # publisher needs to pay. Only on a green run: there is no such thing as a
   # shippable image from a gate that did not pass.
   if [ "$_committed_rc" = 0 ] && [ -n "${CHECK_KEEP_RELEASE_IMAGES:-}" ]; then
-    _out="$REPO/.pio/ship/$(git rev-parse HEAD)"
+    # TRIAL_SHA, not a fresh `git rev-parse HEAD`: see where it is set.
+    _out="$REPO/.pio/ship/$TRIAL_SHA"
     rm -rf "$REPO/.pio/ship"
     mkdir -p "$_out"
     _kept=0
