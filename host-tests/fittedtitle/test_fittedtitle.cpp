@@ -30,6 +30,7 @@
 #include "ForeheadScreens.h"
 #include "ForeheadWords.h"
 #include "HackerNewsScreens.h"
+#include "HeartsScreens.h"
 #include "LinkScreens.h"
 #include "ToyBattleCore.h"
 #include "ToyBattleMenus.h"
@@ -367,6 +368,112 @@ void dungeonGuide() {
 // treat them differently on purpose: the menu's foot is one line beside an icon
 // and a TUTORIAL button, and the cleared screen is two centred lines with the
 // map underneath.
+// --- Hearts ---------------------------------------------------------------
+//
+// THE FIRST LANDSCAPE SCREEN IN THIS SUITE, and it is here because a cold
+// play-tester found three separate strings that had been shrunk a cut, cut
+// short, or both, on screens I had looked at. Measuring in the real face is the
+// only way to see that: host-tests/ui answers a flat ten pixels a character and
+// is blind to it entirely.
+//
+// Every string walked here is one the app draws at a FIXED cut, so a failure is
+// a string that needs rewriting rather than a ladder that needs another rung.
+fui::DeviceContext landscapePanel() {
+  fui::DeviceContext device;
+  device.width = 800;
+  device.height = 480;
+  device.hasTouch = true;
+  device.safeArea = fui::Insets{1, 0, 1, 10};
+  return device;
+}
+
+toybox::Screen heartsScreen(toybox::Frame& frame, fui::ThemeTokens& tokens) {
+  tokens = toybox::themeTokens();
+  tokens.headerHeight = heartsui::kHeaderBand;
+  return toybox::Screen(frame, tokens);
+}
+
+void heartsRules() {
+  Tally rules{"hearts: every line of the rules screen"};
+  for (int page = 0; page < heartsui::howToPages(); ++page) {
+    Paint paint("toyboxFaces");
+    toybox::Frame frame(paint.target, landscapePanel(), fui::InputSnapshot{}, paint.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::HowToModel model;
+    model.page = page;
+    heartsui::buildHowTo(screen, model);
+    expectWhole(rules, paint.target, heartsui::howToTitle(page));
+    for (int line = 0; line < heartsui::howToLines(page); ++line) {
+      expectWhole(rules, paint.target, heartsui::howToLine(page, line));
+    }
+  }
+  report(rules);
+}
+
+// The board's status row carries two strings side by side in one row, and the
+// right-hand one is assembled from two halves. Every combination is walked
+// rather than a sample: four states of the pair, plus all six refusals, which
+// take the same box.
+void heartsStatusLines() {
+  Tally status{"hearts: board status and refusal lines"};
+  uint32_t seed = 909;
+  hearts::Game game;
+  hearts::newGame(game, seed);
+  for (int s = 0; s < hearts::kSeats; ++s) {
+    uint8_t three[hearts::kPassCount] = {game.hands[s].at(0), game.hands[s].at(1), game.hands[s].at(2)};
+    hearts::setPass(game, static_cast<hearts::Seat>(s), three, hearts::kPassCount);
+  }
+  hearts::commitPass(game);
+
+  static const char* kNames[hearts::kSeats] = {"YOU", "WEST", "NORTH", "EAST"};
+  // Every status template at its LONGEST instantiation, every refusal, and all
+  // four states of the pair -- READ OUT OF THE APP rather than retyped here. A
+  // corpus written into a test stops matching the app the day somebody rewords
+  // a string, which is the failure this suite exists to catch.
+  const int kStatuses = static_cast<int>(heartsui::Status::Count);
+  const int kRefusals = static_cast<int>(heartsui::Refusal::Count);
+  for (int variant = 0; variant < 4 + kStatuses + kRefusals; ++variant) {
+    char sub[64];
+    char longest[80];
+    const char* main = nullptr;
+    std::snprintf(sub, sizeof(sub), "%s   %s", heartsui::heartsStateText((variant & 1) != 0),
+                  heartsui::queenStateText((variant & 2) != 0));
+    if (variant < 4) {
+      main = heartsui::statusTemplate(heartsui::Status::YourLead);
+    } else if (variant < 4 + kStatuses) {
+      heartsui::longestStatus(static_cast<heartsui::Status>(variant - 4), longest, sizeof(longest));
+      main = longest;
+    } else {
+      main = heartsui::refusalText(static_cast<heartsui::Refusal>(variant - 4 - kStatuses));
+    }
+    Paint paint("toyboxFaces");
+    toybox::Frame frame(paint.target, landscapePanel(), fui::InputSnapshot{}, paint.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::BoardModel model;
+    model.game = &game;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].total = 88;
+      model.seats[s].taken = 13;
+      model.legal[s] = true;
+    }
+    model.status = main;
+    model.subStatus = sub;
+    heartsui::Layout layout;
+    heartsui::buildBoard(screen, model, layout);
+    expectWhole(status, paint.target, main);
+    expectWhole(status, paint.target, sub);
+    // And the four seat names, which must all survive at the shared cut: the
+    // rail rendered three at cap 50 and NORTH at 26 when they were fitted
+    // independently.
+    for (int s = 0; s < hearts::kSeats; ++s) expectWhole(status, paint.target, kNames[s]);
+  }
+  report(status);
+}
+
 void dungeonNames() {
   Tally menu{"dungeon: next-dungeon name"};
   Tally win{"dungeon: cleared-dungeon name"};
@@ -599,6 +706,8 @@ int main() {
   theLadderItself();
   themeKeepsTheFittedCut();
   dungeonGuide();
+  heartsRules();
+  heartsStatusLines();
   dungeonNames();
   foreheadCategories();
   linkGames();

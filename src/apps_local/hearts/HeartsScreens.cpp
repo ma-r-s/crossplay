@@ -34,12 +34,18 @@ constexpr int16_t kHandH = cardart::kCardH;
 constexpr int16_t kHandBottomMargin = 12;
 constexpr int16_t kHandTop = kScreenH - kHandBottomMargin - kHandH;  // 346
 constexpr int16_t kStatusH = 34;
-// How far a chosen card lifts out of the fan. NAMED, because the status row
-// has to clear it: at a 10px lift the row ran 308..342 while the raised cards
-// sat at 336, so the heavy top edges of the picked cards cut through the
-// bottoms of the letters in "PICK THREE CARDS TO PASS RIGHT".
-constexpr int16_t kPickedLift = 6;
-constexpr int16_t kStatusTop = kHandTop - kStatusH - kPickedLift - 4;
+// A CHOSEN CARD DOES NOT MOVE. It used to lift out of the fan, and that lift
+// cost two defects while buying nothing the mark below does not:
+//
+//   at a 10px lift it cut through the letters of the status line above it;
+//   drawn in its own pass to stop it leaving a tongue over its neighbour, it
+//   was then painted at full card width into a fan of 56px pitch, so it covered
+//   the next card's corner index completely and DELETED A CARD FROM VIEW --
+//   while the player is choosing which cards to give away.
+//
+// A mark inside the card's own visible sliver says the same thing and changes
+// no geometry at all, so nothing can overlap anything.
+constexpr int16_t kStatusTop = kHandTop - kStatusH - 4;
 // DERIVED FROM THE CHROME, not typed. The band is 56, its rule sits 4 below it
 // and is 3 tall, and the fork's gutter is 12 more -- so content starts at 75,
 // not at the 62 this was. Six pixels under the band looked fine and put the
@@ -131,10 +137,14 @@ void seatPlaque(toybox::Screen& screen, const fui::Rect& box, const SeatView& se
   // The name gets whatever the numbers leave it, and steps its cut down if that
   // is not enough. Derived from the box rather than typed, so widening the rail
   // widens the name instead of leaving a gap nobody notices.
+  // ONE CUT FOR ALL FOUR, never fitted per name: the box is sized so the
+  // longest seat name fits at the shared cut, which is what keeps them a set.
   const int16_t pad = 12;
-  const int16_t numbersW = static_cast<int16_t>(46 + 10 + 46 + pad);
-  fittedLabel(screen, fui::makeRect(box.x + pad, box.y, static_cast<int16_t>(box.width - pad - numbersW), box.height),
-              seat.name, toybox::kUiFont, fui::TextAlign::Left, invert);
+  const int16_t pillW = 40;
+  const int16_t totalW = 42;
+  const int16_t numbersW = static_cast<int16_t>(pillW + 8 + totalW + pad);
+  label(screen, fui::makeRect(box.x + pad, box.y, static_cast<int16_t>(box.width - pad - numbersW), box.height),
+        seat.name, toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Left, invert);
 
   // WHERE THIS SEAT WOULD STAND IF THE HAND ENDED NOW, not the score from
   // before it started. `total` alone reads 0 for all four seats through the
@@ -143,15 +153,14 @@ void seatPlaque(toybox::Screen& screen, const fui::Rect& box, const SeatView& se
   // says how much of this number the current hand put there.
   char running[16];
   std::snprintf(running, sizeof(running), "%d", seat.total + seat.taken);
-  label(screen, fui::makeRect(static_cast<int16_t>(box.right() - pad - 46), box.y, 46, box.height), running,
+  label(screen, fui::makeRect(static_cast<int16_t>(box.right() - pad - totalW), box.y, totalW, box.height), running,
         toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Right, invert);
 
   if (seat.taken > 0) {
     char points[16];
     std::snprintf(points, sizeof(points), "+%d", seat.taken);
-    const int16_t pillW = 46;
     const fui::Rect pill =
-        fui::makeRect(static_cast<int16_t>(box.right() - pad - 46 - 10 - pillW), box.y + 10, pillW, box.height - 20);
+        fui::makeRect(static_cast<int16_t>(box.right() - pad - totalW - 8 - pillW), box.y + 10, pillW, box.height - 20);
     target.fill(pill, invert ? white : black, static_cast<uint8_t>(pill.height / 2));
     label(screen, pill, points, toybox::kButtonCut, toybox::kSmallFont, fui::TextAlign::Center, !invert);
   }
@@ -306,32 +315,32 @@ void drawHand(toybox::Screen& screen, const BoardModel& model, Layout& layout) {
   // the only full face in thirteen, which reads as a selection.
   const bool fanned = step < cw;
 
-  // TWO PASSES, because a lifted card is drawn OUTSIDE its own cell.
-  //
-  // In one pass the next card repaints from kHandTop down and the raised card's
-  // top strip survives across its full 92px width, terminating in a rounded
-  // corner floating in mid-air above its neighbour. That is the rule in
-  // docs/building-apps.md: anything drawn outside its cell needs its own pass.
-  for (int pass = 0; pass < 2; ++pass) {
-    for (int i = 0; i < hand.count; ++i) {
-      const bool picked = model.picked[i];
-      if ((pass == 1) != picked) continue;
-      const int16_t y = static_cast<int16_t>(kHandTop - (picked ? kPickedLift : 0));
-      const fui::Rect rect = fui::makeRect(static_cast<int16_t>(x0 + step * i), y, cw, kHandH);
-      layout.handCard[i] = rect;
+  // ONE PASS, LEFT TO RIGHT, so each card covers exactly the part of its
+  // neighbour the fan is supposed to cover and nothing is drawn outside its
+  // own cell.
+  for (int i = 0; i < hand.count; ++i) {
+    const bool picked = model.picked[i];
+    const fui::Rect rect = fui::makeRect(static_cast<int16_t>(x0 + step * i), kHandTop, cw, kHandH);
+    layout.handCard[i] = rect;
 
-      const cardart::Ink ink = picked           ? cardart::Ink::Picked
-                               : model.legal[i] ? cardart::Ink::Normal
-                                                : cardart::Ink::Dimmed;
-      cardart::drawCardFace(screen, rect, hand.at(i), fanned ? step : kHandH,
-                            fanned ? cardart::Fan::Sideways : cardart::Fan::None, ink);
-      // The hit region is the sliver a fanned card actually shows, and the whole
-      // card once the hand has spread. Derived from the rect that drew it, never
-      // recomputed: hit-testing that recalculates geometry is the rule three
-      // separate bugs in this project came from breaking.
-      const int16_t hitW = (fanned && i + 1 < hand.count) ? step : cw;
-      screen.frame().hit(fui::makeRect(rect.x, rect.y, hitW, kHandH), ActionHandCard, i);
+    const cardart::Ink ink = picked           ? cardart::Ink::Picked
+                             : model.legal[i] ? cardart::Ink::Normal
+                                              : cardart::Ink::Dimmed;
+    cardart::drawCardFace(screen, rect, hand.at(i), fanned ? step : kHandH,
+                          fanned ? cardart::Fan::Sideways : cardart::Fan::None, ink);
+
+    // The width of this card the player can actually see. The hit region is
+    // derived from the rect that drew it, never recomputed: hit-testing that
+    // recalculates geometry is the rule three separate bugs here came from
+    // breaking. The chosen mark uses the same number, so it cannot spill onto
+    // the neighbour either.
+    const int16_t visibleW = (fanned && i + 1 < hand.count) ? step : cw;
+    if (picked) {
+      const fui::Rect tab = fui::makeRect(static_cast<int16_t>(rect.x + 8), static_cast<int16_t>(rect.y + 70),
+                                          static_cast<int16_t>(visibleW - 16), 18);
+      screen.target().fill(tab, fui::Paint::solid(fui::Color::Black), 6);
     }
+    screen.frame().hit(fui::makeRect(rect.x, rect.y, visibleW, kHandH), ActionHandCard, i);
   }
 }
 
@@ -341,16 +350,22 @@ void drawHand(toybox::Screen& screen, const BoardModel& model, Layout& layout) {
 // each gets its own half and the fitting ladder.
 void drawStatus(toybox::Screen& screen, const BoardModel& model) {
   const int16_t width = static_cast<int16_t>(kScreenW - kPageMargin * 2);
-  const int16_t half = static_cast<int16_t>(width * 3 / 5);
+  // The main line gets 55% and the state pair 45%. Both are measured against
+  // exactly these widths in host-tests/fittedtitle.
+  const int16_t half = static_cast<int16_t>(width * 55 / 100);
   if (model.status != nullptr && model.status[0] != '\0') {
     fittedLabel(screen, fui::makeRect(kPageMargin, kStatusTop, half, kStatusH), model.status, toybox::kUiFont,
                 fui::TextAlign::Left, false);
   }
   if (model.subStatus != nullptr && model.subStatus[0] != '\0') {
-    fittedLabel(screen,
-                fui::makeRect(static_cast<int16_t>(kPageMargin + half), kStatusTop, static_cast<int16_t>(width - half),
-                              kStatusH),
-                model.subStatus, toybox::kSmallFont, fui::TextAlign::Right, false);
+    // FIXED CUT. Fitted, "QUEEN STILL OUT" was shrunk a size and then truncated
+    // anyway to "QUEEN STILL...", which says neither out nor played, while
+    // leaving 22% of its own box empty. The strings are short enough now and
+    // host-tests/fittedtitle measures them.
+    label(screen,
+          fui::makeRect(static_cast<int16_t>(kPageMargin + half), kStatusTop, static_cast<int16_t>(width - half),
+                        kStatusH),
+          model.subStatus, toybox::kButtonCut, toybox::kSmallFont, fui::TextAlign::Right, false);
   }
 }
 
@@ -401,7 +416,12 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
 
   // RAIL: the seats are a column down the left, in table order from the top, so
   // the rail reads the way the play goes round.
-  const int16_t railW = 224;
+  // WIDE ENOUGH FOR THE LONGEST NAME AT THE SHARED CUT. At 224 the name box
+  // came to 98px and "NORTH" needs ~118, so the fitting ladder dropped that one
+  // seat a cut and the rail rendered three names at cap 50 and one at 26. Four
+  // plaques in a column are the definitive pair, and a pair sized per string
+  // stops being a pair.
+  const int16_t railW = 244;
   // Four of these plus their gaps have to fit the panel, which the gutter above
   // made 14px shorter. 54 did not, and a rail that overflows is four plaques
   // walking off the bottom of the screen.
@@ -521,7 +541,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 
   char line[64];
   if (model.hasSave) {
-    std::snprintf(line, sizeof(line), "HAND %d, PART PLAYED", model.savedHand);
+    std::snprintf(line, sizeof(line), model.savedHandDone ? "HAND %d SCORED" : "HAND %d, PART PLAYED", model.savedHand);
   } else {
     // Short enough to FIT the column at the UI cut. The first version ran to
     // "SHOOT LOW. AVOID THE QUEEN." and the text layer cut it mid-word, which
@@ -676,8 +696,18 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
     rowTop = static_cast<int16_t>(top + 62);
   }
 
-  const int16_t rowH = 54;
+  // ROW HEIGHT IS DERIVED FROM WHAT IS LEFT, not typed.
+  //
+  // The moon banner pushes rowTop down 62px and nothing paid for it: the
+  // standings line then landed at y=408 against a foot at y=400, so on the one
+  // screen a moon has earned, the note was painted over by the NEXT HAND plate
+  // on its left and printed through the rule text on its right. Four rows and a
+  // note have to fit between the banner and the foot, so they are measured
+  // against it.
   const int16_t rowGap = 10;
+  const int16_t noteH = 44;
+  const int16_t rowsRegion = static_cast<int16_t>(footY - 12 - noteH - rowTop);
+  const int16_t rowH = static_cast<int16_t>((rowsRegion - rowGap * (kSeats - 1)) / kSeats);
   static const Seat kOrder[kSeats] = {Seat::South, Seat::West, Seat::North, Seat::East};
   for (int i = 0; i < kSeats; ++i) {
     const int s = seatIndex(kOrder[i]);
@@ -730,7 +760,7 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   // named most often and the only one that conjugates. And a tie announced one
   // of the tied seats as the winner, while hearts::isTied() sat unused --
   // which is the second opinion this file's own comments warn about twice.
-  const int16_t noteY = static_cast<int16_t>(rowTop + kSeats * (rowH + rowGap) + 14);
+  const int16_t noteY = static_cast<int16_t>(rowTop + kSeats * rowH + (kSeats - 1) * rowGap + 12);
   const int me = seatIndex(Seat::South);
   const int best = seatIndex(leader(game));
   const bool tied = isTied(game);
@@ -747,8 +777,17 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
       std::snprintf(note, sizeof(note), "%s %s ON %d", model.seats[best].name, best == me ? "WIN" : "WINS",
                     game.total[best]);
     }
-  } else if (tied && game.total[me] == game.total[best]) {
-    std::snprintf(note, sizeof(note), "LEVEL ON %d", game.total[me]);
+  } else if (tied) {
+    // A TIE THE PLAYER IS NOT IN IS STILL A TIE. This branch used to also
+    // require total[me] == total[best], so two opponents level on zero got one
+    // of them named as the leader while isTied() sat right there saying
+    // otherwise.
+    if (game.total[me] == game.total[best]) {
+      std::snprintf(note, sizeof(note), "LEVEL ON %d", game.total[me]);
+    } else {
+      std::snprintf(note, sizeof(note), "TWO LEAD ON %d. YOU ARE %d BEHIND", game.total[best],
+                    game.total[me] - game.total[best]);
+    }
   } else if (best == me) {
     std::snprintf(note, sizeof(note), "YOU LEAD BY %d", game.total[second] - game.total[me]);
   } else {
@@ -778,7 +817,7 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   // above it. Hearts is the wrong way round from most games and a player two
   // hands in is still checking.
   char rule[48];
-  std::snprintf(rule, sizeof(rule), "LOWEST WINS  %s  FIRST TO %d ENDS IT", model.gameOver ? "-" : "-", kTargetScore);
+  std::snprintf(rule, sizeof(rule), "LOWEST WINS. FIRST TO %d ENDS IT", kTargetScore);
   label(screen, fui::makeRect(316, footY, static_cast<int16_t>(kScreenW - 316 - kPageMargin), footH), rule,
         toybox::kButtonCut, toybox::kSmallFont, fui::TextAlign::Right, false);
 }
@@ -804,28 +843,135 @@ struct HowToPage {
   const char* lines[5];
 };
 
+// EVERY LINE IS MEASURED IN THE REAL FACE by host-tests/fittedtitle, which is
+// why they are this short. Two of them were being cut, and the per-line fitting
+// ladder that hid it rendered one page at three different sizes and split a
+// sentence across two of them.
+//
+// The first-trick line also used to state an absolute -- "NOTHING THAT COSTS A
+// POINT MAY BE PLAYED" -- that the rules correctly do not enforce: a hand of
+// nothing but penalty cards may, and the player forced to drop the queen on
+// trick one saw the help contradict the game.
 const HowToPage kHowTo[] = {
     {"WHAT IT COSTS",
-     {"EVERY HEART YOU TAKE IS ONE POINT.", "THE QUEEN OF SPADES IS THIRTEEN.", "TWENTY-SIX POINTS GO OUT EVERY HAND.",
-      "LOWEST SCORE WINS. FIRST TO 100 ENDS IT.", nullptr}},
+     {"EVERY HEART YOU TAKE COSTS ONE.", "THE QUEEN OF SPADES COSTS 13.", "SO 26 POINTS GO OUT EVERY HAND.",
+      "LOWEST SCORE WINS, AT 100.", nullptr}},
     {"TAKING A TRICK",
-     {"THE TWO OF CLUBS OPENS EVERY HAND.", "FOLLOW THE SUIT THAT WAS LED IF YOU CAN.",
-      "HIGHEST CARD OF THAT SUIT TAKES THE TRICK", "AND EVERYTHING IN IT. THEN LEADS THE NEXT.", nullptr}},
+     {"THE TWO OF CLUBS OPENS A HAND.", "FOLLOW THE SUIT LED IF YOU CAN.", "HIGHEST CARD OF THAT SUIT TAKES IT",
+      "AND LEADS THE NEXT TRICK.", nullptr}},
     {"THE TWO THAT CATCH PEOPLE",
-     {"YOU CANNOT LEAD A HEART UNTIL SOMEBODY", "HAS DISCARDED ONE. THE TABLE SAYS WHICH.",
-      "NOTHING THAT COSTS A POINT MAY BE PLAYED", "ON THE FIRST TRICK OF A HAND.",
-      "A GREY CARD IS ONE THE RULES WILL REFUSE."}},
+     {"YOU MAY NOT LEAD A HEART UNTIL", "SOMEBODY HAS DISCARDED ONE.", "ON TRICK ONE, NO HEART AND NO",
+      "QUEEN, UNLESS THAT IS ALL YOU HOLD.", "A GREY CARD IS ONE THE RULES REFUSE."}},
     {"PASSING, AND THE MOON",
-     {"BEFORE EACH HAND YOU PASS THREE CARDS:", "LEFT, THEN RIGHT, THEN ACROSS, THEN NOBODY.",
-      "TAKE ALL TWENTY-SIX AND YOU SCORE NOTHING", "WHILE EVERYONE ELSE TAKES TWENTY-SIX.",
-      "THAT IS SHOOTING THE MOON. IT IS RARE."}},
+     {"EACH HAND YOU PASS THREE CARDS:", "LEFT, RIGHT, ACROSS, THEN NOBODY.", "TAKE ALL 26 AND YOU SCORE NOTHING",
+      "WHILE EVERYONE ELSE TAKES 26.", "THAT IS THE MOON. IT IS RARE."}},
 };
 
 constexpr int kHowToCount = static_cast<int>(sizeof(kHowTo) / sizeof(kHowTo[0]));
 
 }  // namespace
 
+const char* refusalText(const Refusal why) {
+  switch (why) {
+    case Refusal::NotYourTurn:
+      return "NOT YOUR TURN YET";
+    case Refusal::TwoOfClubsOpens:
+      return "THE TWO OF CLUBS OPENS";
+    case Refusal::MustFollowSuit:
+      return "YOU STILL HOLD THAT SUIT";
+    case Refusal::NoPointsFirstTrick:
+      return "NO POINTS ON TRICK ONE";
+    case Refusal::HeartsNotBroken:
+      return "HEARTS ARE NOT BROKEN";
+    case Refusal::JustNo:
+      return "THE RULES REFUSE THAT";
+    case Refusal::Count:
+      break;
+  }
+  return "";
+}
+
+// SEEN and UNSEEN rather than OUT and GONE. "QUEEN OUT" meant she had not been
+// played while "QUEEN GONE" meant she had -- opposite meanings, one word apart,
+// in the smallest type on the screen. These are also short enough to survive
+// their box, which the pair before them was not: it was shrunk a cut and then
+// truncated anyway, to "QUEEN STILL...".
+const char* statusTemplate(const Status which) {
+  switch (which) {
+    case Status::PickToPass:
+      return "PICK THREE TO PASS %s";
+    case Status::Thinking:
+      return "%s IS THINKING";
+    case Status::YourLeadFirst:
+      return "LEAD THE TWO OF CLUBS";
+    case Status::YourLead:
+      return "YOUR LEAD";
+    case Status::FollowSuit:
+      return "FOLLOW %s";
+    case Status::TakesIt:
+      return "%s %s IT";
+    case Status::TakesItPoints:
+      return "%s %s IT, %d POINT%s";
+    case Status::HandOver:
+      return "HAND OVER";
+    case Status::GameOver:
+      return "GAME OVER";
+    case Status::Count:
+      break;
+  }
+  return "";
+}
+
+void longestStatus(const Status which, char* out, const int size) {
+  // The widest real substitutions: the longest seat name, the longest suit, the
+  // longest pass direction, and a two-digit point count that takes the plural.
+  switch (which) {
+    case Status::PickToPass:
+      std::snprintf(out, size, statusTemplate(which), "ACROSS");
+      return;
+    case Status::Thinking:
+      std::snprintf(out, size, statusTemplate(which), "NORTH");
+      return;
+    case Status::FollowSuit:
+      std::snprintf(out, size, statusTemplate(which), "DIAMONDS");
+      return;
+    case Status::TakesIt:
+      std::snprintf(out, size, statusTemplate(which), "NORTH", "TAKES");
+      return;
+    case Status::TakesItPoints:
+      std::snprintf(out, size, statusTemplate(which), "NORTH", "TAKES", 14, "S");
+      return;
+    default:
+      std::snprintf(out, size, "%s", statusTemplate(which));
+      return;
+  }
+}
+
+const char* heartsStateText(const bool broken) { return broken ? "HEARTS BROKEN" : "HEARTS UNBROKEN"; }
+const char* queenStateText(const bool played) { return played ? "QUEEN SEEN" : "QUEEN UNSEEN"; }
+
 int howToPages() { return kHowToCount; }
+
+namespace {
+const HowToPage& howToPageAt(const int page) { return kHowTo[(page < 0 || page >= kHowToCount) ? 0 : page]; }
+}  // namespace
+
+int howToLines(const int page) {
+  const HowToPage& text = howToPageAt(page);
+  int n = 0;
+  for (int i = 0; i < 5; ++i) {
+    if (text.lines[i] == nullptr) break;
+    ++n;
+  }
+  return n;
+}
+
+const char* howToTitle(const int page) { return howToPageAt(page).title; }
+
+const char* howToLine(const int page, const int line) {
+  const HowToPage& text = howToPageAt(page);
+  return (line < 0 || line >= 5 || text.lines[line] == nullptr) ? "" : text.lines[line];
+}
 
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   auto& target = screen.target();
@@ -852,13 +998,21 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const int16_t blockH = static_cast<int16_t>(56 + 18 + lines * 42);
   const int16_t top = static_cast<int16_t>(kTableTop + ((markY - 16 - kTableTop) - blockH) / 2);
 
-  fittedLabel(screen, fui::makeRect(kPageMargin + 16, top, kScreenW - kPageMargin * 2 - 32, 56), text.title,
-              toybox::kDisplayFont, fui::TextAlign::Left, false);
+  label(screen, fui::makeRect(kPageMargin + 16, top, kScreenW - kPageMargin * 2 - 32, 56), text.title,
+        toybox::kDisplayCut, toybox::kDisplayFont, fui::TextAlign::Left, false);
 
+  // ONE CUT FOR THE WHOLE PAGE, never fitted per line. Fitting each line on its
+  // own rendered page four at cap heights 50, 30, 26, 50, 50 and split "TAKE
+  // ALL TWENTY-SIX AND YOU SCORE NOTHING / WHILE EVERYONE ELSE TAKES
+  // TWENTY-SIX." across two of them: one sentence at two sizes, on the page
+  // explaining the moon to somebody who does not know what the moon is.
+  //
+  // The lines are written to fit instead, and host-tests/fittedtitle measures
+  // every one of them in the real face.
   int16_t y = static_cast<int16_t>(top + 74);
   for (int i = 0; i < lines; ++i) {
-    fittedLabel(screen, fui::makeRect(kPageMargin + 16, y, kScreenW - kPageMargin * 2 - 32, 38), text.lines[i],
-                toybox::kUiFont, fui::TextAlign::Left, false);
+    label(screen, fui::makeRect(kPageMargin + 16, y, kScreenW - kPageMargin * 2 - 32, 38), text.lines[i],
+          toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Left, false);
     y = static_cast<int16_t>(y + 42);
   }
 

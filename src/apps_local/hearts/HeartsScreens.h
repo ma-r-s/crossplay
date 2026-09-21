@@ -90,6 +90,9 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
 struct MenuModel {
   bool hasSave = false;
   int savedHand = 0;
+  // The saved hand has been played out and scored; the game resumes on the
+  // score screen, not mid-trick.
+  bool savedHandDone = false;
   int bestPlace = 0;  // 1..4, 0 for never finished a game
   int gamesPlayed = 0;
   int gamesWon = 0;
@@ -123,5 +126,56 @@ struct HowToModel {
 
 int howToPages();
 void buildHowTo(toybox::Screen& screen, const HowToModel& model);
+
+// Every line of the rules screen, so a suite can measure all of them in the
+// real cuts rather than a handful somebody retyped into a test. A corpus
+// written into a test is a corpus that stops matching the app.
+// WHY A TAP WAS REFUSED. In the screens layer rather than the activity so a
+// suite that may not touch a renderer can still walk every one of them and
+// measure it in the real face. The activity picks which; this owns the words.
+enum class Refusal : uint8_t {
+  NotYourTurn = 0,
+  TwoOfClubsOpens,
+  MustFollowSuit,
+  NoPointsFirstTrick,
+  HeartsNotBroken,
+  JustNo,
+  Count,
+};
+const char* refusalText(Refusal why);
+
+// THE STATUS LINE'S WORDS, for the same reason: the suite that measures them
+// may not compile an Activity, and a corpus retyped into a test is a corpus
+// that stops matching the app the first time somebody rewords a string.
+//
+// The formatted ones are printf templates. The suite instantiates each with the
+// longest seat name and the largest number it can carry, which is the only
+// instantiation worth measuring.
+enum class Status : uint8_t {
+  PickToPass = 0,  // one %s: the direction
+  Thinking,        // one %s: a seat
+  YourLeadFirst,   // fixed
+  YourLead,        // fixed
+  FollowSuit,      // one %s: a suit
+  TakesIt,         // %s seat, %s verb
+  TakesItPoints,   // %s seat, %s verb, %d points, %s plural
+  HandOver,        // fixed
+  GameOver,        // fixed
+  Count,
+};
+const char* statusTemplate(Status which);
+
+// The longest string any template can produce, rendered into `out`. Exposed so
+// the width suite measures the worst case rather than a typical one.
+void longestStatus(Status which, char* out, int size);
+
+// The two halves of the board's sub-status, so both can be measured against
+// the box they share.
+const char* heartsStateText(bool broken);
+const char* queenStateText(bool played);
+
+int howToLines(int page);
+const char* howToTitle(int page);
+const char* howToLine(int page, int line);
 
 }  // namespace heartsui

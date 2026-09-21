@@ -97,14 +97,26 @@ void drawCardFace(toybox::Screen& screen, const fui::Rect& rect, const uint8_t c
             card);
   }
 
-  // The big centre pip only exists on a card you can see all of, AND only on a
-  // card big enough to hold it. The 46px art is drawn at its own size because
-  // nothing here resamples, so on a 64x86 trick card it ran 26px out through
-  // the bottom edge and collided with whatever place the card was lying on.
-  // Same defect as the card back's mark, one function down.
+  // The big centre pip only exists on a card you can see all of, and it is
+  // placed FROM THE BOTTOM EDGE rather than at a fixed offset from the top.
+  //
+  // `rect.y + 64` plus 48 of artwork needs 112px of card. The guard said 96, so
+  // every 96px trick card drew its pip 16px out through its own bottom -- and
+  // the south card's went on through the table panel's border. The guard had
+  // already been tightened once for this exact defect at 64x86 and the number
+  // was wrong that time too, which is what a magic offset does: it has to be
+  // re-guessed for every size anybody uses.
+  //
+  // Measured from the bottom it cannot escape, and it lands in the identical
+  // place on the 122px card Klondike draws: 122 - 48 - 10 = 64.
   if (visible < rect.height) return;
-  if (rect.width < 72 || rect.height < 96) return;
-  drawPip(screen, fui::makeRect(rect.x + rect.width / 2 - 20, rect.y + 64, 46, 48), card);
+  constexpr int16_t kPipH = 48;
+  constexpr int16_t kPipBottomInset = 10;
+  if (rect.width < 72 || rect.height < kPipH + kPipBottomInset + 32) return;
+  drawPip(screen,
+          fui::makeRect(static_cast<int16_t>(rect.x + rect.width / 2 - 20),
+                        static_cast<int16_t>(rect.bottom() - kPipBottomInset - kPipH), 46, kPipH),
+          card);
 }
 
 void drawCardBack(toybox::Screen& screen, const fui::Rect& rect, const int visible, const c::Suit markSuit) {

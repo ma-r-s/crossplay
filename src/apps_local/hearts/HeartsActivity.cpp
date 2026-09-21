@@ -282,7 +282,10 @@ void HeartsActivity::routeHandCard(const int index) {
 
   if (game.phase != Phase::Playing) return;
   if (game.turn != Seat::South) {
-    rejected = "NOT YOUR TURN YET";
+    rejected = ui::refusalText(ui::Refusal::NotYourTurn);
+    turnNoteBuffer[0] = '\0';
+    std::snprintf(turnNoteBuffer, sizeof(turnNoteBuffer), "%s IS THINKING", seatName(game.turn));
+    turnNote = turnNoteBuffer;
     requestUpdate();
     return;
   }
@@ -293,17 +296,19 @@ void HeartsActivity::routeHandCard(const int index) {
     // SAY WHY. The dither already said "not this one"; this says which rule,
     // which is the difference between a game that refuses you and a game that
     // teaches you. The reasons are in the order the rules bite.
+    // The words live in HeartsScreens so a suite can measure all six; this only
+    // decides WHICH, in the order the rules bite.
     if (game.firstTrick() && game.trick.empty()) {
-      rejected = "THE TWO OF CLUBS OPENS THE HAND";
+      rejected = ui::refusalText(ui::Refusal::TwoOfClubsOpens);
     } else if (!game.trick.empty() && game.hands[seatIndex(Seat::South)].hasSuit(game.trick.ledSuit()) &&
                cards::suitOf(card) != game.trick.ledSuit()) {
-      rejected = "YOU STILL HOLD THE LED SUIT";
+      rejected = ui::refusalText(ui::Refusal::MustFollowSuit);
     } else if (game.firstTrick() && penaltyOf(card) > 0) {
-      rejected = "NO POINTS ON THE FIRST TRICK";
+      rejected = ui::refusalText(ui::Refusal::NoPointsFirstTrick);
     } else if (game.trick.empty() && isHeart(card) && !game.heartsBroken) {
-      rejected = "HEARTS ARE NOT BROKEN YET";
+      rejected = ui::refusalText(ui::Refusal::HeartsNotBroken);
     } else {
-      rejected = "THE RULES REFUSE THAT CARD";
+      rejected = ui::refusalText(ui::Refusal::JustNo);
     }
     requestUpdate();
     return;
@@ -414,12 +419,17 @@ void HeartsActivity::loop() {
             if (hasGame && !confirmingNew) {
               confirmingNew = true;
               requestUpdate();
+              // (any other menu action disarms it -- see below)
             } else {
               confirmingNew = false;
               newGame();
             }
             break;
           case ui::ButtonHint: {
+            // AN ARMED CONFIRM DOES NOT SURVIVE AN UNRELATED ACTION. "DISCARD
+            // IT?" stayed armed through the difficulty toggle, with no way to
+            // disarm it and no button labelled NEW GAME on screen while it was.
+            confirmingNew = false;
             skill = skill == Skill::Sharp ? Skill::Rookie : Skill::Sharp;
             HalFile file;
             if (Storage.openFileForWrite("HEARTS", kSkillPath, file)) {
@@ -431,6 +441,7 @@ void HeartsActivity::loop() {
             break;
           }
           case ui::ButtonHowTo:
+            confirmingNew = false;
             howToPage = 0;
             view = View::HowTo;
             requestUpdate();
@@ -477,7 +488,15 @@ void HeartsActivity::fillSeats(ui::SeatView* seats) const {
     seats[s].name = seatName(seat);
     seats[s].initial = seatName(seat)[0];
     seats[s].total = game.total[s];
+    // INCLUDING WHAT IS FACE UP ON THE TABLE. taken[] updates in sweepTrick(),
+    // so between the fourth card landing and the sweep the plaque read "EAST 0"
+    // while the status line directly under it said "EAST TAKES IT, 4 POINTS".
+    // A projected total that excludes the trick being announced is a worse
+    // claim than an honest stale number, which is what this replaced.
     seats[s].taken = game.taken[s];
+    if (game.phase == Phase::TrickTaken && hasLastWinner && static_cast<Seat>(s) == lastWinner) {
+      seats[s].taken += game.trick.points();
+    }
     seats[s].cardsLeft = game.hands[s].count;
     seats[s].isMe = seat == Seat::South;
     seats[s].isTurn = game.phase == Phase::Playing && game.turn == seat;
@@ -488,11 +507,20 @@ void HeartsActivity::fillSeats(ui::SeatView* seats) const {
 void HeartsActivity::fillLegal(ui::BoardModel& model) const {
   const Hand& hand = game.hands[seatIndex(Seat::South)];
   for (int i = 0; i < hand.count; ++i) {
-    // In the pass everything is choosable; in play the rules decide. Asked of
-    // the same function the tap asks, so the board cannot offer what the tap
-    // then refuses.
+    // THE DITHER MEANS EXACTLY ONE THING: THE RULES WILL REFUSE THIS CARD.
+    //
+    // It used to also mean "it is not your turn" -- legality ANDed with
+    // `turn == South` -- so while three brains thought, which is most of the
+    // wall clock, all thirteen cards went grey at once. That overloads the only
+    // teaching device on the screen, and once the rules page started saying
+    // "A GREY CARD IS ONE THE RULES WILL REFUSE" it made the board contradict
+    // its own help for three quarters of every hand.
+    //
+    // Asking the rules WITHOUT the turn is also strictly more useful: once two
+    // cards are down the led suit is settled, so the hand shows what you will
+    // be allowed to play before your turn arrives.
     model.legal[i] =
-        game.phase == Phase::Passing ? true : (game.turn == Seat::South && isLegalPlay(game, Seat::South, hand.at(i)));
+        game.phase == Phase::Passing || isLegalCard(hand, game.trick, game.heartsBroken, game.firstTrick(), hand.at(i));
   }
 }
 
@@ -504,38 +532,42 @@ const char* HeartsActivity::statusLine() {
     rejected = nullptr;
     return reason;
   }
+  // (subStatusLine carries the refusal's company; see the note there.)
   switch (game.phase) {
     case Phase::Passing:
-      std::snprintf(statusBuffer, sizeof(statusBuffer), "PICK THREE CARDS TO PASS %s", passName(game.passDirection()));
+      std::snprintf(statusBuffer, sizeof(statusBuffer), ui::statusTemplate(ui::Status::PickToPass),
+                    passName(game.passDirection()));
       return statusBuffer;
     case Phase::Playing:
       if (game.turn != Seat::South) {
-        std::snprintf(statusBuffer, sizeof(statusBuffer), "%s IS THINKING", seatName(game.turn));
+        std::snprintf(statusBuffer, sizeof(statusBuffer), ui::statusTemplate(ui::Status::Thinking),
+                      seatName(game.turn));
         return statusBuffer;
       }
       if (game.trick.empty()) {
-        if (game.firstTrick()) return "YOUR LEAD: THE TWO OF CLUBS OPENS";
-        std::snprintf(statusBuffer, sizeof(statusBuffer), "YOUR LEAD");
-        return statusBuffer;
+        if (game.firstTrick()) return ui::statusTemplate(ui::Status::YourLeadFirst);
+        return ui::statusTemplate(ui::Status::YourLead);
       }
-      std::snprintf(statusBuffer, sizeof(statusBuffer), "FOLLOW %s", cards::suitName(game.trick.ledSuit()));
+      std::snprintf(statusBuffer, sizeof(statusBuffer), ui::statusTemplate(ui::Status::FollowSuit),
+                    cards::suitName(game.trick.ledSuit()));
       return statusBuffer;
     case Phase::TrickTaken:
       if (hasLastWinner) {
         const int points = game.trick.points();
         if (points > 0) {
-          std::snprintf(statusBuffer, sizeof(statusBuffer), "%s TAKES IT, %d POINT%s", seatName(lastWinner), points,
-                        points == 1 ? "" : "S");
+          std::snprintf(statusBuffer, sizeof(statusBuffer), ui::statusTemplate(ui::Status::TakesItPoints),
+                        seatName(lastWinner), takesVerb(lastWinner), points, points == 1 ? "" : "S");
         } else {
-          std::snprintf(statusBuffer, sizeof(statusBuffer), "%s TAKES IT", seatName(lastWinner));
+          std::snprintf(statusBuffer, sizeof(statusBuffer), ui::statusTemplate(ui::Status::TakesIt),
+                        seatName(lastWinner), takesVerb(lastWinner));
         }
         return statusBuffer;
       }
       return "";
     case Phase::HandOver:
-      return "HAND OVER";
+      return ui::statusTemplate(ui::Status::HandOver);
     case Phase::GameOver:
-      return "GAME OVER";
+      return ui::statusTemplate(ui::Status::GameOver);
   }
   return "";
 }
@@ -545,6 +577,15 @@ const char* HeartsActivity::subStatusLine() {
     std::snprintf(subStatusBuffer, sizeof(subStatusBuffer), "%d OF 3", pickedCount);
     return subStatusBuffer;
   }
+  // A REFUSAL MUST NOT COST YOU THE TURN INDICATOR. The reason replaces the
+  // status line, which is the line that says whose go it is, and paints happen
+  // every 420ms -- so one stray tap and you no longer know who the table is
+  // waiting for. The reason takes the status and the turn moves down here.
+  if (turnNote != nullptr) {
+    const char* note = turnNote;
+    turnNote = nullptr;
+    return note;
+  }
   // Two facts a Hearts player tracks all hand and cannot see anywhere else.
   const bool queenGone = game.played[static_cast<int>(Suit::Spades) * cards::kRanks + cards::kQueen];
   // "QUEEN OUT" meant she had NOT been played and "QUEEN GONE" meant she had.
@@ -552,9 +593,12 @@ const char* HeartsActivity::subStatusLine() {
   // apart, in the smallest type on the screen, and meant opposite things.
   // "HEARTS SHUT" was invented too: the game's own word is broken, and its
   // opposite is not broken.
-  std::snprintf(subStatusBuffer, sizeof(subStatusBuffer), "%s   %s",
-                game.heartsBroken ? "HEARTS BROKEN" : "HEARTS NOT BROKEN",
-                queenGone ? "QUEEN PLAYED" : "QUEEN STILL OUT");
+  // SHORT ENOUGH TO FIT AT A FIXED CUT. "QUEEN STILL OUT" was shrunk a size
+  // and then truncated anyway, to "QUEEN STILL...", which says neither out nor
+  // played -- the one fact the line exists to carry. The longest combination
+  // here is 33 characters and host-tests/ui measures every one of them.
+  std::snprintf(subStatusBuffer, sizeof(subStatusBuffer), "%s   %s", ui::heartsStateText(game.heartsBroken),
+                ui::queenStateText(queenGone));
   return subStatusBuffer;
 }
 
@@ -588,6 +632,8 @@ void HeartsActivity::render(RenderLock&&) {
     ui::MenuModel model;
     model.hasSave = hasGame;
     model.savedHand = static_cast<int>(game.handNumber) + 1;
+    // "HAND 1, PART PLAYED" was shown for a hand that had finished and scored.
+    model.savedHandDone = game.phase == Phase::HandOver || game.phase == Phase::GameOver;
     model.sharp = skill == Skill::Sharp;
     model.confirmingNew = confirmingNew;
     fillStats(model);

@@ -1256,10 +1256,21 @@ void heartsHowToTeachesTheTwoTrickyRules() {
     CHECK(!out.interactions.overflowed());
     // Every page can be left, or the screen is a trap.
     CHECK(out.has(heartsui::ActionButton));
-    if (out.target.drew("YOU CANNOT LEAD A HEART UNTIL SOMEBODY")) sawLeadRule = true;
-    if (out.target.drew("ON THE FIRST TRICK OF A HAND.")) sawFirstTrickRule = true;
-    if (out.target.drew("A GREY CARD IS ONE THE RULES WILL REFUSE.")) sawGreyCardRule = true;
-    if (out.target.drew("THAT IS SHOOTING THE MOON. IT IS RARE.")) sawMoon = true;
+    // MATCHED ON A PHRASE, NOT A WHOLE LINE. Asserting the exact line means the
+    // test breaks every time a line is reworded to fit -- which it was, when
+    // host-tests/fittedtitle started measuring these in the real face -- and a
+    // test that has to be edited alongside the string it guards is a test that
+    // will eventually be edited to agree with a mistake. What this cares about
+    // is that the four rules a player needs are SOMEWHERE on some page.
+    for (int line = 0; line < heartsui::howToLines(page); ++line) {
+      const std::string text = heartsui::howToLine(page, line);
+      if (text.find("MAY NOT LEAD A HEART") != std::string::npos) sawLeadRule = true;
+      if (text.find("NO HEART AND NO") != std::string::npos) sawFirstTrickRule = true;
+      if (text.find("GREY CARD") != std::string::npos) sawGreyCardRule = true;
+      if (text.find("THE MOON") != std::string::npos) sawMoon = true;
+      // And every line the corpus holds really did reach the panel.
+      CHECK(out.target.drew(text.c_str()));
+    }
   }
   CHECK(sawLeadRule);
   CHECK(sawFirstTrickRule);

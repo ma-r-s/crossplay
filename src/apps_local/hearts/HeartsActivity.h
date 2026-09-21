@@ -66,6 +66,9 @@ class HeartsActivity final : public Activity {
   // nothing when tapped is correct and still unsatisfying: the dither says
   // "not this one" and nothing says why.
   const char* rejected = nullptr;
+  // Where the turn indicator goes for the one paint a refusal owns the status.
+  const char* turnNote = nullptr;
+  char turnNoteBuffer[40] = {};
 
   // The three cards the player has picked to pass, as hand indices.
   bool picked[hearts::kHandSize] = {};
