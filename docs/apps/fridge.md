@@ -266,6 +266,99 @@ address a person types and the address a phone scans can never name different
 hosts. There is no redirect on the service: readers on v1.13.11, whose QR points
 at the old `/p/<code>`, stop working until they update, which is the house rule.
 
+## The board: one screen on a phone, a grid on a desktop
+
+Connected, `/live/` is an application and not a page of prose. On a phone it is
+the whole viewport and **nothing scrolls**: the countdown, the three tabs, the
+canvas, the brush sizes, the four tones, undo, clear, send and the history rail
+are all reachable without leaving the drawing. Before this, every control sat
+below the fold and changing a brush meant scrolling past the drawing and back.
+
+Four things hold it together, and each one is a trap somebody will re-set:
+
+- **`100svh`, never `vh`.** `vh` is the viewport with the iOS address bar
+  hidden, so a board sized in it is taller than the screen for as long as the
+  bar is showing, which is most of the time.
+- **A definite width on `.lv-main`.** The rail's twelve thumbnails set the
+  min-content width of every ancestor, `margin: 0 auto` turned off the flex
+  stretch that would have pinned it to the body, and a phone browser answered by
+  **zooming the whole page out to 58%** to fit a 676px layout viewport. The
+  board did not overflow, it shrank, and every control came out a size nobody
+  chose.
+- **`container-type: size` sizes the panel**, so the canvas is `60cqh` wide and
+  lands exactly as tall as the space the controls left. Nothing inside a size
+  container can be laid out from its own content, which is why the zoom hint is
+  a sibling of the box rather than a child, and why an `auto` grid column
+  measures the panel at zero unless it is given a width.
+- **`padding: 0` on `.lv-history`.** It is a `<section>`, and `styles.css` gives
+  every section on the site 3.5rem top and bottom: 112px of nothing around the
+  rail, taken from the canvas, by a rule the page's own stylesheet never
+  mentions.
+
+**Undo and clear are icons, and clear is not confirmed.** It pushes onto the
+undo stack, undo pulses, and the line under the rail says "Cleared. Undo puts it
+back." A confirm would cost a second tap on the common case, and on a phone it
+would be the one dialog this layout exists to remove. The drawing is also
+persisted to `localStorage` on every stroke, packed to the same two-bit form the
+reader is sent, so "undo puts it back" survives the tab being discarded.
+
+**The canvas is not text.** `user-select`, `-webkit-touch-callout` and
+`-webkit-tap-highlight-color` are off across the board, `touch-action: none` on
+the stage takes the pinch and the drag before the browser can, and every
+`pointerdown` calls `preventDefault`. A `pointercancel` ends the stroke: left
+set, the next move drew a line from wherever the finger had got to.
+
+**Zoom is a view, never the document and never the drawing.** `view = {s, x, y}`
+says which rectangle of the 480x800 panel is on screen; the canvas keeps its
+480x800 backing store and is magnified with a transform, so a stroke drawn at 6x
+is the same width on the reader as one drawn at 1x. One finger draws, two
+pinch and pan, the wheel zooms about the cursor, shift-drag and middle-drag
+move, and a minimap in the corner says where you are whenever that can be wrong.
+
+**The countdown carries seconds and ticks.** Mario asked for it knowing it is
+not exact, so the figure is spelled precisely and hedged immediately: "about"
+sits in front of it and "left" behind, both in the muted grey. It is recomputed
+from the clock rather than decremented, so a phone that slept for an hour comes
+back right, and crossing into another band repaints the whole block rather than
+letting a countdown reach zero and sit there.
+
+**History is shared and it is the record of the reader, not of you.** Every
+drawing, message and picture ever sent, newest first, each with when it was sent
+and which phone sent it. Sending appends and picks; picking an older one
+re-points the reader without making a copy; deleting asks first, in place, and
+says so when it moves the pick. Picking is one tap because it is reversible and
+costs the reader nothing until its next wake. Deleting is not, so the only
+control that does it sits in the line under the rail, a long way from the tiles.
+
+## When it looks: two shapes, and the service owns the calendar
+
+The schedule is one control with two shapes: **repeat every so often**, or
+**once a day at a time somebody picked**, in a named timezone.
+
+**The device needs no change for the second one, and this is why.** A reader has
+no wall clock worth trusting: waking is a chip reset and the timer is an RC
+oscillator. It never needs one. Every `/api/pull` answers `X-Next-Wake` in
+SECONDS, `live::clampInterval` bounds it to 15 minutes..7 days, and the reader
+sleeps for exactly that. "Every day at 07:00" is therefore the service working
+out how many seconds are left until the next 07:00 in that timezone, which is
+arithmetic the device never hears about.
+
+**One thing does have to change on the device, and it has not been made.**
+`live::scheduleNote` composes the panel's "Every N hours" from the same
+`intervalSeconds` the reader slept for. Under a daily schedule the first sleep
+is a part-day, so the panel would announce a cadence that is not the cadence:
+set 07:00 at four in the morning and it says "Every 3 hours" forever after. The
+service has to send the two apart -- `X-Next-Wake` for how long to sleep and a
+new `X-Cadence` for what to say, defaulting to `X-Next-Wake` when absent -- and
+`scheduleNote` has to read the second one. `LiveEngine` is held by another
+session; this is written down rather than done.
+
+**How good the hour is, in the page's own words:** it aims for the time and
+lands within about a quarter of an hour either side, every check puts it back on
+time so the error never accumulates, and a reader in somebody's hands at 07:00
+catches up when they put it down. Not "07:00 sharp", and not hedged until it
+reads as broken.
+
 ## The service
 
 **`fridge.ma-r-s.com` on the Orange Pi**, Cloudflare Tunnel, copying
