@@ -111,7 +111,30 @@ std::string unquoteEtag(const std::string& raw);
 bool bmpIsComplete(const uint8_t* header, size_t headerLen, size_t received);
 
 // ---------------------------------------------------------------------------
+// "12 Sep": when a phone was let in, in the only precision this device earns.
+//
+// The service stamps every sender with an epoch. The screen has one short row
+// per sender and the question it answers is "how long has this person had
+// access", so a day and a month is the whole of it -- a time of day would be a
+// figure nobody reads and a year would be one nobody needs while the service is
+// months old.
+//
+// An epoch below kPlausibleEpochFloor comes back EMPTY rather than as
+// "01 Jan". A reader that has never had a clock is not a reader that was paired
+// in 1970, and a date printed from a zero is a fact the screen would be
+// inventing. The row draws the name alone in that case, which is the truth.
+//
+// UTC, deliberately and without apology: the device's only clock source is
+// X-Server-Time and there is no zone anywhere in this feature. A date that is
+// one day out for somebody sending at midnight is a smaller lie than a
+// local-looking date computed from a zone nobody set.
+std::string shortDate(int64_t epoch);
+
+// ---------------------------------------------------------------------------
 // The one rule, in one function.
+//
+// (The two lines the Live screen leads with are below `decide`, because they
+// are computed from it.)
 //
 // "On every sleep, if a refresh is due, fetch it; otherwise arm the timer for
 // when it will be." Every case Mario named is this rule with different inputs:
@@ -151,5 +174,57 @@ struct Decision {
 // with no wall clock at all, so it can carry the schedule on its own and the
 // user's own sleeps can decline.
 Decision decide(const Schedule& schedule, int64_t nowEpoch, bool timerFired = false);
+
+// ---------------------------------------------------------------------------
+// The two lines the Live screen leads with.
+//
+// "In about 24 hours" over "Every 24 hours" was the screen saying one fact
+// twice, and it was not a wording problem: the next check was printed from the
+// INTERVAL, so a reader that checked one minute ago and a reader that checked
+// twenty-three hours ago put the same headline on the glass. It is computed
+// from `decide` now -- the same arithmetic the sleep path runs, backoff
+// included -- so the biggest thing on the screen cannot promise a check the
+// schedule is not about to make.
+//
+// The answers, shortest first, and every one of them fits the display cut
+// across a 448px body (measured, not assumed -- "In about 45 minutes" is 464px
+// there and would have silently dropped the headline a rung):
+//
+//   ""            not paired; the caller draws the code screen instead
+//   "Paused"      the toggle is off, so there is no next check to name
+//   "Soon"        no clock to measure with, or nothing asked yet
+//   "Any moment"  inside the last three minutes, or already due
+//   "In 45 minutes" / "In an hour" / "In 5 hours" / "In a day" / "In 2 days"
+//
+// Minutes are rounded to five and never shown below five, which is the whole of
+// this device's honesty about the figure: the sleep timer runs off an RC
+// oscillator that drifts percent-level, a refresh taken on the way into sleep
+// shifts the schedule, and a wake missed for want of Wi-Fi is invisible until
+// the one after. A figure to the minute would be a number this device cannot
+// keep; a figure that is visibly rounded says so without spending a word.
+std::string nextCheckPhrase(const Schedule& schedule, int64_t nowEpoch);
+
+// The small line UNDER the headline, and it answers whatever the headline
+// cannot. It takes the whole schedule rather than the interval alone because
+// two of its three answers are not about the interval at all:
+//
+//   "Last check failed." / "3 checks failed."   while anything is failing
+//   "Every 6 hours when on"                     while the toggle is off
+//   "Every 6 hours"                             otherwise
+//
+// THE FAILING CASE IS THE REASON THIS TAKES A SCHEDULE. In backoff the headline
+// is the RETRY -- "In 15 minutes" on a weekly cadence -- and with the interval
+// printed underneath it, a reader that cannot reach the service showed "In 15
+// minutes" over "Every week" and nothing anywhere saying why the two disagree.
+// That reads as broken, or as lying, and it is neither.
+//
+// THE STOPPED CASE IS A CONTRADICTION OTHERWISE. "Paused" over "Every 6 hours"
+// is the screen saying it is not checking and then naming how often it checks:
+// the same defect this layout was built to remove, one line further down.
+// "when on" makes it a setting rather than a schedule.
+//
+// Days and weeks as well as hours, because the cap IS a week and "Every 168
+// hours" is a number nobody reads.
+std::string scheduleNote(const Schedule& schedule);
 
 }  // namespace live

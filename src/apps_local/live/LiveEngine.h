@@ -46,6 +46,32 @@ constexpr uint32_t kJoinTimeoutMs = 12000;
 // not a backoff at all.
 bool checkNow(State& state, bool& imageArrived, std::string& message);
 
+// Holds the radio for one network call, and puts it down exactly as it found
+// it. Every Live request needs this; checkNow does it internally.
+//
+// It exists because the pairing, join, poll, sender-list and revoke calls did
+// NOT. They went straight to the transport, so pressing the tile on a reader
+// whose radio was down made a TLS request with no network under it and the
+// device panicked on a null semaphore -- reproducibly, from a button, in
+// v1.13.10. A transport does not bring a radio up; that is policy and it lives
+// here, beside the rule that Live loses every argument about the radio.
+//
+// Returns false with a sentence when the radio cannot be had. Call release()
+// on EVERY path out, including the failures, or a reader that could not reach
+// the service leaves the radio up and spends the night at 80mA.
+class RadioLease {
+ public:
+  explicit RadioLease(std::string& message);
+  ~RadioLease();
+  bool held() const { return held_; }
+
+  RadioLease(const RadioLease&) = delete;
+  RadioLease& operator=(const RadioLease&) = delete;
+
+ private:
+  bool held_ = false;
+};
+
 // The one rule, run on the way into deep sleep, AFTER the sleep screen is on
 // the glass.
 //

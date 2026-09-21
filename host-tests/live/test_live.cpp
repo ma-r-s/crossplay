@@ -9,13 +9,20 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 #include <string>
 
 #include "../../src/apps_local/live/LiveCore.h"
 
 static int failures = 0;
+// Counted so the last line can say how many assertions ran, in the PHRASE the
+// gate counts: check.sh reads sub-suites with `grep -c "checks, 0 failed"`, so
+// a suite that only says "ok" reports ZERO assertions to the one instrument
+// that is meant to notice a suite which stopped asserting anything.
+static int checks = 0;
 
 static void check(const bool ok, const char* what) {
+  ++checks;
   if (!ok) {
     std::printf("  FAIL %s\n", what);
     ++failures;
@@ -23,6 +30,7 @@ static void check(const bool ok, const char* what) {
 }
 
 static void checkEq(const long long got, const long long want, const char* what) {
+  ++checks;
   if (got != want) {
     std::printf("  FAIL %s: got %lld want %lld\n", what, got, want);
     ++failures;
@@ -98,6 +106,7 @@ static void testBackoff() {
 // The ETag, which is the difference between a 304 and 48KB.
 
 static void checkStr(const std::string& got, const std::string& want, const char* what) {
+  ++checks;
   if (got != want) {
     std::printf("  FAIL %s: got '%s' want '%s'\n", what, got.c_str(), want.c_str());
     ++failures;
@@ -322,6 +331,224 @@ static void testDecide() {
   }
 }
 
+// --------------------------------------------------------------------------
+// The date a sender's row carries.
+//
+// One row per phone, and the question the date answers is "how long has this
+// person had access", so a day and a month is the whole of it. What is asserted
+// here is what the SCREEN cannot assert: that an epoch the device never really
+// had comes back EMPTY rather than as a plausible-looking "1 Jan", because a
+// row drawing a date computed from a zero is a fact the screen would be
+// inventing, and nothing downstream could tell it apart from a real one.
+
+static void testShortDate() {
+  std::printf("sender dates\n");
+  // 2026-09-12T00:00:00Z and 2026-09-12T23:59:59Z: both are the 12th, which is
+  // the whole point of asking only for a day. Computed from the epoch rather
+  // than typed, so the expectation is not a second implementation of the bug.
+  checkStr(live::shortDate(1789171200), "12 Sep", "midnight on the 12th");
+  checkStr(live::shortDate(1789171200 + 86399), "12 Sep", "one second before the 13th");
+  checkStr(live::shortDate(1789171200 + 86400), "13 Sep", "and the second after it rolls");
+
+  // Every month spells itself, and none of them comes from strftime's %b: the
+  // firmware sets no locale and the simulator inherits the shell's, so a
+  // locale-dependent month would differ between the laptop the layout was
+  // measured on and the panel it ships to.
+  const char* kMonths[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  for (int m = 0; m < 12; ++m) {
+    // The 1st of each month of 2026, walked forward from 2026-01-01T00:00:00Z.
+    static const int kDays[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+    const std::string got = live::shortDate(1767225600 + static_cast<int64_t>(kDays[m]) * 86400);
+    checkStr(got, std::string("1 ") + kMonths[m], "the first of a month");
+  }
+
+  // NOT A DATE. A reader that has never had a clock is not a reader that was
+  // paired in 1970, and the row draws the name alone rather than a number it
+  // made up.
+  check(live::shortDate(0).empty(), "the epoch is not a pairing date");
+  check(live::shortDate(-1).empty(), "a negative stamp is not a pairing date");
+  check(live::shortDate(live::kPlausibleEpochFloor - 1).empty(), "one second under the floor is still no clock");
+  check(!live::shortDate(live::kPlausibleEpochFloor).empty(), "and the floor itself is usable");
+
+  // The same floor the schedule uses. Two copies of "is this clock worth
+  // believing" would be two things to edit alone.
+  for (int64_t e = live::kPlausibleEpochFloor - 5000; e < live::kPlausibleEpochFloor + 5000; e += 37) {
+    check(live::shortDate(e).empty() != live::clockIsUsable(e),
+          "shortDate and clockIsUsable disagree about whether there is a clock");
+  }
+}
+
+// --------------------------------------------------------------------------
+// THE TWO LINES THE SCREEN LEADS WITH.
+//
+// The headline used to be printed from the INTERVAL -- "In about 24 hours"
+// whether the last check was a minute ago or twenty-three hours ago -- which is
+// why the screen's two largest facts read as one fact typed twice. It is
+// computed from live::decide now, and what is asserted here is the two things a
+// screenshot cannot show: that the figure tracks the time REMAINING, and that
+// every phrase it can produce is short enough for the display cut.
+//
+// THE LENGTH IS AN ASSERTION AND NOT A STYLE NOTE. "In about 45 minutes"
+// measures 464px at toybox_30 against a 448px body, so a phrasing an inch
+// longer does not fail: fittedTitle steps it down a rung and the headline
+// quietly becomes the same size as the small line under it. Measured in the
+// real face by host-tests/wallcaption; bounded by character count here, which
+// is the coarse guard the suite that cannot link a font can carry.
+static const size_t kHeroBudget = 16;  // "In 45 minutes" is 13; 16 is the headroom, not a target
+
+static live::Schedule pairedEvery(const uint32_t interval, const int64_t lastAttempt) {
+  live::Schedule s;
+  s.on = true;
+  s.paired = true;
+  s.intervalSeconds = interval;
+  s.lastAttemptEpoch = lastAttempt;
+  return s;
+}
+
+static void testNextCheckPhrase() {
+  std::printf("next check phrase\n");
+  const int64_t base = live::kPlausibleEpochFloor + 1000000;
+
+  // THE SAME SCHEDULE AT TWO MOMENTS SAYS TWO THINGS. This is the whole defect:
+  // the old line answered with the interval and could not tell these apart.
+  const live::Schedule daily = pairedEvery(86400, base);
+  checkStr(live::nextCheckPhrase(daily, base + 60), "In a day", "a check a minute ago is a day away");
+  checkStr(live::nextCheckPhrase(daily, base + 82800), "In an hour", "and the same schedule 23 hours later is not");
+  check(live::nextCheckPhrase(daily, base + 60) != live::nextCheckPhrase(daily, base + 82800),
+        "the headline does not move as the day passes, which is the line it replaces");
+
+  // Every band, at its own scale.
+  checkStr(live::nextCheckPhrase(pairedEvery(3600, base), base + 1800), "In 30 minutes", "half an hour to go");
+  // 44 minutes and 50 seconds left: the top of the minutes band, one rounding
+  // step under the 45-minute edge where the singular hour takes over.
+  checkStr(live::nextCheckPhrase(pairedEvery(3600, base), base + 910), "In 45 minutes", "the widest minutes phrase");
+  checkStr(live::nextCheckPhrase(pairedEvery(3600, base), base + 900), "In an hour", "and one second past the edge");
+  checkStr(live::nextCheckPhrase(pairedEvery(7200, base), base + 3600), "In an hour", "the singular hour");
+  checkStr(live::nextCheckPhrase(pairedEvery(21600, base), base + 3600), "In 5 hours", "five hours");
+  checkStr(live::nextCheckPhrase(pairedEvery(604800, base), base + 60), "In 7 days", "a week");
+
+  // MINUTES STEP IN FIVES and never below five. A device whose clock comes from
+  // one response header cannot honour a figure to the minute.
+  for (uint32_t left = 3 * 60; left < 45 * 60; left += 7) {
+    const std::string phrase = live::nextCheckPhrase(pairedEvery(3600, base), base + 3600 - left);
+    check(phrase.compare(0, 3, "In ") == 0, "a minutes phrase is not a phrase");
+    if (phrase.find("minutes") == std::string::npos) continue;
+    const int minutes = std::atoi(phrase.c_str() + 3);
+    check(minutes % 5 == 0, "the minutes figure is not rounded to five");
+    check(minutes >= 5, "the minutes figure went below five");
+  }
+
+  // THE ANSWERS THAT ARE NOT FIGURES, each of them a state a figure would lie
+  // about.
+  live::Schedule off = pairedEvery(86400, base);
+  off.on = false;
+  checkStr(live::nextCheckPhrase(off, base + 60), "Paused",
+           "a stopped reader still names a next check, which is a promise it is not keeping");
+  live::Schedule unpaired = pairedEvery(86400, base);
+  unpaired.paired = false;
+  check(live::nextCheckPhrase(unpaired, base).empty(), "an unpaired reader invents a schedule it does not have");
+  checkStr(live::nextCheckPhrase(pairedEvery(86400, 0), base), "Soon", "nothing asked yet is not a figure");
+  checkStr(live::nextCheckPhrase(daily, live::kPlausibleEpochFloor - 1), "Soon",
+           "a 1970 clock produces a figure the screen would be inventing");
+  checkStr(live::nextCheckPhrase(daily, base + 86400), "Any moment", "an overdue check is not in the future");
+  checkStr(live::nextCheckPhrase(daily, base + 86400 - 60), "Any moment", "the last minute rounds to a figure");
+
+  // THE BACKOFF IS THE SCHEDULE. A reader that cannot reach the service is not
+  // checking again in six hours, and the headline may not say it is.
+  live::Schedule failing = pairedEvery(21600, base);
+  failing.consecutiveFailures = 1;
+  check(live::nextCheckPhrase(failing, base + 60) != live::nextCheckPhrase(pairedEvery(21600, base), base + 60),
+        "the headline ignores the backoff, so it promises a check the schedule is not making");
+
+  // AND NOTHING IT CAN SAY OVERFLOWS THE HEADLINE'S CUT. Walked over every
+  // interval the service may ask for and every moment inside it, rather than
+  // over the handful of phrases written above: the phrase that would have been
+  // too long is the one nobody thought to type.
+  const uint32_t intervals[] = {live::kMinIntervalSeconds, 900, 1800, 3600, 7200, 21600, 43200, 86400, 172800,
+                                live::kMaxIntervalSeconds};
+  for (const uint32_t interval : intervals) {
+    for (uint32_t elapsed = 0; elapsed <= interval; elapsed += 31) {
+      const std::string phrase = live::nextCheckPhrase(pairedEvery(interval, base), base + elapsed);
+      check(!phrase.empty(), "a paired reader has nothing to put in its headline");
+      check(phrase.size() <= kHeroBudget, "a next-check phrase is too long for the display cut");
+    }
+  }
+}
+
+static void testScheduleNote() {
+  std::printf("schedule note\n");
+  const int64_t base = live::kPlausibleEpochFloor + 1000000;
+  live::Schedule s = pairedEvery(21600, base);
+
+  checkStr(live::scheduleNote(pairedEvery(900, base)), "Every 15 minutes", "minutes");
+  checkStr(live::scheduleNote(pairedEvery(3600, base)), "Every hour", "the singular hour");
+  checkStr(live::scheduleNote(s), "Every 6 hours", "hours");
+  checkStr(live::scheduleNote(pairedEvery(86400, base)), "Every day", "the singular day");
+  checkStr(live::scheduleNote(pairedEvery(172800, base)), "Every 2 days", "days");
+  // NOT A MULTIPLE OF ANYTHING, which is what the service actually sends: the
+  // version that fell through to minutes here answered "Every 10079 minutes".
+  checkStr(live::scheduleNote(pairedEvery(604740, base)), "Every 7 days", "one minute under a week");
+  checkStr(live::scheduleNote(pairedEvery(5400, base)), "Every 2 hours", "ninety minutes");
+  checkStr(live::scheduleNote(pairedEvery(3300, base)), "Every hour", "the bottom of the hours band");
+  checkStr(live::scheduleNote(pairedEvery(3299, base)), "Every 54 minutes", "and one second under it");
+  // A WEEK IS A WEEK. The cap is seven days and the hours branch would have
+  // answered "Every 168 hours", which is a number nobody reads.
+  checkStr(live::scheduleNote(pairedEvery(604800, base)), "Every week", "the cap");
+  check(live::scheduleNote(pairedEvery(live::kMaxIntervalSeconds, base)).find("168") == std::string::npos,
+        "the longest cadence is reported in hours");
+
+  // STOPPED. "Paused" over "Every 6 hours" is the screen saying it is not
+  // checking and then naming how often it checks -- the contradiction this
+  // layout exists to remove, one line further down. It has to read as a
+  // setting, so it says when it applies.
+  live::Schedule off = s;
+  off.on = false;
+  checkStr(live::scheduleNote(off), "Every 6 hours when on", "a stopped reader names a schedule it is not keeping");
+  checkStr(live::nextCheckPhrase(off, base + 60), "Paused", "and the headline above it says so");
+  for (uint32_t i = live::kMinIntervalSeconds; i <= live::kMaxIntervalSeconds; i += 3600) {
+    live::Schedule stopped = pairedEvery(i, base);
+    stopped.on = false;
+    check(live::scheduleNote(stopped).find(" when on") != std::string::npos,
+          "a stopped schedule reads as one that is running");
+  }
+
+  // FAILING. In backoff the headline is the RETRY, so the interval underneath
+  // it is a second figure that contradicts the first with nothing to explain
+  // the gap. What is wrong outranks how often.
+  live::Schedule failing = s;
+  failing.consecutiveFailures = 1;
+  checkStr(live::scheduleNote(failing), "Last check failed.", "one failure");
+  failing.consecutiveFailures = 3;
+  checkStr(live::scheduleNote(failing), "3 checks failed.", "several failures");
+  check(live::scheduleNote(failing).find("Every") == std::string::npos,
+        "a failing reader still prints a cadence it is not keeping");
+  // The headline and this line are about the same thing, so they must move
+  // together: the retry is sooner than the interval, and both say why.
+  check(live::nextCheckPhrase(failing, base + 60) != live::nextCheckPhrase(s, base + 60),
+        "the headline ignores the backoff while the line under it reports one");
+  // Stopped beats failing: a reader that is off is not retrying anything.
+  live::Schedule offAndFailing = failing;
+  offAndFailing.on = false;
+  check(offAndFailing.consecutiveFailures > 0 && live::scheduleNote(offAndFailing).find("failed") == std::string::npos,
+        "a stopped reader reports a failure it is not going to retry");
+
+  // AND NOTHING IT CAN SAY OVERFLOWS THE LINE. Walked over every interval, both
+  // toggle positions and a failure count past anything real, rather than over
+  // the handful of cases written above.
+  for (uint32_t i = live::kMinIntervalSeconds; i <= live::kMaxIntervalSeconds; i += 60) {
+    for (int on = 0; on < 2; ++on) {
+      for (const int fails : {0, 1, 2, 99, 100000}) {
+        live::Schedule walk = pairedEvery(i, base);
+        walk.on = on == 1;
+        walk.consecutiveFailures = fails;
+        const std::string note = live::scheduleNote(walk);
+        check(!note.empty(), "the line under the headline is blank");
+        check(note.size() <= 26, "a schedule note is too long for the line under the headline");
+      }
+    }
+  }
+}
+
 int main() {
   testClampInterval();
   testBackoff();
@@ -329,10 +556,13 @@ int main() {
   testImageCompleteness();
   testClock();
   testDecide();
+  testShortDate();
+  testNextCheckPhrase();
+  testScheduleNote();
   if (failures != 0) {
-    std::printf("live: %d FAILED\n", failures);
+    std::printf("live: %d checks, %d failed\n", checks, failures);
     return 1;
   }
-  std::printf("live: ok\n");
+  std::printf("live: %d checks, 0 failed\n", checks);
   return 0;
 }

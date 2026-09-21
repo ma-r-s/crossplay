@@ -176,6 +176,13 @@ bool commitImage() {
 
 }  // namespace
 
+RadioLease::RadioLease(std::string& message) { held_ = joinWifi(message); }
+
+// Puts the radio down only if this lease is what brought it up: joinWifi
+// returns true without touching anything when somebody else already had it,
+// and releaseWifi knows the difference.
+RadioLease::~RadioLease() { releaseWifi(); }
+
 bool checkNow(State& state, bool& imageArrived, std::string& message) {
   imageArrived = false;
   message.clear();

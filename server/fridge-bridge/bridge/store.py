@@ -39,6 +39,14 @@ IMAGE_BYTES_2BIT = 96070
 IMAGE_SIZES = (IMAGE_BYTES_1BIT, IMAGE_BYTES_2BIT)
 IMAGE_BYTES = IMAGE_BYTES_1BIT  # kept for callers that predate the grey file
 
+# Four, and enforced HERE rather than only where the reader draws them.
+#
+# The Live screen clamps its list to four. A drawing limit is not a limit: a
+# fifth sender allowed by the service would exist, be able to write to the
+# fridge, and be invisible on the one screen that can revoke it. Somebody with
+# access you cannot see is worse than a refusal you can act on.
+MAX_SENDERS = 4
+
 DEFAULT_INTERVAL_S = 86400
 MIN_INTERVAL_S = 900
 MAX_INTERVAL_S = 7 * 86400
@@ -181,6 +189,36 @@ def index_token(token: str, fridge_id: str) -> None:
     index = _load_index()
     index[_hash(token)] = fridge_id
     _atomic_write(_index_path(), json.dumps(index).encode())
+
+
+def add_sender(fridge: "Fridge", token: str, name: str) -> bool:
+    """Records a sender. False when the fridge is full, so the caller can say so."""
+    state = fridge.load()
+    senders = state.setdefault("senders", [])
+    if len(senders) >= MAX_SENDERS:
+        return False
+    senders.append({"name": name[:24] or "A phone", "paired_at": int(time.time()), "token_hash": _hash(token)})
+    fridge.save(state)
+    index_token(token, fridge.id)
+    return True
+
+
+def revoke_sender(fridge: "Fridge", token_hash: str) -> bool:
+    """Removes a sender and its token in one step.
+
+    Both halves or neither: a sender dropped from the list while its token
+    still opened the fridge would be revoked on the screen and not in fact,
+    which is the worst way for this to fail.
+    """
+    state = fridge.load()
+    senders = state.get("senders", [])
+    kept = [s for s in senders if s.get("token_hash") != token_hash]
+    if len(kept) == len(senders):
+        return False
+    state["senders"] = kept
+    fridge.save(state)
+    forget_token_hash(token_hash)
+    return True
 
 
 def forget_token_hash(token_hash: str) -> None:

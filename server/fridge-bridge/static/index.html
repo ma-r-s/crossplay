@@ -331,7 +331,32 @@ document.getElementById('inv').onclick=()=>{invert=!invert;regen();};
 const gate=document.getElementById('gate'), app=document.getElementById('app');
 async function api(path,opts){ const r=await fetch(path,{credentials:'same-origin',...opts});
   let body=null; try{ body=await r.json(); }catch(e){}
+  // 401 means this browser was revoked on the reader, or the reader was reset.
+  // Fall back to the pairing step rather than showing an error for a state
+  // that is not an error: somebody took access away on purpose, and the way
+  // back is a new code.
+  if(r.status===401 && !path.startsWith('/api/claim')) showGate();
   return {ok:r.ok,status:r.status,body}; }
+
+function showGate(){
+  gate.hidden=false; app.hidden=true;
+  const i=document.getElementById('code'); i.value='';
+}
+
+// A name the reader can tell apart, taken from the browser rather than asked
+// for: four entries all reading "A phone" would be useless on the one screen
+// that revokes them, and a name field is friction on the step that has to be
+// frictionless.
+function browserName(){
+  const u=navigator.userAgent;
+  if(/iPhone/.test(u)) return 'iPhone';
+  if(/iPad/.test(u)) return 'iPad';
+  if(/Android/.test(u)) return 'Android phone';
+  if(/Macintosh/.test(u)) return 'Mac';
+  if(/Windows/.test(u)) return 'Windows PC';
+  if(/Linux/.test(u)) return 'Linux';
+  return 'A phone';
+}
 
 function human(sec){ if(sec<60)return 'in under a minute';
   const h=sec/3600; if(h<1)return `in about ${Math.max(1,Math.round(sec/60))} minutes`;
@@ -379,7 +404,7 @@ async function pair(){
   if(codeInput.value.length!==6){err.textContent='Six digits, from the reader’s screen.';return;}
   err.textContent='';
   const r=await api('/api/claim',{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({code:codeInput.value})});
+    body:JSON.stringify({code:codeInput.value,name:browserName()})});
   // The service's own sentence, never one invented here.
   if(!r.ok){ err.textContent=(r.body&&r.body.error)||'That did not work.'; return; }
   await refresh();
