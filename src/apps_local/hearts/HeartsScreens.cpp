@@ -561,7 +561,14 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
               fui::TextAlign::Left, false);
 
   // The record, as three facts rather than a paragraph.
+  // THE CELLS REACH THE FOOT. They were 92px tall, ending at y=284 with the
+  // buttons at 400, which left 109 logical pixels of blank across the full
+  // 372px column: 10.6% of the screen, the largest contiguous white region in
+  // the app, on a panel that holds its image while it sits on a desk. This
+  // file's own header says the grid "reaches the bottom bar" -- the right
+  // column did and the left one did not.
   const int16_t recTop = static_cast<int16_t>(top + 116);
+  const int16_t recH = static_cast<int16_t>(footY - 20 - recTop);
   char played[40];
   char won[40];
   char best[40];
@@ -573,11 +580,15 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   static const char* kCaps[3] = {"GAMES", "WON", "BEST"};
   const char* values[3] = {played, won, best};
   for (int i = 0; i < 3; ++i) {
-    const fui::Rect cell = fui::makeRect(static_cast<int16_t>(32 + i * 124), recTop, 112, 92);
+    const fui::Rect cell = fui::makeRect(static_cast<int16_t>(32 + i * 124), recTop, 112, recH);
     target.stroke(cell, black, toybox::kHairline, 8);
-    label(screen, fui::makeRect(cell.x, static_cast<int16_t>(cell.y + 6), cell.width, 52), values[i], toybox::kLargeCut,
-          toybox::kDisplayFont, fui::TextAlign::Center, false);
-    label(screen, fui::makeRect(cell.x, static_cast<int16_t>(cell.y + 58), cell.width, 28), kCaps[i],
+    // Both measured from the CELL rather than from the top of the column, so
+    // the cell can grow without the type drifting off its own centre.
+    const int16_t capH = 30;
+    label(screen,
+          fui::makeRect(cell.x, static_cast<int16_t>(cell.y + 4), cell.width, static_cast<int16_t>(recH - capH - 12)),
+          values[i], toybox::kLargeCut, toybox::kDisplayFont, fui::TextAlign::Center, false);
+    label(screen, fui::makeRect(cell.x, static_cast<int16_t>(cell.bottom() - capH - 8), cell.width, capH), kCaps[i],
           toybox::kButtonCut, toybox::kSmallFont, fui::TextAlign::Center, false);
   }
 
@@ -664,8 +675,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   table.value = ButtonHint;
   table.styles = toybox::rowStyles();
   table.borderEdges = fui::EdgesAll;
-  screen.button(table, fui::makeRect(static_cast<int16_t>(model.hasSave ? 492 : 280), footY,
-                                     static_cast<int16_t>(model.hasSave ? 276 : 260), footH));
+  // With no save there is no NEW GAME button, and the foot used to simply stop
+  // at x=540, leaving 244x68 empty at its right end. The toggle takes the room.
+  const int16_t tableX = static_cast<int16_t>(model.hasSave ? 492 : 280);
+  screen.button(table, fui::makeRect(tableX, footY, static_cast<int16_t>(kScreenW - 32 - tableX), footH));
 }
 
 // ---------------------------------------------------------------------------
