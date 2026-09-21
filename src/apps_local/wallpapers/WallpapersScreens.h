@@ -358,6 +358,13 @@ struct LiveModel {
   // is the only thing to fall back on when a phone will not scan).
   const char* code = "";  // six digits, grouped so they can be read aloud
   const char* url = "";   // "fridge.ma-r-s.com" -- drawn, never encoded
+  // What the device is doing right now, in the ONE line this layout already
+  // has for a short sentence under the address. It REPLACES the standing
+  // "Code lasts ten minutes." rather than being added beside it: the stack is
+  // centred against a measured height, and a line added to it pushes the QR
+  // under the foot. nullptr means there is nothing to report and the standing
+  // line stands.
+  const char* status = nullptr;
   // PAIRED. Both are sentences the device composes elsewhere, never assembled
   // per render: a line built inside a paint is a line no test can walk.
   const char* nextCheck = "";  // "Tomorrow, 6:00"

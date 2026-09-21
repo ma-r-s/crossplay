@@ -805,7 +805,8 @@ fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
   y = static_cast<int16_t>(y + addrH + toybox::kGutter);
   drawProse(screen, fui::makeRect(body.x, y, body.width, proseH), kLiveWhat, fui::TextAlign::Center);
   y = static_cast<int16_t>(y + proseH);
-  drawFitted(screen, fui::makeRect(body.x, y, body.width, lineH), kLiveExpiry,
+  drawFitted(screen, fui::makeRect(body.x, y, body.width, lineH),
+             (model.status != nullptr && model.status[0] != '\0') ? model.status : kLiveExpiry,
              liveCut(screen, kLiveProseSlot, fui::TextAlign::Center));
   y = static_cast<int16_t>(y + lineH + toybox::kMargin);
 

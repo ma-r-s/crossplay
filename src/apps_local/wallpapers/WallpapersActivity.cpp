@@ -18,6 +18,8 @@
 #include "../../util/DeviceHostname.h"
 #include "../../util/QrUtils.h"
 #include "../Shelf.h"
+#include "../live/LiveBridge.h"
+#include "../live/LiveEngine.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxText.h"
@@ -163,10 +165,17 @@ void WallpapersActivity::onEnter() {
   selectedThisSession_ = false;
   choosing_ = false;
   warningPending_ = true;
-  // Back to the stub on every entry. Nothing persists Live yet, and a toggle
-  // that survived the app would make the first screen of a run depend on what
-  // the last run pressed (invisible-saved-state-reads-as-nondeterminism).
+  // Live, from the card. load() returning false means no file, which is
+  // indistinguishable from a reader that was never paired and is treated as
+  // exactly that -- liveState_ is left at its defaults, so every "is it set
+  // up?" below answers no without a special case for the missing file.
+  live::load(liveState_);
   liveRunning_ = liveOn();
+  livePollToken_.clear();
+  liveCode_.clear();
+  liveQrLink_.clear();
+  liveStatus_.clear();
+  refreshLiveLines();
   LOG_INF("WALL", "onEnter %ums: fonts=%u sweep=%u scan=%u active=%u (free-space deferred)", tActive - tEnter,
           tFonts - tEnter, tSweep - tFonts, tScan - tSweep, tActive - tScan);
   // Open on the page holding the set wallpaper, so the border is on screen.
@@ -945,15 +954,29 @@ WallpapersActivity::SpecialTile WallpapersActivity::specialAt(const int combined
   return SpecialTile::GetSet;
 }
 
-// Stubs. The website, the pairing and the stored slot are the next slice; what
-// this one needs is a fixed answer, so every render is the same each time it
-// is taken.
-bool WallpapersActivity::liveConfigured() const { return WALLPAPERS_LIVE_CONFIGURED != 0; }
+// Read from the card, not from a build flag. WALLPAPERS_LIVE_CONFIGURED and
+// WALLPAPERS_LIVE_ON survive only as the SCREENSHOT harness's way of forcing
+// either half of the Live screen without a service to pair against: a
+// non-default value overrides the store, and the default (0) means "ask the
+// card", which is what every real device does.
+bool WallpapersActivity::liveConfigured() const {
+#if WALLPAPERS_LIVE_CONFIGURED != 0
+  return true;
+#else
+  return liveState_.paired();
+#endif
+}
 
 // Live and a chosen wallpaper are mutually exclusive, so "on" implies "set up"
 // and the tile takes the ordinary selection marker rather than a second mark
 // beside it.
-bool WallpapersActivity::liveOn() const { return liveConfigured() && WALLPAPERS_LIVE_ON != 0; }
+bool WallpapersActivity::liveOn() const {
+#if WALLPAPERS_LIVE_ON != 0
+  return liveConfigured();
+#else
+  return liveConfigured() && liveState_.on;
+#endif
+}
 
 // The Live slot. The frame is DOUBLE -- a 3px outer rect and a hairline inset
 // kLiveFrameInset inside it -- because a wallpaper wears one hairline and the
@@ -1348,7 +1371,149 @@ void WallpapersActivity::renderPreview() {
 void WallpapersActivity::openLive() {
   view_ = View::Live;
   interactionsReady_ = false;
+  // A reader with no phone yet needs a code, and a code is a network round
+  // trip. QUEUED rather than called: the screen is painted first with "Asking
+  // Live for a code.", and the request runs from loop() behind it. Called here
+  // the app would sit on a blank panel for the length of a TLS handshake, which
+  // is the one thing a silent screen is reliably mistaken for.
+  if (!liveState_.paired() && livePollToken_.empty()) {
+    liveCode_.clear();
+    liveStatus_ = "Asking Live for a code.";
+    livePairQueued_ = true;
+  }
   requestUpdate();
+}
+
+// POST /api/pair/start, then poll until a browser claims the code.
+void WallpapersActivity::startLivePairing() {
+  live::PairStart start;
+  std::string message;
+  if (!live::pairStart(start, message)) {
+    liveCode_.clear();
+    liveStatus_ = message;
+    requestUpdate();
+    return;
+  }
+  livePollToken_ = start.pollToken;
+  // Grouped three and three, which is the ONE thing anybody has to do with it:
+  // read it down a telephone to somebody on another continent. The digits are
+  // the service's; the space is ours.
+  liveCode_ = start.code;
+  if (liveCode_.size() == 6) liveCode_.insert(3, " ");
+  // BUILT from the code rather than typed beside it. A link holding its own
+  // copy points at the previous code the moment this one changes, and nothing
+  // on the screen would show it (derived-facts-written-as-literals).
+  liveQrLink_ = std::string("https://") + kLiveHost + "/p/" + start.code;
+  liveStatus_ = "Waiting for a phone.";
+  livePollAt_ = millis() + 3000;
+  requestUpdate();
+}
+
+void WallpapersActivity::pollLivePairing() {
+  std::string token;
+  std::string fridgeId;
+  std::string message;
+  const int got = live::pairPoll(livePollToken_, token, fridgeId, message);
+  livePollAt_ = millis() + 3000;
+  if (got == 0) return;  // still waiting; the screen already says so
+  if (got < 0) {
+    livePollToken_.clear();
+    liveCode_.clear();
+    liveStatus_ = message;
+    requestUpdate();
+    return;
+  }
+  livePollToken_.clear();
+  liveState_.deviceToken = token;
+  liveState_.fridgeId = fridgeId;
+  // Pairing turns Live ON. Somebody who walked through a six-digit code on a
+  // telephone has said what they want; a paired reader that then showed nothing
+  // until a second switch was found would be the feature failing at the exact
+  // moment it succeeded.
+  liveState_.on = true;
+  liveRunning_ = true;
+  live::save(liveState_);
+  applyLiveSleepSettings();
+  liveStatus_ = "Connected. Asking for your first message.";
+  // And fetch immediately, from loop(). The first thing a person does after
+  // pairing is look at the screen.
+  liveCheckQueued_ = true;
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+void WallpapersActivity::runLiveCheck() {
+  bool arrived = false;
+  std::string message;
+  const bool ok = live::engine::checkNow(liveState_, arrived, message);
+  if (!ok) {
+    // A 401 cleared the pairing inside checkNow. Falling back to the unpaired
+    // half of this screen is the honest thing to draw, and the sentence says
+    // why rather than leaving a code to appear from nowhere.
+    liveRunning_ = liveState_.on && liveState_.paired();
+    liveStatus_ = message;
+    if (!liveState_.paired()) {
+      liveCode_.clear();
+      livePairQueued_ = true;
+    }
+  } else if (arrived) {
+    liveStatus_ = "A new message is on your sleep screen.";
+  } else {
+    liveStatus_ = "Checked. Nothing new yet.";
+  }
+  refreshLiveLines();
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+void WallpapersActivity::toggleLive() {
+  liveRunning_ = !liveRunning_;
+  liveState_.on = liveRunning_;
+  live::save(liveState_);
+  // Turning Live ON is a sleep-screen choice, so it makes the same settings
+  // change tapping a wallpaper makes. Without it the toggle would say "your
+  // phone is on your sleep screen" over a black panel, because
+  // SETTINGS.sleepScreen defaults to DARK and DARK never reads /sleep.bmp
+  // (WallpapersCore.h:179, and card #354 is the picker having done exactly
+  // this). Turning it OFF changes nothing: the setting belongs to whatever
+  // owns the sleep screen next, and a toggle that reached over and reset it
+  // would undo a wallpaper the user chose afterwards.
+  if (liveRunning_) applyLiveSleepSettings();
+  refreshLiveLines();
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+// The same call the picker makes, through the same WallpapersCore rules, so
+// there is one place that knows what putting a picture on the sleep screen
+// costs and one sentence that reports it.
+void WallpapersActivity::applyLiveSleepSettings() { applySleepSettings(); }
+
+void WallpapersActivity::refreshLiveLines() {
+  const uint32_t interval = liveState_.intervalSeconds;
+  char buf[64];
+  if (interval % 3600 == 0) {
+    const unsigned hours = interval / 3600;
+    std::snprintf(buf, sizeof(buf), hours == 1 ? "Every hour" : "Every %u hours", hours);
+  } else {
+    std::snprintf(buf, sizeof(buf), "Every %u minutes", static_cast<unsigned>(interval / 60));
+  }
+  liveCadence_ = buf;
+  if (liveState_.lastSuccessEpoch <= 0) {
+    liveNextCheck_ = "Soon";
+    return;
+  }
+  // An ESTIMATE, and it says so in the service's own words: the sleep timer
+  // runs off an RC oscillator that drifts percent-level, and a wake missed for
+  // want of Wi-Fi is invisible until the one after. "In about" is the honest
+  // precision; a figure to the minute would be a number this device cannot
+  // keep.
+  if (interval % 3600 == 0) {
+    std::snprintf(buf, sizeof(buf), "In about %u hours", static_cast<unsigned>(interval / 3600));
+  } else {
+    std::snprintf(buf, sizeof(buf), "In about %u minutes", static_cast<unsigned>(interval / 60));
+  }
+  liveNextCheck_ = buf;
 }
 
 // The address the phone opens. Station mode only: the hotspot has no NAT and a
@@ -1758,6 +1923,25 @@ void WallpapersActivity::loop() {
     return;
   }
 
+  // Live's three network steps, all of them behind painted_ for the reason the
+  // free-space walk is: rendering is notification-driven, so a blocking call in
+  // the same breath as requestUpdate() runs BEFORE the render task paints, and
+  // the user waits on a radio in front of a blank panel.
+  if (painted_ && livePairQueued_) {
+    livePairQueued_ = false;
+    startLivePairing();
+    return;
+  }
+  if (painted_ && liveCheckQueued_) {
+    liveCheckQueued_ = false;
+    runLiveCheck();
+    return;
+  }
+  if (painted_ && view_ == View::Live && !livePollToken_.empty() && static_cast<long>(millis() - livePollAt_) >= 0) {
+    pollLivePairing();
+    return;
+  }
+
   // The server only answers while this screen is up, and it answers from the
   // app's own loop -- there is no task behind it.
   if (addServer_ && addServer_->isRunning()) {
@@ -1848,21 +2032,30 @@ void WallpapersActivity::loop() {
         openAdd();
         return;
       case wallpapersui::ActionLiveToggle:
-        // RAM only, and the one Live control that can do its whole job without
-        // the plumbing: what the screen says and what the tile's marker says
-        // both read liveRunning_, so the two cannot disagree about it.
-        liveRunning_ = !liveRunning_;
+        // Written through to the card. What the screen says, what the tile's
+        // marker says and what the sleep path reads are now one stored fact.
+        toggleLive();
+        return;
+      case wallpapersui::ActionLiveCheck:
+        // QUEUED, not run. This blocks on the radio for seconds and pumps no
+        // input while it does; running it inside route() is the #306 family
+        // this app has already been bitten by twice.
+        liveStatus_ = "Asking Live now.";
+        liveCheckQueued_ = true;
         interactionsReady_ = false;
         requestUpdate();
         return;
-      case wallpapersui::ActionLiveCheck:
       case wallpapersui::ActionLiveAdd:
-        // Drawn, routed, and with nowhere to go until the website exists. Logged
-        // rather than silent for the reason the Live tile was logged before this
-        // screen replaced it: on hardware, a tap that does nothing and a touch
-        // that was dropped look exactly alike.
-        LOG_INF("WALL", "Live control %d tapped; its destination arrives with the plumbing",
-                static_cast<int>(action.action));
+        // Letting somebody ELSE send to this reader is a second pairing code
+        // against the same fridge, and the service has no endpoint for it yet:
+        // /api/pair/start mints a NEW fridge, so using it here would silently
+        // disconnect the phone already sending. Logged rather than silent,
+        // because on hardware a tap that does nothing and a touch that was
+        // dropped look exactly alike.
+        liveStatus_ = "Sharing this reader with somebody else is not ready yet.";
+        LOG_INF("WALL", "Live + Add tapped; the service has no second-sender endpoint");
+        interactionsReady_ = false;
+        requestUpdate();
         return;
       case wallpapersui::ActionDismiss:
         pickView();
@@ -2134,18 +2327,26 @@ void WallpapersActivity::render(RenderLock&&) {
     wallpapersui::LiveModel model;
     model.configured = liveConfigured();
     model.on = liveRunning_;
-    // STUBS, exactly like liveConfigured() above them: there is no website, no
-    // pairing and no store in this slice, and a fixed answer is what makes the
-    // two renders the same every time they are taken. The code is grouped
-    // three and three because it is read down a telephone, and that is the one
-    // thing about it anybody has to do.
-    model.code = kLiveCode;
+    // Every one of these is a MEMBER settled on the loop task, never a string
+    // assembled inside this paint: render() runs on the other FreeRTOS task
+    // with no lock across it, so a temporary built here is a dangling pointer
+    // by the time the screen tree reads it, and a line built inside a paint is
+    // a line no test can walk.
+    //
+    // liveCode_ falls back to the stub only when a build forced the screenshot
+    // flag; on a real device an empty code means the request has not answered
+    // yet, and the status line under it says so.
+    model.code = liveCode_.empty() ? kLiveCode : liveCode_.c_str();
     model.url = kLiveHost;
-    model.nextCheck = "Tomorrow, 6:00";
-    model.cadence = "Once a day";
-    model.senders[0] = {"Mario's phone", "12 Sep"};
-    model.senders[1] = {"Abuela", "18 Sep"};
-    model.senderCount = 2;
+    model.status = liveStatus_.empty() ? nullptr : liveStatus_.c_str();
+    model.nextCheck = liveNextCheck_.c_str();
+    model.cadence = liveCadence_.c_str();
+    // The senders list is not something this service can answer yet: there is
+    // one sender per fridge and no endpoint that names them. Left empty rather
+    // than filled with a plausible-looking invention -- a screen that lists
+    // "Abuela" because the mock did is a screen that lies on the first device
+    // it reaches.
+    model.senderCount = 0;
     const fui::Rect qr = wallpapersui::buildLive(surface, model);
     // The QR carries the LINK, the panel carries the ADDRESS: the same split
     // buildAdd makes, and for the same reason -- a phone that will not scan
@@ -2156,10 +2357,17 @@ void WallpapersActivity::render(RenderLock&&) {
     // them: a link holding its own copy of the code goes on pointing at the old
     // one the moment the code changes, and nothing on either screen would show
     // it (derived-facts-written-as-literals).
+    //
+    // liveQrLink_ is built by startLivePairing() from the code the SERVICE
+    // returned, in the same breath as the code itself, so the two cannot come
+    // apart. The fallback covers the screenshot builds only.
     if (qr.width > 0 && qr.height > 0) {
-      std::string link = std::string("https://") + kLiveHost + "/p/";
-      for (const char* c = kLiveCode; *c != '\0'; ++c) {
-        if (*c != ' ') link.push_back(*c);
+      std::string link = liveQrLink_;
+      if (link.empty()) {
+        link = std::string("https://") + kLiveHost + "/p/";
+        for (const char* c = kLiveCode; *c != '\0'; ++c) {
+          if (*c != ' ') link.push_back(*c);
+        }
       }
       QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, link);
     }

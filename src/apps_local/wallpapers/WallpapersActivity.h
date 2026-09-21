@@ -19,6 +19,7 @@
 
 #include "../../activities/Activity.h"
 #include "../../network/CrossPointWebServer.h"
+#include "../live/LiveStore.h"
 #include "../ui/ToyboxScreen.h"
 #include "WallpapersCore.h"
 #include "WallpapersScreens.h"
@@ -151,12 +152,35 @@ class WallpapersActivity final : public Activity {
   bool liveOn() const;          // and it is what the sleep screen shows, as the device booted
   void openLive();              // the tile's destination
   // What Live is doing RIGHT NOW, which is liveOn() until somebody presses the
-  // screen's own toggle. It is RAM only and deliberately so: this slice has no
-  // store to write to, and a control that draws a state it cannot change is a
-  // dead button -- the thing the grid's tile was until this screen existed.
-  // Seeded in onEnter(), so every render of a freshly entered app is the one
-  // the compile-time stub describes and the screenshots stay reproducible.
+  // screen's own toggle. Kept as a member because the tile's marker and the
+  // screen's switch are two readings of one fact and came apart once already;
+  // it is now WRITTEN THROUGH to the card by toggleLive(), so "on" outlives the
+  // app being closed. Seeded in onEnter() from live::load().
   bool liveRunning_ = false;
+
+  // Live's own state, loaded on entry and saved by whatever changes it. Held
+  // here rather than re-read per render for the reason the sheet's isActive
+  // flag is: render() runs on the other FreeRTOS task, and a std::string this
+  // one reallocates under it is a read of freed memory.
+  live::State liveState_;
+  std::string livePollToken_;  // the pairing in flight, empty when there is none
+  std::string liveCode_;       // "601 663" -- grouped for reading down a phone
+  std::string liveQrLink_;     // built from the code, never typed beside it
+  std::string liveStatus_;     // the one line under the code or the switch
+  std::string liveNextCheck_;  // "In about 6 hours"
+  std::string liveCadence_;    // "Every 6 hours"
+  // Work the loop task does AFTER the paint, never inside a tap: both of these
+  // block on the radio for seconds, and an activity that blocks inside route()
+  // is the #306 family this app has already been bitten by twice.
+  bool livePairQueued_ = false;
+  bool liveCheckQueued_ = false;
+  unsigned long livePollAt_ = 0;  // millis() of the next /api/pair/poll
+  void startLivePairing();
+  void pollLivePairing();
+  void runLiveCheck();
+  void toggleLive();
+  void refreshLiveLines();
+  void applyLiveSleepSettings();
   void drawMarker(const freeink::ui::Rect& th) const;
 
   // Which wallpaper the sheet, the confirm and the preview are about. Held as a
