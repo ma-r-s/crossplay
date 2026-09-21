@@ -24,10 +24,12 @@
 #include <vector>
 
 #include "../../src/apps_local/ui/ToyboxText.h"
+#include "../../src/apps_local/ui/fonts/reading_serif_14.h"
 #include "../../src/apps_local/ui/fonts/toybox_10.h"
 #include "../../src/apps_local/ui/fonts/toybox_14.h"
 #include "../../src/apps_local/ui/fonts/toybox_20.h"
 #include "../../src/apps_local/ui/fonts/toybox_30.h"
+#include "../../src/apps_local/ui/fonts/toybox_64.h"
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
 #include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 
@@ -51,10 +53,18 @@ EpdFont small10(&toybox_10);
 EpdFont button14(&toybox_14);
 EpdFont ui20(&toybox_20);
 EpdFont display30(&toybox_30);
+// The Live screen's two face sets. Unpaired it binds toybox::pairingCodeFaces
+// (the 82px cut in SMALL, where only the code asks for it); paired it binds
+// readingChromeFaces like the offer and the sheet. Both are here because the
+// screen is built twice and the cuts are what decide whether a string fits.
+EpdFont huge64(&toybox_64);
+EpdFont reading14(&reading_serif_14);
 EpdFontFamily smallFamily(&small10);
 EpdFontFamily buttonFamily(&button14);
 EpdFontFamily uiFamily(&ui20);
 EpdFontFamily displayFamily(&display30);
+EpdFontFamily hugeFamily(&huge64);
+EpdFontFamily readingFamily(&reading14);
 
 class FontTarget final : public fui::DrawTarget {
  public:
@@ -127,6 +137,62 @@ class ChromeFontTarget final : public fui::DrawTarget {
   void text(fui::Rect, const char*, const fui::TextStyle) override {}
   void bitmap(fui::Rect, fui::BitmapRef, fui::BitmapMode, fui::Paint = {},
               fui::Rotation = fui::Rotation::None) override {}
+};
+
+// ---------------------------------------------------------------------------
+// THE LIVE SCREEN, recorded rather than measured from the outside.
+//
+// This one is built through a real toybox::Screen and every string it hands to
+// text() is kept, because the defect this screen can have is not a rectangle
+// that overlaps -- it is a SENTENCE THAT STOPS. The Toybox cuts above toybox_10
+// carry no U+2026, so an overflowing line at reading_serif_14 or toybox_64
+// arrives neither clipped nor ellipsised: it ends at a plausible-looking place
+// and the screenshot looks fine. Three of those shipped into this screen's
+// first three renders (the prose, the footer, and a sender's name) and every
+// one of them was found by a human opening the PNG.
+//
+// So the assertion is the layout itself: lay each recorded run out in the box
+// it was given, in the face that will draw it, and it must come back WHOLE.
+class LiveTarget final : public fui::DrawTarget {
+ public:
+  explicit LiveTarget(const bool paired) : paired_(paired) {}
+
+  struct Run {
+    fui::Rect box;
+    std::string text;
+    fui::TextStyle style;
+  };
+  std::vector<Run> runs;
+
+  const EpdFontFamily* familyFor(const fui::FontId font) const {
+    // FONT_SLOT_SMALL is the whole difference between the two states: the huge
+    // cut while there is a code on the screen, the button cut once there is not.
+    if (font == fui::FONT_SLOT_SMALL) return paired_ ? &buttonFamily : &hugeFamily;
+    if (font == fui::FONT_SLOT_BODY) return &readingFamily;
+    return &displayFamily;
+  }
+  fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle) const override {
+    int w = 0;
+    int h = 0;
+    if (text != nullptr && text[0] != '\0') familyFor(font)->getTextDimensions(text, &w, &h);
+    return fui::Size{static_cast<int16_t>(w), lineHeight(font)};
+  }
+  int16_t lineHeight(const fui::FontId font) const override {
+    return static_cast<int16_t>(familyFor(font)->getData(EpdFontFamily::REGULAR)->advanceY);
+  }
+  void fill(fui::Rect, fui::Paint, uint8_t = 0, uint8_t = 0xFF) override {}
+  void stroke(fui::Rect, fui::Paint, uint8_t, uint8_t = 0, uint8_t = 0xFF) override {}
+  void line(fui::Point, fui::Point, uint8_t, fui::Paint) override {}
+  void triangle(fui::Point, fui::Point, fui::Point, fui::Paint) override {}
+  void text(const fui::Rect box, const char* text, const fui::TextStyle style) override {
+    if (text == nullptr || text[0] == '\0') return;
+    runs.push_back(Run{box, std::string(text), style});
+  }
+  void bitmap(fui::Rect, fui::BitmapRef, fui::BitmapMode, fui::Paint = {},
+              fui::Rotation = fui::Rotation::None) override {}
+
+ private:
+  bool paired_ = false;
 };
 
 fui::DeviceContext device() {
@@ -685,6 +751,141 @@ int main() {
     // The exact case that was broken: 4 a page, both chrome tiles, three
     // wallpapers -- five tiles, which is two pages and used to be called one.
     check(wallpapersui::pageCountFor(2, 3, 4) == 2, "the incomplete-set page boundary is still miscounted");
+  }
+
+  // -------------------------------------------------------------------------
+  // THE LIVE SCREEN. Built for real, both states, in whichever arrangement this
+  // binary was compiled with -- run.sh runs it once per arrangement, because a
+  // suite that walks one of three is a suite that reports clean about the other
+  // two ("a clean list hides absence").
+  {
+    // The X4 Pro's glass, because the body width is what every string here is
+    // measured against and the bezel takes two pixels of it.
+    fui::DeviceContext ctx = device();
+    ctx.safeArea = fui::Insets{10, 1, 0, 1};
+    const fui::Rect panelRect = fui::makeRect(0, 0, ctx.width, ctx.height);
+    const fui::InputSnapshot noInput{};
+
+    wallpapersui::LiveModel model;
+    model.code = "482 160";
+    model.url = "fridge.ma-r-s.com";
+    model.nextCheck = "Tomorrow, 6:00";
+    model.cadence = "Once a day";
+    model.senders[0] = {"Mario's phone", "12 Sep"};
+    model.senders[1] = {"Abuela", "18 Sep"};
+    model.senderCount = 2;
+
+    for (int state = 0; state < 3; ++state) {
+      // 0 unpaired, 1 paired and running, 2 paired and stopped. The third is not
+      // padding: the state word and the toggle's label are two readings of one
+      // bool, and "LIVE IS ON" over a button offering to turn it on is the
+      // defect that pair exists to prevent.
+      model.configured = state > 0;
+      model.on = state == 1;
+      const std::string where =
+          std::string(" [screen ") + std::to_string(WALLPAPERS_LIVE_SCREEN) + ", state " + std::to_string(state) + "]";
+
+      LiveTarget target(model.configured);
+      toybox::Interactions interactions;
+      toybox::Frame frame(target, ctx, noInput, interactions);
+      toybox::Screen screen(frame);
+      const fui::Rect qr = wallpapersui::buildLive(screen, model);
+
+      // 1. EVERY RUN ARRIVES WHOLE. fitLines lays the string out in the box it
+      //    was given, with its own line budget, in the face that will draw it;
+      //    anything it has to cut comes back different from what went in. This
+      //    is the assertion the three truncations would each have failed.
+      for (const LiveTarget::Run& run : target.runs) {
+        const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+        const std::string laid = toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style);
+        check(laid == run.text, "the panel cuts \"" + run.text + "\" to \"" + laid + "\" in a " +
+                                    std::to_string(run.box.width) + "px box" + where);
+        // AND IT WAS NOT ALREADY CUT WHEN IT GOT HERE, which the check above
+        // cannot see and which is the more common failure by far. drawFitted and
+        // drawFoot both run their string through the ladder first, and when the
+        // ladder has no rung left it falls through to fitLines and hands text()
+        // an ELLIPSISED string -- which then fits its box perfectly. Asserting
+        // only that what was drawn fits is a test that shares the bug: the first
+        // version of this block stayed green with "This code works for ten..."
+        // on the panel. Nothing on this screen legitimately ends in an ellipsis.
+        check(run.text.size() < 3 || run.text.compare(run.text.size() - 3, 3, "...") != 0,
+              "\"" + run.text + "\" reached the panel already cut to fit" + where);
+        check(run.box.x >= panelRect.x && run.box.x + run.box.width <= panelRect.width,
+              "a text box runs off the side of the panel" + where);
+        check(run.box.y >= panelRect.y && run.box.y + run.box.height <= panelRect.height,
+              "a text box runs off the bottom of the panel" + where);
+      }
+
+      // 2. THE STRINGS THAT MATTER REACHED IT AT ALL. A run that fits is not a
+      //    run that happened: an arrangement that forgot to draw the code would
+      //    pass every check above.
+      const auto drew = [&target](const std::string& want) {
+        for (const LiveTarget::Run& run : target.runs) {
+          if (run.text == want) return true;
+        }
+        return false;
+      };
+      if (!model.configured) {
+        check(drew(model.code), "the pairing code is not on the unpaired screen" + where);
+        check(drew(std::string(model.url)), "the address in words is not on the unpaired screen" + where);
+        check(qr.width >= 132 && qr.height >= 132,
+              "the QR square is under four module pixels a side, which does not scan" + where);
+        check(qr.x >= 0 && qr.y >= 0 && qr.x + qr.width <= panelRect.width && qr.y + qr.height <= panelRect.height,
+              "the QR square runs off the panel" + where);
+        // Never above: the code is what a person reads down a telephone, and a
+        // QR over it makes the screen look like something to scan instead.
+        for (const LiveTarget::Run& run : target.runs) {
+          if (run.text != model.code) continue;
+          check(qr.y >= run.box.y, "the QR sits above the code" + where);
+        }
+        // And nothing is drawn ON it.
+        for (const LiveTarget::Run& run : target.runs) {
+          check(!overlaps(run.box, qr), "\"" + run.text + "\" is drawn over the QR" + where);
+        }
+      } else {
+        check(qr.width == 0 && qr.height == 0, "the paired screen asked for a QR it has no code for" + where);
+        for (int i = 0; i < model.senderCount; ++i) {
+          check(drew(std::string(model.senders[i].who)),
+                std::string("sender \"") + model.senders[i].who + "\" is not on the screen" + where);
+          check(drew(std::string(model.senders[i].since)),
+                std::string("sender \"") + model.senders[i].who + "\" has no date beside them" + where);
+        }
+        check(drew(model.nextCheck), "the next check is not on the paired screen" + where);
+        check(drew(model.cadence), "how often is not on the paired screen" + where);
+        // The state and its control, read from one bool in two places.
+        check(drew(model.on ? "LIVE IS ON" : "LIVE IS OFF") || drew(model.on ? "On" : "Off"),
+              "the paired screen does not say whether Live is on" + where);
+        check(drew(model.on ? "TURN IT OFF" : "TURN IT ON"),
+              "the toggle offers the state the screen is already in" + where);
+
+        // 3. THE CONTROLS ARE TAPPABLE, not merely drawn. A button registered
+        //    at no rect is a dead control, which is what ActionAddOwn was on the
+        //    offer screen for a whole release ("nothing calls it").
+        const fui::ActionId wanted[3] = {wallpapersui::ActionLiveToggle, wallpapersui::ActionLiveCheck,
+                                         wallpapersui::ActionLiveAdd};
+        fui::Rect hits[3] = {};
+        for (int i = 0; i < 3; ++i) {
+          for (size_t h = 0; h < interactions.count(); ++h) {
+            if (interactions.data()[h].action == wanted[i]) hits[i] = interactions.data()[h].rect;
+          }
+          check(hits[i].width > 0 && hits[i].height >= ctx.minTouchSize,
+                "Live control " + std::to_string(i) + " is drawn but not tappable" + where);
+          check(hits[i].x >= 0 && hits[i].y >= 0 && hits[i].x + hits[i].width <= panelRect.width &&
+                    hits[i].y + hits[i].height <= panelRect.height,
+                "Live control " + std::to_string(i) + " is registered off the panel" + where);
+        }
+        // And no two of them share a pixel. None is destructive, but a control
+        // whose rect covers another's is a control you cannot press.
+        for (int i = 0; i < 3; ++i) {
+          for (int j = i + 1; j < 3; ++j) {
+            check(!overlaps(hits[i], hits[j]),
+                  "Live controls " + std::to_string(i) + " and " + std::to_string(j) + " overlap" + where);
+          }
+        }
+      }
+      check(interactions.count() <= toybox::kMaxInteractions,
+            "the Live screen overflows the interaction table" + where);
+    }
   }
 
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,

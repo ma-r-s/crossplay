@@ -70,6 +70,18 @@ inline Faces readingChromeFaces() { return Faces{kButtonFontId, kReadingFontId, 
 // line of a paragraph.
 inline Faces readingAddressFaces() { return Faces{kReadingBoldFontId, kReadingFontId, kDisplayFontId}; }
 
+// A pairing screen whose one string is a CODE somebody reads down a telephone.
+// The small slot takes the huge cut, which is the same trick readingAddressFaces
+// plays one rung lower: the thing that has to be read from across a table gets a
+// cut of its own, and everything else keeps the reading face it deserves.
+//
+// The huge cut goes in SMALL and not in BODY on purpose. themeTokens() binds
+// BOTH bodyText and smallText to FONT_SLOT_BODY, so a screen that puts an 82px
+// capital there gets it as the DEFAULT for every string that does not ask for
+// something else -- one forgotten style and a sentence is drawn four lines tall.
+// In SMALL it is opt-in: nothing resolves to it unless a style names it.
+inline Faces pairingCodeFaces() { return Faces{kHugeFontId, kReadingFontId, kDisplayFontId}; }
+
 // And for a screen whose header band carries a story's title rather than the
 // app's name: the title slot takes the bold reading cut so a whole headline
 // fits and still reads as a headline, and the SMALL slot takes the small

@@ -86,6 +86,11 @@ enum : fui::ActionId {
   ActionKeep = 7,           // the confirm's safe half: leave it alone
   ActionConfirmDelete = 8,  // the only destructive control in this app
   ActionChoose = 9,         // the header chip: enter or leave choose-a-set mode
+  // The Live screen's three controls. None of them is destructive and none of
+  // them shares a pixel with a control that is: the Live screen has no delete.
+  ActionLiveToggle = 10,  // start or stop showing what the website sends
+  ActionLiveCheck = 11,   // ask the website now instead of at the next check
+  ActionLiveAdd = 12,     // let somebody else send to this reader
 };
 
 // ---------------------------------------------------------------------------
@@ -305,5 +310,59 @@ struct AddModel {
 // Returns the square the Activity must draw the QR into. The screen cannot draw
 // it: QrUtils needs the renderer, and this file compiles against the SDK alone.
 fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model);
+
+// ---------------------------------------------------------------------------
+// LIVE: where the grid's "Your phone" tile goes.
+//
+// A sleep screen fed from a website. Somebody opens fridge.ma-r-s.com on their
+// phone, sends a drawing or a photo, and the reader shows it. The reader PULLS
+// on a schedule and is asleep the rest of the time, so there is no connection
+// to report and no "now" to show: this screen's whole job is to say when the
+// next check is, how often they come, and who may feed it.
+//
+// Three arrangements behind WALLPAPERS_LIVE_SCREEN, rendered side by side
+// before one is kept. The losing two and the macro go in the same commit as the
+// winner -- a variant macro that survives is a second design nobody maintains.
+//
+//   1  a centred stack: the code dominant, the prose and the QR beneath it.
+//   2  a numbered rail: go here, then type this, down the left edge.
+//   3  a split: an inverted panel for the one thing you act on, two columns
+//      side by side under it for everything else.
+#ifndef WALLPAPERS_LIVE_SCREEN
+#define WALLPAPERS_LIVE_SCREEN 1
+#endif
+
+// Both states, one builder, because they are one destination: before a phone is
+// paired the screen is a code to type, and afterwards it is what that code
+// bought. Building them apart is how the two would come to disagree about what
+// Live even is.
+struct LiveModel {
+  bool configured = false;  // a phone has been paired with this reader
+  bool on = false;          // and Live is what the sleep screen shows
+  // UNPAIRED. Both are drawn; only the Activity's own link is encoded, the same
+  // split buildAdd draws (a QR tells a person nothing, and the address in words
+  // is the only thing to fall back on when a phone will not scan).
+  const char* code = "";  // six digits, grouped so they can be read aloud
+  const char* url = "";   // "fridge.ma-r-s.com" -- drawn, never encoded
+  // PAIRED. Both are sentences the device composes elsewhere, never assembled
+  // per render: a line built inside a paint is a line no test can walk.
+  const char* nextCheck = "";  // "Tomorrow, 6:00"
+  const char* cadence = "";    // "Once a day"
+  struct Sender {
+    const char* who = nullptr;
+    const char* since = nullptr;  // when they were let in: "12 Sep"
+  };
+  // A fixed array rather than a vector. This model is filled on the loop task
+  // and read on the render task with no lock between them, and this app has
+  // already been bitten once by a container reallocated under a paint -- see
+  // SheetModel's sheetIsActive_ above.
+  static constexpr int kMaxSenders = 4;
+  Sender senders[kMaxSenders];
+  int senderCount = 0;
+};
+
+// Returns the square the Activity must draw the QR into, empty when this state
+// has none. Same contract as buildAdd, for the same reason.
+fui::Rect buildLive(toybox::Screen& screen, const LiveModel& model);
 
 }  // namespace wallpapersui

@@ -81,7 +81,10 @@ class WallpapersActivity final : public Activity {
   //
   // Help is absent on purpose: app/wallqr removed it with buildHelp when the QR
   // screen replaced it, and a member nothing sets is a branch nothing reaches.
-  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Add, Sheet, Confirm, Preview };
+  // Live is the "Your phone" tile's destination: the pairing code before a
+  // phone is attached, the schedule and the senders afterwards. It reaches the
+  // panel through wallpapersui::buildLive like every other screen here.
+  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Add, Sheet, Confirm, Preview, Live };
   View view_ = View::Grid;
 
   void scanLibrary();
@@ -148,7 +151,15 @@ class WallpapersActivity final : public Activity {
   SpecialTile specialAt(int combined) const;
   int specialTiles() const;     // chrome tiles in front of the wallpapers
   bool liveConfigured() const;  // a Live slot exists on this device
-  bool liveOn() const;          // and it is what the sleep screen shows
+  bool liveOn() const;          // and it is what the sleep screen shows, as the device booted
+  void openLive();              // the tile's destination
+  // What Live is doing RIGHT NOW, which is liveOn() until somebody presses the
+  // screen's own toggle. It is RAM only and deliberately so: this slice has no
+  // store to write to, and a control that draws a state it cannot change is a
+  // dead button -- the thing the grid's tile was until this screen existed.
+  // Seeded in onEnter(), so every render of a freshly entered app is the one
+  // the compile-time stub describes and the screenshots stay reproducible.
+  bool liveRunning_ = false;
   void drawMarker(const freeink::ui::Rect& th) const;
 
   // Which wallpaper the sheet, the confirm and the preview are about. Held as a

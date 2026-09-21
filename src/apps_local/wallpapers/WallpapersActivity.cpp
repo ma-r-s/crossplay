@@ -112,6 +112,12 @@ constexpr bool kLiveCombinedTile = false;
 constexpr const char* kLiveCaption = "Live";
 #endif
 
+// The Live screen's stubs, here rather than at the render so the code the panel
+// prints and the code the QR encodes are ONE string. See render()'s View::Live
+// arm: the link is built from these two, never typed beside them.
+constexpr const char* kLiveHost = "fridge.ma-r-s.com";
+constexpr const char* kLiveCode = "482 160";
+
 // Ordered 8x8 Bayer thresholds. A thumbnail is an AREA AVERAGE of the source
 // re-dithered at thumbnail size: a 50% threshold collapses a dense engraving
 // into a flat blob ("grey mush"), while re-dithering keeps its tone as texture,
@@ -162,6 +168,10 @@ void WallpapersActivity::onEnter() {
   selectedThisSession_ = false;
   choosing_ = false;
   warningPending_ = true;
+  // Back to the stub on every entry. Nothing persists Live yet, and a toggle
+  // that survived the app would make the first screen of a run depend on what
+  // the last run pressed (invisible-saved-state-reads-as-nondeterminism).
+  liveRunning_ = liveOn();
   LOG_INF("WALL", "onEnter %ums: fonts=%u sweep=%u scan=%u active=%u (free-space deferred)", tActive - tEnter,
           tFonts - tEnter, tSweep - tFonts, tScan - tSweep, tActive - tScan);
   // Open on the page holding the set wallpaper, so the border is on screen.
@@ -1011,7 +1021,10 @@ void WallpapersActivity::drawLiveTile(const wallpapersui::GridGeom& geom, const 
     }
   }
 
-  if (liveOn()) drawMarker(th);
+  // liveRunning_, not liveOn(): the Live screen's toggle is what the user just
+  // pressed, and a tile that kept reporting the compile-time stub would say the
+  // opposite of the screen they came back from. One bool read by both.
+  if (liveRunning_) drawMarker(th);
 
   // The caption through captionRect, like every other tile on the grid. Hand
   // placing it would put this one a few pixels off the row its neighbours sit
@@ -1399,6 +1412,16 @@ void WallpapersActivity::renderPreview() {
   // failure and the picture do not paint with different waveforms.
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   painted_ = true;
+}
+
+// The Live screen. No radio and nothing to start: the pairing happens on the
+// website and this reader would only talk to it at the next scheduled check, so
+// opening the screen is a view change and nothing else. That is what makes it
+// safe to reach from a tap with no WiFi picker in front of it.
+void WallpapersActivity::openLive() {
+  view_ = View::Live;
+  interactionsReady_ = false;
+  requestUpdate();
 }
 
 // The address the phone opens. Station mode only: the hotspot has no NAT and a
@@ -1833,6 +1856,13 @@ void WallpapersActivity::loop() {
       requestUpdate();
       return;
     }
+    // Live has nothing to unwind: no server, no radio, no half-finished
+    // pairing. Back is the way out of it and the grid is what is behind it.
+    if (view_ == View::Live) {
+      pickView();
+      requestUpdate();
+      return;
+    }
     // View::Help is gone with buildHelp (app/wallqr): the QR screen replaced it.
     if (view_ == View::Notice || view_ == View::Add) {
       stopAddServer();
@@ -1872,7 +1902,8 @@ void WallpapersActivity::loop() {
   // Interactions::route() refuses a tap routed against a table the panel has
   // not shown yet, which is what stops a tap aimed at the screen underneath
   // from landing on the one that replaced it during a 0.3-2s e-ink repaint.
-  if (view_ == View::Offer || view_ == View::Notice || view_ == View::Sheet || view_ == View::Confirm) {
+  if (view_ == View::Offer || view_ == View::Notice || view_ == View::Sheet || view_ == View::Confirm ||
+      view_ == View::Live) {
     int ax = 0;
     int ay = 0;
     if (!mappedInput.wasScreenTapped(ax, ay) || !interactionsReady_) return;
@@ -1888,6 +1919,23 @@ void WallpapersActivity::loop() {
         return;
       case wallpapersui::ActionAddOwn:
         openAdd();
+        return;
+      case wallpapersui::ActionLiveToggle:
+        // RAM only, and the one Live control that can do its whole job without
+        // the plumbing: what the screen says and what the tile's marker says
+        // both read liveRunning_, so the two cannot disagree about it.
+        liveRunning_ = !liveRunning_;
+        interactionsReady_ = false;
+        requestUpdate();
+        return;
+      case wallpapersui::ActionLiveCheck:
+      case wallpapersui::ActionLiveAdd:
+        // Drawn, routed, and with nowhere to go until the website exists. Logged
+        // rather than silent for the reason the Live tile was logged before this
+        // screen replaced it: on hardware, a tap that does nothing and a touch
+        // that was dropped look exactly alike.
+        LOG_INF("WALL", "Live control %d tapped; its destination arrives with the plumbing",
+                static_cast<int>(action.action));
         return;
       case wallpapersui::ActionDismiss:
         pickView();
@@ -2026,14 +2074,22 @@ void WallpapersActivity::loop() {
     case SpecialTile::Add:
       if (held) return;
       choosing_ = false;
+      // In variant 2 there is no separate Live tile: specialAt() keeps cell 0
+      // as Add because moving it would put a new action under a learned pixel,
+      // and drawGrid draws drawLiveTile into it. The CAPTION is what settles
+      // where the tap goes -- the cell says "Your phone", and the phone route is
+      // the Live screen, not the local upload server. The upload server keeps
+      // its own way in: the offer screen's USE MY OWN PHOTO still opens it.
+      if (kLiveCombinedTile) {
+        openLive();
+        return;
+      }
       openAdd();
       return;
     case SpecialTile::Live:
       if (held) return;
-      // Where this goes is the next slice; the tile is this one. Logged rather
-      // than silent, because "my tap did nothing" and a dropped touch are
-      // otherwise indistinguishable on hardware.
-      LOG_INF("WALL", "Live tile tapped; its destination arrives with the plumbing");
+      choosing_ = false;
+      openLive();
       return;
     case SpecialTile::GetSet:
       if (held) return;
@@ -2117,14 +2173,24 @@ void WallpapersActivity::render(RenderLock&&) {
   // SENTENCES, and at the 20px UI cut a sentence runs off the panel and is cut
   // with an ellipsis. Trivia carries the same split for the same reason.
   const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Add ||
-                     view_ == View::Sheet || view_ == View::Confirm;
+                     view_ == View::Sheet || view_ == View::Confirm || view_ == View::Live;
   // View::Add rebinds the SMALL slot to the bold reading cut so the address has
   // a cut of its own: see readingAddressFaces. Without it the headline, the
   // address, the prose and the footer all land on serif 14 and the one line the
   // reader has to type is indistinguishable from the paragraph under it.
+  //
+  // The UNPAIRED Live screen goes one rung further for the same reason, and
+  // only while it is unpaired: its content is a six-digit code somebody reads
+  // down a telephone, so pairingCodeFaces puts the 82px capital in the small
+  // slot. Once a phone is attached the screen is three facts and three buttons
+  // with no code on it at all, and it takes the same face set the offer and the
+  // sheet use -- a huge cut bound for a screen that has nothing to set in it is
+  // a cut every unstyled string can fall into.
+  const bool liveCode = view_ == View::Live && !liveConfigured();
   fui::GfxRendererTarget target = toybox::makeTarget(
-      renderer, view_ == View::Add ? toybox::readingAddressFaces()
-                                   : (prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces()));
+      renderer, liveCode ? toybox::pairingCodeFaces()
+                         : (view_ == View::Add ? toybox::readingAddressFaces()
+                                               : (prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces())));
   const fui::DeviceContext device = target.deviceContext();
   const fui::InputSnapshot noInput{};
   interactionsReady_ = false;
@@ -2148,6 +2214,39 @@ void WallpapersActivity::render(RenderLock&&) {
     // addQrUrl_, NOT addUrl_ (app/wallqr): the code carries the numeric address,
     // which depends on no responder; the name is the half a human reads.
     QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addQrUrl_);
+  } else if (view_ == View::Live) {
+    wallpapersui::LiveModel model;
+    model.configured = liveConfigured();
+    model.on = liveRunning_;
+    // STUBS, exactly like liveConfigured() above them: there is no website, no
+    // pairing and no store in this slice, and a fixed answer is what makes the
+    // six renders the same every time they are taken. The code is grouped
+    // three and three because it is read down a telephone, and that is the one
+    // thing about it anybody has to do.
+    model.code = kLiveCode;
+    model.url = kLiveHost;
+    model.nextCheck = "Tomorrow, 6:00";
+    model.cadence = "Once a day";
+    model.senders[0] = {"Mario's phone", "12 Sep"};
+    model.senders[1] = {"Abuela", "18 Sep"};
+    model.senderCount = 2;
+    const fui::Rect qr = wallpapersui::buildLive(surface, model);
+    // The QR carries the LINK, the panel carries the ADDRESS: the same split
+    // buildAdd makes, and for the same reason -- a phone that will not scan
+    // still has something a person can type, and a QR that encoded only the
+    // host would land them on a page with the code still to enter.
+    //
+    // BUILT from the same two constants the screen draws, never typed beside
+    // them: a link holding its own copy of the code goes on pointing at the old
+    // one the moment the code changes, and nothing on either screen would show
+    // it (derived-facts-written-as-literals).
+    if (qr.width > 0 && qr.height > 0) {
+      std::string link = std::string("https://") + kLiveHost + "/p/";
+      for (const char* c = kLiveCode; *c != '\0'; ++c) {
+        if (*c != ' ') link.push_back(*c);
+      }
+      QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, link);
+    }
   } else if (view_ == View::Sheet) {
     wallpapersui::SheetModel model;
     model.name = sheetName_.c_str();
