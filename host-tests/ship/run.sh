@@ -309,6 +309,30 @@ else
   echo "FAIL ship  ship.sh does not compare the merge base against origin/xteink. Without it a merge commit can be published, and a merge commit's tree is not the tree the gate built"
 fi
 
+# -- 5b. the tag is pushed after everything that can still refuse ----------
+#
+# Pushing a tag is the first irreversible thing this script does in public,
+# so it must come after the last check that can say no: the eight-file
+# handover, the three magic numbers, and the probe that reads the version out
+# of the firmware. Pushed earlier -- as it was until this check existed -- a
+# packaging failure leaves a tag in the history with no release against it
+# and a delete-and-retag to clear it.
+#
+# Line order is the whole assertion here, so it is read the same way as the
+# bump-before-build check above.
+TAGPUSH_LINE="$(printf '%s' "$CODE" | grep -nE 'run "git push [^"]*\$TAG' | head -1 | cut -d: -f1)"
+PROBE_LINE="$(printf '%s' "$CODE" | grep -n 'CrossPlay-ESP32-\$NEXT' | head -1 | cut -d: -f1)"
+checks=$((checks + 1))
+if [ -z "$TAGPUSH_LINE" ] || [ -z "$PROBE_LINE" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ship  cannot find both the tag push and the firmware version probe, so the order they must keep cannot be checked"
+elif [ "$PROBE_LINE" -lt "$TAGPUSH_LINE" ]; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  ship.sh pushes the tag at line $TAGPUSH_LINE and only checks the firmware's version at line $PROBE_LINE. A tag pushed before the last check that can refuse leaves a version in the history with no release against it whenever packaging fails."
+fi
+
 # -- 6b. the squash goes through GitHub, and the trees are compared --------
 #
 # Two halves of one invariant, and neither works without the other.
