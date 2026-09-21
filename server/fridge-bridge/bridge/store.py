@@ -22,7 +22,22 @@ import time
 # Byte-exact on purpose. The reader's own uploader checks the same number, and
 # a wrong-sized file that still parses is drawn half-rendered forever rather
 # than rejected (see WallpapersActivity's copy path).
-IMAGE_BYTES = 48062
+# The reader's sleep canvas, 480x800. Two sizes are accepted, both byte-exact.
+#
+# 96070 is TWO bits per pixel with a four-entry palette: four real grey levels,
+# which is what the panel actually does (its driver declares AbsolutePlanes
+# grayscale, and the sleep screen's renderer takes that path when the panel
+# supports it).
+#
+# 48062 is the one-bit file the Wallpapers app has always used, still accepted
+# so anything already producing it keeps working.
+#
+# Byte-exact on purpose, either way: a wrong-sized file that still PARSES is
+# drawn half-rendered on the reader forever rather than refused.
+IMAGE_BYTES_1BIT = 48062
+IMAGE_BYTES_2BIT = 96070
+IMAGE_SIZES = (IMAGE_BYTES_1BIT, IMAGE_BYTES_2BIT)
+IMAGE_BYTES = IMAGE_BYTES_1BIT  # kept for callers that predate the grey file
 
 DEFAULT_INTERVAL_S = 86400
 MIN_INTERVAL_S = 900

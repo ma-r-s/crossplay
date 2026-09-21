@@ -208,12 +208,11 @@ async def put_image(request: Request, live_sender: str = Cookie(default=None)) -
     if not POST_SENDER.allow(fridge.id):
         return refused("Too many pictures at once. Try again shortly.")
     payload = await request.body()
-    if len(payload) != store.IMAGE_BYTES:
+    if len(payload) not in store.IMAGE_SIZES:
         # Bounded before anything is written. A wrong-sized file that still
         # parses is drawn half-rendered on the reader forever.
-        return refused(
-            f"That is not a reader picture ({len(payload)} bytes, expected {store.IMAGE_BYTES}).", 400
-        )
+        expected = " or ".join(str(n) for n in store.IMAGE_SIZES)
+        return refused(f"That is not a reader picture ({len(payload)} bytes, expected {expected}).", 400)
     image_id = fridge.set_image(payload)
     return JSONResponse({"ok": True, "imageId": image_id, "nextExpected": fridge.next_expected()})
 
