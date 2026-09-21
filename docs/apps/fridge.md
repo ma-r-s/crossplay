@@ -128,6 +128,41 @@ Failure needs capped exponential backoff, with numbers. The headless join burns
 20s of radio before giving up (`DevMode.cpp:87`); a naive 15-minute retry is
 roughly 50 mAh/day and kills the device in three weeks.
 
+## Two pieces, not one: the page is on the site
+
+**The page is `crossplay.ma-r-s.com/live/`** (`site/live/`), built out of the
+site's own `styles.css`, its top bar and its two faces, exactly as
+`site/wallpapers/` and `site/wikipedia/` are. **The service is
+`fridge.ma-r-s.com` and answers `/api/` only.**
+
+It was one piece for a while: the service served both the API and a standalone
+page, and that page shared nothing with the site -- not the palette, not the
+bar, not the type -- so it was a design orphan that drifted further every time
+the site changed.
+
+The split is safe because both names sit under one registrable domain:
+
+- the sender cookie is set with `domain=.ma-r-s.com`, which makes it
+  **first-party for both names**. Safari's third-party cookie blocking would
+  otherwise end this on an iPhone, and it would end it silently: the claim
+  returns 200 and every request after it arrives anonymous;
+- **`SameSite=Lax` is enough and stays.** SameSite is decided by the
+  registrable domain, not the origin, so the page calling the service is
+  same-site and the cookie rides an XHR. Verified in a browser against the
+  deployed pair, not reasoned about;
+- CORS allows **exactly `https://crossplay.ma-r-s.com`, with credentials**. A
+  wildcard could not carry a cookie even if it were wanted, and a list of
+  origins is a list of sites allowed to draw on somebody's reader;
+- the page's fetches say `credentials: "include"`. `"same-origin"`, the
+  default, sends nothing cross-origin and every call reads as "not connected".
+
+**The QR points straight at the page.** It encodes
+`https://crossplay.ma-r-s.com/live/?c=<code>`, built by `wallpapersui::liveLink`
+from `kLiveAddress` -- the same constant the panel prints beside it, so the
+address a person types and the address a phone scans can never name different
+hosts. There is no redirect on the service: readers on v1.13.11, whose QR points
+at the old `/p/<code>`, stop working until they update, which is the house rule.
+
 ## The service
 
 **`fridge.ma-r-s.com` on the Orange Pi**, Cloudflare Tunnel, copying

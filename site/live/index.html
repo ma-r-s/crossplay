@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Live &middot; CrossPlay</title>
+<meta name="description" content="Leave a handwritten note on a reader sitting on somebody's fridge, from anywhere. Draw it here, send it, and the reader shows it the next time it wakes.">
+<meta property="og:title" content="Live">
+<meta property="og:description" content="Draw a note here and a reader on somebody's fridge, in another country, shows it in the morning.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://crossplay.ma-r-s.com/live/">
+<meta property="og:image" content="https://crossplay.ma-r-s.com/assets/shots/og.png">
+<meta property="og:site_name" content="CrossPlay">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/live/live.css">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#111110">
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="topbar">
+  <a class="wordmark" href="/">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="1.6" fill="currentColor" />
+      <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square">
+        <path d="M2.6 10.4V2.6h7.8" />
+        <path d="M29.4 10.4V2.6h-7.8" />
+        <path d="M2.6 21.6v7.8h7.8" />
+        <path d="M29.4 21.6v7.8h-7.8" />
+      </g>
+    </svg>
+    <span>CrossPlay</span>
+  </a>
+  <button class="topnav-toggle" type="button"
+          aria-expanded="false" aria-controls="topnav">Menu</button>
+  <nav class="topnav" id="topnav" aria-label="Sections">
+    <a href="/#get">Install the firmware</a>
+    <a class="topnav-out" href="https://github.com/ma-r-s/crossplay">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" width="15" height="15">
+        <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+      </svg>
+      <span>GitHub</span>
+    </a>
+  </nav>
+</div>
+
+<main id="main" class="lv-main">
+  <div class="lv-head">
+    <p class="eyebrow">Live <span class="eyebrow-sep">&middot;</span> on somebody's fridge</p>
+    <h1 class="lv-title">Leave a note on their reader.</h1>
+    <p class="lv-lede">
+      Draw, write or send a picture here, and a reader asleep on a fridge in
+      another country shows it. It wakes on its own schedule to look, so
+      something sent tonight is there in the morning.
+    </p>
+  </div>
+
+  <!-- Connecting. Shown until this browser has a reader, and again if the
+       reader takes its access away. -->
+  <section class="lv-gate" id="gate" hidden>
+    <h2>Connect to a reader</h2>
+    <p class="lv-gate-intro">On the reader: <strong>Apps &rsaquo; Wallpapers &rsaquo; Your phone</strong>.
+       It shows six digits. Somebody can read them to you over the telephone;
+       you do not need to be there.</p>
+    <label class="lv-field" for="code"><span>The six digits</span>
+      <input class="lv-code" id="code" inputmode="numeric" autocomplete="one-time-code"
+             maxlength="6" placeholder="000000" aria-label="Six digit code"></label>
+    <p class="lv-error" id="codeError" role="status" aria-live="polite"></p>
+    <div class="cta-row">
+      <button class="btn primary" id="pair" type="button">Connect</button>
+    </div>
+    <p class="lv-gate-fine">The code lasts ten minutes.</p>
+  </section>
+
+  <!-- Connected. -->
+  <div id="app" hidden>
+    <div class="lv-when">
+      <p class="lv-when-line" id="whenLine">&nbsp;</p>
+      <p class="lv-when-sub" id="whenSub"></p>
+    </div>
+
+    <div class="lv-work">
+      <div class="lv-panel">
+        <div class="lv-frame">
+          <div class="lv-stage" id="stage">
+            <canvas id="pad" width="480" height="800"></canvas>
+            <div class="lv-nib" id="nib"></div>
+          </div>
+        </div>
+        <p class="lv-cap">480 &times; 800 &middot; four tones &middot; this is the screen, not a preview of it</p>
+      </div>
+
+      <div>
+        <div class="lv-tabs" id="tabs" role="tablist" aria-label="What to send">
+          <button type="button" role="tab" aria-selected="true" data-mode="draw">Draw</button>
+          <button type="button" role="tab" aria-selected="false" data-mode="write">Write</button>
+          <button type="button" role="tab" aria-selected="false" data-mode="photo">Photo</button>
+        </div>
+
+        <div id="penTools">
+          <p class="lv-ctl-title">Pen</p>
+          <div class="lv-tools">
+            <span class="lv-swatches" id="sizes"></span>
+            <span class="lv-swatches" id="tones"></span>
+          </div>
+          <div class="lv-tools">
+            <button class="lv-btn" id="undo" type="button">Undo</button>
+            <button class="lv-btn" id="clear" type="button">Clear</button>
+          </div>
+        </div>
+
+        <label class="lv-field" id="writePane" for="msg" hidden><span>Your message</span>
+          <textarea id="msg" placeholder="Write something."></textarea></label>
+
+        <div id="photoPane" hidden>
+          <label class="lv-field" for="file"><span>Choose a picture</span>
+            <input type="file" id="file" accept="image/*"></label>
+          <div class="lv-tools">
+            <button class="lv-btn" id="fit" type="button">Fit</button>
+            <button class="lv-btn" id="fill" type="button">Fill</button>
+            <button class="lv-btn" id="invert" type="button">Invert</button>
+          </div>
+        </div>
+
+        <label class="lv-field" for="interval"><span>How often the reader looks</span>
+          <select id="interval">
+            <option value="900">Every 15 minutes</option>
+            <option value="21600">Every 6 hours</option>
+            <option value="43200">Twice a day</option>
+            <option value="86400" selected>Once a day</option>
+            <option value="172800">Every other day</option>
+          </select></label>
+
+        <div class="lv-send">
+          <button class="lv-btn is-primary" id="send" type="button">Send to the reader</button>
+        </div>
+        <p class="lv-note" id="sendNote" role="status" aria-live="polite"></p>
+      </div>
+    </div>
+  </div>
+
+  <p class="lv-foot">
+    Anyone with this page connected to that reader can put a picture on it.
+    Access is taken away on the reader itself, which is the point: when the
+    person sending is in another country, the device is the one thing anybody
+    can physically reach. On it, <strong>Apps &rsaquo; Wallpapers &rsaquo; Your
+    phone</strong>.
+  </p>
+</main>
+
+<script src="/assets/topnav.js"></script>
+<script type="module" src="/live/live.js"></script>
+</body>
+</html>

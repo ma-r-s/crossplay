@@ -193,10 +193,16 @@ class LiveTarget final : public fui::DrawTarget {
     if (font == fui::FONT_SLOT_BODY) return &readingFamily;
     return &displayFamily;
   }
-  fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle) const override {
+  // BOLD IS MEASURED, not ignored. The unpaired screen's address is the reading
+  // cut in bold, and a target that measures every style at REGULAR would report
+  // the narrower width for the one string on this screen whose whole job is to
+  // be copied off the glass -- a test sharing the bug it exists to catch.
+  fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle style) const override {
     int w = 0;
     int h = 0;
-    if (text != nullptr && text[0] != '\0') familyFor(font)->getTextDimensions(text, &w, &h);
+    if (text != nullptr && text[0] != '\0') {
+      familyFor(font)->getTextDimensions(text, &w, &h, style.bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    }
     return fui::Size{static_cast<int16_t>(w), lineHeight(font)};
   }
   int16_t lineHeight(const fui::FontId font) const override {
@@ -877,7 +883,11 @@ int main() {
 
     wallpapersui::LiveModel model;
     model.code = "482 160";
-    model.url = "fridge.ma-r-s.com";
+    // THE ADDRESS THE DEVICE REALLY PRINTS, read out of the firmware rather
+    // than typed here: it is also what the QR encodes, so a page that moves
+    // host must fail this measurement rather than quietly step the line down
+    // a cut (derived-facts-written-as-literals).
+    model.url = wallpapersui::kLiveAddress;
     // Composed by live::, not typed: see liveHeadlines() above. The whole set
     // is walked in its own block below; this pair carries the rest of this one.
     const LivePhrases sample = liveSample();
@@ -987,6 +997,21 @@ int main() {
         if (!model.configured) {
           check(drew(model.code), "the pairing code is not on the unpaired screen" + where);
           check(drew(std::string(model.url)), "the address in words is not on the unpaired screen" + where);
+          // AND IT IS THE CUT THE SCREEN CHOSE FOR IT. Same silent failure as
+          // the headline below, one rung lower: fittedTitle steps DOWN through
+          // the bound slots rather than refusing, so an address too wide for the
+          // cut it asked for neither cuts nor fails -- it simply arrives set
+          // exactly like the paragraph beneath it, and the one line a person has
+          // to read off the glass and type into a phone stops standing out at
+          // all. kLiveUrlSlot is that decision made deliberately (the reading
+          // cut, bold); this holds the screen to it, whichever way the address
+          // or the faces move next.
+          for (const LiveTarget::Run& run : target.runs) {
+            if (run.text != model.url) continue;
+            check(run.style.font == fui::FONT_SLOT_BODY && run.style.bold,  // kLiveUrlSlot, bold
+                  std::string("the address \"") + model.url +
+                      "\" is not the cut the screen chose for it, so it is set like the paragraph under it" + where);
+          }
           check(qr.width >= 132 && qr.height >= 132,
                 "the QR square is under four module pixels a side, which does not scan" + where);
           check(qr.x >= 0 && qr.y >= 0 && qr.x + qr.width <= panelRect.width && qr.y + qr.height <= panelRect.height,
@@ -1139,7 +1164,7 @@ int main() {
     const fui::InputSnapshot noInput{};
 
     // THE REAL CORPUS, not names invented here. The browser names itself from
-    // its user agent and browserName() in server/fridge-bridge/static/index.html
+    // its user agent and browserName() in site/live/live.js
     // has exactly seven outputs; the service then caps anything else at 24
     // characters (store.add_sender: name[:24]), which is the backstop against a
     // hand-written POST. So the widest case this screen can be handed is 24
@@ -1420,7 +1445,7 @@ int main() {
       model.on = true;
       model.joining = true;
       model.code = "482 160";
-      model.url = "fridge.ma-r-s.com";
+      model.url = wallpapersui::kLiveAddress;
       const LivePhrases sample = liveSample();
       model.nextCheck = sample.headline.c_str();
       model.cadence = sample.note.c_str();

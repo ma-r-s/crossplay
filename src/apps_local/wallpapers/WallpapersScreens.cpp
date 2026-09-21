@@ -484,7 +484,7 @@ std::string_view withoutScheme(const char* url) {
 // bold cut in SMALL, so it asks for the display cut instead. The SLOT varies,
 // the two rules do not: strip the scheme, and never hand the token to text().
 void drawAddress(toybox::Screen& screen, const fui::Rect& box, const char* url,
-                 const fui::FontId font = fui::FONT_SLOT_SMALL) {
+                 const fui::FontId font = fui::FONT_SLOT_SMALL, const bool bold = false) {
   // FONT_SLOT_SMALL, which readingAddressFaces binds to the bold reading cut.
   // Naming titleText here looked like asking for the display cut and was not:
   // no address fits it (a worst-case IPv4 URL measures 632 against 448), so the
@@ -492,6 +492,7 @@ void drawAddress(toybox::Screen& screen, const fui::Rect& box, const char* url,
   // At bold 16 the longest possible address measures 399 and fits with room.
   fui::TextStyle style = onPaper(screen.theme().bodyText, fui::TextAlign::Center, 1);
   style.font = font;
+  style.bold = bold;
   const std::string shown(withoutScheme(url));
   const std::string fitted = toybox::fittedTitle(screen.target(), shown.c_str(), box.width, style);
   screen.target().text(box, fitted.c_str(), style);
@@ -726,7 +727,17 @@ constexpr int16_t kLiveIconSize = 24;
 // cut, not the huge one.
 constexpr fui::FontId kLiveCodeSlot = fui::FONT_SLOT_SMALL;     // toybox_64 while unpaired
 constexpr fui::FontId kLiveAddressSlot = fui::FONT_SLOT_TITLE;  // toybox_30, both states
-constexpr fui::FontId kLiveProseSlot = fui::FONT_SLOT_BODY;     // reading_serif_14, both states
+// THE ADDRESS ON THE UNPAIRED SCREEN IS NOT AT THE DISPLAY CUT, and cannot be.
+// kLiveAddress names a host and a path now, and no string that long fits a
+// 448px body at toybox_30 -- the bare host does not either. fittedTitle answers
+// that by stepping DOWN, and the only rung under the display cut on this face
+// set is the prose face: the one line a person has to read off the glass and
+// type into a phone, set exactly like the paragraph beneath it, with nothing
+// anywhere reporting the change. So it is CHOSEN here rather than arrived at,
+// one rung down and bold, which is the same trick readingAddressFaces plays for
+// the Add screen in a slot this one has already spent on the code.
+constexpr fui::FontId kLiveUrlSlot = fui::FONT_SLOT_BODY;    // reading_serif_14, bold
+constexpr fui::FontId kLiveProseSlot = fui::FONT_SLOT_BODY;  // reading_serif_14, both states
 // The headline on the paired screen: WHEN THE NEXT CHECK IS, and it is the same
 // cut the unpaired half gives the address. The biggest thing on a screen should
 // be the thing the screen is opened to find out, and that is this.
@@ -1109,7 +1120,7 @@ fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
 
   const fui::Rect body = screen.body();
   const int16_t codeH = screen.target().lineHeight(kLiveCodeSlot);
-  const int16_t addrH = screen.target().lineHeight(kLiveAddressSlot);
+  const int16_t addrH = screen.target().lineHeight(kLiveUrlSlot);
   const int16_t lineH = screen.target().lineHeight(kLiveProseSlot);
   // TWO LINES, down from three, because both sentences were cut to two. The
   // box is what wraps them, so a box left at three lines would be a blank line
@@ -1136,7 +1147,7 @@ fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
   liveRule(screen, static_cast<int16_t>(body.x + (body.width - ruleW) / 2), y, ruleW);
   y = static_cast<int16_t>(y + toybox::kRule + toybox::kGutter);
 
-  drawAddress(screen, fui::makeRect(body.x, y, body.width, addrH), model.url, kLiveAddressSlot);
+  drawAddress(screen, fui::makeRect(body.x, y, body.width, addrH), model.url, kLiveUrlSlot, /*bold=*/true);
   y = static_cast<int16_t>(y + addrH + toybox::kGutter);
   drawProse(screen, fui::makeRect(body.x, y, body.width, proseH), model.joining ? kLiveJoinWhat : kLiveWhat,
             fui::TextAlign::Center);

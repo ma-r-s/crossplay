@@ -110,10 +110,10 @@ constexpr int16_t kLiveFrameInset = 5;
 // WallpapersScreens because the hint strip's sentence names the same tile, and
 // the two must not be able to drift apart (see liveTileCaption).
 
-// The Live screen's stubs, here rather than at the render so the code the panel
-// prints and the code the QR encodes are ONE string. See render()'s View::Live
-// arm: the link is built from these two, never typed beside them.
-constexpr const char* kLiveHost = "fridge.ma-r-s.com";
+// The address the panel prints and the QR encodes is wallpapersui::kLiveAddress,
+// and liveLink() is the only thing that builds a link out of it. Declared beside
+// the screen that draws it rather than here, so the printed line and the encoded
+// square cannot come apart.
 
 // The screen's array and the transport's are one number, checked by the
 // compiler rather than by whoever edits one of them.
@@ -1476,7 +1476,7 @@ void WallpapersActivity::startLivePairing() {
   // BUILT from the code rather than typed beside it. A link holding its own
   // copy points at the previous code the moment this one changes, and nothing
   // on the screen would show it (derived-facts-written-as-literals).
-  liveQrLink_ = std::string("https://") + kLiveHost + "/p/" + start.code;
+  liveQrLink_ = wallpapersui::liveLink(start.code);
   liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::WaitingForPhone);
   livePollAt_ = millis() + 3000;
   requestUpdate();
@@ -1622,7 +1622,7 @@ void WallpapersActivity::startLiveJoin() {
   livePollToken_ = start.pollToken;
   liveCode_ = start.code;
   if (liveCode_.size() == 6) liveCode_.insert(3, " ");
-  liveQrLink_ = std::string("https://") + kLiveHost + "/p/" + start.code;
+  liveQrLink_ = wallpapersui::liveLink(start.code);
   liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::WaitingForPhone);
   livePollAt_ = millis() + 3000;
   interactionsReady_ = false;
@@ -2681,7 +2681,7 @@ void WallpapersActivity::render(RenderLock&&) {
     // flag; on a real device an empty code means the request has not answered
     // yet, and the status line under it says so.
     model.code = liveCode_.empty() ? kLiveCode : liveCode_.c_str();
-    model.url = kLiveHost;
+    model.url = wallpapersui::kLiveAddress;
     // Set once, for both halves: buildLive picks the paired or the unpaired
     // stack and each has its own line for this.
     model.status = liveStatus_.empty() ? nullptr : liveStatus_.c_str();
@@ -2706,22 +2706,16 @@ void WallpapersActivity::render(RenderLock&&) {
     // still has something a person can type, and a QR that encoded only the
     // host would land them on a page with the code still to enter.
     //
-    // BUILT from the same two constants the screen draws, never typed beside
-    // them: a link holding its own copy of the code goes on pointing at the old
-    // one the moment the code changes, and nothing on either screen would show
-    // it (derived-facts-written-as-literals).
+    // BUILT by wallpapersui::liveLink from the same constant the line above
+    // prints, never typed beside it: a link holding its own copy of the address
+    // goes on naming last month's host the moment the page moves, and nothing
+    // on either screen would show it (derived-facts-written-as-literals).
     //
     // liveQrLink_ is built by startLivePairing() from the code the SERVICE
     // returned, in the same breath as the code itself, so the two cannot come
     // apart. The fallback covers the screenshot builds only.
     if (qr.width > 0 && qr.height > 0) {
-      std::string link = liveQrLink_;
-      if (link.empty()) {
-        link = std::string("https://") + kLiveHost + "/p/";
-        for (const char* c = kLiveCode; *c != '\0'; ++c) {
-          if (*c != ' ') link.push_back(*c);
-        }
-      }
+      const std::string link = liveQrLink_.empty() ? wallpapersui::liveLink(kLiveCode) : liveQrLink_;
       QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, link);
     }
   } else if (view_ == View::Sheet) {

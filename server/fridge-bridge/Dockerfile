@@ -9,7 +9,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY bridge /app/bridge
-COPY static /app/static
 
 # Public on the internet and holding pictures people meant for one other
 # person. uid 10004: 10001 getbooks, 10002 ankibridge, 10003 readbridge on the
