@@ -39,6 +39,10 @@ struct Entry {
   int done = 0;
   int total = 0;
   bool hasTasks = false;
+  // The note's first words, for the deck card. Read at scan time, which already
+  // reads the whole file to count it; capped so a long paragraph does not put a
+  // kilobyte per note in RAM.
+  std::string preview;
 };
 
 class Library {
@@ -60,7 +64,12 @@ class Library {
   bool load(const std::string& name, std::string& doc) const;
   // Writes beside the file and renames. Refuses when the card is low rather
   // than writing a truncated note; `message` says which of the two happened.
-  bool save(const std::string& name, const std::string& doc, std::string& message);
+  // `growing` is false for a write that cannot make the file bigger -- a tick
+  // flips one byte -- and that write skips the free-space walk entirely.
+  // Storage.freeBytes() walks the FAT, which is slow enough that Wallpapers
+  // caches it rather than re-probing, and asking it on every tick put that walk
+  // between a finger and a tick box.
+  bool save(const std::string& name, const std::string& doc, std::string& message, bool growing = true);
 
   // A new, empty note. False when the name is unusable or already taken, with
   // `message` saying which.
@@ -76,6 +85,7 @@ class Library {
   static bool exists(const std::vector<Entry>& entries, const std::string& name);
 
  private:
+  void sortEntries();
   std::string pathFor(const std::string& name) const;
   std::string partPathFor(const std::string& name) const;
   void sweepPartFiles() const;

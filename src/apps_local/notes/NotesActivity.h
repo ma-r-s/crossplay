@@ -51,6 +51,10 @@ class NotesActivity final : public Activity {
   void toggleTask(int index);
   void clearDone();
   void askNewName();
+  // What the note being made is for. Only consulted while it is still empty;
+  // the first line written settles the kind in the file itself.
+  bool newIsList_ = true;
+  bool openIsPage() const;
   void askRename();
   void askLine();
   void showNotice(const std::string& text);
