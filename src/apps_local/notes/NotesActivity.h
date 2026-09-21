@@ -83,6 +83,9 @@ class NotesActivity final : public Activity {
   std::vector<notesui::Task> taskRows_;
   std::vector<std::string> deckTallies_;
   std::vector<std::string> taskTexts_;
+  // Row index -> index into lines_. Blank lines are not drawn, so the two are
+  // not the same number and ticking by row would tick the wrong line.
+  std::vector<size_t> rowLine_;
 
   int deckTop_ = 0;
   int noteTop_ = 0;

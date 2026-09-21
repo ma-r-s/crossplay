@@ -130,14 +130,28 @@ echo "image:  $IMAGE ($(wc -c < "$IMAGE" | tr -d ' ') bytes, $ENV_NAME_FW)"
 #     usb_reset" produced an upload whose output never contains the string
 #     usb_reset at all, so the setting looked applied and was not.
 #
-# The app partition alone: the bootloader and the partition table on the device
-# are unchanged by an app build, and writing only 0x10000 is what OTA does.
+# The app partition AND boot_app0 at 0xe000. Writing app0 alone is not enough and fails
+# SILENTLY in the worst way: every previous flash on these units went over the
+# air, and an OTA writes the INACTIVE slot and then points otadata at it. A
+# device that last took an OTA is therefore running app1, so an esptool write to
+# app0 lands perfectly, verifies its hash, reboots -- and comes back running the
+# OLD firmware out of the other slot. It cost an hour here: the app was missing
+# from the shelf, from the chooser, from everything, while the image on disk
+# plainly contained it, and the version string was the old build's all along.
+# Erasing otadata makes the bootloader fall back to app0, which is what was just
+# written.
 ESPTOOL="$HOME/.platformio/packages/tool-esptoolpy/esptool.py"
 PIO_PY="$HOME/.platformio/penv/bin/python"
 [ -f "$ESPTOOL" ] || { echo "error: no esptool at $ESPTOOL" >&2; exit 1; }
 echo "writing over the cable (no pairing code, no Developer Mode) ..."
+# ONE esptool invocation, not two. A first run that leaves the chip in the
+# bootloader (--after no_reset) makes the second run's --before usb_reset fail:
+# the ROM is already there and does not answer a reset request the same way.
+# So otadata is written as blank bytes in the same write_flash as the app.
+OTABLANK="${TMPDIR:-/tmp}/xteink-otadata-blank.bin"
+python3 -c "import sys; open(sys.argv[1],'wb').write(b'\xff' * 0x2000)" "$OTABLANK"
 if "$PIO_PY" "$ESPTOOL" --chip esp32s3 --port "$PORT" --baud 921600 \
-     --before usb_reset --after hard_reset write_flash 0x10000 "$IMAGE"; then
+     --before usb_reset --after hard_reset write_flash 0xe000 "$OTABLANK" 0x10000 "$IMAGE"; then
   echo "flashed $MAC"
 else
   echo "error: the write failed. The device holds its previous firmware." >&2

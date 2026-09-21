@@ -414,20 +414,37 @@ NoteLayout noteLayoutFor(const fui::DrawTarget& target, const NoteModel& model, 
   layout.body = plain(toybox::kBodyFont, fui::TextAlign::Left, 2);
   fui::TextStyle bodyOnly = layout.body;
   bodyOnly.font = toybox::kBodyFont;
+
+  // NOTHING IS EVER ELIDED, and this is where that promise is actually kept.
+  // The rungs are walked in the order a reader would want -- as big as
+  // possible, as few lines as possible -- and the FIRST one that holds every
+  // item wins. Falling off the end used to mean handing the job to fitLines,
+  // which appends an ellipsis: Mario's own note drew "Hola esto es una..." on
+  // the real panel, which is precisely the defect this ladder exists to
+  // prevent. Four lines at the small cut is a deep enough last rung that a
+  // line reaching it is a paragraph somebody pasted, not a list item.
+  struct Rung {
+    bool bodyCut;
+    int lines;
+  };
+  static constexpr Rung kRungs[] = {{true, 1}, {true, 2}, {false, 2}, {true, 3}, {false, 3}, {false, 4}};
+  fui::FontId cut = 0;
   int lines = 1;
-  fui::FontId cut = model.count > 0 ? pickCut(target, texts.data(), model.count, layout.textWidth, 1, bodyOnly, true)
-                                    : toybox::kBodyFont;
-  if (cut == 0) {
-    cut = pickCut(target, texts.data(), model.count, layout.textWidth, 2, bodyOnly, true);
-    lines = 2;
-  }
-  if (cut == 0) {
-    cut = pickCut(target, texts.data(), model.count, layout.textWidth, 2, layout.body, false);
-    lines = 2;
+  if (model.count == 0) {
+    cut = toybox::kBodyFont;
+  } else {
+    for (const Rung& rung : kRungs) {
+      const fui::TextStyle& probe = rung.bodyCut ? bodyOnly : layout.body;
+      cut = pickCut(target, texts.data(), model.count, layout.textWidth, rung.lines, probe, rung.bodyCut);
+      if (cut != 0) {
+        lines = rung.lines;
+        break;
+      }
+    }
   }
   if (cut == 0) {
     cut = fui::FONT_SLOT_SMALL;
-    lines = 2;
+    lines = 4;
   }
   layout.body.font = cut;
   layout.body.maxLines = static_cast<uint8_t>(lines);

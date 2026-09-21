@@ -72,21 +72,38 @@ void NotesActivity::rebuildRows() {
   }
 
   taskTexts_.clear();
+  rowLine_.clear();
   taskTexts_.reserve(lines_.size());
+  rowLine_.reserve(lines_.size());
   for (size_t i = 0; i < lines_.size(); i++) {
     const notes::Line& line = lines_[i];
-    // A note ending in a newline parses one trailing empty line. It is a real
-    // line to somebody editing the file, and a blank row on a panel that holds
-    // still is a hole, so the last empty one is not drawn.
-    if (line.begin >= line.end && i + 1 == lines_.size()) break;
-    taskTexts_.push_back(notes::textOf(doc_, line));
+    // NO BLANK ROWS, anywhere in the file. An empty line drawn as an item is an
+    // empty tick box: a hole in the list with nothing to tick and nothing to
+    // read, and Mario's own note had three of them. counts() already skips
+    // them, so drawing them made the tally disagree with the rows as well.
+    // The file keeps its blank lines; they are spacing, not things to do.
+    if (line.begin >= line.end) continue;
+    // Nor a marker with nothing after it. "- [x] " on its own is a ticked box
+    // with no text: still a hole in the list, and still something the file can
+    // legitimately contain.
+    std::string text = notes::textOf(doc_, line);
+    bool blank = true;
+    for (const char c : text) {
+      if (c != ' ' && c != '\t') {
+        blank = false;
+        break;
+      }
+    }
+    if (blank) continue;
+    rowLine_.push_back(i);
+    taskTexts_.push_back(std::move(text));
   }
   taskRows_.clear();
   taskRows_.reserve(taskTexts_.size());
   for (size_t i = 0; i < taskTexts_.size(); i++) {
     notesui::Task row;
     row.text = taskTexts_[i].c_str();
-    row.checked = lines_[i].checked;
+    row.checked = lines_[rowLine_[i]].checked;
     taskRows_.push_back(row);
   }
 }
@@ -183,11 +200,15 @@ void NotesActivity::showNotice(const std::string& text) {
 
 void NotesActivity::toggleTask(const int index) {
   if (index < 0 || index >= static_cast<int>(taskRows_.size())) return;
+  // A ROW IS NOT A LINE any more: blank lines are skipped when the rows are
+  // built, so row 4 can be line 6. Ticking by row index would tick a different
+  // line than the one under the finger.
+  const size_t line = rowLine_[static_cast<size_t>(index)];
   const std::string before = doc_;
-  if (!notes::toggle(doc_, lines_[index])) {
+  if (!notes::toggle(doc_, lines_[line])) {
     // A line written on a computer without the marker. Ticking it is how it
     // becomes one, rather than the app carrying a second kind of line forever.
-    doc_.insert(lines_[index].begin, "- [x] ");
+    doc_.insert(lines_[line].begin, "- [x] ");
     lines_ = notes::parse(doc_);
   }
 
