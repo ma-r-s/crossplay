@@ -73,8 +73,39 @@ jobs:
           CI_BRANCH: ${{ github.event.workflow_run.head_branch }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$HOLD" = "1" ]; then
-            echo "RELEASE_HOLD is set: not releasing. Clear the repository variable to resume."
+          # THE HOLD MUST SAY WHO SET IT AND WHY. It used to be the single
+          # character "1", which records nothing: not the session, not the card,
+          # not what has to be true before it clears. On 2026-09-20 two sessions
+          # toggled it four times in three hours, a release was skipped, and
+          # working out who held it took the variable's updated_at plus a read
+          # of this job's own log. Cards #553 and #554 are the same absence
+          # noticed twice more the same day. See card #557.
+          #
+          # Accepted values:
+          #   ""  or "0"                  not held; release normally
+          #   "<card>:<session>:<reason>" held, and it says by whom and why
+          #   "1"                         legacy, still honoured, reported as
+          #                               anonymous so it is visibly worse
+          #
+          # The skip is also written to the run summary. It exits SUCCESS in
+          # about twenty seconds, so nothing is red and nothing alarms; the only
+          # evidence a release did not happen was the absence of one, and an
+          # absence is what nobody notices.
+          if [ -n "$HOLD" ] && [ "$HOLD" != "0" ]; then
+            case "$HOLD" in
+              1) who="anonymous (legacy '1' -- set it to '<card>:<session>:<reason>' instead)" ;;
+              *) who="$HOLD" ;;
+            esac
+            echo "RELEASE_HOLD is set by $who: not releasing."
+            echo "Clear it with: gh variable set RELEASE_HOLD --repo $GITHUB_REPOSITORY --body 0"
+            {
+              echo "## Release skipped: RELEASE_HOLD"
+              echo
+              echo "Held by: \`$who\`"
+              echo
+              echo "Nothing will publish while this is set, and this job still reports success."
+              echo "Clear it with \`gh variable set RELEASE_HOLD --repo $GITHUB_REPOSITORY --body 0\`."
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           tip="$(git rev-parse HEAD)"
