@@ -24,22 +24,20 @@
 #include "WallpapersScreens.h"
 
 // LIVE: a wallpaper slot fed from a website rather than from the card, mutually
-// exclusive with the normal selection. Three arrangements for its tile, built
-// behind one switch and rendered side by side before one is kept. The losing
-// two and this macro go in the same commit as the winner -- a variant macro
-// that survives is a second design nobody maintains.
+// exclusive with the normal selection. Three arrangements for its tile were
+// built behind one switch and rendered side by side; Mario picked the combined
+// tile, which replaces + Add outright and is captioned "Your phone". The other
+// two (a Live tile of its own after + Add, and no Live tile until it is set up)
+// went with the macro that chose between them in the same commit.
 //
-//   1  Live is a tile of its own, immediately after + Add.
-//   2  one combined tile replaces + Add outright, captioned "Your phone".
-//   3  no Live tile until it is set up; + Add's caption mentions it meanwhile.
-#ifndef WALLPAPERS_LIVE_VARIANT
-#define WALLPAPERS_LIVE_VARIANT 2
-#endif
+// That tile keeps + Add's CELL so no learned pixel moves, and it is the only
+// chrome tile in front of the library now: the local upload server keeps its
+// own way in through the offer screen's USE MY OWN PHOTO.
 
 // Whether a Live slot has been set up on this device, and whether it is what
 // the sleep screen shows right now. Compile-time, because this slice is the
-// tile and not the plumbing, and a fixed answer is what makes the three
-// renders reproducible.
+// tile and not the plumbing, and a fixed answer is what makes each render
+// reproducible.
 #ifndef WALLPAPERS_LIVE_CONFIGURED
 #define WALLPAPERS_LIVE_CONFIGURED 0
 #endif
@@ -140,14 +138,13 @@ class WallpapersActivity final : public Activity {
   // the source and the cell size, otherwise decodes and writes it.
   Thumb thumbFor(const std::string& name, const std::string& path, int16_t cellW, int16_t cellH, int* decoded);
   void drawGrid(const wallpapersui::GridGeom& geom);
-  void drawAddTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th);
   void drawGetSetTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th, int slot) const;
   void drawLiveTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th, int slot) const;
   // Which chrome tile a combined index is, or None once the wallpapers start.
   // specialAt() and specialTiles() are one ordering read twice: the drawing and
   // the hit-test both go through them, so no cell can draw one thing and open
   // another -- the bug this fork has caught more often than any other.
-  enum class SpecialTile : uint8_t { None, Add, Live, GetSet };
+  enum class SpecialTile : uint8_t { None, Live, GetSet };
   SpecialTile specialAt(int combined) const;
   int specialTiles() const;     // chrome tiles in front of the wallpapers
   bool liveConfigured() const;  // a Live slot exists on this device

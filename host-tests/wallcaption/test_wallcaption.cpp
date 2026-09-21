@@ -495,6 +495,7 @@ int main() {
     lines.emplace_back("Card is low on space. Saves may fail.");
     lines.emplace_back("Could not check card space.");
     lines.emplace_back(wallpapersui::chooseHint());
+    lines.emplace_back(wallpapersui::liveStripLine());
 
     int widestHint = 0;
     std::string widestHintText;
@@ -725,6 +726,27 @@ int main() {
     }
   }
 
+  // The strip's Live line. It exists because the "Your phone" tile wore the
+  // selection marker while the strip went on saying "Tap one to set your sleep
+  // screen." -- the marker and the words disagreeing, with nothing to say why,
+  // which is card #354's shape exactly.
+  {
+    const std::string caption(wallpapersui::liveTileCaption());
+    const std::string live(wallpapersui::liveStripLine());
+    // ONE noun, not two copies of it. The sentence names the tile the marker is
+    // on, so renaming the tile has to rename the sentence: a literal typed into
+    // the sentence would go on saying "Your phone" after the tile stopped
+    // (derived-facts-written-as-literals).
+    check(live.compare(0, caption.size(), caption) == 0,
+          "the strip's Live line no longer opens with the tile's caption: \"" + live + "\" vs \"" + caption + "\"");
+    // And it must not be the line it displaces. A sentence that still invites
+    // the user to set what is already set is the defect, whatever it is built
+    // from.
+    check(live != "Tap one to set your sleep screen.", "the Live line is the line it exists to replace");
+    check(live.find("Tap") == std::string::npos,
+          "the Live line asks for a tap, which is the sentence it replaces: \"" + live + "\"");
+  }
+
   // The three readers of "how many tiles are there" have to agree. drawGrid and
   // the tap handler both count specialTiles() + the library; pageCount() counted
   // ONE chrome tile, so with the built-in set incomplete (two chrome tiles) a
@@ -754,10 +776,9 @@ int main() {
   }
 
   // -------------------------------------------------------------------------
-  // THE LIVE SCREEN. Built for real, both states, in whichever arrangement this
-  // binary was compiled with -- run.sh runs it once per arrangement, because a
-  // suite that walks one of three is a suite that reports clean about the other
-  // two ("a clean list hides absence").
+  // THE LIVE SCREEN. Built for real, both states. One arrangement now: the
+  // stack is what shipped, and run.sh builds this suite once because there is
+  // no longer a compile-time choice for it to walk.
   {
     // The X4 Pro's glass, because the body width is what every string here is
     // measured against and the bezel takes two pixels of it.
@@ -782,8 +803,7 @@ int main() {
       // defect that pair exists to prevent.
       model.configured = state > 0;
       model.on = state == 1;
-      const std::string where =
-          std::string(" [screen ") + std::to_string(WALLPAPERS_LIVE_SCREEN) + ", state " + std::to_string(state) + "]";
+      const std::string where = std::string(" [state ") + std::to_string(state) + "]";
 
       LiveTarget target(model.configured);
       toybox::Interactions interactions;
@@ -853,7 +873,7 @@ int main() {
         check(drew(model.nextCheck), "the next check is not on the paired screen" + where);
         check(drew(model.cadence), "how often is not on the paired screen" + where);
         // The state and its control, read from one bool in two places.
-        check(drew(model.on ? "LIVE IS ON" : "LIVE IS OFF") || drew(model.on ? "On" : "Off"),
+        check(drew(model.on ? "LIVE IS ON" : "LIVE IS OFF"),
               "the paired screen does not say whether Live is on" + where);
         check(drew(model.on ? "TURN IT OFF" : "TURN IT ON"),
               "the toggle offers the state the screen is already in" + where);

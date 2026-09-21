@@ -102,15 +102,10 @@ constexpr int16_t kDotGap = 10;
 constexpr int16_t kLiveFrameWeight = 3;
 constexpr int16_t kLiveFrameInset = 5;
 
-// Variant 2 folds Live and + Add into one control, so its tile says whose
-// picture arrives here rather than what the slot is called.
-#if WALLPAPERS_LIVE_VARIANT == 2
-constexpr bool kLiveCombinedTile = true;
-constexpr const char* kLiveCaption = "Your phone";
-#else
-constexpr bool kLiveCombinedTile = false;
-constexpr const char* kLiveCaption = "Live";
-#endif
+// The tile folds Live and + Add into one control, so it says whose picture
+// arrives here rather than what the slot is called. The caption comes from
+// WallpapersScreens because the hint strip's sentence names the same tile, and
+// the two must not be able to drift apart (see liveTileCaption).
 
 // The Live screen's stubs, here rather than at the render so the code the panel
 // prints and the code the QR encodes are ONE string. See render()'s View::Live
@@ -843,16 +838,9 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
     if (combined >= total) break;
     const fui::Rect th = wallpapersui::thumbRect(geom, slot);
     switch (specialAt(combined)) {
-      case SpecialTile::Add:
-#if WALLPAPERS_LIVE_VARIANT == 2
-        // One tile does both jobs here, so it takes cell 0 and + Add's
-        // destination rather than sitting beside it.
-        drawLiveTile(geom, th, slot);
-#else
-        drawAddTile(geom, th);
-#endif
-        continue;
       case SpecialTile::Live:
+        // One tile does both jobs, so it takes cell 0 and + Add's destination
+        // rather than sitting beside it.
         drawLiveTile(geom, th, slot);
         continue;
       case SpecialTile::GetSet:
@@ -932,19 +920,13 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
   }
 }
 
-// How many chrome tiles sit in front of the wallpapers. One (+ Add) always,
-// one more while the built-in set is incomplete, and one more again for Live in
-// the variants that give it a tile. Read by the drawing, the hit-test, the
-// thumbnail decode and the page count, because a grid whose readers disagree
-// about what is in a cell opens the wrong thing -- the bug this fork has caught
-// more often than any other.
+// How many chrome tiles sit in front of the wallpapers. The Live tile always,
+// and one more while the built-in set is incomplete. Read by the drawing, the
+// hit-test, the thumbnail decode and the page count, because a grid whose
+// readers disagree about what is in a cell opens the wrong thing -- the bug
+// this fork has caught more often than any other.
 int WallpapersActivity::specialTiles() const {
-  int n = 1;  // + Add
-#if WALLPAPERS_LIVE_VARIANT == 1
-  n += 1;  // Live, set up or not
-#elif WALLPAPERS_LIVE_VARIANT == 3
-  if (liveConfigured()) n += 1;  // and nothing at all until it is
-#endif
+  int n = 1;  // the Live tile, set up or not
   if (builtInsMissing_ > 0) n += 1;
   return n;
 }
@@ -955,24 +937,17 @@ int WallpapersActivity::specialTiles() const {
 WallpapersActivity::SpecialTile WallpapersActivity::specialAt(const int combined) const {
   if (combined < 0 || combined >= specialTiles()) return SpecialTile::None;
   int at = 0;
-  // + Add keeps cell 0 in every variant: moving it would put a different action
-  // under a pixel people have already learned (same-pixel-different-action). In
-  // variant 2 the Live tile IS this one, which is why it inherits both.
-  if (combined == at++) return SpecialTile::Add;
-#if WALLPAPERS_LIVE_VARIANT == 1
+  // Cell 0, which is where + Add used to be. The Live tile inherited the cell
+  // rather than taking one beside it, because a grid with both would have put a
+  // second control where people had already learned one
+  // (same-pixel-different-action).
   if (combined == at++) return SpecialTile::Live;
-#elif WALLPAPERS_LIVE_VARIANT == 3
-  if (liveConfigured()) {
-    if (combined == at) return SpecialTile::Live;
-    ++at;
-  }
-#endif
   return SpecialTile::GetSet;
 }
 
 // Stubs. The website, the pairing and the stored slot are the next slice; what
-// this one needs is a fixed answer, so the three renders are the same every
-// time they are taken.
+// this one needs is a fixed answer, so every render is the same each time it
+// is taken.
 bool WallpapersActivity::liveConfigured() const { return WALLPAPERS_LIVE_CONFIGURED != 0; }
 
 // Live and a chosen wallpaper are mutually exclusive, so "on" implies "set up"
@@ -992,7 +967,7 @@ void WallpapersActivity::drawLiveTile(const wallpapersui::GridGeom& geom, const 
 
   const int cx = th.x + th.width / 2;
   const int cy = th.y + th.height / 2;
-  if (kLiveCombinedTile && !liveConfigured()) {
+  if (!liveConfigured()) {
     // The combined tile keeps + Add's plus while there is nothing to show: it
     // is still the control that puts the first thing here, and the affordance
     // is one people have already learned on this grid.
@@ -1037,7 +1012,7 @@ void WallpapersActivity::drawLiveTile(const wallpapersui::GridGeom& geom, const 
   style.align = fui::TextAlign::Center;
   style.color = fui::Color::Black;
   style.maxLines = 1;
-  target.text(cap, kLiveCaption, style);
+  target.text(cap, wallpapersui::liveTileCaption(), style);
 }
 
 void WallpapersActivity::drawGetSetTile(const wallpapersui::GridGeom& geom, const fui::Rect& th, const int slot) const {
@@ -1062,8 +1037,8 @@ void WallpapersActivity::drawGetSetTile(const wallpapersui::GridGeom& geom, cons
       fui::makeRect(th.x + 6, static_cast<int16_t>(th.y + th.height / 2 - 30), static_cast<int16_t>(th.width - 12), 60);
   target.text(box, label, style);
 
-  // The slot, not a literal 1: Live takes cell 1 in the variant that gives it a
-  // tile of its own, and this tile's caption has to follow it along the row.
+  // The slot, not a literal 1: this tile sits after the Live tile, and its
+  // caption has to follow it along the row rather than pin itself to a cell.
   const fui::Rect cap = wallpapersui::captionRect(geom, slot);
   fui::TextStyle capStyle = style;
   capStyle.maxLines = 1;
@@ -1079,54 +1054,6 @@ void WallpapersActivity::drawMarker(const fui::Rect& th) const {
   // mistaken for the artwork's own frame -- several plates carry real borders.
   const wallpapersui::MarkerRects m = wallpapersui::markerRects(th);
   for (const fui::Rect& r : m.r) renderer.fillRect(r.x, r.y, r.width, r.height, true);
-}
-
-void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const fui::Rect& th) {
-  // A 2px frame so the add tile reads as a control distinct from a wallpaper.
-  renderer.drawRect(th.x, th.y, th.width, th.height, 2, true);
-
-  // A big plus in the upper part of the tile.
-  const int cx = th.x + th.width / 2;
-  const int cy = th.y + th.height * 2 / 5;
-  const int len = th.width * 2 / 5;
-  const int wgt = std::max(6, th.width / 12);
-  renderer.fillRect(cx - len / 2, cy - wgt / 2, len, wgt, true);
-  renderer.fillRect(cx - wgt / 2, cy - len / 2, wgt, len, true);
-
-  // The label, inside the tile below the plus, at the actual small cut.
-  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
-  fui::TextStyle style = toybox::themeTokens().smallText;
-  style.font = fui::FONT_SLOT_SMALL;
-  style.align = fui::TextAlign::Center;
-  style.color = fui::Color::Black;
-  const fui::Rect label = fui::makeRect(th.x, static_cast<int16_t>(th.y + th.height * 3 / 5), th.width,
-                                        static_cast<int16_t>(th.height / 3));
-  // The dense grid's cell is too narrow for the long label, and a truncated
-  // "Add..." reads as a bug rather than a control. Take the long form when it
-  // fits whole, the short one when it does not; the plus carries the meaning
-  // either way.
-  static constexpr const char* kLong = "Add wallpaper";
-  std::string fitted = toybox::fitLines(target, kLong, label.width, 1, style);
-  if (fitted != kLong) fitted = "Add";
-#if WALLPAPERS_LIVE_VARIANT == 3
-  // Nothing on the grid can mention Live before it is set up, because in this
-  // variant it has no tile yet. So this label carries a second line until it
-  // does. Two text() calls rather than one string with a newline: this renderer
-  // drops an embedded break and joins the words (see drawGetSetTile).
-  if (!liveConfigured()) {
-    const int16_t lineH = static_cast<int16_t>(label.height / 2);
-    target.text(fui::makeRect(label.x, label.y, label.width, lineH), fitted.c_str(), style);
-    static constexpr const char* kLiveLong = "or set up Live";
-    std::string second = toybox::fitLines(target, kLiveLong, label.width, 1, style);
-    if (second != kLiveLong) second = "or Live";
-    target.text(fui::makeRect(label.x, static_cast<int16_t>(label.y + lineH), label.width, lineH), second.c_str(),
-                style);
-    (void)geom;
-    return;
-  }
-#endif
-  target.text(label, fitted.c_str(), style);
-  (void)geom;
 }
 
 // The whole set as one asset. Twenty-one separate downloads would be 42 TLS
@@ -2059,9 +1986,9 @@ void WallpapersActivity::loop() {
   const int total = specials + static_cast<int>(names_.size());
   if (combined >= total) return;
   // The chrome tiles are not wallpapers and have no sheet, but they are on the
-  // same grid and a user who has learned "hold a tile for options" will hold the
-  // Add tile first. Neither action is destructive -- one brings up WiFi and a
-  // web server, the other a ~1MB fetch -- but both are the same failure this
+  // same grid and a user who has learned "hold a tile for options" will hold
+  // cell 0 first. Neither action is destructive -- one opens the Live screen,
+  // the other a ~1MB fetch -- but both are the same failure this
   // whole change exists to prevent: the hold firing the thing the user was
   // reaching past. Silence is the right answer; the hold is repeatable.
   //
@@ -2071,24 +1998,13 @@ void WallpapersActivity::loop() {
   // lost by that: the set is already on the card.
   const bool held = mappedInput.tapWasHeldLong();
   switch (specialAt(combined)) {
-    case SpecialTile::Add:
-      if (held) return;
-      choosing_ = false;
-      // In variant 2 there is no separate Live tile: specialAt() keeps cell 0
-      // as Add because moving it would put a new action under a learned pixel,
-      // and drawGrid draws drawLiveTile into it. The CAPTION is what settles
-      // where the tap goes -- the cell says "Your phone", and the phone route is
-      // the Live screen, not the local upload server. The upload server keeps
-      // its own way in: the offer screen's USE MY OWN PHOTO still opens it.
-      if (kLiveCombinedTile) {
-        openLive();
-        return;
-      }
-      openAdd();
-      return;
     case SpecialTile::Live:
       if (held) return;
       choosing_ = false;
+      // The CAPTION is what settles where the tap goes -- the cell says "Your
+      // phone", and the phone route is the Live screen, not the local upload
+      // server. The upload server keeps its own way in: the offer screen's USE
+      // MY OWN PHOTO still opens it.
       openLive();
       return;
     case SpecialTile::GetSet:
@@ -2220,7 +2136,7 @@ void WallpapersActivity::render(RenderLock&&) {
     model.on = liveRunning_;
     // STUBS, exactly like liveConfigured() above them: there is no website, no
     // pairing and no store in this slice, and a fixed answer is what makes the
-    // six renders the same every time they are taken. The code is grouped
+    // two renders the same every time they are taken. The code is grouped
     // three and three because it is read down a telephone, and that is the one
     // thing about it anybody has to do.
     model.code = kLiveCode;
@@ -2311,6 +2227,10 @@ void WallpapersActivity::render(RenderLock&&) {
     // A live SET counts as active. Without this the grid draws "Tap one to set
     // your sleep screen." beside five marked wallpapers that already are it.
     model.hasActive = !chosen_.empty();
+    // liveRunning_, the same bool drawLiveTile puts the marker on. The strip
+    // and the marker are two readings of one fact, and reading it twice from
+    // two places is how they came to disagree in the first place.
+    model.liveOn = liveRunning_;
     model.choosing = choosing_;
     // Rebuilt from SETTINGS and the card every paint rather than cached at
     // selection time: the reach half is only knowable from the live settings,

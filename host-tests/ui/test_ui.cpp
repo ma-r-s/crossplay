@@ -12088,6 +12088,51 @@ void testWallpapersChromeShowsThePage() {
   CHECK(drewText(out, "PAGE 2 / 3"));
 }
 
+// LIVE IS SHOWING, and the strip has to say so. Without this the grid drew the
+// selection marker on the "Your phone" tile while the strip said "Tap one to
+// set your sleep screen." -- nothing is set, beside a mark saying something is.
+// That is card #354's shape: the marker and the words disagreeing, with nothing
+// on the screen to say why.
+void testWallpapersChromeSaysWhenLiveIsTheSleepScreen() {
+  Rendered out;
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "6 SAVED";
+  // hasActive stays false on purpose: Live and a pinned wallpaper are mutually
+  // exclusive, so this is exactly the state the old strip got wrong.
+  model.hasActive = false;
+  model.liveOn = true;
+  buildWallpapersChrome(out, model);
+  CHECK(drewText(out, wallpapersui::liveStripLine()));
+  CHECK(!drewText(out, "Tap one to set"));
+}
+
+// ...but it does not silence the two lines above it. Both are NEWS -- something
+// changed behind the user's back, or the card is filling -- and Live being on
+// is a standing state that would suppress either for the whole session. That
+// suppression is #354 itself, so the order is asserted rather than assumed.
+void testWallpapersChromeLiveDoesNotDisplaceTheNoteOrTheWarning() {
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.hasActive = false;
+    model.liveOn = true;
+    model.note = "Sleep screen was off. It is on now.";
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, "Sleep screen was off."));
+    CHECK(!drewText(out, wallpapersui::liveStripLine()));
+  }
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.hasActive = false;
+    model.liveOn = true;
+    model.warning = "Could not check card space.";
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, "Could not check card space."));
+    CHECK(!drewText(out, wallpapersui::liveStripLine()));
+  }
+}
+
 // The free-space advisory wins the hint strip and is shown verbatim: "full" and
 // "could not tell" are different sentences.
 void testWallpapersChromeWarningVerbatim() {
@@ -12950,6 +12995,8 @@ int main() {
   testWallpapersChromeIsQuietWhenSomethingIsSet();
   testWallpapersChromeShowsThePage();
   testWallpapersChromeWarningVerbatim();
+  testWallpapersChromeSaysWhenLiveIsTheSleepScreen();
+  testWallpapersChromeLiveDoesNotDisplaceTheNoteOrTheWarning();
   testWallpapersEmptyStateSaysSomething();
   testWallpapersCaptionNeverCollidesWithArtwork();
   // testWallpapersHelpCardPointsAtTheUploader is NOT here: app/wallqr deleted

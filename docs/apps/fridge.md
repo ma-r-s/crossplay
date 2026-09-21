@@ -194,8 +194,19 @@ several days it says so outright.
 
 ## Built so far
 
-- The tile, three variants behind `WALLPAPERS_LIVE_VARIANT` (default 2), the
-  chip as an icon, and the empty state. Real captures in `qa-artifacts/`.
+- The tile, the chip as an icon, and the empty state. Real captures in
+  `qa-artifacts/`. Three tile variants and three Live-screen arrangements were
+  built behind `WALLPAPERS_LIVE_VARIANT` and `WALLPAPERS_LIVE_SCREEN` and
+  rendered side by side; Mario picked the combined tile and the centred stack,
+  and both macros went with the losers in the shipping commit.
+- The Live screen itself: the pairing code, the address, the QR, and the paired
+  half (next check, how often, who can send, and the three controls). Static
+  stubs still -- no website, no pairing, nothing persisted.
+- The hint strip says when Live is the sleep screen ("Your phone is your sleep
+  screen."). It sits third in the strip's order, below the sleep-screen note and
+  the free-space advisory (both are news, and a standing line that outranked
+  either would suppress it for a whole session) and above the two it makes
+  false.
 - `drawGetSetTile` had a latent bug: its caption was pinned to
   `captionRect(geom, 1)`, so a second special tile would have printed its label
   under the neighbour. It takes its slot now.
@@ -207,17 +218,12 @@ several days it says so outright.
 
 ## Still to build
 
-1. The destination screen: code, countdown, interval, refresh now, who can
-   send, turn off.
-2. The hint strip does not know Live exists - it still says "Tap one to set
-   your sleep screen" while Live carries the marker. Card #354 is the same
-   contradiction.
-3. Arming the timer on every sleep, and the boot path for a timer wake.
-4. `SETTINGS.sleepScreen` defaults to DARK, and `WallpapersCore.h:189-195`
+1. Arming the timer on every sleep, and the boot path for a timer wake.
+2. `SETTINGS.sleepScreen` defaults to DARK, and `WallpapersCore.h:189-195`
    lists five ways `/sleep.bmp` never reaches the glass. Live must decide
    whether it paints itself or goes through `SleepActivity`, and if the latter,
    what forces the setting. These are different features and it is not decided.
-5. The service, the website, the headless join, backoff, and `park()`.
+3. The service, the website, the headless join, backoff, and `park()`.
 
 ## Not verified
 

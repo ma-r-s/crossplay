@@ -238,6 +238,11 @@ struct GridChromeModel {
   const char* rightLabel = nullptr;
   const char* warning = nullptr;  // free-space advisory, null when there is room
   bool hasActive = false;         // false -> draw the "tap one to set it" hint
+  // Live is what the sleep screen shows. NOT folded into hasActive: that flag
+  // only buys silence, and silence is what made this wrong -- the "Your phone"
+  // tile wore the selection marker while the strip went on saying nothing was
+  // set. Live needs a line of its own, so it is a fact of its own.
+  bool liveOn = false;
   // The sleep-screen line (#354). Carries every fact that applies at once: what
   // the last selection changed behind the user's back, AND any standing caveat
   // about the wallpaper not reaching the glass. Built by
@@ -272,6 +277,19 @@ const freeink::Icon& chooseChipIcon(bool choosing);
 // and a permanent hint that outranked a filling card would suppress that
 // warning forever.
 const char* chooseHint();
+
+// The caption on the grid's first tile, and the strip's sentence about it.
+//
+// Published as a pair, and the pair is the point. The sentence names the tile
+// the selection marker is sitting on, so the two carry ONE noun: a second copy
+// of "Your phone" typed into the sentence would go on saying it after the tile
+// stopped (derived-facts-written-as-literals). host-tests/wallcaption asserts
+// the sentence still opens with the caption, which is what makes them one.
+//
+// The caption lives here rather than in the Activity that draws it because a
+// test can link this file and cannot link the Activity.
+const char* liveTileCaption();
+const char* liveStripLine();
 
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model);
 
@@ -320,18 +338,14 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model);
 // to report and no "now" to show: this screen's whole job is to say when the
 // next check is, how often they come, and who may feed it.
 //
-// Three arrangements behind WALLPAPERS_LIVE_SCREEN, rendered side by side
-// before one is kept. The losing two and the macro go in the same commit as the
-// winner -- a variant macro that survives is a second design nobody maintains.
+// A CENTRED STACK: the code dominant, the prose and the QR beneath it. Three
+// arrangements were built and rendered side by side (a stack, a numbered rail,
+// and a split with an inverted panel); Mario picked the stack, and the other
+// two went with the macro that chose between them in the same commit. The stack
+// is the only one whose unpaired half has a single axis: a person holding the
+// reader up to a phone camera or reading digits aloud never has to choose where
+// to look first.
 //
-//   1  a centred stack: the code dominant, the prose and the QR beneath it.
-//   2  a numbered rail: go here, then type this, down the left edge.
-//   3  a split: an inverted panel for the one thing you act on, two columns
-//      side by side under it for everything else.
-#ifndef WALLPAPERS_LIVE_SCREEN
-#define WALLPAPERS_LIVE_SCREEN 1
-#endif
-
 // Both states, one builder, because they are one destination: before a phone is
 // paired the screen is a code to type, and afterwards it is what that code
 // bought. Building them apart is how the two would come to disagree about what
