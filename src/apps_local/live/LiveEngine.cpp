@@ -9,11 +9,15 @@
 #include "LiveCore.h"
 
 #if defined(FREEINK_NET_WOLFSSL)
+#include <Arduino.h>
 #include <WiFi.h>
 #include <sys/time.h>
 
+// Relative, both of them. The device envs carry no -Isrc (only the simulator
+// does), so a bare "WifiCredentialStore.h" resolves from src/ and nowhere else
+// -- which is every file that has ever included it, and none of them is here.
 #include "../../DevMode.h"
-#include "WifiCredentialStore.h"
+#include "../../WifiCredentialStore.h"
 #endif
 
 namespace live {
