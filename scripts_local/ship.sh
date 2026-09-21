@@ -604,8 +604,22 @@ if [ "$DRY" = 0 ]; then
   # from CROSSPOINT_VERSION, so it is in every release image by construction
   # and is not a debug line a LOG_LEVEL could compile out.
   for _img in "$DIST/firmware.bin" "$DIST/firmware-sticky.bin"; do
-    if ! strings -a "$_img" | grep -qxF "CrossPlay-ESP32-$NEXT"; then
-      _found="$(strings -a "$_img" | sed -n 's/^CrossPlay-ESP32-//p' | sort -u | tr '\n' ' ')"
+    # READ THE WHOLE STREAM, and do not reach for `grep -q` here.
+    #
+    # `strings -a "$_img" | grep -qxF ...` is the obvious spelling and it is
+    # wrong under `set -o pipefail`, which this script sets: grep -q exits at
+    # the first match, strings takes SIGPIPE on a 7MB image because it is
+    # still writing, and the PIPELINE reports 141 even though the match
+    # succeeded. So the probe refused a correct pair -- 1.13.14 against
+    # v1.13.14 -- and said the images were built from the wrong commit.
+    #
+    # It cost a live run to find, and a shell test could not have: an
+    # interactive shell has no pipefail, so the same command by hand returns
+    # 0 and the probe looks right. Comparing the extracted value reads every
+    # byte, so nothing exits early and there is no pipe to break.
+    _found="$(strings -a "$_img" | sed -n 's/^CrossPlay-ESP32-//p' | sort -u | tr '\n' ' ')"
+    _found="${_found% }"
+    if [ "$_found" != "$NEXT" ]; then
       # Resolved before the message rather than inside it: a $( ) with its own
       # quotes nested in a die string is unreadable to anything auditing which
       # guards refuse, and host-tests/ship audits exactly that.
