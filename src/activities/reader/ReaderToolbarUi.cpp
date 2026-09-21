@@ -9,6 +9,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "ReaderPanelRows.h"
 #include "components/UITheme.h"
 #include "components/icons/readerToolbarIcons.h"
 
@@ -229,18 +230,26 @@ void ReaderToolbarUi::buildPanel(UiScreen& screen) {
   const int16_t titleH = screen.target().lineHeight(tokens.titleText.font);
   const int16_t rowH =
       model_.denseRows ? static_cast<int16_t>(UITheme::getInstance().getMetrics().listRowHeight) : tokens.rowHeight;
-  const int16_t rowStride = static_cast<int16_t>(rowH + tokens.listRowGap);
+  // The gap the list will ACTUALLY draw with, asked of the SDK rather than
+  // assumed. ListProps::rowGap defaults to the -1 sentinel and this panel never
+  // sets it, so Screen::list() resolves it through resolveListProps(), which
+  // raises it to theme.listTouchRowGap on a touch board. Sizing the sheet from
+  // the raw tokens.listRowGap reserved 0 while the list drew 6: a six-row panel
+  // came out 30px shorter than its own contents on every touch device, and the
+  // nav paginated on a stride the renderer did not use. Button-only boards keep
+  // 0 and were always exact, which is why the PR that added this panel -- "Re-
+  // Enable toolbar reader menu on button-only devices" -- shipped green.
+  // host-tests/readersheet pins both boards. Card #546.
+  fui::ListProps gapProbe;
+  gapProbe.rowHeight = rowH;
+  const int16_t rowGap = screen.resolveListProps(gapProbe).rowGap;
   const int16_t grabberBand =
       static_cast<int16_t>(sheetProps.grabberMargin + sheetProps.grabberHeight + sheetProps.grabberInset);
   const int16_t chrome =
       static_cast<int16_t>(grabberBand + titleH + tokens.spaceMd + tokens.spaceSm + kToolRowH + tokens.spaceSm);
-  const int16_t target = static_cast<int16_t>((safe.height * kPanelHeightPercent) / 100);
-  const int16_t cap = static_cast<int16_t>((safe.height * kPanelHeightMaxPercent) / 100);
-  int sheetRows = (target - chrome + tokens.listRowGap) / rowStride;
-  if (static_cast<int16_t>(chrome + (sheetRows + 1) * rowStride - tokens.listRowGap) <= cap) ++sheetRows;
-  if (model_.itemCount > 0 && sheetRows > model_.itemCount) sheetRows = model_.itemCount;
-  if (sheetRows < 1) sheetRows = 1;
-  screen.sheet(sheetProps, static_cast<int16_t>(chrome + sheetRows * rowStride - tokens.listRowGap));
+  const readerpanel::Geometry geo = readerpanel::panelGeometry(safe.height, rowH, rowGap, chrome, model_.itemCount,
+                                                               kPanelHeightPercent, kPanelHeightMaxPercent);
+  screen.sheet(sheetProps, static_cast<int16_t>(geo.sheetHeight));
   // No blanket side inset: Screen::list() draws in the content band, and the
   // scroll track must reach the sheet's edge like a full-screen list's does.
   // The title insets itself; the rows inset via rowInset below.
@@ -282,7 +291,7 @@ void ReaderToolbarUi::buildPanel(UiScreen& screen) {
   nav_.selected = std::clamp(model_.selectedIndex, -1, count - 1);
   nav_.followOnBuild = nav_.selected >= 0;
   nav_.followPending = false;
-  nav_.syncToProps(listRect, listProps_.rowHeight, tokens.listRowGap, count, listProps_);
+  nav_.syncToProps(listRect, listProps_.rowHeight, rowGap, count, listProps_);
 
   // Materialise only the visible window of rows.
   const int windowCount = std::min({nav_.visibleRows, count - nav_.top, kMaxWindow});
