@@ -19,6 +19,7 @@ are enforced by hooks and will refuse rather than remind.
   a pass. `tail -1` gives you a background wrapper's `[exited with code 0]`
   instead of the gate's answer, and `$?` is whatever your own pipeline ended
   with. Two agents nearly shipped on that in one evening.
+
 - **Your scratchpad is NOT private.** Several agents run under one session id
   and every one of them reaches for `gate.log`, `pr.md`, `out.txt`. Write only
   inside `<scratchpad>/<your tree name>/`; the flat top level is refused. One
@@ -29,7 +30,7 @@ are enforced by hooks and will refuse rather than remind.
   because every session runs an identically named script and `pgrep` cannot tell
   them apart.
 - **What you notice and are not fixing is a NOTICE, not a card.** `board
-  noticed '<one line>' --from <app>`. It expires by itself in 14 days, counts
+noticed '<one line>' --from <app>`. It expires by itself in 14 days, counts
   up when anyone sees it again, and reaches Mario as one line at three
   sightings. You owe it nothing further. On 2026-09-20 the board held 547
   cards after 17 days: 145 of the 203 open ones were sessions' finds "for
@@ -69,8 +70,8 @@ are enforced by hooks and will refuse rather than remind.
   (one env, about three minutes), not through the full gate first; the gate
   runs before you land, not before he sees it.
 - **If CrossPoint owns it, it is not ours to fix.** Mario, 2026-09-04:
-  *"stuff that crosspoint owns is not ours to fix. If the change is not
-  CrossPlay specific it is dismissed."* Dismissed -- not filed, not parked for
+  _"stuff that crosspoint owns is not ours to fix. If the change is not
+  CrossPlay specific it is dismissed."_ Dismissed -- not filed, not parked for
   later, not reported upstream. The test is one command, and **author names do
   not work**, because a merge attributes upstream commits to whoever merged
   them:
@@ -83,12 +84,27 @@ are enforced by hooks and will refuse rather than remind.
   report is written: a tester pointed at a synced feature finds upstream bugs
   by construction, and four such cards were filed as ours before anyone
   checked.
+
 - **Done means:** the test that fails without the fix, the twin path checked,
   host suites green in your tree, pushed, a pull request open, and
   `board state <id> review`. Say in the PR what was not verified. Hardware
   always counts as not verified.
+- **Nothing on GitHub builds your branch any more, and landing is one local
+  command.** Since 2026-09-21 `crossplay-ci.yml` runs nightly and blocks
+  nothing; there is no pull-request check, no build on the merge, and no
+  autorelease. The gate in your tree is now the only build there is, so
+  `check.sh --committed` is not a formality before pushing -- **the images it
+  leaves in `.pio/build` are the images that ship.** The orchestrator lands
+  and publishes with `./scripts_local/ship.sh`, which bumps the version,
+  re-gates, fast-forwards, tags, packages and publishes in about two minutes.
+  Workers do not run it, and the guard hook refuses `gh release create` and a
+  `v*` tag from anyone, because publishing by hand skips the ordering that
+  keeps a device from offering an update it already installed.
+  **A branch that cannot fast-forward onto `xteink` cannot be shipped**: a
+  merge commit's tree is not the tree your gate built. Rebase before you set
+  `review`, not after.
 - **A tree is its holder's.** `board bind <card> --session <id> --tree
-  wt/<name>` before the first write: the record it leaves is what the guard
+wt/<name>` before the first write: the record it leaves is what the guard
   reads, and a tree with no record refuses writes, as does a tree bound to
   another actor (a subagent is its own actor). Your tool calls renew the
   lease; a running `check.sh` keeps the tree in use without them. A session
@@ -98,9 +114,9 @@ are enforced by hooks and will refuse rather than remind.
   live, and while the tree has uncommitted work unless that session has
   ended; the displaced card is told. `board tree <name>` is the only way
   to call a tree abandoned (a sweep asks it first), `board tree <name>
-  --release` lets a tree go, and settling the card releases it too.
+--release` lets a tree go, and settling the card releases it too.
 - **Your diff is the three-dot one.** `git diff origin/xteink...HEAD
-  --name-only` (the merge base) is what your branch changes; the two-dot
+--name-only` (the merge base) is what your branch changes; the two-dot
   `git diff origin/xteink` lists everything trunk did since you branched and
   cried wolf twice in one night. `check.sh --committed` refuses a branch
   whose commits undo lines trunk landed just before it branched, the shape
