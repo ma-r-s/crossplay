@@ -494,6 +494,17 @@ if [ -z "$added" ]; then
 else
   ok "the rebuild stages: $(printf '%s' "$added" | tr '\n' ' ')"
   ignored="$(sed -n '/paths-ignore:/,/^  [a-z_]*:/p' "$CI" | grep -oE "'[^']+'" | tr -d "'")"
+  # Since 2026-09-21 crossplay-ci.yml is a nightly audit with no push trigger,
+  # so the rebuild's commit starts nothing and there is nothing to ignore. The
+  # pairing below is kept and re-arms by itself if a push trigger returns:
+  # host-tests/ci asserts that it does not, and this is the second half of the
+  # same invariant seen from the emulator's side.
+  ci_triggers="$(sed -n '/^on:/,/^[a-z]/p' "$CI")"
+  case "$ci_triggers" in
+    *"  push:"*) ;;
+    *) ok "crossplay-ci.yml has no push trigger, so the rebuild's commit starts no run to ignore"
+       added="" ;;
+  esac
   for path in $added; do
     match=no
     for pat in $ignored; do

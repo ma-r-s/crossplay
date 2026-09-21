@@ -22,6 +22,34 @@ trap 'rm -rf "$WORK"' EXIT
 
 [ -f "$YML" ] || { echo "FAIL cannot find $YML"; exit 1; }
 
+# ---------------------------------------------------------------------------
+# THE TRIGGER INVARIANT, and it is why much of the rest of this file is now
+# conditional.
+#
+# Until 2026-09-21 this workflow ran on every pull request and every push to
+# xteink, crossplay-autorelease.yml fired on its completion, tagged, and
+# pushed a version-bump commit that started it AGAIN. One change compiled four
+# times from cold: ~4,955 runner-minutes over 13 days, 92 per merged pull
+# request, forty minutes between a merge and the assets existing. The local
+# gate already built the same two release envs, in 113 seconds against 867
+# here, so all four were re-runs of a build that had already passed.
+#
+# The workflow is now a nightly audit and blocks nothing. ADDING A push OR
+# pull_request TRIGGER BACK RESTORES THE WHOLE PIPELINE, so that is the thing
+# asserted here, and it is strictly stronger than every paths-ignore check
+# further down: a trigger that does not exist needs no paths to ignore.
+#
+# The blocks reasoning about concurrency, superseding and paths-ignore are
+# kept rather than deleted and re-arm themselves the moment a blocking trigger
+# reappears. Each encodes a failure that cost a night and none is
+# re-derivable from the yaml.
+# ---------------------------------------------------------------------------
+TRIGGERS="$(sed -n '/^on:/,/^[a-z]/p' "$YML")"
+BLOCKING_TRIGGER=no
+case "$TRIGGERS" in
+  *"  push:"*|*"  pull_request:"*) BLOCKING_TRIGGER=yes ;;
+esac
+
 # Lift a named step's shell body out of a workflow and dedent it, so these
 # tests cannot drift from the text the runner actually executes.
 #
@@ -64,6 +92,21 @@ fake() {  # name, exit code, stdout
 
 checks=0
 failed=0
+
+checks=$((checks + 1))
+if [ "$BLOCKING_TRIGGER" = yes ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  crossplay-ci.yml has a push or pull_request trigger again. It is a nightly audit: a blocking trigger puts a 20-minute cross-compile back in front of every merge, and with crossplay-autorelease.yml gone nothing downstream waits for its verdict anyway. Landing and publishing are scripts_local/ship.sh."
+fi
+
+checks=$((checks + 1))
+case "$TRIGGERS" in
+  *schedule:*) ;;
+  *)
+    failed=$((failed + 1))
+    echo "FAIL ci  crossplay-ci.yml has no schedule trigger, so the one thing it still exists for -- proving xteink builds on a machine that is not Mario's, from a clean checkout, with nothing of his installed -- never runs"
+    ;;
+esac
 expect() {  # label, pass|fail
   local label="$1" want="$2" code got
   # bash -eo pipefail is what GitHub Actions gives a `run:` block.
@@ -123,6 +166,12 @@ if [ "$inis" -eq 0 ]; then
   echo "FAIL ci  no platformio*.ini found, so the git-pin check examined nothing"
 fi
 
+# DORMANT WHILE THIS IS A NIGHTLY AUDIT, live again the moment a push or
+# pull_request trigger returns. Every check in this block reasons about a
+# trigger the workflow no longer has, and each encodes a night lost to it, so
+# they are re-armed rather than deleted. Not re-indented: the bodies contain
+# heredocs whose terminators must stay at column 0.
+if [ "$BLOCKING_TRIGGER" = yes ]; then
 # The release trigger, which is a concurrency setting three files away.
 #
 # crossplay-autorelease.yml fires on `workflow_run` with conclusion success.
@@ -302,6 +351,8 @@ if [ "$cancel_pr" != "true" ]; then
   failed=$((failed + 1))
   echo "FAIL ci  crossplay-ci.yml evaluates cancel-in-progress to '$cancel_pr' on a pull request ref; superseding is off and five runs of one branch share the runners"
 fi
+
+fi  # BLOCKING_TRIGGER
 
 # The release is built once per tag. host-tests/release asserts the SHAPE
 # (the dispatch is conditional on RELEASE_TOKEN, and crossplay-release.yml
@@ -693,6 +744,12 @@ else
   fi
 fi
 
+# DORMANT WHILE THIS IS A NIGHTLY AUDIT, live again the moment a push or
+# pull_request trigger returns. Every check in this block reasons about a
+# trigger the workflow no longer has, and each encodes a night lost to it, so
+# they are re-armed rather than deleted. Not re-indented: the bodies contain
+# heredocs whose terminators must stay at column 0.
+if [ "$BLOCKING_TRIGGER" = yes ]; then
 # -- the packaging change must say what is new -------------------------------
 #
 # scripts_local/device-build-needed.sh calls
@@ -767,6 +824,8 @@ else
     echo "FAIL ci  the step demands release prose from a pull request that publishes nothing"
   fi
 fi
+
+fi  # BLOCKING_TRIGGER
 
 # -- the emulator rebuild must be able to FAIL -------------------------------
 #
@@ -1015,6 +1074,12 @@ ci_ignored() {  # path -- prints yes/no against the pull_request block
   printf '%s' "$verdict"
 }
 
+# DORMANT WHILE THIS IS A NIGHTLY AUDIT, live again the moment a push or
+# pull_request trigger returns. Every check in this block reasons about a
+# trigger the workflow no longer has, and each encodes a night lost to it, so
+# they are re-armed rather than deleted. Not re-indented: the bodies contain
+# heredocs whose terminators must stay at column 0.
+if [ "$BLOCKING_TRIGGER" = yes ]; then
 CI_WF="$HERE/../../.github/workflows/crossplay-ci.yml"
 PR_IGNORE="$(sed -n '/^  pull_request:/,/^  [a-z_]*:/p' "$CI_WF" | grep -oE "'[^']+'" | tr -d "'")"
 
@@ -1055,6 +1120,8 @@ do
     echo "FAIL ci  the pull_request paths-ignore does not cover $path, which is the documentation case card #547 exists to stop building"
   fi
 done
+
+fi  # BLOCKING_TRIGGER
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
