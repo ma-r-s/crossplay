@@ -2103,6 +2103,13 @@ void EpubReaderActivity::handleOverlayInput() {
     overlayPaintPending = false;
     RenderLock lock;  // the render task shares the panel
     renderer.waitRefreshComplete();
+    // The waveform is done, so there is nothing left for settleOverlayRefresh()
+    // to wait out. Leaving this set sends the destructor into
+    // cleanupGrayscaleWithFrameBuffer() for a refresh that has already landed,
+    // which is a wait on an idle panel taken while the activity is being torn
+    // down -- the shape the device hung in on 2026-09-20 with "Exiting
+    // activity: EpubReader" as its last word.
+    overlayRefreshPending = false;
   }
 
   // A modal option picker over the panel owns all input while open.

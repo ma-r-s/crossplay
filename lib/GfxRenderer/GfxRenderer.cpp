@@ -2480,15 +2480,27 @@ void GfxRenderer::freeBwBufferChunks() {
  * Returns true if buffer was stored successfully, false if allocation failed.
  */
 bool GfxRenderer::storeBwBuffer() {
+  // A SECOND STORE MUST NOT CLOBBER THE FIRST. There is one snapshot slot and
+  // two users of it: the grayscale page render (store, draw the gray planes,
+  // restore) and the reader's overlay, which snapshots the clean page so it
+  // can put the menu over it and take it away again. Freeing the outstanding
+  // chunks and storing on top -- what this did -- hands the first user back a
+  // frame that is not the one it saved, and on 2026-09-20 that put an X4 Pro
+  // into a refresh loop and then wedged it completely: six "already stored"
+  // lines, then DRF and gray_cleanup repeating until the log went silent and
+  // the device stopped answering its own network.
+  //
+  // Refusing costs nothing, because both users already read the answer: the
+  // page render skips its grayscale pass for that frame, and the overlay
+  // leaves overlayPageStored false and re-renders the page when it closes.
+  for (const auto* chunk : bwBufferChunks) {
+    if (chunk) {
+      LOG_ERR("GFX", "!! BW buffer already stored; refusing to overwrite the snapshot someone else is holding");
+      return false;
+    }
+  }
   // Allocate and copy each chunk
   for (size_t i = 0; i < bwBufferChunks.size(); i++) {
-    // Check if any chunks are already allocated
-    if (bwBufferChunks[i]) {
-      LOG_ERR("GFX", "!! BW buffer chunk %zu already stored - this is likely a bug, freeing chunk", i);
-      free(bwBufferChunks[i]);
-      bwBufferChunks[i] = nullptr;
-    }
-
     const size_t offset = i * BW_BUFFER_CHUNK_SIZE;
     const size_t chunkSize = std::min(BW_BUFFER_CHUNK_SIZE, static_cast<size_t>(frameBufferSize - offset));
     bwBufferChunks[i] = static_cast<uint8_t*>(malloc(chunkSize));
