@@ -59,6 +59,18 @@ class HeartsActivity final : public Activity {
   bool hasGame = false;
   bool interactionsReady = false;
   bool flashOnNextPaint = false;
+  // GHOSTING IS A RESIDUE OF CHANGE, and this app changes a lot of dithered
+  // area: the hand re-dithers whenever the led suit moves, the four places
+  // redraw every trick, and the on-turn plaque is solid black that moves four
+  // times a trick. A partial refresh leaves a little of each behind, and
+  // sixty-five of them in a hand is how a panel turns grey.
+  //
+  // Two answers, both from docs/design-language.md's "the refresh flash as
+  // punctuation": flash whenever the SCREEN changes, where a blink reads as a
+  // page turn rather than an apology, and flash periodically inside a hand so
+  // the residue never accumulates for thirteen tricks.
+  uint8_t lastPaintedScreen = 0xFF;
+  uint8_t tricksSinceFlash = 0;
   int howToPage = 0;
   // NEW GAME asks once before it throws a saved game away.
   bool confirmingNew = false;

@@ -54,6 +54,11 @@ constexpr uint32_t kTrickHoldMs = 900;
 // is a result, not a game.
 constexpr uint32_t kBotThinkMs = 420;
 
+// How many tricks of partial refreshes before one full one. Thirteen tricks is
+// about sixty-five partials; four is three flashes a hand, at trick boundaries
+// where the table is already pausing to be read, and never mid-decision.
+constexpr uint8_t kTricksPerFlash = 4;
+
 const char* seatName(const Seat seat) {
   switch (seat) {
     case Seat::South:
@@ -220,7 +225,12 @@ bool HeartsActivity::advance() {
       if (static_cast<uint32_t>(millis()) - trickShownAt < kTrickHoldMs) return false;
       trickShownAt = 0;
       sweepTrick(game);
-      // The trick boundary: the one moment with nothing half-finished.
+      // The trick boundary: the one moment with nothing half-finished, and the
+      // only point in a hand where a full refresh costs nobody a decision.
+      if (++tricksSinceFlash >= kTricksPerFlash) {
+        tricksSinceFlash = 0;
+        flashOnNextPaint = true;
+      }
       if (game.phase == Phase::Playing) saveGame();
       if (game.phase == Phase::HandOver || game.phase == Phase::GameOver) {
         view = View::Score;
@@ -667,6 +677,20 @@ void HeartsActivity::render(RenderLock&&) {
 
   interactionsReady = true;
   toybox::reportOverflow(interactions, "Hearts");
+
+  // A SCREEN CHANGE IS ALWAYS A FULL REFRESH. Moving between the menu, the
+  // rules, the table and the scoreboard replaces essentially every pixel, which
+  // is the worst thing to ask a partial refresh to do and the best moment to
+  // spend a flash: it reads as a page turn.
+  const uint8_t screenNow = view == View::Menu                                                 ? 0
+                            : view == View::HowTo                                              ? 1
+                            : (game.phase == Phase::HandOver || game.phase == Phase::GameOver) ? 2
+                                                                                               : 3;
+  if (screenNow != lastPaintedScreen) {
+    flashOnNextPaint = true;
+    lastPaintedScreen = screenNow;
+    tricksSinceFlash = 0;
+  }
 
   const auto labels = mappedInput.mapLabels("Back", "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

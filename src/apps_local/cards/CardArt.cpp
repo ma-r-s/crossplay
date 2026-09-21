@@ -62,6 +62,9 @@ void drawSuit(toybox::Screen& screen, const fui::Rect& box, const c::Suit suit, 
 // both -- 36px wide and 16px tall do not overlap in any useful way.
 void drawCardFace(toybox::Screen& screen, const fui::Rect& rect, const uint8_t card, const int visible, const Fan fan,
                   const Ink ink) {
+  // One inset for both halves of the index, so the rank and the pip cannot
+  // drift apart. It is the corner radius: where the curve stops.
+  constexpr int16_t kIndexInset = kRadius;
   auto& target = screen.target();
   const fui::Paint black = fui::Paint::solid(fui::Color::Black);
 
@@ -69,27 +72,41 @@ void drawCardFace(toybox::Screen& screen, const fui::Rect& rect, const uint8_t c
   // this panel: GfxRendererTarget::text() decides ink with
   // `style.color != Color::White`, so a DarkGray label draws solid black and
   // the dimming silently does nothing.
+  //
+  // LIGHT grey rather than dark, for two reasons that turn out to be the same
+  // one. It reads better -- the rank and the pip stay legible through it, so a
+  // card you may not play is still a card you can identify -- and it is the
+  // largest CHANGING area on the panel: up to eleven dimmed cards across
+  // 768x122, re-dithered every time the led suit changes. Ghosting is a residue
+  // of change, so halving the ink in the region that changes most is the
+  // cheapest reduction available.
   target.fill(rect,
-              ink == Ink::Dimmed ? fui::Paint::dither(fui::Color::DarkGray) : fui::Paint::solid(fui::Color::White),
+              ink == Ink::Dimmed ? fui::Paint::dither(fui::Color::LightGray) : fui::Paint::solid(fui::Color::White),
               kRadius);
   target.stroke(rect, black, ink == Ink::Picked ? kEdge * 2 : kEdge, kRadius);
 
   fui::TextStyle rankStyle;
   rankStyle.font = toybox::kUiFont;
   rankStyle.align = fui::TextAlign::Left;
-  // A 28px corner against the ui cut's 42px line box: without inkCentred the
-  // clamp drops the rank 7px and it collides with the pip below it.
-  target.text(toybox::inkCentred(fui::makeRect(rect.x + 9, rect.y + 2, 40, 28), toybox::kUiCut),
+  // THE INDEX SITS kIndexInset FROM THE EDGES IT TOUCHES, rank and pip alike.
+  //
+  // The rank's box was at rect.y + 2, which inkCentred turns into ink starting
+  // three pixels below the card's edge -- one pixel clear of its own 2px
+  // border. Mario read it as the rank crowding the top of the card, and
+  // measuring it agreed: 3px against the pip's 8 on the opposite corner.
+  //
+  // Both corners now take the same inset, so they cannot drift apart again,
+  // and it is the radius: the index starts where the rounded corner stops
+  // curving.
+  target.text(toybox::inkCentred(fui::makeRect(rect.x + 9, rect.y + kIndexInset, 40, 28), toybox::kUiCut),
               c::rankLabel(c::rankOf(card)), rankStyle);
 
   if (fan == Fan::Sideways) {
-    // Under the rank, both inside the left sliver.
-    drawPip(screen, fui::makeRect(rect.x + 10, rect.y + 42, 16, 18), card);
+    // Under the rank, both inside the left sliver, and moved down with it.
+    drawPip(screen, fui::makeRect(rect.x + 10, rect.y + kIndexInset + 40, 16, 18), card);
   } else {
-    // The opposite corner from the rank, an equal inset from both edges it
-    // touches. kIndexInset matches kRadius so the pip starts exactly where the
-    // rounded corner stops curving.
-    constexpr int16_t kIndexInset = kRadius;
+    // The opposite corner from the rank, the same inset from both edges it
+    // touches.
     constexpr int16_t kPip = 18;
     drawPip(screen,
             fui::makeRect(static_cast<int16_t>(rect.x + rect.width - kIndexInset - kPip),
