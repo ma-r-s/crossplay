@@ -1,134 +1,70 @@
-# CrossPlay's own CI.
+# CrossPlay's nightly audit. It is not on anybody's path to anything.
 #
-# Upstream's ci.yml only fires on pushes to `master`, which this fork does not
-# have, so without this the default branch had no checks at all and the repo
-# front page said nothing about whether HEAD compiles. It has been wrong before:
-# `xteink` once did not build for three commits because every local check.sh ran
-# against a dirty tree.
+# WHAT THIS USED TO BE, and why it stopped. Until 2026-09-21 this ran on every
+# pull request and every push to xteink, and crossplay-autorelease.yml fired
+# on its completion, tagged, and pushed a version-bump commit that started it
+# AGAIN. Measured over 400 runs and 54 merged pull requests: one change was
+# compiled four times from cold, about 4,955 runner-minutes, 92 per merged
+# pull request, and forty minutes between a merge and the assets existing.
 #
-# It builds the firmware and the simulator and runs the host suites. Since
-# 2026-09-04 it also carries clang-format, the cmake unit tests and cppcheck:
-# those were upstream's ci.yml's jobs, which ran on every pull request until
-# that workflow was disabled (red on the fork's own code for a week, and read
-# by nobody). Its four device builds duplicated the one below, so the workflow
-# stays off and the three jobs the fork had nowhere else live here.
+# None of the four was new work. scripts_local/check.sh --committed already
+# clones the committed tree detached into TMPDIR, inits submodules, and builds
+# gh_release_x4pro and gh_release_sticky against a warm object cache -- the
+# exact two envs crossplay-release.yml then rebuilt. On Mario's Mac that pair
+# takes 113 seconds; the `Build everything` step here took 867. Landing and
+# publishing now happen there, in scripts_local/ship.sh, and the guard hook
+# refuses any other way.
+#
+# WHAT IT IS FOR NOW. Exactly one thing the local gate cannot do: prove that
+# xteink builds and passes on a machine that is not Mario's, from a clean
+# checkout, with nothing of his installed. That is worth knowing and it is
+# never worth waiting for, so it runs at night and blocks nothing.
+#
+# Of 36 failures in the 13 days before the change, 23 were the Host tests step
+# and 5 were `Build everything` (4 of them one upstream-sync branch retried).
+# The compile that cost 20 minutes on every run caught two distinct problems
+# in two weeks, and the local gate builds the same envs. That is the whole
+# argument for moving it here.
+#
+# NO push OR pull_request TRIGGER, and that is the point rather than an
+# oversight. Adding one back restores the duplicate-build pipeline this
+# replaced; host-tests/ci asserts the triggers stay as they are.
 name: CrossPlay
 
 on:
-  push:
-    branches: [xteink]
-    # CI's OWN emulator rebuild is not a change to test, and running it costs
-    # a whole release cycle. After every merge, crossplay-emulator.yml commits
-    # site/emulator-manifest.json back to xteink -- one ~1KB pointer at the
-    # browser build, no byte of which reaches a device. (It used to commit
-    # site/emulator/{BUILT_FROM,crossplay.js,crossplay.wasm} instead, which is
-    # why that path is here too; those files are now published to a GitHub
-    # release, and both paths stay ignored so an old branch behaves the same.)
-    # That push started a
-    # SECOND CrossPlay run which cancelled the merge's own run, so every merge
-    # cost two full builds and the first was always thrown away. Seen
-    # 2026-09-04: merge 52b2a677 at 17:02:13, emulator commit eb79a542 at
-    # 17:07:20, the 17:02 run cancelled five minutes in, and the autorelease
-    # that fired at 17:07:23 skipped because a cancelled run is not a success.
-    #
-    # crossplay-autorelease.yml already assumed this could not happen -- its
-    # comment reads "pushed with the workflow token, so no CI run ever comes
-    # for it" -- and built the right behaviour on that assumption: a tip that
-    # moved only by emulator rebuilds releases from the tip. The assumption
-    # stopped being true; this restores it explicitly rather than by relying
-    # on a token's side effect.
-    #
-    # BOTH PATHS, and they must track what crossplay-emulator.yml actually
-    # commits: the day the rebuild started writing a file outside
-    # site/emulator/, this filter stopped covering it and the double-run came
-    # straight back. host-tests/bugflow asserts the two files still agree.
-    paths-ignore:
-      - 'site/emulator/**'
-      - 'site/emulator-manifest.json'
-      - '**/*.md'
-      - '*.md'
-      - 'docs/**'
-      - '!docs/release-notes.md'
-      - '!docs/release-body.md'
-  pull_request:
-    # Mario, 2026-09-20 (card #547): "a docs change shouldn't need any
-    # pipeline run". A paragraph added to docs/apps/wikipedia-plan.md ran
-    # four cross-compiles, the simulator and every host suite: about twenty
-    # minutes by this workflow's own measured comment, for text no device
-    # and no reader of the site can see. scripts_local/device-build-needed.sh
-    # already classifies docs/* as "no no" and check.sh already skips the
-    # device envs for them locally; nothing on GitHub was asking.
-    #
-    # The two exceptions are not documentation in the sense that matters:
-    # docs/release-notes.md is the published history and docs/release-body.md
-    # is the page a release publishes, and host-tests/release compares them
-    # against the previous tag. A hand edit to either must still be checked,
-    # so they are negated back in. The negations come last, because a later
-    # pattern wins.
-    #
-    # Safe because xteink has NO required status checks (branch protection
-    # blocks force pushes and deletion only), so a pull request with no runs
-    # is mergeable rather than stuck waiting for a check that never starts.
-    paths-ignore:
-      - '**/*.md'
-      - '*.md'
-      - 'docs/**'
-      - '!docs/release-notes.md'
-      - '!docs/release-body.md'
+  schedule:
+    # 09:00 UTC, which is the early hours in Mario's day and well clear of a
+    # working evening. Nothing reads the result in a hurry.
+    - cron: '0 9 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# One run per branch at a time. A push on top of a pull request supersedes
-# the run for the commit it replaced; five runs of one branch were once
-# sharing the runners while a merge waited on its own build.
+# One nightly run, and nothing to supersede it.
 #
-# Not on xteink, and this is the whole reason for the expression below.
-# Superseding was meant to fold two quick merges into one run that releases
-# them together, which works when a run survives to the end. It does not
-# survive a STREAM of merges: on the night of 2026-09-03 they landed at
-# 22:58, 23:05, 23:42, 23:47 (three), 23:56, 00:16 and 00:29 -- every 13 to
-# 20 minutes, and this build takes longer than that. Each merge cancelled the
-# previous merge's run, three in a row reached no conclusion at all, and
-# crossplay-autorelease.yml fires on `workflow_run` with conclusion success.
-# A cancelled run is not a success, so nothing released for six merges while
-# RELEASE_HOLD was 0 and nobody was holding anything. Every individual
-# cancellation looked exactly like this rule working correctly.
+# This group used to carry a long expression and a longer comment, because on
+# this workflow's old push/pull_request triggers concurrency was load-bearing
+# and every simple version of it lost runs. That whole class of problem is
+# gone with the triggers, but the lesson is not obvious and is worth keeping,
+# because the next person to add a concurrency group anywhere here will reach
+# for cancel-in-progress and read it wrong:
 #
-# QUEUEING DID NOT FIX IT, and `cancel-in-progress: false` is not what anyone
-# reads it as. A concurrency group holds at most ONE run in progress and ONE
-# run pending. cancel-in-progress governs the first of those two. Nothing
-# governs the second: when a third run arrives, GitHub cancels whatever was
-# pending to make room for it, and it does so whether cancel-in-progress is
-# true or false. So a stream of merges still loses runs, silently, one per
-# merge that lands while a build is running and another is waiting.
+#   A concurrency group holds at most ONE run in progress and ONE run pending.
+#   cancel-in-progress governs only the first. NOTHING governs the second:
+#   when a third run arrives GitHub cancels whatever was pending to make room,
+#   whether cancel-in-progress is true or false. Measured 2026-09-05 over 36
+#   hours: 41 runs of this workflow on xteink were cancelled and
+#   `actions/runs/<id>/jobs` returned total_count 0 for every one of them.
+#   Not one had started a job. Queueing did not fix it because queueing was
+#   never what it did.
 #
-# MEASURED, on 2026-09-05, over the 36 hours after `cancel-in-progress:
-# ${{ github.ref != 'refs/heads/xteink' }}` landed in 52d0907f: 41 runs of this
-# workflow on xteink were cancelled, and `actions/runs/<id>/jobs` returns
-# total_count 0 for all 41 of them. Not one had started a job. They were killed
-# while pending, by the next merge, exactly as they were before -- and the
-# merges they belonged to therefore reached no conclusion, so
-# crossplay-autorelease.yml never fired for any of them.
-#
-# So the group has to be one a merge cannot share. On xteink it is the COMMIT:
-# two merges are never in one group, nothing ever pends behind anything, and
-# GitHub has nothing to cancel. Runs are then parallel rather than queued,
-# which costs runner minutes (this repository is public, so they are free) and
-# nothing else -- this workflow takes `permissions: contents: read` and writes
-# nothing that another run of it could race.
-#
-# Pull requests keep the branch group and keep superseding: a push there really
-# does replace the commit before it, and no release listens to that ref.
-#
-# Folding several merges into one release still happens, and this is where it
-# belongs: each merge now gets its own verdict, and crossplay-autorelease.yml
-# collapses whatever has landed since the newest tag into a single release. It
-# was never CI's job to do that by throwing builds away.
+# A nightly cron and a hand dispatch cannot collide the way merges did, so the
+# group is just the workflow and a second dispatch waits rather than killing
+# the first.
 concurrency:
-  group: crossplay-ci-${{ github.ref == 'refs/heads/xteink' && github.sha || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/xteink' }}
+  group: crossplay-nightly
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -285,52 +221,18 @@ jobs:
       - name: The release watcher's suite
         run: bash host-tests/relwatch/run.sh
 
-  # check.sh runs the same formatter check (clang-format 21, pinned there too)
-  # and the same cmake suite locally; CI is the copy nobody can skip.
-  # A packaging change cuts a release and cannot describe itself.
+  # The `release-notes-line` job lived here and is gone with the release
+  # workflow it policed. It failed a pull request that changed
+  # .github/workflows/crossplay-release.yml without writing a "What is new:"
+  # line, because merging such a change cut a release that could not describe
+  # itself -- PR #42 repaired the defect that shipped v1.12.14 and v1.12.15
+  # without a bootloader, and somebody whose install was broken needed telling.
   #
-  # scripts_local/device-build-needed.sh classifies
-  # .github/workflows/crossplay-release.yml as `quiet`: changing it changes
-  # what a person downloads, so it releases, but nothing in a build workflow
-  # says anything in a player's words. release_notes.py therefore gives such a
-  # landing a bullet only when its pull request wrote one, and otherwise leaves
-  # the page silent about it and shouts in the autorelease log.
-  #
-  # Silent is the wrong outcome for the case this exists for: PR #42 repaired
-  # the defect that shipped v1.12.14 and v1.12.15 with bootloader.bin,
-  # firmware.bin and partitions.bin missing from the published image. Somebody
-  # whose install was broken needs telling it is fixed. So the line is asked
-  # for HERE, where the person who knows what changed is still reading, rather
-  # than discovered weeks later by a reader of a job log.
-  release-notes-line:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: A change to what the release publishes must say what is new
-        env:
-          # Through the environment, never interpolated into the script: a pull
-          # request body is attacker-controlled text and `${{ }}` inside run:
-          # pastes it in as shell source.
-          PR_BODY: ${{ github.event.pull_request.body }}
-          BASE: ${{ github.base_ref }}
-        run: |
-          git fetch -q origin "$BASE"
-          if ! git diff --name-only --no-renames "origin/$BASE...HEAD" |
-               grep -qx '.github/workflows/crossplay-release.yml'; then
-            echo "This pull request does not change what the release publishes."
-            exit 0
-          fi
-          if printf '%s' "$PR_BODY" |
-             grep -qiE '^[[:space:]]*(-[[:space:]]*)?(\*\*)?what is new(\*\*)?[[:space:]]*[:-]'; then
-            echo "It changes what the release publishes, and it says what is new. Good."
-            exit 0
-          fi
-          echo "::error::This pull request changes .github/workflows/crossplay-release.yml, so merging it will cut a release. Nothing in a build workflow describes itself in a player's words, so the release page would either print this pull request's title or say nothing about the change at all. Add a line to the description, written for someone who installs the firmware: 'What is new: <one sentence>'."
-          exit 1
+  # The need did not go away, it moved: scripts_local/release_notes.py still
+  # decides which landings earn a line, and ship.sh will not publish without
+  # a body. What is gone is the pull_request trigger it needed, so keeping the
+  # job would have left a check that can never run guarding a file that no
+  # longer exists.
 
   clang-format:
     runs-on: ubuntu-latest

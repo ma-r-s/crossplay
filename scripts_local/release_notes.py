@@ -433,6 +433,20 @@ def main():
     ap.add_argument("--last-tag")
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    # THE VERSION, WHEN THE CALLER HAS ALREADY WRITTEN IT.
+    #
+    # Without this the next version is always bump(what platformio.ini says),
+    # which is right for a caller that has not touched the file and wrong for
+    # the only caller there is. scripts_local/ship.sh must write the version
+    # BEFORE the build -- it is compiled into the firmware -- and then calls
+    # this afterwards for the notes, by which point platformio.ini already
+    # holds the target and deriving from it produces target+1.
+    #
+    # Measured before this existed: ini 1.13.13, --dry-run says 1.13.14, ship
+    # writes 1.13.14, --write then computes 1.13.15 and rewrites both notes
+    # files for a release that will never exist -- after the pull request has
+    # already been squash-merged, so it is not recoverable by re-running.
+    ap.add_argument("--version")
     a = ap.parse_args()
     repo = pathlib.Path(a.repo_dir).resolve()
     ini = repo / "platformio.ini"
@@ -512,7 +526,20 @@ def main():
         dropped, unsaid = [], []
 
     cur = current_version(ini.read_text())
-    nxt = bump(cur, minor)
+    # --version overrides the derivation, and is checked rather than trusted:
+    # a caller that names a version going backwards or sideways is a caller
+    # that has lost track of which one the firmware was built with, and that
+    # is the OTA bug this whole ordering exists to prevent.
+    if a.version:
+        nxt = a.version
+        if nxt != cur and nxt != bump(cur, minor) and nxt != bump(cur, not minor):
+            raise SystemExit(
+                f"release_notes: --version {nxt} is neither the current version ({cur}) "
+                f"nor one step from it ({bump(cur, False)} / {bump(cur, True)}). "
+                "Refusing rather than writing notes for a version nothing was built with."
+            )
+    else:
+        nxt = bump(cur, minor)
     print(f"last tag {tag}, {len(merges)} merge(s), {cur} -> {nxt}")
     for b in bullets:
         print(f"  - {b}")

@@ -91,6 +91,50 @@ expect "raw pio run refused"                    2 pretool "{\"session_id\":\"$WO
 expect "check.sh allowed"                       0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && ./scripts_local/check.sh --tests\"}}"
 expect "pio in a word is not pio run"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -rn 'pio run' docs\"}}"
 
+# Publishing by hand.
+#
+# scripts_local/ship.sh is the only path from a green gate to a release since
+# the GitHub builds were removed, and it is the only one that bumps the
+# version BEFORE the build. platformio.ini compiles the version into both
+# release envs and OtaUpdater compares a release's tag against that compiled
+# string, so a hand-cut tag over older images leaves every device offering an
+# update it already installed -- silently, and on every device at once.
+#
+# Read-only gh release verbs stay allowed: refusing `gh release list` would
+# make the guard something to work around rather than something to obey.
+echo "releases are cut by ship.sh"
+expect "gh release create refused"              2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release create v1.2.3 dist/*\"}}"
+expect "gh release create after a cd refused"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && gh release create v1.2.3\"}}"
+expect "gh release upload refused"              2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release upload v1.2.3 firmware.bin\"}}"
+expect "a version tag refused"                  2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag v1.13.12\"}}"
+expect "an annotated version tag refused"       2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag -a v1.13.12 -m release\"}}"
+expect "pushing a version tag refused"          2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin v1.13.12\"}}"
+expect "ship.sh allowed"                        0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && ./scripts_local/ship.sh\"}}"
+expect "gh release list allowed"                0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release list --repo ma-r-s/crossplay\"}}"
+expect "gh release view allowed"                0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release view v1.13.11\"}}"
+expect "listing tags allowed"                   0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag --list 'v1.13.*'\"}}"
+expect "pushing a work branch allowed"          0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin app/shipfast\"}}"
+expect "a non-version tag allowed"              0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag baseline-before-sync\"}}"
+
+# The bypasses a cold review found on the first version, all of which worked:
+# the anchor was not re.MULTILINE so any multi-line command walked through,
+# and the ship.sh escape was a SUBSTRING test, so a trailing `# ship.sh`
+# disabled the guard -- one copy-paste from the refusal text, which tells you
+# to run ./scripts_local/ship.sh.
+expect "a newline is a command separator too" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x\\ngh release create v1.2.3\"}}"
+expect "mentioning ship.sh is not running it" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release create v1.2.3  # ship.sh says no\"}}"
+expect "a quoted version tag refused"         2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag \\\"v1.2.3\\\"\"}}"
+expect "pushing refs/tags/v refused"          2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin refs/tags/v1.2.3\"}}"
+expect "git push --tags refused"              2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin --tags\"}}"
+
+# UNDOING a bad publish must stay possible. A guard that blocks recovery is a
+# guard people disable, and the moment you need these is right after
+# something went wrong.
+expect "deleting a bad release allowed"       0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release delete v1.2.3\"}}"
+expect "deleting a bad tag allowed"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag -d v1.2.3\"}}"
+expect "deleting a remote tag allowed"        0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin :v1.2.3\"}}"
+expect "git tag --contains allowed"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag --contains HEAD\"}}"
+
 echo "quotes are stripped before the command is split"
 bashjson() { python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' "$WORKER" "$1"; }
 expect "a pipe inside quotes does not cut the quotes"     0 pretool "$(bashjson "cd $ROOT/firmware-next && echo \"in: \$(git tag --contains abc | tr '\\n' ' ')\"")"
@@ -469,6 +513,17 @@ if [ -z "$added" ]; then
 else
   ok "the rebuild stages: $(printf '%s' "$added" | tr '\n' ' ')"
   ignored="$(sed -n '/paths-ignore:/,/^  [a-z_]*:/p' "$CI" | grep -oE "'[^']+'" | tr -d "'")"
+  # Since 2026-09-21 crossplay-ci.yml is a nightly audit with no push trigger,
+  # so the rebuild's commit starts nothing and there is nothing to ignore. The
+  # pairing below is kept and re-arms by itself if a push trigger returns:
+  # host-tests/ci asserts that it does not, and this is the second half of the
+  # same invariant seen from the emulator's side.
+  ci_triggers="$(sed -n '/^on:/,/^[a-z]/p' "$CI")"
+  case "$ci_triggers" in
+    *"  push:"*) ;;
+    *) ok "crossplay-ci.yml has no push trigger, so the rebuild's commit starts no run to ignore"
+       added="" ;;
+  esac
   for path in $added; do
     match=no
     for pat in $ignored; do

@@ -76,8 +76,9 @@ v1.12.21's release page ran to 20,402 characters and carried six earlier
 releases under "What WAS new in ...".
 
 Neither is written by hand. `scripts_local/release_notes.py` rewrites the block
-in the body and prepends the same block to the history; the autorelease
-workflow commits both. Edit the tooling, not the files -- except the body's
+in the body and prepends the same block to the history; `scripts_local/ship.sh`
+commits both, on Mario's Mac, before the build that ships (the version is
+compiled into the firmware, so the order is load-bearing). Edit the tooling, not the files -- except the body's
 one standing line of links, which is prose and is left alone by the generator.
 `host-tests/release` holds the body to a size ceiling and refuses install steps
 on it; growing it back is a test failure, not a judgement call.
@@ -97,14 +98,16 @@ question REFUSES, naming the path.
 `ships` has three values, not two, because "cut a release" and "put a line on
 the page" are two more questions that were sharing one answer. `yes` is a change
 in the thing a person uses. `quiet` is a change only in how the release was
-packaged -- `.github/workflows/crossplay-release.yml`, the one workflow that
-uploads what anybody downloads. A `quiet` landing cuts a release exactly like a
-`yes` one, and it earns a bullet only if its pull request wrote a `What is new:`
-line, because a build workflow's title is developer prose and the page is read
-by players. `crossplay-ci.yml` asks for that line at pull-request time, so a
-packaging fix is never silently missing from the page it belongs on.
+packaged -- `scripts_local/ship.sh`, the one thing that uploads what anybody
+downloads, and `.github/workflows/crossplay-release.yml` before it was deleted
+on 2026-09-21. A `quiet` landing cuts a release exactly like a `yes` one, and
+it earns a bullet only if its pull request wrote a `What is new:` line, because
+packaging prose is written for developers and the page is read by players. CI
+used to ask for that line at pull-request time; with no pull-request run left
+to ask, the person who knows what changed writes it in the description and
+`release_notes.py` reads it there.
 
-The excluded landings are named in the autorelease job's log and nowhere else.
+The excluded landings are named in ship.sh's output and nowhere else.
 They used to be a trailing bullet -- "Plus 4 changes nothing on the device can
 see." -- which is itself a line a player cannot act on, on a page written for
 players. A sync's notes come from its body, which lists the upstream commit

@@ -24,7 +24,19 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-WF="$ROOT/.github/workflows/crossplay-release.yml"
+# The publisher moved out of GitHub on 2026-09-21. Everything this suite
+# asserts about "what the release publishes" is still true and still worth
+# asserting; it is just asserted against the script that publishes now.
+# crossplay-release.yml rebuilt from cold what the local gate had already
+# built (856s against 113s on Mario's Mac) and then took ten seconds to
+# upload, so the build went and the upload stayed.
+#
+# The packaging invariants that are purely about the command -- merge-bin's
+# three offsets per board, the magic numbers, the firmware.bin literal --
+# also live in host-tests/ship, which mutation-tests them. The overlap is
+# deliberate: this suite reaches further, into README.md, site/index.html
+# and site/api/firmware.js, and those cross-checks are the reason it exists.
+WF="$ROOT/scripts_local/ship.sh"
 PARSER="$ROOT/lib/JsonParser/ReleaseJsonParser.cpp"
 
 checks=0
@@ -94,7 +106,7 @@ fi
 sticky_name="$(grep -A1 'FREEINK_DEVICE_STICKY$' "$TAGH" | grep -oE 'CROSSPOINT_BOARD_NAME "[^"]+"' | sed 's/.*"\(.*\)"/\1/')"
 if [ -z "$sticky_name" ]; then
   bad "cannot find the sticky board name in FirmwareBoardTag.h"
-elif grep -qE "dist/firmware-$sticky_name\.bin( |\"|$)" "$WF"; then
+elif grep -qE "(dist|DIST)[}]?/firmware-$sticky_name\.bin" "$WF"; then
   ok
 else
   bad "the release does not publish 'firmware-$sticky_name.bin', so a Sticky's Check for updates finds nothing"
@@ -763,7 +775,11 @@ else
   # back at docs/release-notes.md would restore the 20,402-character page and
   # every check below would still pass, because the history's newest block does
   # name the version being released.
-  if grep -qE '^ *body_path: *docs/release-body\.md *$' "$WF"; then
+  # `gh release create --notes-file docs/release-body.md`, which is what
+  # softprops/action-gh-release's body_path became when the publisher moved
+  # off GitHub. Same file, same reason: the history would carry every earlier
+  # release onto every page.
+  if grep -qE -- '--notes-file +docs/release-body\.md' "$WF"; then
     ok
   else
     bad "$(basename "$WF") does not publish docs/release-body.md; if it publishes the history, every release page carries every earlier release"
@@ -999,10 +1015,27 @@ fi
 # EXECUTE the step, do not grep it. Four greps for its ingredients passed a
 # version of it ending in `&& false`, which can never fire -- the ingredients
 # were all still there. host-tests/ci runs CI's step text for the same reason.
-GUARD="$(awk '/- name: The tag must be the version being built/{f=1;next}
-              f && /^      - /{exit}
-              f && /run: \|/{g=1;next}
-              g' "$WF")"
+# ship.sh carries it as a plain shell block rather than a yaml step, so the
+# lift is a line range rather than a step name. Still executed, not grepped:
+# four greps for its ingredients once passed a version of it ending in
+# `&& false`, which can never fire, because the ingredients were all there.
+#
+# die() is what ship.sh calls when the pair disagrees, and here it only has to
+# exit non-zero. Stripping the die instead (the first attempt) made the lifted
+# guard ACCEPT a wrong tag, so the check passed for the wrong reason.
+# Anchored on the CODE that starts the guard, not on the wording of the
+# comment above it. The first version anchored on the comment and broke the
+# moment the guard moved sections and its prose was reworded -- a check that
+# depends on a sentence is a check that fails for editorial reasons and
+# passes for none.
+GUARD_BODY="$(awk '/^BUILT="\$\(sed/{f=1}
+                   f && /^run |^# ----|^step /{exit}
+                   f' "$WF")"
+GUARD="die() { return 1; }
+TAG=\"\$GITHUB_REF_NAME\"
+DRY=0
+$GUARD_BODY"
+[ -n "$GUARD_BODY" ] || GUARD=""
 if [ -z "$GUARD" ]; then
   bad "$(basename "$WF") has no tag-versus-version step"
 else
@@ -1052,8 +1085,8 @@ else
   ok
   api_boards="$(grep -oE 'crossplay-\{tag\}-[a-z0-9]+-full\.bin' "$API" \
                 | sed -E 's/^crossplay-\{tag\}-//; s/-full\.bin$//' | sort -u)"
-  wf_boards="$(grep -oE 'crossplay-\$\{GITHUB_REF_NAME\}-[a-z0-9]+-full\.bin' "$WF" \
-               | sed -E 's/^crossplay-\$\{GITHUB_REF_NAME\}-//; s/-full\.bin$//' | sort -u)"
+  wf_boards="$(grep -oE 'crossplay-\$[{]?TAG[}]?-[a-z0-9]+-full\.bin' "$WF" \
+               | sed -E 's/^crossplay-\$[{]?TAG[}]?-//; s/-full\.bin$//' | sort -u)"
   if [ -z "$api_boards" ]; then
     bad "api/firmware.js names no -full.bin image, so the Install button can never download one"
   elif [ "$api_boards" = "$wf_boards" ]; then
@@ -1085,9 +1118,19 @@ fi
 #
 # Splitting the build back into one invocation per device restores it exactly,
 # whether or not the artefacts are named in between.
+# The images come from scripts_local/check.sh now, so the one-invocation rule
+# moved with them, and the reason did not change: `pio run` calls
+# clean_build_dir() once per INVOCATION against the whole .pio/build root and
+# wipes it when compute_project_checksum() differs. This project's pre-scripts
+# write gitignored headers into src/ and lib/ as the build runs, so on a fresh
+# checkout invocation #2 opens by deleting invocation #1's output. That is
+# what broke v1.12.14 and v1.12.15. check.sh already builds every firmware env
+# in one invocation and its own comment says why; this asserts it stays that
+# way, because ship.sh publishes exactly what that invocation left behind.
+GATE="$ROOT/scripts_local/check.sh"
 checks=$((checks + 1))
-runs=$(grep -c "run: pio run -e gh_release" "$WF")
-if [ "$runs" -eq 1 ] && grep -q "pio run -e gh_release_x4pro -e gh_release_sticky" "$WF"; then
+runs=$(grep -cE '^ *(if )?pio run \$unit_args' "$GATE")
+if [ "$runs" -ge 1 ] && grep -q 'BUILD_UNITS="\$BUILD_UNITS \$(printf' "$GATE"; then
   ok
 else
   failed=$((failed + 1))
@@ -1112,7 +1155,7 @@ fi
 # expanded over the loops its own variables come from, and assert separately
 # that the step is ARMED. A guard that prints ::error:: and lets the job carry
 # on is the failure being guarded against, wearing the guard's clothes.
-guard_hits=$(grep -nE '\[ +-f +"?\.pio/build' "$WF" | cut -d: -f1)
+guard_hits=$(grep -nE '\[ +!? *-f +"?\$[{]?IMAGES' "$WF" | cut -d: -f1)
 n_guard=$(printf '%s' "$guard_hits" | grep -c . || true)
 if [ "$n_guard" -eq 0 ]; then
   bad "no step checks that .pio/build still holds the build outputs before the merge steps read them; both builds report SUCCESS when it is empty (v1.12.14, v1.12.15)"
@@ -1122,16 +1165,34 @@ else
   guard="$guard_hits"
 
   # The step that line belongs to, so the arming checks read the right block.
-  step_start=$(awk -v g="$guard" 'NR<=g && /^      - name:/ {n=NR} END {print n+0}' "$WF")
-  step_end=$(awk -v g="$guard" 'NR>g && /^      - name:/ {print NR; exit}' "$WF")
+  # ship.sh has no yaml steps, and the enclosing SECTION is too coarse to ask
+  # this question of: the package section holds several other die() calls, so
+  # disarming the .pio/build guard specifically still left a die in range and
+  # this check passed. Caught by mutation, not by reading.
+  #
+  # So the window is the guard's own branch -- the few lines from the test to
+  # whatever it does about a missing file. A guard that finds the file gone
+  # and then falls through to the merge steps is the v1.12.14 failure exactly.
+  step_start="$guard"
+  step_end=$((guard + 3))
   [ -n "$step_end" ] || step_end=$(wc -l < "$WF")
   step=$(sed -n "${step_start},${step_end}p" "$WF")
 
   # ARMED, part one: it must be able to fail the job at all. `exit 0`, or a
   # flag that is never set to anything, is a guard that reports and shrugs.
+  # `exit $flag` was the yaml spelling. ship.sh calls die(), which prints and
+  # exits 1 immediately -- strictly stronger than collecting a flag and
+  # exiting on it at the end, because it cannot be reached and then ignored.
+  # Either satisfies the thing being asserted: the guard can stop the release.
   exit_var=$(printf '%s\n' "$step" | sed -nE 's/^ *exit +\$\{?([A-Za-z_][A-Za-z0-9_]*)\}? *$/\1/p' | tail -1)
+  if [ -z "$exit_var" ] && printf '%s\n' "$step" | grep -qE '(^| )die '; then exit_var=die; fi
   if [ -z "$exit_var" ]; then
     bad "the on-disk check does not end in 'exit \$<var>', so nothing it finds can fail the release build"
+  elif [ "$exit_var" = die ]; then
+    # die() prints and exits 1 on the spot, so there is no flag to assign and
+    # no later line that could reach the exit with it still zero. That is the
+    # armed-ness this check exists to establish, reached a shorter way.
+    ok
   elif ! printf '%s\n' "$step" | grep -qE "^ *$exit_var=[0-9]*[1-9][0-9]* *$"; then
     bad "the on-disk check exits \$$exit_var but never assigns it a non-zero value, so a missing file cannot fail the release build"
   else
@@ -1185,39 +1246,25 @@ fi
 
 # The release must not be started twice for one tag.
 #
-# crossplay-release.yml triggers on a tag push AND on workflow_dispatch. A tag
-# pushed with GITHUB_TOKEN starts nothing, so autorelease dispatches; a tag
-# pushed with RELEASE_TOKEN starts it, and dispatching as well builds the same
-# tag twice. v1.12.16 did: event=push and event=workflow_dispatch, one second
-# apart, both ~14 minutes, both exiting 0 having raced to publish the same
-# assets. Silent in both directions, which is why it needs asserting.
-checks=$((checks + 1))
-AR="$ROOT/.github/workflows/crossplay-autorelease.yml"
-if ! grep -q "gh workflow run crossplay-release.yml" "$AR"; then
-  ok  # nothing dispatches, so nothing can double up
-elif grep -q "RELEASE_TOKEN != ''" "$AR"; then
-  ok
-else
-  failed=$((failed + 1))
-  echo "FAIL release  crossplay-autorelease.yml dispatches crossplay-release.yml unconditionally; with RELEASE_TOKEN set the tag push starts it too, and the tag builds twice"
-fi
-
-# And the other direction, which is worse. Skipping the dispatch is only safe
-# because the tag push starts the build instead. Remove that trigger and
-# NOTHING starts it: no duplicate, no build, no release, and no error either --
-# strictly worse than the double build this guards against. So the skip and the
-# trigger are asserted together, or the skip is not safe to assert at all.
-checks=$((checks + 1))
-if grep -q "secrets.RELEASE_TOKEN" "$AR"; then
-  if awk '/^on:/,/^jobs:/' "$WF" | grep -q '"v\*"'; then
-    ok
-  else
-    failed=$((failed + 1))
-    echo "FAIL release  autorelease skips its dispatch when RELEASE_TOKEN is set, but crossplay-release.yml has no push trigger on v* tags, so nothing would start the build at all"
-  fi
-else
-  ok
-fi
+# THE DOUBLE-BUILD PAIR RETIRED WITH BOTH WORKFLOWS IT SPANNED.
+#
+# Two checks lived here: that crossplay-autorelease.yml dispatched
+# crossplay-release.yml only when the tag push would not start it, and the
+# other direction, that the tag trigger existed at all so skipping the
+# dispatch was safe. v1.12.16 was built and published twice for want of the
+# first, one second apart, both exiting 0.
+#
+# Both read crossplay-autorelease.yml, and after that file was deleted they
+# did not fail: `grep` on a missing file exits 1, `!` inverts it, and both
+# took the "nothing dispatches, so nothing can double up" arm. Two checks
+# passing for the wrong reason, plus a "No such file or directory" on stderr
+# of every gate run. Found by a cold review, and it is the exact shape this
+# suite warns about elsewhere -- a check satisfied by the ABSENCE of the
+# thing it was asserting.
+#
+# The race is not gone, it moved to this Mac, and the assertion moved with
+# it: ship.sh takes a workspace-wide mkdir lock, asserted above along with
+# its crashed-holder check.
 
 # -- the workflow that PUBLISHES must serialise against itself ----------------
 #
@@ -1235,12 +1282,17 @@ fi
 # lives in a different file from the workflow it protects.
 #
 # Read out of the workflow's own top-level block, not out of any job's.
-CONC="$(awk '/^concurrency:/{f=1;next} /^[a-z]/{f=0} f' "$WF")"
+# The concurrency group became a lock directory when the publisher moved to
+# this Mac. The race did not go away with GitHub -- a dozen sessions share
+# this workspace and any of them can reach ship.sh -- so the assertion moved
+# rather than retired. mkdir is the primitive because macOS ships no
+# flock(1) and a test-then-write is exactly the race being closed.
+CONC="$(grep -E 'LOCK=|mkdir "\$LOCK"|kill -0' "$WF")"
 checks=$((checks + 1))
-GROUP="$(printf '%s\n' "$CONC" | sed -n 's/^ *group: *//p')"
+GROUP="$(printf '%s\n' "$CONC" | sed -n 's/^ *LOCK=//p')"
 if [ -z "$GROUP" ]; then
   failed=$((failed + 1))
-  echo "FAIL release  crossplay-release.yml has no top-level concurrency group, so two starts on one tag build and publish the same release side by side -- which is what v1.12.16 did"
+  echo "FAIL release  ship.sh takes no publish lock, so two sessions can publish the same tag side by side -- which is what v1.12.16 did on GitHub, twice, one second apart, both exiting 0"
 else
   ok
 fi
@@ -1249,31 +1301,41 @@ fi
 # against each other, which is not the problem being solved and would leave a
 # release waiting on an unrelated one.
 checks=$((checks + 1))
+# Outside any one worktree, or it locks nothing: every session has its own
+# wt/<name>/ and a lock under it would be a lock per session, which is the
+# absence of a lock spelled at greater length.
 case "$GROUP" in
   "") : ;;  # already failed above
-  *'github.ref'*) ok ;;
+  *TMPDIR*|*/tmp/*) ok ;;
   *)
     failed=$((failed + 1))
-    echo "FAIL release  crossplay-release.yml's concurrency group ('$GROUP') is not keyed by the ref, so two different tags queue behind each other instead of two runs of the same one"
+    echo "FAIL release  ship.sh's publish lock ('$GROUP') is not outside the worktree, so each session takes its own and two can still publish at once"
     ;;
 esac
+
+# And it must be able to tell a crashed run from a live one, or the first
+# crash leaves a lock nobody dares remove and the next release is blocked on
+# a guess.
+checks=$((checks + 1))
+if printf '%s\n' "$CONC" | grep -q 'kill -0'; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL release  ship.sh's publish lock does not check whether its holder is alive, so a crashed run blocks every later release and nobody can safely tell"
+fi
 
 # And it must not cancel. A publish killed half way leaves a GitHub release
 # carrying some of its assets, and the fleet's updater matches asset names: a
 # release with firmware.bin and no firmware-sticky.bin is not a smaller
 # release, it is a broken one for every Sticky in the field.
-checks=$((checks + 1))
-case "$(printf '%s\n' "$CONC" | sed -n 's/^ *cancel-in-progress: *//p')" in
-  false) ok ;;
-  "")
-    failed=$((failed + 1))
-    echo "FAIL release  crossplay-release.yml does not set cancel-in-progress, and the default cancels: a superseded publish can leave a release with only some of its assets"
-    ;;
-  *)
-    failed=$((failed + 1))
-    echo "FAIL release  crossplay-release.yml cancels its own in-progress publish; a half-uploaded release is worse than a duplicated one"
-    ;;
-esac
+# The cancel-in-progress half of that rule retired with the runner. It said a
+# superseded publish must not be killed mid-upload, leaving a release with
+# some of its assets -- and the fleet's updater matches asset names, so a
+# release with firmware.bin and no firmware-sticky.bin is not a smaller
+# release, it is a broken one for every Sticky in the field. Nothing
+# supersedes a shell script: ship.sh's lock makes the second run WAIT to be
+# told the first is alive, and the crashed-holder check above is what
+# replaced this one.
 
 # -- the shipping binary is built by the toolchain everything else is built by -
 #
@@ -1293,28 +1355,41 @@ esac
 # passing over `pip install platformio`. Strip comments first, then look only
 # at lines that install something.
 INSTALLS="$(sed 's/#.*//' "$WF" | grep -E 'pip +install')"
-ALL_INSTALLS="$(sed 's/#.*//' "$ROOT"/.github/workflows/*.yml | grep -E 'pip +install')"
-
+# The release used to be built on a fresh runner that installed the pinned
+# PlatformIO every time, so the published image came from a known compiler by
+# construction. It is now built by whatever `pio` this Mac has, which drifts
+# silently -- the fork already lost a day to clang-format 22 reformatting 44
+# files that CI's 21 did not. ship.sh therefore compares the two and refuses,
+# and that refusal is what this asserts, in place of the install step.
 checks=$((checks + 1))
-WANT="$(printf '%s\n' "$ALL_INSTALLS" | grep -o 'platformio-core/archive/refs/tags/[^ ]*\.zip' | sort | uniq -c | sort -rn | head -1 | sed 's/^ *[0-9]* *//')"
-if [ -z "$WANT" ]; then
-  failed=$((failed + 1))
-  echo "FAIL release  no workflow in this repository pins platformio-core by tag on an install line, so there is nothing to hold the release build against"
-elif printf '%s\n' "$INSTALLS" | grep -qF "$WANT"; then
+if grep -q 'platformio-core/archive/refs/tags' "$WF" && grep -qE 'pio --version' "$WF"; then
   ok
 else
   failed=$((failed + 1))
-  echo "FAIL release  crossplay-release.yml does not install $WANT, the pinned PlatformIO every other build workflow uses: the image that ships to devices is built by a toolchain nothing else in this repository has verified"
+  echo "FAIL release  ship.sh does not compare this Mac's PlatformIO against the repository's pin. It publishes what the local gate built, so without that check the image a user installs is compiled by whatever version happens to be here and nothing ever says so."
 fi
 
-# And the other direction, because the check above only asks whether the right
-# pin appears SOMEWHERE among the installs. An install of bare `platformio`
-# beside it is still an unpinned toolchain, in whatever spelling: with a flag,
-# without one, quoted, or version-pinned to something else on PyPI.
+# The "crossplay-release.yml installs the pin" check retired with the
+# workflow; what replaced it is the check further up, that ship.sh compares
+# this Mac's PlatformIO against the pin before publishing.
+#
+# THIS half survives and widens. It asks the other direction: nothing may
+# install an UNPINNED platformio, in any spelling -- with a flag, without
+# one, quoted, or version-pinned to something else on PyPI. It used to read
+# the release workflow alone; there is no release workflow, so it reads every
+# remaining workflow AND ship.sh, which is where an install would go now.
+#
+# (An earlier edit left ALL_INSTALLS assigned here with nothing reading it,
+# beside a comment claiming a deleted variable was still in use -- in a suite
+# whose stated principle is that comments describe and only code ships.)
+PIN_SOURCES="$(sed 's/#.*//' "$ROOT"/.github/workflows/*.yml "$WF" 2>/dev/null | grep -E 'pip +install')"
 checks=$((checks + 1))
-if printf '%s\n' "$INSTALLS" | grep -qE 'pip +install +([^|&;]*[[:space:]])?("|'"'"')?platformio("|'"'"')?([=<>!~][^[:space:]]*)?[[:space:]]*$'; then
+if [ -z "$PIN_SOURCES" ]; then
   failed=$((failed + 1))
-  echo "FAIL release  crossplay-release.yml installs PyPI 'platformio' rather than the pioarduino archive; whatever PyPI published most recently would build the release"
+  echo "FAIL release  no 'pip install' line anywhere in the workflows or ship.sh, so this check has no input and cannot fail: the toolchain pin is unasserted rather than correct"
+elif printf '%s\n' "$PIN_SOURCES" | grep -qE 'pip +install +([^|&;]*[[:space:]])?("|'"'"')?platformio("|'"'"')?([=<>!~][^[:space:]]*)?[[:space:]]*$'; then
+  failed=$((failed + 1))
+  echo "FAIL release  something installs PyPI 'platformio' rather than the pioarduino archive; whatever PyPI published most recently would build what ships"
 else
   ok
 fi
