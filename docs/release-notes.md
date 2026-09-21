@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.8
+
+- Notes: lists you tick with one hand
+
 ### 1.13.7
 
 - Count the menu's paint, or every tap on it is dropped
