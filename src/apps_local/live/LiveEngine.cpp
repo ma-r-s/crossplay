@@ -276,12 +276,12 @@ bool checkNow(State& state, bool& imageArrived, std::string& message) {
   return true;
 }
 
-uint32_t onSleep(bool& repaintNeeded) {
+uint32_t onSleep(bool& repaintNeeded, const bool timerFired) {
   repaintNeeded = false;
   State state;
   if (!load(state)) return 0;
 
-  const Decision decision = decide(state.schedule(), nowEpoch());
+  const Decision decision = decide(state.schedule(), nowEpoch(), timerFired);
   if (!decision.fetchNow) return decision.timerSeconds;
 
   // The fetch happens HERE, with the sleep screen already on the glass: the
@@ -298,6 +298,9 @@ uint32_t onSleep(bool& repaintNeeded) {
   // mean a device that just learnt "come back in a week" waking in six hours,
   // and a device that just failed retrying on the old interval -- which is the
   // drain the backoff exists to prevent, defeated on the one path that uses it.
+  // timerFired is deliberately NOT passed here: it described the sleep that
+  // just ended, and this decides the next one. Passing it would make every
+  // timer wake arm a fetch-on-wake regardless of what the reply just said.
   const Decision after = decide(state.schedule(), nowEpoch());
   return after.timerSeconds;
 }

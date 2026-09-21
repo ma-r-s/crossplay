@@ -51,7 +51,7 @@ bool bmpIsComplete(const uint8_t* header, const size_t headerLen, const size_t r
 
 bool clockIsUsable(const int64_t nowEpoch) { return nowEpoch >= kPlausibleEpochFloor; }
 
-Decision decide(const Schedule& schedule, const int64_t nowEpoch) {
+Decision decide(const Schedule& schedule, const int64_t nowEpoch, const bool timerFired) {
   Decision out;
   // Off, or nothing to ask: no timer at all. Not "a long timer" -- a device
   // with Live off must cost what it costs today, and a wake that exists only
@@ -61,11 +61,30 @@ Decision decide(const Schedule& schedule, const int64_t nowEpoch) {
   const uint32_t wait =
       schedule.consecutiveFailures > 0 ? retryDelaySeconds(schedule.consecutiveFailures) : schedule.intervalSeconds;
 
-  // Never asked, or no clock to reason with. Fetch once; the answer carries
-  // X-Server-Time, which sets the clock, so this path runs at most once per
-  // cold boot rather than on every sleep.
-  if (schedule.lastAttemptEpoch <= 0 || !clockIsUsable(nowEpoch)) {
+  // Our own timer ended this sleep, so the refresh it was armed for is due.
+  // No clock is consulted because none is needed.
+  if (timerFired) {
     out.fetchNow = true;
+    out.timerSeconds = wait;
+    return out;
+  }
+
+  // Never asked: due, whatever the clock says.
+  if (schedule.lastAttemptEpoch <= 0) {
+    out.fetchNow = true;
+    out.timerSeconds = wait;
+    return out;
+  }
+
+  // No clock to measure against. One attempt is worth making -- its answer
+  // carries X-Server-Time and sets the clock, which ends this branch for good
+  // -- but only while nothing is failing. In backoff, a device with no clock
+  // would otherwise fetch on every sleep its owner caused, which is the drain
+  // the backoff exists to prevent, bypassed in the one situation that reaches
+  // it. The armed timer still carries the schedule: the RTC counts correctly
+  // with no wall clock at all.
+  if (!clockIsUsable(nowEpoch)) {
+    out.fetchNow = schedule.consecutiveFailures == 0;
     out.timerSeconds = wait;
     return out;
   }

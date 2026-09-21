@@ -136,6 +136,20 @@ struct Decision {
   uint32_t timerSeconds = 0;
 };
 
-Decision decide(const Schedule& schedule, int64_t nowEpoch);
+// `timerFired` is true only on the wake our own RTC timer ended. It is not a
+// special case bolted onto the rule, it IS the rule's other half: the timer was
+// armed for the moment the next refresh comes due, so a wake it caused is due
+// by construction and needs no clock to prove it.
+//
+// That distinction is load-bearing rather than tidy. Live sets its clock from
+// X-Server-Time and nothing else, so a device whose battery went flat comes
+// back with a token, no clock, and no way to measure elapsed time. Without this
+// parameter the no-clock branch had to fetch on EVERY sleep to avoid missing
+// the schedule -- which, on a device that also cannot reach the service, is a
+// fetch every time its owner puts it down, with the backoff bypassed in exactly
+// the situation the backoff exists for. The RTC timer keeps counting correctly
+// with no wall clock at all, so it can carry the schedule on its own and the
+// user's own sleeps can decline.
+Decision decide(const Schedule& schedule, int64_t nowEpoch, bool timerFired = false);
 
 }  // namespace live

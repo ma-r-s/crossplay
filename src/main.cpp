@@ -641,7 +641,7 @@ void setup() {
       // throughout.
       LOG_DBG("MAIN", "Timer wake: checking Live");
       bool timerBroughtSomething = false;
-      const uint32_t nextWake = live::engine::onSleep(timerBroughtSomething);
+      const uint32_t nextWake = live::engine::onSleep(timerBroughtSomething, /*timerFired=*/true);
       if (timerBroughtSomething) {
         // A new message arrived, and drawing it needs the display and the fonts
         // that this path deliberately skipped. Breaking out of the switch lets

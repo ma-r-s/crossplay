@@ -57,7 +57,10 @@ bool checkNow(State& state, bool& imageArrived, std::string& message);
 // failed or empty check NEVER blanks the panel: yesterday's message staying up
 // is the correct failure state, and it is also the only one that looks like a
 // working device from across a kitchen.
-uint32_t onSleep(bool& repaintNeeded);
+// `timerFired` says our own RTC timer ended the sleep that is now over, which
+// main.cpp knows from the wake reason and nothing down here can work out. It is
+// what lets a device with no wall clock keep a schedule: see LiveCore's decide.
+uint32_t onSleep(bool& repaintNeeded, bool timerFired = false);
 
 }  // namespace engine
 }  // namespace live

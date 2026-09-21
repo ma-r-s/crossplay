@@ -254,15 +254,6 @@ static void testDecide() {
     check(d.fetchNow, "a device that never asked is due");
   }
 
-  // No clock: fetch once rather than arm a schedule against 1970. Arming
-  // against a bogus clock is the expensive direction -- every sleep looks
-  // overdue and every sleep spends the radio.
-  {
-    const live::Decision d = live::decide(paired(1789000000, 3600, 0), 50);
-    check(d.fetchNow, "an implausible clock fetches once");
-    checkEq(d.timerSeconds, 3600, "and arms the interval");
-  }
-
   // Failing: the schedule follows the BACKOFF, not the interval. Without this
   // a device with a 15-minute cadence retries every 15 minutes forever, which
   // is exactly the drain the backoff exists to stop.
@@ -274,6 +265,42 @@ static void testDecide() {
   {
     const live::Decision d = live::decide(paired(now - 8 * 3600, 900, 6), now);
     check(d.fetchNow, "the backoff elapsed, so it tries again");
+  }
+
+  // NO CLOCK, which is a device whose battery went flat: it comes back with a
+  // token and no way to measure elapsed time.
+  {
+    // Nothing failing: one attempt is worth making, and its answer sets the
+    // clock, which ends this branch for good.
+    const live::Decision d = live::decide(paired(1789000000, 3600, 0), 50);
+    check(d.fetchNow, "with no clock and nothing failing, it tries once");
+    checkEq(d.timerSeconds, 3600, "and arms the interval");
+  }
+  {
+    // In backoff, it does NOT. This is the drain the backoff exists to
+    // prevent: a device that cannot reach the service and cannot measure time
+    // would otherwise fetch every time its owner put it down.
+    const live::Decision d = live::decide(paired(1789000000, 3600, 4), 50);
+    check(!d.fetchNow, "with no clock and a failure standing, a user's sleep does not fetch");
+    checkEq(d.timerSeconds, 2 * 3600, "but the timer still carries the schedule");
+  }
+  {
+    // And the timer wake fetches regardless, because the timer IS the
+    // schedule. Without this the two rules above would strand a clockless
+    // device in backoff forever: nothing would ever try again.
+    const live::Decision d = live::decide(paired(1789000000, 3600, 4), 50, true);
+    check(d.fetchNow, "the timer wake fetches with no clock and a failure standing");
+  }
+  {
+    const live::Decision d = live::decide(paired(now - 10, 3600, 0), now, true);
+    check(d.fetchNow, "a timer wake is due by construction, even seconds after the last attempt");
+  }
+  {
+    live::Schedule s = paired(now - 10, 3600, 0);
+    s.on = false;
+    const live::Decision d = live::decide(s, now, true);
+    check(!d.fetchNow, "a timer wake with Live off still fetches nothing");
+    checkEq(d.timerSeconds, 0, "and arms nothing");
   }
 
   // A clock that moved backwards past the last attempt. Bounded by the wait, so
