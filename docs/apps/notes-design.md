@@ -78,6 +78,15 @@ deck card uses, then tick boxes down the left, the text beside them, done lines
 struck through in place. The rows answer *which*; the strip answers *how much*,
 which is the question a list exists to answer and the one the rows cannot.
 
+**The strip stands in even air, and it counts its own space once.** It began at
+`kBodyTop`, which meant it carried the body's 36px inset above it, a gutter
+below it, and the first row's own centring under that: a 14px bar inside 90px of
+page, which Mario read as the bar hogging the screen. It now starts one gap
+below the chrome, its rule closes the block, and the rows begin immediately
+under that rule -- because a row is taller than its tick box and already centres
+it, so the row's padding IS the air below. Measured on the render: 32px from the
+chrome down to the bar, 36px from the rule down to the first box.
+
 ADD on the left of the footer, the fork-wide home for a primary action; CLEAR
 DONE only when there is something to clear, and on the RIGHT, so the control
 that removes lines never occupies the pixels ADD had a moment ago.
@@ -149,6 +158,12 @@ is a per-note action that must never become a mode.
   page, which is not minimal, it is unfinished.
 - **A list that does not fit says so.** `"1 / 2"` in the strip above the footer,
   which is the only part of the page otherwise doing nothing.
+- **What is measured must be what is drawn.** `notePageSize` built its own
+  `NoteModel` with only the rows in it, so a page of words was measured with a
+  list's tick-box width and every list was measured against a band the progress
+  strip was not standing in. The capacity came out one row larger than the
+  screen, the page label counted that row and `noteRows` stopped before it, so
+  an item fell between two pages. One `noteModel()` now feeds both.
 - **A done line is struck, not greyed.** Grey is a dither here and a dithered
   flat field ghosts; a rule is one crisp row of pixels.
 - **A ticked item never moves.** Sinking completed items is a full-screen reflow
