@@ -176,10 +176,24 @@ physical presence.
 
 ## The image
 
-480x800, 1-bit, Floyd-Steinberg, exactly 48062 bytes:
-`site/wallpapers/convert.js`, already shared with the firmware's own upload
-page through a symlink at `src/network/html/js/wallconvert.js`. No new format,
-no new validation.
+480x800, made by `site/wallpapers/convert.js` -- already shared with the
+firmware's own upload page through a symlink at
+`src/network/html/js/wallconvert.js`. No new format.
+
+**Not one bit.** The X4 Pro's panel driver declares AbsolutePlanes grayscale and
+`renderCustomSleepScreen` takes the grayscale path, so the device's own format
+is **2bpp four-level, 96070 bytes** (0 = black, 1 = dark gray, 2 = light gray,
+3 = white, which is what `lib/GfxRenderer/Bitmap.cpp` calls NATIVE). The 1-bit
+file (48062 bytes) is the other thing the same reader takes, and it takes 4, 8,
+24 and 32 as well.
+
+So the device does **not** bound the download by a size. `bridge::getToFile`
+enforces a ceiling (`live::kMaxImageBytes`) so a runaway body cannot fill the
+card, and `live::bmpIsComplete` judges what arrived from the BMP's own declared
+length in bytes 2..5. That catches truncation at any depth, including depths
+this firmware has not met -- a constant would have to be revisited every time
+the website learned a new one, and the revision that gets forgotten ships a
+torn picture to a fridge.
 
 ## The sleep screen
 
@@ -200,8 +214,32 @@ several days it says so outright.
   rendered side by side; Mario picked the combined tile and the centred stack,
   and both macros went with the losers in the shipping commit.
 - The Live screen itself: the pairing code, the address, the QR, and the paired
-  half (next check, how often, who can send, and the three controls). Static
-  stubs still -- no website, no pairing, nothing persisted.
+  half (next check, how often, who can send, and the three controls).
+- **The engine, in `src/apps_local/live/`, and it is no longer a stub.** The
+  screen mints a real code from `fridge.ma-r-s.com`, polls until a browser
+  claims it, stores the device token on the card and pulls the image onto the
+  sleep screen. `LiveCore` is the arithmetic with no card, radio or panel in it
+  (interval clamp, capped backoff, clock floor, ETag, image completeness, the
+  wake rule) and `host-tests/live` walks all of it. `LiveBridge` is the three
+  calls, over `bridge::request` rather than `HttpDownloader` -- the latter calls
+  `setInsecure()` on every device build. `LiveStore` is the card. `LiveEngine`
+  is the radio and the wake.
+- `bridge::Headers` and `bridge::getToFile` are new, because the whole design
+  rests on two headers the transport could neither send nor read: If-None-Match
+  out, `X-Next-Wake` back. `getToFile` opens its destination lazily, so a 304
+  never touches the card at all.
+- The wake rule, in one function: on every sleep, if a refresh is due, fetch it;
+  otherwise arm the timer for when it will be. The sleep screen is painted
+  first and the fetch runs behind it, so pressing power never waits on the
+  radio, and the panel is repainted only when an image actually arrived. **Live
+  off arms no timer at all**, so a device with it off costs what it cost before
+  any of this existed.
+- Live yields the radio to everyone. A connection already up is used as it
+  stands; Developer Mode holding it means Live does not join at all.
+- End-to-end against the running service, not mocked: code drawn on the panel,
+  claimed from a shell, device paired, image PUT, image pulled (200 + ETag +
+  `X-Next-Wake`), second check 304 with the card's mtime unchanged, four greys
+  on the sleep screen. `qa-artifacts/live-e2e/`.
 - The hint strip says when Live is the sleep screen ("Your phone is your sleep
   screen."). It sits third in the strip's order, below the sleep-screen note and
   the free-space advisory (both are news, and a standing line that outranked

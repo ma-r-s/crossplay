@@ -768,7 +768,16 @@ fui::Rect buildLiveStackPaired(toybox::Screen& screen, const LiveModel& model) {
   y = static_cast<int16_t>(y + toybox::kGutter);
   drawOutlineButton(screen, fui::makeRect(body.x, y, body.width, kButtonH), "ADD SOMEBODY", ActionLiveAdd);
 
-  drawFoot(screen, body, kLiveFoot);
+  // The status takes the FOOT's line when there is one, rather than a line of
+  // its own. This stack is laid out against a measured height and an inserted
+  // row pushes the last control off the bottom; the foot is already one fitted
+  // sentence in the one place a short report belongs.
+  //
+  // It has to be drawn somewhere. CHECK NOW's honest answer is usually
+  // "nothing new", and on this panel a control that reports nothing and a
+  // touch that was dropped look exactly alike -- which is the confusion the
+  // Live tile was logged for before this screen existed.
+  drawFoot(screen, body, (model.status != nullptr && model.status[0] != '\0') ? model.status : kLiveFoot);
   return fui::makeRect(0, 0, 0, 0);
 }
 

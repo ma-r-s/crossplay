@@ -2338,6 +2338,8 @@ void WallpapersActivity::render(RenderLock&&) {
     // yet, and the status line under it says so.
     model.code = liveCode_.empty() ? kLiveCode : liveCode_.c_str();
     model.url = kLiveHost;
+    // Set once, for both halves: buildLive picks the paired or the unpaired
+    // stack and each has its own line for this.
     model.status = liveStatus_.empty() ? nullptr : liveStatus_.c_str();
     model.nextCheck = liveNextCheck_.c_str();
     model.cadence = liveCadence_.c_str();
