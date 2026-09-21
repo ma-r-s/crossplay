@@ -335,10 +335,16 @@ void NotesActivity::askNewName() {
       return;
     }
     std::string message;
+    // Timed for the same reason the add is: "making a note took a while" is a
+    // report nobody can act on without a number, and creating one is usually
+    // the FIRST write of a session, which is where a per-write precondition
+    // hides.
+    const uint32_t startedAt = millis();
     if (!library_.create(entered.text, message)) {
       showNotice(message);
       return;
     }
+    LOG_DBG("NOTES", "create: %ums", millis() - startedAt);
     // Straight into the note that was just made. Naming one and then having to
     // find it in the deck is a step nobody asked for.
     const std::string made = notes::Library::sanitise(entered.text);

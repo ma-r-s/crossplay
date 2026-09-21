@@ -109,7 +109,15 @@ locked_pio() {
 
 if [ "$DO_BUILD" = "1" ]; then
   echo "building $ENV_NAME_FW ..."
-  locked_pio >/dev/null || { echo "build failed" >&2; exit 1; }
+  # KEPT, not discarded. This used to be >/dev/null, so a compile error printed
+  # "build failed" and nothing else, and finding out WHICH line meant running
+  # the build again by hand through another script.
+  FLASH_LOG="${TMPDIR:-/tmp}/xteink-usbflash-$ENV_NAME_FW.log"
+  if ! locked_pio >"$FLASH_LOG" 2>&1; then
+    echo "build failed; the last errors follow, and the whole log is $FLASH_LOG" >&2
+    grep -E "error:|Error " "$FLASH_LOG" | head -20 >&2
+    exit 1
+  fi
 fi
 
 IMAGE="$REPO/.pio/build/$ENV_NAME_FW/firmware.bin"
