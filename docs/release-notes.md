@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.7
+
+- Count the menu's paint, or every tap on it is dropped
+
 ### 1.13.6
 
 - The reader's toolbar panel no longer sizes its bottom sheet with a row gap the renderer does not use, which left a six-row panel 30px shorter than its own contents on every touch board.
