@@ -14,6 +14,9 @@
 // sleep screen wears a thick border; a tap on any cell makes that one the sleep
 // screen.
 
+#include <string>
+#include <string_view>
+
 #include "../ui/ToyboxScreen.h"
 
 namespace wallpapersui {
@@ -339,7 +342,34 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model);
 // ---------------------------------------------------------------------------
 // LIVE: where the grid's "Your phone" tile goes.
 //
-// A sleep screen fed from a website. Somebody opens fridge.ma-r-s.com on their
+// THE LIVE PAGE'S ADDRESS, AND THE ONLY PLACE IT IS WRITTEN.
+//
+// The panel PRINTS this in words and the QR ENCODES it with the code on the
+// end. Both halves are on screen at once, next to each other, because a QR
+// tells a person nothing and a phone that will not scan leaves the typed
+// address as the only way in -- so the two must never name different hosts.
+// Two copies of a URL is exactly how one of them goes on pointing at last
+// month's host with nothing on screen showing it, which is why the Activity
+// asks liveLink() rather than assembling a second one beside the constant.
+//
+// The page is part of the CrossPlay site (site/live/); the service it talks to
+// is fridge.ma-r-s.com and the reader never sends anybody there.
+constexpr const char* kLiveAddress = "crossplay.ma-r-s.com/live/";
+constexpr const char* kLiveCodeParam = "?c=";
+
+// The address with a code on it, ready to encode. Takes the code in either
+// spelling -- the raw six digits from the service or the grouped "482 160" the
+// panel prints -- because the screen holds only the grouped one and a link
+// carrying a space is a link that does not open.
+inline std::string liveLink(std::string_view code) {
+  std::string out = std::string("https://") + kLiveAddress + kLiveCodeParam;
+  for (const char c : code) {
+    if (c != ' ') out.push_back(c);
+  }
+  return out;
+}
+
+// A sleep screen fed from a website. Somebody opens the Live page on their
 // phone, sends a drawing or a photo, and the reader shows it. The reader PULLS
 // on a schedule and is asleep the rest of the time, so there is no connection
 // to report and no "now" to show: this screen's whole job is to say when the
@@ -374,7 +404,7 @@ struct LiveModel {
   // split buildAdd draws (a QR tells a person nothing, and the address in words
   // is the only thing to fall back on when a phone will not scan).
   const char* code = "";  // six digits, grouped so they can be read aloud
-  const char* url = "";   // "fridge.ma-r-s.com" -- drawn, never encoded
+  const char* url = "";   // kLiveAddress -- drawn in words, never encoded here
   // What the device is doing right now. Both halves of this screen have ONE
   // line for it and neither gains a row: unpaired it replaces "Code lasts ten
   // minutes." under the address, paired it replaces the foot's "BACK RETURNS".

@@ -1,0 +1,334 @@
+/* The class display rules below beat the UA [hidden] rule on equal
+   specificity, so hidden toggles need this to actually hide. It has bitten
+   this page's pairing step and its Write box once each already. */
+[hidden] {
+  display: none !important;
+}
+
+/* Live, page-scoped. Leans on styles.css for the palette, the type and the
+   topbar, exactly as /wallpapers/ and /wikipedia/ do; only what is particular
+   to drawing a note for somebody else's reader lives here. Paper and ink, 3px
+   controls, Jersey 25 and Instrument Serif.
+
+   The service this talks to is on another host (fridge.ma-r-s.com) and has no
+   page of its own. */
+
+.lv-main {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 3rem) var(--gutter) 5rem;
+}
+
+.lv-head {
+  margin-bottom: 2rem;
+}
+.lv-title {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(2.2rem, 6vw, 3.6rem);
+  line-height: 1.02;
+  margin: 0.2rem 0 0.6rem;
+}
+.lv-lede {
+  font-size: 1.05rem;
+  color: var(--muted);
+  max-width: 42rem;
+  margin: 0;
+}
+
+/* --- connecting ----------------------------------------------------------
+ * One field, not six boxes: six fight paste, one-time-code autofill and anyone
+ * typing quickly, because each box must hand focus on before the next
+ * keystroke lands.
+ */
+.lv-gate {
+  border: 3px solid var(--ink);
+  background: var(--paper-2);
+  padding: clamp(1.25rem, 4vw, 2rem);
+  max-width: 30rem;
+}
+.lv-gate h2 {
+  font-family: var(--display);
+  letter-spacing: 0.03em;
+  font-size: 1.5rem;
+  margin: 0 0 0.6rem;
+}
+.lv-gate p {
+  margin: 0 0 1.1rem;
+  color: var(--muted);
+}
+.lv-code {
+  width: 100%;
+  height: 3.6rem;
+  text-align: center;
+  font-family: var(--display);
+  font-size: 2.1rem;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  border: 3px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+}
+/* styles.css gives .cta-row 2.2rem of air, which is right under a hero and far
+   too much between a six-digit box and the button that sends it. The error line
+   above keeps its height whether or not it has words in it, so a refusal does
+   not shove the button down the page as you read it. */
+.lv-gate .cta-row {
+  margin-top: 0.9rem;
+}
+.lv-gate-fine {
+  margin: 1rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* --- when they will see it ----------------------------------------------
+ * The first thing anybody came to find out, so it is the biggest thing on the
+ * page and it is set in the serif the hero uses.
+ */
+.lv-when {
+  border: 3px solid var(--ink);
+  padding: clamp(1.1rem, 3vw, 1.6rem);
+  margin-bottom: clamp(1.25rem, 3vw, 2rem);
+  text-align: center;
+}
+.lv-when-line {
+  font-family: var(--serif);
+  font-size: clamp(1.5rem, 4.5vw, 2.4rem);
+  line-height: 1.1;
+  margin: 0;
+}
+.lv-when-sub {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+/* Past its window. Loud enough to notice, never an error: a reader that has
+   not checked in is not a fault, it is a reader out of Wi-Fi. */
+.lv-stale {
+  font-style: italic;
+}
+
+/* --- the working area ---------------------------------------------------- */
+.lv-work {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: clamp(1.25rem, 3vw, 2.5rem);
+  align-items: start;
+}
+@media (min-width: 860px) {
+  .lv-work {
+    grid-template-columns: auto 1fr;
+  }
+}
+
+.lv-panel {
+  justify-self: center;
+}
+.lv-frame {
+  border: 3px solid var(--ink);
+  background: var(--paper-2);
+  padding: 0.9rem;
+  display: inline-block;
+  line-height: 0;
+}
+/* ONE SURFACE. The canvas backing store IS the panel: 480x800 at two bits,
+   the same bytes the reader reads. Nothing here previews anything. */
+.lv-stage {
+  position: relative;
+  width: min(300px, 78vw);
+  aspect-ratio: 480 / 800;
+  overflow: hidden;
+  background: #fff;
+  touch-action: none;
+}
+.lv-stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+/* The nib, at the size it will actually mark. A row of numbers cannot tell you
+   how big "medium" is on a 480x800 panel; a circle the size of the mark can. */
+.lv-nib {
+  position: absolute;
+  border: 1px solid #888;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  display: none;
+  mix-blend-mode: difference;
+}
+.lv-stage:hover .lv-nib {
+  display: block;
+}
+.lv-cap {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.6rem 0 0;
+}
+
+/* --- the three ways in --------------------------------------------------- */
+.lv-tabs {
+  display: flex;
+  border: 3px solid var(--ink);
+  margin-bottom: 1.1rem;
+  overflow: hidden;
+}
+.lv-tabs button {
+  appearance: none;
+  border: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-family: var(--display);
+  letter-spacing: 0.03em;
+  font-size: 1.1rem;
+  padding: 0.5rem 1rem;
+  flex: 1;
+  cursor: pointer;
+}
+.lv-tabs button + button {
+  border-left: 3px solid var(--ink);
+}
+.lv-tabs button[aria-selected="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.lv-ctl-title {
+  font-family: var(--display);
+  font-size: 1.05rem;
+  letter-spacing: 0.03em;
+  margin: 0 0 0.5rem;
+  text-transform: uppercase;
+}
+.lv-field {
+  display: block;
+  margin: 1.2rem 0 0;
+}
+.lv-field > span {
+  display: block;
+  font-family: var(--display);
+  font-size: 1.05rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin: 0 0 0.5rem;
+}
+.lv-field select,
+.lv-field textarea,
+.lv-field input[type="file"] {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 3px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  border-radius: 0;
+}
+.lv-field textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.lv-tools {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 1rem;
+}
+.lv-btn {
+  appearance: none;
+  font: inherit;
+  font-family: var(--display);
+  letter-spacing: 0.03em;
+  font-size: 1.05rem;
+  padding: 0.45rem 1rem;
+  border: 3px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+.lv-btn.is-primary {
+  background: var(--ink);
+  color: var(--paper);
+  flex: 1;
+  padding: 0.7rem 1.4rem;
+  font-size: 1.2rem;
+}
+.lv-btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* .lv-btn.lv-tone, not .lv-tone: at equal specificity the later rule wins and
+   .lv-btn's padding squeezes the swatch canvas to a few pixels wide. */
+.lv-btn.lv-tone {
+  flex: none;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+}
+.lv-btn.lv-tone canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+.lv-btn.lv-size {
+  flex: none;
+  border-radius: 50%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.lv-btn.lv-size i {
+  display: block;
+  background: var(--ink);
+  border-radius: 50%;
+}
+.lv-btn[aria-pressed="true"] {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+.lv-swatches {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex: none;
+}
+
+.lv-send {
+  margin-top: 1.5rem;
+  display: flex;
+  gap: 0.75rem;
+}
+.lv-note {
+  margin: 0.7rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  min-height: 1.3em;
+}
+.lv-error {
+  color: #a11;
+  font-weight: 600;
+  margin: 0.6rem 0 0;
+  min-height: 1.3em;
+}
+:root[data-theme="dark"] .lv-error,
+:root:not([data-theme="light"]) .lv-error {
+  color: #f2a; /* readable on the dark paper */
+}
+
+.lv-foot {
+  margin-top: 3rem;
+  border-top: 3px solid var(--ink);
+  padding-top: 1.5rem;
+  max-width: 48rem;
+  color: var(--muted);
+}

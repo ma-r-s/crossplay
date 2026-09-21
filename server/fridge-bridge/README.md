@@ -1,7 +1,12 @@
 # fridge-bridge
 
-`fridge.ma-r-s.com` -- Live. Somebody draws a note on their phone; a reader
-asleep on a fridge in another country shows it in the morning.
+`fridge.ma-r-s.com` -- Live, **the API and nothing else**. Somebody draws a
+note on their phone; a reader asleep on a fridge in another country shows it in
+the morning.
+
+The page they draw on is `crossplay.ma-r-s.com/live/`, in `site/live/`, set in
+the CrossPlay site's own stylesheet and chrome. This host serves no page: it
+served one for a while and it shared nothing with the site.
 
 Runs on the Orange Pi at `/srv/fridgebridge`, behind a Cloudflare Tunnel, same
 shape as `read-bridge` and `study-bridge`. Its own subnet (172.31.87.0/24) and
@@ -41,8 +46,25 @@ The browser, cookie:
 |---|---|
 | `POST /api/claim` | six digits in, a sender cookie out |
 | `GET /api/state` | last check-in, interval, next expected |
-| `PUT /api/image` | exactly 48062 bytes |
+| `PUT /api/image` | exactly 48062 or 96070 bytes |
 | `PUT /api/interval` | 15 minutes to a week |
+
+## Two hosts, one domain
+
+The page is on `crossplay.ma-r-s.com` and this is on `fridge.ma-r-s.com`. Both
+sit under `ma-r-s.com`, which is what makes the split work rather than merely
+look tidy:
+
+- the sender cookie is set with `domain=.ma-r-s.com`, so it is **first-party**
+  for both names and Safari's third-party cookie blocking never touches it;
+- `SameSite=Lax` is kept. SameSite is decided by the registrable domain and not
+  by the origin, so the page's XHR to this host is same-site and carries the
+  cookie. Measured in a browser on the deployed pair;
+- CORS allows **exactly `https://crossplay.ma-r-s.com`, with credentials**. Not
+  a wildcard: the spec refuses `*` the moment credentials are included, and a
+  list of origins would be a list of sites allowed to draw on someone's reader.
+
+The reader is not a browser, sends no `Origin` and is unaffected by any of it.
 
 ## Six digits, not eight letters
 

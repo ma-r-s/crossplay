@@ -10,6 +10,14 @@ this site has. Without it the Install button is untestable off Vercel: it fails
 at the download with a 404 from the static handler, which looks exactly like a
 broken endpoint and is only a missing one.
 
+It also PROXIES every other /api/ path to the Live service
+(https://fridge.ma-r-s.com, or $LIVE_API). In production /live/ calls that host
+directly and the sender cookie rides along because both names sit under
+ma-r-s.com; from localhost the two are cross-SITE, the Lax cookie is never
+sent, and the page reports "not connected" with nothing in the console to say
+why. The proxy makes the local page same-origin with the API so the journey can
+be driven for real. Reached with /live/?local.
+
 Dev only: with INBOX_FIXTURE set to a JSON file, POST /api/inbox is answered
 from that file whatever the passphrase (op `list` returns its `list` object,
 `numbers` its `numbers` object, `answer` says {ok: true} and changes nothing).
@@ -60,13 +68,79 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.split("?")[0] == "/api/board-config":
             self.serve_board_config()
             return
+        if self.live_path():
+            self.proxy_live()
+            return
         super().do_GET()
 
     def do_POST(self):
         if self.path.split("?")[0] == "/api/inbox":
             self.serve_inbox()
             return
+        if self.live_path():
+            self.proxy_live()
+            return
         self.fail(404, "Nothing answers POST here.")
+
+    def do_PUT(self):
+        if self.live_path():
+            self.proxy_live()
+            return
+        self.fail(404, "Nothing answers PUT here.")
+
+    # /live/ talks to fridge.ma-r-s.com, which is a DIFFERENT HOST in
+    # production and is same-origin with nothing here. Locally it is reached
+    # through this proxy, because the alternative does not work and looks like
+    # a bug when it fails: a page on localhost is CROSS-SITE with
+    # fridge.ma-r-s.com, so the sender cookie -- SameSite=Lax, which is right
+    # and stays right between two ma-r-s.com subdomains -- is not sent at all,
+    # and every call comes back "not connected" with nothing in the console.
+    # Through the proxy the page is same-origin with the API and the journey
+    # can be driven for real. Reached with /live/?local; see live.js.
+    LIVE_ORIGIN = os.environ.get("LIVE_API", "https://fridge.ma-r-s.com")
+
+    def live_path(self):
+        return self.path.split("?")[0].startswith("/api/") and not self.path.split("?")[0] in (
+            "/api/firmware",
+            "/api/board-config",
+            "/api/inbox",
+        )
+
+    def proxy_live(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        payload = self.rfile.read(length) if length else None
+        req = urllib.request.Request(self.LIVE_ORIGIN + self.path, data=payload, method=self.command)
+        # Cloudflare answers urllib's default agent with its own 1010 page, which
+        # arrives as a 403 that looks exactly like the service refusing the call.
+        req.add_header("User-Agent", self.headers.get("User-Agent") or "Mozilla/5.0 (crossplay dev proxy)")
+        for header in ("Content-Type", "Cookie", "Authorization", "If-None-Match"):
+            if self.headers.get(header):
+                req.add_header(header, self.headers[header])
+        try:
+            with urllib.request.urlopen(req, timeout=20) as answer:
+                status, headers, body = answer.status, answer.headers, answer.read()
+        except urllib.error.HTTPError as err:
+            status, headers, body = err.code, err.headers, err.read()
+        except urllib.error.URLError as err:
+            self.fail(502, f"{self.LIVE_ORIGIN} could not be reached: {err}")
+            return
+        self.send_response(status)
+        for key, value in headers.items():
+            if key.lower() == "set-cookie":
+                # The service scopes the cookie to .ma-r-s.com, and a browser
+                # REFUSES a cookie whose Domain does not cover the host that
+                # set it -- which localhost does not. Dropped here so the local
+                # page keeps its session; production sets it unchanged.
+                value = "; ".join(
+                    part for part in value.split("; ") if not part.lower().startswith("domain=")
+                )
+                self.send_header(key, value)
+            elif key.lower() not in ("transfer-encoding", "content-encoding", "connection", "content-length"):
+                self.send_header(key, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
 
     def serve_inbox(self):
         # Mirrors api/inbox.js only in shape. The real function checks a

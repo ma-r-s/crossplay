@@ -1,7 +1,19 @@
-"""fridge.ma-r-s.com -- Live.
+"""fridge.ma-r-s.com -- Live, the API and nothing else.
 
 Somebody draws a note on their phone; a reader asleep on a fridge in another
 country shows it in the morning. This service is the only thing between them.
+
+NO PAGE LIVES HERE. What people open is crossplay.ma-r-s.com/live/, part of the
+CrossPlay site and set in its stylesheet, its bar and its type. This host served
+both for a while and the page was a design orphan: it shared nothing with the
+site and drifted further every time the site changed.
+
+TWO HOSTS, ONE REGISTRABLE DOMAIN, which is what makes the split safe rather
+than merely tidy. The sender cookie is scoped to `.ma-r-s.com`, so it is
+FIRST-party for both names and Safari's third-party cookie blocking -- which
+would otherwise end this on an iPhone -- never applies to it. SameSite is
+decided by site and not by origin, so Lax is still delivered on an XHR from one
+subdomain to the other. See claim() for both, and CORS below for who may ask.
 
 THE READER IS ASLEEP AND UNREACHABLE. Nothing here ever pushes, polls or opens
 a connection to a device: deep sleep drops the radio and the USB, so a sleeping
@@ -18,12 +30,11 @@ the free plan covers ma-r-s.com and *.ma-r-s.com and nothing deeper, and the
 reader's baked root bundle carries the chain that edge serves.
 """
 
-import os
 import time
 
 from fastapi import Cookie, FastAPI, Header, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from . import store
 from .pairing import Pairings, token_hash
@@ -31,6 +42,25 @@ from .ratelimit import Window
 
 app = FastAPI(title="Live", docs_url=None, redoc_url=None, openapi_url=None)
 PAIRINGS = Pairings()
+
+# The one page allowed to call this service from a browser, and the domain the
+# cookie is written for.
+SITE_ORIGIN = "https://crossplay.ma-r-s.com"
+COOKIE_DOMAIN = ".ma-r-s.com"
+
+# EXACTLY ONE ORIGIN, WITH CREDENTIALS. A wildcard could not carry a cookie even
+# if it were wanted -- the spec refuses "*" the moment credentials are included
+# -- and a list of origins is a list of sites allowed to draw on somebody's
+# reader. The reader is not a browser, sends no Origin and is unaffected by any
+# of this; only the page is.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[SITE_ORIGIN],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_headers=["content-type"],
+    max_age=600,
+)
 
 # Copied in spirit from read-bridge's table. The claim limits are the ones that
 # matter here: a six-digit code is a million, so the caps are what makes
@@ -226,6 +256,25 @@ async def claim(request: Request) -> JSONResponse:
     # claim returned 200, the page believed it had connected, and every later
     # request arrived with no cookie at all. No error anywhere.
     proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    # SCOPED TO THE WHOLE DOMAIN, because the page and this service are two
+    # names under it. Without `domain` the cookie belongs to fridge.ma-r-s.com
+    # alone; the page on crossplay.ma-r-s.com is then a third-party context to
+    # it and Safari drops it outright, which means the claim returns 200, the
+    # page believes it is connected, and every request after it arrives
+    # anonymous with nothing anywhere saying why. With it the cookie is
+    # first-party for both names.
+    #
+    # SameSite stays Lax and Lax is enough: SameSite is decided by the
+    # REGISTRABLE DOMAIN, not the origin, so crossplay.ma-r-s.com calling
+    # fridge.ma-r-s.com is same-site and the cookie rides the XHR. None would
+    # buy nothing here and would offer the cookie to every other site on earth.
+    # Measured in a browser against the deployed pair, not reasoned about.
+    #
+    # The domain is attached only under ma-r-s.com. A browser REFUSES a cookie
+    # whose Domain does not cover the host that set it, so hardcoding it would
+    # make every local run silently cookie-less -- the same failure `secure`
+    # had, one attribute over.
+    host = (request.headers.get("host") or "").split(":")[0]
     resp.set_cookie(
         "live_sender",
         got["sender_token"],
@@ -233,6 +282,7 @@ async def claim(request: Request) -> JSONResponse:
         httponly=True,
         samesite="lax",
         secure=(proto == "https"),
+        domain=COOKIE_DOMAIN if host.endswith("ma-r-s.com") else None,
     )
     return resp
 
@@ -295,30 +345,7 @@ async def put_interval(request: Request, live_sender: str = Cookie(default=None)
     return JSONResponse({"ok": True, "nextExpected": fridge.next_expected()})
 
 
-# The page lives on the same host as the API on purpose: one name to remember,
-# one certificate, and no CORS between the thing you draw on and the thing that
-# stores it.
-STATIC = os.path.join(os.path.dirname(__file__), "..", "static")
-
-
-@app.get("/p/{code}")
-def pair_link(code: str) -> Response:
-    """The address the reader's QR points at.
-
-    The reader draws a QR of https://<host>/p/<code>, so this is the path an
-    actual person walks: point a phone at the screen, land here, and the code
-    is already filled in. Typing it on the front page is the fallback for
-    somebody who was read the digits down a telephone.
-
-    It serves the page itself rather than redirecting, so the code survives in
-    the address bar and a reload does not lose it. Registered BEFORE the static
-    mount, which otherwise swallows every path.
-    """
-    # Not validated here. A wrong code gets the service's own refusal from
-    # /api/claim, in the service's own words, on the screen the person is
-    # already looking at -- better than a 404 that tells them nothing about
-    # what to do next.
-    return FileResponse(os.path.join(STATIC, "index.html"), media_type="text/html")
-
-
-app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
+# No static mount and no page route: every path this service answers is under
+# /api/ (plus /healthz). The reader's QR encodes the page's own address on the
+# site -- wallpapersui::kLiveAddress, which is also the line the panel prints --
+# so nothing walks through this host to reach it.
