@@ -22,6 +22,8 @@ constexpr int kMaxNotes = 120;
 // by who PAYS when the card fills: the reader's own caches and Study's review
 // log, which loses answers silently rather than refusing. See
 // preconditions-protect-another-app.
+constexpr const char* kFullMessage = "The card is nearly full, so nothing was saved.";
+constexpr const char* kRefusedMessage = "The card would not take the change.";
 constexpr uint64_t kCardFloorBytes = 12ull * 1024 * 1024;
 
 // A note is one screen of text that a person typed on a phone keyboard or a
@@ -191,26 +193,30 @@ bool Library::load(const std::string& name, std::string& doc) const {
   return true;
 }
 
-bool Library::save(const std::string& name, const std::string& doc, std::string& message, const bool growing) {
+// Asked ONLY after a write has failed. The walk is slow (5.3s on the desk
+// device) and every millisecond of it used to land between OK and the next
+// keystroke; here it buys an accurate sentence on a path that has already gone
+// wrong, which is the only place it is worth paying for.
+bool Library::cardIsFull() const {
   uint64_t free = 0;
-  const bool queried = growing && Storage.freeBytes(free);
-  // "Could not answer" is not "no space": a volume that cannot report is not a
-  // reason to refuse a 200-byte write, and treating it as one would make the
-  // app unusable on a card that merely walks its FAT slowly.
-  if (queried && free < kCardFloorBytes) {
-    message = "The card is nearly full, so nothing was saved.";
-    return false;
-  }
+  // "Could not answer" is not "no space".
+  if (!Storage.freeBytes(free)) return false;
+  return free < kCardFloorBytes;
+}
+
+bool Library::save(const std::string& name, const std::string& doc, std::string& message) {
+  // No free-space probe on the way in. The write is the test: it either lands
+  // or it does not, and the card only has to be interrogated in the second case.
 
   const std::string part = partPathFor(name);
   {
     HalFile file;
     if (!Storage.openFileForWrite("NOTES", part, file)) {
-      message = "The card would not take the change.";
+      message = cardIsFull() ? kFullMessage : kRefusedMessage;
       return false;
     }
     if (!doc.empty() && file.write(doc.data(), doc.size()) != static_cast<int>(doc.size())) {
-      message = "The card would not take the change.";
+      message = cardIsFull() ? kFullMessage : kRefusedMessage;
       Storage.remove(part.c_str());
       return false;
     }
@@ -220,7 +226,7 @@ bool Library::save(const std::string& name, const std::string& doc, std::string&
   const std::string real = pathFor(name);
   Storage.remove(real.c_str());
   if (!Storage.rename(part.c_str(), real.c_str())) {
-    message = "The card would not take the change.";
+    message = cardIsFull() ? kFullMessage : kRefusedMessage;
     Storage.remove(part.c_str());
     return false;
   }
@@ -260,7 +266,7 @@ bool Library::rename(const std::string& from, const std::string& to, std::string
     return false;
   }
   if (!Storage.rename(pathFor(from).c_str(), pathFor(clean).c_str())) {
-    message = "The card would not take the change.";
+    message = cardIsFull() ? kFullMessage : kRefusedMessage;
     return false;
   }
   for (Entry& entry : entries_) {

@@ -68,6 +68,10 @@ class NotesActivity final : public Activity {
   void startPhone();
   void stopPhone();
   void reloadNote();
+  // The rows, from the document ALREADY IN RAM. reloadNote() re-reads the file
+  // off the card first, which is right after somebody else wrote it and pure
+  // cost right after we did.
+  void refreshFromDoc();
   void rebuildRows();
   bool anyDone() const;
   bool nameFitsBand(const std::string& name);
