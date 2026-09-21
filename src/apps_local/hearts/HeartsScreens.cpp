@@ -485,7 +485,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
     // bare +1 printed "TRICK 14/13". Clamped rather than special-cased: the
     // last trick stays on screen as the thirteenth while it is being read.
     const int shown = game.trickNumber >= kTricks ? kTricks : game.trickNumber + 1;
-    char trick[24];
+    char trick[32];  // "TRICK %d/%d" can print 30 with a hostile int
     std::snprintf(trick, sizeof(trick), "TRICK %d/%d", shown, kTricks);
     label(screen, fui::makeRect(felt.x + 18, static_cast<int16_t>(felt.y + 12), 160, 28), trick, toybox::kButtonCut,
           toybox::kSmallFont, fui::TextAlign::Left, false);
@@ -543,7 +543,11 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
 
-  const int16_t top = kHeaderBand + 26;
+  // FROM THE CHROME, NOT THE BAND. kHeaderBand is the black bar alone; the rule
+  // under it and the fork's gutter are 19px more, so a screen measuring from
+  // the band lands inside its own chrome. kTableTop already derives it and
+  // host-tests/chromeguard fails any screen that spells the band instead.
+  const int16_t top = static_cast<int16_t>(kTableTop + 10);
   const int16_t footH = 68;
   const int16_t footY = static_cast<int16_t>(kScreenH - kHandBottomMargin - footH);
   const int16_t colW = 372;
@@ -651,7 +655,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   how.value = ButtonHowTo;
   how.styles = knockedOutStyles();
   how.borderEdges = fui::EdgesNone;
-  screen.button(how, fui::makeRect(kScreenW - 152, 8, 136, static_cast<int16_t>(kHeaderBand - 16)));
+  const int16_t howY = 8;
+  const int16_t howH = static_cast<int16_t>(toybox::headerBandRect(screen).height - howY * 2);
+  screen.button(how, fui::makeRect(kScreenW - 152, howY, 136, howH));
 
   fui::ButtonProps play;
   play.label = model.hasSave ? "RESUME" : "PLAY";
@@ -706,7 +712,7 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
 
-  const int16_t top = kHeaderBand + 20;
+  const int16_t top = static_cast<int16_t>(kTableTop + 4);
   const int16_t footH = 68;
   const int16_t footY = static_cast<int16_t>(kScreenH - kHandBottomMargin - footH);
 
@@ -887,7 +893,9 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   menu.value = ButtonMenu;
   menu.styles = knockedOutStyles();
   menu.borderEdges = fui::EdgesNone;
-  screen.button(menu, fui::makeRect(kScreenW - 122, 8, 106, static_cast<int16_t>(kHeaderBand - 16)));
+  const int16_t menuY = 8;
+  const int16_t menuH = static_cast<int16_t>(toybox::headerBandRect(screen).height - menuY * 2);
+  screen.button(menu, fui::makeRect(kScreenW - 122, menuY, 106, menuH));
 
   // The rule, on the one screen where it decides how you feel about the numbers
   // above it. Hearts is the wrong way round from most games and a player two
@@ -1100,7 +1108,7 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const int16_t markX = static_cast<int16_t>((kScreenW - markSpan) / 2);
   for (int i = 0; i < kHowToCount; ++i) {
     const fui::Rect mark = fui::makeRect(static_cast<int16_t>(markX + i * (markW + markGap)), markY, markW, 34);
-    char n[4];
+    char n[12];  // "%d" can print 12
     std::snprintf(n, sizeof(n), "%d", i + 1);
     if (i == page) {
       target.fill(mark, black, 8);

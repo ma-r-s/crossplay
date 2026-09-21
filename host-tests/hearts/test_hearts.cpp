@@ -654,6 +654,10 @@ int main() {
   testConsistency();
   testSoak();
 
-  std::printf("hearts: %d checks, %d failures\n", gChecks, gFailures);
+  // "failed", not "failures": check.sh counts sub-suites by grepping for
+  // "checks, 0 failed", so this suite RAN, PASSED, and was left out of the
+  // "ok (N sub-suite(s))" tally -- and a suite nobody notices is missing
+  // looks exactly like one that was never added.
+  std::printf("hearts: %d checks, %d failed\n", gChecks, gFailures);
   return gFailures == 0 ? 0 : 1;
 }
