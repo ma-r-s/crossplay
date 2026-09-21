@@ -805,106 +805,139 @@ int main() {
       model.on = state == 1;
       const std::string where = std::string(" [state ") + std::to_string(state) + "]";
 
-      LiveTarget target(model.configured);
-      toybox::Interactions interactions;
-      toybox::Frame frame(target, ctx, noInput, interactions);
-      toybox::Screen screen(frame);
-      const fui::Rect qr = wallpapersui::buildLive(screen, model);
+      // EVERY fixed status sentence goes through the same checks below, plus
+      // the standing lines (si == -1, status = nullptr).
+      //
+      // Walked from the ENUM rather than a list written here, so a status added
+      // to the screen without being added to this test is impossible: the loop
+      // runs to kCount and a value with no sentence comes back empty, which
+      // fails on the spot.
+      //
+      // The status is ONE fitted row in both halves -- under the address while
+      // a code is up, the foot's row once there is not -- and at these cuts an
+      // overflowing sentence neither clips nor ellipsises. It stops somewhere
+      // plausible and the screenshot looks fine. One shipped in this screen's
+      // first paired render: "A new message is on your sleep screen." arrived
+      // as "A new message is on your sleep...".
+      for (int si = -1; si < static_cast<int>(wallpapersui::LiveStatus::kCount); ++si) {
+        const char* statusLine =
+            si < 0 ? nullptr : wallpapersui::liveStatusLine(static_cast<wallpapersui::LiveStatus>(si));
+        if (si >= 0) {
+          check(statusLine != nullptr && statusLine[0] != '\0',
+                "LiveStatus " + std::to_string(si) + " has no sentence, so the screen would report nothing" + where);
+        }
+        model.status = statusLine;
 
-      // 1. EVERY RUN ARRIVES WHOLE. fitLines lays the string out in the box it
-      //    was given, with its own line budget, in the face that will draw it;
-      //    anything it has to cut comes back different from what went in. This
-      //    is the assertion the three truncations would each have failed.
-      for (const LiveTarget::Run& run : target.runs) {
-        const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
-        const std::string laid = toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style);
-        check(laid == run.text, "the panel cuts \"" + run.text + "\" to \"" + laid + "\" in a " +
-                                    std::to_string(run.box.width) + "px box" + where);
-        // AND IT WAS NOT ALREADY CUT WHEN IT GOT HERE, which the check above
-        // cannot see and which is the more common failure by far. drawFitted and
-        // drawFoot both run their string through the ladder first, and when the
-        // ladder has no rung left it falls through to fitLines and hands text()
-        // an ELLIPSISED string -- which then fits its box perfectly. Asserting
-        // only that what was drawn fits is a test that shares the bug: the first
-        // version of this block stayed green with "This code works for ten..."
-        // on the panel. Nothing on this screen legitimately ends in an ellipsis.
-        check(run.text.size() < 3 || run.text.compare(run.text.size() - 3, 3, "...") != 0,
-              "\"" + run.text + "\" reached the panel already cut to fit" + where);
-        check(run.box.x >= panelRect.x && run.box.x + run.box.width <= panelRect.width,
-              "a text box runs off the side of the panel" + where);
-        check(run.box.y >= panelRect.y && run.box.y + run.box.height <= panelRect.height,
-              "a text box runs off the bottom of the panel" + where);
-      }
+        LiveTarget target(model.configured);
+        toybox::Interactions interactions;
+        toybox::Frame frame(target, ctx, noInput, interactions);
+        toybox::Screen screen(frame);
+        const fui::Rect qr = wallpapersui::buildLive(screen, model);
 
-      // 2. THE STRINGS THAT MATTER REACHED IT AT ALL. A run that fits is not a
-      //    run that happened: an arrangement that forgot to draw the code would
-      //    pass every check above.
-      const auto drew = [&target](const std::string& want) {
-        for (const LiveTarget::Run& run : target.runs) {
-          if (run.text == want) return true;
-        }
-        return false;
-      };
-      if (!model.configured) {
-        check(drew(model.code), "the pairing code is not on the unpaired screen" + where);
-        check(drew(std::string(model.url)), "the address in words is not on the unpaired screen" + where);
-        check(qr.width >= 132 && qr.height >= 132,
-              "the QR square is under four module pixels a side, which does not scan" + where);
-        check(qr.x >= 0 && qr.y >= 0 && qr.x + qr.width <= panelRect.width && qr.y + qr.height <= panelRect.height,
-              "the QR square runs off the panel" + where);
-        // Never above: the code is what a person reads down a telephone, and a
-        // QR over it makes the screen look like something to scan instead.
-        for (const LiveTarget::Run& run : target.runs) {
-          if (run.text != model.code) continue;
-          check(qr.y >= run.box.y, "the QR sits above the code" + where);
-        }
-        // And nothing is drawn ON it.
-        for (const LiveTarget::Run& run : target.runs) {
-          check(!overlaps(run.box, qr), "\"" + run.text + "\" is drawn over the QR" + where);
-        }
-      } else {
-        check(qr.width == 0 && qr.height == 0, "the paired screen asked for a QR it has no code for" + where);
-        for (int i = 0; i < model.senderCount; ++i) {
-          check(drew(std::string(model.senders[i].who)),
-                std::string("sender \"") + model.senders[i].who + "\" is not on the screen" + where);
-          check(drew(std::string(model.senders[i].since)),
-                std::string("sender \"") + model.senders[i].who + "\" has no date beside them" + where);
-        }
-        check(drew(model.nextCheck), "the next check is not on the paired screen" + where);
-        check(drew(model.cadence), "how often is not on the paired screen" + where);
-        // The state and its control, read from one bool in two places.
-        check(drew(model.on ? "LIVE IS ON" : "LIVE IS OFF"),
-              "the paired screen does not say whether Live is on" + where);
-        check(drew(model.on ? "TURN IT OFF" : "TURN IT ON"),
-              "the toggle offers the state the screen is already in" + where);
-
-        // 3. THE CONTROLS ARE TAPPABLE, not merely drawn. A button registered
-        //    at no rect is a dead control, which is what ActionAddOwn was on the
-        //    offer screen for a whole release ("nothing calls it").
-        const fui::ActionId wanted[3] = {wallpapersui::ActionLiveToggle, wallpapersui::ActionLiveCheck,
-                                         wallpapersui::ActionLiveAdd};
-        fui::Rect hits[3] = {};
-        for (int i = 0; i < 3; ++i) {
-          for (size_t h = 0; h < interactions.count(); ++h) {
-            if (interactions.data()[h].action == wanted[i]) hits[i] = interactions.data()[h].rect;
+        if (statusLine != nullptr) {
+          bool reported = false;
+          for (const LiveTarget::Run& run : target.runs) {
+            if (run.text == statusLine) reported = true;
           }
-          check(hits[i].width > 0 && hits[i].height >= ctx.minTouchSize,
-                "Live control " + std::to_string(i) + " is drawn but not tappable" + where);
-          check(hits[i].x >= 0 && hits[i].y >= 0 && hits[i].x + hits[i].width <= panelRect.width &&
-                    hits[i].y + hits[i].height <= panelRect.height,
-                "Live control " + std::to_string(i) + " is registered off the panel" + where);
+          check(reported, std::string("the status \"") + statusLine +
+                              "\" reached no line on this screen, so nothing would report it" + where);
         }
-        // And no two of them share a pixel. None is destructive, but a control
-        // whose rect covers another's is a control you cannot press.
-        for (int i = 0; i < 3; ++i) {
-          for (int j = i + 1; j < 3; ++j) {
-            check(!overlaps(hits[i], hits[j]),
-                  "Live controls " + std::to_string(i) + " and " + std::to_string(j) + " overlap" + where);
+
+        // 1. EVERY RUN ARRIVES WHOLE. fitLines lays the string out in the box it
+        //    was given, with its own line budget, in the face that will draw it;
+        //    anything it has to cut comes back different from what went in. This
+        //    is the assertion the three truncations would each have failed.
+        for (const LiveTarget::Run& run : target.runs) {
+          const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+          const std::string laid = toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style);
+          check(laid == run.text, "the panel cuts \"" + run.text + "\" to \"" + laid + "\" in a " +
+                                      std::to_string(run.box.width) + "px box" + where);
+          // AND IT WAS NOT ALREADY CUT WHEN IT GOT HERE, which the check above
+          // cannot see and which is the more common failure by far. drawFitted and
+          // drawFoot both run their string through the ladder first, and when the
+          // ladder has no rung left it falls through to fitLines and hands text()
+          // an ELLIPSISED string -- which then fits its box perfectly. Asserting
+          // only that what was drawn fits is a test that shares the bug: the first
+          // version of this block stayed green with "This code works for ten..."
+          // on the panel. Nothing on this screen legitimately ends in an ellipsis.
+          check(run.text.size() < 3 || run.text.compare(run.text.size() - 3, 3, "...") != 0,
+                "\"" + run.text + "\" reached the panel already cut to fit" + where);
+          check(run.box.x >= panelRect.x && run.box.x + run.box.width <= panelRect.width,
+                "a text box runs off the side of the panel" + where);
+          check(run.box.y >= panelRect.y && run.box.y + run.box.height <= panelRect.height,
+                "a text box runs off the bottom of the panel" + where);
+        }
+
+        // 2. THE STRINGS THAT MATTER REACHED IT AT ALL. A run that fits is not a
+        //    run that happened: an arrangement that forgot to draw the code would
+        //    pass every check above.
+        const auto drew = [&target](const std::string& want) {
+          for (const LiveTarget::Run& run : target.runs) {
+            if (run.text == want) return true;
+          }
+          return false;
+        };
+        if (!model.configured) {
+          check(drew(model.code), "the pairing code is not on the unpaired screen" + where);
+          check(drew(std::string(model.url)), "the address in words is not on the unpaired screen" + where);
+          check(qr.width >= 132 && qr.height >= 132,
+                "the QR square is under four module pixels a side, which does not scan" + where);
+          check(qr.x >= 0 && qr.y >= 0 && qr.x + qr.width <= panelRect.width && qr.y + qr.height <= panelRect.height,
+                "the QR square runs off the panel" + where);
+          // Never above: the code is what a person reads down a telephone, and a
+          // QR over it makes the screen look like something to scan instead.
+          for (const LiveTarget::Run& run : target.runs) {
+            if (run.text != model.code) continue;
+            check(qr.y >= run.box.y, "the QR sits above the code" + where);
+          }
+          // And nothing is drawn ON it.
+          for (const LiveTarget::Run& run : target.runs) {
+            check(!overlaps(run.box, qr), "\"" + run.text + "\" is drawn over the QR" + where);
+          }
+        } else {
+          check(qr.width == 0 && qr.height == 0, "the paired screen asked for a QR it has no code for" + where);
+          for (int i = 0; i < model.senderCount; ++i) {
+            check(drew(std::string(model.senders[i].who)),
+                  std::string("sender \"") + model.senders[i].who + "\" is not on the screen" + where);
+            check(drew(std::string(model.senders[i].since)),
+                  std::string("sender \"") + model.senders[i].who + "\" has no date beside them" + where);
+          }
+          check(drew(model.nextCheck), "the next check is not on the paired screen" + where);
+          check(drew(model.cadence), "how often is not on the paired screen" + where);
+          // The state and its control, read from one bool in two places.
+          check(drew(model.on ? "LIVE IS ON" : "LIVE IS OFF"),
+                "the paired screen does not say whether Live is on" + where);
+          check(drew(model.on ? "TURN IT OFF" : "TURN IT ON"),
+                "the toggle offers the state the screen is already in" + where);
+
+          // 3. THE CONTROLS ARE TAPPABLE, not merely drawn. A button registered
+          //    at no rect is a dead control, which is what ActionAddOwn was on the
+          //    offer screen for a whole release ("nothing calls it").
+          const fui::ActionId wanted[3] = {wallpapersui::ActionLiveToggle, wallpapersui::ActionLiveCheck,
+                                           wallpapersui::ActionLiveAdd};
+          fui::Rect hits[3] = {};
+          for (int i = 0; i < 3; ++i) {
+            for (size_t h = 0; h < interactions.count(); ++h) {
+              if (interactions.data()[h].action == wanted[i]) hits[i] = interactions.data()[h].rect;
+            }
+            check(hits[i].width > 0 && hits[i].height >= ctx.minTouchSize,
+                  "Live control " + std::to_string(i) + " is drawn but not tappable" + where);
+            check(hits[i].x >= 0 && hits[i].y >= 0 && hits[i].x + hits[i].width <= panelRect.width &&
+                      hits[i].y + hits[i].height <= panelRect.height,
+                  "Live control " + std::to_string(i) + " is registered off the panel" + where);
+          }
+          // And no two of them share a pixel. None is destructive, but a control
+          // whose rect covers another's is a control you cannot press.
+          for (int i = 0; i < 3; ++i) {
+            for (int j = i + 1; j < 3; ++j) {
+              check(!overlaps(hits[i], hits[j]),
+                    "Live controls " + std::to_string(i) + " and " + std::to_string(j) + " overlap" + where);
+            }
           }
         }
+        check(interactions.count() <= toybox::kMaxInteractions,
+              "the Live screen overflows the interaction table" + where);
       }
-      check(interactions.count() <= toybox::kMaxInteractions,
-            "the Live screen overflows the interaction table" + where);
     }
   }
 

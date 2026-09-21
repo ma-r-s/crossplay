@@ -383,6 +383,34 @@ struct LiveModel {
   int senderCount = 0;
 };
 
+// Every FIXED sentence the Live screen can put in its one status line.
+//
+// Enumerated rather than written at the call sites, because this screen's
+// characteristic defect is a sentence that STOPS: the Toybox cuts above
+// toybox_10 carry no U+2026, so an overflowing line ends at a plausible-looking
+// place and the screenshot looks fine. Three shipped into this screen's first
+// three renders. host-tests/wallcaption lays every one of these out in the box
+// and the face that will draw it and fails if any comes back cut -- which it
+// can only do if they are reachable from a test, and a literal typed inside the
+// Activity is not.
+//
+// A sentence the SERVICE sends is not in here and cannot be: surfacing a
+// server's refusal verbatim is a rule, and the device does not get to invent
+// its own wording for a decision somebody else made. Those are fitted at draw
+// time like any other unbounded string.
+enum class LiveStatus : uint8_t {
+  AskingForCode,
+  WaitingForPhone,
+  Connected,
+  Checking,
+  NothingNew,
+  NewMessage,
+  SharingNotReady,
+  Disconnected,
+  kCount,
+};
+const char* liveStatusLine(LiveStatus status);
+
 // Returns the square the Activity must draw the QR into, empty when this state
 // has none. Same contract as buildAdd, for the same reason.
 fui::Rect buildLive(toybox::Screen& screen, const LiveModel& model);

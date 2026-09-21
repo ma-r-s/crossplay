@@ -576,6 +576,26 @@ bool WallpapersActivity::commitSelection(const std::vector<std::string>& want) {
     Storage.remove(wallpapers::kActiveMarker);
   }
 
+  // Live and a chosen wallpaper are mutually exclusive, and this is where that
+  // stops being a sentence in the design doc.
+  //
+  // Both write /sleep.bmp. Left on, Live would overwrite the picture the user
+  // just tapped at its next wake -- a picker that marks a wallpaper the device
+  // then does not show, which is card #354 exactly, arriving a few hours late
+  // and therefore looking like nothing the picker did. So choosing a wallpaper
+  // turns Live OFF, and the strip says so.
+  //
+  // The TOKEN is kept. Turning Live off is not disconnecting the phone, and
+  // making the owner re-pair down a telephone because they liked a wallpaper
+  // for an afternoon would be a punishment for using the app.
+  if (!want.empty() && liveState_.on) {
+    liveState_.on = false;
+    liveRunning_ = false;
+    liveStatus_.clear();
+    live::save(liveState_);
+    LOG_INF("WALL", "a wallpaper was chosen, so Live is off; its pairing is kept");
+  }
+
   // Nothing chosen leaves the sleep mode alone. It is still CUSTOM with no file,
   // which falls through to the user's own /sleep and then to the default screen
   // -- and reverting a mode the user may have set deliberately, because they
@@ -1371,6 +1391,11 @@ void WallpapersActivity::renderPreview() {
 void WallpapersActivity::openLive() {
   view_ = View::Live;
   interactionsReady_ = false;
+  // Nothing has happened on this visit yet. Without this the screen opens
+  // carrying the last visit's report -- and after a wallpaper was chosen in
+  // between, "A new message arrived." is a sentence about a sleep screen that
+  // now belongs to something else.
+  liveStatus_.clear();
   // A reader with no phone yet needs a code, and a code is a network round
   // trip. QUEUED rather than called: the screen is painted first with "Asking
   // Live for a code.", and the request runs from loop() behind it. Called here
@@ -1378,7 +1403,7 @@ void WallpapersActivity::openLive() {
   // is the one thing a silent screen is reliably mistaken for.
   if (!liveState_.paired() && livePollToken_.empty()) {
     liveCode_.clear();
-    liveStatus_ = "Asking Live for a code.";
+    liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::AskingForCode);
     livePairQueued_ = true;
   }
   requestUpdate();
@@ -1404,7 +1429,7 @@ void WallpapersActivity::startLivePairing() {
   // copy points at the previous code the moment this one changes, and nothing
   // on the screen would show it (derived-facts-written-as-literals).
   liveQrLink_ = std::string("https://") + kLiveHost + "/p/" + start.code;
-  liveStatus_ = "Waiting for a phone.";
+  liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::WaitingForPhone);
   livePollAt_ = millis() + 3000;
   requestUpdate();
 }
@@ -1434,7 +1459,7 @@ void WallpapersActivity::pollLivePairing() {
   liveRunning_ = true;
   live::save(liveState_);
   applyLiveSleepSettings();
-  liveStatus_ = "Connected. Asking for your first message.";
+  liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Connected);
   // And fetch immediately, from loop(). The first thing a person does after
   // pairing is look at the screen.
   liveCheckQueued_ = true;
@@ -1451,15 +1476,21 @@ void WallpapersActivity::runLiveCheck() {
     // half of this screen is the honest thing to draw, and the sentence says
     // why rather than leaving a code to appear from nowhere.
     liveRunning_ = liveState_.on && liveState_.paired();
-    liveStatus_ = message;
     if (!liveState_.paired()) {
+      // The 401 path. Its own sentence is a full one and this line is a single
+      // fitted row, so the SHORT enumerated form is what the panel gets; the
+      // long one is already in the log. Every other failure keeps the message
+      // it came with, including a service's verbatim refusal.
+      liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Disconnected);
       liveCode_.clear();
       livePairQueued_ = true;
+    } else {
+      liveStatus_ = message;
     }
   } else if (arrived) {
-    liveStatus_ = "A new message is on your sleep screen.";
+    liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::NewMessage);
   } else {
-    liveStatus_ = "Checked. Nothing new yet.";
+    liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::NothingNew);
   }
   refreshLiveLines();
   interactionsReady_ = false;
@@ -1478,7 +1509,18 @@ void WallpapersActivity::toggleLive() {
   // this). Turning it OFF changes nothing: the setting belongs to whatever
   // owns the sleep screen next, and a toggle that reached over and reset it
   // would undo a wallpaper the user chose afterwards.
-  if (liveRunning_) applyLiveSleepSettings();
+  if (liveRunning_) {
+    applyLiveSleepSettings();
+    // The other half of the same exclusivity. /wallpapers/.active is what makes
+    // a tile wear the marker and what makes the grid say a wallpaper is on the
+    // sleep screen; Live is about to overwrite /sleep.bmp, so leaving the
+    // marker would have the picker assert something Live has just made false.
+    // The wallpaper FILES are untouched -- only the claim goes.
+    Storage.remove(wallpapers::kActiveMarker);
+    clearShuffleDir();
+    chosen_.clear();
+    loadSelection();
+  }
   refreshLiveLines();
   interactionsReady_ = false;
   requestUpdate();
@@ -2040,7 +2082,7 @@ void WallpapersActivity::loop() {
         // QUEUED, not run. This blocks on the radio for seconds and pumps no
         // input while it does; running it inside route() is the #306 family
         // this app has already been bitten by twice.
-        liveStatus_ = "Asking Live now.";
+        liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Checking);
         liveCheckQueued_ = true;
         interactionsReady_ = false;
         requestUpdate();
@@ -2052,7 +2094,7 @@ void WallpapersActivity::loop() {
         // disconnect the phone already sending. Logged rather than silent,
         // because on hardware a tap that does nothing and a touch that was
         // dropped look exactly alike.
-        liveStatus_ = "Sharing this reader with somebody else is not ready yet.";
+        liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::SharingNotReady);
         LOG_INF("WALL", "Live + Add tapped; the service has no second-sender endpoint");
         interactionsReady_ = false;
         requestUpdate();

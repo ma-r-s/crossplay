@@ -59,9 +59,5 @@ bool checkNow(State& state, bool& imageArrived, std::string& message);
 // working device from across a kitchen.
 uint32_t onSleep(bool& repaintNeeded);
 
-// True when Live currently owns the sleep screen, so callers outside this app
-// (the wallpaper picker, mainly) can tell whether /sleep.bmp is theirs.
-bool ownsSleepScreen();
-
 }  // namespace engine
 }  // namespace live

@@ -172,12 +172,6 @@ bool commitImage() {
 
 }  // namespace
 
-bool ownsSleepScreen() {
-  State state;
-  if (!load(state)) return false;
-  return state.on && state.paired();
-}
-
 bool checkNow(State& state, bool& imageArrived, std::string& message) {
   imageArrived = false;
   message.clear();

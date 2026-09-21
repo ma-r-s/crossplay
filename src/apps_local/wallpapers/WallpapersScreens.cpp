@@ -827,6 +827,33 @@ fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
 
 }  // namespace
 
+const char* liveStatusLine(const LiveStatus status) {
+  // Short on purpose. This line is ONE fitted row in both halves of the screen
+  // -- under the address when unpaired, the foot's row when paired -- and the
+  // longest of these is what sizes them all.
+  switch (status) {
+    case LiveStatus::AskingForCode:
+      return "Asking for a code.";
+    case LiveStatus::WaitingForPhone:
+      return "Waiting for a phone.";
+    case LiveStatus::Connected:
+      return "Connected. Fetching.";
+    case LiveStatus::Checking:
+      return "Asking Live now.";
+    case LiveStatus::NothingNew:
+      return "Checked. Nothing new.";
+    case LiveStatus::NewMessage:
+      return "A new message arrived.";
+    case LiveStatus::SharingNotReady:
+      return "Sharing is not ready yet.";
+    case LiveStatus::Disconnected:
+      return "Disconnected. Set up again.";
+    case LiveStatus::kCount:
+      break;
+  }
+  return "";
+}
+
 fui::Rect buildLive(toybox::Screen& screen, const LiveModel& model) {
   // The band says LIVE in both states. It is the shortest true name for the
   // destination and it fits the display cut with room, which "YOUR PHONE" does
