@@ -119,7 +119,12 @@ fui::TextStyle onPaper(fui::TextStyle style, fui::TextAlign align, uint8_t maxLi
 // fork's finger target and the reason the offer is not a 30px strip.
 constexpr int16_t kButtonH = 64;
 
-void drawButton(toybox::Screen& screen, const fui::Rect& box, const char* label, const fui::ActionId action) {
+// `hit` defaults to the drawn box and differs in exactly one place: the Live
+// revoke confirm's KEEP, whose hit rect has to cover the whole strip the sender
+// rows occupied while its INK stays a button. Drawing what it hits would put a
+// 276px slab of solid black on an e-ink panel -- slow to refresh, and it ghosts.
+void drawButton(toybox::Screen& screen, const fui::Rect& box, const char* label, const fui::ActionId action,
+                const fui::Rect* hit = nullptr) {
   screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
   fui::TextStyle style = screen.theme().smallText;
   style.align = fui::TextAlign::Center;
@@ -131,7 +136,7 @@ void drawButton(toybox::Screen& screen, const fui::Rect& box, const char* label,
   // unfitted label in a narrow button is cut rather than shrunk. Labels that
   // already fit are untouched -- fitting only ever goes down.
   screen.target().text(box, toybox::fittedTitle(screen.target(), label, box.width, style).c_str(), style);
-  screen.frame().hit(box, action);
+  screen.frame().hit(hit == nullptr ? box : *hit, action);
 }
 
 // The same finger target as drawButton, stroked rather than filled: a control
@@ -615,6 +620,17 @@ namespace {
 // are cut to: short enough that the narrowest box any arrangement puts it in
 // still takes all of it.
 constexpr const char* kLiveWhat = "Send a picture from your phone, or keep it Live so more arrive on their own.";
+// The SAME box, for a code that means the opposite thing.
+//
+// Both halves of this screen show six digits under the word LIVE, and only this
+// sentence says which of the two is on the panel: one makes a fridge, the other
+// adds a phone to the one that already exists. It lives in the PROSE rather
+// than the line under it because that line is the status, and during a join the
+// status is always saying something ("Asking for a code to share.", "Waiting
+// for a phone.") -- a note put there would be a note nobody ever sees. The
+// person who needs this is the one about to worry they are replacing the
+// message already on the glass.
+constexpr const char* kLiveJoinWhat = "Give this code to somebody else. They will be able to send pictures too.";
 // The ten-minute note is a LINE OF THE BODY and not the footer. It went in the
 // footer first, where it drew as "CODE LASTS 10 MINUTES,..." -- drawFoot fits to
 // one line and on this face set there is no cut below reading_serif_14 to step
@@ -625,6 +641,36 @@ constexpr const char* kLiveFoot = "BACK RETURNS";
 constexpr const char* kLiveSenders = "WHO CAN SEND";
 constexpr const char* kLiveNextLabel = "NEXT CHECK";
 constexpr const char* kLiveEveryLabel = "HOW OFTEN";
+// Half of the label row, so both of these are fitted to a box of their own and
+// neither can be drawn through the other.
+constexpr const char* kLiveRemoveHint = "TAP TO REMOVE";
+// Two sentences, not one: the first says what the screen is, the second is what
+// keeps it from reading as a broken screen. A reader that has just had its last
+// phone removed is in exactly this state and nothing is wrong with it.
+constexpr const char* kLiveNobody = "Nobody can send to this reader. The picture on the screen stays.";
+// The confirm's headline and its two labels. THEM, not IT: the wallpaper
+// confirm removes a file and this one removes a person's access, and the
+// pronoun is the only thing on the screen that says which kind of thing is
+// about to happen.
+constexpr const char* kLiveRevokeTitle = "REMOVE A PHONE";
+constexpr const char* kLiveRevokeKeep = "KEEP THEM";
+constexpr const char* kLiveRevokeGo = "REMOVE THEM";
+constexpr const char* kLiveRevokeFoot = "BACK KEEPS THEM";
+// What it costs, and every clause of it is a fact somebody standing at the
+// reader cannot otherwise know. They are not told: the service sends nothing.
+// It cannot be undone from here: there is no un-revoke call. The way back is a
+// new code, which needs somebody at this reader again -- and the person losing
+// access is in another country, which is the whole reason revoking lives on the
+// device at all.
+//
+// THREE LINES, and that is the budget rather than a style choice. The prose box
+// runs from under the name down to KEEP, and KEEP is the list's own band -- so
+// the room here is whatever the band leaves, which is 124px at the prose cut.
+// The first version of this sentence was four lines and arrived as "...means a
+// new", with the clause about how to undo it missing: the fact a person most
+// needs before pressing REMOVE was the fact that fell off.
+constexpr const char* kLiveRevokeWhy =
+    "They stop being able to send. Nobody tells them, and coming back needs a new code.";
 
 // QrUtils pins version 4 for every payload under 114 bytes, so this screen's
 // code is 33 modules whatever the link says. A side that is a whole multiple of
@@ -681,28 +727,50 @@ bool sendersStack(toybox::Screen& screen, const int16_t width, const LiveModel& 
   return false;
 }
 
-int16_t drawSender(toybox::Screen& screen, const fui::Rect& row, const LiveModel::Sender& sender, const bool stacked) {
-  if (sender.who == nullptr) return 0;
+// The height of ONE row, and it is the same for every row on every list.
+//
+// It does not depend on the names, on how many there are, or on whether they
+// stack, for three reasons that all point the same way: the confirm has to be
+// able to place KEEP from an index alone (RevokeModel carries no list), the
+// reserved band must not change shape as phones come and go
+// (same-pixel-different-action), and a row is a CONTROL now -- the 22px the
+// prose cut needs is half a finger, and a 22px target is a control that misses.
+// So it is the tallest thing a row can draw, floored at minTouchSize.
+int16_t senderRowHeight(toybox::Screen& screen) {
+  const int16_t drawn = static_cast<int16_t>(screen.target().lineHeight(kLiveProseSlot) +
+                                             screen.target().lineHeight(fui::FONT_SLOT_SMALL));
+  const int16_t floor = screen.frame().device().minTouchSize;
+  return drawn > floor ? drawn : floor;
+}
+
+void drawSender(toybox::Screen& screen, const fui::Rect& row, const LiveModel::Sender& sender, const bool stacked) {
+  if (sender.who == nullptr) return;
   const fui::TextStyle prose = liveCut(screen, kLiveProseSlot, fui::TextAlign::Left);
   const int16_t lineH = screen.target().lineHeight(kLiveProseSlot);
+  const int16_t sinceH = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
   const int16_t sinceW =
       sender.since == nullptr ? 0 : screen.target().measureText(prose.font, sender.since, prose).width;
+  // Centred in the row rather than pinned to its top. The row is sized for the
+  // stacked case and floored at a finger, so an unstacked name pinned to row.y
+  // would sit against the name above it with all the slack below -- a list
+  // whose rows look like pairs.
+  const int16_t drawn = static_cast<int16_t>(stacked ? lineH + sinceH : lineH);
+  int16_t y = static_cast<int16_t>(row.y + (row.height - drawn) / 2);
+  if (y < row.y) y = row.y;
 
   if (!stacked) {
-    drawFitted(screen, fui::makeRect(row.x, row.y, static_cast<int16_t>(row.width - sinceW - toybox::kMargin), lineH),
+    drawFitted(screen, fui::makeRect(row.x, y, static_cast<int16_t>(row.width - sinceW - toybox::kMargin), lineH),
                sender.who, prose);
-    drawFitted(screen, fui::makeRect(static_cast<int16_t>(row.right() - sinceW), row.y, sinceW, lineH), sender.since,
+    drawFitted(screen, fui::makeRect(static_cast<int16_t>(row.right() - sinceW), y, sinceW, lineH), sender.since,
                liveCut(screen, kLiveProseSlot, fui::TextAlign::Right));
-    return lineH;
+    return;
   }
   // Stacked. The date takes the button cut under the name rather than the prose
   // one beside it: smaller says "about the line above" on a face set with no
   // second colour to say it with.
-  drawFitted(screen, fui::makeRect(row.x, row.y, row.width, lineH), sender.who, prose);
-  const int16_t sinceH = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
-  drawFitted(screen, fui::makeRect(row.x, static_cast<int16_t>(row.y + lineH), row.width, sinceH), sender.since,
+  drawFitted(screen, fui::makeRect(row.x, y, row.width, lineH), sender.who, prose);
+  drawFitted(screen, fui::makeRect(row.x, static_cast<int16_t>(y + lineH), row.width, sinceH), sender.since,
              liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Left));
-  return static_cast<int16_t>(lineH + sinceH);
 }
 
 // "LIVE IS ON" / "LIVE IS OFF", and the label of the control that changes it.
@@ -716,57 +784,168 @@ void liveRule(toybox::Screen& screen, const int16_t x, const int16_t y, const in
   screen.target().fill(fui::makeRect(x, y, width, toybox::kRule), fui::Paint::solid(fui::Color::Black));
 }
 
+// ONE arithmetic for the paired screen, read by three things that must not
+// disagree: the drawing, the hit table, and the confirm that stands in front of
+// the destructive half. It is the same rule the grid follows -- the geometry is
+// shared between the draw and the hit-test -- and it is the rule that has caught
+// more bugs in this fork than any other.
+//
+// Every height is asked of the face that will draw it. The Add screen shipped
+// two typed literals and everything laid out against them inherited the error.
+struct PairedYs {
+  fui::Rect body;
+  int16_t lineH = 0;      // the prose cut
+  int16_t headH = 0;      // the display cut, for LIVE IS ON
+  int16_t labelH = 0;     // the button cut, for the small labels
+  int16_t factsY = 0;     // NEXT CHECK and HOW OFTEN, side by side
+  int16_t controlsY = 0;  // CHECK NOW and the toggle, side by side
+  int16_t halfW = 0;      // half the body, less the gutter between the columns
+  int16_t ruleY = 0;
+  int16_t labelY = 0;  // WHO CAN SEND, and the TAP TO REMOVE hint beside it
+  int16_t rowsY = 0;   // the first sender row
+  int16_t rowH = 0;
+  int16_t addY = 0;  // ADD SOMEBODY, below the WHOLE band whether it is full or not
+};
+
+PairedYs pairedYs(toybox::Screen& screen) {
+  PairedYs out;
+  out.body = screen.body();
+  out.lineH = screen.target().lineHeight(kLiveProseSlot);
+  out.headH = screen.target().lineHeight(kLiveAddressSlot);
+  out.labelH = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
+  out.rowH = senderRowHeight(screen);
+
+  // TWO COLUMNS, and it is a budget rather than a preference.
+  //
+  // Everything on this screen used to be a full-width row, which was affordable
+  // while WHO CAN SEND was a list of names nobody could touch. A row is a
+  // CONTROL now, so it is a finger tall, and four of them plus ADD SOMEBODY put
+  // the screen 145px past the panel -- with the button that adds a phone as the
+  // thing that fell off the bottom. MEASURED, not estimated: on this face set
+  // the prose cut is 40px and the display cut 63, not the 22 and 38 a guess
+  // would have given, and the guess is what made the first version fit on
+  // paper.
+  //
+  // Nothing here needs the width. Both facts are short sentences the device
+  // composes, both labels are two words, and both buttons are fitted -- the
+  // widest measures well inside half a body at the button cut.
+  out.halfW = static_cast<int16_t>((out.body.width - toybox::kGutter) / 2);
+  int16_t y = out.body.y;
+  out.factsY = y;
+  y = static_cast<int16_t>(y + out.labelH + out.lineH + toybox::kGutter);
+  out.controlsY = y;
+  y = static_cast<int16_t>(y + kButtonH + toybox::kMargin);
+  out.ruleY = y;
+  y = static_cast<int16_t>(y + toybox::kRule + toybox::kGutter);
+  out.labelY = y;
+  y = static_cast<int16_t>(y + out.labelH + toybox::kGutter / 2);
+  out.rowsY = y;
+  // The band is RESERVED, not grown. ADD SOMEBODY sits below room for four
+  // phones whether four are there or not, so letting somebody in -- or taking
+  // them out -- never slides the button under a finger already travelling
+  // towards it, and the confirm's REVOKE can be placed once instead of per
+  // list length.
+  y = static_cast<int16_t>(y + LiveModel::kMaxSenders * out.rowH + toybox::kGutter);
+  out.addY = y;
+  return out;
+}
+
+// The report at the foot of the paired screen, and why it is not one line.
+//
+// One line was enough while everything it could say was one of OURS: the
+// LiveStatus sentences are enumerated, short, and walked by a test in the box
+// that draws them. A SERVICE's refusal is neither. It arrives verbatim -- the
+// device does not get to reword a decision somebody else made -- and the
+// service's longest is 64 characters, which at the prose cut is not one line
+// and never was. Drawn as one, "This reader already has 4 phones. Remove one
+// first." reached the panel as "This reader already has 4 phones...." with the
+// only actionable half of it gone.
+//
+// So: the prose cut when it fits on a line, exactly as before, and otherwise
+// the condensed cut and up to three of them. Through fitLines either way, so a
+// sentence longer than even that is marked with the "..." this face can really
+// draw rather than a U+2026 that would be a hole.
+void drawLiveReport(toybox::Screen& screen, const fui::Rect& body, const int16_t smallH, const char* text) {
+  if (text == nullptr || text[0] == '\0') return;
+  const fui::TextStyle prose = liveCut(screen, kLiveProseSlot, fui::TextAlign::Center);
+  const int16_t proseH = screen.target().lineHeight(kLiveProseSlot);
+  if (screen.target().measureText(prose.font, text, prose).width <= body.width) {
+    screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - proseH), body.width, proseH), text,
+                         prose);
+    return;
+  }
+  const fui::TextStyle small = liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Center, fui::Color::Black, 3);
+  const fui::Rect box = fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - smallH * 3), body.width,
+                                      static_cast<int16_t>(smallH * 3));
+  screen.target().text(box, toybox::fitLines(screen.target(), text, box.width, 3, small).c_str(), small);
+}
+
 // -------------------------------------------------------------------------
 // THE STACK. The code dominant and centred, everything else under it in
 // reading order. Its unpaired half has a single axis: a person holding the
 // reader up to a phone camera or reading digits aloud never has to choose
 // where to look first.
 fui::Rect buildLiveStackPaired(toybox::Screen& screen, const LiveModel& model) {
-  const fui::Rect body = screen.body();
-  const int16_t lineH = screen.target().lineHeight(kLiveProseSlot);
-  const int16_t headH = screen.target().lineHeight(kLiveAddressSlot);
-
-  const int16_t labelH = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
-  int16_t y = body.y;
-  drawFitted(screen, fui::makeRect(body.x, y, body.width, headH), liveStateWord(model.on),
-             liveCut(screen, kLiveAddressSlot, fui::TextAlign::Left));
-  y = static_cast<int16_t>(y + headH + toybox::kGutter / 2);
+  const PairedYs g = pairedYs(screen);
+  const fui::Rect body = g.body;
+  const int16_t rightX = static_cast<int16_t>(body.right() - g.halfW);
 
   // Labelled, and it is not decoration: "Once a day" alone answers a question
   // nobody asked it. The two values are a TIME and a FREQUENCY and they look
-  // alike stacked, so each says which it is. The label cut is the button face,
-  // which is the only cut this face set has below the prose one.
+  // alike, so each says which it is. The label cut is the button face, which is
+  // the only cut this face set has below the prose one.
   const char* labels[2] = {kLiveNextLabel, kLiveEveryLabel};
   const char* values[2] = {model.nextCheck, model.cadence};
+  const int16_t columnX[2] = {body.x, rightX};
   for (int i = 0; i < 2; ++i) {
-    drawFitted(screen, fui::makeRect(body.x, y, body.width, labelH), labels[i],
+    drawFitted(screen, fui::makeRect(columnX[i], g.factsY, g.halfW, g.labelH), labels[i],
                liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Left));
-    y = static_cast<int16_t>(y + labelH);
-    drawFitted(screen, fui::makeRect(body.x, y, body.width, lineH), values[i],
-               liveCut(screen, kLiveProseSlot, fui::TextAlign::Left));
-    y = static_cast<int16_t>(y + lineH);
+    drawFitted(screen, fui::makeRect(columnX[i], static_cast<int16_t>(g.factsY + g.labelH), g.halfW, g.lineH),
+               values[i], liveCut(screen, kLiveProseSlot, fui::TextAlign::Left));
   }
-  y = static_cast<int16_t>(y + toybox::kGutter);
 
-  drawButton(screen, fui::makeRect(body.x, y, body.width, kButtonH), "CHECK NOW", ActionLiveCheck);
-  y = static_cast<int16_t>(y + kButtonH + toybox::kGutter);
-  drawOutlineButton(screen, fui::makeRect(body.x, y, body.width, kButtonH), liveToggleLabel(model.on),
+  drawButton(screen, fui::makeRect(body.x, g.controlsY, g.halfW, kButtonH), "CHECK NOW", ActionLiveCheck);
+  drawOutlineButton(screen, fui::makeRect(rightX, g.controlsY, g.halfW, kButtonH), liveToggleLabel(model.on),
                     ActionLiveToggle);
-  y = static_cast<int16_t>(y + kButtonH + toybox::kMargin);
 
-  liveRule(screen, body.x, y, body.width);
-  y = static_cast<int16_t>(y + toybox::kRule + toybox::kGutter);
+  liveRule(screen, body.x, g.ruleY, body.width);
 
-  drawFitted(screen, fui::makeRect(body.x, y, body.width, labelH), kLiveSenders,
+  // The label row is TWO boxes, each fitted to its own half. One box with two
+  // aligned strings in it is two strings measured against the same width, and
+  // the right-aligned one would be drawn through the left one the moment either
+  // grew -- with no ellipsis to show it, because no cut here carries one.
+  drawFitted(screen, fui::makeRect(body.x, g.labelY, g.halfW, g.labelH), kLiveSenders,
              liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Left));
-  y = static_cast<int16_t>(y + labelH + toybox::kGutter / 2);
-  const bool stacked = sendersStack(screen, body.width, model);
-  for (int i = 0; i < model.senderCount && i < LiveModel::kMaxSenders; ++i) {
-    y = static_cast<int16_t>(
-        y + drawSender(screen, fui::makeRect(body.x, y, body.width, lineH), model.senders[i], stacked));
+  // Only when there is something to remove. On an empty list it would be an
+  // instruction for a control that is not on the screen.
+  if (model.senderCount > 0) {
+    drawFitted(screen, fui::makeRect(rightX, g.labelY, g.halfW, g.labelH), kLiveRemoveHint,
+               liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Right));
   }
-  y = static_cast<int16_t>(y + toybox::kGutter);
-  drawOutlineButton(screen, fui::makeRect(body.x, y, body.width, kButtonH), "ADD SOMEBODY", ActionLiveAdd);
+
+  if (model.senderCount <= 0) {
+    // NOT an empty region under a heading. A reader whose last phone was just
+    // removed is here, nothing is wrong with it, and the recovery is the button
+    // below -- so it says both of those in words. An empty space under a label
+    // is this fork's most repeated user-visible failure and was twice reported
+    // as a crash by cold testers.
+    drawProse(screen, fui::makeRect(body.x, g.rowsY, body.width, static_cast<int16_t>(g.lineH * 3)), kLiveNobody,
+              fui::TextAlign::Left);
+  } else {
+    const bool stacked = sendersStack(screen, body.width, model);
+    for (int i = 0; i < model.senderCount && i < LiveModel::kMaxSenders; ++i) {
+      // The SAME rect the confirm reads back for its KEEP, and the same rect
+      // the hit table gets. Three readers, one rectangle.
+      const fui::Rect row = liveSenderRowRect(screen, i);
+      drawSender(screen, row, model.senders[i], stacked);
+      // A row is a control. The INDEX travels as the action value, because the
+      // id the service named is not a thing a screen may hold: it is a token
+      // hash, the Activity owns it, and a screen that carried it would be a
+      // second copy of the one fact that decides whose access is destroyed.
+      screen.frame().hit(row, ActionLiveSender, static_cast<int16_t>(i));
+    }
+  }
+  drawOutlineButton(screen, fui::makeRect(body.x, g.addY, body.width, kButtonH), "ADD SOMEBODY", ActionLiveAdd);
 
   // The status takes the FOOT's line when there is one, rather than a line of
   // its own. This stack is laid out against a measured height and an inserted
@@ -777,12 +956,13 @@ fui::Rect buildLiveStackPaired(toybox::Screen& screen, const LiveModel& model) {
   // "nothing new", and on this panel a control that reports nothing and a
   // touch that was dropped look exactly alike -- which is the confusion the
   // Live tile was logged for before this screen existed.
-  drawFoot(screen, body, (model.status != nullptr && model.status[0] != '\0') ? model.status : kLiveFoot);
+  drawLiveReport(screen, body, g.labelH,
+                 (model.status != nullptr && model.status[0] != '\0') ? model.status : kLiveFoot);
   return fui::makeRect(0, 0, 0, 0);
 }
 
 fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
-  if (model.configured) return buildLiveStackPaired(screen, model);
+  if (!liveShowsCode(model)) return buildLiveStackPaired(screen, model);
 
   const fui::Rect body = screen.body();
   const int16_t codeH = screen.target().lineHeight(kLiveCodeSlot);
@@ -812,7 +992,8 @@ fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
 
   drawAddress(screen, fui::makeRect(body.x, y, body.width, addrH), model.url, kLiveAddressSlot);
   y = static_cast<int16_t>(y + addrH + toybox::kGutter);
-  drawProse(screen, fui::makeRect(body.x, y, body.width, proseH), kLiveWhat, fui::TextAlign::Center);
+  drawProse(screen, fui::makeRect(body.x, y, body.width, proseH), model.joining ? kLiveJoinWhat : kLiveWhat,
+            fui::TextAlign::Center);
   y = static_cast<int16_t>(y + proseH);
   drawFitted(screen, fui::makeRect(body.x, y, body.width, lineH),
              (model.status != nullptr && model.status[0] != '\0') ? model.status : kLiveExpiry,
@@ -834,6 +1015,8 @@ const char* liveStatusLine(const LiveStatus status) {
   switch (status) {
     case LiveStatus::AskingForCode:
       return "Asking for a code.";
+    case LiveStatus::AskingToShare:
+      return "Asking for a code to share.";
     case LiveStatus::WaitingForPhone:
       return "Waiting for a phone.";
     case LiveStatus::Connected:
@@ -844,8 +1027,8 @@ const char* liveStatusLine(const LiveStatus status) {
       return "Checked. Nothing new.";
     case LiveStatus::NewMessage:
       return "A new message arrived.";
-    case LiveStatus::SharingNotReady:
-      return "Sharing is not ready yet.";
+    case LiveStatus::Removed:
+      return "That phone can no longer send.";
     case LiveStatus::Disconnected:
       return "Disconnected. Set up again.";
     case LiveStatus::kCount:
@@ -854,12 +1037,108 @@ const char* liveStatusLine(const LiveStatus status) {
   return "";
 }
 
+bool liveShowsCode(const LiveModel& model) { return !model.configured || model.joining; }
+
+const char* liveNobodySends() { return kLiveNobody; }
+const char* liveJoinPrompt() { return kLiveJoinWhat; }
+const char* liveRemoveHint() { return kLiveRemoveHint; }
+const char* liveRevokeConsequence() { return kLiveRevokeWhy; }
+
+fui::Rect liveSenderRowRect(toybox::Screen& screen, const int index) {
+  const PairedYs g = pairedYs(screen);
+  const int clamped = index < 0 ? 0 : (index >= LiveModel::kMaxSenders ? LiveModel::kMaxSenders - 1 : index);
+  return fui::makeRect(g.body.x, static_cast<int16_t>(g.rowsY + clamped * g.rowH), g.body.width, g.rowH);
+}
+
+fui::Rect liveSendersBand(toybox::Screen& screen) {
+  const PairedYs g = pairedYs(screen);
+  return fui::makeRect(g.body.x, g.rowsY, g.body.width, static_cast<int16_t>(LiveModel::kMaxSenders * g.rowH));
+}
+
+// Deliberately the SAME rect as the whole band of rows. Not a coincidence to be
+// tidied away: it is the whole defence, and host-tests/wallcaption asserts it
+// covers every row rather than merely sitting near them.
+fui::Rect liveKeepRect(toybox::Screen& screen) { return liveSendersBand(screen); }
+
+fui::Rect liveRevokeRect(toybox::Screen& screen) {
+  // Under the WHOLE band, which is where ADD SOMEBODY sits on the list. That
+  // collision is accepted and named in the header: ADD SOMEBODY does not lead
+  // here, only a row does, and the reveal gate refuses a tap routed against a
+  // table the panel has not shown. What matters is the line below, which is
+  // that this rect touches NO row.
+  const PairedYs g = pairedYs(screen);
+  return fui::makeRect(g.body.x, g.addY, g.body.width, kButtonH);
+}
+
+void buildLiveRevoke(toybox::Screen& screen, const RevokeModel& model) {
+  // Its own band title, because the two screens must not be mistaken for one
+  // another during a 0.3-2s repaint: this is the only screen in Live that
+  // destroys anything, and the word at the top is the fastest thing to read.
+  chrome(screen, kLiveRevokeTitle, nullptr);
+  const fui::Rect body = screen.body();
+  const int16_t headH = screen.target().lineHeight(kLiveAddressSlot);
+  const fui::Rect keep = liveKeepRect(screen);
+
+  // WHO, on its own line and at the biggest cut this face set has here, with
+  // when they were let in beside it. A name folded into a sentence would have
+  // to be composed, and a line composed inside a paint is a line no test can
+  // walk -- which is precisely the line you would want walked before a screen
+  // takes somebody's access away.
+  //
+  // Beside rather than under, because the two share this row with the prose
+  // box's ceiling: an extra line here comes straight out of the sentence that
+  // says what removing them costs, and the date is the less load-bearing half.
+  const int16_t sinceW =
+      model.since == nullptr || model.since[0] == '\0'
+          ? 0
+          : static_cast<int16_t>(screen.target()
+                                     .measureText(fui::FONT_SLOT_SMALL, model.since,
+                                                  liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Right))
+                                     .width +
+                                 toybox::kMargin);
+  drawFitted(screen, fui::makeRect(body.x, body.y, static_cast<int16_t>(body.width - sinceW), headH), model.who,
+             liveCut(screen, kLiveAddressSlot, fui::TextAlign::Left));
+  if (sinceW > 0) {
+    drawFitted(screen, fui::makeRect(static_cast<int16_t>(body.right() - sinceW), body.y, sinceW, headH), model.since,
+               liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Right));
+  }
+  const int16_t y = static_cast<int16_t>(body.y + headH + toybox::kGutter);
+
+  // Derived from BOTH ends, the way the wallpaper confirm's prose is: the box
+  // runs from under the name down to the first control, so moving either
+  // shrinks the box rather than letting a sentence run under a button. KEEP's
+  // top is the list's band, which comes out of the face's line heights, so this
+  // cannot be a height typed here.
+  const int16_t proseBottom = static_cast<int16_t>(keep.y - toybox::kGutter);
+  drawProse(screen, fui::makeRect(body.x, y, body.width, static_cast<int16_t>(proseBottom > y ? proseBottom - y : 0)),
+            kLiveRevokeWhy, fui::TextAlign::Left);
+
+  // KEEP is HIT over every pixel a row occupies and DRAWN as an ordinary
+  // button inside that strip. A repeat of the press that got here is a cancel
+  // by construction rather than by luck -- the confirm does not know which row
+  // the finger came from, so the safe half has to answer for all four -- and
+  // the ink stays a button, because a 276px slab of black is slow on this panel
+  // and ghosts after it.
+  const fui::Rect keepInk =
+      fui::makeRect(keep.x, static_cast<int16_t>(keep.y + (keep.height - kButtonH) / 2), keep.width, kButtonH);
+  drawButton(screen, keepInk, kLiveRevokeKeep, ActionLiveKeep, &keep);
+  drawOutlineButton(screen, liveRevokeRect(screen), kLiveRevokeGo, ActionLiveRevoke);
+  drawFoot(screen, body, kLiveRevokeFoot);
+}
+
 fui::Rect buildLive(toybox::Screen& screen, const LiveModel& model) {
   // The band says LIVE in both states. It is the shortest true name for the
   // destination and it fits the display cut with room, which "YOUR PHONE" does
   // not need to be tested against because it would be a second name for one
   // thing (the tile's caption is the tile's business).
-  chrome(screen, "LIVE", nullptr);
+  //
+  // AND, once there is a phone attached, whether Live is on. It was a 63px
+  // headline in the body and the body is the one thing this screen ran out of:
+  // four tappable sender rows need the room, and a STATE is what a header band
+  // carries everywhere else in this fork. It stays one reading of one bool --
+  // liveStateWord here, liveToggleLabel on the button -- so a screen saying ON
+  // beside a control offering to turn it on is still impossible.
+  chrome(screen, "LIVE", liveShowsCode(model) ? nullptr : liveStateWord(model.on));
   return buildLiveStack(screen, model);
 }
 

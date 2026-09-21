@@ -1,5 +1,8 @@
 #include "LiveCore.h"
 
+#include <cstdio>
+#include <ctime>
+
 namespace live {
 
 uint32_t clampInterval(const int64_t seconds) {
@@ -50,6 +53,28 @@ bool bmpIsComplete(const uint8_t* header, const size_t headerLen, const size_t r
 }
 
 bool clockIsUsable(const int64_t nowEpoch) { return nowEpoch >= kPlausibleEpochFloor; }
+
+std::string shortDate(const int64_t epoch) {
+  // The same floor the schedule uses, for the same reason: a number below it is
+  // not an early date, it is a device that never had a clock.
+  if (!clockIsUsable(epoch)) return std::string();
+  const std::time_t t = static_cast<std::time_t>(epoch);
+  std::tm parts{};
+#if defined(_WIN32)
+  if (gmtime_s(&parts, &t) != 0) return std::string();
+#else
+  if (gmtime_r(&t, &parts) == nullptr) return std::string();
+#endif
+  // Spelled out rather than taken from strftime's %b, which is LOCALE
+  // dependent: the firmware sets no locale and the simulator inherits the
+  // shell's, so the one place this is read would differ between the laptop the
+  // layout was measured on and the panel it ships to.
+  static const char* kMonths[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  if (parts.tm_mon < 0 || parts.tm_mon > 11) return std::string();
+  char buf[16];
+  std::snprintf(buf, sizeof(buf), "%d %s", parts.tm_mday, kMonths[parts.tm_mon]);
+  return std::string(buf);
+}
 
 Decision decide(const Schedule& schedule, const int64_t nowEpoch, const bool timerFired) {
   Decision out;

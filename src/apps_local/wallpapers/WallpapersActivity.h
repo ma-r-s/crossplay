@@ -181,6 +181,46 @@ class WallpapersActivity final : public Activity {
   void toggleLive();
   void refreshLiveLines();
   void applyLiveSleepSettings();
+
+  // WHO CAN SEND, as the service last answered it.
+  //
+  // A fixed array rather than a vector for the reason LiveModel's is: it is
+  // written on the loop task and read on the render task with no lock across
+  // them, and a container reallocated under a paint has already bitten this app
+  // once. The strings behind the model's `const char*`s are these, so they have
+  // to outlive every paint that can see them.
+  struct LiveSenderRow {
+    std::string who;
+    std::string since;  // "12 Sep", empty when the service had no usable stamp
+    // The service's own handle for this phone: the first 16 chars of its token
+    // hash, never the token. It is what revoke names, and it is the reason the
+    // screen carries an INDEX instead -- one copy of this fact, here.
+    std::string id;
+  };
+  LiveSenderRow liveSenders_[wallpapersui::LiveModel::kMaxSenders];
+  int liveSenderCount_ = 0;
+  // The service's own cap, as it last said it. Logged rather than drawn: the
+  // number in a refusal is the service's sentence to write, not ours.
+  int liveSenderMax_ = wallpapersui::LiveModel::kMaxSenders;
+  // A join code is being minted or is up. Distinct from livePairQueued_,
+  // because the two mint codes with opposite meanings: a setup code makes a new
+  // fridge and a join code adds a phone to this one. Conflating them is how ADD
+  // SOMEBODY would silently orphan the phone already sending.
+  bool liveJoinQueued_ = false;
+  bool liveJoining_ = false;
+  // Which row the revoke confirm is about, or -1 for "no confirm up". A
+  // sub-state of View::Live rather than a View of its own, so the face set, the
+  // tap routing and the Back unwind all keep working without a second copy of
+  // each.
+  int liveRevokeIndex_ = -1;
+  bool liveSendersQueued_ = false;
+  bool liveRevokeQueued_ = false;
+  void startLiveJoin();
+  void refreshLiveSenders();
+  void runLiveRevoke();
+  // True while the screen is showing a six-digit code. ONE reading, because the
+  // Activity binds the 82px cut from it and the screen draws from it.
+  bool liveShowingCode() const;
   void drawMarker(const freeink::ui::Rect& th) const;
 
   // Which wallpaper the sheet, the confirm and the preview are about. Held as a

@@ -166,13 +166,58 @@ After sending, the copy is "she'll see this tomorrow morning", not a duration.
 A six-digit code, readable down a telephone. A QR can only be scanned by
 somebody holding the device, and the fridge is in another country; the day the
 Wi-Fi changes, a QR means a plane ticket. The QR stays as a convenience
-underneath. The three-legged flow is `server/read-bridge/bridge/pairing.py`
-(`/api/pair/start`, `/api/pair/claim`, `/api/pair/poll`) with an explicit
+underneath. The three-legged flow is `server/fridge-bridge/bridge/pairing.py`
+(`/api/pair/start`, `/api/claim`, `/api/pair/poll`) with an explicit
 confirmation on the device before anything is stored.
 
 Several senders per device, revocable on the device. A single-sender model
 would lock the owner out the moment they changed phones, and re-pairing needs
 physical presence.
+
+### Adding a phone is a different endpoint from setting one up
+
+`/api/pair/start` mints a NEW fridge. Wiring ADD SOMEBODY to it would have
+handed the browser a different fridge and silently orphaned both the phone
+already sending and the picture already on the glass. `/api/pair/join` takes
+the reader's bearer token and mints a code against the fridge it already has.
+Two endpoints rather than one with a flag, because a flag defaulted the wrong
+way is the same bug back.
+
+**Four phones, and the SERVICE is what decides.** It refuses the fifth with a
+409 before a code is minted, in its own sentence, and answers its own cap on
+every `/api/senders`. `live::kMaxSenders` and `LiveModel::kMaxSenders` are the
+size of the array the reader can hold, kept equal to each other by a
+`static_assert` in `WallpapersActivity.cpp`, and `live::listSenders` logs loudly
+if the service ever says more: a fifth sender the service allowed would exist,
+could write to this fridge, and would be invisible on the one screen that can
+revoke it.
+
+No FIFO. Dropping the oldest to make room takes a fridge away from whoever had
+it first and tells nobody, and the person losing it is the one least able to
+notice.
+
+### Revoking is the reader's, and it is destructive at a distance
+
+The person losing access is in another country and the service tells them
+nothing. There is no undo and no apology to send. So it sits behind a confirm
+that NAMES them, and the confirm is laid out against the list's own rectangles:
+KEEP is hit over the whole band the four rows share, so a second press of
+whichever row opened it cancels, and REMOVE lies wholly outside that band.
+host-tests/wallcaption asserts both, and asserts it for every row rather than
+for one.
+
+A reader with no senders at all is RECOVERABLE, not broken: it says so in
+words, keeps ADD SOMEBODY, and the picture stays on the glass. Proved on the
+live service and in `qa-artifacts/live-senders/08-empty.png`.
+
+**A service sentence is drawn verbatim and the screen is built to take it.**
+The report at the foot of the paired screen is one prose line when that fits
+and three condensed ones when it does not. It was one line, and
+"This reader already has 4 phones. Remove one first." reached the panel as
+"This reader already has 4 phones...." with the only actionable half gone.
+`host-tests/wallcaption` now GENERATES its corpus of refusals from
+`server/fridge-bridge/bridge/app.py` at test time, so a sentence the service
+edits is measured rather than a copy of the one it used to send.
 
 ## The image
 
@@ -240,6 +285,19 @@ several days it says so outright.
   claimed from a shell, device paired, image PUT, image pulled (200 + ETag +
   `X-Next-Wake`), second check 304 with the card's mtime unchanged, four greys
   on the sleep screen. `qa-artifacts/live-e2e/`.
+- **WHO CAN SEND is real, and a row is a control.** The Live screen fetches
+  `/api/senders` when it opens and draws name and date per phone; ADD SOMEBODY
+  mints a join code on the same screen the setup code uses; a tap on a row opens
+  a confirm that names the person and revokes on the service. Proved end to end
+  against the live service, not mocked: `qa-artifacts/live-senders/` walks a
+  reader pairing, adding a phone claimed with curl from the shell, the phone
+  appearing by name, being tapped, confirmed and gone, plus the four-phone list,
+  the service's 409 at the fifth, and the empty list.
+- Laying the rows out cost the screen its full-width stacking: NEXT CHECK and
+  HOW OFTEN sit side by side, CHECK NOW and the toggle sit side by side, and
+  LIVE IS ON / LIVE IS OFF moved into the header band. Four tappable rows at a
+  finger each plus ADD SOMEBODY is 145px more than an 800px panel has, and the
+  control that fell off the bottom was the one that adds a phone.
 - The hint strip says when Live is the sleep screen ("Your phone is your sleep
   screen."). It sits third in the strip's order, below the sleep-screen note and
   the free-space advisory (both are news, and a standing line that outranked
@@ -261,7 +319,7 @@ several days it says so outright.
    lists five ways `/sleep.bmp` never reaches the glass. Live must decide
    whether it paints itself or goes through `SleepActivity`, and if the latter,
    what forces the setting. These are different features and it is not decided.
-3. The service, the website, the headless join, backoff, and `park()`.
+3. The headless join, backoff, and `park()`.
 
 ## Not verified
 

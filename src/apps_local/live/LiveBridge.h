@@ -37,6 +37,62 @@ struct PairStart {
 // POST /api/pair/start. No token: this is the call that mints one.
 bool pairStart(PairStart& out, std::string& message);
 
+// POST /api/pair/join. The SAME shape of answer as pairStart and a completely
+// different meaning: this code adds a phone to THIS fridge, where pairStart's
+// makes a new one.
+//
+// Wiring "add somebody" to pairStart would have handed the browser a different
+// fridge, orphaning the phone already sending and the picture already on the
+// glass, with nothing anywhere saying so. That is why the two are separate
+// endpoints on the service and separate calls here rather than one call with a
+// flag: a flag defaulted the wrong way is the same bug back.
+//
+// The refusal at four phones arrives as a 409 carrying the service's OWN
+// sentence, and this returns false with that sentence verbatim in `message`.
+// The device does not get to reword a decision the service made, and it does
+// not get to guess the cap either -- the number in the sentence is the
+// service's (see kMaxSenders below).
+bool pairJoin(const std::string& deviceToken, PairStart& out, std::string& message);
+
+// One phone that may send to this reader, as the reader's own screen needs it.
+struct Sender {
+  std::string name;      // what the browser called itself, "A phone" when it did not
+  std::string id;        // the first 16 chars of the token hash. NEVER the token
+  int64_t pairedAt = 0;  // epoch seconds; 0 when the service had no stamp
+};
+
+// GET /api/senders. Four is the cap and THE SERVICE IS THE ONE THAT DECIDES: it
+// refuses the fifth before a code exists, and `max` comes back from it on every
+// call. kMaxSenders here is only the size of the array this reader can hold,
+// kept equal to the service's so a list that arrives full fits, and the two are
+// compared out loud in listSenders so a service that raised its own cap shows
+// up in the log rather than as senders silently missing from the one screen
+// that can revoke them.
+constexpr int kMaxSenders = 4;
+
+struct SenderList {
+  Sender items[kMaxSenders];
+  int count = 0;
+  // What the SERVICE says its cap is. Reported rather than assumed, because the
+  // number the screen would use in a sentence is not ours to pick.
+  int max = kMaxSenders;
+};
+
+bool listSenders(const std::string& deviceToken, SenderList& out, std::string& message);
+
+// POST /api/senders/revoke with {"id": "<Sender::id>"}.
+//
+// Destructive, remote, and silent to the person it happens to: they are in
+// another country and the service tells them nothing. So the confirmation is
+// the DEVICE's job and this call does no asking -- by the time it runs, somebody
+// standing in front of the reader has already said the name out loud.
+//
+// `remaining` is the service's count afterwards, which is what makes "and then
+// refresh the list" checkable rather than hopeful. A 404 means the id is not on
+// this reader, which is what a stale list looks like, and it comes back as
+// false with the service's sentence.
+bool revokeSender(const std::string& deviceToken, const std::string& id, int& remaining, std::string& message);
+
 // GET /api/pair/poll. Returns 1 paired (and fills `deviceToken`), 0 still
 // waiting, -1 failed (and fills `message`).
 //

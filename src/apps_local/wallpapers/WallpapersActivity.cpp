@@ -113,6 +113,19 @@ constexpr int16_t kLiveFrameInset = 5;
 // prints and the code the QR encodes are ONE string. See render()'s View::Live
 // arm: the link is built from these two, never typed beside them.
 constexpr const char* kLiveHost = "fridge.ma-r-s.com";
+
+// The screen's array and the transport's are one number, checked by the
+// compiler rather than by whoever edits one of them.
+//
+// Neither is the RULE. THE SERVICE IS THE ONE THAT DECIDES how many phones a
+// reader may have: it refuses the fifth before a code is minted, in its own
+// sentence, and it answers its own cap on every /api/senders. These two are the
+// size of the array that has to be able to hold a full answer. A drawing limit
+// is not a limit -- a fifth sender the service allowed would exist, could write
+// to this fridge, and would be invisible on the one screen that can revoke it,
+// which is why live::listSenders logs loudly if the service ever says more.
+static_assert(wallpapersui::LiveModel::kMaxSenders == live::kMaxSenders,
+              "the Live screen and the Live transport disagree about how many senders fit");
 constexpr const char* kLiveCode = "482 160";
 
 // Ordered 8x8 Bayer thresholds. A thumbnail is an AREA AVERAGE of the source
@@ -175,6 +188,14 @@ void WallpapersActivity::onEnter() {
   liveCode_.clear();
   liveQrLink_.clear();
   liveStatus_.clear();
+  // The list is the SERVICE's answer and this app has not asked yet. Starting
+  // empty rather than from anything remembered is what stops the screen
+  // claiming, for one paint, that a phone revoked while the app was closed can
+  // still send.
+  liveSenderCount_ = 0;
+  liveRevokeIndex_ = -1;
+  liveJoining_ = false;
+  for (LiveSenderRow& row : liveSenders_) row = LiveSenderRow{};
   refreshLiveLines();
   LOG_INF("WALL", "onEnter %ums: fonts=%u sweep=%u scan=%u active=%u (free-space deferred)", tActive - tEnter,
           tFonts - tEnter, tSweep - tFonts, tScan - tSweep, tActive - tScan);
@@ -1388,9 +1409,16 @@ void WallpapersActivity::renderPreview() {
 // website and this reader would only talk to it at the next scheduled check, so
 // opening the screen is a view change and nothing else. That is what makes it
 // safe to reach from a tap with no WiFi picker in front of it.
+bool WallpapersActivity::liveShowingCode() const { return !liveConfigured() || liveJoining_; }
+
 void WallpapersActivity::openLive() {
   view_ = View::Live;
   interactionsReady_ = false;
+  // Nothing from a previous visit is on this screen. A confirm left standing
+  // would come back naming a row this visit's list has not even fetched yet,
+  // and a join code left up would hide the list behind a code nobody asked for.
+  liveRevokeIndex_ = -1;
+  liveJoining_ = false;
   // Nothing has happened on this visit yet. Without this the screen opens
   // carrying the last visit's report -- and after a wallpaper was chosen in
   // between, "A new message arrived." is a sentence about a sleep screen that
@@ -1406,6 +1434,12 @@ void WallpapersActivity::openLive() {
     liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::AskingForCode);
     livePairQueued_ = true;
   }
+  // And a paired reader fetches WHO CAN SEND, queued behind the paint for the
+  // same reason the code is. The list is the screen's whole second half, and it
+  // is the service's answer rather than the card's: a phone revoked from
+  // another reader, or one added since the last visit, is only knowable by
+  // asking.
+  if (liveState_.paired()) liveSendersQueued_ = true;
   requestUpdate();
 }
 
@@ -1449,6 +1483,24 @@ void WallpapersActivity::pollLivePairing() {
     return;
   }
   livePollToken_.clear();
+  // A JOIN code was claimed: somebody else's phone can now send to the fridge
+  // this reader already had. Nothing about THIS reader changed -- same token,
+  // same fridge, same picture -- so none of the setup below runs. Turning Live
+  // on again, forcing the sleep setting again and dropping the user's chosen
+  // wallpaper again would all be a second pairing's worth of side effects for
+  // an act that added a contact.
+  if (liveJoining_) {
+    liveJoining_ = false;
+    liveCode_.clear();
+    liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Connected);
+    // Straight back to the list, and the list is re-asked rather than guessed
+    // at: the new phone's NAME comes from its own browser and only the service
+    // knows it.
+    liveSendersQueued_ = true;
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
   liveState_.deviceToken = token;
   liveState_.fridgeId = fridgeId;
   // Pairing turns Live ON. Somebody who walked through a six-digit code on a
@@ -1461,8 +1513,12 @@ void WallpapersActivity::pollLivePairing() {
   applyLiveSleepSettings();
   liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Connected);
   // And fetch immediately, from loop(). The first thing a person does after
-  // pairing is look at the screen.
+  // pairing is look at the screen. The list is asked for in the same breath:
+  // the phone that just claimed the code IS the first sender, and a paired
+  // screen whose WHO CAN SEND said nobody could would be wrong about the one
+  // thing that had just happened.
   liveCheckQueued_ = true;
+  liveSendersQueued_ = true;
   interactionsReady_ = false;
   requestUpdate();
 }
@@ -1483,6 +1539,13 @@ void WallpapersActivity::runLiveCheck() {
       // it came with, including a service's verbatim refusal.
       liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Disconnected);
       liveCode_.clear();
+      // The list belonged to a fridge this reader can no longer open. Kept on
+      // the screen it would be four names the device cannot revoke, behind a
+      // confirm that would 401 -- access shown and not removable, which is the
+      // one failure the whole revoke path exists to avoid.
+      liveSenderCount_ = 0;
+      liveRevokeIndex_ = -1;
+      liveJoining_ = false;
       livePairQueued_ = true;
     } else {
       liveStatus_ = message;
@@ -1493,6 +1556,111 @@ void WallpapersActivity::runLiveCheck() {
     liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::NothingNew);
   }
   refreshLiveLines();
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+// POST /api/pair/join: a code that adds a phone to THIS fridge.
+//
+// Emphatically not /api/pair/start, which mints a NEW fridge. Wiring ADD
+// SOMEBODY to that one would have handed the browser a different fridge and
+// silently orphaned both the phone already sending and the picture already on
+// the glass, with nothing on any screen saying so.
+void WallpapersActivity::startLiveJoin() {
+  live::PairStart start;
+  std::string message;
+  if (!live::pairJoin(liveState_.deviceToken, start, message)) {
+    // The refusal at four phones arrives here as the SERVICE's own sentence,
+    // and it is drawn verbatim. The device does not get to reword a decision
+    // somebody else made, and it does not hold its own copy of the cap to
+    // pre-empt it with (BridgeHttp.h, and LiveModel::kMaxSenders says the same).
+    liveJoining_ = false;
+    liveCode_.clear();
+    liveStatus_ = message;
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
+  livePollToken_ = start.pollToken;
+  liveCode_ = start.code;
+  if (liveCode_.size() == 6) liveCode_.insert(3, " ");
+  liveQrLink_ = std::string("https://") + kLiveHost + "/p/" + start.code;
+  liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::WaitingForPhone);
+  livePollAt_ = millis() + 3000;
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+// GET /api/senders. The list on the screen is the service's answer and nothing
+// else: there is no cached copy on the card to fall out of step with it.
+void WallpapersActivity::refreshLiveSenders() {
+  live::SenderList list;
+  std::string message;
+  if (!live::listSenders(liveState_.deviceToken, list, message)) {
+    // The list is left EXACTLY as it was rather than emptied. An empty list is
+    // a sentence about this reader ("nobody can send to it"), and a failed
+    // request is not evidence for it -- drawing one would tell the user their
+    // phones were gone because the Wi-Fi was.
+    liveStatus_ = message;
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
+  liveSenderMax_ = list.max;
+  liveSenderCount_ = list.count;
+  for (int i = 0; i < wallpapersui::LiveModel::kMaxSenders; ++i) {
+    if (i >= list.count) {
+      liveSenders_[i] = LiveSenderRow{};
+      continue;
+    }
+    liveSenders_[i].who = list.items[i].name;
+    // FORMATTED HERE, on the loop task, never inside the paint: a line built
+    // during a render is a line no test can walk, and a std::string built there
+    // is a dangling pointer by the time the screen tree reads it.
+    liveSenders_[i].since = live::shortDate(list.items[i].pairedAt);
+    liveSenders_[i].id = list.items[i].id;
+  }
+  // A revoke confirm standing over a row the refreshed list no longer has is a
+  // confirm about somebody else. Dropped rather than re-pointed.
+  if (liveRevokeIndex_ >= liveSenderCount_) liveRevokeIndex_ = -1;
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+// POST /api/senders/revoke. Destructive, remote, and silent to the person it
+// happens to -- which is why it only ever runs after the confirm that names
+// them, and why it refuses to run against a row that is no longer there.
+void WallpapersActivity::runLiveRevoke() {
+  const int index = liveRevokeIndex_;
+  liveRevokeIndex_ = -1;
+  if (index < 0 || index >= liveSenderCount_ || liveSenders_[index].id.empty()) {
+    // The list moved under the confirm. Nothing is revoked, because the only
+    // thing this could do instead is revoke whoever is at that position NOW,
+    // and that is the wrong person by definition.
+    LOG_ERR("WALL", "the revoke's row is gone; nothing was removed");
+    liveSendersQueued_ = true;
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
+  int remaining = -1;
+  std::string message;
+  const std::string id = liveSenders_[index].id;
+  if (!live::revokeSender(liveState_.deviceToken, id, remaining, message)) {
+    liveStatus_ = message;
+    // Re-asked anyway. A failed revoke leaves the screen's idea of who can send
+    // unproven, and the honest thing is the service's answer rather than the
+    // list we happened to be holding.
+    liveSendersQueued_ = true;
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
+  liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Removed);
+  // REFETCHED, never patched locally. `remaining` is the service's count and
+  // the list has to match it; a list edited in place here would be this
+  // device's opinion of an answer only the service has.
+  liveSendersQueued_ = true;
   interactionsReady_ = false;
   requestUpdate();
 }
@@ -1974,9 +2142,27 @@ void WallpapersActivity::loop() {
     startLivePairing();
     return;
   }
+  if (painted_ && liveJoinQueued_) {
+    liveJoinQueued_ = false;
+    startLiveJoin();
+    return;
+  }
   if (painted_ && liveCheckQueued_) {
     liveCheckQueued_ = false;
     runLiveCheck();
+    return;
+  }
+  // The revoke before the refresh, always: they are queued together by
+  // runLiveRevoke's own caller order and the list must be re-asked AFTER the
+  // phone is gone, never in front of it.
+  if (painted_ && liveRevokeQueued_) {
+    liveRevokeQueued_ = false;
+    runLiveRevoke();
+    return;
+  }
+  if (painted_ && liveSendersQueued_) {
+    liveSendersQueued_ = false;
+    refreshLiveSenders();
     return;
   }
   if (painted_ && view_ == View::Live && !livePollToken_.empty() && static_cast<long>(millis() - livePollAt_) >= 0) {
@@ -2009,8 +2195,33 @@ void WallpapersActivity::loop() {
       requestUpdate();
       return;
     }
-    // Live has nothing to unwind: no server, no radio, no half-finished
-    // pairing. Back is the way out of it and the grid is what is behind it.
+    // Live unwinds its two sub-states one step at a time, the way the hold
+    // branch does. Back on a confirm means "not that", and Back on a join code
+    // means "never mind, show me the list again" -- dropping the user to the
+    // grid from either would make them find the screen again to reach what they
+    // were actually looking at.
+    if (view_ == View::Live && liveRevokeIndex_ >= 0) {
+      liveRevokeIndex_ = -1;
+      interactionsReady_ = false;
+      requestUpdate();
+      return;
+    }
+    if (view_ == View::Live && liveJoining_) {
+      // The code is abandoned rather than cancelled: the service has no call to
+      // un-mint one and it expires on its own in ten minutes. What this drops
+      // is the POLL, so a code claimed after the user walked away does not pair
+      // a phone onto a screen nobody is looking at.
+      liveJoining_ = false;
+      livePollToken_.clear();
+      liveCode_.clear();
+      liveStatus_.clear();
+      liveSendersQueued_ = true;
+      interactionsReady_ = false;
+      requestUpdate();
+      return;
+    }
+    // Otherwise Live has nothing to unwind: no server, no radio, no
+    // half-finished pairing. Back is the way out of it and the grid is behind.
     if (view_ == View::Live) {
       pickView();
       requestUpdate();
@@ -2088,14 +2299,39 @@ void WallpapersActivity::loop() {
         requestUpdate();
         return;
       case wallpapersui::ActionLiveAdd:
-        // Letting somebody ELSE send to this reader is a second pairing code
-        // against the same fridge, and the service has no endpoint for it yet:
-        // /api/pair/start mints a NEW fridge, so using it here would silently
-        // disconnect the phone already sending. Logged rather than silent,
-        // because on hardware a tap that does nothing and a touch that was
-        // dropped look exactly alike.
-        liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::SharingNotReady);
-        LOG_INF("WALL", "Live + Add tapped; the service has no second-sender endpoint");
+        // A second code against the SAME fridge, through /api/pair/join.
+        // Queued like every other radio step here, and the screen flips to its
+        // code half first so the wait has something to say for itself.
+        liveJoining_ = true;
+        liveCode_.clear();
+        liveQrLink_.clear();
+        livePollToken_.clear();
+        liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::AskingToShare);
+        liveJoinQueued_ = true;
+        interactionsReady_ = false;
+        requestUpdate();
+        return;
+      case wallpapersui::ActionLiveSender:
+        // Opens the confirm and removes NOTHING. The value is the row index,
+        // which is all a screen is allowed to carry: the id that decides whose
+        // access is destroyed lives in one place, here.
+        if (action.value >= 0 && action.value < liveSenderCount_) {
+          liveRevokeIndex_ = action.value;
+          liveStatus_.clear();
+          interactionsReady_ = false;
+          requestUpdate();
+        }
+        return;
+      case wallpapersui::ActionLiveKeep:
+        liveRevokeIndex_ = -1;
+        interactionsReady_ = false;
+        requestUpdate();
+        return;
+      case wallpapersui::ActionLiveRevoke:
+        // QUEUED, not run: it blocks on the radio and pumps no input, which
+        // inside route() is the #306 family this app has been bitten by twice.
+        // liveRevokeIndex_ survives until runLiveRevoke consumes it.
+        liveRevokeQueued_ = true;
         interactionsReady_ = false;
         requestUpdate();
         return;
@@ -2337,7 +2573,14 @@ void WallpapersActivity::render(RenderLock&&) {
   // with no code on it at all, and it takes the same face set the offer and the
   // sheet use -- a huge cut bound for a screen that has nothing to set in it is
   // a cut every unstyled string can fall into.
-  const bool liveCode = view_ == View::Live && !liveConfigured();
+  // liveShowingCode(), not "unpaired": ADD SOMEBODY puts a six-digit code on a
+  // reader that IS paired, and it is the same code screen. Read through the one
+  // predicate the screen itself draws from (wallpapersui::liveShowsCode), so
+  // the face and the arrangement cannot come apart -- the version that came
+  // apart would draw a number somebody is reading down a telephone at 20px.
+  //
+  // The confirm is never the code screen: it is three facts and two buttons.
+  const bool liveCode = view_ == View::Live && liveRevokeIndex_ < 0 && liveShowingCode();
   fui::GfxRendererTarget target = toybox::makeTarget(
       renderer, liveCode ? toybox::pairingCodeFaces()
                          : (view_ == View::Add ? toybox::readingAddressFaces()
@@ -2365,10 +2608,19 @@ void WallpapersActivity::render(RenderLock&&) {
     // addQrUrl_, NOT addUrl_ (app/wallqr): the code carries the numeric address,
     // which depends on no responder; the name is the half a human reads.
     QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addQrUrl_);
+  } else if (view_ == View::Live && liveRevokeIndex_ >= 0) {
+    // The confirm. Everything on it is a MEMBER, for the reason the list is:
+    // render() runs on the other FreeRTOS task, and a string composed here is
+    // freed before the screen tree reads it.
+    wallpapersui::RevokeModel model;
+    model.who = liveSenders_[liveRevokeIndex_].who.c_str();
+    model.since = liveSenders_[liveRevokeIndex_].since.empty() ? nullptr : liveSenders_[liveRevokeIndex_].since.c_str();
+    wallpapersui::buildLiveRevoke(surface, model);
   } else if (view_ == View::Live) {
     wallpapersui::LiveModel model;
     model.configured = liveConfigured();
     model.on = liveRunning_;
+    model.joining = liveJoining_;
     // Every one of these is a MEMBER settled on the loop task, never a string
     // assembled inside this paint: render() runs on the other FreeRTOS task
     // with no lock across it, so a temporary built here is a dangling pointer
@@ -2385,12 +2637,19 @@ void WallpapersActivity::render(RenderLock&&) {
     model.status = liveStatus_.empty() ? nullptr : liveStatus_.c_str();
     model.nextCheck = liveNextCheck_.c_str();
     model.cadence = liveCadence_.c_str();
-    // The senders list is not something this service can answer yet: there is
-    // one sender per fridge and no endpoint that names them. Left empty rather
-    // than filled with a plausible-looking invention -- a screen that lists
-    // "Abuela" because the mock did is a screen that lies on the first device
-    // it reaches.
-    model.senderCount = 0;
+    // The list, as /api/senders last answered it. Pointers into MEMBERS, never
+    // into anything built here: the names are the service's and this paint runs
+    // on the other task.
+    //
+    // Still never a placeholder. A screen that lists "Abuela" because a mock
+    // did is a screen that lies on the first device it reaches, and an empty
+    // list here means the reader really has no senders -- which the screen says
+    // in words rather than leaving a gap under a heading.
+    model.senderCount = liveSenderCount_;
+    for (int i = 0; i < liveSenderCount_ && i < wallpapersui::LiveModel::kMaxSenders; ++i) {
+      model.senders[i].who = liveSenders_[i].who.c_str();
+      model.senders[i].since = liveSenders_[i].since.empty() ? nullptr : liveSenders_[i].since.c_str();
+    }
     const fui::Rect qr = wallpapersui::buildLive(surface, model);
     // The QR carries the LINK, the panel carries the ADDRESS: the same split
     // buildAdd makes, and for the same reason -- a phone that will not scan

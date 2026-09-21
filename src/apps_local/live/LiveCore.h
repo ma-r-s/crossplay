@@ -111,6 +111,26 @@ std::string unquoteEtag(const std::string& raw);
 bool bmpIsComplete(const uint8_t* header, size_t headerLen, size_t received);
 
 // ---------------------------------------------------------------------------
+// "12 Sep": when a phone was let in, in the only precision this device earns.
+//
+// The service stamps every sender with an epoch. The screen has one short row
+// per sender and the question it answers is "how long has this person had
+// access", so a day and a month is the whole of it -- a time of day would be a
+// figure nobody reads and a year would be one nobody needs while the service is
+// months old.
+//
+// An epoch below kPlausibleEpochFloor comes back EMPTY rather than as
+// "01 Jan". A reader that has never had a clock is not a reader that was paired
+// in 1970, and a date printed from a zero is a fact the screen would be
+// inventing. The row draws the name alone in that case, which is the truth.
+//
+// UTC, deliberately and without apology: the device's only clock source is
+// X-Server-Time and there is no zone anywhere in this feature. A date that is
+// one day out for somebody sending at midnight is a smaller lie than a
+// local-looking date computed from a zone nobody set.
+std::string shortDate(int64_t epoch);
+
+// ---------------------------------------------------------------------------
 // The one rule, in one function.
 //
 // "On every sleep, if a refresh is due, fetch it; otherwise arm the timer for

@@ -322,6 +322,53 @@ static void testDecide() {
   }
 }
 
+// --------------------------------------------------------------------------
+// The date a sender's row carries.
+//
+// One row per phone, and the question the date answers is "how long has this
+// person had access", so a day and a month is the whole of it. What is asserted
+// here is what the SCREEN cannot assert: that an epoch the device never really
+// had comes back EMPTY rather than as a plausible-looking "1 Jan", because a
+// row drawing a date computed from a zero is a fact the screen would be
+// inventing, and nothing downstream could tell it apart from a real one.
+
+static void testShortDate() {
+  std::printf("sender dates\n");
+  // 2026-09-12T00:00:00Z and 2026-09-12T23:59:59Z: both are the 12th, which is
+  // the whole point of asking only for a day. Computed from the epoch rather
+  // than typed, so the expectation is not a second implementation of the bug.
+  checkStr(live::shortDate(1789171200), "12 Sep", "midnight on the 12th");
+  checkStr(live::shortDate(1789171200 + 86399), "12 Sep", "one second before the 13th");
+  checkStr(live::shortDate(1789171200 + 86400), "13 Sep", "and the second after it rolls");
+
+  // Every month spells itself, and none of them comes from strftime's %b: the
+  // firmware sets no locale and the simulator inherits the shell's, so a
+  // locale-dependent month would differ between the laptop the layout was
+  // measured on and the panel it ships to.
+  const char* kMonths[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  for (int m = 0; m < 12; ++m) {
+    // The 1st of each month of 2026, walked forward from 2026-01-01T00:00:00Z.
+    static const int kDays[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+    const std::string got = live::shortDate(1767225600 + static_cast<int64_t>(kDays[m]) * 86400);
+    checkStr(got, std::string("1 ") + kMonths[m], "the first of a month");
+  }
+
+  // NOT A DATE. A reader that has never had a clock is not a reader that was
+  // paired in 1970, and the row draws the name alone rather than a number it
+  // made up.
+  check(live::shortDate(0).empty(), "the epoch is not a pairing date");
+  check(live::shortDate(-1).empty(), "a negative stamp is not a pairing date");
+  check(live::shortDate(live::kPlausibleEpochFloor - 1).empty(), "one second under the floor is still no clock");
+  check(!live::shortDate(live::kPlausibleEpochFloor).empty(), "and the floor itself is usable");
+
+  // The same floor the schedule uses. Two copies of "is this clock worth
+  // believing" would be two things to edit alone.
+  for (int64_t e = live::kPlausibleEpochFloor - 5000; e < live::kPlausibleEpochFloor + 5000; e += 37) {
+    check(live::shortDate(e).empty() != live::clockIsUsable(e),
+          "shortDate and clockIsUsable disagree about whether there is a clock");
+  }
+}
+
 int main() {
   testClampInterval();
   testBackoff();
@@ -329,6 +376,7 @@ int main() {
   testImageCompleteness();
   testClock();
   testDecide();
+  testShortDate();
   if (failures != 0) {
     std::printf("live: %d FAILED\n", failures);
     return 1;
