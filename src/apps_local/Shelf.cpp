@@ -23,6 +23,7 @@
 #include "forehead/ForeheadActivity.h"
 #include "go/GoActivity.h"
 #include "hackernews/HackerNewsActivity.h"
+#include "hearts/HeartsActivity.h"
 #include "insider/InsiderActivity.h"
 #include "instapaper/InstapaperActivity.h"
 #include "jaipur/JaipurActivity.h"
@@ -55,6 +56,7 @@ constexpr shelf::Item kGames[] = {
     {"BATTLESHIP", &icon_battleship_32, &BattleshipActivity::create},
     {"CONNECTIONS", &icon_connections_32, &ConnectionsActivity::create},
     {"SOLITAIRE", &icon_solitaire_32, &SolitaireActivity::create},
+    {"HEARTS", &icon_hearts_32, &HeartsActivity::create},
     {"D&DIAGRAMS", &icon_dungeon_32, &DungeonActivity::create},
     {"INSIDER", &icon_insider_32, &InsiderActivity::create},
     {"JAIPUR", &icon_jaipur_32, &JaipurActivity::create},
