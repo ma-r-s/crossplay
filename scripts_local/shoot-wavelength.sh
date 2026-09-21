@@ -24,6 +24,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
+source "$REPO/scripts_local/lib-sim.sh"
 DEST="${1:-$REPO/site/assets/shots/wavelength.png}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -49,6 +50,5 @@ CROSSPLAY_AUTOSTART=WAVELENGTH "$REPO/scripts_local/sim-shot.sh" \
 
 [ -f "$WORK/dial.png" ] || { echo "no shot produced; see $WORK" >&2; exit 1; }
 mkdir -p "$(dirname "$DEST")"
-cp "$WORK/dial.png" "$DEST"
-echo "wrote $DEST"
+write_site_shot "$WORK/dial.png" "$DEST"
 echo "LOOK AT IT before updating the alt text: the spectrum is randomly dealt."

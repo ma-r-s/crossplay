@@ -1487,23 +1487,12 @@ body::before {
   margin-bottom: 0;
 }
 
-/* The install section's standing caveat: how much hardware this has actually
- * run on. Bordered rather than tinted, because the page has no colour to warn
- * with and a grey box would read as an aside. */
-.untested {
-  margin: 0 0 1.6rem;
-  padding: 0.9rem 1.1rem;
-  border: 2px solid var(--ink);
-  font-size: 0.95rem;
-  line-height: 1.6;
-  max-width: 62ch;
-}
-
 /* --- the install panel ----------------------------------------------------
  * The one control on this site that reaches out of the page and writes to
  * somebody's hardware, so it is drawn as a bordered slab rather than as more
- * prose: heavier than .untested, which is the only other boxed thing in this
- * section, and clearly the thing you came here to press.
+ * prose: the heaviest thing in the section, and clearly the thing you came
+ * here to press. Everything a person does not need before pressing it is a
+ * grey .installer-fine line under it or folded into .by-hand.
  */
 .installer {
   border: 3px solid var(--ink);
@@ -1646,6 +1635,16 @@ body::before {
 }
 .installer-fine {
   margin: 1.1rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* The four reasoning docs, as a line of links rather than the paragraph that
+ * used to sit above the install button and push it down the page. */
+.why-links {
+  margin: 1.2rem 0 0;
+  max-width: 62ch;
   font-size: 0.85rem;
   line-height: 1.6;
   color: var(--muted);
