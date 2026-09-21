@@ -14,8 +14,14 @@
 #include "../../src/apps_local/live/LiveCore.h"
 
 static int failures = 0;
+// Counted so the last line can say how many assertions ran, in the PHRASE the
+// gate counts: check.sh reads sub-suites with `grep -c "checks, 0 failed"`, so
+// a suite that only says "ok" reports ZERO assertions to the one instrument
+// that is meant to notice a suite which stopped asserting anything.
+static int checks = 0;
 
 static void check(const bool ok, const char* what) {
+  ++checks;
   if (!ok) {
     std::printf("  FAIL %s\n", what);
     ++failures;
@@ -23,6 +29,7 @@ static void check(const bool ok, const char* what) {
 }
 
 static void checkEq(const long long got, const long long want, const char* what) {
+  ++checks;
   if (got != want) {
     std::printf("  FAIL %s: got %lld want %lld\n", what, got, want);
     ++failures;
@@ -98,6 +105,7 @@ static void testBackoff() {
 // The ETag, which is the difference between a 304 and 48KB.
 
 static void checkStr(const std::string& got, const std::string& want, const char* what) {
+  ++checks;
   if (got != want) {
     std::printf("  FAIL %s: got '%s' want '%s'\n", what, got.c_str(), want.c_str());
     ++failures;
@@ -378,9 +386,9 @@ int main() {
   testDecide();
   testShortDate();
   if (failures != 0) {
-    std::printf("live: %d FAILED\n", failures);
+    std::printf("live: %d checks, %d failed\n", checks, failures);
     return 1;
   }
-  std::printf("live: ok\n");
+  std::printf("live: %d checks, 0 failed\n", checks);
   return 0;
 }
