@@ -291,7 +291,10 @@ bool NotesActivity::nameFitsBand(const std::string& name) {
 }
 
 void NotesActivity::askNewName() {
-  auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, "NAME THIS NOTE", "", kNameMax);
+  // The prompt says which button was pressed. "NAME THIS NOTE" after tapping
+  // + LIST is the app disagreeing with the control the finger just used.
+  auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(
+      renderer, mappedInput, newIsList_ ? "NAME THIS LIST" : "NAME THIS NOTE", "", kNameMax);
   if (!keyboard) {
     showNotice("There was not enough memory to open the keyboard.");
     return;
