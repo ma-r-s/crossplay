@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111110">
+<title>Type on your phone</title>
+<style>
+/* The site's tokens, not an approximation of them. site/styles.css:35-51 is the
+   source; the values are copied rather than eyeballed, because the previous
+   version of this page was written from memory of the site and every one was
+   subtly wrong -- #faf9f7 is a cold near-white where CrossPlay's paper is a
+   warm cream, and the difference is obvious the moment the two are side by
+   side. No webfont: the device serves this with no internet, so the display
+   face falls back to the stack the site itself declares (styles.css:42). */
+:root{
+  --ink:#111110; --paper:#f5f2ea; --paper-2:#ebe7db; --edge:#a9a494; --muted:#46443c;
+  --display:"Arial Narrow",Helvetica,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --gutter:clamp(1.25rem,4vw,2rem);
+}
+@media (prefers-color-scheme:dark){
+  :root{--ink:#f2f1ec; --paper:#100f0e; --paper-2:#1a1917; --edge:#5a564c; --muted:#b8b5aa}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 var(--body);-webkit-text-size-adjust:100%}
+
+/* The black band and the 3px rule under it. It stays black in both themes,
+   exactly as site/styles.css:105-127 does, because it is the one element that
+   is the same object on the panel and on the web. Sentence case and one
+   weight: uppercase is for mono labels only. */
+.band{background:#111110;color:#faf9f6;font-family:var(--display);font-weight:400;
+  font-size:clamp(1.6rem,7vw,2.2rem);letter-spacing:.02em;
+  padding:.45em var(--gutter) .3em;display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
+.band-note{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
+.band-rule{height:3px;background:var(--ink)}
+
+main{max-width:34rem;margin:0 auto;padding:1.6rem var(--gutter) 3rem}
+.eyebrow{font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 1rem;display:flex;align-items:center}
+.eyebrow::before{content:"";width:2rem;height:1px;background:currentColor;margin-right:.7rem}
+
+/* One row per item: a real checkbox and a real text field. There is nothing to
+   type wrong because there is no syntax to type. */
+ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--edge)}
+li{display:flex;align-items:center;gap:.75rem;border-bottom:1px solid var(--edge);padding:.2rem 0}
+li input[type=checkbox]{appearance:none;flex:0 0 auto;width:1.5rem;height:1.5rem;margin:0;
+  border:3px solid var(--ink);background:var(--paper);cursor:pointer}
+li input[type=checkbox]:checked{background:var(--ink);box-shadow:inset 0 0 0 4px var(--paper)}
+li input[type=text]{flex:1 1 auto;min-width:0;font:inherit;color:var(--ink);background:transparent;
+  border:0;border-radius:0;padding:.65rem .2rem;outline-offset:2px}
+li.done input[type=text]{text-decoration:line-through}
+li input:focus-visible{outline:3px solid var(--ink)}
+li .drop{flex:0 0 auto;font-family:var(--mono);font-size:.8rem;letter-spacing:.1em;color:var(--muted);
+  background:transparent;border:0;padding:.5rem;cursor:pointer}
+.new input[type=text]{background:var(--paper-2);padding-left:.75rem}
+
+.btn{display:block;width:100%;margin-top:1.4rem;font-family:var(--display);font-weight:400;font-size:1.3rem;
+  letter-spacing:.03em;padding:.5em 1.15em .38em;border:3px solid var(--ink);
+  background:var(--ink);color:var(--paper);cursor:pointer}
+.btn[disabled]{opacity:.42;cursor:default}
+.foot{font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);margin:1.4rem 0 0}
+</style>
+</head>
+<body>
+<div class="band"><span id="name">Notes</span><span class="band-note" id="state">Loading</span></div>
+<div class="band-rule"></div>
+<main>
+<p class="eyebrow">One line per thing</p>
+<ul id="rows"></ul>
+<button class="btn" id="save" disabled>Save to the reader</button>
+<p class="foot" id="foot">Served by the reader itself. Nothing leaves your network.</p>
+</main>
+<script>
+// Wrapped, and nothing here is called `name`: a top-level `var name` assigns to
+// window.name, a string property of Window, so the element is coerced to
+// "[object HTMLElement]" and every write to it is silently dropped.
+(function () {
+var rowsEl = document.getElementById('rows');
+var saveEl = document.getElementById('save');
+var stateEl = document.getElementById('state');
+var nameEl = document.getElementById('name');
+var footEl = document.getElementById('foot');
+var loaded = null;
+
+function say(msg) { stateEl.textContent = msg; }
+
+// A line of the file, split into the two things a person can see: whether it is
+// done, and what it says. The "- [ ] " marker never reaches the screen.
+function parseLine(line) {
+  var m = /^(\s*)([-*+]) \[([ xX])\] ?(.*)$/.exec(line);
+  if (m) return { done: m[3] !== ' ', text: m[4] };
+  return { done: false, text: line };
+}
+
+function addRow(item, isNew) {
+  var li = document.createElement('li');
+  if (isNew) li.className = 'new';
+
+  var box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = !!item.done;
+  box.setAttribute('aria-label', 'Done');
+
+  var text = document.createElement('input');
+  text.type = 'text';
+  text.value = item.text || '';
+  text.placeholder = isNew ? 'Add a line' : '';
+  text.setAttribute('aria-label', 'What it says');
+
+  var drop = document.createElement('button');
+  drop.type = 'button';
+  drop.className = 'drop';
+  drop.textContent = 'X';
+  drop.setAttribute('aria-label', 'Remove this line');
+
+  function mark() { li.className = (box.checked ? 'done' : '') + (li.classList.contains('new') ? ' new' : ''); }
+  box.addEventListener('change', mark);
+  mark();
+
+  // Typing in the empty row at the foot turns it into a real row and grows a
+  // fresh empty one under it, so a list is written without ever reaching for a
+  // button between items.
+  text.addEventListener('input', function () {
+    if (!li.classList.contains('new') || text.value === '') return;
+    li.classList.remove('new');
+    text.placeholder = '';
+    mark();
+    addRow({ done: false, text: '' }, true);
+  });
+  text.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    var next = li.nextElementSibling;
+    if (next) next.querySelector('input[type=text]').focus();
+  });
+  drop.addEventListener('click', function () {
+    if (li.classList.contains('new')) { text.value = ''; return; }
+    li.parentNode.removeChild(li);
+  });
+
+  li.appendChild(box);
+  li.appendChild(text);
+  li.appendChild(drop);
+  rowsEl.appendChild(li);
+  return li;
+}
+
+// Back to the file. The marker is written HERE and on the reader, never typed:
+// the device coerces anything it is sent anyway, so the two agree.
+function serialise() {
+  var out = '';
+  var items = rowsEl.querySelectorAll('li');
+  for (var i = 0; i < items.length; i++) {
+    var box = items[i].querySelector('input[type=checkbox]');
+    var text = items[i].querySelector('input[type=text]');
+    if (text.value.trim() === '') continue;
+    out += '- [' + (box.checked ? 'x' : ' ') + '] ' + text.value + '\n';
+  }
+  return out;
+}
+
+function load() {
+  fetch('/n/text', { cache: 'no-store' }).then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    nameEl.textContent = decodeURIComponent(r.headers.get('X-Note-Name') || 'Notes');
+    return r.text();
+  }).then(function (body) {
+    // Only when nothing has been typed yet. Reloading over what somebody is
+    // halfway through is the one failure this page could cause that costs real
+    // work, and the reader is not the authority while a phone has the keyboard.
+    if (loaded !== null && serialise() !== loaded) return;
+    rowsEl.innerHTML = '';
+    var lines = body.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].replace(/\r$/, '').trim() === '') continue;
+      addRow(parseLine(lines[i].replace(/\r$/, '')), false);
+    }
+    addRow({ done: false, text: '' }, true);
+    loaded = serialise();
+    saveEl.disabled = false;
+    say('Ready');
+  }).catch(function () {
+    say('No answer');
+    footEl.textContent = 'The reader is not answering. Check it is still on this screen.';
+  });
+}
+
+saveEl.addEventListener('click', function () {
+  saveEl.disabled = true;
+  say('Saving');
+  var body = serialise();
+  fetch('/n/text', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    body: body
+  }).then(function (r) {
+    if (!r.ok) return r.text().then(function (m) { throw new Error(m || r.status); });
+    loaded = body;
+    saveEl.disabled = false;
+    say('Saved');
+  }).catch(function (e) {
+    saveEl.disabled = false;
+    say(String(e.message || e).slice(0, 40));
+  });
+});
+
+load();
+})();
+</script>
+</body>
+</html>

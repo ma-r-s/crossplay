@@ -39,9 +39,13 @@ variables. The public key can only insert; it cannot read anything back.
 An event with `level: "error"` and a `props.message` is fingerprinted: the
 service, the event, and the message with every number and hex run replaced
 by `#`, so "book 4127 timed out" and "book 9 timed out" are one fingerprint.
-The first time a fingerprint is seen, a card opens on the board in
-`triaged` with the service as its app, and the orchestrator dispatches it
-like any other card. Every later occurrence adds one to the count in
+A card opens on the board, in `triaged` with the service as its app, when
+the fingerprint has been seen three times or on two devices within seven
+days: one error from one device is an event, not a bug ("The device has
+been lost." was somebody unplugging a cable, and it was a card). The
+infrastructure alarms (`release`, `pulse`, `upstream-sync`, `workflow`)
+still open at the first one. A card whose error stays quiet for seven days
+closes by itself (`board_expire()`, daily). Every later occurrence adds one to the count in
 `error_fingerprints` and attaches to the same card. A fingerprint whose card
 was closed and that comes back opens a new card: that is a regression.
 
