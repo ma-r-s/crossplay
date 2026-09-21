@@ -40,7 +40,9 @@ class HalPowerManager {
 
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the currentLockMode
-  void startDeepSleep(HalGPIO& gpio) const;
+  // `timerWakeMicros` arms an RTC timer beside the power button, so the device
+  // ends its own sleep. 0 keeps the old behaviour: only the button wakes it.
+  void startDeepSleep(HalGPIO& gpio, uint64_t timerWakeMicros = 0) const;
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;

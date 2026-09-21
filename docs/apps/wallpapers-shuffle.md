@@ -158,7 +158,8 @@ each other is how one of them silently wins.
 
 **Normal (`choosing_ == false`)**
 
-- header: `WALLPAPERS`, the page or count label, and an outline chip **`CHOOSE`**;
+- header: `WALLPAPERS`, the page or count label, and an outline chip carrying
+  the **four-squares** glyph;
 - 0 or 1 chosen: a tap on a tile pins that one -- today's behaviour, unchanged;
 - **2 or more chosen: a tap on a tile opens the set for editing with that tile
   toggled.** It does not collapse the set. That was the first design and it was
@@ -170,11 +171,12 @@ each other is how one of them silently wins.
 
 **Choosing (`choosing_ == true`)**
 
-- header: `CHOOSE A SET`, `N CHOSEN`, and the chip reading **`DONE`**;
+- header: `CHOOSE A SET`, `N CHOSEN`, and the same outline chip carrying a
+  **tick**;
 - a tap on a tile toggles membership, **committed to the card immediately**;
 - Back leaves choosing and stays in the app.
 
-`DONE` and `Back` do the same thing, which is the point: there is no commit/
+The tick and `Back` do the same thing, which is the point: there is no commit/
 cancel ambiguity to get wrong, because there is nothing uncommitted.
 
 **The count is in the header, not in the marks.** Four tiles fit a page and the

@@ -21,6 +21,12 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.10
+
+- Hearts: the shelf's first trick-taking game
+- Notes: a deck of cards, and a note that can become a list
+- Live: leave a handwritten note on a reader asleep on somebody's fridge
+
 ### 1.13.9
 
 - One page snapshot, one holder, and no stale refresh at teardown
