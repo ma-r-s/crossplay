@@ -159,6 +159,53 @@ void testCoercing() {
   CHECK(empty.empty());
 }
 
+void testKind() {
+  // One tick box anywhere makes the whole file a list; the kind is never a
+  // property of the line.
+  CHECK(kindOf(parse("- [ ] Milk\nEggs\n")) == Kind::List);
+  CHECK(kindOf(parse("Flour 500g\nWater 375g\n")) == Kind::Page);
+  CHECK(kindOf(parse("Notes about the flat\n- [x] Ask about the boiler\n")) == Kind::List);
+
+  // An empty note has no evidence, so the caller's choice at creation decides,
+  // and the first line written settles it for good.
+  CHECK(kindOf(parse(""), true) == Kind::List);
+  CHECK(kindOf(parse(""), false) == Kind::Page);
+  CHECK(kindOf(parse("\n\n"), false) == Kind::Page);
+
+  // The tally only belongs on a list, so the count of MARKED lines is what the
+  // deck asks for -- not the count of lines, which a page also has.
+  const Counts page = counts(parse("Flour\nWater\n"));
+  CHECK(page.total == 2);
+  CHECK(page.marked == 0);
+  const Counts list = counts(parse("- [x] Milk\n- [ ] Eggs\n"));
+  CHECK(list.marked == 2);
+  CHECK(list.done == 1);
+}
+
+void testSwitchingKind() {
+  // A note becomes a list and back, and the round trip keeps the words. This is
+  // the escape hatch for a file whose kind was inferred wrong -- a shopping
+  // list typed as plain lines on a computer opens as a note, and one tap fixes
+  // it without anybody editing syntax.
+  std::string doc = "Milk\nEggs\n";
+  CHECK(coerceToList(doc));
+  CHECK(kindOf(parse(doc)) == Kind::List);
+  CHECK(stripMarkers(doc));
+  CHECK(doc == "Milk\nEggs\n");
+  CHECK(kindOf(parse(doc)) == Kind::Page);
+
+  // Ticks are lost on the way to a note, which is the honest outcome: a note
+  // has nothing to be done with.
+  std::string ticked = "- [x] Milk\n- [ ] Eggs\n";
+  CHECK(stripMarkers(ticked));
+  CHECK(ticked == "Milk\nEggs\n");
+
+  // Nothing to strip is not a change, and must not rewrite the file.
+  std::string plain = "Milk\r\nEggs\r\n";
+  CHECK(!stripMarkers(plain));
+  CHECK(plain == "Milk\r\nEggs\r\n");
+}
+
 void testClearing() {
   std::string doc =
       "Shopping\n"
@@ -198,7 +245,9 @@ void testClearing() {
 int main() {
   testWhatIsATask();
   testATickIsOneByte();
+  testKind();
   testCoercing();
+  testSwitchingKind();
   testClearing();
 
   std::printf("%s  notes: %d checks, %d failed\n", failures ? "FAIL" : "ok  ", checks, failures);

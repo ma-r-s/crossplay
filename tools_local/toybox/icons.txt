@@ -18,6 +18,14 @@ battleship  = ship
 connections = grid-2x2    # four cells, four groups
 solitaire   = spade       # the card suit reads instantly at any size
 
+# HEARTS is the second card game on the shelf and the second suit in this list,
+# which is the one place the "no two silhouettes alike" rule bends. It bends
+# because a heart and a spade are the two most distinguishable shapes in the
+# deck -- one convex, one with a stem -- and because a trick-taking game named
+# after a suit that is not the one on its icon would be worse than the
+# repetition. `heart-crack` reads as a break-up and `diamond` is the wrong suit.
+hearts      = heart
+
 # WAVELENGTH's board IS a fader: a vertical strip with one heavy bar on it, and
 # the bar is the whole game. `sliders-vertical` is that shape rather than a
 # metaphor for it. `audio-waveform` was the obvious pun on the name and was

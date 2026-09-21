@@ -82,6 +82,7 @@ Counts counts(const std::vector<Line>& lines) {
     // newline produces is not either.
     if (line.begin >= line.end) continue;
     c.total++;
+    if (line.isTask) c.marked++;
     if (line.checked) c.done++;
   }
   return c;
@@ -136,6 +137,43 @@ bool coerceToList(std::string& doc) {
       changed = true;
     }
     out.append(doc, line.begin, line.end - line.begin);
+    if (!last) {
+      const size_t eol = line.end;
+      if (eol < doc.size() && doc[eol] == '\r') out.push_back('\r');
+      out.push_back('\n');
+    }
+  }
+  doc = out;
+  return changed;
+}
+
+Kind kindOf(const std::vector<Line>& lines, const bool emptyIsList) {
+  bool any = false;
+  for (const Line& line : lines) {
+    if (line.begin >= line.end) continue;
+    any = true;
+    if (line.isTask) return Kind::List;
+  }
+  return any ? Kind::Page : (emptyIsList ? Kind::List : Kind::Page);
+}
+
+bool stripMarkers(std::string& doc) {
+  const std::vector<Line> lines = parse(doc);
+  std::string out;
+  out.reserve(doc.size());
+  bool changed = false;
+
+  for (size_t i = 0; i < lines.size(); i++) {
+    const Line& line = lines[i];
+    const bool last = (i + 1 == lines.size());
+    if (line.isTask) {
+      // From the text, not from the whole line: the marker and the indent in
+      // front of it are what is being removed.
+      out.append(doc, line.textBegin, line.end - line.textBegin);
+      changed = true;
+    } else {
+      out.append(doc, line.begin, line.end - line.begin);
+    }
     if (!last) {
       const size_t eol = line.end;
       if (eol < doc.size() && doc[eol] == '\r') out.push_back('\r');

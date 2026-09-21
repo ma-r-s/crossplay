@@ -50,7 +50,18 @@ class NotesActivity final : public Activity {
   void openDeck();
   void toggleTask(int index);
   void clearDone();
+  // Rewrites the note as the other kind: a tick box on every line, or none.
+  void switchKind();
   void askNewName();
+  // What the note being made is for. Only consulted while it is still empty;
+  // the first line written settles the kind in the file itself.
+  bool newIsList_ = true;
+  bool openIsPage() const;
+  // ONE description of the open note, used to draw it AND to measure how much
+  // of it fits. They were built separately, and the measuring copy left out the
+  // kind and the tally -- both of which change the layout, so the page size was
+  // computed against a screen nobody ever saw.
+  notesui::NoteModel noteModel() const;
   void askRename();
   void askLine();
   void showNotice(const std::string& text);

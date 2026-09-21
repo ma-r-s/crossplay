@@ -40,6 +40,7 @@
 // emptied a line at a time on a panel that repaints in 0.3s.
 
 #include <cstddef>
+#include <cstdint>  // Kind's underlying type; clang gets it transitively, GCC does not
 #include <string>
 #include <vector>
 
@@ -64,7 +65,8 @@ bool toggle(std::string& doc, Line& line);
 
 struct Counts {
   int done = 0;
-  int total = 0;  // every non-empty line, because every one is an item
+  int total = 0;   // every non-empty line, because every one is an item
+  int marked = 0;  // of those, the ones carrying a tick box
 };
 Counts counts(const std::vector<Line>& lines);
 
@@ -85,5 +87,26 @@ std::vector<std::string> clearChecked(std::string& doc);
 // markers are left byte-for-byte alone, so a save from the phone cannot disturb
 // what was ticked on the device. Returns true when anything changed.
 bool coerceToList(std::string& doc);
+
+// A note is a LIST or a PAGE, and the kind belongs to the NOTE, never to the
+// line. That distinction is the whole lesson of the first version: when a line
+// could be one of two kinds, the fast path produced the wrong one and the two
+// were drawn differently. Here the kind is one answer for the whole file, so
+// nothing inside it can disagree.
+//
+// It is read off the content -- a file with any tick box is a list -- so it
+// survives being edited on a computer and needs nothing stored beside the note.
+// An EMPTY note has no evidence either way, which is what `emptyIsList` is for:
+// the app remembers what was chosen when it was made, and the first line
+// written settles it for good.
+enum class Kind : uint8_t { List, Page };
+
+// Strips the tick box off every line, turning a list back into words. The
+// counterpart of coerceToList, and the reason neither is a one-way door: the
+// kind is INFERRED from the file, so a note that should have been a list is
+// fixed by writing the markers rather than by storing a flag somewhere the
+// file cannot see.
+bool stripMarkers(std::string& doc);
+Kind kindOf(const std::vector<Line>& lines, bool emptyIsList = true);
 
 }  // namespace notes
