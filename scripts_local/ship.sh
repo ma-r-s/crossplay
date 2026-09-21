@@ -82,11 +82,6 @@ BRANCH="$(git branch --show-current)"
 command -v gh >/dev/null   || die "gh is not on PATH; this script publishes with it."
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated. Run: gh auth login"
 
-# PlatformIO's own esptool, reached through PlatformIO's own interpreter,
-# exactly as scripts_local/usb-flash.sh reaches it. Nothing is installed on
-# this Mac for this script: the toolchain that built the images is the
-# toolchain that packages them, and it is already here (v5.3.0, and it spells
-# the subcommand `merge-bin` the way crossplay-release.yml did).
 # THE TOOLCHAIN THAT BUILT THE IMAGES MUST BE THE PINNED ONE.
 #
 # This is the one thing that genuinely got weaker when publishing moved off
@@ -111,6 +106,11 @@ if [ -n "$PIN" ] && [ -n "$HAVE" ] && [ "$PIN" != "$HAVE" ]; then
 fi
 [ -n "$PIN" ] || say "  WARNING: no PlatformIO pin found in .github/workflows; the toolchain is unchecked"
 
+# PlatformIO's own esptool, reached through PlatformIO's own interpreter,
+# exactly as scripts_local/usb-flash.sh reaches it. Nothing is installed on
+# this Mac for this script: the toolchain that built the images is the
+# toolchain that packages them, and it is already here (v5.3.0, and it spells
+# the subcommand `merge-bin` the way crossplay-release.yml did).
 PIO_PY="$HOME/.platformio/penv/bin/python"
 ESPTOOL="$HOME/.platformio/packages/tool-esptoolpy/esptool.py"
 [ -x "$PIO_PY" ] && [ -f "$ESPTOOL" ] \
@@ -195,12 +195,22 @@ fi
 
 NEEDS_GATE=0
 if [ -n "$NEXT" ]; then
+  # WHAT THE VERSION ALREADY IS, read before the bump writes anything.
+  #
+  # A dry run cannot answer "did the bump change something?" by looking at
+  # the working tree, because in a dry run the bump did not run. The first
+  # version of this asked exactly that and so always reported "the bump is a
+  # no-op, the gate is skipped" -- the opposite of the truth for every real
+  # release, from the one mode whose entire job is to say what would happen.
+  # So compare the versions instead, which is the same question and is
+  # answerable in both modes.
+  HAVE_VER="$(sed -n '/^\[crossplay\]/,/^\[/s/^version *= *//p' platformio.ini | head -1 | tr -d ' ')"
   run "python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --write"
-  if [ "$DRY" = 0 ] && [ -n "$(git status --porcelain)" ]; then
+  if [ "$HAVE_VER" != "$NEXT" ]; then
     NEEDS_GATE=1
     run "git add platformio.ini docs/release-notes.md docs/release-body.md"
     run "git commit -q -m 'chore: crossplay $NEXT'"
-    say "  bumped, committed. The gate below builds the images that ship."
+    say "  bumped $HAVE_VER -> $NEXT. The gate below builds the images that ship."
   else
     say "  already at $NEXT: the bump is a no-op, so the gate's images are current."
   fi
@@ -316,7 +326,11 @@ fi
 # something nobody built.
 step "land"
 run "git push origin '$BRANCH:xteink'"
-say "  xteink is now $(git rev-parse --short HEAD)"
+if [ "$DRY" = 1 ]; then
+  say "  xteink would become $(git rev-parse --short HEAD) (plus the bump commit above)"
+else
+  say "  xteink is now $(git rev-parse --short HEAD)"
+fi
 
 if [ -z "$NEXT" ]; then
   say "\nLanded. No release: nothing since the last tag reaches a user."
