@@ -258,14 +258,30 @@ $REL_OUT
   say "  nothing since the last tag reaches a user. Landing without a release."
   NEXT=""
 else
-  NEXT="$(python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --dry-run 2>/dev/null | sed -n 's/^NEXT_VERSION=//p')"
-  [ -n "$NEXT" ] || die "release_notes.py named no next version. Run it with --dry-run and read why."
-  say "  next version  $NEXT"
+  HAVE_VER="$(sed -n '/^\[crossplay\]/,/^\[/s/^version *= *//p' platformio.ini | head -1 | tr -d ' ')"
+  LAST_TAG="$(git tag --list 'v*' --sort=-v:refname | head -1 | sed 's/^v//')"
+  # A RETRY MUST NOT BURN A VERSION. release_notes.py derives the next one as
+  # bump(what platformio.ini says), which is right on a first attempt and
+  # wrong on every one after: this script's own version step has already
+  # written the target there, so a re-run after a failed gate aims at
+  # target+1 and the one after that at target+2. Failures here are expected
+  # and are meant to be retried; the first live run hit two in a row.
+  #
+  # So: if platformio.ini is already ahead of the newest tag, an earlier
+  # attempt set it and IT is the target. Otherwise ask for the bump.
+  if [ -n "$LAST_TAG" ] && [ "$HAVE_VER" != "$LAST_TAG" ] \
+     && [ "$(printf '%s\n%s\n' "$LAST_TAG" "$HAVE_VER" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)" = "$HAVE_VER" ]; then
+    NEXT="$HAVE_VER"
+    say "  next version  $NEXT (platformio.ini is already ahead of v$LAST_TAG; an earlier attempt set it)"
+  else
+    NEXT="$(python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --dry-run 2>/dev/null | sed -n 's/^NEXT_VERSION=//p')"
+    [ -n "$NEXT" ] || die "release_notes.py named no next version. Run it with --dry-run and read why."
+    say "  next version  $NEXT"
+  fi
 fi
 TAG="v${NEXT:-0.0.0}"
 
 if [ -n "$NEXT" ]; then
-  HAVE_VER="$(sed -n '/^\[crossplay\]/,/^\[/s/^version *= *//p' platformio.ini | head -1 | tr -d ' ')"
   if [ "$HAVE_VER" != "$NEXT" ]; then
     # platformio.ini ONLY. A dry run cannot ask "did the bump change
     # something?" of the working tree, because in a dry run the bump did not
@@ -317,7 +333,19 @@ if [ "$DRY" = 0 ]; then
     green) say "  verdict   green" ;;
     host-green-device-skipped) die "the gate skipped the device builds, so there are no images to publish. CHECK_FORCE_DEVICE_BUILDS did not take; read $GATE_LOG." ;;
     "")    die "the gate printed no verdict at all, which is not a pass. Read $GATE_LOG." ;;
-    *)     die "gate verdict: $VERDICT. Nothing published. Read $GATE_LOG." ;;
+    *)
+      # The undo guard is the one gate refusal a CORRECT branch hits, and its
+      # explanation is a hundred lines up in the log. A branch that deletes
+      # code deliberately looks exactly like a stale tree committed over a
+      # moved trunk, which is what that guard is for. Surface the escape
+      # hatch here rather than making the reader dig for it.
+      if grep -q 'UNDOES trunk' "$GATE_LOG"; then
+        die "the gate refused because this branch REMOVES lines that are on trunk, which is the shape of a stale tree committed over a moved trunk.
+    If the deletions are deliberate, say so and run this again:
+        CHECK_ALLOW_UNDO=1 ./scripts_local/ship.sh
+    If they are not, rebase first. The lines it named are in $GATE_LOG."
+      fi
+      die "gate verdict: $VERDICT. Nothing published. Read $GATE_LOG." ;;
   esac
   IMAGES="$(grep -o 'CHECKSH-IMAGES: .*' "$GATE_LOG" | tail -1 | sed 's/CHECKSH-IMAGES: //')"
   case "$IMAGES" in
