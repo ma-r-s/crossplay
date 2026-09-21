@@ -38,6 +38,20 @@
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "apps_local/Shelf.h"
+#include "apps_local/powerprobe/PowerProbe.h"
+
+// How long the device sleeps before waking itself, in microseconds. 0 means
+// only the power button ends a sleep, which is how every build has behaved
+// until now.
+//
+// A self-ending sleep is the mechanism Live needs, and it is also the only way
+// a sleeping device can report anything: deep sleep drops the USB CDC, so a
+// board that never wakes by itself cannot be read without a finger on the
+// button.
+#ifndef CROSSPLAY_TIMER_WAKE_SECONDS
+#define CROSSPLAY_TIMER_WAKE_SECONDS 0
+#endif
+static constexpr uint64_t kTimerWakeMicros = static_cast<uint64_t>(CROSSPLAY_TIMER_WAKE_SECONDS) * 1000000ULL;
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
@@ -333,10 +347,11 @@ void enterDeepSleep(bool fromTimeout = false) {
 
   halTiltSensor.deepSleep();
   display.deepSleep();
+  powerprobe::beforeSleep();
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  powerManager.startDeepSleep(gpio);
+  powerManager.startDeepSleep(gpio, kTimerWakeMicros);
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
@@ -485,6 +500,10 @@ void setup() {
   // mount, idempotently, so no writer depends on which save ran first.
   Storage.mkdir("/.crosspoint");
 
+  // Prices the sleep we just came out of, if there was one. Reads the gauge,
+  // appends a line, clears the mark; silent when there is nothing to price.
+  powerprobe::afterBoot();
+
   HalSystem::checkPanic();
 
   APP_STATE.loadFromFile();
@@ -551,12 +570,24 @@ void setup() {
       // device; otherwise the button must still be held (ghost-wake debounce).
       if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
+        powerprobe::beforeSleep();
         Storage.prepareForDeepSleep();
-        powerManager.startDeepSleep(gpio);
+        powerManager.startDeepSleep(gpio, kTimerWakeMicros);
       }
       wakePowerReleasePending = true;
       break;
 #endif
+    case HalGPIO::WakeupReason::Timer:
+      // The device woke itself. Everything this wake exists to do has already
+      // happened above (powerprobe::afterBoot logged the sleep just ended), so
+      // go straight back down rather than boot a UI nobody is looking at. The
+      // panel is untouched, which is what keeps a retained image on the glass.
+      LOG_DBG("MAIN", "Timer wake: logging and returning to sleep");
+      powerprobe::beforeSleep();
+      Storage.prepareForDeepSleep();
+      powerManager.startDeepSleep(gpio, kTimerWakeMicros);
+      break;
+
     case HalGPIO::WakeupReason::AfterUSBPower:
       // Most devices return to sleep after a USB-powered cold boot.
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
@@ -569,8 +600,9 @@ void setup() {
       // the device in a USB-replug boot loop (or sleep right after a flash).
       break;
 #else
+      powerprobe::beforeSleep();
       Storage.prepareForDeepSleep();
-      powerManager.startDeepSleep(gpio);
+      powerManager.startDeepSleep(gpio, kTimerWakeMicros);
       break;
 #endif
     case HalGPIO::WakeupReason::AfterFlash:
