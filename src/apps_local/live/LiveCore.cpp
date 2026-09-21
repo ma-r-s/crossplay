@@ -132,4 +132,74 @@ Decision decide(const Schedule& schedule, const int64_t nowEpoch, const bool tim
   return out;
 }
 
+namespace {
+
+// "45 minutes", "an hour", "5 hours", "a day", "2 days": the coarsest unit the
+// figure survives in.
+//
+// The band edges are the ones every humanised duration has used since moment.js
+// picked them -- 45 minutes, 90 minutes, 22 hours, 36 hours -- rather than
+// edges invented here. They exist because the singular forms have to cover the
+// gap: without the 45..90 band, 80 minutes is either "80 minutes", a figure
+// nobody needs, or "an hour", which is wrong by a third and says so.
+//
+// Minutes step in fives, and never below five. A device whose clock comes from
+// one response header cannot honour a figure to the minute, and a number that
+// is visibly rounded says so without spending a word on saying it.
+std::string roughSpan(const uint32_t seconds) {
+  char buf[24];
+  if (seconds < 45u * 60u) {
+    unsigned minutes = (seconds + 150u) / 300u * 5u;
+    if (minutes < 5u) minutes = 5u;
+    std::snprintf(buf, sizeof(buf), "%u minutes", minutes);
+    return std::string(buf);
+  }
+  if (seconds < 90u * 60u) return "an hour";
+  if (seconds < 22u * 3600u) {
+    const unsigned hours = (seconds + 1800u) / 3600u;
+    std::snprintf(buf, sizeof(buf), "%u hours", hours);
+    return std::string(buf);
+  }
+  if (seconds < 36u * 3600u) return "a day";
+  const unsigned days = (seconds + 43200u) / 86400u;
+  std::snprintf(buf, sizeof(buf), "%u days", days);
+  return std::string(buf);
+}
+
+}  // namespace
+
+std::string nextCheckPhrase(const Schedule& schedule, const int64_t nowEpoch) {
+  // Not paired: there is no schedule, and the caller is drawing the code screen
+  // rather than this line. Empty rather than a sentence, so a screen that drew
+  // it anyway shows nothing instead of a claim.
+  if (!schedule.paired) return std::string();
+  if (!schedule.on) return "Paused";
+  // No clock, or nothing asked yet. `decide` answers a figure in both cases --
+  // it falls back to the whole interval -- and a figure measured against a 1970
+  // clock is a number the screen would be inventing.
+  if (schedule.lastAttemptEpoch <= 0 || !clockIsUsable(nowEpoch)) return "Soon";
+  const Decision decision = decide(schedule, nowEpoch);
+  // Three minutes, not one: the screen is repainted by events and not by a
+  // clock, so whatever it says is already a little old by the time it is read.
+  if (decision.fetchNow || decision.timerSeconds < 3u * 60u) return "Any moment";
+  return "In " + roughSpan(decision.timerSeconds);
+}
+
+std::string cadencePhrase(const uint32_t intervalSeconds) {
+  char buf[24];
+  if (intervalSeconds >= 604800u && intervalSeconds % 604800u == 0u) {
+    const unsigned weeks = intervalSeconds / 604800u;
+    std::snprintf(buf, sizeof(buf), weeks == 1u ? "Every week" : "Every %u weeks", weeks);
+  } else if (intervalSeconds >= 86400u && intervalSeconds % 86400u == 0u) {
+    const unsigned days = intervalSeconds / 86400u;
+    std::snprintf(buf, sizeof(buf), days == 1u ? "Every day" : "Every %u days", days);
+  } else if (intervalSeconds >= 3600u && intervalSeconds % 3600u == 0u) {
+    const unsigned hours = intervalSeconds / 3600u;
+    std::snprintf(buf, sizeof(buf), hours == 1u ? "Every hour" : "Every %u hours", hours);
+  } else {
+    std::snprintf(buf, sizeof(buf), "Every %u minutes", intervalSeconds / 60u);
+  }
+  return std::string(buf);
+}
+
 }  // namespace live

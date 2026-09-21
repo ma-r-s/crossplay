@@ -377,6 +377,121 @@ static void testShortDate() {
   }
 }
 
+// --------------------------------------------------------------------------
+// THE TWO LINES THE SCREEN LEADS WITH.
+//
+// The headline used to be printed from the INTERVAL -- "In about 24 hours"
+// whether the last check was a minute ago or twenty-three hours ago -- which is
+// why the screen's two largest facts read as one fact typed twice. It is
+// computed from live::decide now, and what is asserted here is the two things a
+// screenshot cannot show: that the figure tracks the time REMAINING, and that
+// every phrase it can produce is short enough for the display cut.
+//
+// THE LENGTH IS AN ASSERTION AND NOT A STYLE NOTE. "In about 45 minutes"
+// measures 464px at toybox_30 against a 448px body, so a phrasing an inch
+// longer does not fail: fittedTitle steps it down a rung and the headline
+// quietly becomes the same size as the small line under it. Measured in the
+// real face by host-tests/wallcaption; bounded by character count here, which
+// is the coarse guard the suite that cannot link a font can carry.
+static const size_t kHeroBudget = 16;  // "In 45 minutes" is 13; 16 is the headroom, not a target
+
+static live::Schedule pairedEvery(const uint32_t interval, const int64_t lastAttempt) {
+  live::Schedule s;
+  s.on = true;
+  s.paired = true;
+  s.intervalSeconds = interval;
+  s.lastAttemptEpoch = lastAttempt;
+  return s;
+}
+
+static void testNextCheckPhrase() {
+  std::printf("next check phrase\n");
+  const int64_t base = live::kPlausibleEpochFloor + 1000000;
+
+  // THE SAME SCHEDULE AT TWO MOMENTS SAYS TWO THINGS. This is the whole defect:
+  // the old line answered with the interval and could not tell these apart.
+  const live::Schedule daily = pairedEvery(86400, base);
+  checkStr(live::nextCheckPhrase(daily, base + 60), "In a day", "a check a minute ago is a day away");
+  checkStr(live::nextCheckPhrase(daily, base + 82800), "In an hour", "and the same schedule 23 hours later is not");
+  check(live::nextCheckPhrase(daily, base + 60) != live::nextCheckPhrase(daily, base + 82800),
+        "the headline does not move as the day passes, which is the line it replaces");
+
+  // Every band, at its own scale.
+  checkStr(live::nextCheckPhrase(pairedEvery(3600, base), base + 1800), "In 30 minutes", "half an hour to go");
+  // 44 minutes and 50 seconds left: the top of the minutes band, one rounding
+  // step under the 45-minute edge where the singular hour takes over.
+  checkStr(live::nextCheckPhrase(pairedEvery(3600, base), base + 910), "In 45 minutes", "the widest minutes phrase");
+  checkStr(live::nextCheckPhrase(pairedEvery(3600, base), base + 900), "In an hour", "and one second past the edge");
+  checkStr(live::nextCheckPhrase(pairedEvery(7200, base), base + 3600), "In an hour", "the singular hour");
+  checkStr(live::nextCheckPhrase(pairedEvery(21600, base), base + 3600), "In 5 hours", "five hours");
+  checkStr(live::nextCheckPhrase(pairedEvery(604800, base), base + 60), "In 7 days", "a week");
+
+  // MINUTES STEP IN FIVES and never below five. A device whose clock comes from
+  // one response header cannot honour a figure to the minute.
+  for (uint32_t left = 3 * 60; left < 45 * 60; left += 7) {
+    const std::string phrase = live::nextCheckPhrase(pairedEvery(3600, base), base + 3600 - left);
+    check(phrase.compare(0, 3, "In ") == 0, "a minutes phrase is not a phrase");
+    if (phrase.find("minutes") == std::string::npos) continue;
+    const int minutes = std::atoi(phrase.c_str() + 3);
+    check(minutes % 5 == 0, "the minutes figure is not rounded to five");
+    check(minutes >= 5, "the minutes figure went below five");
+  }
+
+  // THE ANSWERS THAT ARE NOT FIGURES, each of them a state a figure would lie
+  // about.
+  live::Schedule off = pairedEvery(86400, base);
+  off.on = false;
+  checkStr(live::nextCheckPhrase(off, base + 60), "Paused",
+           "a stopped reader still names a next check, which is a promise it is not keeping");
+  live::Schedule unpaired = pairedEvery(86400, base);
+  unpaired.paired = false;
+  check(live::nextCheckPhrase(unpaired, base).empty(), "an unpaired reader invents a schedule it does not have");
+  checkStr(live::nextCheckPhrase(pairedEvery(86400, 0), base), "Soon", "nothing asked yet is not a figure");
+  checkStr(live::nextCheckPhrase(daily, live::kPlausibleEpochFloor - 1), "Soon",
+           "a 1970 clock produces a figure the screen would be inventing");
+  checkStr(live::nextCheckPhrase(daily, base + 86400), "Any moment", "an overdue check is not in the future");
+  checkStr(live::nextCheckPhrase(daily, base + 86400 - 60), "Any moment", "the last minute rounds to a figure");
+
+  // THE BACKOFF IS THE SCHEDULE. A reader that cannot reach the service is not
+  // checking again in six hours, and the headline may not say it is.
+  live::Schedule failing = pairedEvery(21600, base);
+  failing.consecutiveFailures = 1;
+  check(live::nextCheckPhrase(failing, base + 60) != live::nextCheckPhrase(pairedEvery(21600, base), base + 60),
+        "the headline ignores the backoff, so it promises a check the schedule is not making");
+
+  // AND NOTHING IT CAN SAY OVERFLOWS THE HEADLINE'S CUT. Walked over every
+  // interval the service may ask for and every moment inside it, rather than
+  // over the handful of phrases written above: the phrase that would have been
+  // too long is the one nobody thought to type.
+  const uint32_t intervals[] = {live::kMinIntervalSeconds, 900, 1800, 3600, 7200, 21600, 43200, 86400, 172800,
+                                live::kMaxIntervalSeconds};
+  for (const uint32_t interval : intervals) {
+    for (uint32_t elapsed = 0; elapsed <= interval; elapsed += 31) {
+      const std::string phrase = live::nextCheckPhrase(pairedEvery(interval, base), base + elapsed);
+      check(!phrase.empty(), "a paired reader has nothing to put in its headline");
+      check(phrase.size() <= kHeroBudget, "a next-check phrase is too long for the display cut");
+    }
+  }
+}
+
+static void testCadencePhrase() {
+  std::printf("cadence phrase\n");
+  checkStr(live::cadencePhrase(900), "Every 15 minutes", "minutes");
+  checkStr(live::cadencePhrase(3600), "Every hour", "the singular hour");
+  checkStr(live::cadencePhrase(21600), "Every 6 hours", "hours");
+  checkStr(live::cadencePhrase(86400), "Every day", "the singular day");
+  checkStr(live::cadencePhrase(172800), "Every 2 days", "days");
+  // A WEEK IS A WEEK. The cap is seven days and the hours branch would have
+  // answered "Every 168 hours", which is a number nobody reads.
+  checkStr(live::cadencePhrase(604800), "Every week", "the cap");
+  check(live::cadencePhrase(live::kMaxIntervalSeconds).find("168") == std::string::npos,
+        "the longest cadence is reported in hours");
+  // And nothing in the range is longer than the small line it sits on.
+  for (uint32_t s = live::kMinIntervalSeconds; s <= live::kMaxIntervalSeconds; s += 60) {
+    check(live::cadencePhrase(s).size() <= 20, "a cadence phrase is too long for the line under the headline");
+  }
+}
+
 int main() {
   testClampInterval();
   testBackoff();
@@ -385,6 +500,8 @@ int main() {
   testClock();
   testDecide();
   testShortDate();
+  testNextCheckPhrase();
+  testCadencePhrase();
   if (failures != 0) {
     std::printf("live: %d checks, %d failed\n", checks, failures);
     return 1;

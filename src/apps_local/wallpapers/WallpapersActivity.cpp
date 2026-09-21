@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
 #include "../../../lib/GfxRenderer/FontCacheManager.h"
 #include "../../CrossPointSettings.h"
@@ -1434,7 +1435,7 @@ void WallpapersActivity::openLive() {
     liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::AskingForCode);
     livePairQueued_ = true;
   }
-  // And a paired reader fetches WHO CAN SEND, queued behind the paint for the
+  // And a paired reader fetches the sender list, queued behind the paint for the
   // same reason the code is. The list is the screen's whole second half, and it
   // is the service's answer rather than the card's: a phone revoked from
   // another reader, or one added since the last visit, is only knowable by
@@ -1515,7 +1516,7 @@ void WallpapersActivity::pollLivePairing() {
   // And fetch immediately, from loop(). The first thing a person does after
   // pairing is look at the screen. The list is asked for in the same breath:
   // the phone that just claimed the code IS the first sender, and a paired
-  // screen whose WHO CAN SEND said nobody could would be wrong about the one
+  // screen whose sender list said nobody could would be wrong about the one
   // thing that had just happened.
   liveCheckQueued_ = true;
   liveSendersQueued_ = true;
@@ -1700,30 +1701,16 @@ void WallpapersActivity::toggleLive() {
 void WallpapersActivity::applyLiveSleepSettings() { applySleepSettings(); }
 
 void WallpapersActivity::refreshLiveLines() {
-  const uint32_t interval = liveState_.intervalSeconds;
-  char buf[64];
-  if (interval % 3600 == 0) {
-    const unsigned hours = interval / 3600;
-    std::snprintf(buf, sizeof(buf), hours == 1 ? "Every hour" : "Every %u hours", hours);
-  } else {
-    std::snprintf(buf, sizeof(buf), "Every %u minutes", static_cast<unsigned>(interval / 60));
-  }
-  liveCadence_ = buf;
-  if (liveState_.lastSuccessEpoch <= 0) {
-    liveNextCheck_ = "Soon";
-    return;
-  }
-  // An ESTIMATE, and it says so in the service's own words: the sleep timer
-  // runs off an RC oscillator that drifts percent-level, and a wake missed for
-  // want of Wi-Fi is invisible until the one after. "In about" is the honest
-  // precision; a figure to the minute would be a number this device cannot
-  // keep.
-  if (interval % 3600 == 0) {
-    std::snprintf(buf, sizeof(buf), "In about %u hours", static_cast<unsigned>(interval / 3600));
-  } else {
-    std::snprintf(buf, sizeof(buf), "In about %u minutes", static_cast<unsigned>(interval / 60));
-  }
-  liveNextCheck_ = buf;
+  // Both lines come out of live::, not out of this function, and the move is
+  // the fix rather than tidying. The next check used to be printed from the
+  // INTERVAL here, so it said "In about 24 hours" whether the last check was a
+  // minute ago or twenty-three hours ago -- which is why the screen's two
+  // largest facts read as one fact typed twice. live::nextCheckPhrase runs
+  // live::decide, the same arithmetic that arms the timer on the way into
+  // sleep, so the headline and the schedule cannot disagree; and both live
+  // where host-tests/live can walk every band of them.
+  liveCadence_ = live::cadencePhrase(liveState_.intervalSeconds);
+  liveNextCheck_ = live::nextCheckPhrase(liveState_.schedule(), static_cast<int64_t>(std::time(nullptr)));
 }
 
 // The address the phone opens. Station mode only: the hotspot has no NAT and a
@@ -2573,7 +2560,7 @@ void WallpapersActivity::render(RenderLock&&) {
   // with no code on it at all, and it takes the same face set the offer and the
   // sheet use -- a huge cut bound for a screen that has nothing to set in it is
   // a cut every unstyled string can fall into.
-  // liveShowingCode(), not "unpaired": ADD SOMEBODY puts a six-digit code on a
+  // liveShowingCode(), not "unpaired": ADD puts a six-digit code on a
   // reader that IS paired, and it is the same code screen. Read through the one
   // predicate the screen itself draws from (wallpapersui::liveShowsCode), so
   // the face and the arrangement cannot come apart -- the version that came

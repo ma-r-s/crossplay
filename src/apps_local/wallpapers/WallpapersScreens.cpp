@@ -615,11 +615,14 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
 namespace {
 
 // MEASURED, not estimated. reading_serif_14 sets about 26 characters across a
-// 448px body and about 16 across half of one, so a sentence written for the
-// wide case is five lines in a column and loses its tail. The rule these two
-// are cut to: short enough that the narrowest box any arrangement puts it in
-// still takes all of it.
-constexpr const char* kLiveWhat = "Send a picture from your phone, or keep it Live so more arrive on their own.";
+// 448px body, so the rule these two are cut to is TWO LINES of it and no more
+// -- the code is the screen and the sentence is a caption under it.
+//
+// Both were half again as long. The first said "Send a picture from your
+// phone, or keep it Live so more arrive on their own", which is three lines
+// explaining a feature to somebody who is holding a six-digit number and
+// wants to know where to type it.
+constexpr const char* kLiveWhat = "Type this code on your phone to send pictures.";
 // The SAME box, for a code that means the opposite thing.
 //
 // Both halves of this screen show six digits under the word LIVE, and only this
@@ -630,7 +633,7 @@ constexpr const char* kLiveWhat = "Send a picture from your phone, or keep it Li
 // for a phone.") -- a note put there would be a note nobody ever sees. The
 // person who needs this is the one about to worry they are replacing the
 // message already on the glass.
-constexpr const char* kLiveJoinWhat = "Give this code to somebody else. They will be able to send pictures too.";
+constexpr const char* kLiveJoinWhat = "Give this code to somebody else. They can send too.";
 // The ten-minute note is a LINE OF THE BODY and not the footer. It went in the
 // footer first, where it drew as "CODE LASTS 10 MINUTES,..." -- drawFoot fits to
 // one line and on this face set there is no cut below reading_serif_14 to step
@@ -638,16 +641,26 @@ constexpr const char* kLiveJoinWhat = "Give this code to somebody else. They wil
 // thing short enough to survive there.
 constexpr const char* kLiveExpiry = "Code lasts ten minutes.";
 constexpr const char* kLiveFoot = "BACK RETURNS";
-constexpr const char* kLiveSenders = "WHO CAN SEND";
-constexpr const char* kLiveNextLabel = "NEXT CHECK";
-constexpr const char* kLiveEveryLabel = "HOW OFTEN";
-// Half of the label row, so both of these are fitted to a box of their own and
-// neither can be drawn through the other.
-constexpr const char* kLiveRemoveHint = "TAP TO REMOVE";
-// Two sentences, not one: the first says what the screen is, the second is what
-// keeps it from reading as a broken screen. A reader that has just had its last
-// phone removed is in exactly this state and nothing is wrong with it.
-constexpr const char* kLiveNobody = "Nobody can send to this reader. The picture on the screen stays.";
+// ONE WORD PER CONTROL, and each of them beside a mark.
+//
+// The three used to be "CHECK NOW", "TURN IT OFF" and "ADD SOMEBODY", stacked
+// two-and-one under two labelled fact pairs, and the screen spent seven
+// headings saying what six words and four glyphs say here. Mario's words:
+// be concise, rely on icons, clear intuitive stuff.
+//
+// A WORD AS WELL AS THE MARK, never the mark alone. This panel has no hover and
+// no tooltip -- the Add screen 400 lines up draws its address in words beside
+// the QR for exactly that reason and says so -- and a rotating arrow is only
+// obviously "ask the website now" to somebody who already knows what this
+// screen does. The word costs one line of a 64px button that was going to be
+// empty either way.
+constexpr const char* kLiveCheck = "CHECK";
+constexpr const char* kLiveAdd = "ADD";
+// The last sentence of the empty list, and it is two sentences on purpose: the
+// first says what the screen is, the second is what keeps it from reading as a
+// broken one. A reader whose last phone was just removed is in exactly this
+// state and nothing is wrong with it.
+constexpr const char* kLiveNobody = "Nobody can send yet. The picture on the screen stays.";
 // The confirm's headline and its two labels. THEM, not IT: the wallpaper
 // confirm removes a file and this one removes a person's access, and the
 // pronoun is the only thing on the screen that says which kind of thing is
@@ -677,12 +690,24 @@ constexpr const char* kLiveRevokeWhy =
 // 33 spends no pixels on the centring slack QrUtils would otherwise leave.
 constexpr int16_t kLiveQrSide = 165;  // five module pixels a side
 
+// The marks, at 24 and not at toybox::kIconSize.
+//
+// 32 is the size a mark is drawn at when it is ALONE on a shelf row. Every one
+// of these is beside a word -- three inside a 64px button, one at the end of a
+// list row -- and at 32 the pair stops reading as a pair and starts reading as
+// a picture with a caption stuck to it.
+constexpr int16_t kLiveIconSize = 24;
+
 // The unpaired screen's three cuts, asked for by SLOT so the paired half cannot
 // accidentally reach one of them: on its face set FONT_SLOT_SMALL is the button
 // cut, not the huge one.
 constexpr fui::FontId kLiveCodeSlot = fui::FONT_SLOT_SMALL;     // toybox_64 while unpaired
 constexpr fui::FontId kLiveAddressSlot = fui::FONT_SLOT_TITLE;  // toybox_30, both states
 constexpr fui::FontId kLiveProseSlot = fui::FONT_SLOT_BODY;     // reading_serif_14, both states
+// The headline on the paired screen: WHEN THE NEXT CHECK IS, and it is the same
+// cut the unpaired half gives the address. The biggest thing on a screen should
+// be the thing the screen is opened to find out, and that is this.
+constexpr fui::FontId kLiveHeroSlot = fui::FONT_SLOT_TITLE;  // toybox_30, 63px
 
 fui::TextStyle liveCut(toybox::Screen& screen, const fui::FontId font, const fui::TextAlign align,
                        const fui::Color colour = fui::Color::Black, const uint8_t lines = 1) {
@@ -704,6 +729,62 @@ void drawFitted(toybox::Screen& screen, const fui::Rect& box, const char* text, 
   screen.target().text(box, toybox::fittedTitle(screen.target(), text, box.width, style).c_str(), style);
 }
 
+// A mark, drawn square and centred in the box it is given.
+void drawLiveIcon(toybox::Screen& screen, const fui::Rect& box, const freeink::Icon& icon, const fui::Color ink) {
+  const fui::Rect where =
+      fui::makeRect(static_cast<int16_t>(box.x + (box.width - kLiveIconSize) / 2),
+                    static_cast<int16_t>(box.y + (box.height - kLiveIconSize) / 2), kLiveIconSize, kLiveIconSize);
+  screen.target().bitmap(where, fui::bitmapFromIcon(icon), fui::BitmapMode::Contain, fui::Paint::solid(ink));
+}
+
+// A CONTROL THAT IS A MARK AND A WORD, and never one of them.
+//
+// The mark is what lets three controls share the row two used to need. The word
+// is what stops the mark being a guess: there is no hover and no tooltip on
+// this panel, and the Add screen already draws its address in words beside the
+// QR for that exact reason. A rotating arrow says "again" to somebody who
+// already knows what this screen does and nothing at all to anybody else.
+//
+// The pair is centred as ONE GROUP rather than the mark sitting at a fixed
+// indent, so a three-letter word and a five-letter one are both balanced in
+// their own button.
+//
+// The label is fitted against WHAT IS LEFT after the mark, not against the
+// button: a label measured on the whole width would be declared to fit and then
+// drawn into a box the mark had already taken a third of, and at these cuts an
+// overflowing string neither clips nor ellipsises -- it stops somewhere
+// plausible.
+void drawIconButton(toybox::Screen& screen, const fui::Rect& box, const freeink::Icon& icon, const char* label,
+                    const fui::ActionId action, const bool primary) {
+  const fui::Color ink = primary ? fui::Color::White : fui::Color::Black;
+  if (primary) {
+    screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
+  } else {
+    screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 3);
+  }
+  // PINNED to the button cut, not taken from theme().smallText, and the three
+  // buttons in two different faces is why. smallText resolves to the prose face
+  // here, so fittedTitle's ladder -- which steps down and only down -- kept
+  // "STOP" and "ADD" in the serif because they fitted, and shrank "CHECK" to
+  // the button cut because it did not. One row, two typefaces, and nothing
+  // failed: every label fitted its box. Asking for the cut directly leaves the
+  // ladder one rung, so all three are the same face whatever the words become.
+  fui::TextStyle style = liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Left, ink);
+  const int16_t room = static_cast<int16_t>(box.width - kLiveIconSize - toybox::kGutter * 2);
+  const std::string fitted = toybox::fittedTitle(screen.target(), label, room, style);
+  const int16_t textW = screen.target().measureText(style.font, fitted.c_str(), style).width;
+  const int16_t groupW = static_cast<int16_t>(kLiveIconSize + toybox::kGutter + textW);
+  const int16_t left = static_cast<int16_t>(box.x + (box.width - groupW) / 2);
+  drawLiveIcon(screen, fui::makeRect(left, box.y, kLiveIconSize, box.height), icon, ink);
+  // The text box runs to the button's own edge rather than stopping at the
+  // measured width. The string is already fitted; a box cut to the exact
+  // measurement is a box one rounding away from cutting what it just fitted.
+  const int16_t textX = static_cast<int16_t>(left + kLiveIconSize + toybox::kGutter);
+  screen.target().text(fui::makeRect(textX, box.y, static_cast<int16_t>(box.right() - textX), box.height),
+                       fitted.c_str(), style);
+  screen.frame().hit(box, action);
+}
+
 // One sender: who, and when they were let in. Side by side where the row can
 // take both, stacked where it cannot, and the choice is MEASURED rather than
 // assumed from the body width: a row laid out for the wide case drew
@@ -714,6 +795,14 @@ void drawFitted(toybox::Screen& screen, const fui::Rect& box, const char* text, 
 // row it would be per row: one name long enough to stack and the next one short
 // enough not to, which is a list that changes shape halfway down. The question
 // is about the widest name, so it is answered about the widest name.
+// The room a row has for words: everything but the column the remove mark sits
+// in. Derived rather than typed, because three things read it -- the stack
+// decision, the name box and the date box -- and a fourth number would be a
+// fourth thing to edit alone.
+int16_t senderTextWidth(const int16_t rowWidth) {
+  return static_cast<int16_t>(rowWidth - kLiveIconSize - toybox::kMargin);
+}
+
 bool sendersStack(toybox::Screen& screen, const int16_t width, const LiveModel& model) {
   const fui::TextStyle prose = liveCut(screen, kLiveProseSlot, fui::TextAlign::Left);
   for (int i = 0; i < model.senderCount && i < LiveModel::kMaxSenders; ++i) {
@@ -743,11 +832,26 @@ int16_t senderRowHeight(toybox::Screen& screen) {
   return drawn > floor ? drawn : floor;
 }
 
+// One sender: who, when they were let in, and an X at the end of the row.
+//
+// The X IS THE HEADING, and that is the whole trade. The list used to carry
+// "WHO CAN SEND" over it and "TAP TO REMOVE" beside that, two headings for a
+// list whose rows are a name and a date -- and the only screen either of them
+// was protecting was the one where a person cannot tell a fact from a control.
+// A mark at the end of a row is what every list in the world puts there, and
+// the thing behind it is a confirm that NAMES the person, so discovering it by
+// pressing one costs nothing and destroys nothing.
+//
+// The mark is drawn once per row and is NOT its own hit rect. The whole row
+// stays the target: it is bigger than the mark, it is what the confirm's KEEP
+// is laid out against, and a second target inside the first would be a second
+// place for the same finger to land.
 void drawSender(toybox::Screen& screen, const fui::Rect& row, const LiveModel::Sender& sender, const bool stacked) {
   if (sender.who == nullptr) return;
   const fui::TextStyle prose = liveCut(screen, kLiveProseSlot, fui::TextAlign::Left);
   const int16_t lineH = screen.target().lineHeight(kLiveProseSlot);
   const int16_t sinceH = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
+  const int16_t textW = senderTextWidth(row.width);
   const int16_t sinceW =
       sender.since == nullptr ? 0 : screen.target().measureText(prose.font, sender.since, prose).width;
   // Centred in the row rather than pinned to its top. The row is sized for the
@@ -758,26 +862,43 @@ void drawSender(toybox::Screen& screen, const fui::Rect& row, const LiveModel::S
   int16_t y = static_cast<int16_t>(row.y + (row.height - drawn) / 2);
   if (y < row.y) y = row.y;
 
+  drawLiveIcon(screen,
+               fui::makeRect(static_cast<int16_t>(row.right() - kLiveIconSize), row.y, kLiveIconSize, row.height),
+               icon_live_remove_24, fui::Color::Black);
+
   if (!stacked) {
-    drawFitted(screen, fui::makeRect(row.x, y, static_cast<int16_t>(row.width - sinceW - toybox::kMargin), lineH),
+    drawFitted(screen, fui::makeRect(row.x, y, static_cast<int16_t>(textW - sinceW - toybox::kMargin), lineH),
                sender.who, prose);
-    drawFitted(screen, fui::makeRect(static_cast<int16_t>(row.right() - sinceW), y, sinceW, lineH), sender.since,
+    drawFitted(screen, fui::makeRect(static_cast<int16_t>(row.x + textW - sinceW), y, sinceW, lineH), sender.since,
                liveCut(screen, kLiveProseSlot, fui::TextAlign::Right));
     return;
   }
   // Stacked. The date takes the button cut under the name rather than the prose
   // one beside it: smaller says "about the line above" on a face set with no
   // second colour to say it with.
-  drawFitted(screen, fui::makeRect(row.x, y, row.width, lineH), sender.who, prose);
-  drawFitted(screen, fui::makeRect(row.x, static_cast<int16_t>(y + lineH), row.width, sinceH), sender.since,
+  drawFitted(screen, fui::makeRect(row.x, y, textW, lineH), sender.who, prose);
+  drawFitted(screen, fui::makeRect(row.x, static_cast<int16_t>(y + lineH), textW, sinceH), sender.since,
              liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Left));
 }
 
-// "LIVE IS ON" / "LIVE IS OFF", and the label of the control that changes it.
-// Two readings of one bool in one place: a screen that says ON beside a button
-// offering to turn it on is the defect this pair exists to make impossible.
-const char* liveStateWord(const bool on) { return on ? "LIVE IS ON" : "LIVE IS OFF"; }
-const char* liveToggleLabel(const bool on) { return on ? "TURN IT OFF" : "TURN IT ON"; }
+// The band's state word, and the label of the control that changes it.
+//
+// "ON" / "OFF" rather than "LIVE IS ON": the band it sits in already says LIVE,
+// and a status badge that repeats the title of the screen it is on is three
+// words doing one word's work.
+//
+// The BUTTON is a verb and the BAND is a state, and the two vocabularies are
+// deliberately different. A button reading "OFF" under a band reading "ON" asks
+// a person to work out which of the two is a fact and which is an offer -- on a
+// panel that takes up to two seconds to repaint, with one of them inside a box
+// and the other not. It also cost the test its teeth: with one vocabulary both
+// words are on the screen in both states, so an assertion that each is drawn
+// passes however the two are wired together (a-test-not-seen-fail).
+//
+// Still two readings of ONE BOOL in ONE PLACE, which is why this is a pair of
+// functions and not four literals at the call sites.
+const char* liveStateWord(const bool on) { return on ? "ON" : "OFF"; }
+const char* liveToggleLabel(const bool on) { return on ? "STOP" : "START"; }
 
 // A hairline the width of a column, used as a divider between stacked facts.
 void liveRule(toybox::Screen& screen, const int16_t x, const int16_t y, const int16_t width) {
@@ -794,59 +915,62 @@ void liveRule(toybox::Screen& screen, const int16_t x, const int16_t y, const in
 // two typed literals and everything laid out against them inherited the error.
 struct PairedYs {
   fui::Rect body;
-  int16_t lineH = 0;      // the prose cut
-  int16_t headH = 0;      // the display cut, for LIVE IS ON
-  int16_t labelH = 0;     // the button cut, for the small labels
-  int16_t factsY = 0;     // NEXT CHECK and HOW OFTEN, side by side
-  int16_t controlsY = 0;  // CHECK NOW and the toggle, side by side
-  int16_t halfW = 0;      // half the body, less the gutter between the columns
+  int16_t lineH = 0;   // the prose cut, for a sender's name
+  int16_t heroH = 0;   // the display cut, for the next check
+  int16_t labelH = 0;  // the button cut, for the cadence and a sender's date
+  int16_t heroY = 0;   // WHEN THE NEXT CHECK IS, and nothing above it
+  int16_t cadenceY = 0;
+  int16_t controlsY = 0;  // CHECK, the toggle and ADD, three across
+  int16_t thirdW = 0;     // a third of the body, less the gutters between them
   int16_t ruleY = 0;
-  int16_t labelY = 0;  // WHO CAN SEND, and the TAP TO REMOVE hint beside it
-  int16_t rowsY = 0;   // the first sender row
+  int16_t rowsY = 0;  // the first sender row
   int16_t rowH = 0;
-  int16_t addY = 0;  // ADD SOMEBODY, below the WHOLE band whether it is full or not
+  int16_t afterY = 0;  // below the WHOLE band, full or not: where the confirm puts REMOVE
 };
 
 PairedYs pairedYs(toybox::Screen& screen) {
   PairedYs out;
   out.body = screen.body();
   out.lineH = screen.target().lineHeight(kLiveProseSlot);
-  out.headH = screen.target().lineHeight(kLiveAddressSlot);
+  out.heroH = screen.target().lineHeight(kLiveHeroSlot);
   out.labelH = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
   out.rowH = senderRowHeight(screen);
 
-  // TWO COLUMNS, and it is a budget rather than a preference.
+  // THREE CONTROLS ACROSS ONE ROW, and it is what buys the headline its size.
   //
-  // Everything on this screen used to be a full-width row, which was affordable
-  // while WHO CAN SEND was a list of names nobody could touch. A row is a
-  // CONTROL now, so it is a finger tall, and four of them plus ADD SOMEBODY put
-  // the screen 145px past the panel -- with the button that adds a phone as the
-  // thing that fell off the bottom. MEASURED, not estimated: on this face set
-  // the prose cut is 40px and the display cut 63, not the 22 and 38 a guess
-  // would have given, and the guess is what made the first version fit on
-  // paper.
+  // The screen was two labelled fact pairs, then two buttons side by side, then
+  // two more headings, then the rows, then a full-width ADD SOMEBODY under all
+  // of it. Seven headings for three facts. Folding the third button up beside
+  // the other two frees a whole 64px control row and its margin, and the
+  // headline spends it: the next check is the display cut now, which is the
+  // only thing on this screen anybody opens it to find out.
   //
-  // Nothing here needs the width. Both facts are short sentences the device
-  // composes, both labels are two words, and both buttons are fitted -- the
-  // widest measures well inside half a body at the button cut.
-  out.halfW = static_cast<int16_t>((out.body.width - toybox::kGutter) / 2);
+  // MEASURED, not estimated: on this face set the display cut is 63px and the
+  // button cut 29, not the 38 and 22 a guess would have given, and a guess is
+  // what made the first version of this screen fit on paper and not on glass.
+  // The three labels are one word each and the widest measures 72px inside a
+  // 141px third, mark and gutter included.
+  out.thirdW = static_cast<int16_t>((out.body.width - toybox::kGutter * 2) / 3);
   int16_t y = out.body.y;
-  out.factsY = y;
-  y = static_cast<int16_t>(y + out.labelH + out.lineH + toybox::kGutter);
+  out.heroY = y;
+  y = static_cast<int16_t>(y + out.heroH);
+  // Directly under the headline with no gap: the cadence is a subtitle to it,
+  // not a second fact of its own. That is the whole difference between this and
+  // the pair of labelled columns it replaces, which said "In about 24 hours"
+  // beside "Every 24 hours" and read as one fact typed twice.
+  out.cadenceY = y;
+  y = static_cast<int16_t>(y + out.labelH + toybox::kMargin * 2);
   out.controlsY = y;
   y = static_cast<int16_t>(y + kButtonH + toybox::kMargin);
   out.ruleY = y;
   y = static_cast<int16_t>(y + toybox::kRule + toybox::kGutter);
-  out.labelY = y;
-  y = static_cast<int16_t>(y + out.labelH + toybox::kGutter / 2);
   out.rowsY = y;
-  // The band is RESERVED, not grown. ADD SOMEBODY sits below room for four
-  // phones whether four are there or not, so letting somebody in -- or taking
-  // them out -- never slides the button under a finger already travelling
-  // towards it, and the confirm's REVOKE can be placed once instead of per
-  // list length.
+  // The band is RESERVED, not grown, so letting a phone in -- or taking one out
+  // -- never slides anything under a finger already travelling towards it
+  // (same-pixel-different-action), and the confirm's REMOVE can be placed once
+  // instead of per list length.
   y = static_cast<int16_t>(y + LiveModel::kMaxSenders * out.rowH + toybox::kGutter);
-  out.addY = y;
+  out.afterY = y;
   return out;
 }
 
@@ -888,51 +1012,48 @@ void drawLiveReport(toybox::Screen& screen, const fui::Rect& body, const int16_t
 fui::Rect buildLiveStackPaired(toybox::Screen& screen, const LiveModel& model) {
   const PairedYs g = pairedYs(screen);
   const fui::Rect body = g.body;
-  const int16_t rightX = static_cast<int16_t>(body.right() - g.halfW);
 
-  // Labelled, and it is not decoration: "Once a day" alone answers a question
-  // nobody asked it. The two values are a TIME and a FREQUENCY and they look
-  // alike, so each says which it is. The label cut is the button face, which is
-  // the only cut this face set has below the prose one.
-  const char* labels[2] = {kLiveNextLabel, kLiveEveryLabel};
-  const char* values[2] = {model.nextCheck, model.cadence};
-  const int16_t columnX[2] = {body.x, rightX};
-  for (int i = 0; i < 2; ++i) {
-    drawFitted(screen, fui::makeRect(columnX[i], g.factsY, g.halfW, g.labelH), labels[i],
-               liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Left));
-    drawFitted(screen, fui::makeRect(columnX[i], static_cast<int16_t>(g.factsY + g.labelH), g.halfW, g.lineH),
-               values[i], liveCut(screen, kLiveProseSlot, fui::TextAlign::Left));
-  }
+  // THE HEADLINE, with no label over it.
+  //
+  // "NEXT CHECK" in the button cut above "In about 24 hours" in the prose cut
+  // was a heading explaining a sentence that is already a sentence. The one
+  // thing somebody opens this screen to learn is when the next check is, so it
+  // is the biggest thing on the screen and nothing stands in front of it.
+  //
+  // The cadence sits directly under it at the small cut, as a subtitle rather
+  // than as a second labelled column. It answers a different question and it
+  // reads as an aside to the line above, which is what it is.
+  drawFitted(screen, fui::makeRect(body.x, g.heroY, body.width, g.heroH), model.nextCheck,
+             liveCut(screen, kLiveHeroSlot, fui::TextAlign::Left));
+  drawFitted(screen, fui::makeRect(body.x, g.cadenceY, body.width, g.labelH), model.cadence,
+             liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Left));
 
-  drawButton(screen, fui::makeRect(body.x, g.controlsY, g.halfW, kButtonH), "CHECK NOW", ActionLiveCheck);
-  drawOutlineButton(screen, fui::makeRect(rightX, g.controlsY, g.halfW, kButtonH), liveToggleLabel(model.on),
-                    ActionLiveToggle);
+  // Three controls, three marks, three words. CHECK is the filled one: it is
+  // the thing this screen is for, and the headline above it is the answer it
+  // changes.
+  const int16_t middleX = static_cast<int16_t>(body.x + g.thirdW + toybox::kGutter);
+  const int16_t rightX = static_cast<int16_t>(body.right() - g.thirdW);
+  drawIconButton(screen, fui::makeRect(body.x, g.controlsY, g.thirdW, kButtonH), icon_live_check_24, kLiveCheck,
+                 ActionLiveCheck, true);
+  drawIconButton(screen, fui::makeRect(middleX, g.controlsY, g.thirdW, kButtonH), icon_live_power_24,
+                 liveToggleLabel(model.on), ActionLiveToggle, false);
+  drawIconButton(screen, fui::makeRect(rightX, g.controlsY, g.thirdW, kButtonH), icon_live_add_24, kLiveAdd,
+                 ActionLiveAdd, false);
 
   liveRule(screen, body.x, g.ruleY, body.width);
 
-  // The label row is TWO boxes, each fitted to its own half. One box with two
-  // aligned strings in it is two strings measured against the same width, and
-  // the right-aligned one would be drawn through the left one the moment either
-  // grew -- with no ellipsis to show it, because no cut here carries one.
-  drawFitted(screen, fui::makeRect(body.x, g.labelY, g.halfW, g.labelH), kLiveSenders,
-             liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Left));
-  // Only when there is something to remove. On an empty list it would be an
-  // instruction for a control that is not on the screen.
-  if (model.senderCount > 0) {
-    drawFitted(screen, fui::makeRect(rightX, g.labelY, g.halfW, g.labelH), kLiveRemoveHint,
-               liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Right));
-  }
-
   if (model.senderCount <= 0) {
-    // NOT an empty region under a heading. A reader whose last phone was just
-    // removed is here, nothing is wrong with it, and the recovery is the button
-    // below -- so it says both of those in words. An empty space under a label
-    // is this fork's most repeated user-visible failure and was twice reported
-    // as a crash by cold testers.
-    drawProse(screen, fui::makeRect(body.x, g.rowsY, body.width, static_cast<int16_t>(g.lineH * 3)), kLiveNobody,
+    // NOT an empty region under a rule. A reader whose last phone was just
+    // removed is here, nothing is wrong with it, and the recovery is the ADD
+    // button above -- so it says both of those in words. An empty space where
+    // content belongs is this fork's most repeated user-visible failure and was
+    // twice reported as a crash by cold testers. This is the one place on the
+    // screen where a sentence is still worth its room, because there is nothing
+    // else here to read.
+    drawProse(screen, fui::makeRect(body.x, g.rowsY, body.width, static_cast<int16_t>(g.lineH * 2)), kLiveNobody,
               fui::TextAlign::Left);
   } else {
-    const bool stacked = sendersStack(screen, body.width, model);
+    const bool stacked = sendersStack(screen, senderTextWidth(body.width), model);
     for (int i = 0; i < model.senderCount && i < LiveModel::kMaxSenders; ++i) {
       // The SAME rect the confirm reads back for its KEEP, and the same rect
       // the hit table gets. Three readers, one rectangle.
@@ -945,17 +1066,16 @@ fui::Rect buildLiveStackPaired(toybox::Screen& screen, const LiveModel& model) {
       screen.frame().hit(row, ActionLiveSender, static_cast<int16_t>(i));
     }
   }
-  drawOutlineButton(screen, fui::makeRect(body.x, g.addY, body.width, kButtonH), "ADD SOMEBODY", ActionLiveAdd);
 
   // The status takes the FOOT's line when there is one, rather than a line of
   // its own. This stack is laid out against a measured height and an inserted
   // row pushes the last control off the bottom; the foot is already one fitted
   // sentence in the one place a short report belongs.
   //
-  // It has to be drawn somewhere. CHECK NOW's honest answer is usually
-  // "nothing new", and on this panel a control that reports nothing and a
-  // touch that was dropped look exactly alike -- which is the confusion the
-  // Live tile was logged for before this screen existed.
+  // It has to be drawn somewhere. CHECK's honest answer is usually "nothing
+  // new", and on this panel a control that reports nothing and a touch that was
+  // dropped look exactly alike -- which is the confusion the Live tile was
+  // logged for before this screen existed.
   drawLiveReport(screen, body, g.labelH,
                  (model.status != nullptr && model.status[0] != '\0') ? model.status : kLiveFoot);
   return fui::makeRect(0, 0, 0, 0);
@@ -968,7 +1088,10 @@ fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
   const int16_t codeH = screen.target().lineHeight(kLiveCodeSlot);
   const int16_t addrH = screen.target().lineHeight(kLiveAddressSlot);
   const int16_t lineH = screen.target().lineHeight(kLiveProseSlot);
-  const int16_t proseH = static_cast<int16_t>(lineH * 3);
+  // TWO LINES, down from three, because both sentences were cut to two. The
+  // box is what wraps them, so a box left at three lines would be a blank line
+  // in the middle of a centred stack rather than harmless slack.
+  const int16_t proseH = static_cast<int16_t>(lineH * 2);
 
   // Centred in what is left AFTER the foot, rather than in the body: the foot
   // is drawn from body.bottom() up, so a stack centred in the whole body puts
@@ -1041,8 +1164,14 @@ bool liveShowsCode(const LiveModel& model) { return !model.configured || model.j
 
 const char* liveNobodySends() { return kLiveNobody; }
 const char* liveJoinPrompt() { return kLiveJoinWhat; }
-const char* liveRemoveHint() { return kLiveRemoveHint; }
 const char* liveRevokeConsequence() { return kLiveRevokeWhy; }
+
+// THIS translation unit's copy, and that is the whole reason it is a function.
+// ToyboxIcons.h declares every icon `static const`, so a test that included the
+// header would hold a different object with a different bits pointer and could
+// not tell the mark this file drew from any other (everyone-picks-the-same-name
+// is the same shape of problem one level up).
+const freeink::Icon& liveRemoveMark() { return icon_live_remove_24; }
 
 fui::Rect liveSenderRowRect(toybox::Screen& screen, const int index) {
   const PairedYs g = pairedYs(screen);
@@ -1061,13 +1190,13 @@ fui::Rect liveSendersBand(toybox::Screen& screen) {
 fui::Rect liveKeepRect(toybox::Screen& screen) { return liveSendersBand(screen); }
 
 fui::Rect liveRevokeRect(toybox::Screen& screen) {
-  // Under the WHOLE band, which is where ADD SOMEBODY sits on the list. That
-  // collision is accepted and named in the header: ADD SOMEBODY does not lead
-  // here, only a row does, and the reveal gate refuses a tap routed against a
-  // table the panel has not shown. What matters is the line below, which is
-  // that this rect touches NO row.
+  // Under the WHOLE band, and since the third control moved up into the header
+  // row this is a strip of the list screen that carries NOTHING. It used to be
+  // ADD SOMEBODY's pixels, which was accepted with an argument about the reveal
+  // gate; the argument is no longer needed, and host-tests/wallcaption asserts
+  // the strip is clear rather than taking this comment's word for it.
   const PairedYs g = pairedYs(screen);
-  return fui::makeRect(g.body.x, g.addY, g.body.width, kButtonH);
+  return fui::makeRect(g.body.x, g.afterY, g.body.width, kButtonH);
 }
 
 void buildLiveRevoke(toybox::Screen& screen, const RevokeModel& model) {

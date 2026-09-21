@@ -133,6 +133,9 @@ std::string shortDate(int64_t epoch);
 // ---------------------------------------------------------------------------
 // The one rule, in one function.
 //
+// (The two lines the Live screen leads with are below `decide`, because they
+// are computed from it.)
+//
 // "On every sleep, if a refresh is due, fetch it; otherwise arm the timer for
 // when it will be." Every case Mario named is this rule with different inputs:
 // a fridge nobody touches wakes on its own timer and fetches; a device in daily
@@ -171,5 +174,39 @@ struct Decision {
 // with no wall clock at all, so it can carry the schedule on its own and the
 // user's own sleeps can decline.
 Decision decide(const Schedule& schedule, int64_t nowEpoch, bool timerFired = false);
+
+// ---------------------------------------------------------------------------
+// The two lines the Live screen leads with.
+//
+// "In about 24 hours" over "Every 24 hours" was the screen saying one fact
+// twice, and it was not a wording problem: the next check was printed from the
+// INTERVAL, so a reader that checked one minute ago and a reader that checked
+// twenty-three hours ago put the same headline on the glass. It is computed
+// from `decide` now -- the same arithmetic the sleep path runs, backoff
+// included -- so the biggest thing on the screen cannot promise a check the
+// schedule is not about to make.
+//
+// The answers, shortest first, and every one of them fits the display cut
+// across a 448px body (measured, not assumed -- "In about 45 minutes" is 464px
+// there and would have silently dropped the headline a rung):
+//
+//   ""            not paired; the caller draws the code screen instead
+//   "Paused"      the toggle is off, so there is no next check to name
+//   "Soon"        no clock to measure with, or nothing asked yet
+//   "Any moment"  inside the last three minutes, or already due
+//   "In 45 minutes" / "In an hour" / "In 5 hours" / "In a day" / "In 2 days"
+//
+// Minutes are rounded to five and never shown below five, which is the whole of
+// this device's honesty about the figure: the sleep timer runs off an RC
+// oscillator that drifts percent-level, a refresh taken on the way into sleep
+// shifts the schedule, and a wake missed for want of Wi-Fi is invisible until
+// the one after. A figure to the minute would be a number this device cannot
+// keep; a figure that is visibly rounded says so without spending a word.
+std::string nextCheckPhrase(const Schedule& schedule, int64_t nowEpoch);
+
+// "Every 30 minutes", "Every hour", "Every 6 hours", "Every day", "Every week".
+// Days and weeks as well as hours, because the cap IS a week and "Every 168
+// hours" is a number nobody reads.
+std::string cadencePhrase(uint32_t intervalSeconds);
 
 }  // namespace live

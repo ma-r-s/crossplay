@@ -176,7 +176,7 @@ physical presence.
 
 ### Adding a phone is a different endpoint from setting one up
 
-`/api/pair/start` mints a NEW fridge. Wiring ADD SOMEBODY to it would have
+`/api/pair/start` mints a NEW fridge. Wiring ADD to it would have
 handed the browser a different fridge and silently orphaned both the phone
 already sending and the picture already on the glass. `/api/pair/join` takes
 the reader's bearer token and mints a code against the fridge it already has.
@@ -207,7 +207,7 @@ host-tests/wallcaption asserts both, and asserts it for every row rather than
 for one.
 
 A reader with no senders at all is RECOVERABLE, not broken: it says so in
-words, keeps ADD SOMEBODY, and the picture stays on the glass. Proved on the
+words, keeps ADD, and the picture stays on the glass. Proved on the
 live service and in `qa-artifacts/live-senders/08-empty.png`.
 
 **A service sentence is drawn verbatim and the screen is built to take it.**
@@ -285,19 +285,48 @@ several days it says so outright.
   claimed from a shell, device paired, image PUT, image pulled (200 + ETag +
   `X-Next-Wake`), second check 304 with the card's mtime unchanged, four greys
   on the sleep screen. `qa-artifacts/live-e2e/`.
-- **WHO CAN SEND is real, and a row is a control.** The Live screen fetches
-  `/api/senders` when it opens and draws name and date per phone; ADD SOMEBODY
-  mints a join code on the same screen the setup code uses; a tap on a row opens
-  a confirm that names the person and revokes on the service. Proved end to end
+- **The sender list is real, and a row is a control.** The Live screen fetches
+  `/api/senders` when it opens and draws name and date per phone; ADD mints a
+  join code on the same screen the setup code uses; a tap on a row opens a
+  confirm that names the person and revokes on the service. Proved end to end
   against the live service, not mocked: `qa-artifacts/live-senders/` walks a
   reader pairing, adding a phone claimed with curl from the shell, the phone
   appearing by name, being tapped, confirmed and gone, plus the four-phone list,
   the service's 409 at the fifth, and the empty list.
-- Laying the rows out cost the screen its full-width stacking: NEXT CHECK and
-  HOW OFTEN sit side by side, CHECK NOW and the toggle sit side by side, and
-  LIVE IS ON / LIVE IS OFF moved into the header band. Four tappable rows at a
-  finger each plus ADD SOMEBODY is 145px more than an 800px panel has, and the
-  control that fell off the bottom was the one that adds a phone.
+- **The paired screen is a headline, a row of three controls and a list.**
+  It was NEXT CHECK, HOW OFTEN, CHECK NOW, TURN IT OFF, WHO CAN SEND, TAP TO
+  REMOVE and ADD SOMEBODY: seven headings for three facts, and two of the pairs
+  said the same thing twice. Now the next check is the display cut with nothing
+  above it, the cadence is one small line under it, the three controls are a
+  24px Lucide mark and one word each across one row (CHECK / STOP / START /
+  ADD), and a sender row ends in an X. Before and after, four states side by
+  side: `qa-artifacts/live-lean/before-after.png`.
+  - A mark is always beside a WORD, never alone. There is no hover and no
+    tooltip on this panel -- the same reason the Add screen draws its address in
+    words next to the QR. The one exception is the X at the end of a row, where
+    a word would be the word four times and the confirm behind it names the
+    person anyway.
+  - The band carries a STATE (`ON` / `OFF`) and the button a VERB (`STOP` /
+    `START`). Two vocabularies on purpose: with one, both words are on the
+    screen in both states and the assertion that each is drawn cannot fail.
+  - Seven of the 24 interaction slots, four phones listed. Reported by
+    `host-tests/wallcaption` on every run.
+- **"In about 24 hours" over "Every 24 hours" was a bug, not a wording
+  problem.** The next check was printed from the INTERVAL, so a reader checked
+  one minute ago and one checked twenty-three hours ago said the same thing. It
+  is `live::nextCheckPhrase` now, computed from `live::decide` -- the same
+  arithmetic that arms the timer on the way into sleep, backoff included -- so
+  the headline cannot promise a check the schedule is not making. `Paused` while
+  the toggle is off, `Soon` with no clock, `Any moment` inside three minutes,
+  otherwise `In 45 minutes` / `In an hour` / `In 5 hours` / `In 2 days`, minutes
+  rounded to five. `host-tests/live` walks every band and every interval the
+  service may ask for; the length is part of the walk, because "In about 45
+  minutes" measures 464px at the display cut against a 448px body and would have
+  silently dropped the headline a rung rather than failed.
+- Four tappable rows at a finger each plus a full-width ADD SOMEBODY was 145px
+  more than an 800px panel has, and the control that fell off the bottom was the
+  one that adds a phone. That is what put the controls on one row; the headline
+  spends what the third button gave back.
 - The hint strip says when Live is the sleep screen ("Your phone is your sleep
   screen."). It sits third in the strip's order, below the sleep-screen note and
   the free-space advisory (both are news, and a standing line that outranked

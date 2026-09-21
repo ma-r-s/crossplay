@@ -182,7 +182,7 @@ class WallpapersActivity final : public Activity {
   void refreshLiveLines();
   void applyLiveSleepSettings();
 
-  // WHO CAN SEND, as the service last answered it.
+  // The sender list, as the service last answered it.
   //
   // A fixed array rather than a vector for the reason LiveModel's is: it is
   // written on the loop task and read on the render task with no lock across

@@ -39,6 +39,10 @@ namespace fui = freeink::ui;
 namespace {
 int checks = 0;
 int failed = 0;
+// Reported at the end: how much of the 24-slot interaction table the Live
+// screen spends at its fullest. Printed rather than only bounded, because a
+// budget nobody sees is a budget the next screen quietly overruns.
+int slotsAtFullList = 0;
 std::vector<std::string> firstFailures;
 
 void check(const bool ok, const std::string& what) {
@@ -165,6 +169,22 @@ class LiveTarget final : public fui::DrawTarget {
   };
   std::vector<Run> runs;
 
+  // The MARKS, recorded for the same reason the text is. Since the screen lost
+  // its headings the affordances are icons: three in the control row and one at
+  // the end of every sender row, and "is the mark there" is now the assertion
+  // that "TAP TO REMOVE is on the screen" used to be. A no-op bitmap() would
+  // have let the whole redesign draw nothing and stay green.
+  //
+  // `data` is the icon's bits pointer (fui::bitmapFromIcon), which is how a
+  // mark is told from another mark without the test holding its own copy of
+  // ToyboxIcons.h -- every icon there is `static const`, so an included copy
+  // would be a different object with a different pointer.
+  struct Mark {
+    fui::Rect box;
+    const uint8_t* data = nullptr;
+  };
+  std::vector<Mark> marks;
+
   const EpdFontFamily* familyFor(const fui::FontId font) const {
     // FONT_SLOT_SMALL is the whole difference between the two states: the huge
     // cut while there is a code on the screen, the button cut once there is not.
@@ -189,8 +209,10 @@ class LiveTarget final : public fui::DrawTarget {
     if (text == nullptr || text[0] == '\0') return;
     runs.push_back(Run{box, std::string(text), style});
   }
-  void bitmap(fui::Rect, fui::BitmapRef, fui::BitmapMode, fui::Paint = {},
-              fui::Rotation = fui::Rotation::None) override {}
+  void bitmap(const fui::Rect box, const fui::BitmapRef ref, fui::BitmapMode, fui::Paint = {},
+              fui::Rotation = fui::Rotation::None) override {
+    marks.push_back(Mark{box, ref.data});
+  }
 
  private:
   bool paired_ = false;
@@ -207,6 +229,14 @@ fui::DeviceContext device() {
 
 bool overlaps(const fui::Rect& a, const fui::Rect& b) {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+// Is `inner` wholly inside `outer`? Used to say which control a mark belongs
+// to: a glyph that merely overlaps a button could be the neighbour's, and a
+// button that owns two marks is a button that has been drawn on twice.
+bool contains(const fui::Rect& outer, const fui::Rect& inner) {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width &&
+         inner.y + inner.height <= outer.y + outer.height;
 }
 
 // What the caption actually draws, by the Activity's own rule: the long name
@@ -905,11 +935,25 @@ int main() {
           }
           check(drew(model.nextCheck), "the next check is not on the paired screen" + where);
           check(drew(model.cadence), "how often is not on the paired screen" + where);
-          // The state and its control, read from one bool in two places.
-          check(drew(model.on ? "LIVE IS ON" : "LIVE IS OFF"),
-                "the paired screen does not say whether Live is on" + where);
-          check(drew(model.on ? "TURN IT OFF" : "TURN IT ON"),
-                "the toggle offers the state the screen is already in" + where);
+          // THE HEADLINE KEPT THE HEADLINE'S CUT. fittedTitle steps DOWN
+          // through the bound slots when a string will not fit, so a next-check
+          // phrase an inch too long does not fail -- it quietly arrives at the
+          // same size as the small line under it and the screen loses the
+          // hierarchy that is the whole point of this layout. Nothing else here
+          // could see that: the run fits its box either way.
+          for (const LiveTarget::Run& run : target.runs) {
+            if (run.text != model.nextCheck) continue;
+            check(run.style.font == fui::FONT_SLOT_TITLE,
+                  std::string("the headline \"") + model.nextCheck +
+                      "\" was stepped down a cut to fit, so it is no longer the biggest thing on the screen" + where);
+          }
+          // The state and its control, read from one bool in two places. The
+          // band carries a STATE and the button a VERB, and the two
+          // vocabularies are deliberately different: with one vocabulary both
+          // words are on the screen in both states, and an assertion that each
+          // is drawn cannot fail however the two are wired together.
+          check(drew(model.on ? "ON" : "OFF"), "the paired screen does not say whether Live is on" + where);
+          check(drew(model.on ? "STOP" : "START"), "the toggle offers the state the screen is already in" + where);
 
           // 3. THE CONTROLS ARE TAPPABLE, not merely drawn. A button registered
           //    at no rect is a dead control, which is what ActionAddOwn was on the
@@ -934,6 +978,54 @@ int main() {
               check(!overlaps(hits[i], hits[j]),
                     "Live controls " + std::to_string(i) + " and " + std::to_string(j) + " overlap" + where);
             }
+          }
+
+          // 3b. EACH CONTROL CARRIES A MARK, AND THE THREE MARKS ARE THREE.
+          //
+          // The words are one apiece now, so the mark is half of what tells the
+          // controls apart -- and three controls wearing the same glyph is a row
+          // that says nothing, the same defect chooseChipIcon's two-glyph
+          // assertion exists for. Neither is visible to a check that only reads
+          // text, and a bitmap() that recorded nothing kept all of it green.
+          const uint8_t* controlMarks[3] = {nullptr, nullptr, nullptr};
+          for (int i = 0; i < 3; ++i) {
+            int found = 0;
+            for (const LiveTarget::Mark& mark : target.marks) {
+              if (!contains(hits[i], mark.box)) continue;
+              ++found;
+              controlMarks[i] = mark.data;
+            }
+            check(found == 1, "Live control " + std::to_string(i) + " carries " + std::to_string(found) +
+                                  " marks instead of one" + where);
+          }
+          for (int i = 0; i < 3; ++i) {
+            for (int j = i + 1; j < 3; ++j) {
+              check(controlMarks[i] != nullptr && controlMarks[i] != controlMarks[j],
+                    "Live controls " + std::to_string(i) + " and " + std::to_string(j) +
+                        " wear the same mark, so the row cannot say which is which" + where);
+            }
+          }
+
+          // 3c. AND THE THREE LABELS ARE ONE TYPEFACE.
+          //
+          // Found by opening the render, not by any check here: the labels took
+          // theme().smallText, which resolves to the PROSE face, so fittedTitle
+          // kept "STOP" and "ADD" in the serif and shrank "CHECK" to the button
+          // cut because it alone did not fit. One row, two typefaces, and
+          // nothing failed -- every label fitted the box it was given, which is
+          // all any assertion here was asking. Three words that are meant to be
+          // read as a set have to be set alike, and the ladder will do this
+          // again to whatever the words become.
+          fui::FontId labelFonts[3] = {};
+          for (int i = 0; i < 3; ++i) {
+            for (const LiveTarget::Run& run : target.runs) {
+              if (contains(hits[i], run.box)) labelFonts[i] = run.style.font;
+            }
+          }
+          for (int i = 1; i < 3; ++i) {
+            check(labelFonts[i] == labelFonts[0],
+                  "Live control " + std::to_string(i) +
+                      "'s label is set in a different cut from the first one's, so the row is two typefaces" + where);
           }
         }
         check(interactions.count() <= toybox::kMaxInteractions,
@@ -1035,12 +1127,6 @@ int main() {
 
       // 2. EVERY NAME IS THERE, whole or visibly marked. A row that fits is
       //    not a row that happened.
-      const auto drew = [&target](const std::string& want) {
-        for (const LiveTarget::Run& run : target.runs) {
-          if (run.text == want) return true;
-        }
-        return false;
-      };
       for (int i = 0; i < model.senderCount; ++i) {
         bool shown = false;
         for (const LiveTarget::Run& run : target.runs) {
@@ -1049,8 +1135,21 @@ int main() {
         check(shown, std::string("sender \"") + model.senders[i].who +
                          "\" is neither on the full list nor visibly cut from it" + where);
       }
-      check(drew(wallpapersui::liveRemoveHint()),
-            "the list never says a row can be removed, so the only way to find out is to try one" + where);
+      // EVERY ROW ENDS IN THE REMOVE MARK, exactly once. This replaces the
+      // "TAP TO REMOVE" heading the list used to carry: without some
+      // affordance the four names are a list of facts, and the only way to
+      // discover that pressing one does anything is to press one -- on the half
+      // of the screen that takes somebody's access away. The mark is the
+      // affordance now, so the mark is what is asserted.
+      for (int i = 0; i < model.senderCount; ++i) {
+        const fui::Rect row = wallpapersui::liveSenderRowRect(screen, i);
+        int marks = 0;
+        for (const LiveTarget::Mark& mark : target.marks) {
+          if (contains(row, mark.box) && mark.data == wallpapersui::liveRemoveMark().bits) ++marks;
+        }
+        check(marks == 1, "sender row " + std::to_string(i) + " carries " + std::to_string(marks) +
+                              " remove marks instead of one, so the row does not say it is a control" + where);
+      }
 
       // 3. EVERY ROW IS TAPPABLE, at the rect the confirm reads back, carrying
       //    its own index. A row drawn and not registered is a control that does
@@ -1101,6 +1200,24 @@ int main() {
       }
       check(interactions.count() <= toybox::kMaxInteractions,
             "the full sender list overflows the interaction table" + where);
+      // The interaction budget, REPORTED rather than merely bounded: three
+      // controls and four rows is seven of twenty-four, and a number printed
+      // every run is what makes the next person's spend visible to them.
+      slotsAtFullList = static_cast<int>(interactions.count());
+
+      // 5. AND THE STRIP THE CONFIRM'S REMOVE LANDS ON CARRIES NOTHING HERE.
+      //
+      // It used to be ADD SOMEBODY's pixels, which was accepted with an
+      // argument about the reveal gate refusing taps against a table the panel
+      // has not shown. Moving the third control up beside the other two ended
+      // that overlap, and this is the assertion that keeps it ended -- the
+      // header claims it in prose, and a claim nothing checks goes stale the
+      // first time the layout moves.
+      const fui::Rect revoke = wallpapersui::liveRevokeRect(screen);
+      for (size_t h = 0; h < interactions.count(); ++h) {
+        check(!overlaps(revoke, interactions.data()[h].rect),
+              "a control on the list sits where the confirm's REMOVE will be" + where);
+      }
     }
 
     // ---------------------------------------------------------------------
@@ -1138,10 +1255,12 @@ int main() {
               "an empty list registered a sender row, so a tap would confirm removing nobody");
       }
       check(canAdd, "a reader with no senders cannot add one, which is a dead end rather than an empty list");
-      // The hint names a control that is not there when there are no rows.
-      for (const LiveTarget::Run& run : target.runs) {
-        check(run.text != wallpapersui::liveRemoveHint(),
-              "the empty list still says rows can be tapped to remove them");
+      // And no remove mark is drawn: a mark that says "take this one out" over
+      // a list with nothing in it is an affordance for a control that is not on
+      // the screen.
+      for (const LiveTarget::Mark& mark : target.marks) {
+        check(mark.data != wallpapersui::liveRemoveMark().bits,
+              "the empty list still draws a remove mark, so it offers to take out a row that is not there");
       }
     }
 
@@ -1343,6 +1462,8 @@ int main() {
 
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,
               wallpapersui::captionRect(g, 0).width, wallpapersui::captionRect(g, 0).width - widest);
+  std::printf("wallcaption: Live spends %d of %d interaction slots with four phones listed\n", slotsAtFullList,
+              static_cast<int>(toybox::kMaxInteractions));
   std::printf("wallcaption: %d checks, %d failed\n", checks, failed);
   for (const std::string& f : firstFailures) std::printf("  FAIL: %s\n", f.c_str());
   return failed == 0 ? 0 : 1;

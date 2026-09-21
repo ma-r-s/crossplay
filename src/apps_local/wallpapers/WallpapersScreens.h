@@ -91,7 +91,7 @@ enum : fui::ActionId {
   ActionLiveToggle = 10,  // start or stop showing what the website sends
   ActionLiveCheck = 11,   // ask the website now instead of at the next check
   ActionLiveAdd = 12,     // let somebody else send to this reader
-  // A row in WHO CAN SEND. Carries the sender's INDEX as its action value, so
+  // A row in the sender list. Carries the sender's INDEX as its action value, so
   // one id covers four rows and the Activity maps the index back to the id the
   // service named. Values are 0..3 and never negative: a negative action value
   // is dead to touch in this fork.
@@ -345,6 +345,16 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model);
 // to report and no "now" to show: this screen's whole job is to say when the
 // next check is, how often they come, and who may feed it.
 //
+// ONE OF THOSE THREE IS THE REASON ANYBODY OPENS IT, and the layout says so.
+// The next check is the display cut with nothing above it; the cadence is a
+// small line under it; the three controls are a mark and one word each on one
+// row; the senders are rows that end in an X. The screen it replaces spent
+// NEXT CHECK, HOW OFTEN, CHECK NOW, TURN IT OFF, WHO CAN SEND, TAP TO REMOVE
+// and ADD SOMEBODY on the same facts, and two of those pairs said the same
+// thing twice ("In about 24 hours" over "Every 24 hours") because the next
+// check was computed from the interval rather than from what was left of it.
+// That arithmetic moved to live::nextCheckPhrase, where a test walks it.
+//
 // A CENTRED STACK: the code dominant, the prose and the QR beneath it. Three
 // arrangements were built and rendered side by side (a stack, a numbered rail,
 // and a split with an inverted panel); Mario picked the stack, and the other
@@ -373,10 +383,18 @@ struct LiveModel {
   //
   // nullptr means there is nothing to report and the standing line stands.
   const char* status = nullptr;
-  // PAIRED. Both are sentences the device composes elsewhere, never assembled
-  // per render: a line built inside a paint is a line no test can walk.
-  const char* nextCheck = "";  // "Tomorrow, 6:00"
-  const char* cadence = "";    // "Once a day"
+  // PAIRED, and this pair is the screen's whole hierarchy: `nextCheck` is the
+  // headline at the display cut and `cadence` is the small line under it.
+  //
+  // Both come from live::nextCheckPhrase and live::cadencePhrase, never
+  // assembled per render -- a line built inside a paint is a line no test can
+  // walk, and this one is the biggest thing on the panel. They are also short
+  // BY CONSTRUCTION rather than by luck: "In about 45 minutes" measures 464px
+  // at the display cut against a 448px body, so a phrasing an inch longer would
+  // not fail, it would silently drop the headline a rung and the screen would
+  // lose its hierarchy without ever looking broken.
+  const char* nextCheck = "";  // "In 5 hours", "Any moment", "Paused", "Soon"
+  const char* cadence = "";    // "Every 6 hours", "Every day"
   struct Sender {
     const char* who = nullptr;
     const char* since = nullptr;  // when they were let in: "12 Sep"
@@ -397,7 +415,7 @@ struct LiveModel {
   static constexpr int kMaxSenders = 4;
   Sender senders[kMaxSenders];
   int senderCount = 0;
-  // A join code is up: somebody pressed ADD SOMEBODY on a reader that is
+  // A join code is up: somebody pressed ADD on a reader that is
   // already paired. The screen shows the CODE half while this is true, which is
   // the same screen the first setup code uses -- there is one way to be given a
   // six-digit number here and it looks the same both times.
@@ -417,13 +435,14 @@ struct LiveModel {
 // code somebody is reading down a telephone at 20px.
 bool liveShowsCode(const LiveModel& model);
 
-// WHO CAN SEND, when nobody does.
+// The sender list, when nobody is on it.
 //
 // A reader with no senders is RECOVERABLE, not broken: the picture already on
-// the glass stays there and ADD SOMEBODY is right underneath. It has to say so
-// in words, because an empty region under a heading is this fork's most
-// repeated user-visible failure -- twice found by cold testers, both times
-// reported as a crash (a-silent-screen-reads-as-a-crash).
+// the glass stays there and ADD is in the row above. It has to say so in words,
+// because an empty region where content belongs is this fork's most repeated
+// user-visible failure -- twice found by cold testers, both times reported as a
+// crash (a-silent-screen-reads-as-a-crash). It is the one sentence left on this
+// screen, and it is left because there is nothing else in that space to read.
 const char* liveNobodySends();
 
 // The sentence that says which of the two six-digit codes is on the screen.
@@ -436,11 +455,24 @@ const char* liveNobodySends();
 // somebody else would be telling the wrong person what the code does.
 const char* liveJoinPrompt();
 
-// The line that says a row is a control. Without it the four names are a list
-// of facts, and the only way to discover that tapping one does anything is to
-// tap one -- which is a discovery this screen cannot afford, because what it
-// does is take somebody's access away.
-const char* liveRemoveHint();
+// What says a row is a control, now that no line does.
+//
+// The list carried "WHO CAN SEND" over it and "TAP TO REMOVE" beside that:
+// two headings for rows that are a name and a date. Both are gone and the row
+// ends in an X instead, which is what every list in the world puts at the end
+// of a row you can take out.
+//
+// The affordance is a MARK AND NOT A WORD here, unlike the three controls
+// above, and the difference is deliberate rather than an exception: a word per
+// row is the word four times, and what a person needs before access is
+// destroyed is not a label on the row -- it is the confirm behind it, which
+// NAMES the person and says what removing them costs. Pressing a row to find
+// out is free; pressing REMOVE is not.
+//
+// Published so host-tests/wallcaption can assert the mark is drawn once per
+// row and never on an empty list, which is the assertion that used to be
+// "the hint is on the screen".
+const freeink::Icon& liveRemoveMark();
 
 // ---------------------------------------------------------------------------
 // THE REVOKE CONFIRM, and why its two rectangles are published.
@@ -464,12 +496,14 @@ const char* liveRemoveHint();
 //   * liveRevokeRect() lies wholly outside that band. Reaching it takes a
 //     deliberate move to a place no row ever is.
 //
-// What this does NOT buy, said plainly because a reader will otherwise assume
-// it: liveRevokeRect() sits on the pixels ADD SOMEBODY occupies on the list.
-// It has to -- the band ends 17px above the foot and there is nowhere else a
-// 64px finger target fits. That control does not lead here (only a row does),
-// and RevealedInteractions::route refuses every tap aimed at a table the panel
-// has not shown, so no single remembered tap can reach the revoke.
+// liveRevokeRect() used to sit on the pixels ADD SOMEBODY occupied on the list,
+// because the band ended 17px above the foot and there was nowhere else a 64px
+// finger target fitted. It no longer does: the third control moved up beside
+// the other two when the screen lost its headings, so the strip under the band
+// carries nothing on the list at all. host-tests/wallcaption asserts that
+// -- no interaction on the list screen touches this rect -- rather than taking
+// this paragraph's word for it, which is the difference between a defence and
+// a comment about one.
 //
 // All three are measured through the screen rather than taken from the device,
 // because the band is where the rows END UP: it comes out of the face's line
@@ -519,7 +553,7 @@ const char* liveRevokeConsequence();
 // time like any other unbounded string.
 enum class LiveStatus : uint8_t {
   AskingForCode,
-  // ADD SOMEBODY, before the service has answered. A separate sentence from
+  // ADD, before the service has answered. A separate sentence from
   // AskingForCode and not a tidier shared one: the two codes mean opposite
   // things (one makes a fridge, one adds a phone to this one) and the wait is
   // the only moment the screen can say which is coming.
