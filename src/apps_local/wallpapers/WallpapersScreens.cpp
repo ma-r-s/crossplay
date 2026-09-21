@@ -660,7 +660,15 @@ constexpr const char* kLiveAdd = "ADD";
 // first says what the screen is, the second is what keeps it from reading as a
 // broken one. A reader whose last phone was just removed is in exactly this
 // state and nothing is wrong with it.
-constexpr const char* kLiveNobody = "Nobody can send yet. The picture on the screen stays.";
+//
+// NOT shortened with the rest of this screen. It was cut to "Nobody can send
+// yet" on the assumption it would not fit two lines, and then measured: it is
+// 888px against a 448px box, which is two lines with room. "Yet" is also
+// false in the case this sentence exists for -- a reader whose last phone was
+// just revoked HAS had senders -- so the shorter one was less true as well as
+// unnecessary. Measure before cutting; this is the one region on the screen
+// with nothing else in it to read.
+constexpr const char* kLiveNobody = "Nobody can send to this reader. The picture on the screen stays.";
 // The confirm's headline and its two labels. THEM, not IT: the wallpaper
 // confirm removes a file and this one removes a person's access, and the
 // pronoun is the only thing on the screen that says which kind of thing is

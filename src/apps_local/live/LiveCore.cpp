@@ -147,7 +147,11 @@ namespace {
 // one response header cannot honour a figure to the minute, and a number that
 // is visibly rounded says so without spending a word on saying it.
 std::string roughSpan(const uint32_t seconds) {
-  char buf[24];
+  // Sized against what the FORMAT can print, not against what the schedule can
+  // hold: %u is ten digits whatever the caller currently passes, and the caller
+  // is a parameter rather than a constant. host-tests/fmtwidth checks every
+  // snprintf in src/apps_local/ this way and caught the sibling below at 24.
+  char buf[32];
   if (seconds < 45u * 60u) {
     unsigned minutes = (seconds + 150u) / 300u * 5u;
     if (minutes < 5u) minutes = 5u;
@@ -186,7 +190,11 @@ std::string nextCheckPhrase(const Schedule& schedule, const int64_t nowEpoch) {
 }
 
 std::string cadencePhrase(const uint32_t intervalSeconds) {
-  char buf[24];
+  // "Every %u minutes" is 25 bytes at a ten-digit %u, which is one more than
+  // the 24 this was written with. The interval is clamped to a week before it
+  // ever gets here -- and the clamp is somebody else's invariant, on the other
+  // side of a plain uint32_t parameter.
+  char buf[32];
   if (intervalSeconds >= 604800u && intervalSeconds % 604800u == 0u) {
     const unsigned weeks = intervalSeconds / 604800u;
     std::snprintf(buf, sizeof(buf), weeks == 1u ? "Every week" : "Every %u weeks", weeks);
