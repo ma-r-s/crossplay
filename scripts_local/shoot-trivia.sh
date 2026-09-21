@@ -30,13 +30,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
+source "$REPO/scripts_local/lib-sim.sh"
 DEST="${1:-$REPO/site/assets/shots/trivia.png}"
 
 # The agent's own card, the one sim-shot.sh drives. Never Mario's fs_mario.
 CARD="$REPO/fs_agent/.crosspoint"
 mkdir -p "$CARD"
 python3 tools_local/trivia/seed_shot_pack.py "$REPO/fs_agent" >/dev/null
-printf '0 17 0' > "$CARD/shelf.cfg"
 
 # 240,117 is the middle of the first list row (QUIZMASTER); 240,750 is the
 # middle of the REVEAL button, which drawAction() lays 16px under the footer
@@ -49,5 +49,4 @@ CROSSPLAY_AUTOSTART=TRIVIA ./scripts_local/sim-shot.sh \
   2>&1 | grep -E "FAILED|error:|\.png" | sed 's/^/  /'
 
 [ -f "$REPO/qa-artifacts/site-trivia.png" ] || { echo "no shot produced"; exit 1; }
-cp "$REPO/qa-artifacts/site-trivia.png" "$DEST"
-echo "wrote $DEST"
+write_site_shot "$REPO/qa-artifacts/site-trivia.png" "$DEST"
