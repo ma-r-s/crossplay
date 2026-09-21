@@ -68,13 +68,21 @@ inline const char* rankLabel(const int rank) {
   return (rank < 0 || rank >= kRanks) ? "?" : kLabels[rank];
 }
 
-// The suit's name in running text, for a line like "hearts are broken".
+// The suit's name, for a line like "FOLLOW HEARTS".
+//
+// Upper case, because every other word this fork puts on a panel is: the Toybox
+// cut is a display face and a lower-case word dropped into a line of capitals
+// reads as a different voice rather than as emphasis.
 inline const char* suitName(const Suit suit) {
   switch (suit) {
-    case Suit::Clubs: return "clubs";
-    case Suit::Diamonds: return "diamonds";
-    case Suit::Spades: return "spades";
-    case Suit::Hearts: return "hearts";
+    case Suit::Clubs:
+      return "CLUBS";
+    case Suit::Diamonds:
+      return "DIAMONDS";
+    case Suit::Spades:
+      return "SPADES";
+    case Suit::Hearts:
+      return "HEARTS";
   }
   return "?";
 }
