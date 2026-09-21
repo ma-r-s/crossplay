@@ -1557,7 +1557,19 @@ sendBtn.onclick = async () => {
   // the new entry, and the rail is rebuilt from the service rather than pushed
   // to locally, so the other phones on this reader see the same list.
   await loadHistory();
-  say("Sent. " + historyNote(), true);
+  // Sending says BOTH things: that the rail has one more in it and is pointed
+  // at it, and when the reader will take it. The countdown above says the
+  // second on its own, but this line is where a thumb already is.
+  const band2 = bandNow();
+  say(
+    band2 === "counting"
+      ? `Sent. The reader takes it ${human(secondsLeft())}.`
+      : band2 === "due"
+        ? "Sent. The reader takes it the next time it is put down."
+        : band2 === "off"
+          ? "Sent. It appears when Live is switched back on."
+          : "Sent. Waiting for the reader to come back.",
+  );
 };
 
 // The board is restored before anything is drawn on it, so a reload lands on
