@@ -10958,9 +10958,21 @@ void testEveryAppsBodyStartsOnTheSameRow() {
   CHECK(hnui::listBand(glass).y == toybox::kBodyTop);
   CHECK(xkcdui::listBand(glass).y == toybox::kBodyTop);
 
-  // Wallpapers has no exported body rect -- its hint strip IS the top of its
-  // body, and the grid hangs a fixed distance below it -- so this one is read
-  // off the render. The warning is drawn into the hint rect unexpanded.
+  // Wallpapers is deliberately NOT in the list above, and the reason is worth
+  // stating because this test used to assert it was.
+  //
+  // Its hint strip was standing in for a body top this screen does not export.
+  // That strip is CHROME -- one line about the grid, the twin of a subtitle --
+  // and its body is the grid itself, which hangs a fixed distance lower and
+  // never lined up with anybody's first row anyway. Pinning the strip to
+  // kBodyTop spent the whole body gutter above the sentence and left a sixth
+  // of it below, so it read as a caption stuck to the tiles. Mario reported
+  // that three times.
+  //
+  // What actually has to hold is below: the strip is centred between the rule
+  // and the grid, and the GRID has not moved, because on this screen every row
+  // given to the top comes out of the thumbnails
+  // (testTheWallpapersThumbnailsStayBigEnoughToRead).
   wallpapersui::GridChromeModel model;
   model.title = "WALLPAPERS";
   model.warning = "Card is nearly full";
@@ -10968,7 +10980,18 @@ void testEveryAppsBodyStartsOnTheSameRow() {
   renderWithBezel<wallpapersui::GridChromeModel, wallpapersui::buildGridChrome>(out, model);
   const FakeTarget::TextRun* hint = out.target.find("Card is nearly full");
   CHECK(hint != nullptr);
-  if (hint != nullptr) CHECK(hint->rect.y == toybox::kBodyTop);
+  if (hint != nullptr) {
+    const wallpapersui::GridGeom g = wallpapersui::gridGeom(bezelDevice());
+    const int16_t ruleBottom = toybox::kChromeHeight;
+    const int16_t above = static_cast<int16_t>(hint->rect.y - ruleBottom);
+    const int16_t below = static_cast<int16_t>(g.originY - hint->rect.bottom());
+    // Within the strip's own slack: the box is centred, and where the ink sits
+    // inside it belongs to the cut's line box, not to this layout.
+    const int16_t skew = static_cast<int16_t>(above > below ? above - below : below - above);
+    CHECK(skew <= 4);
+    // And the strip sits BELOW the rule with room, never under the band.
+    CHECK(above > 0);
+  }
 }
 
 // The ink rule again, for the labels apps draw on the band THEMSELVES.

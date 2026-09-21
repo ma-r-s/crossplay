@@ -636,20 +636,22 @@ int main() {
     }
   }
 
-  // The strip's lowest line tells the user which control opens a set, so it has
-  // to name that control's own word. Rename the chip without renaming the hint
-  // and the sentence points at a word that is not on the screen. This is the
-  // one case where a check that matches the description is the point.
+  // The strip's lowest line tells the user which control opens a set. The chip
+  // is a GLYPH, so the sentence cannot quote it: what it must not do is name a
+  // word that is nowhere on the screen, which is what "Tap CHOOSE to pick
+  // several." became the moment the word left the band. And the chip's two
+  // modes must LOOK different, or it cannot say which one you are in.
   {
     const std::string hint(wallpapersui::chooseHint());
-    const std::string enters(wallpapersui::chooseChipLabel(false));
-    const std::string leaves(wallpapersui::chooseChipLabel(true));
-    check(hint.find(enters) != std::string::npos,
-          "the strip's hint does not name the chip: \"" + hint + "\" vs \"" + enters + "\"");
-    check(enters != leaves, "the chip says the same thing entering and leaving the mode");
+    check(&wallpapersui::chooseChipIcon(false) != &wallpapersui::chooseChipIcon(true),
+          "the chip shows the same glyph entering and leaving the mode");
+    for (const char* word : {"CHOOSE", "DONE"}) {
+      check(hint.find(word) == std::string::npos, std::string("the strip's hint quotes \"") + word +
+                                                      "\", which the chip no longer carries: \"" + hint + "\"");
+    }
     // No user-facing string in this app promises randomness: upstream's
     // recent-shown window makes a small set a strict cycle, not a shuffle.
-    for (const std::string& s : {hint, enters, leaves}) {
+    for (const std::string& s : {hint}) {
       check(s.find("huffl") == std::string::npos && s.find("HUFFL") == std::string::npos,
             "a user-facing string promises shuffling: \"" + s + "\"");
       check(s.find("andom") == std::string::npos && s.find("ANDOM") == std::string::npos,

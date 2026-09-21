@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 
+#include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxText.h"
 #include "WallpapersCore.h"
 
@@ -34,7 +35,27 @@ constexpr int16_t kHintH = 30;
 // out of the grid's height (the cells are height-constrained), which costs each
 // thumbnail a few pixels and buys the sentence room to read as a caption for
 // the screen rather than a label on the first tile.
+// The gap under the hint strip, unchanged: the grid must not move. Every row
+// given to the top of this screen comes out of the THUMBNAILS, because the
+// grid is height-bound between the strip and the page dots and gridGeom()
+// re-fits the cells into whatever is left.
 constexpr int16_t kHintGap = 16;
+
+// Where the hint strip sits: centred between the rule and the grid, rather
+// than hung off kBodyTop.
+//
+// kBodyTop is chromeBelow() plus the whole 36px body gutter, which put the
+// sentence 42px under the rule and 18 over the tiles -- it read as a caption
+// stuck to the grid instead of a line placed between the two. Centring it
+// moves ONLY the strip: gridTop is still kBodyTop + kHintH + kHintGap, so not
+// a pixel of thumbnail is spent on it.
+//
+// The hint is chrome, not body. Wallpapers' body is its grid, and
+// testEveryAppsBodyStartsOnTheSameRow used this strip as a proxy for a body
+// top that this screen does not otherwise export.
+constexpr int16_t kGridTop = static_cast<int16_t>(kBodyTop + kHintH + kHintGap);
+constexpr int16_t kHintTop =
+    static_cast<int16_t>(toybox::kChromeHeight + (kGridTop - toybox::kChromeHeight - kHintH) / 2);
 // The page-dot strip at the very bottom, reserved whether or not it is used, so
 // the grid height is the same on a one-page library as on a ten-page one.
 constexpr int16_t kPageStripH = 28;
@@ -195,17 +216,20 @@ void paintTruchet(fui::DrawTarget& t, const fui::Rect& r, const int cell) {
 // The chip takes toybox::bandOutlineStyles(), and only ever that half: this
 // chip is an ACTION rather than a state, and a filled one would read as
 // "already on". The filled half is for a control that has two states, which is
-// the shelf's chooser and Hacker News's save mark.
+// the shelf's chooser and Hacker News's save mark. So the two modes are two
+// GLYPHS in one outline chip, never one glyph in two fills.
 void chrome(toybox::Screen& screen, const char* title, const char* rightLabel, const bool showChip = false,
             const bool choosing = false) {
   fui::HeaderProps header;
   header.title = title;
   if (showChip) {
-    header.trailingLabel = chooseChipLabel(choosing);
+    // A glyph, not a word. An icon-only trailing button is square (band height
+    // less 8) where "CHOOSE" measured 91px at the BODY cut, and that width came
+    // straight out of the room the title is fitted to on a band that also
+    // carries the page count.
+    header.trailingIcon = fui::bitmapFromIcon(chooseChipIcon(choosing));
     header.trailingAction = ActionChoose;
     header.trailingStyles = toybox::bandOutlineStyles();
-    header.trailingText = screen.theme().smallText;
-    header.trailingText.color = fui::Color::White;
     header.trailingRadius = toybox::kPillRadius / 2;
   }
   header.rightLabel = rightLabel;
@@ -235,7 +259,7 @@ GridGeom gridGeom(const fui::DeviceContext& device) {
   const int16_t gridW = static_cast<int16_t>(safe.width - toybox::kMargin * 2);
   // Sides and bottom off the safe rect; the top absolute, because the header
   // band already covers the rows the glass hides. See toybox::kBodyTop.
-  const int16_t gridTop = static_cast<int16_t>(kBodyTop + kHintH + kHintGap);
+  const int16_t gridTop = kGridTop;
   const int16_t gridBottom = static_cast<int16_t>(safe.bottom() - kPageStripH - kBottomMargin);
   const int16_t gridH = static_cast<int16_t>(gridBottom - gridTop);
 
@@ -300,22 +324,27 @@ int16_t hintTextWidth(const fui::Rect& safe) { return static_cast<int16_t>(safe.
 
 int16_t hintStripHeight() { return kHintH; }
 
-const char* chooseChipLabel(const bool choosing) { return choosing ? "DONE" : "CHOOSE"; }
+const freeink::Icon& chooseChipIcon(const bool choosing) {
+  // Four squares for "several", a tick for "that is my several". Both at 24 so
+  // the chip's ink does not change weight when the mode does; the lucide
+  // grid-2x2 glyph is borrowed for its shape, not for the app it is named for.
+  return choosing ? icon_tick_24 : icon_connections_24;
+}
 
-const char* chooseHint() { return "Tap CHOOSE to pick several."; }
+const char* chooseHint() { return "Tap the grid button to pick several."; }
 
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
   // The title says which mode this is, in the biggest type on the screen. The
-  // chip alone could not: it reads DONE in one mode and SHUFFLE in the other,
-  // and a person who has not been watching cannot tell a verb they may press
-  // from a verb they already pressed.
+  // chip alone could not, and carries even less of that load now that it is a
+  // glyph: a person who has not been watching cannot tell a control they may
+  // press from one they already pressed.
   chrome(screen, model.choosing ? "CHOOSE A SET" : model.title, model.rightLabel, true, model.choosing);
 
   // The hint strip, at a fixed place so the grid below it never moves. One
   // line, and three things want it; the order is settled just below.
   const fui::Rect safe = screen.frame().safeRect();
-  // Absolute, like every other app's: see toybox::kBodyTop.
-  const int16_t hintY = kBodyTop;
+  // Absolute, like every other app's chrome: see kHintTop.
+  const int16_t hintY = kHintTop;
   const char* line = nullptr;
   // The sleep-screen note wins, ahead of the free-space advisory. The honest
   // statement of that trade: on a filling card with a sleep-screen note to

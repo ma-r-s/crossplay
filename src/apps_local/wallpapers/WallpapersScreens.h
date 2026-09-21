@@ -248,17 +248,20 @@ struct GridChromeModel {
   bool choosing = false;
 };
 
-// What the header chip says. One place, because the width the title is fitted
-// to comes out of this string's measured width, and a second copy is a second
-// thing to edit alone (the same rule as HackerNews' save chip).
-const char* chooseChipLabel(bool choosing);
+// What the header chip shows. One place, because the room the title is fitted
+// to comes out of the chip, and a second copy is a second thing to edit alone
+// (the same rule as HackerNews' save chip).
+//
+// Two glyphs, and host-tests/wallcaption asserts they are two: a chip whose
+// modes look alike cannot say whether you are in one.
+const freeink::Icon& chooseChipIcon(bool choosing);
 
 // The lowest-priority line on the strip: how you get to a set at all.
 //
-// It names the chip's own word, so the two cannot drift -- host-tests/wallpapers
-// asserts the sentence CONTAINS chooseChipLabel(false), which is the one case
-// where matching the description is the point rather than the bug: rename the
-// chip and this must be renamed with it (derived-facts-written-as-literals).
+// It describes the chip rather than quoting it, because the chip carries no
+// word to quote -- host-tests/wallcaption asserts it does not name one, which
+// is how the old sentence would have gone on pointing at a "CHOOSE" that is no
+// longer on the screen (derived-facts-written-as-literals).
 //
 // It sits BELOW the free-space advisory deliberately. It is chrome, not news,
 // and a permanent hint that outranked a filling card would suppress that

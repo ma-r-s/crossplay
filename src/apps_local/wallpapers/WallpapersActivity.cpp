@@ -98,6 +98,20 @@ uint32_t sampleHashOf(HalFile& f, const uint64_t size) {
 constexpr int16_t kDotSize = 12;
 constexpr int16_t kDotGap = 10;
 
+// The Live tile's double frame: a thick outer rect with a hairline inside it.
+constexpr int16_t kLiveFrameWeight = 3;
+constexpr int16_t kLiveFrameInset = 5;
+
+// Variant 2 folds Live and + Add into one control, so its tile says whose
+// picture arrives here rather than what the slot is called.
+#if WALLPAPERS_LIVE_VARIANT == 2
+constexpr bool kLiveCombinedTile = true;
+constexpr const char* kLiveCaption = "Your phone";
+#else
+constexpr bool kLiveCombinedTile = false;
+constexpr const char* kLiveCaption = "Live";
+#endif
+
 // Ordered 8x8 Bayer thresholds. A thumbnail is an AREA AVERAGE of the source
 // re-dithered at thumbnail size: a 50% threshold collapses a dense engraving
 // into a flat blob ("grey mush"), while re-dithering keeps its tone as texture,
@@ -818,19 +832,27 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
     const int combined = base + slot;
     if (combined >= total) break;
     const fui::Rect th = wallpapersui::thumbRect(geom, slot);
-    if (combined == 0) {
-      drawAddTile(geom, th);  // cell 0 is always + Add a wallpaper
-      continue;
-    }
-    // PARTIAL: the user has their own wallpapers but not the built-in set, so
-    // the offer stays on screen as a tile rather than vanishing because one
-    // wallpaper exists. It retires itself when the set is complete.
-    //
-    // Cell 1, never cell 0: moving + Add would put a different action under a
-    // pixel people have already learned (same-pixel-different-action).
-    if (specials > 1 && combined == 1) {
-      drawGetSetTile(geom, th);
-      continue;
+    switch (specialAt(combined)) {
+      case SpecialTile::Add:
+#if WALLPAPERS_LIVE_VARIANT == 2
+        // One tile does both jobs here, so it takes cell 0 and + Add's
+        // destination rather than sitting beside it.
+        drawLiveTile(geom, th, slot);
+#else
+        drawAddTile(geom, th);
+#endif
+        continue;
+      case SpecialTile::Live:
+        drawLiveTile(geom, th, slot);
+        continue;
+      case SpecialTile::GetSet:
+        // PARTIAL: the user has their own wallpapers but not the built-in set,
+        // so the offer stays on screen as a tile rather than vanishing because
+        // one wallpaper exists. It retires itself when the set is complete.
+        drawGetSetTile(geom, th, slot);
+        continue;
+      case SpecialTile::None:
+        break;
     }
     const int idx = combined - specials;
     const Thumb& t = thumbs_[static_cast<size_t>(slot)];
@@ -901,13 +923,111 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
 }
 
 // How many chrome tiles sit in front of the wallpapers. One (+ Add) always,
-// two while the built-in set is incomplete. Read by BOTH the drawing and the
-// hit-test, because a grid whose two halves disagree about what is in a cell
-// opens the wrong thing -- the bug this fork has caught more often than any
-// other.
-int WallpapersActivity::specialTiles() const { return builtInsMissing_ > 0 ? 2 : 1; }
+// one more while the built-in set is incomplete, and one more again for Live in
+// the variants that give it a tile. Read by the drawing, the hit-test, the
+// thumbnail decode and the page count, because a grid whose readers disagree
+// about what is in a cell opens the wrong thing -- the bug this fork has caught
+// more often than any other.
+int WallpapersActivity::specialTiles() const {
+  int n = 1;  // + Add
+#if WALLPAPERS_LIVE_VARIANT == 1
+  n += 1;  // Live, set up or not
+#elif WALLPAPERS_LIVE_VARIANT == 3
+  if (liveConfigured()) n += 1;  // and nothing at all until it is
+#endif
+  if (builtInsMissing_ > 0) n += 1;
+  return n;
+}
 
-void WallpapersActivity::drawGetSetTile(const wallpapersui::GridGeom& geom, const fui::Rect& th) const {
+// The same ordering, resolved rather than counted. Walked in place instead of
+// compared against literals so the two answers cannot drift: adding a tile
+// above changes both.
+WallpapersActivity::SpecialTile WallpapersActivity::specialAt(const int combined) const {
+  if (combined < 0 || combined >= specialTiles()) return SpecialTile::None;
+  int at = 0;
+  // + Add keeps cell 0 in every variant: moving it would put a different action
+  // under a pixel people have already learned (same-pixel-different-action). In
+  // variant 2 the Live tile IS this one, which is why it inherits both.
+  if (combined == at++) return SpecialTile::Add;
+#if WALLPAPERS_LIVE_VARIANT == 1
+  if (combined == at++) return SpecialTile::Live;
+#elif WALLPAPERS_LIVE_VARIANT == 3
+  if (liveConfigured()) {
+    if (combined == at) return SpecialTile::Live;
+    ++at;
+  }
+#endif
+  return SpecialTile::GetSet;
+}
+
+// Stubs. The website, the pairing and the stored slot are the next slice; what
+// this one needs is a fixed answer, so the three renders are the same every
+// time they are taken.
+bool WallpapersActivity::liveConfigured() const { return WALLPAPERS_LIVE_CONFIGURED != 0; }
+
+// Live and a chosen wallpaper are mutually exclusive, so "on" implies "set up"
+// and the tile takes the ordinary selection marker rather than a second mark
+// beside it.
+bool WallpapersActivity::liveOn() const { return liveConfigured() && WALLPAPERS_LIVE_ON != 0; }
+
+// The Live slot. The frame is DOUBLE -- a 3px outer rect and a hairline inset
+// kLiveFrameInset inside it -- because a wallpaper wears one hairline and the
+// other chrome tiles a single thick rect, so two concentric rules are the only
+// edge on this grid that cannot be mistaken for a plate's own border.
+void WallpapersActivity::drawLiveTile(const wallpapersui::GridGeom& geom, const fui::Rect& th, const int slot) const {
+  renderer.drawRect(th.x, th.y, th.width, th.height, kLiveFrameWeight, true);
+  renderer.drawRect(static_cast<int16_t>(th.x + kLiveFrameInset), static_cast<int16_t>(th.y + kLiveFrameInset),
+                    static_cast<int16_t>(th.width - kLiveFrameInset * 2),
+                    static_cast<int16_t>(th.height - kLiveFrameInset * 2), 1, true);
+
+  const int cx = th.x + th.width / 2;
+  const int cy = th.y + th.height / 2;
+  if (kLiveCombinedTile && !liveConfigured()) {
+    // The combined tile keeps + Add's plus while there is nothing to show: it
+    // is still the control that puts the first thing here, and the affordance
+    // is one people have already learned on this grid.
+    const int len = th.width * 2 / 5;
+    const int wgt = std::max(6, th.width / 12);
+    renderer.fillRect(cx - len / 2, cy - wgt / 2, len, wgt, true);
+    renderer.fillRect(cx - wgt / 2, cy - len / 2, wgt, len, true);
+  } else {
+    // Three stacked bars standing in for the last message: FILLED once there is
+    // one, OUTLINED while there is not. The outline is the empty state, and it
+    // is a shape waiting to be filled rather than an absence -- a bare tile
+    // inside a heavy frame reads as a wallpaper that failed to decode, which is
+    // what the diagonal cross already means two cells away.
+    const int barW = th.width * 3 / 5;
+    const int barH = std::max(8, th.width / 12);
+    const int top = cy - (barH * 3 + barH * 2) / 2;
+    static constexpr int kRunTenths[3] = {10, 8, 6};  // ragged right, so the block reads as prose
+    for (int i = 0; i < 3; ++i) {
+      const int w = barW * kRunTenths[i] / 10;
+      const int y = top + i * barH * 2;
+      if (liveConfigured()) {
+        renderer.fillRect(cx - barW / 2, y, w, barH, true);
+      } else {
+        renderer.drawRect(cx - barW / 2, y, w, barH, 1, true);
+      }
+    }
+  }
+
+  if (liveOn()) drawMarker(th);
+
+  // The caption through captionRect, like every other tile on the grid. Hand
+  // placing it would put this one a few pixels off the row its neighbours sit
+  // on, and the marker's clearance is in that arithmetic too.
+  const fui::Rect cap = wallpapersui::captionRect(geom, slot);
+  if (cap.width <= 0) return;
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+  fui::TextStyle style = toybox::themeTokens().smallText;
+  style.font = fui::FONT_SLOT_SMALL;
+  style.align = fui::TextAlign::Center;
+  style.color = fui::Color::Black;
+  style.maxLines = 1;
+  target.text(cap, kLiveCaption, style);
+}
+
+void WallpapersActivity::drawGetSetTile(const wallpapersui::GridGeom& geom, const fui::Rect& th, const int slot) const {
   renderer.drawRect(th.x, th.y, th.width, th.height, 3, true);
   fui::GfxRendererTarget target = toybox::makeTarget(renderer);
   fui::TextStyle style = toybox::themeTokens().smallText;
@@ -929,7 +1049,9 @@ void WallpapersActivity::drawGetSetTile(const wallpapersui::GridGeom& geom, cons
       fui::makeRect(th.x + 6, static_cast<int16_t>(th.y + th.height / 2 - 30), static_cast<int16_t>(th.width - 12), 60);
   target.text(box, label, style);
 
-  const fui::Rect cap = wallpapersui::captionRect(geom, 1);
+  // The slot, not a literal 1: Live takes cell 1 in the variant that gives it a
+  // tile of its own, and this tile's caption has to follow it along the row.
+  const fui::Rect cap = wallpapersui::captionRect(geom, slot);
   fui::TextStyle capStyle = style;
   capStyle.maxLines = 1;
   target.text(cap, "Tap to fetch", capStyle);
@@ -973,6 +1095,23 @@ void WallpapersActivity::drawAddTile(const wallpapersui::GridGeom& geom, const f
   static constexpr const char* kLong = "Add wallpaper";
   std::string fitted = toybox::fitLines(target, kLong, label.width, 1, style);
   if (fitted != kLong) fitted = "Add";
+#if WALLPAPERS_LIVE_VARIANT == 3
+  // Nothing on the grid can mention Live before it is set up, because in this
+  // variant it has no tile yet. So this label carries a second line until it
+  // does. Two text() calls rather than one string with a newline: this renderer
+  // drops an embedded break and joins the words (see drawGetSetTile).
+  if (!liveConfigured()) {
+    const int16_t lineH = static_cast<int16_t>(label.height / 2);
+    target.text(fui::makeRect(label.x, label.y, label.width, lineH), fitted.c_str(), style);
+    static constexpr const char* kLiveLong = "or set up Live";
+    std::string second = toybox::fitLines(target, kLiveLong, label.width, 1, style);
+    if (second != kLiveLong) second = "or Live";
+    target.text(fui::makeRect(label.x, static_cast<int16_t>(label.y + lineH), label.width, lineH), second.c_str(),
+                style);
+    (void)geom;
+    return;
+  }
+#endif
   target.text(label, fitted.c_str(), style);
   (void)geom;
 }
@@ -1883,17 +2022,26 @@ void WallpapersActivity::loop() {
   // and they leave the mode behind, because they leave the grid. Nothing is
   // lost by that: the set is already on the card.
   const bool held = mappedInput.tapWasHeldLong();
-  if (combined == 0) {
-    if (held) return;
-    choosing_ = false;
-    openAdd();
-    return;
-  }
-  if (specials > 1 && combined == 1) {
-    if (held) return;
-    choosing_ = false;
-    startSetDownload();
-    return;
+  switch (specialAt(combined)) {
+    case SpecialTile::Add:
+      if (held) return;
+      choosing_ = false;
+      openAdd();
+      return;
+    case SpecialTile::Live:
+      if (held) return;
+      // Where this goes is the next slice; the tile is this one. Logged rather
+      // than silent, because "my tap did nothing" and a dropped touch are
+      // otherwise indistinguishable on hardware.
+      LOG_INF("WALL", "Live tile tapped; its destination arrives with the plumbing");
+      return;
+    case SpecialTile::GetSet:
+      if (held) return;
+      choosing_ = false;
+      startSetDownload();
+      return;
+    case SpecialTile::None:
+      break;
   }
   const int idx = combined - specials;
   // FOUR RULES MEET HERE, from three cards, and the order is the whole point.
