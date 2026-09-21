@@ -615,11 +615,25 @@ namespace {
 // The strip under the band on a list: what is left, and a bar. It is the first
 // thing the eye lands on after the name, and it is what the screen is FOR --
 // the rows answer "which", the strip answers "how much".
-constexpr int16_t kStripHeight = 30;
+// The strip sits in EQUAL air: the gap from the chrome down to the bar is the
+// same as the gap from its rule down to the first row. It used to start at
+// kBodyTop and keep the body's own 36px inset above it as well as a gutter
+// below, which put a 14px bar inside 90px of page.
+constexpr int16_t kStripGap = 28;      // above the bar, and below the rule
+constexpr int16_t kStripRuleGap = 14;  // bar to its rule, tighter: they are one block
+constexpr int16_t kChromeBottom = kBodyTop - toybox::kBodyGutter;
+
+int16_t stripBarTop() { return static_cast<int16_t>(kChromeBottom + kStripGap); }
+int16_t stripRuleY() { return static_cast<int16_t>(stripBarTop() + kBarHeight + kStripRuleGap); }
 
 int16_t stripSpace(const NoteModel& model) {
   if (model.page || model.total <= 0) return 0;
-  return static_cast<int16_t>(kStripHeight + toybox::kGutter * 2);
+  // The rows begin immediately under the rule and NO gap is added: a row is
+  // taller than its tick box and centres it, so the row's own padding is
+  // already the air below the rule -- about the same as the air above the bar,
+  // which is what makes the strip sit in an even band. Adding a gutter here too
+  // counted that space twice and pushed the first item a third of a page down.
+  return static_cast<int16_t>(stripRuleY() + toybox::kHairline - kBodyTop);
 }
 
 fui::Rect noteBandFor(const fui::DeviceContext& device, const NoteModel& model) {
@@ -633,7 +647,7 @@ fui::Rect noteBandFor(const fui::DeviceContext& device, const NoteModel& model) 
 // from the rows. Drawn against the page rather than on a slab: a second black
 // band under the header would fight the header for the top of the screen.
 void progressStrip(toybox::Screen& screen, const fui::Rect& band, const NoteModel& model) {
-  const int16_t y = static_cast<int16_t>(kBodyTop);
+  const int16_t barTop = stripBarTop();
   const int left = model.total - model.done;
   char label[32];
   if (left == 0) {
@@ -645,16 +659,17 @@ void progressStrip(toybox::Screen& screen, const fui::Rect& band, const NoteMode
   const int16_t lineHeight = screen.target().lineHeight(style.font);
   const int16_t labelWidth =
       static_cast<int16_t>(screen.target().measureText(style.font, label, style).width + toybox::kGutter * 2);
-  screen.target().text(
-      fui::makeRect(band.x, static_cast<int16_t>(y + (kStripHeight - lineHeight) / 2), labelWidth, lineHeight), label,
-      style);
-  const fui::Rect bar = fui::makeRect(static_cast<int16_t>(band.x + labelWidth),
-                                      static_cast<int16_t>(y + (kStripHeight - kBarHeight) / 2),
+  // The label rides the bar's centre line, not a box of its own: its line box is
+  // taller than the bar, and centring the two boxes separately leaves the words
+  // sitting a few pixels off the rule they belong to.
+  const int16_t barCentre = static_cast<int16_t>(barTop + kBarHeight / 2);
+  screen.target().text(fui::makeRect(band.x, static_cast<int16_t>(barCentre - lineHeight / 2), labelWidth, lineHeight),
+                       label, style);
+  const fui::Rect bar = fui::makeRect(static_cast<int16_t>(band.x + labelWidth), barTop,
                                       static_cast<int16_t>(band.width - labelWidth), kBarHeight);
   progressBar(screen, bar, model.done, model.total);
-  screen.target().fill(
-      fui::makeRect(band.x, static_cast<int16_t>(y + kStripHeight + toybox::kGutter), band.width, toybox::kHairline),
-      fui::Paint::solid(fui::Color::Black));
+  screen.target().fill(fui::makeRect(band.x, stripRuleY(), band.width, toybox::kHairline),
+                       fui::Paint::solid(fui::Color::Black));
 }
 }  // namespace
 
