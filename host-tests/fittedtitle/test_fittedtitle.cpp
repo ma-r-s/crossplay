@@ -210,6 +210,31 @@ void expectAtCut(Tally& tally, const fitted::RealTarget& target, const std::stri
   }
 }
 
+// EVERY RUN ON THIS SCREEN, rather than a list of strings somebody remembered.
+//
+// The tally below used to name seven strings in its comment and assert two of
+// them, which is a clean list hiding an absence one level down from the one it
+// was written to close. Listing them is also the wrong shape: the list has to
+// be maintained beside the app, and the string that gets missed is the one
+// somebody adds next.
+//
+// Nothing in Hearts steps its own cut any more -- fittedLabel is gone -- so the
+// only way a string can come up short is the renderer truncating it, and that
+// is a property of the run rather than of a corpus. Asking every run closes the
+// whole screen and keeps closing it.
+void expectNothingCut(Tally& tally, const fitted::RealTarget& target, const char* screen) {
+  for (const fitted::TextRun& run : target.texts) {
+    if (run.asked.empty()) continue;
+    ++tally.walked;
+    if (!run.cut()) continue;
+    ++tally.avoidable;
+    if (tally.worst.size() < run.asked.size()) {
+      tally.worst = std::string(screen) + ": " + run.asked;
+      tally.worstDrawn = run.drawn;
+    }
+  }
+}
+
 void expectWhole(Tally& tally, const fitted::RealTarget& target, const std::string& source) {
   ++tally.walked;
   const fitted::TextRun* run = carrier(target.texts, source);
@@ -551,6 +576,9 @@ void heartsScoreAndMenu() {
     for (int s = 0; s < hearts::kSeats; ++s) expectAtCut(sheet, paint.target, kNames[s], toybox::kUiFont);
     expectAtCut(sheet, paint.target, model.gameOver ? "PLAY AGAIN" : "NEXT HAND", toybox::kUiFont);
     expectAtCut(sheet, paint.target, "MENU", toybox::kUiFont);
+    // And everything else this screen drew: the standings note, TIED ON, the
+    // moon banner, the places, the rule line, every number.
+    expectNothingCut(sheet, paint.target, "score");
   }
 
   // Both menu states, and the armed discard.
@@ -577,6 +605,7 @@ void heartsScoreAndMenu() {
       expectAtCut(sheet, paint.target, model.confirmingNew ? "DISCARD IT?" : "NEW GAME", toybox::kUiFont);
     static const char* kCells[3] = {"GAMES", "WON", "BEST"};
     for (const char* cell : kCells) expectAtCut(sheet, paint.target, cell, toybox::kSmallFont);
+    expectNothingCut(sheet, paint.target, "menu");
   }
   report(sheet);
 }
