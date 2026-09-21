@@ -1150,7 +1150,7 @@ fi
 # expanded over the loops its own variables come from, and assert separately
 # that the step is ARMED. A guard that prints ::error:: and lets the job carry
 # on is the failure being guarded against, wearing the guard's clothes.
-guard_hits=$(grep -nE '\[ +!? *-f +"?\.pio/build' "$WF" | cut -d: -f1)
+guard_hits=$(grep -nE '\[ +!? *-f +"?\$[{]?IMAGES' "$WF" | cut -d: -f1)
 n_guard=$(printf '%s' "$guard_hits" | grep -c . || true)
 if [ "$n_guard" -eq 0 ]; then
   bad "no step checks that .pio/build still holds the build outputs before the merge steps read them; both builds report SUCCESS when it is empty (v1.12.14, v1.12.15)"

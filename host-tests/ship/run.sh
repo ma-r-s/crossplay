@@ -41,6 +41,19 @@ checks=0
 failed=0
 ok()  { checks=$((checks + 1)); }
 bad() { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL ship  $1"; }
+# Locally a SKIP is information: a scratch checkout may legitimately not be a
+# git repository. In CI every input is supposed to be there, so a check that
+# did not run is a FAILURE -- otherwise the suite guarding the publisher can
+# quietly stop running and still exit 0, which is the shape of bug this whole
+# file exists to catch. host-tests/checksh asserts every suite does this, and
+# it caught this one not doing it.
+skip() {
+  if [ -n "${CI:-}" ]; then
+    bad "$1 (a skip is a failure in CI: the inputs should be present here)"
+  else
+    echo "SKIP ship  $1"
+  fi
+}
 
 for f in "$SHIP" "$PARSER"; do
   [ -f "$f" ] || { echo "FAIL ship  missing $f"; exit 1; }
@@ -66,7 +79,7 @@ CODE="$(sed 's/#.*//' "$SHIP")"
 LITERAL="$(grep -o '"firmware\.bin"' "$PARSER" | head -1 | tr -d '"')"
 if [ -z "$LITERAL" ]; then
   bad "ReleaseJsonParser.cpp no longer contains a firmware asset literal; this suite cannot tell what ship.sh must publish"
-elif printf '%s' "$CODE" | grep -qE "cp +\.pio/build/gh_release_x4pro/firmware\.bin +'?\"?\\\$[{]?DIST[}]?/${LITERAL//./\\.}'?\"?"; then
+elif printf '%s' "$CODE" | grep -qE "cp +\\\$[{]?IMAGES[}]?/gh_release_x4pro/firmware\.bin +'?\"?\\\$[{]?DIST[}]?/${LITERAL//./\\.}'?\"?"; then
   ok
 else
   bad "ship.sh does not copy the x4pro image to dist/$LITERAL. That is the only asset name the OTA updater matches (ReleaseJsonParser.cpp), and under any other name every device's Check for updates reports nothing, forever, and says nothing about why"
@@ -81,6 +94,46 @@ if printf '%s' "$CODE" | grep -qE '\[ +-f +"?\$[{]?DIST[}]?/firmware\.bin"? +\]'
 else
   failed=$((failed + 1)); ok_=0
   echo "FAIL ship  ship.sh does not verify dist/firmware.bin is on disk before publishing"
+fi
+
+# -- 1b. the images come from the gate, never from this worktree ------------
+#
+# The bug this exists for, found by a cold review on 2026-09-21: ship.sh read
+# $REPO/.pio/build, and check.sh --committed builds in a throwaway worktree
+# under TMPDIR whose own trap deletes it. On a clean tree that path does not
+# exist, so ship.sh simply could not work. On a tree where somebody had run
+# `check.sh --flash gh_release_x4pro` it held a PRE-BUMP image, which would
+# have passed the existence check, passed the magic numbers (they are real
+# images), passed the tag-versus-version guard (that reads platformio.ini in
+# the working tree, not the binary), and published firmware reporting the old
+# version under the new tag.
+#
+# So: every read of a built artefact must come from the handover directory,
+# and a bare .pio/build read is the defect itself.
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -qE '(^|[^A-Za-z_/])\.pio/build/'; then
+  failed=$((failed + 1))
+  echo "FAIL ship  ship.sh reads .pio/build directly. That directory belongs to whatever last built in THIS worktree, and the gate does not build here -- it builds in a throwaway worktree it then deletes. Package from the gate's handover (CHECKSH-IMAGES) instead."
+else
+  ok
+fi
+
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -q 'CHECKSH-IMAGES' && printf '%s' "$CODE" | grep -q 'CHECK_KEEP_RELEASE_IMAGES'; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  ship.sh does not ask the gate to hand its images over (CHECK_KEEP_RELEASE_IMAGES) and read back where they went (CHECKSH-IMAGES), so whatever it packages did not come from the build it just verified"
+fi
+
+# And the handover must be checked against HEAD, or a directory left by an
+# earlier commit's run is indistinguishable from this one's.
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -q 'basename "$IMAGES"' && printf '%s' "$CODE" | grep -q 'rev-parse HEAD'; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  ship.sh does not compare the handover directory against HEAD, so images built from a different commit would publish under this tag"
 fi
 
 # -- 2. each merged image gets all three parts, at the ROM's offsets --------
@@ -233,7 +286,7 @@ if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
     echo "FAIL ship  ship.sh did not refuse being run on xteink itself (exit $rc)"
   fi
 else
-  echo "SKIP ship  not a git checkout; the live refusal checks need one"
+  skip "not a git checkout; the live refusal checks need one"
 fi
 
 echo "$checks checks, $failed failed"

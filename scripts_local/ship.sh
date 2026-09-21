@@ -28,11 +28,15 @@
 # So: bump FIRST, gate SECOND, and the images the gate leaves behind are the
 # images that ship. Nothing is rebuilt and nothing is stale.
 #
-# And because release_notes.py is idempotent on the version, this shape also
-# rewards doing the bump earlier. If the branch already carries the bump and
-# its gate already ran, `--write` changes nothing, the gate is skipped as
-# having nothing to verify, and landing costs an upload. If it does not, the
-# gate runs here, once, which is still three builds fewer than before.
+# THE GATE ALWAYS RUNS, and an earlier draft of this skipped it when the bump
+# turned out to be a no-op. That was wrong twice over. check.sh --committed
+# builds in a throwaway worktree that its own trap deletes, so a skipped gate
+# leaves NOTHING to package; and on a tree where somebody had run `check.sh
+# --flash gh_release_x4pro`, it left a PRE-BUMP image sitting in
+# $REPO/.pio/build that would have passed every check here and published
+# under the new tag. One gate, every time, and the images come from that
+# gate's own handover directory named after the commit. That is still three
+# builds fewer than the pipeline this replaced.
 #
 #   ./scripts_local/ship.sh --dry-run        # say what would happen, touch nothing
 #   ./scripts_local/ship.sh                  # land this branch and publish
@@ -59,7 +63,22 @@ done
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n== %s\n' "$*"; }
 die()  { printf '\nship: %s\n' "$*" >&2; exit 1; }
-run()  { if [ "$DRY" = 1 ]; then printf '   would: %s\n' "$*"; else eval "$@"; fi; }
+# EVERY run() FAILURE STOPS THE SCRIPT.
+#
+# This is not `set -e` (which pipefail-with-tee and the `case` arms below
+# both interact badly with); it is an explicit check on the one helper every
+# state-changing command goes through. Without it, and this was the shape of
+# the first version, a REJECTED `git push origin app/x:xteink` -- trunk moved
+# during the fifteen-minute gate, or branch protection refused it -- printed
+# "xteink is now <sha>", then tagged, then pushed the tag, then published a
+# release of code that is on no branch, and exited 0 with nothing red.
+run()  {
+  if [ "$DRY" = 1 ]; then printf '   would: %s\n' "$*"; return 0; fi
+  eval "$@" || die "this command failed, so nothing after it ran:
+        $*
+    Anything already done is listed above. A tag or a release that exists
+    from a part-finished run has to be removed by hand before retrying."
+}
 
 # ---------------------------------------------------------------- preflight
 #
@@ -161,7 +180,20 @@ fi
 # autorelease comparing it against the literal "1" while CLAUDE.md tells
 # everyone to write "<card>:<session>:<why>", so the documented format sailed
 # straight through the brake and two releases shipped under a hold.
-HOLD="$(gh variable get RELEASE_HOLD --repo ma-r-s/crossplay 2>/dev/null || echo "")"
+# FAIL CLOSED. `|| echo ""` made any gh failure -- a network blip, a token
+# without variables:read -- read as "no hold", so the one global brake on
+# releasing was fail-open. The old workflow took it from the event context,
+# which could not fail that way. A variable that is genuinely unset is not an
+# error and gh says so with an empty result and status 0.
+if ! HOLD="$(gh variable get RELEASE_HOLD --repo ma-r-s/crossplay 2>&1)"; then
+  case "$HOLD" in
+    *"not found"*|*"HTTP 404"*) HOLD="" ;;
+    *) die "could not read RELEASE_HOLD, so it is not known whether releases are held:
+$HOLD
+    Refusing rather than assuming clear. The hold is the one global brake and
+    it is shared by every session." ;;
+  esac
+fi
 case "${HOLD:-0}" in
   0|false|"") ;;
   *) die "RELEASE_HOLD is set, by: $HOLD
@@ -182,9 +214,23 @@ say "  hold      clear"
 # pass through here without a second gate.
 step "release notes"
 
-if ! ./scripts_local/release-needed.sh >/dev/null 2>&1; then
-  rc=$?
-  [ "$rc" = 2 ] && die "release-needed.sh REFUSED: a changed path is in no row of the table. Run it directly and read which path it names; do not guess."
+# `if ! cmd; then rc=$?` captures the NEGATION's status, so rc is 0 or 1 and
+# never 2 -- and 2 is the answer that matters. It means a changed path is in
+# no row of device-build-needed.sh's table, which is the case release-needed.sh
+# exists to make somebody stop and look at; the old autorelease failed loudly
+# on it. Read badly, a real user-facing fix on an unclassified path lands and
+# is never released, silently. Capture the status directly.
+#
+# And keep its stdout: the message names the path, and the die below tells
+# you to go read it.
+REL_OUT="$(./scripts_local/release-needed.sh 2>&1)"; REL_RC=$?
+if [ "$REL_RC" != 0 ]; then
+  [ "$REL_RC" = 2 ] && die "release-needed.sh REFUSED, because a changed path is in no row of the classification table:
+$REL_OUT
+    Add the row (scripts_local/device-build-needed.sh) saying whether that path
+    builds and whether it ships, then run this again. Releasing for nothing and
+    silently withholding a real fix are both wrong answers to a question nobody
+    has answered."
   say "  nothing since the last tag reaches a user. Landing without a release."
   NEXT=""
 else
@@ -193,7 +239,6 @@ else
   say "  next version  $NEXT"
 fi
 
-NEEDS_GATE=0
 if [ -n "$NEXT" ]; then
   # WHAT THE VERSION ALREADY IS, read before the bump writes anything.
   #
@@ -207,7 +252,6 @@ if [ -n "$NEXT" ]; then
   HAVE_VER="$(sed -n '/^\[crossplay\]/,/^\[/s/^version *= *//p' platformio.ini | head -1 | tr -d ' ')"
   run "python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --write"
   if [ "$HAVE_VER" != "$NEXT" ]; then
-    NEEDS_GATE=1
     run "git add platformio.ini docs/release-notes.md docs/release-body.md"
     run "git commit -q -m 'chore: crossplay $NEXT'"
     say "  bumped $HAVE_VER -> $NEXT. The gate below builds the images that ship."
@@ -230,20 +274,42 @@ fi
 step "gate"
 
 GATE_LOG="$(mktemp -t ship-gate)"
-if [ "$NEEDS_GATE" = 1 ]; then
-  say "  building the images that ship (transcript below)"
-  run "CHECK_FORCE_DEVICE_BUILDS=1 ./scripts_local/check.sh --committed 2>&1 | tee '$GATE_LOG'"
-  if [ "$DRY" = 0 ]; then
-    VERDICT="$(grep -o 'CHECKSH-VERDICT: [a-z-]*' "$GATE_LOG" | tail -1 | sed 's/CHECKSH-VERDICT: //')"
-    case "$VERDICT" in
-      green) say "  verdict   green" ;;
-      host-green-device-skipped) die "the gate skipped the device builds, so there are no images to publish. CHECK_FORCE_DEVICE_BUILDS did not take; read $GATE_LOG." ;;
-      "")    die "the gate printed no verdict at all, which is not a pass. Read $GATE_LOG." ;;
-      *)     die "gate verdict: $VERDICT. Nothing published. Read $GATE_LOG." ;;
-    esac
-  fi
+
+# THE GATE IS THE BUILD, AND IT DOES NOT BUILD HERE.
+#
+# check.sh --committed builds in a throwaway worktree under TMPDIR and its
+# own trap removes that worktree on exit, so $REPO/.pio/build holds nothing
+# this run produced -- on a clean tree it does not exist at all. The first
+# version of this script packaged from there anyway. On a normal tree that
+# only fails; on a tree where somebody had run `check.sh --flash
+# gh_release_x4pro` it would have found a PRE-BUMP image, passed every
+# existence and magic-number check, and published firmware reporting the old
+# version under the new tag. Every device that installed it would have gone
+# on being offered the update it had just applied.
+#
+# So the gate hands them over explicitly, in a directory named after the
+# commit, and ship.sh refuses any other source.
+run "CHECK_KEEP_RELEASE_IMAGES=1 CHECK_FORCE_DEVICE_BUILDS=1 ./scripts_local/check.sh --committed 2>&1 | tee '$GATE_LOG'"
+if [ "$DRY" = 0 ]; then
+  VERDICT="$(grep -o 'CHECKSH-VERDICT: [a-z-]*' "$GATE_LOG" | tail -1 | sed 's/CHECKSH-VERDICT: //')"
+  case "$VERDICT" in
+    green) say "  verdict   green" ;;
+    host-green-device-skipped) die "the gate skipped the device builds, so there are no images to publish. CHECK_FORCE_DEVICE_BUILDS did not take; read $GATE_LOG." ;;
+    "")    die "the gate printed no verdict at all, which is not a pass. Read $GATE_LOG." ;;
+    *)     die "gate verdict: $VERDICT. Nothing published. Read $GATE_LOG." ;;
+  esac
+  IMAGES="$(grep -o 'CHECKSH-IMAGES: .*' "$GATE_LOG" | tail -1 | sed 's/CHECKSH-IMAGES: //')"
+  case "$IMAGES" in
+    ""|none*) die "the gate published no images to package (CHECKSH-IMAGES: ${IMAGES:-absent}). Nothing published; read $GATE_LOG." ;;
+  esac
+  # The directory is named for the commit it was built from. Comparing that
+  # against HEAD is the probe that catches a reused or stale handover, which
+  # is the whole class the old in-tree read fell into.
+  [ "$(basename "$IMAGES")" = "$(git rev-parse HEAD)" ] \
+    || die "the gate's images are from $(basename "$IMAGES") and HEAD is $(git rev-parse HEAD). Nothing published."
+  say "  images    $IMAGES"
 else
-  say "  skipped: nothing was rebuilt, so the images already on disk are this commit's."
+  IMAGES="<the gate's output directory>"
 fi
 
 # ----------------------------------------------------------------- package
@@ -262,8 +328,8 @@ run "rm -rf '$DIST' && mkdir -p '$DIST'"
 
 for env_name in gh_release_x4pro gh_release_sticky; do
   for f in firmware.bin firmware.elf partitions.bin bootloader.bin; do
-    if [ "$DRY" = 0 ] && [ ! -f ".pio/build/$env_name/$f" ]; then
-      die ".pio/build/$env_name/$f is missing. The gate reported success and its output is not on disk, which is how v1.12.14 and v1.12.15 shipped without a bootloader. Re-run with the gate forced."
+    if [ "$DRY" = 0 ] && [ ! -f "$IMAGES/$env_name/$f" ]; then
+      die "$IMAGES/$env_name/$f is missing. The gate reported success and handed over an incomplete set, which is how v1.12.14 and v1.12.15 shipped without a bootloader."
     fi
   done
 done
@@ -281,23 +347,23 @@ TAG="v${NEXT:-0.0.0}"
 run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
     -o '$DIST/crossplay-$TAG-x4pro-full.bin' \
     -fm keep -fs keep -ff keep \
-    0x0     .pio/build/gh_release_x4pro/bootloader.bin \
-    0x8000  .pio/build/gh_release_x4pro/partitions.bin \
-    0x10000 .pio/build/gh_release_x4pro/firmware.bin"
+    0x0     $IMAGES/gh_release_x4pro/bootloader.bin \
+    0x8000  $IMAGES/gh_release_x4pro/partitions.bin \
+    0x10000 $IMAGES/gh_release_x4pro/firmware.bin"
 # The OTA updater matches this literal name and nothing else
 # (ReleaseJsonParser.cpp). It is the x4pro image, unmerged, under the plain
 # name; v1.0.1 renamed it and every device went quiet about updates.
-run "cp .pio/build/gh_release_x4pro/firmware.bin '$DIST/firmware.bin'"
-run "cp .pio/build/gh_release_x4pro/firmware.elf '$DIST/crossplay-$TAG-x4pro.elf'"
+run "cp $IMAGES/gh_release_x4pro/firmware.bin '$DIST/firmware.bin'"
+run "cp $IMAGES/gh_release_x4pro/firmware.elf '$DIST/crossplay-$TAG-x4pro.elf'"
 
 run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
     -o '$DIST/crossplay-$TAG-sticky-full.bin' \
     -fm keep -fs keep -ff keep \
-    0x0     .pio/build/gh_release_sticky/bootloader.bin \
-    0x8000  .pio/build/gh_release_sticky/partitions.bin \
-    0x10000 .pio/build/gh_release_sticky/firmware.bin"
-run "cp .pio/build/gh_release_sticky/firmware.bin '$DIST/firmware-sticky.bin'"
-run "cp .pio/build/gh_release_sticky/firmware.elf '$DIST/crossplay-$TAG-sticky.elf'"
+    0x0     $IMAGES/gh_release_sticky/bootloader.bin \
+    0x8000  $IMAGES/gh_release_sticky/partitions.bin \
+    0x10000 $IMAGES/gh_release_sticky/firmware.bin"
+run "cp $IMAGES/gh_release_sticky/firmware.bin '$DIST/firmware-sticky.bin'"
+run "cp $IMAGES/gh_release_sticky/firmware.elf '$DIST/crossplay-$TAG-sticky.elf'"
 
 # A merged image that is not actually merged is indistinguishable from the app
 # image it replaces until somebody bricks a device with it. Check the three
