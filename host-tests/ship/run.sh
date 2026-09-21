@@ -280,17 +280,24 @@ fi
 # prints "rebase and re-gate: ./scripts_local/check.sh --committed" as advice
 # forty lines above the real call. A detector satisfied by a mention of the
 # thing is the bug it is supposed to catch, one level up.
-BUMP_LINE="$(printf '%s' "$CODE" | grep -n 'release_notes\.py.*--write' | head -1 | cut -d: -f1)"
+# THE VERSION, NOT THE NOTES. An earlier version of this check matched
+# `release_notes.py --write` and was right only while that one call did both
+# jobs. It does not any more: the VERSION is compiled into the firmware so it
+# must precede the build, and the NOTES are not, so they are written after
+# the squash -- which is the only point at which the pull request is merged
+# and release_notes.py can map a commit to it at all. Matching the notes here
+# would forbid the correct order.
+BUMP_LINE="$(printf '%s' "$CODE" | grep -nE "s\\^version \*= \*|git commit -q -m 'chore: crossplay \\\$NEXT'" | head -1 | cut -d: -f1)"
 GATE_LINE="$(printf '%s' "$CODE" | grep -nE 'CHECK_FORCE_DEVICE_BUILDS=1 +\./scripts_local/check\.sh --committed' | head -1 | cut -d: -f1)"
 checks=$((checks + 1))
 if [ -z "$BUMP_LINE" ] || [ -z "$GATE_LINE" ]; then
   failed=$((failed + 1))
-  echo "FAIL ship  cannot find both the version bump (release_notes.py --write) and the gate (check.sh --committed) in ship.sh; the ordering they must keep cannot be checked"
+  echo "FAIL ship  cannot find both the version write (platformio.ini's [crossplay] version) and the gate (check.sh --committed) in ship.sh; the ordering they must keep cannot be checked"
 elif [ "$BUMP_LINE" -lt "$GATE_LINE" ]; then
   ok_=1
 else
   failed=$((failed + 1))
-  echo "FAIL ship  ship.sh gates at line $GATE_LINE and bumps the version at line $BUMP_LINE, so it publishes images compiled with the PREVIOUS version. platformio.ini compiles the version in (-DCROSSPOINT_VERSION) and OtaUpdater.cpp:119 compares the tag against it, so every device would keep offering an update it already installed"
+  echo "FAIL ship  ship.sh gates at line $GATE_LINE and writes the version at line $BUMP_LINE, so it publishes images compiled with the PREVIOUS version. platformio.ini compiles the version in (-DCROSSPOINT_VERSION) and OtaUpdater.cpp:119 compares the tag against it, so every device would keep offering an update it already installed"
 fi
 
 # -- 6. fast-forward or nothing ---------------------------------------------
@@ -300,6 +307,46 @@ if printf '%s' "$CODE" | grep -q 'merge-base' && printf '%s' "$CODE" | grep -q '
 else
   failed=$((failed + 1))
   echo "FAIL ship  ship.sh does not compare the merge base against origin/xteink. Without it a merge commit can be published, and a merge commit's tree is not the tree the gate built"
+fi
+
+# -- 6b. the squash goes through GitHub, and the trees are compared --------
+#
+# Two halves of one invariant, and neither works without the other.
+#
+# THROUGH GITHUB, because only a merge GitHub performs leaves the pull
+# request MERGED with its mergeCommit set, and release_notes.py maps commits
+# to pull requests by that oid and nothing else. A local squash-and-push
+# leaves the pull request open with its head unreachable, the mapping empty,
+# every note line falling back to a raw commit subject, and the release:minor
+# label never seen -- so every release silently becomes a patch bump.
+#
+# AND THE TREES COMPARED, because "a squash of an up-to-date branch has the
+# same tree" is true and is exactly the kind of true-by-argument the last
+# defect hid behind. The images in the handover were built from the branch
+# tip; if what landed differs by a byte they are the wrong bytes.
+checks=$((checks + 1))
+# MATCHED AS AN INVOCATION, not as the string appearing anywhere. The first
+# version of this grepped for "gh pr merge .*--squash" and passed every
+# mutation, because ship.sh's own --dry-run branch PRINTS that text: `say "
+# would: gh pr merge $PR_NUMBER --squash"`. Three checks in this file have
+# now been written that way and all three could never fail. A detector
+# satisfied by a mention of the thing is the bug it is meant to catch.
+if printf '%s' "$CODE" | grep -qE 'run "gh pr merge [^"]*--squash'; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  ship.sh does not squash through 'gh pr merge --squash'. A local squash leaves the pull request open with its head unreachable, so release_notes.py maps no commit to it and the release page becomes a list of raw commit subjects with every release a patch bump."
+fi
+
+checks=$((checks + 1))
+# The COMPARISON, not the variables: both names appear in the die message
+# that reports a mismatch, so grepping for them passed with the comparison
+# deleted.
+if printf '%s' "$CODE" | grep -qE '\[ "\$BRANCH_TREE" != "\$TRUNK_TREE" \]'; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  ship.sh does not compare the landed tree against the tree the gate built. The handover's images came from the branch tip; if the squash resolved a merge, they are bytes nobody built."
 fi
 
 # -- 7. RELEASE_HOLD: any non-empty value holds -----------------------------

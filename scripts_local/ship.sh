@@ -41,10 +41,11 @@
 #   ./scripts_local/ship.sh --dry-run        # say what would happen, touch nothing
 #   ./scripts_local/ship.sh                  # land this branch and publish
 #
-# WHAT THIS REFUSES TO DO. It does not merge a branch that is not a
-# fast-forward onto xteink. A merge commit's tree is not the tree the gate
-# verified, and republishing under that tag ships bytes nothing built. Rebase
-# and re-gate; the message says so.
+# WHAT THIS REFUSES TO DO. It does not land a branch that is behind xteink.
+# The squash it performs produces a commit whose tree equals the branch tip's
+# only while the branch is current; behind trunk, the squash resolves a merge
+# and lands a tree nobody built. Rebase and re-gate; the message says so, and
+# the trees are compared again after the merge rather than assumed.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -163,17 +164,30 @@ fi
 
 run "git fetch -q origin xteink --tags"
 
-# FAST-FORWARD OR NOTHING. See the header: a merge commit's tree was never
-# built, and the tag would name bytes nothing compiled. This is the check that
-# makes "ship the gate's output" sound rather than usually-sound.
+# UP TO DATE WITH TRUNK, OR NOTHING. The squash below produces a commit whose
+# tree equals this branch's tip ONLY while the branch is already current with
+# its base; behind trunk, the squash resolves a merge and lands a tree nobody
+# built. The land step compares the trees afterwards too -- this is the cheap
+# check that fails before fifteen minutes of gate rather than after.
 BASE="$(git merge-base HEAD origin/xteink)"
 TRUNK="$(git rev-parse origin/xteink)"
 if [ "$BASE" != "$TRUNK" ]; then
   die "xteink has moved since this branch left it ($(git rev-list --count "$BASE".."$TRUNK") commits).
-    A merge commit's tree is not the tree the gate verified, so its images would
-    be bytes nothing built. Rebase and re-gate:
+    A squash from here resolves a merge, and its tree is not the tree the gate
+    built. Rebase and re-gate:
         git rebase origin/xteink && ./scripts_local/check.sh --committed"
 fi
+
+# The squash goes through GitHub so the pull request ends up MERGED with its
+# mergeCommit set; release_notes.py maps commits to pull requests by that oid
+# and by nothing else. No pull request, no mapping, no notes.
+PR_NUMBER="$(gh pr list --repo ma-r-s/crossplay --head "$BRANCH" --state open --json number -q '.[0].number' 2>/dev/null)"
+[ -n "$PR_NUMBER" ] || die "no open pull request for $BRANCH.
+    ship.sh squashes through GitHub rather than pushing, because that is what
+    marks the pull request merged and sets the mergeCommit oid the release
+    notes are built from. Open one first:
+        gh pr create --base xteink --head $BRANCH"
+say "  pull request  #$PR_NUMBER"
 
 # The hold is ONE GLOBAL SWITCH shared by every session. Read it rather than
 # flip it, and treat any non-empty value as held: card #572 found the
@@ -204,27 +218,24 @@ esac
 say "  branch    $BRANCH -> xteink (fast-forward, $(git rev-list --count "$TRUNK"..HEAD) commit(s))"
 say "  hold      clear"
 
-# ------------------------------------------------------------------- notes
+# ----------------------------------------------------------------- version
 #
-# release_notes.py owns the whole bump: the [crossplay] version in
-# platformio.ini, docs/release-body.md (the page this release publishes) and
-# docs/release-notes.md (the history it is prepended to). It decides the
-# number, reads the merged pull requests' own lines, and is idempotent on a
-# version already written -- which is what lets a branch that bumped earlier
-# pass through here without a second gate.
-step "release notes"
+# THE VERSION IS COMPILED IN, SO IT MUST PRECEDE THE BUILD. platformio.ini
+# gives both release envs -DCROSSPOINT_VERSION="${crossplay.version}" and
+# OtaUpdater.cpp:119 compares a release's tag against that compiled string,
+# so an image built before the bump and published under the tag after it
+# leaves every device offering an update it already installed.
+#
+# THE NOTES ARE NOT COMPILED IN, and that is why they are no longer written
+# here. They need the pull request to be MERGED -- release_notes.py maps
+# commits to pull requests by mergeCommit.oid -- so they are written after
+# the squash, further down. Generating them here matched nothing, fell back
+# to raw commit subjects, and never saw the release:minor label, which made
+# every release silently a patch bump.
+step "version"
 
-# `if ! cmd; then rc=$?` captures the NEGATION's status, so rc is 0 or 1 and
-# never 2 -- and 2 is the answer that matters. It means a changed path is in
-# no row of device-build-needed.sh's table, which is the case release-needed.sh
-# exists to make somebody stop and look at; the old autorelease failed loudly
-# on it. Read badly, a real user-facing fix on an unclassified path lands and
-# is never released, silently. Capture the status directly.
-#
-# And keep its stdout: the message names the path, and the die below tells
-# you to go read it.
-REL_OUT="$(./scripts_local/release-needed.sh 2>&1)"; REL_RC=$?
-if [ "$REL_RC" != 0 ]; then
+if ! ./scripts_local/release-needed.sh >/dev/null 2>&1; then
+  REL_OUT="$(./scripts_local/release-needed.sh 2>&1)"; REL_RC=$?
   [ "$REL_RC" = 2 ] && die "release-needed.sh REFUSED, because a changed path is in no row of the classification table:
 $REL_OUT
     Add the row (scripts_local/device-build-needed.sh) saying whether that path
@@ -238,25 +249,22 @@ else
   [ -n "$NEXT" ] || die "release_notes.py named no next version. Run it with --dry-run and read why."
   say "  next version  $NEXT"
 fi
+TAG="v${NEXT:-0.0.0}"
 
 if [ -n "$NEXT" ]; then
-  # WHAT THE VERSION ALREADY IS, read before the bump writes anything.
-  #
-  # A dry run cannot answer "did the bump change something?" by looking at
-  # the working tree, because in a dry run the bump did not run. The first
-  # version of this asked exactly that and so always reported "the bump is a
-  # no-op, the gate is skipped" -- the opposite of the truth for every real
-  # release, from the one mode whose entire job is to say what would happen.
-  # So compare the versions instead, which is the same question and is
-  # answerable in both modes.
   HAVE_VER="$(sed -n '/^\[crossplay\]/,/^\[/s/^version *= *//p' platformio.ini | head -1 | tr -d ' ')"
-  run "python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --write"
   if [ "$HAVE_VER" != "$NEXT" ]; then
-    run "git add platformio.ini docs/release-notes.md docs/release-body.md"
+    # platformio.ini ONLY. A dry run cannot ask "did the bump change
+    # something?" of the working tree, because in a dry run the bump did not
+    # run; comparing the versions is the same question and answerable in both
+    # modes.
+    run "python3 -c \"import pathlib,re; p=pathlib.Path('platformio.ini'); t=p.read_text(); p.write_text(re.sub(r'(?m)^(\\[crossplay\\](?:[^\\[]*?\\n)version *= *).*$', r'\\g<1>$NEXT', t, count=1))\""
+    run "git add platformio.ini"
     run "git commit -q -m 'chore: crossplay $NEXT'"
-    say "  bumped $HAVE_VER -> $NEXT. The gate below builds the images that ship."
+    run "git push -q origin '$BRANCH'"
+    say "  bumped $HAVE_VER -> $NEXT, pushed. The gate below builds the images that ship."
   else
-    say "  already at $NEXT: the bump is a no-op, so the gate's images are current."
+    say "  already at $NEXT."
   fi
 fi
 
@@ -312,6 +320,98 @@ else
   IMAGES="<the gate's output directory>"
 fi
 
+# -------------------------------------------------------------------- land
+#
+# SQUASH, NOT FAST-FORWARD, and the reason is the release notes rather than
+# taste. release_notes.py walks `git log --first-parent <tag>..HEAD` and maps
+# each commit to a pull request by mergeCommit.oid. Over a fast-forward that
+# walk is EVERY COMMIT ON THE BRANCH, so a ten-commit branch becomes ten note
+# lines instead of the one line its author wrote. A squash puts exactly one
+# commit on trunk per pull request, which is the shape that walk was built
+# for and has always assumed.
+#
+# Through `gh pr merge`, not a local squash-and-push, because GitHub has to
+# be the one that does it: only then is the pull request MERGED with its
+# mergeCommit set, and that oid is the whole of the mapping above. A local
+# squash leaves the pull request open with its head unreachable and
+# release_notes.py matching nothing, which is the bug this replaces.
+#
+# AND THE IMAGES ARE STILL THE RIGHT BYTES, proved rather than argued. A
+# squash of a branch already up to date with its base produces a commit whose
+# TREE equals the branch tip's. That is the property the fast-forward rule
+# was protecting, and it survives -- but "should equal" is how the last defect
+# got in, so the trees are compared.
+step "land"
+
+if [ "$DRY" = 1 ]; then
+  say "   would: gh pr merge $PR_NUMBER --squash"
+  say "   would: compare the new trunk tree against $(git rev-parse --short HEAD)'s"
+else
+  BRANCH_TREE="$(git rev-parse 'HEAD^{tree}')"
+  run "gh pr merge '$PR_NUMBER' --repo ma-r-s/crossplay --squash --delete-branch=false"
+  run "git fetch -q origin xteink"
+  TRUNK_NEW="$(git rev-parse origin/xteink)"
+  TRUNK_TREE="$(git rev-parse "$TRUNK_NEW^{tree}")"
+  if [ "$BRANCH_TREE" != "$TRUNK_TREE" ]; then
+    die "the squash landed a different tree than the one the gate built.
+    branch $BRANCH_TREE
+    trunk  $TRUNK_TREE
+    Something else landed between the gate and the merge, so the images in
+    the handover are not what is on xteink. Nothing tagged, nothing
+    published. Re-run: the gate will rebuild against the new trunk."
+  fi
+  say "  xteink is now $(git rev-parse --short "$TRUNK_NEW"), same tree the gate built"
+  run "git checkout -q --detach '$TRUNK_NEW'"
+fi
+
+if [ -z "$NEXT" ]; then
+  say ""
+  say "Landed. No release: nothing since the last tag reaches a user."
+  exit 0
+fi
+
+# ------------------------------------------------------------------- notes
+#
+# HERE, because the pull request is merged only now and release_notes.py
+# needs that: it maps commits to pull requests by mergeCommit.oid, and the
+# oid did not exist until the squash above. Written before it, every line
+# fell back to humanize(commit subject) and the release:minor label was never
+# seen, so every release was silently a patch bump.
+#
+# Safe to change the tree after the build because NOTHING HERE IS COMPILED.
+# release_notes.py touches platformio.ini (already at $NEXT, so idempotent),
+# docs/release-body.md and docs/release-notes.md. The tag lands on this
+# commit, so the tagged tree's CODE is byte-identical to what was built and
+# the tag carries the notes it publishes -- which is what host-tests/release
+# wants when it compares a release against the previous tag.
+step "release notes"
+
+run "python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --write"
+if [ "$DRY" = 0 ]; then
+  if [ -n "$(git status --porcelain)" ]; then
+    run "git add platformio.ini docs/release-notes.md docs/release-body.md"
+    run "git commit -q -m 'chore: crossplay $NEXT notes'"
+    run "git push -q origin 'HEAD:xteink'"
+    say "  written and pushed"
+  else
+    say "  already current"
+  fi
+fi
+
+# The tag must be the version the images were BUILT with, read out of
+# platformio.ini rather than out of $NEXT, because $NEXT is the variable
+# under suspicion. The probe that reads the firmware itself is in `package`.
+BUILT="$(sed -n '/^\[crossplay\]/,/^\[/s/^version *= *//p' platformio.ini | head -1 | tr -d ' ')"
+if [ "$DRY" = 0 ] && [ "$TAG" != "v$BUILT" ]; then
+  die "the tag ($TAG) is not the version the images were built with (v$BUILT).
+    platformio.ini compiles that string in and OtaUpdater compares a release's
+    tag against it, so publishing this pair would leave every device that
+    installs it still being offered the same update. Nothing published."
+fi
+
+run "git tag '$TAG'"
+run "git push -q origin '$TAG'"
+
 # ----------------------------------------------------------------- package
 #
 # Ported from crossplay-release.yml, which did this in about fifteen seconds
@@ -334,7 +434,6 @@ for env_name in gh_release_x4pro gh_release_sticky; do
   done
 done
 
-TAG="v${NEXT:-0.0.0}"
 
 # BOTH BOARDS SPELLED OUT, and that is deliberate rather than lazy. A loop
 # over the two envs reads better and hides the two things worth reading: the
@@ -416,46 +515,6 @@ if [ "$DRY" = 0 ]; then
   say "  version   both images report $NEXT"
   say "  $(ls "$DIST" | wc -l | tr -d ' ') artefacts, magic numbers verified"
 fi
-
-# -------------------------------------------------------------------- land
-#
-# Push before tagging, and tag the commit that is now trunk's tip: the tag has
-# to name the tree whose images are sitting in dist/, or the release describes
-# something nobody built.
-step "land"
-run "git push origin '$BRANCH:xteink'"
-if [ "$DRY" = 1 ]; then
-  say "  xteink would become $(git rev-parse --short HEAD) (plus the bump commit above)"
-else
-  say "  xteink is now $(git rev-parse --short HEAD)"
-fi
-
-if [ -z "$NEXT" ]; then
-  say "\nLanded. No release: nothing since the last tag reaches a user."
-  exit 0
-fi
-
-# The tag must be the version being built, asserted rather than assumed.
-#
-# TAG is derived from NEXT a hundred lines up, so they agree by construction
-# and this can only fire if something between here and there rewrote one of
-# them. That is precisely when it is worth having: crossplay-release.yml
-# carried the same step because a tag naming a version the binary does not
-# report is the OTA bug this whole ordering exists to prevent, and by the
-# time a tag is pushed it costs a delete-and-retag.
-#
-# Read out of platformio.ini, not out of the variable, because the variable
-# is the thing under suspicion. This is what the firmware compiled.
-BUILT="$(sed -n '/^\[crossplay\]/,/^\[/s/^version *= *//p' platformio.ini | head -1 | tr -d ' ')"
-if [ "$DRY" = 0 ] && [ "$TAG" != "v$BUILT" ]; then
-  die "the tag ($TAG) is not the version the images were built with (v$BUILT).
-    platformio.ini compiles that string in and OtaUpdater compares a release's
-    tag against it, so publishing this pair would leave every device that
-    installs it still being offered the same update. Nothing published."
-fi
-
-run "git tag '$TAG'"
-run "git push origin '$TAG'"
 
 # ----------------------------------------------------------------- publish
 #
