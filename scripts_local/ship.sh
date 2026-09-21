@@ -87,10 +87,60 @@ gh auth status >/dev/null 2>&1 || die "gh is not authenticated. Run: gh auth log
 # this Mac for this script: the toolchain that built the images is the
 # toolchain that packages them, and it is already here (v5.3.0, and it spells
 # the subcommand `merge-bin` the way crossplay-release.yml did).
+# THE TOOLCHAIN THAT BUILT THE IMAGES MUST BE THE PINNED ONE.
+#
+# This is the one thing that genuinely got weaker when publishing moved off
+# GitHub. crossplay-release.yml installed
+# platformio-core/archive/refs/tags/v6.1.19.zip on a fresh runner every time,
+# so the published image was built by a known compiler by construction. Here
+# it is built by whatever `pio` this Mac happens to have, which is a thing
+# that drifts silently -- the fork already lost a day to clang-format 22
+# reformatting 44 files that CI's 21 did not.
+#
+# So assert it instead of inheriting it. The pin is read out of the remaining
+# workflows rather than written down twice.
+PIN="$(sed 's/#.*//' "$REPO"/.github/workflows/*.yml 2>/dev/null \
+       | grep -oE 'platformio-core/archive/refs/tags/v[0-9.]+\.zip' \
+       | sed -E 's#.*/v([0-9.]+)\.zip#\1#' | sort | uniq -c | sort -rn | head -1 | sed 's/^ *[0-9]* *//')"
+HAVE="$(pio --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+if [ -n "$PIN" ] && [ -n "$HAVE" ] && [ "$PIN" != "$HAVE" ]; then
+  die "this Mac has PlatformIO $HAVE and the repository pins $PIN.
+    The images you are about to publish were built by the wrong compiler, and
+    nothing downstream would ever say so. Match it:
+        uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v$PIN.zip"
+fi
+[ -n "$PIN" ] || say "  WARNING: no PlatformIO pin found in .github/workflows; the toolchain is unchecked"
+
 PIO_PY="$HOME/.platformio/penv/bin/python"
 ESPTOOL="$HOME/.platformio/packages/tool-esptoolpy/esptool.py"
 [ -x "$PIO_PY" ] && [ -f "$ESPTOOL" ] \
   || die "no PlatformIO esptool at $ESPTOOL. Run any build once to install the toolchain."
+
+# ONE PUBLISH AT A TIME, ACROSS THE WHOLE WORKSPACE.
+#
+# crossplay-release.yml carried a concurrency group for this and its comment
+# records why: v1.12.16 was built and published TWICE, one second apart, two
+# runs racing to upload the same files, both exiting 0. Moving the publisher
+# to this Mac does not remove that race, it renames it -- a dozen sessions
+# share this workspace and any of them can reach ship.sh.
+#
+# mkdir is the atomic primitive here: macOS ships no flock(1), and a test
+# followed by a write is exactly the race being closed. The lock records the
+# pid so a crashed run can be told from a live one, and a stale lock says how
+# to clear it rather than requiring anyone to guess.
+LOCK="${TMPDIR:-/tmp}/xteink-ship.lock"
+if [ "$DRY" = 0 ]; then
+  if ! mkdir "$LOCK" 2>/dev/null; then
+    holder="$(cat "$LOCK/pid" 2>/dev/null || echo unknown)"
+    if [ "$holder" != unknown ] && kill -0 "$holder" 2>/dev/null; then
+      die "another ship.sh is publishing right now (pid $holder). Wait for it: two publishes of one tag race to upload the same assets and both exit 0, which is how v1.12.16 shipped twice."
+    fi
+    die "a stale publish lock is in the way: $LOCK, left by pid $holder, which is not running.
+    Check no release is half-published, then: rm -rf '$LOCK'"
+  fi
+  echo $$ > "$LOCK/pid"
+  trap 'rm -rf "$LOCK"' EXIT INT TERM
+fi
 
 run "git fetch -q origin xteink --tags"
 
@@ -271,6 +321,25 @@ say "  xteink is now $(git rev-parse --short HEAD)"
 if [ -z "$NEXT" ]; then
   say "\nLanded. No release: nothing since the last tag reaches a user."
   exit 0
+fi
+
+# The tag must be the version being built, asserted rather than assumed.
+#
+# TAG is derived from NEXT a hundred lines up, so they agree by construction
+# and this can only fire if something between here and there rewrote one of
+# them. That is precisely when it is worth having: crossplay-release.yml
+# carried the same step because a tag naming a version the binary does not
+# report is the OTA bug this whole ordering exists to prevent, and by the
+# time a tag is pushed it costs a delete-and-retag.
+#
+# Read out of platformio.ini, not out of the variable, because the variable
+# is the thing under suspicion. This is what the firmware compiled.
+BUILT="$(sed -n '/^\[crossplay\]/,/^\[/s/^version *= *//p' platformio.ini | head -1 | tr -d ' ')"
+if [ "$DRY" = 0 ] && [ "$TAG" != "v$BUILT" ]; then
+  die "the tag ($TAG) is not the version the images were built with (v$BUILT).
+    platformio.ini compiles that string in and OtaUpdater compares a release's
+    tag against it, so publishing this pair would leave every device that
+    installs it still being offered the same update. Nothing published."
 fi
 
 run "git tag '$TAG'"
