@@ -156,6 +156,18 @@ is a per-note action that must never become a mode.
   one note to four. Past that it steps down twice and paging takes over. The
   rule it replaced left three notes as three text lines at the top of an empty
   page, which is not minimal, it is unfinished.
+- **A PRECONDITION IS WORTH ONLY WHAT ITS FAILURE COSTS.** Saving a note asked
+  `Storage.freeBytes()` first, to refuse politely on a full card. Measured on
+  device 1: that walk is **5317ms**, and it landed between OK and the next
+  keystroke on the first add of every session (every later one was 19ms, since
+  the walk is cached by the driver). The write already fails on a full card and
+  already reports it, so the probe bought nothing but a better sentence -- and
+  it is now asked only AFTER a write has failed, where it buys that sentence
+  for free. Ask what the check costs and what its absence would actually
+  produce; here the answer was five seconds against one word.
+- **The card is written once per change, never read back.** `doc_` is the bytes
+  that were just written, so re-reading the file to refresh the rows is a
+  second trip for something already in RAM.
 - **A list that does not fit says so.** `"1 / 2"` in the strip above the footer,
   which is the only part of the page otherwise doing nothing.
 - **What is measured must be what is drawn.** `notePageSize` built its own
