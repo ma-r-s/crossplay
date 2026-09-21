@@ -1452,6 +1452,15 @@ void WallpapersActivity::openLive() {
 void WallpapersActivity::startLivePairing() {
   live::PairStart start;
   std::string message;
+  // The radio, before the request. Without this the call goes to the
+  // transport with no network under it and the device panics on a null
+  // semaphore, which is what pressing this tile did in v1.13.10.
+  live::engine::RadioLease radio(message);
+  if (!radio.held()) {
+    liveStatus_ = message;
+    requestUpdate();
+    return;
+  }
   if (!live::pairStart(start, message)) {
     liveCode_.clear();
     liveStatus_ = message;
@@ -1477,6 +1486,15 @@ void WallpapersActivity::pollLivePairing() {
   std::string token;
   std::string fridgeId;
   std::string message;
+  // The radio, before the request. Without this the call goes to the
+  // transport with no network under it and the device panics on a null
+  // semaphore, which is what pressing this tile did in v1.13.10.
+  live::engine::RadioLease radio(message);
+  if (!radio.held()) {
+    liveStatus_ = message;
+    requestUpdate();
+    return;
+  }
   const int got = live::pairPoll(livePollToken_, token, fridgeId, message);
   livePollAt_ = millis() + 3000;
   if (got == 0) return;  // still waiting; the screen already says so
@@ -1580,6 +1598,15 @@ void WallpapersActivity::runLiveCheck() {
 void WallpapersActivity::startLiveJoin() {
   live::PairStart start;
   std::string message;
+  // The radio, before the request. Without this the call goes to the
+  // transport with no network under it and the device panics on a null
+  // semaphore, which is what pressing this tile did in v1.13.10.
+  live::engine::RadioLease radio(message);
+  if (!radio.held()) {
+    liveStatus_ = message;
+    requestUpdate();
+    return;
+  }
   if (!live::pairJoin(liveState_.deviceToken, start, message)) {
     // The refusal at four phones arrives here as the SERVICE's own sentence,
     // and it is drawn verbatim. The device does not get to reword a decision
@@ -1607,6 +1634,15 @@ void WallpapersActivity::startLiveJoin() {
 void WallpapersActivity::refreshLiveSenders() {
   live::SenderList list;
   std::string message;
+  // The radio, before the request. Without this the call goes to the
+  // transport with no network under it and the device panics on a null
+  // semaphore, which is what pressing this tile did in v1.13.10.
+  live::engine::RadioLease radio(message);
+  if (!radio.held()) {
+    liveStatus_ = message;
+    requestUpdate();
+    return;
+  }
   if (!live::listSenders(liveState_.deviceToken, list, message)) {
     // The list is left EXACTLY as it was rather than emptied. An empty list is
     // a sentence about this reader ("nobody can send to it"), and a failed
@@ -1657,6 +1693,15 @@ void WallpapersActivity::runLiveRevoke() {
   int remaining = -1;
   std::string message;
   const std::string id = liveSenders_[index].id;
+  // The radio, before the request. Without this the call goes to the
+  // transport with no network under it and the device panics on a null
+  // semaphore, which is what pressing this tile did in v1.13.10.
+  live::engine::RadioLease radio(message);
+  if (!radio.held()) {
+    liveStatus_ = message;
+    requestUpdate();
+    return;
+  }
   if (!live::revokeSender(liveState_.deviceToken, id, remaining, message)) {
     liveStatus_ = message;
     // Re-asked anyway. A failed revoke leaves the screen's idea of who can send
