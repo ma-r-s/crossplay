@@ -81,8 +81,16 @@ BRANCH="$(git branch --show-current)"
 
 command -v gh >/dev/null   || die "gh is not on PATH; this script publishes with it."
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated. Run: gh auth login"
-command -v esptool >/dev/null || python3 -c 'import esptool' 2>/dev/null \
-  || die "esptool is not available. Install it: uv pip install --system -U esptool"
+
+# PlatformIO's own esptool, reached through PlatformIO's own interpreter,
+# exactly as scripts_local/usb-flash.sh reaches it. Nothing is installed on
+# this Mac for this script: the toolchain that built the images is the
+# toolchain that packages them, and it is already here (v5.3.0, and it spells
+# the subcommand `merge-bin` the way crossplay-release.yml did).
+PIO_PY="$HOME/.platformio/penv/bin/python"
+ESPTOOL="$HOME/.platformio/packages/tool-esptoolpy/esptool.py"
+[ -x "$PIO_PY" ] && [ -f "$ESPTOOL" ] \
+  || die "no PlatformIO esptool at $ESPTOOL. Run any build once to install the toolchain."
 
 run "git fetch -q origin xteink --tags"
 
@@ -203,7 +211,7 @@ done
 TAG="v${NEXT:-0.0.0}"
 for pair in "x4pro:gh_release_x4pro:firmware.bin" "sticky:gh_release_sticky:firmware-sticky.bin"; do
   label="${pair%%:*}"; rest="${pair#*:}"; env_name="${rest%%:*}"; plain="${rest#*:}"
-  run "python3 -m esptool --chip esp32s3 merge-bin --format raw \
+  run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
       -o '$DIST/crossplay-$TAG-$label-full.bin' \
       -fm keep -fs keep -ff keep \
       0x0     .pio/build/$env_name/bootloader.bin \
