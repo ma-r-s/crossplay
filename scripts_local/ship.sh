@@ -649,7 +649,7 @@ run "git tag '$TAG'"
 run "git push -q origin '$TAG'"
 
 run "gh release create '$TAG' --repo ma-r-s/crossplay \
-    --title 'CrossPlay $NEXT' \
+    --title '$TAG' \
     --notes-file docs/release-body.md \
     '$DIST'/*"
 
