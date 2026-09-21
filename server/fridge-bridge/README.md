@@ -61,9 +61,17 @@ against every live code, so sweeping the space burns the space.
 
     server/fridge-bridge/scripts/deploy.sh
 
-## Not done yet
+## The hostname
 
-The public hostname. `fridge.ma-r-s.com` needs a Cloudflare tunnel and a DNS
-record, and the credential on the Mac has expired, so that step needs a login.
-Until then `compose.override.yaml` publishes port 8098 on the LAN for testing
-and holds cloudflared out; delete it once the hostname resolves.
+`fridge.ma-r-s.com`, created with `scripts/create-hostname.sh`. Live, and the
+chain the reader sees was checked rather than assumed:
+
+    CN=ma-r-s.com -> GTS WE1 -> GTS Root R4
+
+GTS Root R4 is in the firmware's baked bundle, the same chain Study and
+Instapaper already verify against, so the reader needs no root override and
+nothing anywhere calls setInsecure().
+
+It must stay exactly one label below the apex. Universal SSL on the free plan
+covers `ma-r-s.com` and `*.ma-r-s.com` and nothing deeper, so
+`fridge.crossplay.ma-r-s.com` would get no certificate at all.
