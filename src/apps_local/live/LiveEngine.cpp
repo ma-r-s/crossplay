@@ -12,6 +12,7 @@
 #include <WiFi.h>
 #include <sys/time.h>
 
+#include "../../DevMode.h"
 #include "WifiCredentialStore.h"
 #endif
 
@@ -49,14 +50,34 @@ void adoptServerTime(const int64_t serverEpoch) {
 
 #if defined(FREEINK_NET_WOLFSSL)
 bool broughtRadioUp = false;
+bool yieldedDevMode = false;
 
 // The headless join, from DevMode::startJoin's template including the part that
-// matters most: a radio somebody else is using is not ours to take. A link
-// match or an OPDS download outranks a background convenience, and Live is a
-// background convenience.
+// matters most: a radio somebody else is using is not ours to take.
+//
+// Live is a BACKGROUND CONVENIENCE and it loses every argument about the radio.
+// A link match, an OPDS download and Developer Mode all outrank it, and
+// Developer Mode is the one that bites: it holds the radio for as long as the
+// toggle is on, so a Live wake that brought the radio down afterwards would cut
+// off the wireless flashing somebody is in the middle of -- and a Live wake
+// that joined underneath dev mode's own retry would race it (radio-has-one-owner,
+// and the five activities that once rebooted the device to tear down a
+// connection they did not own).
 bool joinWifi(std::string& message) {
-  if (WiFi.status() == WL_CONNECTED) return true;
-  if (WiFi.getMode() != WIFI_MODE_NULL && WiFi.status() == WL_CONNECTED) return true;
+  if (WiFi.status() == WL_CONNECTED) {
+    // Already up, and not ours. Used as it stands and left exactly as found:
+    // nothing below runs, so releaseWifi() has nothing to put down.
+    LOG_INF("LIVE", "using the connection that is already up");
+    return true;
+  }
+  if (devmode::holdsRadio()) {
+    // Developer Mode owns the radio and is between attempts. Its retry is the
+    // one that should win -- somebody is waiting on it to flash a build -- and
+    // if it cannot reach the network right now then neither can this.
+    LOG_INF("LIVE", "Developer Mode holds the radio; not joining");
+    message = "Wi-Fi is busy. Live will try again later.";
+    return false;
+  }
 
   WIFI_STORE.loadFromFile();
   const std::string ssid = WIFI_STORE.getLastConnectedSsid();
@@ -69,6 +90,12 @@ bool joinWifi(std::string& message) {
     message = "The saved Wi-Fi password for this network is gone. Connect it again from Settings.";
     return false;
   }
+
+  // Stand Developer Mode down for the length of this request, the way the web
+  // server and the Wi-Fi picker do. Without it dev mode's update() can issue
+  // its own WiFi.begin() underneath this one.
+  devmode::pause();
+  yieldedDevMode = true;
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), credential->password.empty() ? nullptr : credential->password.c_str());
@@ -89,10 +116,19 @@ bool joinWifi(std::string& message) {
 // Put down only what we picked up. A radio that was already up belongs to
 // whoever brought it up.
 void releaseWifi() {
-  if (!broughtRadioUp) return;
-  if (WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-  broughtRadioUp = false;
+  if (broughtRadioUp) {
+    if (WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    broughtRadioUp = false;
+  }
+  // And hand Developer Mode back, whether or not the join worked. A pause with
+  // no matching resume leaves dev mode off for the rest of the session with
+  // nothing on any screen saying why -- the device simply stops accepting
+  // firmware and the toggle still reads ON.
+  if (yieldedDevMode) {
+    devmode::resume();
+    yieldedDevMode = false;
+  }
 }
 #else
 // The simulator has the laptop's network and no radio to own. Named rather than
@@ -135,6 +171,10 @@ bool checkNow(State& state, bool& imageArrived, std::string& message) {
   }
 
   if (!joinWifi(message)) {
+    // releaseWifi() BEFORE the early return, not only on the success paths: a
+    // join that failed after devmode::pause() still owes dev mode its resume,
+    // and a half-raised radio still owes the modem its power domain back.
+    releaseWifi();
     state.lastAttemptEpoch = nowEpoch();
     ++state.consecutiveFailures;
     save(state);
