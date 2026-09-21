@@ -642,6 +642,41 @@ constexpr const char* kLiveJoinWhat = "Give this code to somebody else. They can
 // thing short enough to survive there.
 constexpr const char* kLiveExpiry = "Code lasts ten minutes.";
 constexpr const char* kLiveFoot = "BACK RETURNS";
+// WHAT STANDS WHERE THE CODE GOES WHILE THERE IS NOT ONE.
+//
+// Emphatically not a plausible six-digit number. This screen used to fall back
+// to a hardcoded "482 160" -- the screenshot harness's stub -- and the QR
+// beside it encoded that same stub, so a reader still waiting on the service,
+// or one that could not reach it at all, put a code somebody could read down a
+// telephone and a square somebody could scan on the glass, both of them
+// fiction. The first person through this path scanned the square, was told by
+// the website that the code did not work, and typed the real one in by hand.
+//
+// Hyphens, and they are a real glyph in this cut: toybox_64 is generated from
+// jersey25-ascii.ttf. If it were ever missing the line would draw as nothing,
+// which is still not a code, which is the property that matters.
+constexpr const char* kLiveNoCode = "--- ---";
+// The caption under it, in place of "Type this code on your phone", which is
+// an instruction about something that is not there.
+constexpr const char* kLiveNoCodeWhat = "The code appears here when Live answers.";
+
+// THE "Your phone" DESTINATION'S WORDS. See buildPhone for why the screen
+// exists at all.
+//
+// Each route gets a verb and a sentence, and the sentence answers the one
+// question the verb cannot: where the picture ends up. "SEND A PICTURE" and
+// "LIVE" are both true of both routes read loosely enough, so the prose is
+// what actually tells them apart, and it is measured rather than trimmed to
+// look short -- reading_serif_14 sets about 26 characters across a 448px body,
+// so three lines is 78 and both of these are inside it.
+constexpr const char* kPhoneLede = "Two ways to put a picture on this reader.";
+constexpr const char* kPhoneSend = "SEND A PICTURE";
+constexpr const char* kPhoneSendWhat = "From a phone in this room, over Wi-Fi. Kept on the card like any wallpaper.";
+constexpr const char* kPhoneLive = "LIVE";
+constexpr const char* kPhoneLiveWhat = "From anywhere. The reader wakes now and then to see what arrived.";
+// What Live is when nobody has set it up. The Activity sends the schedule note
+// instead once there is one.
+constexpr const char* kPhoneLiveIdle = "Not set up yet.";
 // ONE WORD PER CONTROL, and each of them beside a mark.
 //
 // The three used to be "CHECK NOW", "TURN IT OFF" and "ADD SOMEBODY", stacked
@@ -1023,19 +1058,49 @@ PairedYs pairedYs(toybox::Screen& screen) {
 // the condensed cut and up to three of them. Through fitLines either way, so a
 // sentence longer than even that is marked with the "..." this face can really
 // draw rather than a U+2026 that would be a hole.
-void drawLiveReport(toybox::Screen& screen, const fui::Rect& body, const int16_t smallH, const char* text) {
+//
+// BOTH HALVES OF THE SCREEN GO THROUGH THIS NOW. The unpaired half drew its
+// status with drawFitted, which is one row and no step down, so a transport's
+// sentence reached the panel as "Could not reach the sync..." -- with the half
+// that says what to do about it gone. That is the same defect this function
+// was written for, on the other state of the same screen (fix-the-twin-too).
+// THE RUNG IT STEPS DOWN TO IS THE CALLER'S, and that is not a preference.
+// The two halves of this screen bind DIFFERENT FACES TO THE SAME SLOTS: paired,
+// FONT_SLOT_SMALL is toybox_14 and a genuine condensed rung; unpaired,
+// pairingCodeFaces puts the EIGHTY-TWO PIXEL code face in that same slot. A
+// report that stepped "down" to FONT_SLOT_SMALL on the unpaired half therefore
+// drew a transport's sentence three words high, off the bottom of the panel and
+// through the footer -- which is what the simulator showed the first time this
+// helper was shared between the two (fui-font-slot-fallback, one layer out).
+//
+// The unpaired half has no rung below its prose cut at all, so it passes the
+// prose slot here and wraps instead of shrinking.
+int16_t liveReportHeight(toybox::Screen& screen, const int16_t width, const char* text, const fui::FontId smaller) {
+  if (text == nullptr || text[0] == '\0') return 0;
+  const fui::TextStyle prose = liveCut(screen, kLiveProseSlot, fui::TextAlign::Center);
+  if (screen.target().measureText(prose.font, text, prose).width <= width) {
+    return screen.target().lineHeight(kLiveProseSlot);
+  }
+  return static_cast<int16_t>(screen.target().lineHeight(smaller) * 3);
+}
+
+void drawLiveReportIn(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::FontId smaller) {
   if (text == nullptr || text[0] == '\0') return;
   const fui::TextStyle prose = liveCut(screen, kLiveProseSlot, fui::TextAlign::Center);
   const int16_t proseH = screen.target().lineHeight(kLiveProseSlot);
-  if (screen.target().measureText(prose.font, text, prose).width <= body.width) {
-    screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - proseH), body.width, proseH), text,
-                         prose);
+  if (screen.target().measureText(prose.font, text, prose).width <= box.width) {
+    screen.target().text(fui::makeRect(box.x, box.y, box.width, proseH), text, prose);
     return;
   }
-  const fui::TextStyle small = liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Center, fui::Color::Black, 3);
-  const fui::Rect box = fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - smallH * 3), body.width,
-                                      static_cast<int16_t>(smallH * 3));
+  const fui::TextStyle small = liveCut(screen, smaller, fui::TextAlign::Center, fui::Color::Black, 3);
   screen.target().text(box, toybox::fitLines(screen.target(), text, box.width, 3, small).c_str(), small);
+}
+
+void drawLiveReport(toybox::Screen& screen, const fui::Rect& body, const char* text) {
+  if (text == nullptr || text[0] == '\0') return;
+  const int16_t height = liveReportHeight(screen, body.width, text, fui::FONT_SLOT_SMALL);
+  drawLiveReportIn(screen, fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - height), body.width, height),
+                   text, fui::FONT_SLOT_SMALL);
 }
 
 // -------------------------------------------------------------------------
@@ -1110,8 +1175,7 @@ fui::Rect buildLiveStackPaired(toybox::Screen& screen, const LiveModel& model) {
   // new", and on this panel a control that reports nothing and a touch that was
   // dropped look exactly alike -- which is the confusion the Live tile was
   // logged for before this screen existed.
-  drawLiveReport(screen, body, g.labelH,
-                 (model.status != nullptr && model.status[0] != '\0') ? model.status : kLiveFoot);
+  drawLiveReport(screen, body, (model.status != nullptr && model.status[0] != '\0') ? model.status : kLiveFoot);
   return fui::makeRect(0, 0, 0, 0);
 }
 
@@ -1119,6 +1183,14 @@ fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
   if (!liveShowsCode(model)) return buildLiveStackPaired(screen, model);
 
   const fui::Rect body = screen.body();
+  // NO CODE IS A STATE, not a case to paper over. It is what the screen is in
+  // from the moment it opens until the service answers -- which on a device is
+  // a Wi-Fi join and a TLS handshake, seconds, with somebody already holding a
+  // phone up to the glass -- and it is where a reader that cannot reach Live
+  // at all stays. Everything below keeps its place either way, so nothing
+  // moves when the digits arrive; only what is IN the code line, the caption
+  // and the square changes.
+  const bool haveCode = model.code != nullptr && model.code[0] != '\0';
   const int16_t codeH = screen.target().lineHeight(kLiveCodeSlot);
   const int16_t addrH = screen.target().lineHeight(kLiveUrlSlot);
   const int16_t lineH = screen.target().lineHeight(kLiveProseSlot);
@@ -1126,6 +1198,16 @@ fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
   // box is what wraps them, so a box left at three lines would be a blank line
   // in the middle of a centred stack rather than harmless slack.
   const int16_t proseH = static_cast<int16_t>(lineH * 2);
+  const char* report = (model.status != nullptr && model.status[0] != '\0') ? model.status : kLiveExpiry;
+  // ASKED, not assumed. This row holds the service's refusals and the
+  // transport's sentences as well as the screen's own, and the longest of them
+  // is 84 characters -- three wrapped lines, not one, and a stack laid out
+  // against one line while three are drawn puts the QR under the last of them.
+  //
+  // kLiveProseSlot as the rung to fall to, which means it does not fall: this
+  // face set binds the EIGHTY-TWO PIXEL code cut to FONT_SLOT_SMALL, so the
+  // paired half's step down is a step up here. See liveReportHeight.
+  const int16_t reportH = liveReportHeight(screen, body.width, report, kLiveProseSlot);
 
   // Centred in what is left AFTER the foot, rather than in the body: the foot
   // is drawn from body.bottom() up, so a stack centred in the whole body puts
@@ -1133,12 +1215,12 @@ fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
   // the face that will draw it; the Add screen's two typed literals were both
   // wrong and everything laid out against them inherited the error.
   const int16_t stack = static_cast<int16_t>(codeH + toybox::kGutter + toybox::kRule + toybox::kGutter + addrH +
-                                             toybox::kGutter + proseH + lineH + toybox::kMargin + kLiveQrSide);
+                                             toybox::kGutter + proseH + reportH + toybox::kMargin + kLiveQrSide);
   const int16_t room = static_cast<int16_t>(body.height - lineH - toybox::kGutter);
   int16_t y = static_cast<int16_t>(body.y + (room - stack) / 2);
   if (y < body.y) y = body.y;
 
-  drawFitted(screen, fui::makeRect(body.x, y, body.width, codeH), model.code,
+  drawFitted(screen, fui::makeRect(body.x, y, body.width, codeH), haveCode ? model.code : kLiveNoCode,
              liveCut(screen, kLiveCodeSlot, fui::TextAlign::Center));
   y = static_cast<int16_t>(y + codeH + toybox::kGutter);
   // A short rule, not a full-width one: it separates the code from the address
@@ -1149,17 +1231,23 @@ fui::Rect buildLiveStack(toybox::Screen& screen, const LiveModel& model) {
 
   drawAddress(screen, fui::makeRect(body.x, y, body.width, addrH), model.url, kLiveUrlSlot, /*bold=*/true);
   y = static_cast<int16_t>(y + addrH + toybox::kGutter);
-  drawProse(screen, fui::makeRect(body.x, y, body.width, proseH), model.joining ? kLiveJoinWhat : kLiveWhat,
-            fui::TextAlign::Center);
+  drawProse(screen, fui::makeRect(body.x, y, body.width, proseH),
+            haveCode ? (model.joining ? kLiveJoinWhat : kLiveWhat) : kLiveNoCodeWhat, fui::TextAlign::Center);
   y = static_cast<int16_t>(y + proseH);
-  drawFitted(screen, fui::makeRect(body.x, y, body.width, lineH),
-             (model.status != nullptr && model.status[0] != '\0') ? model.status : kLiveExpiry,
-             liveCut(screen, kLiveProseSlot, fui::TextAlign::Center));
-  y = static_cast<int16_t>(y + lineH + toybox::kMargin);
+  drawLiveReportIn(screen, fui::makeRect(body.x, y, body.width, reportH), report, kLiveProseSlot);
+  y = static_cast<int16_t>(y + reportH + toybox::kMargin);
 
   const fui::Rect qr =
       fui::makeRect(static_cast<int16_t>(body.x + (body.width - kLiveQrSide) / 2), y, kLiveQrSide, kLiveQrSide);
   drawFoot(screen, body, kLiveFoot);
+  // AN EMPTY FRAME, NOT AN EMPTY REGION, and a zero rect back to the caller so
+  // nothing is drawn in it. A blank quarter of a screen reads as a crash -- it
+  // has been reported as one twice by cold testers -- and a hairline square
+  // says "the picture of the code goes here" without pretending there is one.
+  if (!haveCode) {
+    screen.target().stroke(qr, fui::Paint::solid(fui::Color::Black), 1);
+    return fui::makeRect(0, 0, 0, 0);
+  }
   return qr;
 }
 
@@ -1188,6 +1276,8 @@ const char* liveStatusLine(const LiveStatus status) {
       return "That phone can no longer send.";
     case LiveStatus::Disconnected:
       return "Disconnected. Set up again.";
+    case LiveStatus::TellingLiveOff:
+      return "Telling Live it is off.";
     case LiveStatus::kCount:
       break;
   }
@@ -1195,6 +1285,10 @@ const char* liveStatusLine(const LiveStatus status) {
 }
 
 bool liveShowsCode(const LiveModel& model) { return !model.configured || model.joining; }
+
+const char* phoneLiveIdle() { return kPhoneLiveIdle; }
+const char* phoneSendLabel() { return kPhoneSend; }
+const char* phoneLiveLabel() { return kPhoneLive; }
 
 const char* liveNobodySends() { return kLiveNobody; }
 const char* liveJoinPrompt() { return kLiveJoinWhat; }
@@ -1315,6 +1409,66 @@ fui::Rect buildLive(toybox::Screen& screen, const LiveModel& model) {
   // beside a control offering to turn it on is still impossible.
   chrome(screen, "LIVE", liveShowsCode(model) ? nullptr : liveStateWord(model.on));
   return buildLiveStack(screen, model);
+}
+
+// ---------------------------------------------------------------------------
+// YOUR PHONE. The tile's destination, and the whole of what was missing.
+//
+// docs/apps/fridge.md settled this before the tile was built: "one tile
+// captioned Your phone that leads to a destination offering both intents: add
+// a wallpaper, or set up Live... The destination names both intents; the tile
+// names only where you are going." The tile shipped and the destination did
+// not -- it went straight to Live -- so the local upload server was left
+// reachable from exactly one place: USE MY OWN PHOTO on the offer screen,
+// which only exists while the built-in set is missing. On any reader that has
+// wallpapers, which is every reader after the first fetch, sending a picture
+// from a phone had no way in at all.
+//
+// TWO ROUTES, and they are genuinely different things rather than two spellings
+// of one. One is a page this reader serves over the local Wi-Fi, ending in a
+// file on the card that behaves like every other wallpaper. The other is a
+// fridge somebody feeds from another country on a schedule. A person standing
+// here has to be able to tell which they want, so each says what it does in a
+// sentence, and Live says what state it is in besides -- the answer to "is it
+// already doing something?" is the fact that decides the tap.
+//
+// NO SECOND GRID TILE. Mario chose the combined tile from three rendered
+// arrangements; this screen is where the choice it defers gets made.
+void buildPhone(toybox::Screen& screen, const PhoneModel& model) {
+  chrome(screen, "YOUR PHONE", nullptr);
+  const fui::Rect body = screen.body();
+  const int16_t lineH = screen.target().lineHeight(fui::FONT_SLOT_BODY);
+  const int16_t smallH = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
+
+  int16_t y = body.y;
+  drawProse(screen, fui::makeRect(body.x, y, body.width, static_cast<int16_t>(lineH * 2)), kPhoneLede,
+            fui::TextAlign::Left);
+  y = static_cast<int16_t>(y + lineH * 2 + toybox::kMargin);
+
+  // FILLED IS THE ORDINARY ONE. Sending a picture is what somebody with a
+  // photo on their phone came here for, and it is the route that works with no
+  // account, no service and nobody in another country.
+  drawButton(screen, fui::makeRect(body.x, y, body.width, kButtonH), kPhoneSend, ActionAddOwn);
+  y = static_cast<int16_t>(y + kButtonH + toybox::kGutter);
+  drawProse(screen, fui::makeRect(body.x, y, body.width, static_cast<int16_t>(lineH * 3)), kPhoneSendWhat,
+            fui::TextAlign::Left);
+  y = static_cast<int16_t>(y + lineH * 3 + toybox::kMargin * 2);
+
+  drawOutlineButton(screen, fui::makeRect(body.x, y, body.width, kButtonH), kPhoneLive, ActionLiveOpen);
+  y = static_cast<int16_t>(y + kButtonH + toybox::kGutter);
+  drawProse(screen, fui::makeRect(body.x, y, body.width, static_cast<int16_t>(lineH * 3)), kPhoneLiveWhat,
+            fui::TextAlign::Left);
+  // A gutter under the sentence before the state line. Without it the two run
+  // together and the state reads as a fourth line of the description rather
+  // than as an answer to a different question.
+  y = static_cast<int16_t>(y + lineH * 3 + toybox::kGutter);
+  // WHAT LIVE IS DOING, composed by the Activity from live::scheduleNote so it
+  // is the same sentence the Live screen itself carries. A second phrasing
+  // here would be a second copy of a fact the schedule owns.
+  drawFitted(screen, fui::makeRect(body.x, y, body.width, smallH), model.liveState,
+             liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Left));
+
+  drawFoot(screen, body, kLiveFoot);
 }
 
 MarkerRects markerRects(const fui::Rect& thumb) {

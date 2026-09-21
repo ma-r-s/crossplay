@@ -127,8 +127,6 @@ constexpr int16_t kLiveFrameInset = 5;
 // which is why live::listSenders logs loudly if the service ever says more.
 static_assert(wallpapersui::LiveModel::kMaxSenders == live::kMaxSenders,
               "the Live screen and the Live transport disagree about how many senders fit");
-constexpr const char* kLiveCode = "482 160";
-
 // Ordered 8x8 Bayer thresholds. A thumbnail is an AREA AVERAGE of the source
 // re-dithered at thumbnail size: a 50% threshold collapses a dense engraving
 // into a flat blob ("grey mush"), while re-dithering keeps its tone as texture,
@@ -186,8 +184,7 @@ void WallpapersActivity::onEnter() {
   live::load(liveState_);
   liveRunning_ = liveOn();
   livePollToken_.clear();
-  liveCode_.clear();
-  liveQrLink_.clear();
+  clearLiveCode();
   liveStatus_.clear();
   // The list is the SERVICE's answer and this app has not asked yet. Starting
   // empty rather than from anything remembered is what stops the screen
@@ -1412,6 +1409,28 @@ void WallpapersActivity::renderPreview() {
 // safe to reach from a tap with no WiFi picker in front of it.
 bool WallpapersActivity::liveShowingCode() const { return !liveConfigured() || liveJoining_; }
 
+// The tile's destination. It names both things a phone can do with this reader
+// and does neither of them: no radio, no server, no code. Cheap enough to be
+// the first screen, which is what lets the two routes be equals rather than one
+// of them being "the screen" and the other a button on it.
+void WallpapersActivity::openPhone() {
+  view_ = View::Phone;
+  // The Live line, settled here on the loop task. buildPhone reads it as a
+  // pointer into livePhoneState_ and render() runs on the other task, so it
+  // cannot be composed inside the paint.
+  //
+  // Through the SAME two readings refreshLiveLines uses -- liveConfigured()
+  // and liveRunning_, not the store's own fields -- because the screenshot
+  // harness makes those disagree by design and a line that took the other
+  // answer would contradict the screen one tap away.
+  live::Schedule schedule = liveState_.schedule();
+  schedule.paired = liveConfigured();
+  schedule.on = liveRunning_;
+  livePhoneState_ = schedule.paired ? live::scheduleNote(schedule) : wallpapersui::phoneLiveIdle();
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
 void WallpapersActivity::openLive() {
   view_ = View::Live;
   interactionsReady_ = false;
@@ -1435,7 +1454,7 @@ void WallpapersActivity::openLive() {
   // the app would sit on a blank panel for the length of a TLS handshake, which
   // is the one thing a silent screen is reliably mistaken for.
   if (!liveState_.paired() && livePollToken_.empty()) {
-    liveCode_.clear();
+    clearLiveCode();
     liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::AskingForCode);
     livePairQueued_ = true;
   }
@@ -1462,7 +1481,7 @@ void WallpapersActivity::startLivePairing() {
     return;
   }
   if (!live::pairStart(start, message)) {
-    liveCode_.clear();
+    clearLiveCode();
     liveStatus_ = message;
     requestUpdate();
     return;
@@ -1476,10 +1495,34 @@ void WallpapersActivity::startLivePairing() {
   // BUILT from the code rather than typed beside it. A link holding its own
   // copy points at the previous code the moment this one changes, and nothing
   // on the screen would show it (derived-facts-written-as-literals).
-  liveQrLink_ = wallpapersui::liveLink(start.code);
+  armLiveCodeDeadline(start.expiresIn);
   liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::WaitingForPhone);
   livePollAt_ = millis() + 3000;
   requestUpdate();
+}
+
+// The code and its deadline are ONE fact and they go together, always.
+//
+// There is no separate link member any more: render() derives the QR's payload
+// from this same string, so the digits on the glass and the square under them
+// cannot name different numbers however this is cleared. They used to be two
+// members with two independent fallbacks, which is how the screen came to
+// print one code and encode another.
+void WallpapersActivity::clearLiveCode() {
+  liveCode_.clear();
+  liveCodeDeadline_ = 0;
+}
+
+// THE SERVICE'S OWN expiresIn, not a ten-minute literal. It was parsed and
+// logged and read by nothing at all, so the reader showed a dead code for as
+// long as somebody left the screen up.
+void WallpapersActivity::armLiveCodeDeadline(const int expiresIn) {
+  // A second off the end, so the re-mint starts before the code the panel is
+  // showing can be refused. A service that sent no figure gets the value it
+  // documents; a pairing screen with no deadline at all is the state this
+  // exists to remove.
+  const unsigned long seconds = expiresIn > 1 ? static_cast<unsigned long>(expiresIn - 1) : 599UL;
+  liveCodeDeadline_ = millis() + seconds * 1000UL;
 }
 
 void WallpapersActivity::pollLivePairing() {
@@ -1500,7 +1543,7 @@ void WallpapersActivity::pollLivePairing() {
   if (got == 0) return;  // still waiting; the screen already says so
   if (got < 0) {
     livePollToken_.clear();
-    liveCode_.clear();
+    clearLiveCode();
     liveStatus_ = message;
     requestUpdate();
     return;
@@ -1514,7 +1557,7 @@ void WallpapersActivity::pollLivePairing() {
   // an act that added a contact.
   if (liveJoining_) {
     liveJoining_ = false;
-    liveCode_.clear();
+    clearLiveCode();
     liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Connected);
     // Straight back to the list, and the list is re-asked rather than guessed
     // at: the new phone's NAME comes from its own browser and only the service
@@ -1526,6 +1569,12 @@ void WallpapersActivity::pollLivePairing() {
   }
   liveState_.deviceToken = token;
   liveState_.fridgeId = fridgeId;
+  // The code did its job and is spent. Dropped HERE rather than left to fall
+  // off the screen on its own: it carries the deadline that re-mints an
+  // expired code, and /api/pair/start makes a NEW FRIDGE -- so a deadline left
+  // armed past a successful pairing is a reader that walks away from the
+  // fridge it just joined.
+  clearLiveCode();
   // Pairing turns Live ON. Somebody who walked through a six-digit code on a
   // telephone has said what they want; a paired reader that then showed nothing
   // until a second switch was found would be the feature failing at the exact
@@ -1567,7 +1616,7 @@ void WallpapersActivity::runLiveCheck() {
       // long one is already in the log. Every other failure keeps the message
       // it came with, including a service's verbatim refusal.
       liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Disconnected);
-      liveCode_.clear();
+      clearLiveCode();
       // The list belonged to a fridge this reader can no longer open. Kept on
       // the screen it would be four names the device cannot revoke, behind a
       // confirm that would 401 -- access shown and not removable, which is the
@@ -1613,7 +1662,7 @@ void WallpapersActivity::startLiveJoin() {
     // somebody else made, and it does not hold its own copy of the cap to
     // pre-empt it with (BridgeHttp.h, and LiveModel::kMaxSenders says the same).
     liveJoining_ = false;
-    liveCode_.clear();
+    clearLiveCode();
     liveStatus_ = message;
     interactionsReady_ = false;
     requestUpdate();
@@ -1622,7 +1671,7 @@ void WallpapersActivity::startLiveJoin() {
   livePollToken_ = start.pollToken;
   liveCode_ = start.code;
   if (liveCode_.size() == 6) liveCode_.insert(3, " ");
-  liveQrLink_ = wallpapersui::liveLink(start.code);
+  armLiveCodeDeadline(start.expiresIn);
   liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::WaitingForPhone);
   livePollAt_ = millis() + 3000;
   interactionsReady_ = false;
@@ -1744,8 +1793,58 @@ void WallpapersActivity::toggleLive() {
     clearShuffleDir();
     chosen_.clear();
     loadSelection();
+    // AND CHECK NOW. Somebody who just switched this on has said what they
+    // want, and the alternative is a blank wait of up to a whole interval
+    // before anything happens -- on a daily cadence, a day. It also tells the
+    // service Live is on again, because a check-in carries X-Live-On, so the
+    // website stops saying "off on the reader" in the same breath.
+    if (liveState_.paired()) {
+      // And the OTHER branch's job goes, always. loop() drains the check
+      // before the off-report, so a pair of them left standing would tell the
+      // service "off" last whichever way the switch ended up -- and the
+      // website would then say "Live is off on the reader" about a reader that
+      // is on, until the next check-in, which can be a week.
+      liveOffQueued_ = false;
+      liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::Checking);
+      liveCheckQueued_ = true;
+    }
+  } else if (liveState_.paired()) {
+    // AND SAY SO, once, on the way out. Without it the only evidence the
+    // website gets is silence, and silence already means a flat battery or a
+    // router that moved -- neither of which it can tell apart from this, and
+    // both of which it would have to guess at for half a day before saying
+    // anything. Queued like every other radio step here: the toggle is already
+    // written to the card, so nothing depends on the call getting out.
+    liveCheckQueued_ = false;
+    liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::TellingLiveOff);
+    liveOffQueued_ = true;
   }
   refreshLiveLines();
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+// POST /api/off, and its failure costs nothing.
+//
+// The card already says Live is off and the sleep path already reads the card,
+// so this call changes nothing on the device. All it buys is the website being
+// able to say "off on the reader" instead of counting down to a check that will
+// not happen, and the page has an honest fallback for its absence: the deadline
+// passes and it reports a reader it has not heard from, which is the truth.
+void WallpapersActivity::runLiveOffReport() {
+  std::string message;
+  live::engine::RadioLease radio(message);
+  if (!radio.held()) {
+    // Not an error on this screen. The user asked for Live to stop, and it has
+    // stopped; what did not happen is a courtesy to a website.
+    LOG_INF("WALL", "no radio to tell Live this reader is off; the website will work it out");
+    liveStatus_.clear();
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
+  live::reportOff(liveState_.deviceToken, message);
+  liveStatus_.clear();
   interactionsReady_ = false;
   requestUpdate();
 }
@@ -2202,6 +2301,39 @@ void WallpapersActivity::loop() {
     runLiveCheck();
     return;
   }
+  if (painted_ && liveOffQueued_) {
+    liveOffQueued_ = false;
+    runLiveOffReport();
+    return;
+  }
+  // THE CODE ON THE GLASS OUTLIVED THE CODE ON THE SERVICE. A pending code
+  // dies at the service's CODE_TTL_S and this screen went on showing it and
+  // polling for it forever, so a reader left here for eleven minutes offered
+  // six digits that could not be claimed under a line promising they last ten.
+  // Re-minted rather than reported, because there is nothing for a person to
+  // do about it and the screen has a perfectly good way to show a new one.
+  //
+  // GUARDED ON THE SCREEN REALLY SHOWING A CODE, through the same predicate
+  // the paint reads. Without that, a reader that pairs and then sits on its
+  // own paired screen for ten minutes reaches this branch with the deadline
+  // its setup code left behind -- and /api/pair/start MINTS A NEW FRIDGE, so
+  // it would quietly walk away from the fridge the user had just connected,
+  // every ten minutes, with nothing on the screen saying so.
+  if (painted_ && view_ == View::Live && liveShowingCode() && liveCodeDeadline_ != 0 &&
+      static_cast<long>(millis() - liveCodeDeadline_) >= 0) {
+    clearLiveCode();
+    livePollToken_.clear();
+    liveStatus_ = wallpapersui::liveStatusLine(liveJoining_ ? wallpapersui::LiveStatus::AskingToShare
+                                                            : wallpapersui::LiveStatus::AskingForCode);
+    if (liveJoining_) {
+      liveJoinQueued_ = true;
+    } else {
+      livePairQueued_ = true;
+    }
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
   // The revoke before the refresh, always: they are queued together by
   // runLiveRevoke's own caller order and the list must be re-asked AFTER the
   // phone is gone, never in front of it.
@@ -2257,13 +2389,13 @@ void WallpapersActivity::loop() {
       return;
     }
     if (view_ == View::Live && liveJoining_) {
-      // The code is abandoned rather than cancelled: the service has no call to
-      // un-mint one and it expires on its own in ten minutes. What this drops
-      // is the POLL, so a code claimed after the user walked away does not pair
-      // a phone onto a screen nobody is looking at.
+      // What this drops is the POLL, so a code claimed after the user walked
+      // away does not pair a phone onto a screen nobody is looking at. The
+      // code itself is left to expire on its own; /api/pair/abandon would end
+      // it sooner and this screen does not call it yet.
       liveJoining_ = false;
       livePollToken_.clear();
-      liveCode_.clear();
+      clearLiveCode();
       liveStatus_.clear();
       liveSendersQueued_ = true;
       interactionsReady_ = false;
@@ -2271,13 +2403,25 @@ void WallpapersActivity::loop() {
       return;
     }
     // Otherwise Live has nothing to unwind: no server, no radio, no
-    // half-finished pairing. Back is the way out of it and the grid is behind.
+    // half-finished pairing. Back goes to the screen it was opened from, which
+    // is the two-route one and not the grid -- the same one-step-at-a-time rule
+    // the hold branch follows, and the reason somebody who chose LIVE by
+    // mistake does not have to find the tile again to choose the other.
     if (view_ == View::Live) {
+      openPhone();
+      return;
+    }
+    if (view_ == View::Phone) {
       pickView();
       requestUpdate();
       return;
     }
     // View::Help is gone with buildHelp (app/wallqr): the QR screen replaced it.
+    // Add returns to the GRID rather than to the screen it was opened from,
+    // and that is the exception to the rule above rather than a miss: the
+    // thing you just did on it was put a wallpaper on the card, and the grid
+    // is where that wallpaper is. It is also reachable from the offer screen,
+    // where pickView() is the only right answer.
     if (view_ == View::Notice || view_ == View::Add) {
       stopAddServer();
       pickView();
@@ -2317,7 +2461,7 @@ void WallpapersActivity::loop() {
   // not shown yet, which is what stops a tap aimed at the screen underneath
   // from landing on the one that replaced it during a 0.3-2s e-ink repaint.
   if (view_ == View::Offer || view_ == View::Notice || view_ == View::Sheet || view_ == View::Confirm ||
-      view_ == View::Live) {
+      view_ == View::Phone || view_ == View::Live) {
     int ax = 0;
     int ay = 0;
     if (!mappedInput.wasScreenTapped(ax, ay) || !interactionsReady_) return;
@@ -2332,7 +2476,12 @@ void WallpapersActivity::loop() {
         startSetDownload();
         return;
       case wallpapersui::ActionAddOwn:
+        // Two screens carry this: the offer's USE MY OWN PHOTO, and SEND A
+        // PICTURE on the "Your phone" destination. One id, one destination.
         openAdd();
+        return;
+      case wallpapersui::ActionLiveOpen:
+        openLive();
         return;
       case wallpapersui::ActionLiveToggle:
         // Written through to the card. What the screen says, what the tile's
@@ -2353,8 +2502,7 @@ void WallpapersActivity::loop() {
         // Queued like every other radio step here, and the screen flips to its
         // code half first so the wait has something to say for itself.
         liveJoining_ = true;
-        liveCode_.clear();
-        liveQrLink_.clear();
+        clearLiveCode();
         livePollToken_.clear();
         liveStatus_ = wallpapersui::liveStatusLine(wallpapersui::LiveStatus::AskingToShare);
         liveJoinQueued_ = true;
@@ -2522,11 +2670,14 @@ void WallpapersActivity::loop() {
     case SpecialTile::Live:
       if (held) return;
       choosing_ = false;
-      // The CAPTION is what settles where the tap goes -- the cell says "Your
-      // phone", and the phone route is the Live screen, not the local upload
-      // server. The upload server keeps its own way in: the offer screen's USE
-      // MY OWN PHOTO still opens it.
-      openLive();
+      // The CAPTION is what settles where the tap goes, and the cell says
+      // "Your phone" -- which is a destination, not an action. It used to open
+      // Live directly, on the reasoning that the phone route IS Live and the
+      // local upload server keeps its own way in through the offer screen's
+      // USE MY OWN PHOTO. That second half was false: the offer screen stops
+      // appearing the moment a reader has any wallpapers, so for everybody
+      // past their first fetch the upload had no way in at all.
+      openPhone();
       return;
     case SpecialTile::GetSet:
       if (held) return;
@@ -2610,7 +2761,7 @@ void WallpapersActivity::render(RenderLock&&) {
   // SENTENCES, and at the 20px UI cut a sentence runs off the panel and is cut
   // with an ellipsis. Trivia carries the same split for the same reason.
   const bool prose = view_ == View::Offer || view_ == View::Fetching || view_ == View::Notice || view_ == View::Add ||
-                     view_ == View::Sheet || view_ == View::Confirm || view_ == View::Live;
+                     view_ == View::Sheet || view_ == View::Confirm || view_ == View::Phone || view_ == View::Live;
   // View::Add rebinds the SMALL slot to the bold reading cut so the address has
   // a cut of its own: see readingAddressFaces. Without it the headline, the
   // address, the prose and the footer all land on serif 14 and the one line the
@@ -2658,6 +2809,13 @@ void WallpapersActivity::render(RenderLock&&) {
     // addQrUrl_, NOT addUrl_ (app/wallqr): the code carries the numeric address,
     // which depends on no responder; the name is the half a human reads.
     QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addQrUrl_);
+  } else if (view_ == View::Phone) {
+    wallpapersui::PhoneModel model;
+    // A MEMBER, for the reason every string on the Live screens is one:
+    // render() runs on the other FreeRTOS task and a std::string composed here
+    // is freed before the screen tree reads it.
+    model.liveState = livePhoneState_.c_str();
+    wallpapersui::buildPhone(surface, model);
   } else if (view_ == View::Live && liveRevokeIndex_ >= 0) {
     // The confirm. Everything on it is a MEMBER, for the reason the list is:
     // render() runs on the other FreeRTOS task, and a string composed here is
@@ -2677,10 +2835,16 @@ void WallpapersActivity::render(RenderLock&&) {
     // by the time the screen tree reads it, and a line built inside a paint is
     // a line no test can walk.
     //
-    // liveCode_ falls back to the stub only when a build forced the screenshot
-    // flag; on a real device an empty code means the request has not answered
-    // yet, and the status line under it says so.
-    model.code = liveCode_.empty() ? kLiveCode : liveCode_.c_str();
+    // EMPTY MEANS EMPTY. This used to fall back to kLiveCode -- "482 160", the
+    // screenshot harness's stub -- with a comment claiming the fallback was
+    // reached only under a build flag. Nothing checked any flag: an empty
+    // liveCode_ is the ordinary state of this screen from the moment it opens
+    // until the service answers, and the whole state of one that cannot reach
+    // the service at all. So a real reader put a plausible six-digit number on
+    // the glass, and the QR below encoded it, and the first person to scan it
+    // was told by the website that the code did not work. buildLive draws its
+    // own placeholder now and returns no square.
+    model.code = liveCode_.c_str();
     model.url = wallpapersui::kLiveAddress;
     // Set once, for both halves: buildLive picks the paired or the unpaired
     // stack and each has its own line for this.
@@ -2711,12 +2875,22 @@ void WallpapersActivity::render(RenderLock&&) {
     // goes on naming last month's host the moment the page moves, and nothing
     // on either screen would show it (derived-facts-written-as-literals).
     //
-    // liveQrLink_ is built by startLivePairing() from the code the SERVICE
-    // returned, in the same breath as the code itself, so the two cannot come
-    // apart. The fallback covers the screenshot builds only.
-    if (qr.width > 0 && qr.height > 0) {
-      const std::string link = liveQrLink_.empty() ? wallpapersui::liveLink(kLiveCode) : liveQrLink_;
-      QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, link);
+    // ONE SOURCE, READ ONCE. The link is derived here from the SAME
+    // `model.code` the digits above are drawn from, rather than from a second
+    // member built beside it -- because two members are two things that can
+    // disagree, and this screen's whole defect was a code and a square naming
+    // different numbers. There is now no arrangement of state in which the
+    // panel can print one code and encode another: an empty code draws no
+    // digits, buildLive returns no square, and nothing here runs.
+    //
+    // liveLink() takes either spelling, so the grouped "482 160" a person
+    // reads aloud and the link a phone opens come from one string.
+    //
+    // No fallback either. A square encoding a code nothing minted is worse
+    // than no square, because it is the one element on this screen a person
+    // cannot read before trusting it.
+    if (qr.width > 0 && qr.height > 0 && model.code[0] != '\0') {
+      QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, wallpapersui::liveLink(model.code));
     }
   } else if (view_ == View::Sheet) {
     wallpapersui::SheetModel model;

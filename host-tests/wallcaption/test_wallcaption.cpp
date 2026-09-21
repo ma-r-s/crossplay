@@ -44,6 +44,9 @@ int failed = 0;
 // screen spends at its fullest. Printed rather than only bounded, because a
 // budget nobody sees is a budget the next screen quietly overruns.
 int slotsAtFullList = 0;
+// And the same for the "Your phone" destination, which is two controls and
+// must stay two: it is the screen every route through this app now passes.
+int phoneSlots = 0;
 std::vector<std::string> firstFailures;
 
 void check(const bool ok, const std::string& what) {
@@ -186,6 +189,16 @@ class LiveTarget final : public fui::DrawTarget {
   };
   std::vector<Mark> marks;
 
+  // THE FRAMES, and they are recorded because one of them is the only thing on
+  // a whole state of this screen. With no code there is no QR, and the square
+  // that says where the QR will be is a stroked outline and nothing else -- so
+  // a target that threw strokes away could not see the element that ran off
+  // the bottom of the panel, and did not: the first version of the no-code
+  // layout put it at y=702 on an 800px panel, the simulator's renderer logged
+  // a hundred out-of-range lines, and every assertion here stayed green
+  // because all of them were about text.
+  std::vector<fui::Rect> frames;
+
   const EpdFontFamily* familyFor(const fui::FontId font) const {
     // FONT_SLOT_SMALL is the whole difference between the two states: the huge
     // cut while there is a code on the screen, the button cut once there is not.
@@ -209,7 +222,7 @@ class LiveTarget final : public fui::DrawTarget {
     return static_cast<int16_t>(familyFor(font)->getData(EpdFontFamily::REGULAR)->advanceY);
   }
   void fill(fui::Rect, fui::Paint, uint8_t = 0, uint8_t = 0xFF) override {}
-  void stroke(fui::Rect, fui::Paint, uint8_t, uint8_t = 0, uint8_t = 0xFF) override {}
+  void stroke(const fui::Rect box, fui::Paint, uint8_t, uint8_t = 0, uint8_t = 0xFF) override { frames.push_back(box); }
   void line(fui::Point, fui::Point, uint8_t, fui::Paint) override {}
   void triangle(fui::Point, fui::Point, fui::Point, fui::Paint) override {}
   void text(const fui::Rect box, const char* text, const fui::TextStyle style) override {
@@ -1504,7 +1517,14 @@ int main() {
     // "This reader already has 4 phones. Remove one first." reached the panel as
     // "This reader already has 4 phones...." -- drawn on the single foot line,
     // with the only actionable half of it gone.
-    for (const char* refusal : kServiceRefusals) {
+    // AND THE DEVICE'S OWN, which were never measured anywhere at all. They
+    // reach the same region by the same path: checkNow hands a transport
+    // sentence straight to liveStatus_. The longest is 84 characters about a
+    // refused certificate, which is longer than anything the service sends.
+    std::vector<const char*> pairedReports;
+    for (const char* s : kServiceRefusals) pairedReports.push_back(s);
+    for (const char* s : kDeviceSentences) pairedReports.push_back(s);
+    for (const char* refusal : pairedReports) {
       wallpapersui::LiveModel model;
       model.configured = true;
       model.on = true;
@@ -1650,9 +1670,179 @@ int main() {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // THE LIVE SCREEN WITH NO CODE, which is the state it opens in every single
+  // time and stays in whenever the service cannot be reached.
+  //
+  // It used to draw "482 160" -- a constant in the Activity, with a comment
+  // claiming a build flag guarded it and nothing checking any flag -- and a QR
+  // encoding that same number. Both are things a person acts on without being
+  // able to check them, and the first person through this path scanned the
+  // square, was refused by the website, and typed the real code in by hand.
+  //
+  // Asserted as a PROPERTY rather than against the old literal: nothing that
+  // could pass for a pairing code may be drawn, whatever anyone later decides
+  // the placeholder should look like.
+  {
+    fui::DeviceContext ctx = device();
+    ctx.safeArea = fui::Insets{10, 1, 0, 1};
+    const fui::InputSnapshot noInput{};
+    // EVERY SENTENCE THAT CAN LAND IN THE REPORT, which is three families and
+    // not one: the screen's own enumerated statuses, the SERVICE's refusals
+    // (generated from app.py) and the DEVICE's own transport sentences
+    // (generated from the bridge and Live sources). The third family was never
+    // measured anywhere, and the longest member of it -- 84 characters about a
+    // refused certificate -- is drawn on exactly this screen.
+    std::vector<const char*> reports;
+    reports.push_back(nullptr);
+    for (int si = 0; si < static_cast<int>(wallpapersui::LiveStatus::kCount); ++si) {
+      reports.push_back(wallpapersui::liveStatusLine(static_cast<wallpapersui::LiveStatus>(si)));
+    }
+    for (const char* s : kServiceRefusals) reports.push_back(s);
+    for (const char* s : kDeviceSentences) reports.push_back(s);
+
+    for (int joining = 0; joining < 2; ++joining) {
+      for (const char* report : reports) {
+        wallpapersui::LiveModel model;
+        model.configured = joining == 1;
+        model.joining = joining == 1;
+        model.code = "";  // the request has not answered, or it failed
+        model.url = wallpapersui::kLiveAddress;
+        model.status = report;
+        const std::string where =
+            std::string(" [no code, joining ") + std::to_string(joining) + ", \"" + (report ? report : "-") + "\"]";
+
+        LiveTarget target(model.configured && !model.joining);
+        toybox::Interactions interactions;
+        toybox::Frame frame(target, ctx, noInput, interactions);
+        toybox::Screen screen(frame);
+        const fui::Rect qr = wallpapersui::buildLive(screen, model);
+
+        check(qr.width == 0 && qr.height == 0,
+              "a screen with no code still hands the Activity a square to draw a QR into" + where);
+        for (const LiveTarget::Run& run : target.runs) {
+          int digits = 0;
+          for (const char c : run.text) {
+            if (c >= '0' && c <= '9') ++digits;
+          }
+          check(digits < 6,
+                "a screen with no code drew something a person would read as one: \"" + run.text + "\"" + where);
+        }
+        // AND IT IS NOT BLANK EITHER. An empty region where content belongs is
+        // this fork's most repeated user-visible failure and has twice been
+        // reported as a crash by a cold tester, so the state has to say
+        // something.
+        check(!target.runs.empty(), "a screen with no code draws nothing at all" + where);
+
+        // AND NONE OF IT LEAVES THE PANEL. This state's report is the only
+        // place on the unpaired screen that draws a TRANSPORT's sentence --
+        // "Could not reach the sync service. Check Wi-Fi and try again.", 59
+        // characters, which is not one line at any cut here -- and the first
+        // version of the wrapping stepped it down to FONT_SLOT_SMALL, which on
+        // THIS face set is the 82px code cut. It drew three words a screen
+        // high, through the footer and off the bottom, and the simulator's
+        // renderer logged a hundred out-of-range lines while the assertions
+        // above stayed green.
+        const fui::Rect panel = fui::makeRect(0, 0, ctx.width, ctx.height);
+        for (const LiveTarget::Run& run : target.runs) {
+          check(run.box.y >= 0 && run.box.bottom() <= panel.height,
+                "a line on the no-code screen is drawn off the panel: \"" + run.text + "\"" + where);
+          check(run.box.x >= 0 && run.box.right() <= panel.width,
+                "a line on the no-code screen is drawn off the side: \"" + run.text + "\"" + where);
+        }
+        // THE SQUARE WHERE THE QR WILL BE is the element that went over the
+        // edge, and it is a stroke rather than text -- which is why it took a
+        // screenshot to find and why LiveTarget records frames now.
+        bool framedSquare = false;
+        for (const fui::Rect& frame : target.frames) {
+          check(frame.y >= 0 && frame.bottom() <= panel.height,
+                "a frame on the no-code screen is drawn off the panel" + where);
+          check(frame.x >= 0 && frame.right() <= panel.width,
+                "a frame on the no-code screen is drawn off the side" + where);
+          if (frame.width == frame.height && frame.width > 100) framedSquare = true;
+        }
+        check(framedSquare, "the no-code screen does not say where the code's square will be" + where);
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // YOUR PHONE: the tile's destination, and the route that had gone missing.
+  {
+    fui::DeviceContext ctx = device();
+    ctx.safeArea = fui::Insets{10, 1, 0, 1};
+    const fui::Rect panelRect = fui::makeRect(0, 0, ctx.width, ctx.height);
+    const fui::InputSnapshot noInput{};
+    // Both states of the Live line, because one of them is composed by
+    // live::scheduleNote and the other is the screen's own idle sentence.
+    live::Schedule running;
+    running.on = true;
+    running.paired = true;
+    running.intervalSeconds = 21600;
+    running.lastAttemptEpoch = live::kPlausibleEpochFloor + 1000000;
+    const std::string note = live::scheduleNote(running);
+    const char* states[] = {wallpapersui::phoneLiveIdle(), note.c_str()};
+
+    for (const char* liveState : states) {
+      wallpapersui::PhoneModel model;
+      model.liveState = liveState;
+      const std::string where = std::string(" [\"") + liveState + "\"]";
+
+      LiveTarget target(true);  // the reading chrome faces, as render() binds
+      toybox::Interactions interactions;
+      toybox::Frame frame(target, ctx, noInput, interactions);
+      toybox::Screen screen(frame);
+      wallpapersui::buildPhone(screen, model);
+
+      // 1. BOTH ROUTES ARE ON THE SCREEN. The whole defect this screen fixes
+      // is one of them having no way in at all, so its absence must fail here
+      // rather than be noticed by somebody looking for their own photo.
+      const auto drew = [&](const std::string& want) {
+        for (const LiveTarget::Run& run : target.runs) {
+          if (run.text == want) return true;
+        }
+        return false;
+      };
+      check(drew(wallpapersui::phoneSendLabel()), "the destination does not offer sending a picture" + where);
+      check(drew(wallpapersui::phoneLiveLabel()), "the destination does not offer Live" + where);
+      check(drew(liveState), "the destination does not say what Live is doing" + where);
+
+      // 2. AND BOTH ARE TAPPABLE, at a finger each and without sharing pixels.
+      fui::Rect sendHit{};
+      fui::Rect liveHit{};
+      for (size_t h = 0; h < interactions.count(); ++h) {
+        const auto& hit = interactions.data()[h];
+        if (hit.action == wallpapersui::ActionAddOwn) sendHit = hit.rect;
+        if (hit.action == wallpapersui::ActionLiveOpen) liveHit = hit.rect;
+      }
+      check(sendHit.height >= ctx.minTouchSize, "SEND A PICTURE is drawn but not tappable" + where);
+      check(liveHit.height >= ctx.minTouchSize, "LIVE is drawn but not tappable" + where);
+      check(!overlaps(sendHit, liveHit), "the two routes share pixels" + where);
+      check(sendHit.y >= 0 && sendHit.bottom() <= panelRect.height,
+            "SEND A PICTURE is registered off the panel" + where);
+      check(liveHit.y >= 0 && liveHit.bottom() <= panelRect.height, "LIVE is registered off the panel" + where);
+      check(interactions.count() <= toybox::kMaxInteractions,
+            "the destination overflows the interaction table" + where);
+      phoneSlots = static_cast<int>(interactions.count());
+
+      // 3. NOTHING RUNS OFF THE PANEL OR OFF ITS BOX. At these cuts an
+      // overflowing line neither clips nor ellipsises -- the faces above
+      // toybox_10 carry no U+2026 -- so it stops at a plausible place and the
+      // screenshot looks fine (typography-fold).
+      for (const LiveTarget::Run& run : target.runs) {
+        check(run.box.x >= 0 && run.box.right() <= panelRect.width,
+              "a line on the destination is drawn off the panel: \"" + run.text + "\"" + where);
+        check(run.box.bottom() <= panelRect.height,
+              "a line on the destination is drawn below the panel: \"" + run.text + "\"" + where);
+      }
+    }
+  }
+
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,
               wallpapersui::captionRect(g, 0).width, wallpapersui::captionRect(g, 0).width - widest);
   std::printf("wallcaption: Live spends %d of %d interaction slots with four phones listed\n", slotsAtFullList,
+              static_cast<int>(toybox::kMaxInteractions));
+  std::printf("wallcaption: Your phone spends %d of %d interaction slots\n", phoneSlots,
               static_cast<int>(toybox::kMaxInteractions));
   std::printf("wallcaption: %d checks, %d failed\n", checks, failed);
   for (const std::string& f : firstFailures) std::printf("  FAIL: %s\n", f.c_str());

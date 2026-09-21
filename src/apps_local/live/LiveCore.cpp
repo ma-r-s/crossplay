@@ -76,6 +76,10 @@ std::string shortDate(const int64_t epoch) {
   return std::string(buf);
 }
 
+uint32_t waitSeconds(const Schedule& schedule) {
+  return schedule.consecutiveFailures > 0 ? retryDelaySeconds(schedule.consecutiveFailures) : schedule.intervalSeconds;
+}
+
 Decision decide(const Schedule& schedule, const int64_t nowEpoch, const bool timerFired) {
   Decision out;
   // Off, or nothing to ask: no timer at all. Not "a long timer" -- a device
@@ -83,8 +87,7 @@ Decision decide(const Schedule& schedule, const int64_t nowEpoch, const bool tim
   // to discover there is nothing to do is still a wake.
   if (!schedule.on || !schedule.paired) return out;
 
-  const uint32_t wait =
-      schedule.consecutiveFailures > 0 ? retryDelaySeconds(schedule.consecutiveFailures) : schedule.intervalSeconds;
+  const uint32_t wait = waitSeconds(schedule);
 
   // Our own timer ended this sleep, so the refresh it was armed for is due.
   // No clock is consulted because none is needed.
@@ -178,14 +181,17 @@ std::string nextCheckPhrase(const Schedule& schedule, const int64_t nowEpoch) {
   // it anyway shows nothing instead of a claim.
   if (!schedule.paired) return std::string();
   if (!schedule.on) return "Paused";
-  // No clock, or nothing asked yet. `decide` answers a figure in both cases --
-  // it falls back to the whole interval -- and a figure measured against a 1970
-  // clock is a number the screen would be inventing.
-  if (schedule.lastAttemptEpoch <= 0 || !clockIsUsable(nowEpoch)) return "Soon";
   const Decision decision = decide(schedule, nowEpoch);
+  // DUE. `decide` says so for all three of the reasons it can be true --
+  // nothing asked yet, no clock to measure against, or the moment has gone by
+  // -- and the answer is the same for all three because the mechanism is: the
+  // fetch happens on the way into sleep and nowhere else, so a check that is
+  // due happens the next time this device is put down. Nothing is measured
+  // against a 1970 clock here; `decide` returns before it consults one.
+  if (decision.fetchNow) return "When it sleeps";
   // Three minutes, not one: the screen is repainted by events and not by a
   // clock, so whatever it says is already a little old by the time it is read.
-  if (decision.fetchNow || decision.timerSeconds < 3u * 60u) return "Any moment";
+  if (decision.timerSeconds < 3u * 60u) return "Any moment";
   return "In " + roughSpan(decision.timerSeconds);
 }
 

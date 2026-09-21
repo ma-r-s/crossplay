@@ -101,6 +101,11 @@ enum : fui::ActionId {
   ActionLiveSender = 13,
   ActionLiveKeep = 14,    // the confirm's safe half: leave that phone alone
   ActionLiveRevoke = 15,  // the confirm's destructive half
+  // The "Your phone" destination's second route. Its FIRST route is
+  // ActionAddOwn above, reused rather than duplicated: the offer screen's USE
+  // MY OWN PHOTO opens the same local upload server, and two ids for one
+  // destination is two things to keep in step.
+  ActionLiveOpen = 16,
 };
 
 // ---------------------------------------------------------------------------
@@ -622,12 +627,45 @@ enum class LiveStatus : uint8_t {
   // a touch that was dropped look exactly alike.
   Removed,
   Disconnected,
+  // STOP, while the reader gets word to the service. It takes a radio join and
+  // a request, which is seconds, and on this panel a control that reports
+  // nothing and a touch that was dropped look exactly alike. Its own sentence
+  // rather than Checking's, because it is not a check: nothing is being asked
+  // for and nothing will arrive.
+  TellingLiveOff,
   kCount,
 };
 const char* liveStatusLine(LiveStatus status);
 
 // Returns the square the Activity must draw the QR into, empty when this state
-// has none. Same contract as buildAdd, for the same reason.
+// has none -- which now includes the state where no code has been minted yet,
+// so a reader waiting on the service, or one that cannot reach it, cannot put
+// a scannable square on the glass that stands for nothing.
 fui::Rect buildLive(toybox::Screen& screen, const LiveModel& model);
+
+// ---------------------------------------------------------------------------
+// YOUR PHONE: the grid tile's destination, and the screen that names both of
+// the things a phone can do with this reader.
+//
+// The tile says where you are going; this says what you can do there. It is
+// the arrangement docs/apps/fridge.md settled on before the tile was built,
+// and the half that never got built: with the tile going straight to Live, the
+// local upload server was reachable only from the offer screen, which stops
+// appearing the moment a reader has any wallpapers at all.
+struct PhoneModel {
+  // One short line under LIVE saying what it is doing. Composed by the
+  // Activity from live::scheduleNote, or phoneLiveIdle() when there is no
+  // pairing yet. A pointer into a member, like every other string on these
+  // screens: render() runs on the other FreeRTOS task.
+  const char* liveState = "";
+};
+void buildPhone(toybox::Screen& screen, const PhoneModel& model);
+
+// The screen's own strings, for the test that walks it. Functions rather than
+// extern constants for the reason liveRemoveMark() is one: a header-declared
+// object is a different object per translation unit.
+const char* phoneLiveIdle();
+const char* phoneSendLabel();
+const char* phoneLiveLabel();
 
 }  // namespace wallpapersui

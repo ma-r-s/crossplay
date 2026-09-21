@@ -26,7 +26,14 @@ namespace live {
 // costing a wake to discover.
 constexpr uint32_t kMinIntervalSeconds = 15 * 60;        // the service's own floor
 constexpr uint32_t kMaxIntervalSeconds = 7 * 24 * 3600;  // and its own ceiling
-constexpr uint32_t kDefaultIntervalSeconds = 6 * 3600;   // until a server says otherwise
+// THE SERVICE'S OWN DEFAULT, matched deliberately (store.DEFAULT_INTERVAL_S).
+//
+// It was six hours against the service's day. Nothing on either side could
+// have noticed: this is the interval a reader runs on until the service has
+// ever spoken to it, so the two numbers describe one fact and never meet.
+// host-tests/live generates the service's three limits out of store.py and
+// fails if either side moves.
+constexpr uint32_t kDefaultIntervalSeconds = 24 * 3600;
 
 // Clamped, and an unparseable or absent header keeps what we already had --
 // never the default, because a single bad reply would otherwise reset a
@@ -159,6 +166,15 @@ struct Decision {
   uint32_t timerSeconds = 0;
 };
 
+// HOW LONG THE READER WILL WAIT, which is the interval normally and the
+// backoff delay while anything is failing.
+//
+// Public so a test can walk it beside `decide`, which is its only caller: the
+// two together are what says the alarm the RTC gets is the cadence the service
+// last asked for, which is what lets the service stamp the website's countdown
+// from its own reply without asking the device.
+uint32_t waitSeconds(const Schedule& schedule);
+
 // `timerFired` is true only on the wake our own RTC timer ended. It is not a
 // special case bolted onto the rule, it IS the rule's other half: the timer was
 // armed for the moment the next refresh comes due, so a wake it caused is due
@@ -190,18 +206,30 @@ Decision decide(const Schedule& schedule, int64_t nowEpoch, bool timerFired = fa
 // across a 448px body (measured, not assumed -- "In about 45 minutes" is 464px
 // there and would have silently dropped the headline a rung):
 //
-//   ""            not paired; the caller draws the code screen instead
-//   "Paused"      the toggle is off, so there is no next check to name
-//   "Soon"        no clock to measure with, or nothing asked yet
-//   "Any moment"  inside the last three minutes, or already due
+//   ""                not paired; the caller draws the code screen instead
+//   "Paused"          the toggle is off, so there is no next check to name
+//   "When it sleeps"  the check is due: nothing has been asked yet, there is
+//                     no clock to measure with, or the moment has passed
+//   "Any moment"      inside the last three minutes of an armed timer
 //   "In 45 minutes" / "In an hour" / "In 5 hours" / "In a day" / "In 2 days"
+//
+// "SOON" IS GONE and its absence is the point. It was the answer for a reader
+// that had never checked in -- which is every reader for the first seconds
+// after pairing, the moment somebody is watching hardest -- and it says
+// nothing: not a figure, not a mechanism, not a gesture. The honest answer in
+// that state is the mechanism, and it is the same one `decide` acts on: a
+// reader only fetches on its way into sleep, so a check that is due happens
+// the next time the device is put down. That is a thing the person holding it
+// can do, which "Soon" was not.
 //
 // Minutes are rounded to five and never shown below five, which is the whole of
 // this device's honesty about the figure: the sleep timer runs off an RC
 // oscillator that drifts percent-level, a refresh taken on the way into sleep
 // shifts the schedule, and a wake missed for want of Wi-Fi is invisible until
 // the one after. A figure to the minute would be a number this device cannot
-// keep; a figure that is visibly rounded says so without spending a word.
+// keep; a figure that is visibly rounded says so without spending a word. The
+// website spells the same figures out with "in about" in front, because it has
+// the room and the panel does not.
 std::string nextCheckPhrase(const Schedule& schedule, int64_t nowEpoch);
 
 // The small line UNDER the headline, and it answers whatever the headline

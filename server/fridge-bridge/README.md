@@ -23,31 +23,57 @@ That is why `/api/pull` answers "is there anything new" and "when should I wake
 next" in the same reply, and answers `304` when the answer is no: a wake that
 finds nothing costs a few kilobytes, no SD write and no repaint.
 
-It is also why the countdown the website shows is computed HERE, from
-`last_checkin + interval`, and is an **estimate**. The reader's sleep timer runs
-off an RC oscillator and drifts percent-level; a refresh taken on the way into
-sleep shifts the schedule until the next check-in; a wake missed for want of
-Wi-Fi is invisible until the one after. The page says "in about five hours"
-and never a figure to the second.
+It is also why the countdown the website shows is **stamped once, at the
+check-in**, from the interval in that reply, and never recomputed. It used to be
+computed from `last_checkin + interval` live on every `/api/state`, and that is
+wrong in two ways at once: changing the schedule from the website moved the
+countdown while the reader was still asleep on its old alarm, and a reader that
+had never checked in produced `0 + interval`, a moment in 1970, which is why the
+page could only say "the reader has not checked in yet" and show no time at all
+in the minute after pairing. Before the first check-in the anchor is the pairing
+instant (`created + interval_s`), so there is always a figure.
+
+**The reader does not report its own alarm, and cannot.** A version of this had
+it send one in `X-Wake-In`. The headers are composed before the reply is read,
+and a pull the reader gets an answer to clears its failures and makes it adopt
+that reply's interval -- so the figure sent is always the alarm for the state it
+was in *before* the request. One failed check was enough: the retry that
+succeeded reported fifteen minutes, armed a day, and the website spent the next
+day saying the check was due. The service already holds the answer, because it
+is the one handing out the interval.
+
+It is still an **estimate** and both surfaces say so in words. The reader's
+sleep timer runs off an RC oscillator and drifts percent-level; it only fetches
+on its way into sleep, so a device in somebody's hands is legitimately hours
+past due; a wake missed for want of Wi-Fi is invisible until the one after. The
+page says "in about five hours" and never a figure to the second.
+
+**Five states, and the page expresses all five**: just synced and never heard
+from (counting from the pairing instant), waiting, due now (it arrives the next
+time the reader is put down), late (past due by twelve hours or a whole
+interval, whichever is longer -- and the page states the fact without
+diagnosing, because a flat battery, a router that moved and Live switched off
+without a word out are identical from here), and off on the reader.
 
 ## Endpoints
 
 The reader, bearer token:
 
-| | |
-|---|---|
-| `POST /api/pair/start` | makes a fridge and a device token, returns a six-digit code |
-| `GET /api/pair/poll` | hands the reader its token once a browser has claimed the code |
-| `GET /api/pull` | `304` unchanged, `204` nothing ever sent, `200` + the BMP. `X-Next-Wake` and `X-Server-Time` on all three |
+|                        |                                                                                                           |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `POST /api/pair/start` | makes a fridge and a device token, returns a six-digit code                                               |
+| `GET /api/pair/poll`   | hands the reader its token once a browser has claimed the code                                            |
+| `GET /api/pull`        | `304` unchanged, `204` nothing ever sent, `200` + the BMP. `X-Next-Wake` and `X-Server-Time` back on all three; the reader sends `X-Live-On` |
+| `POST /api/off`        | Live was switched off on the reader. Fire and forget: its failure costs nothing, the fridge just goes quiet |
 
 The browser, cookie:
 
-| | |
-|---|---|
-| `POST /api/claim` | six digits in, a sender cookie out |
-| `GET /api/state` | last check-in, interval, next expected |
-| `PUT /api/image` | exactly 48062 or 96070 bytes |
-| `PUT /api/interval` | 15 minutes to a week |
+|                     |                                        |
+| ------------------- | -------------------------------------- |
+| `POST /api/claim`   | six digits in, a sender cookie out     |
+| `GET /api/state`    | last check-in, interval, next expected, `liveOn` |
+| `PUT /api/image`    | exactly 48062 or 96070 bytes           |
+| `PUT /api/interval` | 15 minutes to a week                   |
 
 ## Two hosts, one domain
 

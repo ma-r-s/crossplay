@@ -23,13 +23,18 @@ learned the last time the reader spoke.
 
 ONE ROUND TRIP PER WAKE. /api/pull answers "is there anything new" and "when
 should I wake next" together, and answers 304 when the answer is no. A wake
-that finds nothing spends a few kilobytes and no SD write and no repaint.
+that finds nothing spends a few kilobytes and no SD write and no repaint. The
+one fact only the reader has -- whether Live is still on -- rides that same
+request as a header rather than a second call, so the count stays at one. The
+only extra call a reader ever makes is POST /api/off, and that one happens
+when somebody switches Live off, never on a wake.
 
 Host must be exactly one label below the apex: Cloudflare's Universal SSL on
 the free plan covers ma-r-s.com and *.ma-r-s.com and nothing deeper, and the
 reader's baked root bundle carries the chain that edge serves.
 """
 
+import pathlib
 import time
 
 from fastapi import Cookie, FastAPI, Header, Request, Response
@@ -69,12 +74,16 @@ CLAIM_IP = Window(10, 300)
 CLAIM_GLOBAL = Window(120, 60)
 PAIR_IP = Window(10, 300)
 PULL_DEVICE = Window(30, 300)
+# The only other thing a reader posts, and it writes state.json every time.
+OFF_DEVICE = Window(10, 300)
 POST_SENDER = Window(60, 300)
 
 
 def client_ip(request: Request) -> str:
     # Behind Cloudflare and cloudflared, so the first hop is always local.
-    fwd = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "")
+    fwd = request.headers.get("cf-connecting-ip") or request.headers.get(
+        "x-forwarded-for", ""
+    )
     return fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
 
 
@@ -84,9 +93,24 @@ def refused(reason: str, code: int = 429) -> JSONResponse:
     return JSONResponse({"error": reason}, status_code=code)
 
 
+# WHAT IS RUNNING, not merely that something is.
+#
+# "ok" answers the question docker asks and not the one a person asks after a
+# deploy. `docker compose up -d --build` prints "Container Running" when it
+# decided nothing needed recreating, which is indistinguishable from a rebuild,
+# so the only way to tell a deployed fix from an undeployed one was to grep a
+# source file inside the container. scripts/deploy.sh has always stamped the
+# git short sha into BUILD; it just was not copied anywhere until now.
+def _build() -> str:
+    try:
+        return pathlib.Path("/app/BUILD").read_text().strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
 @app.get("/healthz")
 def healthz() -> PlainTextResponse:
-    return PlainTextResponse("ok")
+    return PlainTextResponse("ok " + _build())
 
 
 # ---------------------------------------------------------------- the reader
@@ -95,7 +119,9 @@ def healthz() -> PlainTextResponse:
 @app.post("/api/pair/start")
 def pair_start(request: Request) -> JSONResponse:
     if not PAIR_IP.allow(client_ip(request)):
-        return refused("Too many attempts from this address. Try again in a few minutes.")
+        return refused(
+            "Too many attempts from this address. Try again in a few minutes."
+        )
     # The fridge and its device token are made HERE, not when somebody claims
     # the code. The browser is handed its cookie the moment it claims, and a
     # fridge that did not exist yet would make the page say it is not
@@ -112,7 +138,9 @@ def pair_start(request: Request) -> JSONResponse:
 
 
 @app.post("/api/pair/join")
-def pair_join(request: Request, authorization: str = Header(default="")) -> JSONResponse:
+def pair_join(
+    request: Request, authorization: str = Header(default="")
+) -> JSONResponse:
     """A code that adds a phone to THIS fridge.
 
     Separate from /api/pair/start because that one makes a NEW fridge. Wiring
@@ -124,10 +152,15 @@ def pair_join(request: Request, authorization: str = Header(default="")) -> JSON
     if fridge is None or not fridge.exists():
         return refused("This reader is not connected to anything.", 401)
     if not PAIR_IP.allow(client_ip(request)):
-        return refused("Too many attempts from this address. Try again in a few minutes.")
+        return refused(
+            "Too many attempts from this address. Try again in a few minutes."
+        )
     if len(fridge.load().get("senders", [])) >= store.MAX_SENDERS:
         # Said before a code is minted rather than after somebody types it.
-        return refused(f"This reader already has {store.MAX_SENDERS} phones. Remove one first.", 409)
+        return refused(
+            f"This reader already has {store.MAX_SENDERS} phones. Remove one first.",
+            409,
+        )
     return JSONResponse(PAIRINGS.start(fridge.id, token, joining=True))
 
 
@@ -140,14 +173,20 @@ def senders(authorization: str = Header(default="")) -> JSONResponse:
     if fridge is None or not fridge.exists():
         return refused("This reader is not connected to anything.", 401)
     out = [
-        {"name": s.get("name", "A phone"), "pairedAt": s.get("paired_at", 0), "id": s.get("token_hash", "")[:16]}
+        {
+            "name": s.get("name", "A phone"),
+            "pairedAt": s.get("paired_at", 0),
+            "id": s.get("token_hash", "")[:16],
+        }
         for s in fridge.load().get("senders", [])
     ]
     return JSONResponse({"senders": out, "max": store.MAX_SENDERS})
 
 
 @app.post("/api/senders/revoke")
-async def revoke(request: Request, authorization: str = Header(default="")) -> JSONResponse:
+async def revoke(
+    request: Request, authorization: str = Header(default="")
+) -> JSONResponse:
     """The reader taking a phone's access away.
 
     Only the reader can do this, and that is the point: when the person who
@@ -163,8 +202,34 @@ async def revoke(request: Request, authorization: str = Header(default="")) -> J
     for s in fridge.load().get("senders", []):
         h = s.get("token_hash", "")
         if h[:16] == want and store.revoke_sender(fridge, h):
-            return JSONResponse({"ok": True, "remaining": len(fridge.load().get("senders", []))})
+            return JSONResponse(
+                {"ok": True, "remaining": len(fridge.load().get("senders", []))}
+            )
     return refused("That phone is not on this reader.", 404)
+
+
+@app.post("/api/off")
+def live_off(request: Request, authorization: str = Header(default="")) -> JSONResponse:
+    """The reader saying Live was switched off on it, on its way out.
+
+    Without this the only evidence is silence, and silence already means three
+    other things: a flat battery, a router that moved, a reader somebody took
+    to another house. None of them is knowable from here, so the page would
+    have to guess -- and the one case somebody DID cause on purpose is the one
+    it would get wrong.
+
+    The reader sends this and does not wait for the answer. A call that fails
+    costs nothing: the fridge simply goes quiet and the deadline passes, which
+    is the flat-battery case and is handled.
+    """
+    token = authorization.removeprefix("Bearer ").strip()
+    fridge = store.fridge_for_device(token) if token else None
+    if fridge is None or not fridge.exists():
+        return refused("This reader is not connected to anything.", 401)
+    if not OFF_DEVICE.allow(fridge.id):
+        return refused("Too many checks. Slow down.", 429)
+    fridge.set_live(False)
+    return JSONResponse({"ok": True})
 
 
 @app.get("/api/pair/poll")
@@ -172,7 +237,13 @@ def pair_poll(pollToken: str = "") -> JSONResponse:
     got = PAIRINGS.poll(pollToken)
     if got is None:
         return JSONResponse({"paired": False})
-    return JSONResponse({"paired": True, "deviceToken": got["device_token"], "fridgeId": got["fridge_id"]})
+    return JSONResponse(
+        {
+            "paired": True,
+            "deviceToken": got["device_token"],
+            "fridgeId": got["fridge_id"],
+        }
+    )
 
 
 @app.post("/api/pair/abandon")
@@ -186,11 +257,18 @@ def pull(
     request: Request,
     authorization: str = Header(default=""),
     if_none_match: str = Header(default="", alias="If-None-Match"),
+    x_live_on: str = Header(default="", alias="X-Live-On"),
 ) -> Response:
     """The only request a sleeping reader ever makes.
 
     304 means nothing changed: read the next-wake header and go back to sleep
     without touching the card or the panel. 200 carries the image.
+
+    THE READER SAYS WHETHER LIVE IS STILL ON, in X-Live-On. That is a fact
+    only the device has, and everything this service knows about a reader it
+    learned the last time the reader spoke. When the NEXT check is does not
+    need asking: it is the interval in this reply, stamped at the check-in and
+    never recomputed. See store.next_expected.
     """
     token = authorization.removeprefix("Bearer ").strip()
     fridge = store.fridge_for_device(token) if token else None
@@ -199,9 +277,29 @@ def pull(
     if not PULL_DEVICE.allow(fridge.id):
         return refused("Too many checks. Slow down.", 429)
 
-    fridge.touch_checkin()
     state = fridge.load()
     interval = int(state.get("interval_s", store.DEFAULT_INTERVAL_S))
+    # A reader that is pulling is running Live; only an explicit 0 says
+    # otherwise, so an old or absent header cannot switch a working fridge off.
+    live_on = x_live_on.strip() != "0"
+    # THE ALARM IS THE INTERVAL IN THIS REPLY, stamped once, here.
+    #
+    # It is tempting to have the reader report its own alarm -- it is the thing
+    # holding the timer -- and a first version of this did exactly that, with a
+    # header. The figure is composed before the reader has read the reply, and
+    # a pull the reader got an answer to CLEARS ITS FAILURES and makes it adopt
+    # the interval below, so the reported figure is never the alarm it goes on
+    # to arm. One failed check was enough: the retry that succeeded reported
+    # fifteen minutes, armed a day, and the website spent the next day saying
+    # the check was due while the panel said "In a day".
+    #
+    # The one case a reader's own number could not be derived here -- a reader
+    # in backoff -- is precisely the case whose pulls never arrive.
+    #
+    # What matters is that it is stamped ONCE, at the check-in, and never
+    # recomputed: that is what stops a schedule change from moving a countdown
+    # while the reader is still asleep on its old alarm. See next_expected.
+    fridge.touch_checkin(interval, live_on)
     image_id = state.get("image_id")
 
     headers = {
@@ -245,7 +343,8 @@ async def claim(request: Request) -> JSONResponse:
         # would take a fridge away from whoever had it first and tell nobody,
         # and the person losing it is the one least able to notice.
         return refused(
-            f"That reader already has {store.MAX_SENDERS} phones. Remove one on the reader first.", 409
+            f"That reader already has {store.MAX_SENDERS} phones. Remove one on the reader first.",
+            409,
         )
     resp = JSONResponse({"ok": True, "fridgeId": got["fridge_id"]})
     # Secure follows the scheme the request actually arrived on rather than
@@ -302,7 +401,13 @@ def state(live_sender: str = Cookie(default=None)) -> JSONResponse:
             "connected": True,
             "lastCheckin": s.get("last_checkin", 0),
             "intervalSeconds": s.get("interval_s", store.DEFAULT_INTERVAL_S),
+            # 0 while Live is off on the reader: there is no next check, and a
+            # figure there would be one the page then has to explain away.
             "nextExpected": fridge.next_expected(),
+            # The reader's own report, not this service's opinion: what
+            # separates "switched off on purpose" from "we have not heard from
+            # it", which look identical from here and mean opposite things.
+            "liveOn": bool(s.get("live_on", True)),
             "imageId": s.get("image_id"),
             "imageSetAt": s.get("image_set_at", 0),
             "senders": len(s.get("senders", [])),
@@ -311,7 +416,9 @@ def state(live_sender: str = Cookie(default=None)) -> JSONResponse:
 
 
 @app.put("/api/image")
-async def put_image(request: Request, live_sender: str = Cookie(default=None)) -> JSONResponse:
+async def put_image(
+    request: Request, live_sender: str = Cookie(default=None)
+) -> JSONResponse:
     fridge = _sender_fridge(live_sender)
     if fridge is None or not fridge.exists():
         return refused("This browser is not connected to a reader.", 401)
@@ -322,13 +429,20 @@ async def put_image(request: Request, live_sender: str = Cookie(default=None)) -
         # Bounded before anything is written. A wrong-sized file that still
         # parses is drawn half-rendered on the reader forever.
         expected = " or ".join(str(n) for n in store.IMAGE_SIZES)
-        return refused(f"That is not a reader picture ({len(payload)} bytes, expected {expected}).", 400)
+        return refused(
+            f"That is not a reader picture ({len(payload)} bytes, expected {expected}).",
+            400,
+        )
     image_id = fridge.set_image(payload)
-    return JSONResponse({"ok": True, "imageId": image_id, "nextExpected": fridge.next_expected()})
+    return JSONResponse(
+        {"ok": True, "imageId": image_id, "nextExpected": fridge.next_expected()}
+    )
 
 
 @app.put("/api/interval")
-async def put_interval(request: Request, live_sender: str = Cookie(default=None)) -> JSONResponse:
+async def put_interval(
+    request: Request, live_sender: str = Cookie(default=None)
+) -> JSONResponse:
     fridge = _sender_fridge(live_sender)
     if fridge is None or not fridge.exists():
         return refused("This browser is not connected to a reader.", 401)

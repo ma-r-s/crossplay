@@ -91,6 +91,16 @@ up nothing in the grid says it exists. The destination names both intents; the
 tile names only where you are going. Once the device-hosted upload server is
 retired both actions genuinely are "use your phone".
 
+**That destination was not built, and its absence removed a whole feature.**
+The tile went straight to the Live screen on the reasoning that the local
+upload server kept its own way in through the offer screen's USE MY OWN PHOTO.
+That second half is false: the offer screen only exists while the built-in set
+is missing, so on every reader past its first fetch there was no route to the
+upload server at all. Mario found it by looking for it: "We lost the option to
+upload a regular wallpaper!" It is `wallpapersui::buildPhone` now, two routes
+with a sentence each, and `host-tests/wallcaption` fails if either goes
+missing. Two of the 24 interaction slots.
+
 ### Multi-select is untouched
 
 The header chip (now an icon, still outline, because a filled chip would read
@@ -359,9 +369,17 @@ several days it says so outright.
   is `live::nextCheckPhrase` now, computed from `live::decide` -- the same
   arithmetic that arms the timer on the way into sleep, backoff included -- so
   the headline cannot promise a check the schedule is not making. `Paused` while
-  the toggle is off, `Soon` with no clock, `Any moment` inside three minutes,
-  otherwise `In 45 minutes` / `In an hour` / `In 5 hours` / `In 2 days`, minutes
-  rounded to five.
+  the toggle is off, `When it sleeps` while a check is due, `Any moment` inside
+  three minutes, otherwise `In 45 minutes` / `In an hour` / `In 5 hours` /
+  `In 2 days`, minutes rounded to five.
+  - **`Soon` is gone, and its absence is the point.** It was the answer for a
+    reader that had never checked in, which is every reader for the seconds
+    after it pairs and the whole of one that cannot reach the service, and it
+    names no moment, no mechanism and no gesture. All three ways a check can be
+    due -- nothing asked yet, no clock, the moment gone by -- have one honest
+    answer, because they have one mechanism: the fetch happens on the way into
+    sleep and nowhere else. `host-tests/live` asserts the word cannot come
+    back.
   - The line under it is `live::scheduleNote`, and it takes the whole schedule
     because two of its three answers are not the interval: `Last check failed.`
     / `3 checks failed.` in backoff, and `Every 6 hours when on` while the
@@ -405,6 +423,95 @@ several days it says so outright.
   now `kChromeHeight + (kBodyGutter + kHintGap) / 2`, the same slack split
   evenly, derived rather than restated so it cannot drift from `gridTop`. The
   grid does not move. Measured after: 32px above, 28px below, from 42/18.5.
+
+## What the first real user hit (card #552)
+
+Three things, and none of them was visible from inside the code.
+
+- **The QR encoded a code nobody had minted.** The Live screen fell back to
+  `kLiveCode = "482 160"` whenever `liveCode_` was empty, behind a comment
+  claiming a build flag guarded it; nothing checked any flag. Empty is the
+  ordinary state of that screen from the moment it opens until the service
+  answers, and the whole state of a reader that cannot reach the service. So
+  the panel showed six plausible digits and the square beside it encoded them.
+  Mario scanned it, the website told him the code did not work, and he typed
+  the real one in by hand. There is no placeholder code now, no square, and no
+  fallback: the screen says what it is waiting for.
+  - Two more from the same journey. A browser **already connected** to another
+    reader swallowed a scanned code's refusal whole and carried on showing the
+    reader it had, so the next drawing went to the wrong fridge with nothing
+    anywhere saying so. And the code's ten-minute expiry was parsed, logged and
+    read by nothing, so a screen left up for eleven minutes showed six digits
+    that could not be claimed under a line promising they last ten. The reader
+    re-mints at the service's own `expiresIn` now.
+- **The next check was missing on both surfaces.** See below.
+- **The upload route had no way in.** See the destination, above.
+
+## When the next check is, and who owns the number
+
+**The service stamps it once, at the check-in**, from the interval in that
+reply, and never recomputes it. The reader sends one header on the pull,
+`X-Live-On`, which is the only schedule fact the service cannot derive: it can
+work out *when* the next check is, because it is the one handing out the
+interval, but not whether somebody has switched Live off since the last one.
+
+**The reader cannot report its own alarm**, which a version of this tried. The
+headers are composed before the reply is read, and a pull that gets an answer
+clears the reader's failures and makes it adopt that reply's interval, so any
+figure it sends is the alarm for the state it was in *before* the request. One
+failed check was enough to make the website count down to a moment eighteen
+hours early. The one state whose alarm the service could not derive -- a reader
+in backoff -- is exactly the state whose pulls never arrive.
+
+The service used to derive the countdown from `last_checkin + interval_s`, live
+on every `/api/state`, and that was wrong twice over: changing the schedule from
+the website moved the countdown while the reader was still asleep on its old
+alarm, and a reader that had never checked in produced `0 + interval`, a moment
+in 1970 -- which is why the page could only say "the reader has not checked in
+yet" for the whole minute after pairing. Mario: _"shouldn't refresh time should
+start since sync? Makes little sense if it's never shown at the start"_.
+
+Before the first check-in the anchor is the pairing instant (`created +
+interval_s`), so there is always a figure.
+
+**The two seed intervals are now equal on purpose.** The reader seeded six hours
+and the service a day, and the reader's report is composed BEFORE it reads the
+reply -- so the first report of every new pairing named a moment eighteen hours
+early. `host-tests/live` generates the service's three limits out of `store.py`
+and fails if either side moves.
+
+**Five states, expressed on both surfaces:**
+
+|                               | the website                                    | the panel                                              |
+| ----------------------------- | ---------------------------------------------- | ------------------------------------------------------ |
+| just synced, never heard from | `First check in about a day.`                  | `When it sleeps`                                       |
+| waiting                       | `Next check in about 5 hours.`                 | `In 5 hours`                                           |
+| due now                       | `the next time the reader is put down`         | `When it sleeps`                                       |
+| late                          | `The reader last checked in about 4 days ago.` | the backoff: `In 15 minutes` over `Last check failed.` |
+| off on the reader             | `Live is off on the reader.`                   | `Paused` over `Every 6 hours when on`                  |
+
+**Late is twelve hours or one whole interval, whichever is longer**, and it is
+deliberately generous in both terms: the reader only fetches on its way into
+sleep, so one somebody picked up in the morning and put down at night is half a
+day past due with nothing wrong with it, and on a weekly cadence being a day
+late is nothing. The RC oscillator's ~1% drift is the small term, not the large
+one. The page states the fact and stops: a flat battery, a router that moved and
+Live switched off without a word out are identical from the service, so naming
+one would be a diagnosis it cannot make. That is what `POST /api/off` exists
+for -- the reader says so on its way out, fire and forget.
+
+**The rounding bands are shared.** `live::roughSpan` on the panel and `roughSpan`
+in `site/live/live.js` are the same edges and the same rounding, ported rather
+than invented; the page puts "in about" in front because it has the room and the
+panel does not ("In about 45 minutes" is 464px at the display cut against a
+448px body).
+
+**One honest disagreement remains.** Before the first check-in the service
+counts from the pairing instant while the reader's own rule treats "never
+asked" as due right now, so the reader will normally beat the page's first
+countdown by checking in at its very next sleep -- which, straight after
+pairing, is seconds. The page's first figure is therefore an upper bound, and
+the two agree from the first check-in onwards.
 
 ## Still to build
 

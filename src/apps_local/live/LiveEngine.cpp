@@ -203,7 +203,7 @@ bool checkNow(State& state, bool& imageArrived, std::string& message) {
   }
 
   PullResult result;
-  const bool ok = pull(state.deviceToken, state.etag, kSleepImagePart, result);
+  const bool ok = pull(state.deviceToken, state.etag, state.on, kSleepImagePart, result);
 
   // The schedule headers are believed on every status that carried them,
   // including the failures that still answered. A 401 knows the cadence just as

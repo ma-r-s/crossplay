@@ -83,7 +83,12 @@ class WallpapersActivity final : public Activity {
   // Live is the "Your phone" tile's destination: the pairing code before a
   // phone is attached, the schedule and the senders afterwards. It reaches the
   // panel through wallpapersui::buildLive like every other screen here.
-  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Add, Sheet, Confirm, Preview, Live };
+  // Phone is the "Your phone" tile's destination: the two-route screen that
+  // names what a phone can do with this reader. Live sits behind it now rather
+  // than being it, and Add is reachable from it -- which is the whole of the
+  // fix for a route that had gone missing from every reader with wallpapers on
+  // it (see wallpapersui::buildPhone).
+  enum class View : uint8_t { Grid, Offer, Fetching, Notice, Add, Sheet, Confirm, Preview, Phone, Live };
   View view_ = View::Grid;
 
   void scanLibrary();
@@ -150,7 +155,8 @@ class WallpapersActivity final : public Activity {
   int specialTiles() const;     // chrome tiles in front of the wallpapers
   bool liveConfigured() const;  // a Live slot exists on this device
   bool liveOn() const;          // and it is what the sleep screen shows, as the device booted
-  void openLive();              // the tile's destination
+  void openPhone();             // the tile's destination: both routes named
+  void openLive();              // one of them
   // What Live is doing RIGHT NOW, which is liveOn() until somebody presses the
   // screen's own toggle. Kept as a member because the tile's marker and the
   // screen's switch are two readings of one fact and came apart once already;
@@ -165,19 +171,36 @@ class WallpapersActivity final : public Activity {
   live::State liveState_;
   std::string livePollToken_;     // the pairing in flight, empty when there is none
   std::string liveCode_;          // "601 663" -- grouped for reading down a phone
-  std::string liveQrLink_;        // built from the code, never typed beside it
   std::string liveStatus_;        // the one line under the code or the switch
-  std::string liveNextCheck_;     // "In about 6 hours"
+  std::string liveNextCheck_;     // "In 6 hours"
   std::string liveScheduleNote_;  // "Every 6 hours"
+  std::string livePhoneState_;    // the one line under LIVE on the Phone screen
   // Work the loop task does AFTER the paint, never inside a tap: both of these
   // block on the radio for seconds, and an activity that blocks inside route()
   // is the #306 family this app has already been bitten by twice.
   bool livePairQueued_ = false;
   bool liveCheckQueued_ = false;
+  bool liveOffQueued_ = false;
   unsigned long livePollAt_ = 0;  // millis() of the next /api/pair/poll
+  // WHEN THE CODE ON THE GLASS DIES, from the service's own expiresIn rather
+  // than from a ten-minute literal typed beside it. 0 means there is no code.
+  //
+  // The service sweeps a pending code at CODE_TTL_S and the reader used to go
+  // on polling and displaying it forever, so a screen left up for eleven
+  // minutes showed six digits that could not be claimed, under a line
+  // promising they last ten. The recovery the website now names -- "type the
+  // six digits it is showing now" -- is only true if the digits it is showing
+  // are live, so this is what makes that sentence true.
+  unsigned long liveCodeDeadline_ = 0;
+  // The QR's payload is DERIVED from liveCode_ at paint time rather than kept
+  // beside it: two members are two things that can disagree, and a code on the
+  // panel that the square beside it did not encode is this card's whole bug.
+  void clearLiveCode();
+  void armLiveCodeDeadline(int expiresIn);
   void startLivePairing();
   void pollLivePairing();
   void runLiveCheck();
+  void runLiveOffReport();
   void toggleLive();
   void refreshLiveLines();
   void applyLiveSleepSettings();

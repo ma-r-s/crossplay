@@ -16,10 +16,15 @@ const LIVE_API = "https://fridge.ma-r-s.com";
 const onLocalhost = ["localhost", "127.0.0.1", "[::1]"].includes(
   location.hostname,
 );
-const API =
-  onLocalhost && new URLSearchParams(location.search).has("local")
-    ? ""
-    : LIVE_API;
+const local = onLocalhost && new URLSearchParams(location.search).has("local");
+const API = local ? "" : LIVE_API;
+// Where the page sends itself once a code in the address has been spent. It
+// has to KEEP ?local, because dropping it is how the flag silently stopped
+// applying the moment a local run got as far as connecting: every load after
+// that went cross-site to the real service, the browser refused it on CORS
+// before any of this code ran, and the page sat on its initial state with
+// neither half shown and nothing on screen saying why.
+const cleanUrl = () => location.pathname + (local ? "?local" : "");
 
 const W = 480;
 const H = 800;
@@ -406,49 +411,155 @@ function browserName() {
   return "A phone";
 }
 
-function human(sec) {
-  if (sec < 60) return "in under a minute";
-  const h = sec / 3600;
-  if (h < 1) return `in about ${Math.max(1, Math.round(sec / 60))} minutes`;
-  if (h < 2) return "in about an hour";
-  if (h < 48) return `in about ${Math.round(h)} hours`;
-  return `in about ${Math.round(h / 24)} days`;
+// THE READER'S OWN BANDS, ported rather than invented, because the two surfaces
+// must never name different numbers for one moment. These are live::roughSpan
+// in src/apps_local/live/LiveCore.cpp, edge for edge and rounding for rounding:
+// minutes in fives, then the singular bands that stop "80 minutes" being either
+// a figure nobody needs or "an hour", which is wrong by a third.
+//
+// The version this replaces had its own edges (60 minutes, 2 hours, 48 hours)
+// and its own rounding, so a reader 80 minutes from its check said "an hour" on
+// the panel and "in about 1 hours" here, in both senses wrong.
+function roughSpan(sec) {
+  if (sec < 45 * 60) {
+    return `${Math.max(5, Math.floor((sec + 150) / 300) * 5)} minutes`;
+  }
+  if (sec < 90 * 60) return "an hour";
+  if (sec < 22 * 3600) return `${Math.floor((sec + 1800) / 3600)} hours`;
+  if (sec < 36 * 3600) return "a day";
+  return `${Math.floor((sec + 43200) / 86400)} days`;
 }
+// "in about 5 hours". The panel says "In 5 hours" instead, and not because it
+// is more confident: "In about 45 minutes" measures 464px at its display cut
+// against a 448px body, so the word does not fit. The rounding is the panel's
+// way of saying the same thing.
+const human = (sec) => `in about ${roughSpan(sec)}`;
+const ago = (epoch) =>
+  `about ${roughSpan(Math.max(0, Math.floor(Date.now() / 1000) - epoch))} ago`;
+
+// "about every 6 hours", from live::scheduleNote's bands.
+function everyPhrase(sec) {
+  if (sec >= 604800 && sec % 604800 === 0) {
+    const weeks = sec / 604800;
+    return weeks === 1 ? "about every week" : `about every ${weeks} weeks`;
+  }
+  if (sec >= 23 * 3600) {
+    const days = Math.floor((sec + 43200) / 86400);
+    return days <= 1 ? "about every day" : `about every ${days} days`;
+  }
+  if (sec >= 55 * 60) {
+    const hours = Math.floor((sec + 1800) / 3600);
+    return hours <= 1 ? "about every hour" : `about every ${hours} hours`;
+  }
+  return `about every ${Math.floor(sec / 60)} minutes`;
+}
+
+// HOW LATE IS LATE, and it is deliberately generous in both terms.
+//
+// A reader only fetches on its way into sleep, so one that somebody picked up
+// in the morning and put down at night is half a day past due with nothing
+// whatever wrong with it. That is the floor. The other term is a whole missed
+// check, because on a weekly cadence being a day late is nothing and being a
+// week late is real.
+//
+// The RC oscillator's drift is the small term, not the large one: a daily wake
+// drifts roughly a quarter of an hour, about a percent, which is noise next to
+// a device in somebody's hands. Under this the page states a fact and stops --
+// a flat battery, a router that moved and Live switched off without the reader
+// getting a word out are indistinguishable from here, and naming one would be
+// a diagnosis the service cannot make.
+const LATE_FLOOR_S = 12 * 3600;
+const lateAfter = (intervalSeconds) =>
+  Math.max(LATE_FLOOR_S, intervalSeconds || 0);
+
+// Inside this, the check is due now rather than in the future. The reader is
+// awake in somebody's hands or out of contact, and either way the honest
+// sentence is the mechanism rather than a countdown stuck at zero. Three
+// minutes, the same floor live::nextCheckPhrase uses for "Any moment".
+const DUE_WINDOW_S = 180;
 
 const whenLine = document.getElementById("whenLine");
 const whenSub = document.getElementById("whenSub");
 const sendNote = document.getElementById("sendNote");
 let state = null;
 
+// FIVE STATES, and every one of them names when the next look happens. The
+// version this replaces had two of them saying nothing about time at all --
+// including the one a person is in for the whole minute after they pair, which
+// is the minute they are watching to find out whether any of this works.
+//
+// The panel says the same thing in its own words (live::nextCheckPhrase): the
+// arithmetic is the reader's alarm on both surfaces, so they cannot name
+// different moments. Neither ever states a figure as exact.
 function paint() {
   if (!state || !state.connected) return;
   document.getElementById("interval").value = String(state.intervalSeconds);
   whenLine.className = "lv-when-line";
-  if (!state.lastCheckin) {
-    whenLine.textContent = "The reader has not checked in yet.";
-    whenSub.textContent = "It will pick this up the first time it looks.";
-    sendNote.textContent = "";
+  const every = everyPhrase(state.intervalSeconds);
+
+  // 5. OFF ON THE READER. No countdown, because there is no next check: the
+  // service knows because the reader said so on its way out, which is the one
+  // thing that tells this apart from a reader nobody has heard from.
+  // `=== false`, not `!liveOn`: the page and the service deploy separately, and
+  // a missing key must never produce a positive claim about somebody's device.
+  // The service's own rule is the same one ("only an explicit 0 says
+  // otherwise"), so the two defaults match rather than merely agreeing today.
+  if (state.liveOn === false) {
+    whenLine.className = "lv-when-line lv-stale";
+    whenLine.textContent = "Live is off on the reader.";
+    whenSub.textContent =
+      "Your drawing is saved and appears the moment Live is switched back on.";
+    // No "Saved." here: the send button prefixes its own "Sent." to whatever
+    // this line holds, and "Sent. Saved." is two words for one event.
+    sendNote.textContent = "It appears when Live is switched back on.";
     return;
   }
+
   const left = state.nextExpected - Math.floor(Date.now() / 1000);
-  if (left < -1800) {
-    // Past its window. Stop counting down to a moment that already went by.
+
+  // 4. LATE. A fact and nothing else.
+  if (left < -lateAfter(state.intervalSeconds)) {
     whenLine.className = "lv-when-line lv-stale";
-    whenLine.textContent = "The reader has not checked in when it was due.";
-    whenSub.textContent = "It will pick this up the next time it reaches us.";
+    whenLine.textContent = state.lastCheckin
+      ? `The reader last checked in ${ago(state.lastCheckin)}.`
+      : "The reader has not checked in since you connected.";
+    whenSub.textContent = `It looks ${every} when it can reach us.`;
     sendNote.textContent = "Waiting for it to come back.";
     return;
   }
-  const morning = new Date(state.nextExpected * 1000).getHours() < 11;
-  whenLine.textContent = morning
-    ? "They will see this in the morning."
-    : "They will see this later today.";
-  // Deliberately vague: this is the service's estimate, and the reader's sleep
-  // timer drifts percent-level, so a figure to the second would be a small lie.
-  whenSub.textContent = `Next check ${human(left)}`;
-  sendNote.textContent = morning
-    ? "Arrives in the morning."
-    : "Arrives later today.";
+
+  // 3. DUE NOW. It only looks on its way into sleep, so this is what happens
+  // next, said as the gesture that causes it. It can legitimately sit here for
+  // hours while somebody is reading on it, and that is not an error.
+  if (left < DUE_WINDOW_S) {
+    // The panel says "When it sleeps" over the same cadence line. Same two
+    // questions, same order, same answer in longer words.
+    whenLine.textContent =
+      "They will see this the next time the reader is put down.";
+    whenSub.textContent = `It looks ${every}, and only on its way to sleep.`;
+    sendNote.textContent = "Arrives the next time the reader is put down.";
+    return;
+  }
+
+  // 1 and 2. THE HEADLINE IS THE FIGURE, and the small line under it is the
+  // cadence -- the same two questions in the same order as the panel, so a
+  // person moving between the two surfaces reads one story.
+  //
+  // It used to be "in the morning" / "later today", picked from the clock hour
+  // of the expected check, and straight after pairing that put "They will see
+  // this later today." over "First check in about a day." -- two answers to one
+  // question, at the first moment anybody reads either surface and the only
+  // evidence they have that pairing worked. The hour was also only ever right
+  // at the default cadence: on a weekly interval "later today" is wrong by six
+  // days, and on a fifteen-minute one it says nothing at all.
+  whenLine.textContent = `They will see this ${human(left)}.`;
+  // The one thing state 1 has to add: nothing has confirmed this reader is
+  // switched on, and the figure is measured from the moment it was paired
+  // rather than from a check it has made.
+  whenSub.textContent = state.lastCheckin
+    ? `It looks ${every}.`
+    : `Its first check since you connected. It looks ${every}.`;
+  sendNote.textContent = `Arrives ${human(left)}.`;
 }
 
 async function refresh() {
@@ -469,6 +580,54 @@ async function refresh() {
 // of both ways in.
 const codeInput = document.getElementById("code");
 const codeError = document.getElementById("codeError");
+const codeHint = document.getElementById("codeHint");
+
+// WHAT TO DO ABOUT IT, beside the service's sentence rather than instead of it.
+// "That code did not work. Check the reader's screen." is true and it is not an
+// instruction: the first person through this path scanned a code, was told it
+// did not work, and worked out on his own that the reader was showing a
+// different one by then. That recovery is the fix, so the page performs it.
+const CODE_MOVED =
+  "A reader's code changes. Type the six digits it is showing now.";
+// Said when a scanned code is refused and this browser already has a reader.
+//
+// It does NOT claim the code belongs to a different reader, because the page
+// cannot know that: the test below reads browser storage, and storage can be
+// evicted while the server-set cookie survives, so somebody re-scanning their
+// OWN reader can land here. It says what happened and what to do, and neither
+// half stops being true in that case.
+const CODE_AND_A_READER =
+  "That code did not work here, and this page is still connected to the reader it had. " +
+  CODE_MOVED +
+  " Reloading this page keeps the reader you already have.";
+
+// Codes THIS browser has spent. A second scan of a QR that already worked is
+// not a failure and must not be reported as one -- the reader goes on showing
+// that code until it expires, and somebody scanning it twice is connected
+// already. Without this the only way to tell that apart from a code meant for
+// another reader is to say nothing at all, which is what the page used to do
+// and is the bug below.
+//
+// Browser storage, so it is per viewer and can come back empty: a cleared
+// profile costs one honest "that code did not work", never a wrong connection.
+const SPENT_KEY = "liveSpentCodes";
+function spentCodes() {
+  try {
+    const all = JSON.parse(localStorage.getItem(SPENT_KEY) || "[]");
+    return Array.isArray(all) ? all : [];
+  } catch (e) {
+    return [];
+  }
+}
+function rememberSpent(code) {
+  try {
+    const all = spentCodes().filter((c) => c !== code);
+    all.push(code);
+    localStorage.setItem(SPENT_KEY, JSON.stringify(all.slice(-8)));
+  } catch (e) {
+    /* a private window, or storage turned off. The page still works. */
+  }
+}
 
 codeInput.addEventListener("input", () => {
   codeInput.value = codeInput.value.replace(/\D/g, "").slice(0, 6);
@@ -483,21 +642,31 @@ codeInput.addEventListener("keydown", (e) => {
 async function pair(quiet) {
   if (codeInput.value.length !== 6) {
     const short = "Six digits, from the reader’s screen.";
-    if (!quiet) codeError.textContent = short;
+    if (!quiet) {
+      codeError.textContent = short;
+      codeHint.textContent = "";
+    }
     return short;
   }
   codeError.textContent = "";
+  codeHint.textContent = "";
+  const code = codeInput.value;
   const r = await api("/api/claim", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ code: codeInput.value, name: browserName() }),
+    body: JSON.stringify({ code, name: browserName() }),
   });
-  // The service's own sentence, never one invented here.
+  // The service's own sentence, never one invented here. What IS invented here
+  // is the line under it, which says what to do about it.
   if (!r.ok) {
     const said = (r.body && r.body.error) || "That did not work.";
-    if (!quiet) codeError.textContent = said;
+    if (!quiet) {
+      codeError.textContent = said;
+      codeHint.textContent = CODE_MOVED;
+    }
     return said;
   }
+  rememberSpent(code);
   await refresh();
   return null;
 }
@@ -539,24 +708,47 @@ render();
 //
 // THE CLAIM IS TRIED FIRST, not the state, because scanning a code is an
 // explicit request for THAT reader -- a browser already connected to another
-// one still has to be moved. But it is tried QUIETLY, because the commonest way
-// this path fails is somebody RELOADING the page they already connected with:
-// the code in the address has been spent, the service rightly refuses it, and
-// printing "That code did not work" over a page that is about to connect
-// perfectly well is a screen calling a success a failure. The refusal is held
-// until /api/state has said this browser has no reader either.
+// one still has to be moved. But it is tried QUIETLY, because one way this path
+// fails is somebody scanning a QR they have already used: the code has been
+// spent, the service rightly refuses it, and printing "That code did not work"
+// over a page that is about to connect perfectly well is a screen calling a
+// success a failure.
+//
+// THE REFUSAL USED TO BE SWALLOWED WHOLE when this browser had any reader at
+// all, and that is a different case wearing the same clothes. Somebody who
+// scans a second reader's code while connected to a first got no error, no
+// notice and no hint: the page simply carried on showing the reader they were
+// already on, and the next drawing went to the wrong fridge. The two are told
+// apart by whether this browser is the one that spent that code, which is a
+// fact only this browser holds.
 const fromLink = new URLSearchParams(location.search).get("c");
 if (fromLink && /^\d{4,8}$/.test(fromLink)) {
-  codeInput.value = fromLink.slice(0, 6);
+  const linked = fromLink.slice(0, 6);
+  codeInput.value = linked;
   pair(true).then(async (refusal) => {
     if (!refusal) {
       // Spent, and it worked. Take it out of the address so a reload is not a
       // second attempt at a code that can only be used once.
-      history.replaceState(null, "", location.pathname);
+      history.replaceState(null, "", cleanUrl());
       return;
     }
     await refresh();
-    if (app.hidden) codeError.textContent = refusal;
+    const hadReader = !app.hidden;
+    if (hadReader && spentCodes().includes(linked)) {
+      // This browser's own code, scanned again. Nothing is wrong and nothing
+      // is said; the address is cleaned so a reload stops asking.
+      history.replaceState(null, "", cleanUrl());
+      return;
+    }
+    // THE ADDRESS IS CLEANED ON EVERY PATH OUT, including this one. Left in
+    // place, the recovery this hint names does not work: a reload claims the
+    // same spent code, is refused again, and rebuilds this gate identically.
+    // The box still holds the digits, so nothing is lost by dropping them from
+    // the address.
+    history.replaceState(null, "", cleanUrl());
+    showGate();
+    codeError.textContent = refusal;
+    codeHint.textContent = hadReader ? CODE_AND_A_READER : CODE_MOVED;
   });
 } else {
   refresh();
