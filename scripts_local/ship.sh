@@ -215,7 +215,7 @@ case "${HOLD:-0}" in
         gh variable set RELEASE_HOLD --repo ma-r-s/crossplay --body 0" ;;
 esac
 
-say "  branch    $BRANCH -> xteink (fast-forward, $(git rev-list --count "$TRUNK"..HEAD) commit(s))"
+say "  branch    $BRANCH -> xteink (current with trunk, $(git rev-list --count "$TRUNK"..HEAD) commit(s) to squash)"
 say "  hold      clear"
 
 # ----------------------------------------------------------------- version

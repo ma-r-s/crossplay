@@ -1005,7 +1005,7 @@ build_flags =
 > What actually runs here now:
 >
 > - **`scripts_local/ship.sh`, on this Mac.** Bumps the version, re-gates,
->   fast-forwards onto `xteink`, tags, packages and publishes, in about two
+>   squashes onto `xteink` through GitHub, tags, packages and publishes, in about two
 >   minutes. The guard hook refuses `gh release create` and a `v*` tag from
 >   anything else. **The bump happens BEFORE the build**: `platformio.ini`
 >   compiles the version in and `OtaUpdater.cpp:119` compares a release's tag

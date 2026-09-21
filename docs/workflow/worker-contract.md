@@ -96,13 +96,14 @@ noticed '<one line>' --from <app>`. It expires by itself in 14 days, counts
   `check.sh --committed` is not a formality before pushing -- **the images it
   leaves in `.pio/build` are the images that ship.** The orchestrator lands
   and publishes with `./scripts_local/ship.sh`, which bumps the version,
-  re-gates, fast-forwards, tags, packages and publishes in about two minutes.
+  re-gates, squashes through GitHub, tags, packages and publishes in about
+  two minutes.
   Workers do not run it, and the guard hook refuses `gh release create` and a
   `v*` tag from anyone, because publishing by hand skips the ordering that
   keeps a device from offering an update it already installed.
-  **A branch that cannot fast-forward onto `xteink` cannot be shipped**: a
-  merge commit's tree is not the tree your gate built. Rebase before you set
-  `review`, not after.
+  **A branch behind `xteink` cannot be shipped**: the squash would resolve a
+  merge and land a tree nobody built, which is not the tree your gate
+  verified. Rebase before you set `review`, not after.
 - **A tree is its holder's.** `board bind <card> --session <id> --tree
 wt/<name>` before the first write: the record it leaves is what the guard
   reads, and a tree with no record refuses writes, as does a tree bound to

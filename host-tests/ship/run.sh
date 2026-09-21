@@ -233,7 +233,7 @@ guard_refuses() {  # <label> <a distinctive fragment of the guard message>
 }
 guard_refuses "magic-number"         'image that is not merged'
 guard_refuses "RELEASE_HOLD"         'RELEASE_HOLD is set'
-guard_refuses "fast-forward"         'has moved since this branch left it'
+guard_refuses "up-to-date"           'has moved since this branch left it'
 guard_refuses "handover-versus-HEAD" 'images are from'
 guard_refuses "binary version"       'reports version'
 guard_refuses "dirty tree"           'working tree is dirty'
@@ -276,7 +276,7 @@ fi
 #
 # The gate is matched by its INVOCATION, not by the string "check.sh
 # --committed" appearing anywhere. The first draft of this check matched the
-# latter and failed a correct script, because ship.sh's fast-forward refusal
+# latter and failed a correct script, because ship.sh's up-to-date refusal
 # prints "rebase and re-gate: ./scripts_local/check.sh --committed" as advice
 # forty lines above the real call. A detector satisfied by a mention of the
 # thing is the bug it is supposed to catch, one level up.
@@ -300,7 +300,7 @@ else
   echo "FAIL ship  ship.sh gates at line $GATE_LINE and writes the version at line $BUMP_LINE, so it publishes images compiled with the PREVIOUS version. platformio.ini compiles the version in (-DCROSSPOINT_VERSION) and OtaUpdater.cpp:119 compares the tag against it, so every device would keep offering an update it already installed"
 fi
 
-# -- 6. fast-forward or nothing ---------------------------------------------
+# -- 6. current with trunk, or the squash lands a tree nobody built ---------
 checks=$((checks + 1))
 if printf '%s' "$CODE" | grep -q 'merge-base' && printf '%s' "$CODE" | grep -q 'rev-parse origin/xteink'; then
   ok_=1

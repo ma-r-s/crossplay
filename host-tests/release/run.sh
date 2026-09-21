@@ -1023,8 +1023,13 @@ fi
 # die() is what ship.sh calls when the pair disagrees, and here it only has to
 # exit non-zero. Stripping the die instead (the first attempt) made the lifted
 # guard ACCEPT a wrong tag, so the check passed for the wrong reason.
-GUARD_BODY="$(awk '/^# The tag must be the version being built, asserted/{f=1;next}
-                   f && /^run |^# ----/{exit}
+# Anchored on the CODE that starts the guard, not on the wording of the
+# comment above it. The first version anchored on the comment and broke the
+# moment the guard moved sections and its prose was reworded -- a check that
+# depends on a sentence is a check that fails for editorial reasons and
+# passes for none.
+GUARD_BODY="$(awk '/^BUILT="\$\(sed/{f=1}
+                   f && /^run |^# ----|^step /{exit}
                    f' "$WF")"
 GUARD="die() { return 1; }
 TAG=\"\$GITHUB_REF_NAME\"
