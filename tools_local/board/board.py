@@ -20,7 +20,10 @@ file store so the hooks never need the network.
     board dispatcher --name Dispatch --session <id>   the session Mario talks to; may message anyone
     board pulse [add <host> <GET|POST> <url> <alive> <app> | remove <host>]   what the board probes every 30 min
     board release                                     is the release watcher awake, and what is it owed
-    board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."] [--parent <id>] [--default "..."]
+    board noticed "<one line>" --from <app> [--detail "..."]   what you saw and are not fixing: NOT a card, expires by itself
+    board notices                                     what is noticed and still live, most seen first
+    board promote n<id> --reporter mario|user         a person asked for it: the notice becomes a card
+    board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."] [--parent <id>] [--default "..."] [--session <id>]
                        [--reporter mario|user|session|unknown]   whose observation it is; unknown unless said
     board app <id> <app> [--default "..."]             move a card to another app
     board parent <id> --of <parent>                    put a card under another (subtasks)
@@ -159,6 +162,26 @@ class FileStore:
         self.dir = root / ".board"
         self.cards = self.dir / "cards"
         self.sessions = self.dir / "sessions"
+
+    def notices(self):
+        try:
+            rows = json.loads((self.dir / "notices.json").read_text() or "[]")
+        except (OSError, ValueError):
+            rows = []
+        return [n for n in rows if not n.get("promoted_card") and n.get("expires_at", "") > now()]
+
+    def put_notice(self, n):
+        try:
+            rows = json.loads((self.dir / "notices.json").read_text() or "[]")
+        except (OSError, ValueError):
+            rows = []
+        if n.get("id"):
+            rows = [n if r.get("id") == n["id"] else r for r in rows]
+        else:
+            n["id"] = 1 + max([r.get("id", 0) for r in rows] + [0])
+            rows.append(n)
+        (self.dir / "notices.json").write_text(json.dumps(rows, indent=1))
+        return n
 
     def init(self):
         self.cards.mkdir(parents=True, exist_ok=True)
@@ -301,6 +324,17 @@ class SupaStore:
 
     def lock(self):
         return self.mirror.lock()
+
+    def notices(self):
+        return self._req("GET", "notices?promoted_card=is.null&expires_at=gt.now()&order=last_seen.desc") or []
+
+    def put_notice(self, n):
+        fields = {k: n[k] for k in ("app", "what", "detail", "seen", "sessions", "last_seen", "expires_at", "promoted_card") if k in n}
+        if n.get("id"):
+            self._req("PATCH", f"notices?id=eq.{int(n['id'])}", fields)
+            return n
+        rows = self._req("POST", "notices", fields, prefer="return=representation")
+        return rows[0] if rows else n
 
     def _req(self, method, path, body=None, prefer=None):
         data = json.dumps(body).encode() if body is not None else None
@@ -782,6 +816,79 @@ def title_tokens(title):
     }
 
 
+def says_the_same(mine, theirs):
+    """Two token sets are one subject: at least three words in common, and
+    most of the shorter one."""
+    if len(mine) < 3 or len(theirs) < 3:
+        return False
+    shared = len(mine & theirs)
+    return shared >= 3 and shared / min(len(mine), len(theirs)) >= 0.6
+
+
+NOTICE_DAYS = 14
+NOTICE_SHOWN_AT = 3
+
+
+def _later(days):
+    return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=days)).isoformat(timespec="seconds")
+
+
+def cmd_noticed(st, a):
+    """What a session noticed and is not going to fix. NOT a card: one line
+    that expires by itself. On 2026-09-20 the board held 547 cards after 17
+    days; 145 of the 203 open ones were sessions' observations that nobody
+    was ever going to be allowed to pick up, and most were already fixed,
+    wrong, or about other cards. A notice asks nothing of anybody: seen again
+    it counts up and lives longer, seen NOTICE_SHOWN_AT times it is shown to
+    Mario as one line, and otherwise it is gone in NOTICE_DAYS days."""
+    sid = norm_sid(a.session or os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
+    mine = title_tokens(a.what)
+    for c in st.list_cards():
+        if c["state"] not in SETTLED and says_the_same(mine, title_tokens(c["title"])):
+            print(f"already a card: #{c['id']} {c['title']}  (nothing added; board note {c['id']} '<what you found>' if you know more)")
+            return
+    with st.lock():
+        for n in st.notices():
+            if not says_the_same(mine, title_tokens(n["what"])):
+                continue
+            sessions = list(n.get("sessions") or [])
+            if sid and sid not in sessions:
+                sessions.append(sid)
+            n.update({"seen": int(n.get("seen", 1)) + 1, "sessions": sessions, "last_seen": now(), "expires_at": _later(NOTICE_DAYS)})
+            st.put_notice(n)
+            shown = "  (now shown to Mario)" if n["seen"] >= NOTICE_SHOWN_AT else ""
+            print(f"noticed again, {n['seen']} times now: {n['what']}{shown}")
+            return
+        n = st.put_notice({"app": a.from_app.lower(), "what": a.what, "detail": a.detail or "", "seen": 1,
+                           "sessions": [sid] if sid else [], "last_seen": now(), "expires_at": _later(NOTICE_DAYS)})
+    print(f"noticed (n{n.get('id', '')}): {a.what}  (expires in {NOTICE_DAYS} days unless it is seen again)")
+
+
+def cmd_notices(st, a):
+    rows = st.notices()
+    if not rows:
+        print("nothing noticed and still live")
+        return
+    for n in sorted(rows, key=lambda n: (-int(n.get("seen", 1)), n.get("last_seen", ""))):
+        print(f"n{n['id']:<5} x{n.get('seen', 1):<3} {n.get('app', ''):<12} {n['what']}")
+
+
+def cmd_promote(st, a):
+    """Mario (or a user) asked for it: the notice becomes a card."""
+    hit = [n for n in st.notices() if int(n["id"]) == a.id]
+    if not hit:
+        sys.exit(f"board: no live notice n{a.id}")
+    n = hit[0]
+    with st.lock():
+        c = st.create_card({"title": n["what"], "from": n.get("app") or "unknown", "kind": a.kind,
+                            "body": (n.get("detail") or "") + f"\nNoticed {n.get('seen', 1)} time(s) before it was asked for.",
+                            "reporter": a.reporter, "parent": None,
+                            "history": [{"at": now(), "what": f"created from notice n{n['id']}"}]})
+        n["promoted_card"] = c["id"]
+        st.put_notice(n)
+    print(f"#{c['id']} {c['title']}")
+
+
 def similar_open(st, title):
     """Open cards whose title says the same thing in different words.
 
@@ -797,16 +904,23 @@ def similar_open(st, title):
     for c in st.list_cards():
         if c["state"] in SETTLED:
             continue
-        theirs = title_tokens(c["title"])
-        if len(theirs) < 3:
-            continue
-        shared = len(mine & theirs)
-        if shared >= 3 and shared / min(len(mine), len(theirs)) >= 0.6:
+        if says_the_same(mine, title_tokens(c["title"])):
             hits.append(c)
     return hits
 
 
 def cmd_new(st, a):
+    # A session's own observation is not a card (cmd_noticed says why). A
+    # card a session files for itself is a card for work that starts NOW,
+    # bound to it in the same call, so there is always somebody to close it.
+    if a.reporter == "session" and not getattr(a, "session", None):
+        sys.exit(
+            "board: something you noticed and are not fixing now is not a card any more:\n"
+            f"  board noticed '<one line>' --from {a.from_app}\n"
+            "It expires by itself, counts up when it is seen again, and reaches Mario at three.\n"
+            "A card is for work that starts NOW: add --session <your id> and it is yours, in 'working'.\n"
+            "Something Mario or a user said is --reporter mario or --reporter user."
+        )
     if not a.anyway:
         dup = similar_open(st, a.title)
         if dup:
@@ -836,6 +950,12 @@ def cmd_new(st, a):
         )
         ensure_inbox(st, c["id"], a.default, "board", adopt=True)
         c = st.get_card(c["id"])
+        if getattr(a, "session", None):
+            c["session"] = norm_sid(a.session)
+            c["state"] = "working"
+            hist(c, f"bound to session {norm_sid(a.session)} at filing")
+            st.save_card(c)
+            c = st.get_card(c["id"])
     # The card's own state, not whether this call did the filing: on the
     # Supabase store the trigger files inside the INSERT, and a marker keyed on
     # "did I file it" would go silent exactly where the SQL enforcer works.
@@ -2178,7 +2298,21 @@ def main(argv=None):
     s.add_argument("--app-id", help=app_help)
     s.add_argument("--release", action="store_true")
     s.set_defaults(fn=cmd_integrator)
+    s = sub.add_parser("noticed")
+    s.add_argument("what", help="one line: what you saw, where")
+    s.add_argument("--from", dest="from_app", required=True)
+    s.add_argument("--detail", help="a file:line or a sentence of evidence; short")
+    s.add_argument("--session")
+    s.set_defaults(fn=cmd_noticed)
+    s = sub.add_parser("notices")
+    s.set_defaults(fn=cmd_notices)
+    s = sub.add_parser("promote")
+    s.add_argument("id", type=lambda v: int(str(v).lstrip("n")))
+    s.add_argument("--reporter", choices=["mario", "user"], required=True, help="who asked for it")
+    s.add_argument("--kind", choices=["bug", "feature", "task"], default="task")
+    s.set_defaults(fn=cmd_promote)
     s = sub.add_parser("new")
+    s.add_argument("--session", help="the work starts now and is yours: the card is bound to you in 'working'")
     s.add_argument("title")
     s.add_argument("--parent", type=int)
     s.add_argument("--from", dest="from_app", required=True)

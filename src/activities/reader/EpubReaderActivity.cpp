@@ -1913,6 +1913,8 @@ void EpubReaderActivity::pushOverlayRefresh() {
   if (renderer.supportsAsyncRefresh()) {
     renderer.displayBufferAsync(HalDisplay::FAST_REFRESH);
     overlayRefreshPending = true;
+    // Counted on the next input tick; see handleOverlayInput().
+    overlayPaintPending = true;
   } else {
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   }
@@ -2080,6 +2082,35 @@ void EpubReaderActivity::renderOverlay() {
 
 void EpubReaderActivity::handleOverlayInput() {
   if (!toolbarUi) return;
+
+  // THE MENU'S TAPS DIE WITHOUT THIS. UiAppHost::routeTouch() refuses to route
+  // anything until UiAppHost::revealed() is true, and that turns true only when
+  // a paint is COUNTED (paintclock::notePainted()) after the screen's last
+  // build. pushOverlayRefresh() takes the deferred path on any board that can
+  // defer, and GfxRenderer::displayBufferAsync() deliberately does not count
+  // the paint: waitRefreshComplete() does, and nothing here was waiting.
+  // settleOverlayRefresh() only reseeds the grayscale baseline, so the counter
+  // never moved and every tap on the sheet was dropped before it reached a
+  // target -- silently, with no log line, which is what "it stops responding"
+  // looked like on the glass. Boards that cannot defer take the blocking
+  // displayBuffer(), which counts the paint, which is why the upstream PR that
+  // added this menu shipped green on button-only devices. Card #546.
+  //
+  // The wait costs nothing that was not already spent: the waveform is running
+  // whether or not anyone waits, and by the first input tick most of it is
+  // behind us.
+  if (overlayPaintPending) {
+    overlayPaintPending = false;
+    RenderLock lock;  // the render task shares the panel
+    renderer.waitRefreshComplete();
+    // The waveform is done, so there is nothing left for settleOverlayRefresh()
+    // to wait out. Leaving this set sends the destructor into
+    // cleanupGrayscaleWithFrameBuffer() for a refresh that has already landed,
+    // which is a wait on an idle panel taken while the activity is being torn
+    // down -- the shape the device hung in on 2026-09-20 with "Exiting
+    // activity: EpubReader" as its last word.
+    overlayRefreshPending = false;
+  }
 
   // A modal option picker over the panel owns all input while open.
   if (overlayPopup.isActive()) {
