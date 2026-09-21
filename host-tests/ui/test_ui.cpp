@@ -1297,6 +1297,27 @@ void heartsScoreSaysWhatHappened() {
     }
     heartsui::buildScore(screen, model);
     CHECK(score.target.drew("WEST SHOT THE MOON"));
+
+    // THE BANNER HAS TO BE PAID FOR. It pushes the rows down 62px, and when
+    // nothing accounted for that the standings line landed 8px INSIDE the foot:
+    // painted over by the button plate on its left and printed through the rule
+    // text on its right, on the one screen a moon has earned. Asserted against
+    // the button's own drawn rect rather than against a number, so it still
+    // holds when a row height changes.
+    const fui::Rect* note = nullptr;
+    const fui::Rect* button = nullptr;
+    for (const auto& run : score.target.texts) {
+      if (run.text.find("BEHIND") != std::string::npos || run.text.find("LEAD") != std::string::npos ||
+          run.text.find("LEVEL") != std::string::npos) {
+        note = &run.rect;
+      }
+      if (run.text == "NEXT HAND") button = &run.rect;
+    }
+    CHECK(note != nullptr);
+    CHECK(button != nullptr);
+    if (note != nullptr && button != nullptr) {
+      CHECK(note->bottom() <= button->y);
+    }
   }
 }
 

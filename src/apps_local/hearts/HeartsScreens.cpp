@@ -714,7 +714,13 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   // against it.
   const int16_t rowGap = 10;
   const int16_t noteH = 44;
-  const int16_t rowsRegion = static_cast<int16_t>(footY - 12 - noteH - rowTop);
+  // The gap between the standings line and the foot, NAMED and reserved twice
+  // over: once here and once when the note is placed. Derived without it, the
+  // moon layout put the note's bottom edge exactly on footY -- no overlap, and
+  // no slack either, which is a collision waiting for the first person to
+  // change a row height.
+  const int16_t footGap = 10;
+  const int16_t rowsRegion = static_cast<int16_t>(footY - footGap - noteH - rowTop);
   const int16_t rowH = static_cast<int16_t>((rowsRegion - rowGap * (kSeats - 1)) / kSeats);
   static const Seat kOrder[kSeats] = {Seat::South, Seat::West, Seat::North, Seat::East};
   for (int i = 0; i < kSeats; ++i) {
@@ -785,7 +791,7 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   // named most often and the only one that conjugates. And a tie announced one
   // of the tied seats as the winner, while hearts::isTied() sat unused --
   // which is the second opinion this file's own comments warn about twice.
-  const int16_t noteY = static_cast<int16_t>(rowTop + kSeats * rowH + (kSeats - 1) * rowGap + 12);
+  const int16_t noteY = static_cast<int16_t>(rowTop + kSeats * rowH + (kSeats - 1) * rowGap + footGap);
   const int me = seatIndex(Seat::South);
   const int best = seatIndex(leader(game));
   const bool tied = isTied(game);
