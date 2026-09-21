@@ -158,13 +158,21 @@ async def claim(request: Request) -> JSONResponse:
     )
     fridge.save(s)
     resp = JSONResponse({"ok": True, "fridgeId": got["fridge_id"]})
+    # Secure follows the scheme the request actually arrived on rather than
+    # being hardcoded. In production that is always https (Cloudflare
+    # terminates and cloudflared forwards the header), so this is Secure where
+    # it matters. Hardcoding it broke the only environment where it is not:
+    # a browser silently DROPS a Secure cookie from an http origin, so the
+    # claim returned 200, the page believed it had connected, and every later
+    # request arrived with no cookie at all. No error anywhere.
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
     resp.set_cookie(
         "live_sender",
         got["sender_token"],
         max_age=400 * 86400,
         httponly=True,
         samesite="lax",
-        secure=True,
+        secure=(proto == "https"),
     )
     return resp
 
