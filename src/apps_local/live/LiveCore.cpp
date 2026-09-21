@@ -1,5 +1,8 @@
 #include "LiveCore.h"
 
+#include <cstdio>
+#include <ctime>
+
 namespace live {
 
 uint32_t clampInterval(const int64_t seconds) {
@@ -50,6 +53,28 @@ bool bmpIsComplete(const uint8_t* header, const size_t headerLen, const size_t r
 }
 
 bool clockIsUsable(const int64_t nowEpoch) { return nowEpoch >= kPlausibleEpochFloor; }
+
+std::string shortDate(const int64_t epoch) {
+  // The same floor the schedule uses, for the same reason: a number below it is
+  // not an early date, it is a device that never had a clock.
+  if (!clockIsUsable(epoch)) return std::string();
+  const std::time_t t = static_cast<std::time_t>(epoch);
+  std::tm parts{};
+#if defined(_WIN32)
+  if (gmtime_s(&parts, &t) != 0) return std::string();
+#else
+  if (gmtime_r(&t, &parts) == nullptr) return std::string();
+#endif
+  // Spelled out rather than taken from strftime's %b, which is LOCALE
+  // dependent: the firmware sets no locale and the simulator inherits the
+  // shell's, so the one place this is read would differ between the laptop the
+  // layout was measured on and the panel it ships to.
+  static const char* kMonths[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  if (parts.tm_mon < 0 || parts.tm_mon > 11) return std::string();
+  char buf[16];
+  std::snprintf(buf, sizeof(buf), "%d %s", parts.tm_mday, kMonths[parts.tm_mon]);
+  return std::string(buf);
+}
 
 Decision decide(const Schedule& schedule, const int64_t nowEpoch, const bool timerFired) {
   Decision out;
@@ -105,6 +130,113 @@ Decision decide(const Schedule& schedule, const int64_t nowEpoch, const bool tim
   out.fetchNow = false;
   out.timerSeconds = static_cast<uint32_t>(remaining);
   return out;
+}
+
+namespace {
+
+// "45 minutes", "an hour", "5 hours", "a day", "2 days": the coarsest unit the
+// figure survives in.
+//
+// The band edges are the ones every humanised duration has used since moment.js
+// picked them -- 45 minutes, 90 minutes, 22 hours, 36 hours -- rather than
+// edges invented here. They exist because the singular forms have to cover the
+// gap: without the 45..90 band, 80 minutes is either "80 minutes", a figure
+// nobody needs, or "an hour", which is wrong by a third and says so.
+//
+// Minutes step in fives, and never below five. A device whose clock comes from
+// one response header cannot honour a figure to the minute, and a number that
+// is visibly rounded says so without spending a word on saying it.
+std::string roughSpan(const uint32_t seconds) {
+  // Sized against what the FORMAT can print, not against what the schedule can
+  // hold: %u is ten digits whatever the caller currently passes, and the caller
+  // is a parameter rather than a constant. host-tests/fmtwidth checks every
+  // snprintf in src/apps_local/ this way and caught the sibling below at 24.
+  char buf[32];
+  if (seconds < 45u * 60u) {
+    unsigned minutes = (seconds + 150u) / 300u * 5u;
+    if (minutes < 5u) minutes = 5u;
+    std::snprintf(buf, sizeof(buf), "%u minutes", minutes);
+    return std::string(buf);
+  }
+  if (seconds < 90u * 60u) return "an hour";
+  if (seconds < 22u * 3600u) {
+    const unsigned hours = (seconds + 1800u) / 3600u;
+    std::snprintf(buf, sizeof(buf), "%u hours", hours);
+    return std::string(buf);
+  }
+  if (seconds < 36u * 3600u) return "a day";
+  const unsigned days = (seconds + 43200u) / 86400u;
+  std::snprintf(buf, sizeof(buf), "%u days", days);
+  return std::string(buf);
+}
+
+}  // namespace
+
+std::string nextCheckPhrase(const Schedule& schedule, const int64_t nowEpoch) {
+  // Not paired: there is no schedule, and the caller is drawing the code screen
+  // rather than this line. Empty rather than a sentence, so a screen that drew
+  // it anyway shows nothing instead of a claim.
+  if (!schedule.paired) return std::string();
+  if (!schedule.on) return "Paused";
+  // No clock, or nothing asked yet. `decide` answers a figure in both cases --
+  // it falls back to the whole interval -- and a figure measured against a 1970
+  // clock is a number the screen would be inventing.
+  if (schedule.lastAttemptEpoch <= 0 || !clockIsUsable(nowEpoch)) return "Soon";
+  const Decision decision = decide(schedule, nowEpoch);
+  // Three minutes, not one: the screen is repainted by events and not by a
+  // clock, so whatever it says is already a little old by the time it is read.
+  if (decision.fetchNow || decision.timerSeconds < 3u * 60u) return "Any moment";
+  return "In " + roughSpan(decision.timerSeconds);
+}
+
+std::string scheduleNote(const Schedule& schedule) {
+  // "Every %u minutes" is 25 bytes at a ten-digit %u, which is one more than
+  // the 24 this was written with. The interval is clamped to a week before it
+  // ever gets here -- and the clamp is somebody else's invariant, on the other
+  // side of a plain uint32_t field. host-tests/fmtwidth caught exactly that.
+  char buf[48];
+  // WHAT IS WRONG OUTRANKS HOW OFTEN. A reader in backoff is not keeping the
+  // cadence and must not print it as though it were: the headline above is the
+  // retry, and without this line the two figures contradict each other with
+  // nothing to explain them.
+  if (schedule.paired && schedule.on && schedule.consecutiveFailures > 0) {
+    if (schedule.consecutiveFailures == 1) return "Last check failed.";
+    std::snprintf(buf, sizeof(buf), "%d checks failed.", schedule.consecutiveFailures);
+    return std::string(buf);
+  }
+  const uint32_t intervalSeconds = schedule.intervalSeconds;
+  const char* suffix = schedule.on ? "" : " when on";
+  // BANDED, not "exact multiples or else minutes". The interval is whatever the
+  // service's X-Next-Wake asked for, clamped to 15 minutes..7 days and nothing
+  // finer, so it is routinely not a whole number of hours -- and the version
+  // that fell through to minutes answered "Every 10079 minutes" for an interval
+  // one minute under a week. Each band takes everything up to the point where
+  // the next unit rounds honestly, the way the countdown's own spans do.
+  if (intervalSeconds >= 604800u && intervalSeconds % 604800u == 0u) {
+    const unsigned weeks = intervalSeconds / 604800u;
+    if (weeks == 1u) {
+      std::snprintf(buf, sizeof(buf), "Every week%s", suffix);
+    } else {
+      std::snprintf(buf, sizeof(buf), "Every %u weeks%s", weeks, suffix);
+    }
+  } else if (intervalSeconds >= 23u * 3600u) {
+    const unsigned days = (intervalSeconds + 43200u) / 86400u;
+    if (days <= 1u) {
+      std::snprintf(buf, sizeof(buf), "Every day%s", suffix);
+    } else {
+      std::snprintf(buf, sizeof(buf), "Every %u days%s", days, suffix);
+    }
+  } else if (intervalSeconds >= 55u * 60u) {
+    const unsigned hours = (intervalSeconds + 1800u) / 3600u;
+    if (hours <= 1u) {
+      std::snprintf(buf, sizeof(buf), "Every hour%s", suffix);
+    } else {
+      std::snprintf(buf, sizeof(buf), "Every %u hours%s", hours, suffix);
+    }
+  } else {
+    std::snprintf(buf, sizeof(buf), "Every %u minutes%s", intervalSeconds / 60u, suffix);
+  }
+  return std::string(buf);
 }
 
 }  // namespace live

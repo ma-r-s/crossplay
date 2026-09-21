@@ -166,13 +166,58 @@ After sending, the copy is "she'll see this tomorrow morning", not a duration.
 A six-digit code, readable down a telephone. A QR can only be scanned by
 somebody holding the device, and the fridge is in another country; the day the
 Wi-Fi changes, a QR means a plane ticket. The QR stays as a convenience
-underneath. The three-legged flow is `server/read-bridge/bridge/pairing.py`
-(`/api/pair/start`, `/api/pair/claim`, `/api/pair/poll`) with an explicit
+underneath. The three-legged flow is `server/fridge-bridge/bridge/pairing.py`
+(`/api/pair/start`, `/api/claim`, `/api/pair/poll`) with an explicit
 confirmation on the device before anything is stored.
 
 Several senders per device, revocable on the device. A single-sender model
 would lock the owner out the moment they changed phones, and re-pairing needs
 physical presence.
+
+### Adding a phone is a different endpoint from setting one up
+
+`/api/pair/start` mints a NEW fridge. Wiring ADD to it would have
+handed the browser a different fridge and silently orphaned both the phone
+already sending and the picture already on the glass. `/api/pair/join` takes
+the reader's bearer token and mints a code against the fridge it already has.
+Two endpoints rather than one with a flag, because a flag defaulted the wrong
+way is the same bug back.
+
+**Four phones, and the SERVICE is what decides.** It refuses the fifth with a
+409 before a code is minted, in its own sentence, and answers its own cap on
+every `/api/senders`. `live::kMaxSenders` and `LiveModel::kMaxSenders` are the
+size of the array the reader can hold, kept equal to each other by a
+`static_assert` in `WallpapersActivity.cpp`, and `live::listSenders` logs loudly
+if the service ever says more: a fifth sender the service allowed would exist,
+could write to this fridge, and would be invisible on the one screen that can
+revoke it.
+
+No FIFO. Dropping the oldest to make room takes a fridge away from whoever had
+it first and tells nobody, and the person losing it is the one least able to
+notice.
+
+### Revoking is the reader's, and it is destructive at a distance
+
+The person losing access is in another country and the service tells them
+nothing. There is no undo and no apology to send. So it sits behind a confirm
+that NAMES them, and the confirm is laid out against the list's own rectangles:
+KEEP is hit over the whole band the four rows share, so a second press of
+whichever row opened it cancels, and REMOVE lies wholly outside that band.
+host-tests/wallcaption asserts both, and asserts it for every row rather than
+for one.
+
+A reader with no senders at all is RECOVERABLE, not broken: it says so in
+words, keeps ADD, and the picture stays on the glass. Proved on the
+live service and in `qa-artifacts/live-senders/08-empty.png`.
+
+**A service sentence is drawn verbatim and the screen is built to take it.**
+The report at the foot of the paired screen is one prose line when that fits
+and three condensed ones when it does not. It was one line, and
+"This reader already has 4 phones. Remove one first." reached the panel as
+"This reader already has 4 phones...." with the only actionable half gone.
+`host-tests/wallcaption` now GENERATES its corpus of refusals from
+`server/fridge-bridge/bridge/app.py` at test time, so a sentence the service
+edits is measured rather than a copy of the one it used to send.
 
 ## The image
 
@@ -240,6 +285,78 @@ several days it says so outright.
   claimed from a shell, device paired, image PUT, image pulled (200 + ETag +
   `X-Next-Wake`), second check 304 with the card's mtime unchanged, four greys
   on the sleep screen. `qa-artifacts/live-e2e/`.
+- **The sender list is real, and a row is a control.** The Live screen fetches
+  `/api/senders` when it opens and draws name and date per phone; ADD mints a
+  join code on the same screen the setup code uses; a tap on a row opens a
+  confirm that names the person and revokes on the service. Proved end to end
+  against the live service, not mocked: `qa-artifacts/live-senders/` walks a
+  reader pairing, adding a phone claimed with curl from the shell, the phone
+  appearing by name, being tapped, confirmed and gone, plus the four-phone list,
+  the service's 409 at the fifth, and the empty list.
+- **The paired screen is a headline, a row of three controls and a list.**
+  It was NEXT CHECK, HOW OFTEN, CHECK NOW, TURN IT OFF, WHO CAN SEND, TAP TO
+  REMOVE and ADD SOMEBODY: seven headings for three facts, and two of the pairs
+  said the same thing twice. Now the next check is the display cut with nothing
+  above it, the cadence is one small line under it, the three controls are a
+  24px Lucide mark and one word each across one row (CHECK / STOP / START /
+  ADD), and a sender row ends in an X. Before and after, four states side by
+  side: `qa-artifacts/live-lean/before-after.png`.
+  - A mark is always beside a WORD, never alone. There is no hover and no
+    tooltip on this panel -- the same reason the Add screen draws its address in
+    words next to the QR. The one exception is the X at the end of a row, where
+    a word would be the word four times and the confirm behind it names the
+    person anyway.
+  - The band carries a STATE (`ON` / `OFF`) and the button a VERB (`STOP` /
+    `START`). Two vocabularies on purpose: with one, both words are on the
+    screen in both states and the assertion that each is drawn cannot fail.
+  - Seven of the 24 interaction slots, four phones listed. Reported by
+    `host-tests/wallcaption` on every run.
+  - A sender row shows a bare date, and the confirm is the one place that says
+    what it means: `Added` stacked over `12 Sep`. Stacked rather than inline,
+    because "Added 12 Sep" on one line leaves 285px for the name and "Abuela
+    phone" is 315px at the display cut -- the ladder would have shrunk the name
+    on the one screen whose whole job is to name a person.
+  - The empty list names its own recovery ("Press ADD to let a phone in"). With
+    the list unheaded there is nothing else on the screen to say what ADD adds.
+- **"In about 24 hours" over "Every 24 hours" was a bug, not a wording
+  problem.** The next check was printed from the INTERVAL, so a reader checked
+  one minute ago and one checked twenty-three hours ago said the same thing. It
+  is `live::nextCheckPhrase` now, computed from `live::decide` -- the same
+  arithmetic that arms the timer on the way into sleep, backoff included -- so
+  the headline cannot promise a check the schedule is not making. `Paused` while
+  the toggle is off, `Soon` with no clock, `Any moment` inside three minutes,
+  otherwise `In 45 minutes` / `In an hour` / `In 5 hours` / `In 2 days`, minutes
+  rounded to five.
+  - The line under it is `live::scheduleNote`, and it takes the whole schedule
+    because two of its three answers are not the interval: `Last check failed.`
+    / `3 checks failed.` in backoff, and `Every 6 hours when on` while the
+    toggle is off. Both were contradictions before. In backoff the headline is
+    the RETRY, so `In 15 minutes` sat over `Every week` with nothing saying the
+    reader could not reach the service; and `Paused` over `Every 6 hours` is the
+    screen saying it is not checking and then naming how often it checks, which
+    is the same defect this layout was built to remove, one line down.
+  - `host-tests/live` walks every band, every interval, both toggle positions
+    and the backoff. `host-tests/wallcaption` links `LiveCore` and drives the
+    real screen with the phrases `live::` composes, **measured in the face that
+    draws them** -- which is the only way to catch this screen's silent failure:
+    `fittedTitle` does not refuse a headline too wide for its cut, it steps it
+    DOWN a rung, and "In about 45 minutes" is 464px at the display cut against a
+    448px body. A suite fed plausible-looking strings could not see it, and the
+    one here was fed "Tomorrow, 6:00" and "Once a day" until it was.
+- **Two staleness bugs the layout made visible.** The headline is derived, so it
+  is wrong the moment it is not recomputed: pairing set the token and saved
+  without recomputing, so the paired screen arrived with its largest element
+  BLANK at the exact moment the feature succeeded (`nextCheckPhrase` answers ""
+  for an unpaired schedule); and `openLive()` did not recompute either, so ten
+  minutes in the grid was ten minutes of drift. Both call `refreshLiveLines()`
+  now, and it keys off `liveConfigured()` rather than the store, because
+  `WALLPAPERS_LIVE_CONFIGURED` makes those two disagree by design.
+  Reproduced and fixed in renders rather than argued: `07-harness-forced.png`
+  against `08-harness-before.png`, whose headline band holds zero ink.
+- Four tappable rows at a finger each plus a full-width ADD SOMEBODY was 145px
+  more than an 800px panel has, and the control that fell off the bottom was the
+  one that adds a phone. That is what put the controls on one row; the headline
+  spends what the third button gave back.
 - The hint strip says when Live is the sleep screen ("Your phone is your sleep
   screen."). It sits third in the strip's order, below the sleep-screen note and
   the free-space advisory (both are news, and a standing line that outranked
@@ -261,7 +378,7 @@ several days it says so outright.
    lists five ways `/sleep.bmp` never reaches the glass. Live must decide
    whether it paints itself or goes through `SleepActivity`, and if the latter,
    what forces the setting. These are different features and it is not decided.
-3. The service, the website, the headless join, backoff, and `park()`.
+3. The headless join, backoff, and `park()`.
 
 ## Not verified
 

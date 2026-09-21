@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.11
+
+- Live: add and remove phones, and a screen that says one thing
+
 ### 1.13.10
 
 - Hearts: the shelf's first trick-taking game

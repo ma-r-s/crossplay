@@ -86,11 +86,18 @@ enum : fui::ActionId {
   ActionKeep = 7,           // the confirm's safe half: leave it alone
   ActionConfirmDelete = 8,  // the only destructive control in this app
   ActionChoose = 9,         // the header chip: enter or leave choose-a-set mode
-  // The Live screen's three controls. None of them is destructive and none of
-  // them shares a pixel with a control that is: the Live screen has no delete.
+  // The Live screen's controls. The first three are not destructive; the last
+  // two are the confirm that stands in front of the one that is.
   ActionLiveToggle = 10,  // start or stop showing what the website sends
   ActionLiveCheck = 11,   // ask the website now instead of at the next check
   ActionLiveAdd = 12,     // let somebody else send to this reader
+  // A row in the sender list. Carries the sender's INDEX as its action value, so
+  // one id covers four rows and the Activity maps the index back to the id the
+  // service named. Values are 0..3 and never negative: a negative action value
+  // is dead to touch in this fork.
+  ActionLiveSender = 13,
+  ActionLiveKeep = 14,    // the confirm's safe half: leave that phone alone
+  ActionLiveRevoke = 15,  // the confirm's destructive half
 };
 
 // ---------------------------------------------------------------------------
@@ -338,6 +345,16 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model);
 // to report and no "now" to show: this screen's whole job is to say when the
 // next check is, how often they come, and who may feed it.
 //
+// ONE OF THOSE THREE IS THE REASON ANYBODY OPENS IT, and the layout says so.
+// The next check is the display cut with nothing above it; the cadence is a
+// small line under it; the three controls are a mark and one word each on one
+// row; the senders are rows that end in an X. The screen it replaces spent
+// NEXT CHECK, HOW OFTEN, CHECK NOW, TURN IT OFF, WHO CAN SEND, TAP TO REMOVE
+// and ADD SOMEBODY on the same facts, and two of those pairs said the same
+// thing twice ("In about 24 hours" over "Every 24 hours") because the next
+// check was computed from the interval rather than from what was left of it.
+// That arithmetic moved to live::nextCheckPhrase, where a test walks it.
+//
 // A CENTRED STACK: the code dominant, the prose and the QR beneath it. Three
 // arrangements were built and rendered side by side (a stack, a numbered rail,
 // and a split with an inverted panel); Mario picked the stack, and the other
@@ -366,10 +383,22 @@ struct LiveModel {
   //
   // nullptr means there is nothing to report and the standing line stands.
   const char* status = nullptr;
-  // PAIRED. Both are sentences the device composes elsewhere, never assembled
-  // per render: a line built inside a paint is a line no test can walk.
-  const char* nextCheck = "";  // "Tomorrow, 6:00"
-  const char* cadence = "";    // "Once a day"
+  // PAIRED, and this pair is the screen's whole hierarchy: `nextCheck` is the
+  // headline at the display cut and `cadence` is the small line under it.
+  //
+  // Both come from live::nextCheckPhrase and live::scheduleNote, never
+  // assembled per render -- a line built inside a paint is a line no test can
+  // walk, and this one is the biggest thing on the panel. They are also short
+  // BY CONSTRUCTION rather than by luck: "In about 45 minutes" measures 464px
+  // at the display cut against a 448px body, so a phrasing an inch longer would
+  // not fail, it would silently drop the headline a rung and the screen would
+  // lose its hierarchy without ever looking broken.
+  const char* nextCheck = "";  // "In 5 hours", "Any moment", "Paused", "Soon"
+  // NOT always the cadence, which is why live::scheduleNote takes the whole
+  // schedule: it is "Last check failed." in backoff, and "Every 6 hours when
+  // on" while the toggle is off. "Paused" over "Every 6 hours" is the screen
+  // saying it is not checking and then naming how often it checks.
+  const char* cadence = "";  // "Every 6 hours", "Every 6 hours when on", "3 checks failed."
   struct Sender {
     const char* who = nullptr;
     const char* since = nullptr;  // when they were let in: "12 Sep"
@@ -378,10 +407,158 @@ struct LiveModel {
   // and read on the render task with no lock between them, and this app has
   // already been bitten once by a container reallocated under a paint -- see
   // SheetModel's sheetIsActive_ above.
+  //
+  // FOUR, and the number here is not the rule. THE SERVICE IS THE ONE THAT
+  // DECIDES: it refuses a fifth phone before a code is minted and answers its
+  // own cap on every /api/senders. This is the size of the array the screen can
+  // draw, kept equal to the service's so a full list fits, and
+  // WallpapersActivity.cpp static_asserts the two against each other so they
+  // cannot drift in silence. A drawing limit is not a limit -- a fifth sender
+  // the service allowed would exist, could write to this fridge, and would be
+  // invisible on the one screen that can revoke it.
   static constexpr int kMaxSenders = 4;
   Sender senders[kMaxSenders];
   int senderCount = 0;
+  // A join code is up: somebody pressed ADD on a reader that is
+  // already paired. The screen shows the CODE half while this is true, which is
+  // the same screen the first setup code uses -- there is one way to be given a
+  // six-digit number here and it looks the same both times.
+  //
+  // `configured` stays true underneath it, because it still is: the reader is
+  // paired, the picture is still on the glass, and Back goes to the list.
+  bool joining = false;
 };
+
+// Does this model put a six-digit code on the screen?
+//
+// Published because TWO readers answer it and one of them is not this file: the
+// Activity binds the 82px cut into FONT_SLOT_SMALL for the code screen and the
+// button cut for the list, and it has to pick the face set BEFORE the screen is
+// built. A second reading of "unpaired, or joining" in the Activity is a second
+// thing to edit alone, and the version that got edited alone would draw the
+// code somebody is reading down a telephone at 20px.
+bool liveShowsCode(const LiveModel& model);
+
+// The sender list, when nobody is on it.
+//
+// A reader with no senders is RECOVERABLE, not broken: the picture already on
+// the glass stays there and ADD is in the row above. It has to say so IN WORDS,
+// because an empty region where content belongs is this fork's most repeated
+// user-visible failure -- twice found by cold testers, both times reported as a
+// crash (a-silent-screen-reads-as-a-crash).
+//
+// It NAMES the control, which it did not until the header said it did. With
+// the list unheaded there is nothing else on the screen to say what ADD adds,
+// so a reader in this state had a button with no antecedent -- and this file
+// claimed otherwise for as long as that was true.
+//
+// It is the one sentence left on this screen, and it is left because there is
+// nothing else in that space to read.
+const char* liveNobodySends();
+
+// The sentence that says which of the two six-digit codes is on the screen.
+//
+// Both halves of this screen show a code under the word LIVE, and only this
+// says whether it makes a fridge or adds a phone to the one that exists.
+// Published so host-tests/wallcaption lays the real string out in the real box,
+// and so a test can assert it is the one drawn while joining -- a screen that
+// went on offering "Send a picture from your phone" over a code meant for
+// somebody else would be telling the wrong person what the code does.
+const char* liveJoinPrompt();
+
+// What says a row is a control, now that no line does.
+//
+// The list carried "WHO CAN SEND" over it and "TAP TO REMOVE" beside that:
+// two headings for rows that are a name and a date. Both are gone and the row
+// ends in an X instead, which is what every list in the world puts at the end
+// of a row you can take out.
+//
+// The affordance is a MARK AND NOT A WORD here, unlike the three controls
+// above, and the difference is deliberate rather than an exception: a word per
+// row is the word four times, and what a person needs before access is
+// destroyed is not a label on the row -- it is the confirm behind it, which
+// NAMES the person and says what removing them costs. Pressing a row to find
+// out is free; pressing REMOVE is not.
+//
+// Published so host-tests/wallcaption can assert the mark is drawn once per
+// row and never on an empty list, which is the assertion that used to be
+// "the hint is on the screen".
+const freeink::Icon& liveRemoveMark();
+
+// ---------------------------------------------------------------------------
+// THE REVOKE CONFIRM, and why its two rectangles are published.
+//
+// Revoking is destructive, remote, and SILENT to the person it happens to: they
+// are in another country and the service tells them nothing. There is no undo
+// and no apology to send. So it gets the same treatment the wallpaper delete
+// got, with one difference that matters: the control the user just pressed is a
+// ROW in a list, and rows move as the list changes.
+//
+// So the same defence is built the same way, one step stronger:
+//
+//   * liveKeepRect() IS liveSendersBand() -- the whole strip the four rows
+//     share, not one row of it. The confirm is reached by pressing SOME row and
+//     the confirm cannot know which finger arrived where, so the safe half
+//     covers every row there is. A second press of the spot that opened it (a
+//     double tap, an impatient repeat during a 0.3-2s e-ink repaint, a finger
+//     that never moved) lands on KEEP whichever row it was. It is a large
+//     button on purpose: it is the safe default on the only screen in Live that
+//     destroys anything.
+//   * liveRevokeRect() lies wholly outside that band. Reaching it takes a
+//     deliberate move to a place no row ever is.
+//
+// liveRevokeRect() used to sit on the pixels ADD SOMEBODY occupied on the list,
+// because the band ended 17px above the foot and there was nowhere else a 64px
+// finger target fitted. It no longer does: the third control moved up beside
+// the other two when the screen lost its headings, so the strip under the band
+// carries nothing on the list at all. host-tests/wallcaption asserts that
+// -- no interaction on the list screen touches this rect -- rather than taking
+// this paragraph's word for it, which is the difference between a defence and
+// a comment about one.
+//
+// All three are measured through the screen rather than taken from the device,
+// because the band is where the rows END UP: it comes out of the face's line
+// heights, and a band written as a constant would stop describing the list the
+// first time a cut changed.
+//
+// The row height does NOT depend on the list. Rows are one height whether they
+// are laid out side by side or stacked, and the band is reserved whether or not
+// it is full, so adding or losing a phone never slides a control under a finger
+// that was already travelling (same-pixel-different-action). It also has to be
+// that way for the confirm to place anything at all: RevokeModel carries a name
+// and no list, so a band that varied with the names would be a band the confirm
+// cannot compute.
+fui::Rect liveSenderRowRect(toybox::Screen& screen, int index);
+fui::Rect liveSendersBand(toybox::Screen& screen);
+fui::Rect liveKeepRect(toybox::Screen& screen);
+fui::Rect liveRevokeRect(toybox::Screen& screen);
+
+// The confirm itself. The name is drawn on its own line, dominant, rather than
+// folded into a sentence: a sentence with a name in it has to be composed, and
+// a line composed inside a paint is a line no test can walk -- which is exactly
+// the line you would want walked before a screen removes somebody's access.
+struct RevokeModel {
+  const char* who = "";
+  const char* since = nullptr;
+};
+void buildLiveRevoke(toybox::Screen& screen, const RevokeModel& model);
+
+// The word the confirm stacks over the date, and the only place on the device
+// that says what a bare "12 Sep" beside a name MEANS.
+//
+// The list's rows cannot carry it: it would be the same word four times over a
+// list whose whole point is that it is short. But a bare date under no heading
+// reads as when that phone last SENT, which is a different fact and the one
+// somebody would act on -- so the screen that is about to remove a person says
+// it, where there is exactly one date and room for a word over it.
+//
+// Published so host-tests/wallcaption can assert it is drawn beside the date
+// rather than a literal here going stale the first time the wording moves.
+const char* liveAddedLabel();
+
+// What removing them actually costs, in the screen's own words. Fixed, and it
+// names no person: the person is the line above it.
+const char* liveRevokeConsequence();
 
 // Every FIXED sentence the Live screen can put in its one status line.
 //
@@ -400,12 +577,20 @@ struct LiveModel {
 // time like any other unbounded string.
 enum class LiveStatus : uint8_t {
   AskingForCode,
+  // ADD, before the service has answered. A separate sentence from
+  // AskingForCode and not a tidier shared one: the two codes mean opposite
+  // things (one makes a fridge, one adds a phone to this one) and the wait is
+  // the only moment the screen can say which is coming.
+  AskingToShare,
   WaitingForPhone,
   Connected,
   Checking,
   NothingNew,
   NewMessage,
-  SharingNotReady,
+  // A revoke that worked. It gets a line because the list refetch that follows
+  // it takes a round trip, and on this panel a control that reports nothing and
+  // a touch that was dropped look exactly alike.
+  Removed,
   Disconnected,
   kCount,
 };

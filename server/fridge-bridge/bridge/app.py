@@ -81,6 +81,62 @@ def pair_start(request: Request) -> JSONResponse:
     return JSONResponse(PAIRINGS.start(fridge_id, device_token))
 
 
+@app.post("/api/pair/join")
+def pair_join(request: Request, authorization: str = Header(default="")) -> JSONResponse:
+    """A code that adds a phone to THIS fridge.
+
+    Separate from /api/pair/start because that one makes a NEW fridge. Wiring
+    "add somebody" to it would have handed the browser a different fridge and
+    silently orphaned the first sender along with the picture on the glass.
+    """
+    token = authorization.removeprefix("Bearer ").strip()
+    fridge = store.fridge_for_device(token) if token else None
+    if fridge is None or not fridge.exists():
+        return refused("This reader is not connected to anything.", 401)
+    if not PAIR_IP.allow(client_ip(request)):
+        return refused("Too many attempts from this address. Try again in a few minutes.")
+    if len(fridge.load().get("senders", [])) >= store.MAX_SENDERS:
+        # Said before a code is minted rather than after somebody types it.
+        return refused(f"This reader already has {store.MAX_SENDERS} phones. Remove one first.", 409)
+    return JSONResponse(PAIRINGS.start(fridge.id, token, joining=True))
+
+
+@app.get("/api/senders")
+def senders(authorization: str = Header(default="")) -> JSONResponse:
+    """Who can send, for the reader's own screen. Never the token, only its
+    hash, which is what the revoke call names."""
+    token = authorization.removeprefix("Bearer ").strip()
+    fridge = store.fridge_for_device(token) if token else None
+    if fridge is None or not fridge.exists():
+        return refused("This reader is not connected to anything.", 401)
+    out = [
+        {"name": s.get("name", "A phone"), "pairedAt": s.get("paired_at", 0), "id": s.get("token_hash", "")[:16]}
+        for s in fridge.load().get("senders", [])
+    ]
+    return JSONResponse({"senders": out, "max": store.MAX_SENDERS})
+
+
+@app.post("/api/senders/revoke")
+async def revoke(request: Request, authorization: str = Header(default="")) -> JSONResponse:
+    """The reader taking a phone's access away.
+
+    Only the reader can do this, and that is the point: when the person who
+    sends is in another country, the device is the one thing anybody can
+    physically reach.
+    """
+    token = authorization.removeprefix("Bearer ").strip()
+    fridge = store.fridge_for_device(token) if token else None
+    if fridge is None or not fridge.exists():
+        return refused("This reader is not connected to anything.", 401)
+    body = await request.json()
+    want = str(body.get("id", ""))
+    for s in fridge.load().get("senders", []):
+        h = s.get("token_hash", "")
+        if h[:16] == want and store.revoke_sender(fridge, h):
+            return JSONResponse({"ok": True, "remaining": len(fridge.load().get("senders", []))})
+    return refused("That phone is not on this reader.", 404)
+
+
 @app.get("/api/pair/poll")
 def pair_poll(pollToken: str = "") -> JSONResponse:
     got = PAIRINGS.poll(pollToken)
@@ -151,12 +207,16 @@ async def claim(request: Request) -> JSONResponse:
     if got is None:
         return refused("That code did not work. Check the reader's screen.", 404)
     fridge = store.Fridge(got["fridge_id"])
-    store.index_token(got["sender_token"], fridge.id)
-    s = fridge.load()
-    s.setdefault("senders", []).append(
-        {"name": "A phone", "paired_at": int(time.time()), "token_hash": token_hash(got["sender_token"])}
-    )
-    fridge.save(s)
+    if not fridge.exists():
+        return refused("That reader is gone.", 404)
+    name = str(body.get("name", "") or "A phone")
+    if not store.add_sender(fridge, got["sender_token"], name):
+        # Refused, never silently rotated. Dropping the oldest to make room
+        # would take a fridge away from whoever had it first and tell nobody,
+        # and the person losing it is the one least able to notice.
+        return refused(
+            f"That reader already has {store.MAX_SENDERS} phones. Remove one on the reader first.", 409
+        )
     resp = JSONResponse({"ok": True, "fridgeId": got["fridge_id"]})
     # Secure follows the scheme the request actually arrived on rather than
     # being hardcoded. In production that is always https (Cloudflare
@@ -228,7 +288,7 @@ async def put_interval(request: Request, live_sender: str = Cookie(default=None)
     except (TypeError, ValueError):
         seconds = 0
     if not store.MIN_INTERVAL_S <= seconds <= store.MAX_INTERVAL_S:
-        return refused("Pick a interval between fifteen minutes and a week.", 400)
+        return refused("Pick an interval between fifteen minutes and a week.", 400)
     s = fridge.load()
     s["interval_s"] = seconds
     fridge.save(s)

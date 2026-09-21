@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "../../src/apps_local/live/LiveCore.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/fonts/reading_serif_14.h"
 #include "../../src/apps_local/ui/fonts/toybox_10.h"
@@ -32,12 +33,17 @@
 #include "../../src/apps_local/ui/fonts/toybox_64.h"
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
 #include "../../src/apps_local/wallpapers/WallpapersScreens.h"
+#include "service_refusals.generated.h"
 
 namespace fui = freeink::ui;
 
 namespace {
 int checks = 0;
 int failed = 0;
+// Reported at the end: how much of the 24-slot interaction table the Live
+// screen spends at its fullest. Printed rather than only bounded, because a
+// budget nobody sees is a budget the next screen quietly overruns.
+int slotsAtFullList = 0;
 std::vector<std::string> firstFailures;
 
 void check(const bool ok, const std::string& what) {
@@ -164,6 +170,22 @@ class LiveTarget final : public fui::DrawTarget {
   };
   std::vector<Run> runs;
 
+  // The MARKS, recorded for the same reason the text is. Since the screen lost
+  // its headings the affordances are icons: three in the control row and one at
+  // the end of every sender row, and "is the mark there" is now the assertion
+  // that "TAP TO REMOVE is on the screen" used to be. A no-op bitmap() would
+  // have let the whole redesign draw nothing and stay green.
+  //
+  // `data` is the icon's bits pointer (fui::bitmapFromIcon), which is how a
+  // mark is told from another mark without the test holding its own copy of
+  // ToyboxIcons.h -- every icon there is `static const`, so an included copy
+  // would be a different object with a different pointer.
+  struct Mark {
+    fui::Rect box;
+    const uint8_t* data = nullptr;
+  };
+  std::vector<Mark> marks;
+
   const EpdFontFamily* familyFor(const fui::FontId font) const {
     // FONT_SLOT_SMALL is the whole difference between the two states: the huge
     // cut while there is a code on the screen, the button cut once there is not.
@@ -188,12 +210,70 @@ class LiveTarget final : public fui::DrawTarget {
     if (text == nullptr || text[0] == '\0') return;
     runs.push_back(Run{box, std::string(text), style});
   }
-  void bitmap(fui::Rect, fui::BitmapRef, fui::BitmapMode, fui::Paint = {},
-              fui::Rotation = fui::Rotation::None) override {}
+  void bitmap(const fui::Rect box, const fui::BitmapRef ref, fui::BitmapMode, fui::Paint = {},
+              fui::Rotation = fui::Rotation::None) override {
+    marks.push_back(Mark{box, ref.data});
+  }
 
  private:
   bool paired_ = false;
 };
+
+// EVERY PAIR OF LINES THE DEVICE CAN PUT AT THE TOP OF THE PAIRED SCREEN,
+// composed by the code that really composes them.
+//
+// The suite used to hand this screen "Tomorrow, 6:00" and "Once a day", which
+// are strings the product cannot emit in any state. They fitted, so everything
+// passed, and the headline's actual failure mode went unmeasured: fittedTitle
+// steps a too-wide title DOWN a cut instead of refusing it, and at the display
+// cut "In about 45 minutes" is 464px against a 448px body. A screen that loses
+// its hierarchy looks fine in every assertion that asks whether text fits.
+//
+// So: every interval the service may ask for, at several points inside each
+// one, both toggle positions and the backoff, through live::nextCheckPhrase and
+// live::scheduleNote -- and then measured in the face that will draw them.
+struct LivePhrases {
+  std::string headline;
+  std::string note;
+};
+
+std::vector<LivePhrases> liveHeadlines() {
+  std::vector<LivePhrases> out;
+  const int64_t base = live::kPlausibleEpochFloor + 1000000;
+  const uint32_t intervals[] = {live::kMinIntervalSeconds, 1800, 3299, 3600, 5400, 21600, 43200, 86400, 172800, 604740,
+                                live::kMaxIntervalSeconds};
+  for (const uint32_t interval : intervals) {
+    for (int on = 0; on < 2; ++on) {
+      for (const int fails : {0, 1, 4, 99}) {
+        // Several moments inside the interval, so every band of the countdown
+        // is reached rather than only the one a single elapsed time lands in.
+        for (const uint32_t part : {0u, 1u, 2u, 4u, 8u, 64u}) {
+          live::Schedule schedule;
+          schedule.on = on == 1;
+          schedule.paired = true;
+          schedule.intervalSeconds = interval;
+          schedule.consecutiveFailures = fails;
+          schedule.lastAttemptEpoch = base;
+          const int64_t now = base + static_cast<int64_t>(part == 0 ? 0 : interval - interval / part);
+          out.push_back(LivePhrases{live::nextCheckPhrase(schedule, now), live::scheduleNote(schedule)});
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// The one example pair, for the blocks that only need A headline rather than
+// every headline. Composed like the rest: nothing in this file types a phrase
+// the device would have to be able to produce.
+LivePhrases liveSample() {
+  live::Schedule schedule;
+  schedule.on = true;
+  schedule.paired = true;
+  schedule.intervalSeconds = 21600;
+  schedule.lastAttemptEpoch = live::kPlausibleEpochFloor + 1000000;
+  return LivePhrases{live::nextCheckPhrase(schedule, schedule.lastAttemptEpoch + 600), live::scheduleNote(schedule)};
+}
 
 fui::DeviceContext device() {
   fui::DeviceContext ctx;
@@ -206,6 +286,14 @@ fui::DeviceContext device() {
 
 bool overlaps(const fui::Rect& a, const fui::Rect& b) {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+// Is `inner` wholly inside `outer`? Used to say which control a mark belongs
+// to: a glyph that merely overlaps a button could be the neighbour's, and a
+// button that owns two marks is a button that has been drawn on twice.
+bool contains(const fui::Rect& outer, const fui::Rect& inner) {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width &&
+         inner.y + inner.height <= outer.y + outer.height;
 }
 
 // What the caption actually draws, by the Activity's own rule: the long name
@@ -790,8 +878,11 @@ int main() {
     wallpapersui::LiveModel model;
     model.code = "482 160";
     model.url = "fridge.ma-r-s.com";
-    model.nextCheck = "Tomorrow, 6:00";
-    model.cadence = "Once a day";
+    // Composed by live::, not typed: see liveHeadlines() above. The whole set
+    // is walked in its own block below; this pair carries the rest of this one.
+    const LivePhrases sample = liveSample();
+    model.nextCheck = sample.headline.c_str();
+    model.cadence = sample.note.c_str();
     model.senders[0] = {"Mario's phone", "12 Sep"};
     model.senders[1] = {"Abuela", "18 Sep"};
     model.senderCount = 2;
@@ -803,6 +894,22 @@ int main() {
       // defect that pair exists to prevent.
       model.configured = state > 0;
       model.on = state == 1;
+      // The line under the headline follows the toggle, because on the device
+      // it does: composing it once for the ON case and drawing it over a
+      // stopped screen is the model telling a lie this screen would then be
+      // asserted to repeat. "Paused" over "Every 6 hours" is the contradiction
+      // the layout was built to remove.
+      live::Schedule shown;
+      shown.on = model.on;
+      shown.paired = model.configured;
+      shown.intervalSeconds = 21600;
+      shown.lastAttemptEpoch = live::kPlausibleEpochFloor + 1000000;
+      const std::string stateNote = live::scheduleNote(shown);
+      const std::string stateHeadline = live::nextCheckPhrase(shown, shown.lastAttemptEpoch + 600);
+      if (model.configured) {
+        model.nextCheck = stateHeadline.c_str();
+        model.cadence = stateNote.c_str();
+      }
       const std::string where = std::string(" [state ") + std::to_string(state) + "]";
 
       // EVERY fixed status sentence goes through the same checks below, plus
@@ -904,11 +1011,25 @@ int main() {
           }
           check(drew(model.nextCheck), "the next check is not on the paired screen" + where);
           check(drew(model.cadence), "how often is not on the paired screen" + where);
-          // The state and its control, read from one bool in two places.
-          check(drew(model.on ? "LIVE IS ON" : "LIVE IS OFF"),
-                "the paired screen does not say whether Live is on" + where);
-          check(drew(model.on ? "TURN IT OFF" : "TURN IT ON"),
-                "the toggle offers the state the screen is already in" + where);
+          // THE HEADLINE KEPT THE HEADLINE'S CUT. fittedTitle steps DOWN
+          // through the bound slots when a string will not fit, so a next-check
+          // phrase an inch too long does not fail -- it quietly arrives at the
+          // same size as the small line under it and the screen loses the
+          // hierarchy that is the whole point of this layout. Nothing else here
+          // could see that: the run fits its box either way.
+          for (const LiveTarget::Run& run : target.runs) {
+            if (run.text != model.nextCheck) continue;
+            check(run.style.font == fui::FONT_SLOT_TITLE,
+                  std::string("the headline \"") + model.nextCheck +
+                      "\" was stepped down a cut to fit, so it is no longer the biggest thing on the screen" + where);
+          }
+          // The state and its control, read from one bool in two places. The
+          // band carries a STATE and the button a VERB, and the two
+          // vocabularies are deliberately different: with one vocabulary both
+          // words are on the screen in both states, and an assertion that each
+          // is drawn cannot fail however the two are wired together.
+          check(drew(model.on ? "ON" : "OFF"), "the paired screen does not say whether Live is on" + where);
+          check(drew(model.on ? "STOP" : "START"), "the toggle offers the state the screen is already in" + where);
 
           // 3. THE CONTROLS ARE TAPPABLE, not merely drawn. A button registered
           //    at no rect is a dead control, which is what ActionAddOwn was on the
@@ -934,6 +1055,66 @@ int main() {
                     "Live controls " + std::to_string(i) + " and " + std::to_string(j) + " overlap" + where);
             }
           }
+
+          // 3b. EACH CONTROL CARRIES A MARK, AND THE THREE MARKS ARE THREE.
+          //
+          // The words are one apiece now, so the mark is half of what tells the
+          // controls apart -- and three controls wearing the same glyph is a row
+          // that says nothing, the same defect chooseChipIcon's two-glyph
+          // assertion exists for. Neither is visible to a check that only reads
+          // text, and a bitmap() that recorded nothing kept all of it green.
+          const uint8_t* controlMarks[3] = {nullptr, nullptr, nullptr};
+          for (int i = 0; i < 3; ++i) {
+            int found = 0;
+            for (const LiveTarget::Mark& mark : target.marks) {
+              if (!contains(hits[i], mark.box)) continue;
+              ++found;
+              controlMarks[i] = mark.data;
+            }
+            check(found == 1, "Live control " + std::to_string(i) + " carries " + std::to_string(found) +
+                                  " marks instead of one" + where);
+          }
+          for (int i = 0; i < 3; ++i) {
+            for (int j = i + 1; j < 3; ++j) {
+              check(controlMarks[i] != nullptr && controlMarks[i] != controlMarks[j],
+                    "Live controls " + std::to_string(i) + " and " + std::to_string(j) +
+                        " wear the same mark, so the row cannot say which is which" + where);
+            }
+          }
+
+          // 3c. AND THE THREE LABELS ARE ONE TYPEFACE.
+          //
+          // Found by opening the render, not by any check here: the labels took
+          // theme().smallText, which resolves to the PROSE face, so fittedTitle
+          // kept "STOP" and "ADD" in the serif and shrank "CHECK" to the button
+          // cut because it alone did not fit. One row, two typefaces, and
+          // nothing failed -- every label fitted the box it was given, which is
+          // all any assertion here was asking. Three words that are meant to be
+          // read as a set have to be set alike, and the ladder will do this
+          // again to whatever the words become.
+          // The cut is named OUTRIGHT rather than compared between the three,
+          // and a missing label is counted rather than inferred from the array.
+          // FONT_SLOT_SMALL is 0 and so is a zero-initialised FontId, so
+          // "nothing was drawn in this button" and "drawn at the button cut"
+          // were the same value: suppressing two of the three label draws
+          // entirely left three zeros, which agreed with each other, and the
+          // suite passed with two empty buttons on the panel.
+          for (int i = 0; i < 3; ++i) {
+            int labels = 0;
+            for (const LiveTarget::Run& run : target.runs) {
+              if (!contains(hits[i], run.box)) continue;
+              ++labels;
+              check(run.style.font == fui::FONT_SLOT_SMALL,
+                    "Live control " + std::to_string(i) + "'s label \"" + run.text +
+                        "\" is not set in the button cut, so the row is two typefaces" + where);
+            }
+            check(labels == 1, "Live control " + std::to_string(i) + " carries " + std::to_string(labels) +
+                                   " labels instead of one word" + where);
+          }
+          // And the words themselves are on the panel. A mark with no word
+          // beside it is the thing this screen is not allowed to be.
+          check(drew("CHECK"), "the check control has lost its word" + where);
+          check(drew("ADD"), "the add control has lost its word" + where);
         }
         check(interactions.count() <= toybox::kMaxInteractions,
               "the Live screen overflows the interaction table" + where);
@@ -941,8 +1122,513 @@ int main() {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // THE SENDER LIST, the confirm that guards it, and the empty state.
+  //
+  // This is the half of the Live screen that TAKES SOMEBODY'S ACCESS AWAY, and
+  // the person it happens to is in another country and is told nothing. So the
+  // assertions here are about two things a screenshot cannot show: that a name
+  // arrives whole (a sender's name that stops mid-word is a list of people with
+  // a person cut out of it, and no Toybox cut above toybox_10 carries an
+  // ellipsis to mark it), and that the confirm's two halves sit where the
+  // safety argument says they sit.
+  {
+    fui::DeviceContext ctx = device();
+    ctx.safeArea = fui::Insets{10, 1, 0, 1};
+    const fui::Rect panelRect = fui::makeRect(0, 0, ctx.width, ctx.height);
+    const fui::InputSnapshot noInput{};
+
+    // THE REAL CORPUS, not names invented here. The browser names itself from
+    // its user agent and browserName() in server/fridge-bridge/static/index.html
+    // has exactly seven outputs; the service then caps anything else at 24
+    // characters (store.add_sender: name[:24]), which is the backstop against a
+    // hand-written POST. So the widest case this screen can be handed is 24
+    // characters, and it is walked here beside the seven real ones.
+    const char* kRealNames[] = {"iPhone", "iPad", "Android phone", "Mac", "Windows PC", "Linux", "A phone"};
+    const char* kWidest = "WWWWWWWWWWWWWWWWWWWWWWWW";  // 24, the service's cap, at its widest glyph
+
+    // Is this run the name `want`, drawn whole or visibly cut?
+    //
+    // A name the panel cannot hold is cut with toybox's "..." -- three ASCII
+    // periods, which every cut in this face set can really draw. That matters
+    // more than it looks: no Toybox face above toybox_10 carries U+2026, so a
+    // unicode ellipsis would be a HOLE and the name would stop at a plausible
+    // place with the screenshot looking fine (typography-fold). So a name is
+    // accounted for if it is there verbatim, or there as its own prefix
+    // followed by the mark -- and never as a bare prefix.
+    const auto isName = [](const std::string& run, const std::string& want) {
+      if (run == want) return true;
+      if (run.size() < 4 || run.compare(run.size() - 3, 3, "...") != 0) return false;
+      const std::string body = run.substr(0, run.size() - 3);
+      return !body.empty() && body.size() < want.size() && want.compare(0, body.size(), body) == 0;
+    };
+
+    // ---------------------------------------------------------------------
+    // THE FULL LIST. Four phones, which is the cap, so this is the tallest the
+    // screen can be -- and the state that pushed the add control off the bottom
+    // when the rows were still untappable text.
+    for (int names = 0; names < 2; ++names) {
+      wallpapersui::LiveModel model;
+      model.configured = true;
+      model.on = true;
+      const LivePhrases sample = liveSample();
+      model.nextCheck = sample.headline.c_str();
+      model.cadence = sample.note.c_str();
+      model.senderCount = wallpapersui::LiveModel::kMaxSenders;
+      for (int i = 0; i < model.senderCount; ++i) {
+        model.senders[i].who = names == 0 ? kRealNames[i] : kWidest;
+        model.senders[i].since = "12 Sep";
+      }
+      const std::string where = names == 0 ? " [real names]" : " [24-char names]";
+
+      LiveTarget target(true);
+      toybox::Interactions interactions;
+      toybox::Frame frame(target, ctx, noInput, interactions);
+      toybox::Screen screen(frame);
+      wallpapersui::buildLive(screen, model);
+
+      // 1. EVERY RUN WHOLE AND ON THE PANEL. The same two assertions the
+      //    screen's other half gets, because the names are the one set of
+      //    strings on it that nobody here chose the width of.
+      for (const LiveTarget::Run& run : target.runs) {
+        const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+        const std::string laid = toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style);
+        check(laid == run.text, "the panel cuts \"" + run.text + "\" to \"" + laid + "\" in a " +
+                                    std::to_string(run.box.width) + "px box" + where);
+        check(run.box.y >= 0 && run.box.y + run.box.height <= panelRect.height,
+              "\"" + run.text + "\" runs off the bottom of the panel" + where);
+      }
+      // Every FIXED string arrives uncut, the same assertion the screen's other
+      // half gets. A NAME is exempt and the exemption is the point: it comes
+      // from a browser's user agent, so it is the one string here nobody chose
+      // the width of, and a service that raised its 24-character cap could hand
+      // this screen anything. What a name may not do is stop SILENTLY, which is
+      // asserted below.
+      for (const LiveTarget::Run& run : target.runs) {
+        bool fromAName = false;
+        for (int i = 0; i < model.senderCount; ++i) {
+          if (isName(run.text, model.senders[i].who)) fromAName = true;
+        }
+        if (fromAName) continue;
+        check(run.text.size() < 3 || run.text.compare(run.text.size() - 3, 3, "...") != 0,
+              "\"" + run.text + "\" reached the panel already cut to fit" + where);
+      }
+
+      // 2. EVERY NAME IS THERE, whole or visibly marked. A row that fits is
+      //    not a row that happened.
+      for (int i = 0; i < model.senderCount; ++i) {
+        bool shown = false;
+        for (const LiveTarget::Run& run : target.runs) {
+          if (isName(run.text, model.senders[i].who)) shown = true;
+        }
+        check(shown, std::string("sender \"") + model.senders[i].who +
+                         "\" is neither on the full list nor visibly cut from it" + where);
+      }
+      // EVERY ROW ENDS IN THE REMOVE MARK, exactly once. This replaces the
+      // "TAP TO REMOVE" heading the list used to carry: without some
+      // affordance the four names are a list of facts, and the only way to
+      // discover that pressing one does anything is to press one -- on the half
+      // of the screen that takes somebody's access away. The mark is the
+      // affordance now, so the mark is what is asserted.
+      for (int i = 0; i < model.senderCount; ++i) {
+        const fui::Rect row = wallpapersui::liveSenderRowRect(screen, i);
+        int marks = 0;
+        for (const LiveTarget::Mark& mark : target.marks) {
+          if (contains(row, mark.box) && mark.data == wallpapersui::liveRemoveMark().bits) ++marks;
+        }
+        check(marks == 1, "sender row " + std::to_string(i) + " carries " + std::to_string(marks) +
+                              " remove marks instead of one, so the row does not say it is a control" + where);
+      }
+
+      // 3. EVERY ROW IS TAPPABLE, at the rect the confirm reads back, carrying
+      //    its own index. A row drawn and not registered is a control that does
+      //    nothing, which is what ActionAddOwn was for a whole release.
+      const fui::Rect band = wallpapersui::liveSendersBand(screen);
+      for (int i = 0; i < model.senderCount; ++i) {
+        const fui::Rect want = wallpapersui::liveSenderRowRect(screen, i);
+        bool found = false;
+        for (size_t h = 0; h < interactions.count(); ++h) {
+          const auto& hit = interactions.data()[h];
+          if (hit.action != wallpapersui::ActionLiveSender || hit.value != i) continue;
+          found = true;
+          check(hit.rect.x == want.x && hit.rect.y == want.y && hit.rect.width == want.width &&
+                    hit.rect.height == want.height,
+                "sender row " + std::to_string(i) + " is registered somewhere other than where it is drawn" + where);
+        }
+        check(found, "sender row " + std::to_string(i) + " is drawn but not tappable" + where);
+        check(want.height >= ctx.minTouchSize,
+              "sender row " + std::to_string(i) + " is under a finger tall, so it is a control that misses" + where);
+        check(want.y >= band.y && want.bottom() <= band.bottom(),
+              "sender row " + std::to_string(i) + " falls outside the band the confirm reserves for it" + where);
+        // The value is never negative: a negative action value is dead to touch
+        // in this fork, so a row carrying one would silently not exist.
+        check(i >= 0, "a sender row would carry a negative action value" + where);
+      }
+      for (int i = 0; i < model.senderCount; ++i) {
+        for (int j = i + 1; j < model.senderCount; ++j) {
+          check(!overlaps(wallpapersui::liveSenderRowRect(screen, i), wallpapersui::liveSenderRowRect(screen, j)),
+                "sender rows " + std::to_string(i) + " and " + std::to_string(j) + " share pixels" + where);
+        }
+      }
+
+      // 4. AND THE THREE ORDINARY CONTROLS SURVIVED THE LIST. The full list is
+      //    the state that used to push the add control off the bottom of an
+      //    800px panel -- the control that adds a phone, gone on the screen
+      //    that has four of them.
+      const fui::ActionId wanted[3] = {wallpapersui::ActionLiveToggle, wallpapersui::ActionLiveCheck,
+                                       wallpapersui::ActionLiveAdd};
+      for (const fui::ActionId id : wanted) {
+        fui::Rect hit{};
+        for (size_t h = 0; h < interactions.count(); ++h) {
+          if (interactions.data()[h].action == id) hit = interactions.data()[h].rect;
+        }
+        check(hit.width > 0 && hit.height >= ctx.minTouchSize,
+              "a Live control is not tappable with four phones listed" + where);
+        check(hit.y >= 0 && hit.bottom() <= panelRect.height,
+              "a Live control is registered off the panel with four phones listed" + where);
+      }
+      check(interactions.count() <= toybox::kMaxInteractions,
+            "the full sender list overflows the interaction table" + where);
+      // The interaction budget, REPORTED rather than merely bounded: three
+      // controls and four rows is seven of twenty-four, and a number printed
+      // every run is what makes the next person's spend visible to them.
+      slotsAtFullList = static_cast<int>(interactions.count());
+
+      // 5. AND THE STRIP THE CONFIRM'S REMOVE LANDS ON CARRIES NOTHING HERE.
+      //
+      // It used to be ADD SOMEBODY's pixels, which was accepted with an
+      // argument about the reveal gate refusing taps against a table the panel
+      // has not shown. Moving the third control up beside the other two ended
+      // that overlap, and this is the assertion that keeps it ended -- the
+      // header claims it in prose, and a claim nothing checks goes stale the
+      // first time the layout moves.
+      const fui::Rect revoke = wallpapersui::liveRevokeRect(screen);
+      for (size_t h = 0; h < interactions.count(); ++h) {
+        check(!overlaps(revoke, interactions.data()[h].rect),
+              "a control on the list sits where the confirm's REMOVE will be" + where);
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // EVERY HEADLINE THE DEVICE CAN COMPOSE, IN THE FACE THAT DRAWS IT.
+    //
+    // This is the assertion the screen's hierarchy rests on, and it is the one
+    // nothing else here can make. fittedTitle does not refuse a title too wide
+    // for its cut -- it steps DOWN a rung and returns it whole -- so a headline
+    // an inch too long passes every "does the text fit" check in this file and
+    // arrives the same size as the small line under it. "In about 45 minutes"
+    // is 464px at toybox_30 against a 448px body, which is how close this is.
+    //
+    // Walked over every interval the service may ask for, at several moments
+    // inside each, both toggle positions and the backoff, with the phrases
+    // composed by live:: rather than typed here.
+    {
+      const std::vector<LivePhrases> phrases = liveHeadlines();
+      check(phrases.size() > 100, "the headline sweep is too small to have covered the bands");
+      for (const LivePhrases& pair : phrases) {
+        wallpapersui::LiveModel model;
+        model.configured = true;
+        model.on = true;
+        model.nextCheck = pair.headline.c_str();
+        model.cadence = pair.note.c_str();
+        model.senderCount = 2;
+        model.senders[0] = {kRealNames[0], "12 Sep"};
+        model.senders[1] = {kWidest, "12 Sep"};
+
+        LiveTarget target(true);
+        toybox::Interactions interactions;
+        toybox::Frame frame(target, ctx, noInput, interactions);
+        toybox::Screen screen(frame);
+        wallpapersui::buildLive(screen, model);
+
+        bool headlineDrawn = false;
+        bool noteDrawn = false;
+        for (const LiveTarget::Run& run : target.runs) {
+          if (run.text == pair.headline) {
+            headlineDrawn = true;
+            check(run.style.font == fui::FONT_SLOT_TITLE,
+                  "the headline \"" + pair.headline +
+                      "\" was stepped down a cut to fit, so it is no longer the biggest thing on the screen");
+          }
+          if (run.text == pair.note) noteDrawn = true;
+          const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+          const std::string laid = toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style);
+          check(laid == run.text,
+                "the panel cuts \"" + run.text + "\" to \"" + laid + "\" with headline \"" + pair.headline + "\"");
+        }
+        check(headlineDrawn, "the headline \"" + pair.headline + "\" never reached the panel");
+        check(noteDrawn, "the line \"" + pair.note + "\" under headline \"" + pair.headline + "\" never reached it");
+        // The two lines must not say the same thing. "Paused" over "Every 6
+        // hours" and "In 15 minutes" over "Every week" are both the screen
+        // contradicting itself, and both shipped before this check existed.
+        check(pair.headline != pair.note, "the headline and the line under it are the same string");
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // THE EMPTY LIST. A reader whose last phone was just removed. It is
+    // RECOVERABLE, not broken: the picture stays on the glass and ADD is
+    // still there. An empty region where content belongs is this fork's most
+    // repeated user-visible failure, reported as a crash by cold testers twice.
+    {
+      wallpapersui::LiveModel model;
+      model.configured = true;
+      model.on = true;
+      const LivePhrases sample = liveSample();
+      model.nextCheck = sample.headline.c_str();
+      model.cadence = sample.note.c_str();
+      model.senderCount = 0;
+
+      LiveTarget target(true);
+      toybox::Interactions interactions;
+      toybox::Frame frame(target, ctx, noInput, interactions);
+      toybox::Screen screen(frame);
+      wallpapersui::buildLive(screen, model);
+
+      bool saidSo = false;
+      for (const LiveTarget::Run& run : target.runs) {
+        if (run.text == wallpapersui::liveNobodySends()) saidSo = true;
+        const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+        const std::string laid = toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style);
+        check(laid == run.text, "the empty list cuts \"" + run.text + "\" to \"" + laid + "\"");
+      }
+      check(saidSo, "a reader with no senders says nothing, so it reads as a screen that failed to load");
+      // And the way out is still on it.
+      bool canAdd = false;
+      for (size_t h = 0; h < interactions.count(); ++h) {
+        if (interactions.data()[h].action == wallpapersui::ActionLiveAdd) canAdd = true;
+        check(interactions.data()[h].action != wallpapersui::ActionLiveSender,
+              "an empty list registered a sender row, so a tap would confirm removing nobody");
+      }
+      check(canAdd, "a reader with no senders cannot add one, which is a dead end rather than an empty list");
+      // And no remove mark is drawn: a mark that says "take this one out" over
+      // a list with nothing in it is an affordance for a control that is not on
+      // the screen.
+      for (const LiveTarget::Mark& mark : target.marks) {
+        check(mark.data != wallpapersui::liveRemoveMark().bits,
+              "the empty list still draws a remove mark, so it offers to take out a row that is not there");
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // ADD's CODE. A paired reader showing a six-digit number: the same
+    // screen the first setup code uses, which is what liveShowsCode exists to
+    // keep true in both the face the Activity binds and the stack this builds.
+    {
+      wallpapersui::LiveModel model;
+      model.configured = true;
+      model.on = true;
+      model.joining = true;
+      model.code = "482 160";
+      model.url = "fridge.ma-r-s.com";
+      const LivePhrases sample = liveSample();
+      model.nextCheck = sample.headline.c_str();
+      model.cadence = sample.note.c_str();
+      model.senderCount = 1;
+      model.senders[0] = {"iPhone", "12 Sep"};
+
+      check(wallpapersui::liveShowsCode(model),
+            "a paired reader minting a join code does not report that it is showing one, so the Activity would "
+            "bind the button cut and draw a telephone number at 20px");
+      LiveTarget target(false);  // the code cut, exactly as the Activity binds it
+      toybox::Interactions interactions;
+      toybox::Frame frame(target, ctx, noInput, interactions);
+      toybox::Screen screen(frame);
+      const fui::Rect qr = wallpapersui::buildLive(screen, model);
+
+      bool drewCode = false;
+      for (const LiveTarget::Run& run : target.runs) {
+        if (run.text == model.code) drewCode = true;
+        const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+        const std::string laid = toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style);
+        check(laid == run.text, "the join screen cuts \"" + run.text + "\" to \"" + laid + "\"");
+        check(run.box.y >= 0 && run.box.y + run.box.height <= panelRect.height,
+              "\"" + run.text + "\" runs off the panel on the join screen");
+      }
+      check(drewCode, "the join code is not on the screen");
+      check(qr.width > 0 && qr.height > 0, "the join screen asks for no QR, so the code cannot be scanned");
+      // It says WHICH code this is. Both halves of the screen are six digits
+      // under the word LIVE, and the person typing this one has to know it adds
+      // a phone rather than replacing the one already sending.
+      bool saidWhichCode = false;
+      for (const LiveTarget::Run& run : target.runs) {
+        if (run.text == wallpapersui::liveJoinPrompt()) saidWhichCode = true;
+      }
+      check(saidWhichCode,
+            "the join code screen never says this code ADDS a phone, so it reads as the setup code that "
+            "replaces one");
+      // And no sender row is live behind it: the list is not on this screen, so
+      // a remembered tap must not reach a row that is not drawn.
+      for (size_t h = 0; h < interactions.count(); ++h) {
+        check(interactions.data()[h].action != wallpapersui::ActionLiveSender,
+              "a sender row is registered on the join code screen, where no row is drawn");
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // THE SERVICE'S OWN SENTENCES, in the region that has to hold them.
+    //
+    // A bridge refusal is drawn verbatim: the device does not get to reword a
+    // decision somebody else made (BridgeHttp.h). So these are not the device's
+    // strings to shorten, and the screen has to be built to take them. The list
+    // is GENERATED from server/fridge-bridge/bridge/app.py by run.sh, because a
+    // copy typed here would go on measuring the old sentences after the service
+    // edited one and stay green while the panel cut the new one.
+    //
+    // The failure this catches is one a screenshot showed and no assertion did:
+    // "This reader already has 4 phones. Remove one first." reached the panel as
+    // "This reader already has 4 phones...." -- drawn on the single foot line,
+    // with the only actionable half of it gone.
+    for (const char* refusal : kServiceRefusals) {
+      wallpapersui::LiveModel model;
+      model.configured = true;
+      model.on = true;
+      const LivePhrases sample = liveSample();
+      model.nextCheck = sample.headline.c_str();
+      model.cadence = sample.note.c_str();
+      model.status = refusal;
+      // The FULL list, because that is when the report region is most boxed in
+      // and when the cap refusal actually happens.
+      model.senderCount = wallpapersui::LiveModel::kMaxSenders;
+      for (int i = 0; i < model.senderCount; ++i) model.senders[i] = {kRealNames[i], "12 Sep"};
+
+      LiveTarget target(true);
+      toybox::Interactions interactions;
+      toybox::Frame frame(target, ctx, noInput, interactions);
+      toybox::Screen screen(frame);
+      wallpapersui::buildLive(screen, model);
+
+      bool reported = false;
+      for (const LiveTarget::Run& run : target.runs) {
+        if (run.text == std::string(refusal)) reported = true;
+        const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+        const std::string laid = toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style);
+        check(laid == run.text, std::string("the panel cuts the service's \"") + run.text + "\" to \"" + laid +
+                                    "\" in a " + std::to_string(run.box.width) + "px box");
+        check(run.box.y >= 0 && run.box.y + run.box.height <= panelRect.height,
+              std::string("\"") + run.text + "\" runs off the panel while reporting a refusal");
+      }
+      check(reported, std::string("the service said \"") + refusal +
+                          "\" and the reader drew something else, so the user is told a sentence nobody sent");
+    }
+    // ---------------------------------------------------------------------
+    // THE CONFIRM. Reached only by pressing a row, and the one screen in Live
+    // that destroys anything.
+    for (int names = 0; names < 2; ++names) {
+      for (int dated = 0; dated < 2; ++dated) {
+        wallpapersui::RevokeModel model;
+        model.who = names == 0 ? "Android phone" : kWidest;
+        model.since = dated == 0 ? "12 Sep" : nullptr;
+        const std::string where =
+            std::string(names == 0 ? " [real name]" : " [24-char name]") + (dated == 0 ? " [dated]" : " [no date]");
+
+        LiveTarget target(true);
+        toybox::Interactions interactions;
+        toybox::Frame frame(target, ctx, noInput, interactions);
+        toybox::Screen screen(frame);
+        wallpapersui::buildLiveRevoke(screen, model);
+
+        // 1. IT NAMES WHO, and the name arrives whole. A confirm that removes
+        //    "Android pho" is a confirm about somebody the reader cannot check.
+        bool named = false;
+        bool explained = false;
+        for (const LiveTarget::Run& run : target.runs) {
+          if (isName(run.text, model.who)) named = true;
+          if (run.text == wallpapersui::liveRevokeConsequence()) explained = true;
+          const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+          const std::string laid = toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style);
+          check(laid == run.text, "the confirm cuts \"" + run.text + "\" to \"" + laid + "\" in a " +
+                                      std::to_string(run.box.width) + "px box" + where);
+          // The name is exempt for the reason it is on the list, and nothing
+          // else on this screen is: every other string here is one this file
+          // chose the width of.
+          check(isName(run.text, model.who) || run.text.size() < 3 ||
+                    run.text.compare(run.text.size() - 3, 3, "...") != 0,
+                "\"" + run.text + "\" reached the confirm already cut to fit" + where);
+          check(run.box.y >= 0 && run.box.y + run.box.height <= panelRect.height,
+                "\"" + run.text + "\" runs off the panel on the confirm" + where);
+        }
+        check(named, "the confirm does not name who is being removed" + where);
+        check(explained,
+              "the confirm does not say what removing them costs, so it asks for a decision with nothing to "
+              "decide on" +
+                  where);
+        if (dated == 0) {
+          bool dateShown = false;
+          bool labelShown = false;
+          for (const LiveTarget::Run& run : target.runs) {
+            if (run.text == std::string(model.since)) dateShown = true;
+            if (run.text == std::string(wallpapersui::liveAddedLabel())) labelShown = true;
+          }
+          check(dateShown, "the confirm drops the date the list showed beside the name" + where);
+          // And says what it is. The rows show a bare date under no heading,
+          // which reads as when that phone last SENT; this is the one screen
+          // with room to define it, and the one where acting on the wrong
+          // reading takes somebody's access away.
+          check(labelShown, "the confirm shows a bare date, so nothing on the device says what it means" + where);
+        }
+        // The name keeps the display cut. Writing the label INLINE with the
+        // date ("Added 12 Sep", 147px) left 285px for a name, and "Abuela
+        // phone" is 315px there -- the ladder would have stepped the name down
+        // a rung on the one screen whose whole job is to name a person.
+        for (const LiveTarget::Run& run : target.runs) {
+          if (!isName(run.text, model.who)) continue;
+          if (std::string(model.who) == kWidest) continue;  // 24 W's fits no cut, by construction
+          check(run.style.font == fui::FONT_SLOT_TITLE,
+                "the confirm's name \"" + run.text + "\" was stepped down a cut to make room beside it" + where);
+        }
+
+        // 2. THE SAFE HALF COVERS EVERY ROW. The confirm cannot know which row
+        //    the finger came from, so a repeat of that press has to land on
+        //    KEEP whichever row it was.
+        const fui::Rect keep = wallpapersui::liveKeepRect(screen);
+        const fui::Rect band = wallpapersui::liveSendersBand(screen);
+        check(keep.x == band.x && keep.y == band.y && keep.width == band.width && keep.height == band.height,
+              "KEEP is not the sender band, so a second press of the row that opened this confirm falls "
+              "somewhere else" +
+                  where);
+        for (int i = 0; i < wallpapersui::LiveModel::kMaxSenders; ++i) {
+          const fui::Rect row = wallpapersui::liveSenderRowRect(screen, i);
+          check(row.y >= keep.y && row.bottom() <= keep.bottom(),
+                "row " + std::to_string(i) + " is not covered by KEEP" + where);
+        }
+
+        // 3. AND THE DESTRUCTIVE HALF TOUCHES NO ROW. Reaching it takes a
+        //    deliberate move to a place no row ever is.
+        const fui::Rect revoke = wallpapersui::liveRevokeRect(screen);
+        check(!overlaps(revoke, band),
+              "REVOKE overlaps the band the rows occupy, so a finger that never moved could destroy access" + where);
+        for (int i = 0; i < wallpapersui::LiveModel::kMaxSenders; ++i) {
+          check(!overlaps(revoke, wallpapersui::liveSenderRowRect(screen, i)),
+                "REVOKE shares pixels with row " + std::to_string(i) + where);
+        }
+
+        // 4. BOTH ARE REALLY TAPPABLE, and nothing else on this screen is.
+        fui::Rect keepHit{};
+        fui::Rect revokeHit{};
+        for (size_t h = 0; h < interactions.count(); ++h) {
+          const auto& hit = interactions.data()[h];
+          if (hit.action == wallpapersui::ActionLiveKeep) keepHit = hit.rect;
+          if (hit.action == wallpapersui::ActionLiveRevoke) revokeHit = hit.rect;
+          check(hit.action != wallpapersui::ActionLiveSender && hit.action != wallpapersui::ActionLiveAdd &&
+                    hit.action != wallpapersui::ActionLiveCheck && hit.action != wallpapersui::ActionLiveToggle,
+                "a control from the list is still registered on the confirm" + where);
+        }
+        check(keepHit.height >= ctx.minTouchSize, "KEEP is drawn but not tappable" + where);
+        check(keepHit.y == keep.y && keepHit.height == keep.height,
+              "KEEP is registered somewhere other than the band, so its ink and its target disagree" + where);
+        check(revokeHit.height >= ctx.minTouchSize, "REVOKE is drawn but not tappable" + where);
+        check(revokeHit.y >= 0 && revokeHit.bottom() <= panelRect.height, "REVOKE is registered off the panel" + where);
+        check(!overlaps(keepHit, revokeHit), "the confirm's two halves share pixels" + where);
+        check(interactions.count() <= toybox::kMaxInteractions, "the confirm overflows the interaction table" + where);
+      }
+    }
+  }
+
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,
               wallpapersui::captionRect(g, 0).width, wallpapersui::captionRect(g, 0).width - widest);
+  std::printf("wallcaption: Live spends %d of %d interaction slots with four phones listed\n", slotsAtFullList,
+              static_cast<int>(toybox::kMaxInteractions));
   std::printf("wallcaption: %d checks, %d failed\n", checks, failed);
   for (const std::string& f : firstFailures) std::printf("  FAIL: %s\n", f.c_str());
   return failed == 0 ? 0 : 1;
