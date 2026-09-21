@@ -23,7 +23,7 @@ Everything above the marker is written by hand.
 
 ### 1.13.15
 
-- The QR carried a stub code, the next check had no time, and the upload had no way in
+- Live: the QR carried a stub code, the next check had no time, and the upload had no way in
 
 ### 1.13.14
 
