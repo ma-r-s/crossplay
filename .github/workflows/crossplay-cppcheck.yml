@@ -1,0 +1,83 @@
+# cppcheck, out of the release's way.
+#
+# It lived in crossplay-ci.yml and took eleven minutes of a twenty-minute
+# workflow. crossplay-autorelease.yml fires on the CrossPlay workflow's
+# COMPLETION, so every release waited for a static analyser that cannot
+# change a byte of what ships. Mario, 2026-09-21, after a night of them:
+# "I want it to take two minutes max."
+#
+# Still on every pull request and every push to xteink, still blocking on high
+# severity; it just no longer stands between a merge and a device. A defect it
+# finds is a card, and the release it did not hold up can be demoted in
+# seconds, which is the same trade the rest of this pipeline makes.
+name: CrossPlay cppcheck
+
+on:
+  push:
+    branches: [xteink]
+    paths-ignore:
+      - 'site/emulator/**'
+      - 'site/emulator-manifest.json'
+      - '**/*.md'
+      - '*.md'
+      - 'docs/**'
+      - '!docs/release-notes.md'
+      - '!docs/release-body.md'
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - '*.md'
+      - 'docs/**'
+      - '!docs/release-notes.md'
+      - '!docs/release-body.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crossplay-cppcheck-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/xteink' }}
+
+jobs:
+  cppcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      # PlatformIO's tool-cppcheck binary links against libpcre3, which the
+      # ubuntu-latest runner stopped shipping; without it `pio check` reports
+      # "Failed to execute check command! Exited with code 127" for every
+      # file, which reads like a broken analysis and is a missing library.
+      # Upstream's ci.yml carries the same step for the same reason.
+      - name: Install cppcheck runtime dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpcre3
+
+      # High severity blocks: that is the class that names a real bug (a
+      # reference to a temporary, in the one finding the fork had). The medium
+      # and low findings (18 and 374 on 2026-09-04) are card #136's backlog;
+      # this job's log lists them on every run, so the number is never a guess.
+      - name: cppcheck, high severity blocks
+        run: pio check --fail-on-defect high

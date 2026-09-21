@@ -110,6 +110,28 @@ jobs:
             ~/.platformio
             ~/.cache/pip
           key: pio-release-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-release-
+
+      # The objects CI already compiled for this code. `build_cache_dir =
+      # .cache` has been in platformio.ini all along and nothing cached it, so
+      # every tag rebuilt the firmware from cold: ten to fifteen minutes to
+      # produce images whose sources CI had compiled minutes before. The only
+      # files that genuinely differ at a tag are the ones carrying the version
+      # the bump commit wrote, so a warm cache makes this a recompile of a
+      # handful of translation units and a link.
+      #
+      # restore-keys is what makes it work across the bump: the exact key will
+      # never hit (it carries this run's id), the branch's newest cache does.
+      # PlatformIO hashes each object's own inputs, so anything the bump
+      # changed is a miss and is rebuilt; nothing stale can reach a device.
+      - name: Reuse the compiled objects
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: objs-${{ runner.os }}-release-${{ github.run_id }}
+          restore-keys: |
+            objs-${{ runner.os }}-ci-
+            objs-${{ runner.os }}-
 
       # The SAME build every other workflow uses. This said `pip install
       # --upgrade platformio`, which is both unpinned and a different
