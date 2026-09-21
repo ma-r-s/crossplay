@@ -78,29 +78,18 @@ fui::StyleSet knockedOutStyles() {
   return styles;
 }
 
-// A label that STEPS ITS CUT DOWN rather than running over its neighbour.
+// NOTHING IN THIS APP FITS ITSELF. There used to be a fittedLabel here that
+// stepped a string down a cut rather than let it run over its neighbour, and it
+// caused more damage than the overflows it prevented: one rail name at half the
+// size of the other three, one rules page at three sizes with a sentence split
+// across two of them, and a status line that dropped two cuts and then left
+// half its own box empty. Its last three callers were exactly the three strings
+// host-tests/fittedtitle did not assert, which is the same shape that produced
+// the status-line defect: the boundary of the coverage and the boundary of the
+// risk were complements.
 //
-// label() below draws at the cut it is given and the text layer does not clip,
-// so a word wider than its box is simply painted across whatever is next to it:
-// "NORTH" at the UI cut is 107px in a 108px slot and its plaque's points pill
-// starts at 126, so the two overlapped by nine pixels and the rail read
-// "NORTH+4". fittedTitle is the fork's own answer -- pick the largest cut the
-// string fits in, and only break a word when the smallest still overflows.
-void fittedLabel(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::FontId font,
-                 const fui::TextAlign align, const bool white) {
-  fui::TextStyle style;
-  style.font = font;
-  style.align = align;
-  style.color = white ? fui::Color::White : fui::Color::Black;
-  const std::string drawn = toybox::fittedTitle(screen.target(), text, box.width, style);
-  // The cut fittedTitle chose decides where the ink has to sit, so the box is
-  // re-centred against THAT cut rather than the one we asked for.
-  const toybox::CutMetrics& cut = style.font == toybox::kSmallFont
-                                      ? toybox::kTileCut
-                                      : (style.font == toybox::kDisplayFont ? toybox::kDisplayCut : toybox::kUiCut);
-  screen.target().text(toybox::inkCentred(box, cut), drawn.c_str(), style);
-}
-
+// Every string is drawn at a chosen cut and measured in the real face instead,
+// so a string that does not fit is a string to rewrite.
 void label(toybox::Screen& screen, const fui::Rect& box, const char* text, const toybox::CutMetrics& cut,
            const fui::FontId font, const fui::TextAlign align, const bool white) {
   fui::TextStyle style;
@@ -116,7 +105,7 @@ void label(toybox::Screen& screen, const fui::Rect& box, const char* text, const
 //
 // The seat ON TURN is inverted. Solid black is the loudest thing this panel has
 // and it is normally unaffordable on a surface that repaints, but a plaque is
-// 224x54 and changes once per play: the rule is area times frequency, and this
+// 244x48 and changes once per play: the rule is area times frequency, and this
 // is small enough to spend.
 //
 // A SEAT THAT HAS TAKEN NOTHING SHOWS NOTHING. The first version drew a "-" in
@@ -134,11 +123,10 @@ void seatPlaque(toybox::Screen& screen, const fui::Rect& box, const SeatView& se
   target.fill(box, invert ? black : white, 8);
   target.stroke(box, black, invert ? 0 : toybox::kHairline, 8);
 
-  // The name gets whatever the numbers leave it, and steps its cut down if that
-  // is not enough. Derived from the box rather than typed, so widening the rail
-  // widens the name instead of leaving a gap nobody notices.
-  // ONE CUT FOR ALL FOUR, never fitted per name: the box is sized so the
-  // longest seat name fits at the shared cut, which is what keeps them a set.
+  // ONE CUT FOR ALL FOUR, never fitted per name: the box is sized so the longest
+  // seat name fits at the shared cut, which is what keeps them a set. The width
+  // is derived from what the numbers leave, so widening the rail widens the name
+  // rather than opening a gap nobody notices.
   const int16_t pad = 12;
   const int16_t pillW = 40;
   const int16_t totalW = 42;
@@ -241,8 +229,8 @@ void drawPassPanel(toybox::Screen& screen, const fui::Rect& panel, const BoardMo
 
   char heading[48];
   std::snprintf(heading, sizeof(heading), "PASSING %s", direction);
-  fittedLabel(screen, fui::makeRect(panel.x + 28, static_cast<int16_t>(panel.y + 14), panel.width - 56, 40), heading,
-              toybox::kUiFont, fui::TextAlign::Left, false);
+  label(screen, fui::makeRect(panel.x + 28, static_cast<int16_t>(panel.y + 14), panel.width - 56, 40), heading,
+        toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Left, false);
 
   const int16_t cw = cardart::kCardW;
   const int16_t ch = cardart::kCardH;
@@ -357,10 +345,12 @@ void drawStatus(toybox::Screen& screen, const BoardModel& model) {
   // it on the previous hand, then left 190px of its own box empty. Every fourth
   // hand, on the line that tells you what to do.
   //
-  // The main line gets 62% and the state pair 38%; host-tests/fittedtitle
-  // measures every status template at its longest instantiation against exactly
-  // these widths, AND that none of them shrank to get there.
-  const int16_t half = static_cast<int16_t>(width * 62 / 100);
+  // 60/40, which is where the two worst cases sit proportionally: the longest
+  // status is 435px and the longest state pair 290px, so 768 leaves 43px of
+  // slack and this splits it 25/17 rather than 41/2. At 62% the pair drew 290
+  // into a 292px box -- protected by expectAtCut, but with no room for a
+  // one-character rewording.
+  const int16_t half = static_cast<int16_t>(width * 60 / 100);
   if (model.status != nullptr && model.status[0] != '\0') {
     label(screen, fui::makeRect(kPageMargin, kStatusTop, half, kStatusH), model.status, toybox::kUiCut, toybox::kUiFont,
           fui::TextAlign::Left, false);
@@ -557,8 +547,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     // wrapping in label(), only truncation.
     std::snprintf(line, sizeof(line), "AVOID THE QUEEN");
   }
-  fittedLabel(screen, fui::makeRect(32, static_cast<int16_t>(top + 58), colW, 36), line, toybox::kUiFont,
-              fui::TextAlign::Left, false);
+  label(screen, fui::makeRect(32, static_cast<int16_t>(top + 58), colW, 36), line, toybox::kUiCut, toybox::kUiFont,
+        fui::TextAlign::Left, false);
 
   // The record, as three facts rather than a paragraph.
   // THE CELLS REACH THE FOOT. They were 92px tall, ending at y=284 with the
@@ -713,7 +703,7 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
     std::snprintf(moon, sizeof(moon), "%s SHOT THE MOON", model.seats[seatIndex(game.lastHand.shooter)].name);
     const fui::Rect banner = fui::makeRect(kPageMargin, top, kScreenW - kPageMargin * 2, 50);
     target.fill(banner, black, 8);
-    fittedLabel(screen, banner, moon, toybox::kUiFont, fui::TextAlign::Center, true);
+    label(screen, banner, moon, toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Center, true);
     rowTop = static_cast<int16_t>(top + 62);
   }
 
@@ -779,9 +769,26 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
         target.fill(fui::makeRect(barX, track.y, static_cast<int16_t>(filled), 18),
                     fui::Paint::dither(fui::Color::DarkGray), 9);
       }
-    } else if (champion) {
-      label(screen, fui::makeRect(static_cast<int16_t>(row.x + 260), row.y, 200, rowH), "WINS", toybox::kUiCut,
-            toybox::kUiFont, fui::TextAlign::Left, true);
+    } else {
+      // THE BARS WERE LOAD-BEARING AS LAYOUT EVEN THOUGH THEY WERE WRONG AS
+      // MEANING. Taking them off the final screen fixed the backwards signal
+      // and left a ~490px void inside three of the four bordered rows: 23% of
+      // the screen, and inside drawn boxes, so it read as missing content
+      // rather than as margin. Only the winner's row escaped, because it had a
+      // word in that span.
+      //
+      // Every row carries its finishing place there now -- the one fact a final
+      // scoreboard was missing, and the same fact the menu's BEST cell counts.
+      // It replaces the separate WINS label, which said what 1ST says beside an
+      // already-inverted row.
+      int place = 1;
+      for (int other = 0; other < kSeats; ++other) {
+        if (game.total[other] < game.total[s]) ++place;
+      }
+      static const char* kPlaces[kSeats + 1] = {"", "1ST", "2ND", "3RD", "4TH"};
+      label(screen,
+            fui::makeRect(static_cast<int16_t>(row.x + 250), row.y, static_cast<int16_t>(row.width - 250 - 100), rowH),
+            kPlaces[place], toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Center, champion);
     }
 
     char total[24];
@@ -818,8 +825,11 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
     if (tied) {
       std::snprintf(note, sizeof(note), "TIED ON %d", game.total[best]);
     } else {
-      std::snprintf(note, sizeof(note), "%s %s ON %d", model.seats[best].name, best == me ? "WIN" : "WINS",
-                    game.total[best]);
+      // The MARGIN rather than the total: the inverted row and its 1ST already
+      // say who won and on what, so restating it spent the only line on this
+      // screen that could carry something new.
+      std::snprintf(note, sizeof(note), "%s %s BY %d", model.seats[best].name, best == me ? "WIN" : "WINS",
+                    game.total[second] - game.total[best]);
     }
   } else if (tied) {
     // A TIE THE PLAYER IS NOT IN IS STILL A TIE. This branch used to also

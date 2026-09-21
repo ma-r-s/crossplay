@@ -1244,8 +1244,18 @@ void heartsScoreSaysWhatHappened() {
     heartsui::buildScore(screen, model);
     CHECK(score.target.drew("GAME OVER"));
     CHECK(score.target.drew("PLAY AGAIN"));
-    CHECK(score.target.drew("WINS"));
-    // "YOU WINS" is the conjugation bug this screen already had once.
+    // EVERY ROW CARRIES ITS PLACE. Taking the bars off the final screen fixed a
+    // backwards signal and left a ~490px void inside three of the four bordered
+    // rows; the places fill the span the bars vacated.
+    CHECK(score.target.drew("1ST"));
+    CHECK(score.target.drew("2ND"));
+    CHECK(score.target.drew("3RD"));
+    CHECK(score.target.drew("4TH"));
+    // The note names the winner and the MARGIN, not the total the row already
+    // shows. "YOU WINS" is the conjugation bug this screen had once.
+    // drew() matches a whole run, so the margin is spelled out: West on 31,
+    // East second on 44.
+    CHECK(score.target.drew("WEST WINS BY 13"));
     CHECK(!score.target.drew("YOU WINS"));
   }
 
