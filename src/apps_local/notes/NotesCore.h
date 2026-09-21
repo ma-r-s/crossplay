@@ -40,6 +40,7 @@
 // emptied a line at a time on a panel that repaints in 0.3s.
 
 #include <cstddef>
+#include <cstdint>  // Kind's underlying type; clang gets it transitively, GCC does not
 #include <string>
 #include <vector>
 
