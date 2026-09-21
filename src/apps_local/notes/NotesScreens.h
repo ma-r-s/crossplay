@@ -45,8 +45,9 @@ namespace fui = freeink::ui;
 // Chess uses 1-4, the link layer the 200s, Hacker News the 300s, Instapaper the
 // 320s. Notes takes the 340s.
 enum : fui::ActionId {
+  ActionNewList = 350,
+  ActionNewPage = 351,
   ActionOpenNote = 340,
-  ActionNewNote = 341,
   ActionToggleTask = 342,
   ActionAddLine = 343,
   ActionMenu = 344,
@@ -54,6 +55,7 @@ enum : fui::ActionId {
   ActionRename = 346,
   ActionDelete = 347,
   ActionUsePhone = 348,
+  ActionSwitchKind = 352,
   ActionDismiss = 349,
 };
 
@@ -62,8 +64,10 @@ enum : fui::ActionId {
 // The largest cut in which every one of `strings` fits `width` in at most
 // `maxLines` lines, with nothing dropped. Returns 0 when even the smallest
 // cannot, which is the caller's signal to break rather than to shrink.
+// `onlyProbeCut` asks for the probe's own cut or nothing, for a caller that
+// wants to try a wrapping arrangement at this size before dropping a size.
 fui::FontId pickCut(const fui::DrawTarget& target, const char* const* strings, int count, int16_t width, int maxLines,
-                    const fui::TextStyle& probe);
+                    const fui::TextStyle& probe, bool onlyProbeCut = false);
 
 // How many lines `text` needs at `style`'s cut, or 0 if more than `maxLines`.
 int linesNeeded(const fui::DrawTarget& target, const char* text, int16_t width, int maxLines,
@@ -73,7 +77,10 @@ int linesNeeded(const fui::DrawTarget& target, const char* text, int16_t width, 
 
 struct DeckItem {
   const char* title = "";
-  const char* tally = nullptr;  // "4/9", or null for a note with no tasks
+  const char* tally = nullptr;    // "4/9" for a list; null for a note
+  const char* preview = nullptr;  // the note's first words; null for a list
+  int done = 0;
+  int total = 0;  // above zero means a list, and draws the bar
 };
 
 struct DeckModel {
@@ -109,10 +116,18 @@ struct Task {
 
 struct NoteModel {
   const char* title = "";
+  // A page is the same rows without tick boxes: text you keep, not things to
+  // do. The kind belongs to the note, so one flag decides the whole screen and
+  // no line can disagree with its neighbours.
+  bool page = false;
   const Task* tasks = nullptr;
   int count = 0;
   int firstVisible = 0;
   bool anyDone = false;
+  // The strip under the band, on a list only: what is left, and a bar. Zero
+  // total draws nothing, which is what an empty list and every note want.
+  int done = 0;
+  int total = 0;
   // "1 / 2", set by the Activity only when the note does not fit one page. A
   // list that silently stops at the sixth of eight lines is the worst thing
   // this screen can do, and the gap above the footer is where it goes, because
@@ -137,6 +152,9 @@ struct MenuModel {
   // unavailable, because it never is: tapping it with no Wi-Fi offers to join
   // one.
   const char* phoneHint = nullptr;
+  // What the note is NOW. The kind row offers the other one, so this picks its
+  // wording rather than adding a second action.
+  bool isList = false;
 };
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
@@ -182,7 +200,5 @@ void buildConfirm(toybox::Screen& screen, const ConfirmModel& model);
 void buildNotice(toybox::Screen& screen, const ConfirmModel& model);
 
 // The rect the menu's last row occupies, so the confirm and the menu agree by
-// construction rather than by two functions that are only ever wrong together.
-fui::Rect menuRowRect(const fui::DeviceContext& device, int index);
 
 }  // namespace notesui

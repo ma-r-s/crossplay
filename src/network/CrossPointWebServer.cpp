@@ -2415,7 +2415,11 @@ void CrossPointWebServer::handleNotesSave() {
   // keyboard, thirty for a shopping list. The page now teaches no syntax
   // because there is none to get wrong.
   std::string body(raw.c_str(), raw.length());
-  notes::coerceToList(body);
+  // Only a LIST gets markers written for it. A note is words somebody kept, and
+  // turning every line of it into a tick box would be the old two-kinds mistake
+  // wearing the opposite face.
+  const std::string existing(Storage.readFile(notesPath.c_str()).c_str());
+  if (notes::kindOf(notes::parse(existing)) == notes::Kind::List) notes::coerceToList(body);
 
   // Beside itself, then renamed. Opening the real path truncates it first, so a
   // connection dropped mid-write would leave a note that parses as empty --

@@ -15,6 +15,7 @@ constexpr const char* kDir = "/notes";
 constexpr const char* kExt = ".md";
 constexpr const char* kPartExt = ".part";
 constexpr size_t kNameMax = 64;
+constexpr size_t kPreviewMax = 80;  // more than the card's strip can hold at any cut
 constexpr int kMaxNotes = 120;
 
 // The floor is NOT sized to a note, which is a few hundred bytes. It is sized
@@ -133,18 +134,36 @@ void Library::scan() {
 
     std::string doc;
     if (load(row.name, doc)) {
-      const Counts c = counts(parse(doc));
+      const std::vector<Line> lines = parse(doc);
+      const Counts c = counts(lines);
       row.done = c.done;
-      row.total = c.total;
-      row.hasTasks = c.total > 0;
+      row.total = c.marked;
+      row.hasTasks = c.marked > 0;
+      if (!row.hasTasks) {
+        // A note's card shows its first words instead of a tally. Only the
+        // first line with something on it: a file that opens with a blank line
+        // would otherwise preview as nothing at all.
+        for (const Line& line : lines) {
+          std::string text = textOf(doc, line);
+          size_t begin = text.find_first_not_of(" \t");
+          if (begin == std::string::npos) continue;
+          text = text.substr(begin);
+          row.preview = text.size() > kPreviewMax ? text.substr(0, kPreviewMax) : text;
+          break;
+        }
+      }
     }
     entries_.push_back(std::move(row));
     if (static_cast<int>(entries_.size()) >= kMaxNotes) break;
   }
 
-  // Alphabetical, case-insensitively, because that is the order a person can
-  // predict. Recency would put a note somewhere different every time it was
-  // ticked, on a screen where the row you are aiming at must not move.
+  sortEntries();
+}
+
+// Alphabetical, case-insensitively, because that is the order a person can
+// predict. Recency would put a note somewhere different every time it was
+// ticked, on a screen where the row you are aiming at must not move.
+void Library::sortEntries() {
   std::sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) {
     const size_t n = std::min(a.name.size(), b.name.size());
     for (size_t i = 0; i < n; i++) {
@@ -172,9 +191,9 @@ bool Library::load(const std::string& name, std::string& doc) const {
   return true;
 }
 
-bool Library::save(const std::string& name, const std::string& doc, std::string& message) {
+bool Library::save(const std::string& name, const std::string& doc, std::string& message, const bool growing) {
   uint64_t free = 0;
-  const bool queried = Storage.freeBytes(free);
+  const bool queried = growing && Storage.freeBytes(free);
   // "Could not answer" is not "no space": a volume that cannot report is not a
   // reason to refuse a 200-byte write, and treating it as one would make the
   // app unusable on a card that merely walks its FAT slowly.
@@ -219,7 +238,13 @@ bool Library::create(const std::string& name, std::string& message) {
     return false;
   }
   if (!save(clean, std::string(), message)) return false;
-  scan();
+  // Inserted in place rather than re-reading the directory: scan() opens and
+  // parses EVERY note to count its lines, which is a read per note for a file
+  // that was just written empty.
+  Entry row;
+  row.name = clean;
+  entries_.push_back(std::move(row));
+  sortEntries();
   return true;
 }
 
@@ -238,13 +263,22 @@ bool Library::rename(const std::string& from, const std::string& to, std::string
     message = "The card would not take the change.";
     return false;
   }
-  scan();
+  for (Entry& entry : entries_) {
+    if (entry.name != from) continue;
+    entry.name = clean;
+    break;
+  }
+  sortEntries();
   return true;
 }
 
 bool Library::remove(const std::string& name) {
   const bool gone = Storage.remove(pathFor(name).c_str());
-  scan();
+  for (size_t i = 0; i < entries_.size(); i++) {
+    if (entries_[i].name != name) continue;
+    entries_.erase(entries_.begin() + static_cast<long>(i));
+    break;
+  }
   return gone;
 }
 

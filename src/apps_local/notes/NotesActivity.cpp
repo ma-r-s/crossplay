@@ -68,6 +68,9 @@ void NotesActivity::rebuildRows() {
     notesui::DeckItem row;
     row.title = entries[i].name.c_str();
     row.tally = deckTallies_[i].empty() ? nullptr : deckTallies_[i].c_str();
+    row.preview = entries[i].preview.empty() ? nullptr : entries[i].preview.c_str();
+    row.done = entries[i].done;
+    row.total = entries[i].total;
     deckRows_.push_back(row);
   }
 
@@ -108,6 +111,8 @@ void NotesActivity::rebuildRows() {
   }
 }
 
+bool NotesActivity::openIsPage() const { return notes::kindOf(lines_, newIsList_) == notes::Kind::Page; }
+
 bool NotesActivity::anyDone() const {
   for (const notesui::Task& task : taskRows_) {
     if (task.checked) return true;
@@ -123,12 +128,29 @@ int NotesActivity::deckPageSize() {
   return notesui::deckCapacity(target, target.deviceContext(), probe);
 }
 
+notesui::NoteModel NotesActivity::noteModel() const {
+  notesui::NoteModel model;
+  model.title = openName_.c_str();
+  model.tasks = taskRows_.data();
+  model.count = static_cast<int>(taskRows_.size());
+  model.page = openIsPage();
+  model.anyDone = anyDone();
+  if (!model.page) {
+    const notes::Counts c = notes::counts(lines_);
+    model.done = c.done;
+    model.total = c.marked;
+  }
+  return model;
+}
+
 int NotesActivity::notePageSize() {
   fui::GfxRendererTarget target = toybox::makeTarget(renderer);
-  notesui::NoteModel probe;
-  probe.tasks = taskRows_.data();
-  probe.count = static_cast<int>(taskRows_.size());
-  return notesui::noteCapacity(target, target.deviceContext(), probe);
+  // The model as it will be DRAWN. A probe missing the kind measured a list's
+  // tick boxes against a page's text width, and a probe missing the tally
+  // measured against a band the progress strip was not standing in -- which
+  // fits one row more than the screen draws, so the last item of a page went
+  // missing while the page label counted it.
+  return notesui::noteCapacity(target, target.deviceContext(), noteModel());
 }
 
 void NotesActivity::relabelDeck() {
@@ -216,14 +238,45 @@ void NotesActivity::toggleTask(const int index) {
   // is the failure mode of every app that saves on exit, and this one is used
   // one-handed in a shop with the power button under a thumb.
   std::string message;
-  if (!library_.save(openName_, doc_, message)) {
+  if (!library_.save(openName_, doc_, message, /*growing=*/false)) {
     doc_ = before;  // the file is the truth; take back what RAM claimed
     lines_ = notes::parse(doc_);
     rebuildRows();
     showNotice(message);
     return;
   }
-  rebuildRows();
+  // One row's mark changed and nothing else did. Rebuilding every row copied
+  // every line of the note back out of the document on each tick.
+  taskRows_[static_cast<size_t>(index)].checked = lines_[line].checked;
+  requestUpdate();
+}
+
+void NotesActivity::switchKind() {
+  const bool wasList = !openIsPage();
+  const std::string before = doc_;
+  if (wasList ? !notes::stripMarkers(doc_) : !notes::coerceToList(doc_)) {
+    // Nothing to rewrite: an empty note has no line to carry a box. The kind it
+    // will take is remembered instead, so the first line added gets it.
+    newIsList_ = !wasList;
+    view_ = View::Note;
+    interactionsReady_ = false;
+    requestUpdate();
+    return;
+  }
+  std::string message;
+  // Putting a box on every line grows the file; taking them off cannot.
+  if (!library_.save(openName_, doc_, message, /*growing=*/!wasList)) {
+    doc_ = before;  // the file is the truth; take back what RAM claimed
+    lines_ = notes::parse(doc_);
+    rebuildRows();
+    showNotice(message);
+    return;
+  }
+  newIsList_ = !wasList;
+  noteTop_ = 0;
+  reloadNote();
+  view_ = View::Note;
+  interactionsReady_ = false;
   requestUpdate();
 }
 
@@ -255,7 +308,10 @@ bool NotesActivity::nameFitsBand(const std::string& name) {
 }
 
 void NotesActivity::askNewName() {
-  auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, "NAME THIS NOTE", "", kNameMax);
+  // The prompt says which button was pressed. "NAME THIS NOTE" after tapping
+  // + LIST is the app disagreeing with the control the finger just used.
+  auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(
+      renderer, mappedInput, newIsList_ ? "NAME THIS LIST" : "NAME THIS NOTE", "", kNameMax);
   if (!keyboard) {
     showNotice("There was not enough memory to open the keyboard.");
     return;
@@ -324,7 +380,13 @@ void NotesActivity::askRename() {
 }
 
 void NotesActivity::askLine() {
-  auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, "ADD A LINE", "", kLineMax);
+  // THE COUNT IS THE RECEIPT. The keyboard reopens after each item so a list
+  // can be written in one visit, and with a fixed title that read as OK doing
+  // nothing at all: same screen, same words, empty field. The band now says how
+  // many are on the list, so every OK visibly moves a number.
+  char title[80];
+  std::snprintf(title, sizeof(title), "%s  %d", openName_.c_str(), static_cast<int>(taskRows_.size()));
+  auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, title, "", kLineMax);
   if (!keyboard) {
     showNotice("There was not enough memory to open the keyboard.");
     return;
@@ -343,14 +405,12 @@ void NotesActivity::askLine() {
       return;
     }
 
-    // Added as a TASK, always. The keyboard cannot type a newline, so a line
-    // added here is one line; and this app's reason to exist is a list you
-    // tick. Somebody who wanted prose writes it from a computer, while
-    // somebody who wanted a task and got prose has no way to make it tickable
-    // on the device at all.
+    // A tick box on a list, a plain line on a note. The kind was decided when
+    // the note was made and is written into the file by the first line, so this
+    // never has to guess.
     const std::string before = doc_;
     if (!doc_.empty() && doc_.back() != '\n') doc_.push_back('\n');
-    doc_ += "- [ ] ";
+    if (!openIsPage()) doc_ += "- [ ] ";
     doc_ += entered.text;
     doc_.push_back('\n');
 
@@ -573,7 +633,12 @@ void NotesActivity::loop() {
     case notesui::ActionOpenNote:
       openNote(action.value);
       return;
-    case notesui::ActionNewNote:
+    case notesui::ActionNewList:
+      newIsList_ = true;
+      askNewName();
+      return;
+    case notesui::ActionNewPage:
+      newIsList_ = false;
       askNewName();
       return;
     case notesui::ActionToggleTask:
@@ -590,6 +655,9 @@ void NotesActivity::loop() {
       return;
     case notesui::ActionClearDone:
       clearDone();
+      return;
+    case notesui::ActionSwitchKind:
+      switchKind();
       return;
     case notesui::ActionRename:
       askRename();
@@ -643,14 +711,10 @@ void NotesActivity::render(RenderLock&&) {
       break;
     }
     case View::Note: {
-      notesui::NoteModel model;
-      model.title = openName_.c_str();
-      model.tasks = taskRows_.data();
-      model.count = static_cast<int>(taskRows_.size());
+      notesui::NoteModel model = noteModel();
       model.firstVisible = noteTop_;
       model.pageLabel = notePage_.empty() ? nullptr : notePage_.c_str();
       model.menuIcon = &icon_go_settings_32;
-      model.anyDone = anyDone();
       notesui::buildNote(screen, model);
       break;
     }
@@ -659,6 +723,7 @@ void NotesActivity::render(RenderLock&&) {
       model.title = openName_.c_str();
       model.menuIcon = &icon_go_settings_32;
       model.anyDone = anyDone();
+      model.isList = !openIsPage();
       notesui::buildMenu(screen, model);
       break;
     }
