@@ -157,7 +157,37 @@ fi
 # another's build; over Wi-Fi the equivalent mistake is flashing the wrong unit,
 # so say out loud which one is about to be replaced.
 STATUS="$(curl -fsS --max-time 5 "http://$IP/api/status" 2>/dev/null)" || {
-  echo "error: no CrossPlay web server answering at http://$IP/" >&2
+  # SAY WHICH OF THE THREE IT IS. "No server answering" covers a device that is
+  # off, a device asleep, a device on another network and a device sitting right
+  # there with Developer Mode switched off -- and only the last one needs
+  # somebody to walk over and touch it. Reporting them as one thing sent Mario
+  # to look for a device that was awake, on Wi-Fi and two feet away.
+  if ! ping -c 1 -W 1000 "$IP" >/dev/null 2>&1; then
+    echo "error: nothing answers at $IP at all." >&2
+    echo "       The device is off, asleep, or on another network. Wake it with the" >&2
+    echo "       power button; if it will not wake, charge it -- Developer Mode never" >&2
+    echo "       deep-sleeps and flattens a battery overnight." >&2
+    exit 1
+  fi
+  # It answers ICMP, so it is powered and on this network. If the port refuses
+  # rather than hangs, the firmware is up and the dev server is not.
+  if python3 -c 'import socket,sys
+s = socket.socket(); s.settimeout(3)
+try:
+    s.connect((sys.argv[1], 80)); sys.exit(1)      # listening
+except ConnectionRefusedError:
+    sys.exit(0)                                     # up, not serving
+except Exception:
+    sys.exit(2)                                     # filtered or hung
+' "$IP"; then
+    echo "error: $IP is awake and on this network, but nothing is listening on port 80." >&2
+    echo "       Developer Mode is OFF on that device. Turn it on there:" >&2
+    echo "         Settings > System > Developer Mode" >&2
+    echo "       then pair once more -- the six-digit code changes every time it starts." >&2
+  else
+    echo "error: $IP answers ping but its web server did not reply in time." >&2
+    echo "       Usually a weak signal or a busy device. Try again in a moment." >&2
+  fi
   exit 1
 }
 describe() {  # reads an /api/status body on stdin, prints one human line

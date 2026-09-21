@@ -67,9 +67,31 @@ class CrossPointWebServer {
     Full,            // the reader's web UI: file manager, settings, WebDAV, WebSocket
     DeveloperOnly,   // /api/dev/* and nothing else
     WallpapersOnly,  // GET /w, its script, and PUT /w/upload. No dev routes either.
+    // NotesOnly exists for the same reason one step further again: the Notes
+    // app puts an address in a QR code and invites a phone to scan it, and what
+    // is behind that code is ONE note -- the one the reader has open -- not the
+    // card. It serves one page and reads and writes one file, whose path the
+    // app sets before begin() and the client can never name. There is nothing
+    // to validate because nothing is accepted.
+    NotesOnly,
   };
 
   explicit CrossPointWebServer(Surface surface = Surface::Full);
+
+  // The one file the NotesOnly surface reads and writes, and the name to show
+  // on the page. Set before begin(); the client never names either, which
+  // deletes the traversal question rather than answering it.
+  void setNotesFile(const std::string& path, const std::string& displayName) {
+    notesPath = path;
+    notesName = displayName;
+  }
+  // True once a client has saved, so the app knows to re-read the file rather
+  // than polling the card. Cleared by the reader of it.
+  bool takeNotesChanged() {
+    const bool changed = notesChanged;
+    notesChanged = false;
+    return changed;
+  }
   ~CrossPointWebServer();
 
   // Start the web server (call after WiFi is connected)
@@ -94,9 +116,13 @@ class CrossPointWebServer {
   std::unique_ptr<WebSocketsServer> wsServer = nullptr;
   bool running = false;
   const Surface surface = Surface::Full;
+  std::string notesPath;
+  std::string notesName;
+  bool notesChanged = false;
   bool isFull() const { return surface == Surface::Full; }
   bool isDev() const { return surface == Surface::DeveloperOnly; }
   bool isWallpapers() const { return surface == Surface::WallpapersOnly; }
+  bool isNotes() const { return surface == Surface::NotesOnly; }
 
   // The wallpaper upload, streamed straight to the card. Separate from
   // UploadState because it shares nothing with the multipart path: no
@@ -179,6 +205,9 @@ class CrossPointWebServer {
 
   // The Wallpapers surface.
   void handleWallpaperPage() const;
+  void handleNotesPage() const;
+  void handleNotesText();
+  void handleNotesSave();
   void handleWallpaperScript() const;
   void handleWallpaperUpload();      // the reply, after the body
   void handleWallpaperUploadData();  // the raw body, streamed
