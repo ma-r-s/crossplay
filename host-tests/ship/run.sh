@@ -327,7 +327,17 @@ fi
 # oid does not exist until GitHub squashes. Written earlier, every line falls
 # back to a raw commit subject and the release:minor label is never seen.
 LAND_LINE="$(printf '%s' "$CODE" | grep -n 'run "gh pr merge' | head -1 | cut -d: -f1)"
-NOTES_LINE="$(printf '%s' "$CODE" | grep -n 'release_notes\.py.*--write' | head -1 | cut -d: -f1)"
+# THE AUTHORITATIVE WRITE, which is the one WITHOUT --pr-json. There are two
+# calls now and they are different things. The first, in the version step,
+# is provisional: it is handed the open pull request's data because there is
+# no merge commit yet, and it exists only so the gate sees a tree whose notes
+# and version agree. The second, after the squash, is the real one: GitHub
+# has set mergeCommit by then, so release_notes.py finds the pull request by
+# itself and the page gets the line its author wrote.
+#
+# Matching the first would forbid the correct order; matching either would
+# pass whatever the order. So: the one with no --pr-json.
+NOTES_LINE="$(printf '%s' "$CODE" | grep -nE 'release_notes\.py[^|]*--write' | grep -v -- '--pr-json' | head -1 | cut -d: -f1)"
 checks=$((checks + 1))
 if [ -z "$LAND_LINE" ] || [ -z "$NOTES_LINE" ]; then
   failed=$((failed + 1))
@@ -454,6 +464,23 @@ if printf '%s' "$CODE" | grep -q 'merge-base' && printf '%s' "$CODE" | grep -q '
 else
   failed=$((failed + 1))
   echo "FAIL ship  ship.sh does not compare the merge base against origin/xteink. Without it a merge commit can be published, and a merge commit's tree is not the tree the gate built"
+fi
+
+# -- 5a2. the notes go in the SAME commit as the version -------------------
+#
+# The gate checks release-body.md against platformio.ini (host-tests/release,
+# "does not say What is new in <version>"), so a tree with the version bumped
+# and the notes not yet written cannot pass it. ship.sh bumped in one step
+# and wrote notes in a later one, which put exactly that tree in front of the
+# gate every time: the script could never complete. Found on the first live
+# run, and unreachable from --dry-run because the gate does not execute there.
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -qE "git add platformio\.ini docs/release-notes\.md docs/release-body\.md" \
+   && printf '%s' "$CODE" | grep -qE "release_notes\.py[^\"]*--pr-json"; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  the version bump does not carry its notes. The gate compares release-body.md against platformio.ini, so a commit that moves one without the other cannot pass it, and ship.sh would never complete."
 fi
 
 # -- 5b. the tag is pushed after everything that can still refuse ----------

@@ -288,10 +288,31 @@ if [ -n "$NEXT" ]; then
     # run; comparing the versions is the same question and answerable in both
     # modes.
     run "python3 -c \"import pathlib,re; p=pathlib.Path('platformio.ini'); t=p.read_text(); p.write_text(re.sub(r'(?m)^(\\[crossplay\\](?:[^\\[]*?\\n)version *= *).*$', r'\\g<1>$NEXT', t, count=1))\""
-    run "git add platformio.ini"
+    # AND THE NOTES, IN THE SAME COMMIT, because the gate checks them against
+    # the version. host-tests/release refuses a tree whose release-body.md
+    # names a different version than platformio.ini -- rightly, since that is
+    # a release about to publish the previous one's text. Bumping the version
+    # here and writing the notes only after the squash left exactly that
+    # tree in front of the gate, so ship.sh could never pass its own gate.
+    # Caught on the first live run; no dry run reaches it, because the gate
+    # does not execute in dry mode.
+    #
+    # The pull request is not merged yet, so its data is handed over rather
+    # than looked up: release_notes.py maps by mergeCommit.oid and there is
+    # no merge commit until the squash. Pointing it at this branch's tip is
+    # what makes the mapping land on the pull request that is being shipped.
+    # These notes are provisional -- the `release notes` step regenerates
+    # them after the squash, when GitHub has set the real oid -- and only
+    # docs differ between the two, which nothing compiles.
+    PRJSON="$(mktemp -t ship-prs)"
+    run "gh pr view '$PR_NUMBER' --repo ma-r-s/crossplay --json number,title,body,labels \
+        | python3 -c 'import json,sys; d=json.load(sys.stdin); d[\"mergeCommit\"]={\"oid\": sys.argv[1]}; print(json.dumps([d]))' \
+          \"\$(git rev-parse HEAD)\" > '$PRJSON'"
+    run "python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --version '$NEXT' --pr-json '$PRJSON' --write"
+    run "git add platformio.ini docs/release-notes.md docs/release-body.md"
     run "git commit -q -m 'chore: crossplay $NEXT'"
     run "git push -q origin '$BRANCH'"
-    say "  bumped $HAVE_VER -> $NEXT, pushed. The gate below builds the images that ship."
+    say "  bumped $HAVE_VER -> $NEXT with its notes, pushed. The gate below builds the images that ship."
   else
     say "  already at $NEXT."
   fi
