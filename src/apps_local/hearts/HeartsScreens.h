@@ -31,6 +31,8 @@ enum Button : int {
   ButtonConfirm = 0,  // pass these three / play on
   ButtonMenu = 1,
   ButtonHint = 2,
+  ButtonHowTo = 3,
+  ButtonHowToNext = 4,
 };
 
 // One seat, as the board needs to say it.
@@ -39,8 +41,8 @@ struct SeatView {
   // One character, for a marker too small to hold a word. Y W N E are all
   // distinct, which is the only reason a single letter works here.
   char initial = '?';
-  int total = 0;      // running game score
-  int taken = 0;      // points taken this hand
+  int total = 0;  // running game score
+  int taken = 0;  // points taken this hand
   int cardsLeft = 0;
   bool isTurn = false;
   bool isMe = false;
@@ -88,10 +90,10 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
 struct MenuModel {
   bool hasSave = false;
   int savedHand = 0;
-  int bestPlace = 0;   // 1..4, 0 for never finished a game
+  int bestPlace = 0;  // 1..4, 0 for never finished a game
   int gamesPlayed = 0;
   int gamesWon = 0;
-  bool sharp = true;   // which opponent strength is selected
+  bool sharp = true;  // which opponent strength is selected
 };
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
@@ -104,5 +106,20 @@ struct ScoreModel {
 };
 
 void buildScore(toybox::Screen& screen, const ScoreModel& model);
+
+// HOW TO PLAY.
+//
+// Hearts carries more rules than anything else on this shelf and two of them
+// catch every new player: you may not LEAD a heart until one has been
+// discarded, and nothing that costs a point may be played on the first trick.
+// A game whose legal moves are mostly a list of what you may NOT do has to say
+// so somewhere, and the board's dithered cards are only obvious once you have
+// been told what dithering means.
+struct HowToModel {
+  int page = 0;
+};
+
+int howToPages();
+void buildHowTo(toybox::Screen& screen, const HowToModel& model);
 
 }  // namespace heartsui

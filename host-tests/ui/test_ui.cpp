@@ -1234,6 +1234,39 @@ void heartsScoreSaysWhatHappened() {
   }
 }
 
+// The rules screen exists and says the two things that catch every new player,
+// plus the one line that is about this screen rather than about Hearts.
+void heartsHowToTeachesTheTwoTrickyRules() {
+  const fui::DeviceContext ctx = heartsDevice();
+  const fui::InputSnapshot noInput{};
+  CHECK(heartsui::howToPages() >= 3);
+  bool sawLeadRule = false;
+  bool sawFirstTrickRule = false;
+  bool sawGreyCardRule = false;
+  bool sawMoon = false;
+  for (int page = 0; page < heartsui::howToPages(); ++page) {
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::HowToModel model;
+    model.page = page;
+    heartsui::buildHowTo(screen, model);
+    CHECK(out.target.drew("HOW TO PLAY"));
+    CHECK(!out.interactions.overflowed());
+    // Every page can be left, or the screen is a trap.
+    CHECK(out.has(heartsui::ActionButton));
+    if (out.target.drew("YOU CANNOT LEAD A HEART UNTIL SOMEBODY")) sawLeadRule = true;
+    if (out.target.drew("ON THE FIRST TRICK OF A HAND.")) sawFirstTrickRule = true;
+    if (out.target.drew("A GREY CARD IS ONE THE RULES WILL REFUSE.")) sawGreyCardRule = true;
+    if (out.target.drew("THAT IS SHOOTING THE MOON. IT IS RARE.")) sawMoon = true;
+  }
+  CHECK(sawLeadRule);
+  CHECK(sawFirstTrickRule);
+  CHECK(sawGreyCardRule);
+  CHECK(sawMoon);
+}
+
 void heartsMenuFillsItsPanel() {
   const fui::DeviceContext ctx = heartsDevice();
   const fui::InputSnapshot noInput{};
@@ -1253,6 +1286,30 @@ void heartsMenuFillsItsPanel() {
   CHECK(menu.target.drew("TABLE WAITING"));
   CHECK(menu.target.drew("RESUME"));
   CHECK(menu.target.drew("TABLE: SHARP"));
+  // The door to the rules is on the menu, and it is a label that cannot
+  // truncate: "HOW TO PLAY" did not fit its button and shipped as "HOW TO P...".
+  CHECK(menu.target.drew("RULES"));
+  // DRAWN IS NOT TAPPABLE. The rules button sits in the header band, which is
+  // absolute chrome, and "it is on screen" says nothing about whether the hit
+  // table carries it. Routed at the pixel it was drawn at, which is the only
+  // question that matters.
+  {
+    const fui::ActionEvent hit = menu.tap(800 - 152 + 68, 8 + (heartsui::kHeaderBand - 16) / 2);
+    CHECK(hit.action == heartsui::ActionButton);
+    CHECK(hit.value == heartsui::ButtonHowTo);
+  }
+  // And so are the three in the foot.
+  {
+    const fui::ActionEvent resume = menu.tap(32 + 118, 480 - 12 - 68 + 34);
+    CHECK(resume.action == heartsui::ActionButton);
+    CHECK(resume.value == heartsui::ButtonConfirm);
+    const fui::ActionEvent fresh = menu.tap(280 + 100, 480 - 12 - 68 + 34);
+    CHECK(fresh.action == heartsui::ActionButton);
+    CHECK(fresh.value == heartsui::ButtonMenu);
+    const fui::ActionEvent table = menu.tap(492 + 138, 480 - 12 - 68 + 34);
+    CHECK(table.action == heartsui::ActionButton);
+    CHECK(table.value == heartsui::ButtonHint);
+  }
   CHECK(!menu.interactions.overflowed());
   CHECK(bandRectOf(menu.target).height == heartsui::kHeaderBand);
 }
@@ -13177,6 +13234,7 @@ int main() {
   heartsPassOwnsTheTable();
   heartsScoreSaysWhatHappened();
   heartsMenuFillsItsPanel();
+  heartsHowToTeachesTheTwoTrickyRules();
   testWallpapersGridHasTwoColumns();
   testWallpapersCellsStayOnScreen();
   testWallpapersCellHitTestMatchesDraw();

@@ -260,6 +260,9 @@ void HeartsActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (view == View::Menu) {
       shelf::leave(renderer, mappedInput);
+    } else if (view == View::HowTo) {
+      view = View::Menu;
+      requestUpdate();
     } else {
       if (hasGame) saveGame();
       view = View::Menu;
@@ -277,8 +280,18 @@ void HeartsActivity::loop() {
     input.touchY = static_cast<int16_t>(tapY);
   }
 
+  if (input.touchReleased && !interactionsReady) {
+    LOG_DBG("HEARTS", "tap (%d,%d) DROPPED: no interaction table yet", tapX, tapY);
+  }
   if (input.touchReleased && interactionsReady) {
     const fui::ActionEvent action = interactions.route(input);
+    // Every routed tap, with what it resolved to. This is not debug residue:
+    // the rules button routed correctly for a whole render cycle while the
+    // menu's switch had no case for it, so the control was live, drawn, hit,
+    // and silently dropped. Nothing in a screenshot can tell that apart from a
+    // dead button, and this line told them apart in one run.
+    LOG_DBG("HEARTS", "tap (%d,%d) view=%d -> action=%d value=%d", tapX, tapY, static_cast<int>(view),
+            static_cast<int>(action.action), action.value);
     if (action.action == ui::ActionHandCard && view == View::Board) {
       routeHandCard(action.value);
       return;
@@ -301,8 +314,22 @@ void HeartsActivity::loop() {
             skill = skill == Skill::Sharp ? Skill::Rookie : Skill::Sharp;
             requestUpdate();
             break;
+          case ui::ButtonHowTo:
+            howToPage = 0;
+            view = View::HowTo;
+            requestUpdate();
+            break;
           default:
             break;
+        }
+      } else if (view == View::HowTo) {
+        if (action.value == ui::ButtonHowToNext) {
+          if (howToPage + 1 < ui::howToPages()) {
+            ++howToPage;
+          } else {
+            view = View::Menu;
+          }
+          requestUpdate();
         }
       } else {
         routeButton(action.value);
@@ -310,6 +337,9 @@ void HeartsActivity::loop() {
       return;
     }
   }
+
+  // The rules screen is not a game state, so nothing advances behind it.
+  if (view == View::HowTo) return;
 
   // Nothing for the player to do: let the table play on. One step per pass so
   // each card gets its own repaint.
@@ -419,14 +449,30 @@ void HeartsActivity::render(RenderLock&&) {
   }();
   toybox::Screen screen(frame, tokens);
 
-  // WHICH IN-GAME SCREEN IS SHOWING IS DERIVED FROM THE PHASE, never held
-  // beside it. `view` used to carry it too, and the two came apart: a frame
-  // landed with view still Board while the phase had moved to HandOver, so the
-  // panel drew an empty table over an empty hand with "HAND OVER" underneath
-  // it -- a screen that exists in no design. Two facts that must agree are one
-  // fact stored once; `view` now only says whether we are in the menu.
-  const bool handFinished = game.phase == Phase::HandOver || game.phase == Phase::GameOver;
-  if (view != View::Menu && !handFinished) {
+  // `view` says which DOOR we came through -- menu, rules, or the game -- and
+  // the game's own phase says which of its screens is showing. It used to say
+  // both, and the two came apart: a frame landed with view still Board while
+  // the phase had moved to HandOver, so the panel drew an empty table over an
+  // empty hand with "HAND OVER" underneath it, a screen that exists in no
+  // design. Two facts that must agree are one fact stored once.
+  if (view == View::HowTo) {
+    ui::HowToModel model;
+    model.page = howToPage;
+    ui::buildHowTo(screen, model);
+  } else if (view == View::Menu) {
+    ui::MenuModel model;
+    model.hasSave = hasGame;
+    model.savedHand = static_cast<int>(game.handNumber) + 1;
+    model.sharp = skill == Skill::Sharp;
+    fillStats(model);
+    ui::buildMenu(screen, model);
+  } else if (game.phase == Phase::HandOver || game.phase == Phase::GameOver) {
+    ui::ScoreModel model;
+    model.game = &game;
+    fillSeats(model.seats);
+    model.gameOver = game.phase == Phase::GameOver;
+    ui::buildScore(screen, model);
+  } else {
     ui::BoardModel model;
     model.game = &game;
     fillSeats(model.seats);
@@ -439,19 +485,6 @@ void HeartsActivity::render(RenderLock&&) {
     model.confirmLabel = "PASS";
     model.confirmEnabled = pickedCount == kPassCount;
     ui::buildBoard(screen, model, layout);
-  } else if (view != View::Menu) {
-    ui::ScoreModel model;
-    model.game = &game;
-    fillSeats(model.seats);
-    model.gameOver = game.phase == Phase::GameOver;
-    ui::buildScore(screen, model);
-  } else {
-    ui::MenuModel model;
-    model.hasSave = hasGame;
-    model.savedHand = static_cast<int>(game.handNumber) + 1;
-    model.sharp = skill == Skill::Sharp;
-    fillStats(model);
-    ui::buildMenu(screen, model);
   }
 
   interactionsReady = true;

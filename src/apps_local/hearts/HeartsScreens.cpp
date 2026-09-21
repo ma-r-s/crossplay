@@ -222,8 +222,8 @@ void drawPassPanel(toybox::Screen& screen, const fui::Rect& panel, const BoardMo
 
   char heading[48];
   std::snprintf(heading, sizeof(heading), "PASSING %s", direction);
-  label(screen, fui::makeRect(panel.x + 28, static_cast<int16_t>(panel.y + 14), panel.width - 56, 40), heading,
-        toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Left, false);
+  fittedLabel(screen, fui::makeRect(panel.x + 28, static_cast<int16_t>(panel.y + 14), panel.width - 56, 40), heading,
+              toybox::kUiFont, fui::TextAlign::Left, false);
 
   const int16_t cw = cardart::kCardW;
   const int16_t ch = cardart::kCardH;
@@ -309,13 +309,22 @@ void drawHand(toybox::Screen& screen, const BoardModel& model, Layout& layout) {
   }
 }
 
+// The status line and its right-hand note share one row, so neither may spill
+// into the other. Both are assembled at runtime -- "WEST TAKES IT, 13 POINTS",
+// "PICK THREE CARDS TO PASS ACROSS" -- and label() neither wraps nor clips, so
+// each gets its own half and the fitting ladder.
 void drawStatus(toybox::Screen& screen, const BoardModel& model) {
-  const fui::Rect row = fui::makeRect(kPageMargin, kStatusTop, kScreenW - kPageMargin * 2, kStatusH);
+  const int16_t width = static_cast<int16_t>(kScreenW - kPageMargin * 2);
+  const int16_t half = static_cast<int16_t>(width * 3 / 5);
   if (model.status != nullptr && model.status[0] != '\0') {
-    label(screen, row, model.status, toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Left, false);
+    fittedLabel(screen, fui::makeRect(kPageMargin, kStatusTop, half, kStatusH), model.status, toybox::kUiFont,
+                fui::TextAlign::Left, false);
   }
   if (model.subStatus != nullptr && model.subStatus[0] != '\0') {
-    label(screen, row, model.subStatus, toybox::kButtonCut, toybox::kSmallFont, fui::TextAlign::Right, false);
+    fittedLabel(screen,
+                fui::makeRect(static_cast<int16_t>(kPageMargin + half), kStatusTop, static_cast<int16_t>(width - half),
+                              kStatusH),
+                model.subStatus, toybox::kSmallFont, fui::TextAlign::Right, false);
   }
 }
 
@@ -471,8 +480,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     // wrapping in label(), only truncation.
     std::snprintf(line, sizeof(line), "AVOID THE QUEEN");
   }
-  label(screen, fui::makeRect(32, static_cast<int16_t>(top + 58), colW, 36), line, toybox::kUiCut, toybox::kUiFont,
-        fui::TextAlign::Left, false);
+  fittedLabel(screen, fui::makeRect(32, static_cast<int16_t>(top + 58), colW, 36), line, toybox::kUiFont,
+              fui::TextAlign::Left, false);
 
   // The record, as three facts rather than a paragraph.
   const int16_t recTop = static_cast<int16_t>(top + 116);
@@ -537,6 +546,20 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // The foot. PLAY is the only thing anyone came here to do, so it is solid
   // black and the width of the left column; the table's strength sits beside it
   // as a toggle rather than a screen of its own.
+  // The door to the rules, knocked out of the menu's header band. There is
+  // nothing else in that band and it is the first thing read on the screen,
+  // which is where a player who does not know Hearts is looking.
+  // "HOW TO PLAY" is eleven capitals at the UI cut and did not fit its button:
+  // it shipped as "HOW TO P...", which is a label that names nothing. One word
+  // cannot truncate, and RULES is what the screen behind it actually is.
+  fui::ButtonProps how;
+  how.label = "RULES";
+  how.action = ActionButton;
+  how.value = ButtonHowTo;
+  how.styles = knockedOutStyles();
+  how.borderEdges = fui::EdgesNone;
+  screen.button(how, fui::makeRect(kScreenW - 152, 8, 136, static_cast<int16_t>(kHeaderBand - 16)));
+
   fui::ButtonProps play;
   play.label = model.hasSave ? "RESUME" : "PLAY";
   play.action = ActionButton;
@@ -545,12 +568,16 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   screen.button(play, fui::makeRect(32, footY, 236, footH));
 
   if (model.hasSave) {
+    // OUTLINED, NOT KNOCKED OUT. knockedOutStyles is white-on-black type for
+    // the header band; used on a white page it is black text on white with no
+    // border, which is a label. Both of these were tappable controls that
+    // looked like captions next to the one solid button.
     fui::ButtonProps fresh;
     fresh.label = "NEW GAME";
     fresh.action = ActionButton;
     fresh.value = ButtonMenu;
-    fresh.styles = knockedOutStyles();
-    fresh.borderEdges = fui::EdgesNone;
+    fresh.styles = toybox::rowStyles();
+    fresh.borderEdges = fui::EdgesAll;
     screen.button(fresh, fui::makeRect(280, footY, 200, footH));
   }
 
@@ -558,8 +585,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   table.label = model.sharp ? "TABLE: SHARP" : "TABLE: ROOKIE";
   table.action = ActionButton;
   table.value = ButtonHint;
-  table.styles = knockedOutStyles();
-  table.borderEdges = fui::EdgesNone;
+  table.styles = toybox::rowStyles();
+  table.borderEdges = fui::EdgesAll;
   screen.button(table, fui::makeRect(static_cast<int16_t>(model.hasSave ? 492 : 280), footY,
                                      static_cast<int16_t>(model.hasSave ? 276 : 260), footH));
 }
@@ -596,7 +623,7 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
     std::snprintf(moon, sizeof(moon), "%s SHOT THE MOON", model.seats[seatIndex(game.lastHand.shooter)].name);
     const fui::Rect banner = fui::makeRect(kPageMargin, top, kScreenW - kPageMargin * 2, 50);
     target.fill(banner, black, 8);
-    label(screen, banner, moon, toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Center, true);
+    fittedLabel(screen, banner, moon, toybox::kUiFont, fui::TextAlign::Center, true);
     rowTop = static_cast<int16_t>(top + 62);
   }
 
@@ -678,6 +705,112 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   std::snprintf(rule, sizeof(rule), "LOWEST WINS  %s  FIRST TO %d ENDS IT", model.gameOver ? "-" : "-", kTargetScore);
   label(screen, fui::makeRect(316, footY, static_cast<int16_t>(kScreenW - 316 - kPageMargin), footH), rule,
         toybox::kButtonCut, toybox::kSmallFont, fui::TextAlign::Right, false);
+}
+
+// ---------------------------------------------------------------------------
+// How to play.
+//
+// Four pages, because Hearts is four ideas and they do not fit on one screen at
+// a size anyone will read. The order is what a person needs in the order they
+// need it: what the points ARE, how a trick works, the two rules that catch
+// everybody, and then the pass and the moon, which only matter once the rest is
+// understood.
+//
+// The third page carries the one line that is about this SCREEN rather than
+// about Hearts -- a dithered card is one the rules will not take -- because
+// that is the bridge between knowing the game and being able to play this copy
+// of it.
+
+namespace {
+
+struct HowToPage {
+  const char* title;
+  const char* lines[5];
+};
+
+const HowToPage kHowTo[] = {
+    {"WHAT IT COSTS",
+     {"EVERY HEART YOU TAKE IS ONE POINT.", "THE QUEEN OF SPADES IS THIRTEEN.", "TWENTY-SIX POINTS GO OUT EVERY HAND.",
+      "LOWEST SCORE WINS. FIRST TO 100 ENDS IT.", nullptr}},
+    {"TAKING A TRICK",
+     {"THE TWO OF CLUBS OPENS EVERY HAND.", "FOLLOW THE SUIT THAT WAS LED IF YOU CAN.",
+      "HIGHEST CARD OF THAT SUIT TAKES THE TRICK", "AND EVERYTHING IN IT. THEN LEADS THE NEXT.", nullptr}},
+    {"THE TWO THAT CATCH PEOPLE",
+     {"YOU CANNOT LEAD A HEART UNTIL SOMEBODY", "HAS DISCARDED ONE. THE TABLE SAYS WHICH.",
+      "NOTHING THAT COSTS A POINT MAY BE PLAYED", "ON THE FIRST TRICK OF A HAND.",
+      "A GREY CARD IS ONE THE RULES WILL REFUSE."}},
+    {"PASSING, AND THE MOON",
+     {"BEFORE EACH HAND YOU PASS THREE CARDS:", "LEFT, THEN RIGHT, THEN ACROSS, THEN NOBODY.",
+      "TAKE ALL TWENTY-SIX AND YOU SCORE NOTHING", "WHILE EVERYONE ELSE TAKES TWENTY-SIX.",
+      "THAT IS SHOOTING THE MOON. IT IS RARE."}},
+};
+
+constexpr int kHowToCount = static_cast<int>(sizeof(kHowTo) / sizeof(kHowTo[0]));
+
+}  // namespace
+
+int howToPages() { return kHowToCount; }
+
+void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
+  auto& target = screen.target();
+  const fui::Paint black = fui::Paint::solid(fui::Color::Black);
+  const int page = (model.page < 0 || model.page >= kHowToCount) ? 0 : model.page;
+  const HowToPage& text = kHowTo[page];
+
+  fui::HeaderProps header;
+  header.title = "HOW TO PLAY";
+  header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
+
+  // The block is CENTRED in what the chrome leaves, not hung from the top. Four
+  // lines under a heading is about 250px in a 330px space, and pinned to the
+  // top it left a white band above the page marks -- which on a panel that
+  // holds its image with the power off is the thing you are looking at.
+  int lines = 0;
+  for (int i = 0; i < 5; ++i) {
+    if (text.lines[i] == nullptr) break;
+    ++lines;
+  }
+  const int16_t markY = static_cast<int16_t>(kScreenH - 60);
+  const int16_t blockH = static_cast<int16_t>(56 + 18 + lines * 42);
+  const int16_t top = static_cast<int16_t>(kTableTop + ((markY - 16 - kTableTop) - blockH) / 2);
+
+  fittedLabel(screen, fui::makeRect(kPageMargin + 16, top, kScreenW - kPageMargin * 2 - 32, 56), text.title,
+              toybox::kDisplayFont, fui::TextAlign::Left, false);
+
+  int16_t y = static_cast<int16_t>(top + 74);
+  for (int i = 0; i < lines; ++i) {
+    fittedLabel(screen, fui::makeRect(kPageMargin + 16, y, kScreenW - kPageMargin * 2 - 32, 38), text.lines[i],
+                toybox::kUiFont, fui::TextAlign::Left, false);
+    y = static_cast<int16_t>(y + 42);
+  }
+
+  // Page marks, the same shape the shelf uses for its pages so the gesture and
+  // the meaning are learned once.
+  const int16_t markW = 34;
+  const int16_t markGap = 10;
+  const int16_t markSpan = static_cast<int16_t>(markW * kHowToCount + markGap * (kHowToCount - 1));
+  const int16_t markX = static_cast<int16_t>((kScreenW - markSpan) / 2);
+  for (int i = 0; i < kHowToCount; ++i) {
+    const fui::Rect mark = fui::makeRect(static_cast<int16_t>(markX + i * (markW + markGap)), markY, markW, 34);
+    char n[4];
+    std::snprintf(n, sizeof(n), "%d", i + 1);
+    if (i == page) {
+      target.fill(mark, black, 8);
+    } else {
+      target.stroke(mark, black, toybox::kHairline, 8);
+    }
+    label(screen, mark, n, toybox::kButtonCut, toybox::kSmallFont, fui::TextAlign::Center, i == page);
+  }
+
+  fui::ButtonProps next;
+  next.label = page + 1 < kHowToCount ? "NEXT" : "GOT IT";
+  next.action = ActionButton;
+  next.value = ButtonHowToNext;
+  next.borderEdges = fui::EdgesNone;
+  screen.button(next, fui::makeRect(static_cast<int16_t>(kScreenW - kPageMargin - 200),
+                                    static_cast<int16_t>(kScreenH - 78), 200, 60));
 }
 
 }  // namespace heartsui

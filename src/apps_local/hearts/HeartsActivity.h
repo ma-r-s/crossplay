@@ -16,8 +16,7 @@
 // it back, because it is global.
 class HeartsActivity final : public Activity {
  public:
-  HeartsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Hearts", renderer, mappedInput) {}
+  HeartsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput) : Activity("Hearts", renderer, mappedInput) {}
   ~HeartsActivity() override = default;
 
   static std::unique_ptr<Activity> create(GfxRenderer& renderer, MappedInputManager& mappedInput);
@@ -28,7 +27,7 @@ class HeartsActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class View : uint8_t { Menu, Board, Score };
+  enum class View : uint8_t { Menu, Board, Score, HowTo };
 
   void newGame();
   void routeHandCard(int index);
@@ -55,6 +54,7 @@ class HeartsActivity final : public Activity {
   bool hasGame = false;
   bool interactionsReady = false;
   bool flashOnNextPaint = false;
+  int howToPage = 0;
 
   // The three cards the player has picked to pass, as hand indices.
   bool picked[hearts::kHandSize] = {};
