@@ -38,6 +38,38 @@
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "apps_local/Shelf.h"
+#include "apps_local/live/LiveEngine.h"
+#include "apps_local/powerprobe/PowerProbe.h"
+
+// How long the device sleeps before waking itself, in microseconds. 0 means
+// only the power button ends a sleep, which is how every build has behaved
+// until now.
+//
+// A self-ending sleep is the mechanism Live needs, and it is also the only way
+// a sleeping device can report anything: deep sleep drops the USB CDC, so a
+// board that never wakes by itself cannot be read without a finger on the
+// button.
+#ifndef CROSSPLAY_TIMER_WAKE_SECONDS
+#define CROSSPLAY_TIMER_WAKE_SECONDS 0
+#endif
+static constexpr uint64_t kTimerWakeMicros = static_cast<uint64_t>(CROSSPLAY_TIMER_WAKE_SECONDS) * 1000000ULL;
+
+// The simulator links the simulator package's OWN HalGPIO and HalPowerManager,
+// which shadow lib/hal (see platformio.sim.ini): they have neither the Timer
+// wake reason nor startDeepSleep's timer argument. A simulator has no deep
+// sleep to end, so the arming is compiled out there rather than stubbed -- a
+// stub would be a second implementation of the one thing this feature is, and
+// it would report success for a timer nothing armed.
+//
+// Live's FETCH is deliberately not behind this. It is ordinary networking and
+// it runs in the simulator, which is the only place the whole loop can be
+// driven against the real service without a device on a desk.
+#if defined(SIMULATOR)
+#define CROSSPLAY_CAN_ARM_TIMER 0
+#else
+#define CROSSPLAY_CAN_ARM_TIMER 1
+#endif
+
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
@@ -162,6 +194,12 @@ enum class BootResume : uint8_t {
 // device back up against the user's sleep gesture. Never cleared:
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
+
+// A timer wake that found a new Live message. The Timer case cannot draw --
+// there is no display and no font cache that early -- so it lets setup() finish
+// and sets this, and the last thing setup() does is take the ordinary sleep,
+// which paints /sleep.bmp and re-arms. One painting path for every sleep.
+static bool wakeToSleepScreen = false;
 
 #if FREEINK_CAP_TOUCH
 static bool finishWifiSessionWithoutRestart() {
@@ -293,6 +331,15 @@ static bool loadSleepFrameBuffer() {
   return true;
 }
 
+static void startDeepSleepArmed(const uint64_t timerMicros) {
+#if CROSSPLAY_CAN_ARM_TIMER
+  powerManager.startDeepSleep(gpio, timerMicros);
+#else
+  (void)timerMicros;
+  powerManager.startDeepSleep(gpio);
+#endif
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
@@ -317,6 +364,24 @@ void enterDeepSleep(bool fromTimeout = false) {
   deepSleepInProgress = true;
   activityManager.goToSleep(fromTimeout);
 
+  // LIVE, and this is the whole wake rule in three lines: the sleep screen is
+  // already on the glass, so a refresh that is due is fetched BEHIND it and
+  // pressing power never makes anyone wait on the radio. onSleep() returns the
+  // seconds to arm the RTC timer for, or 0 when Live is off -- in which case
+  // this device costs exactly what it cost before Live existed.
+  //
+  // The repaint happens ONLY when an image actually arrived. A failed or empty
+  // check falls through with repaintNeeded false and the panel is never
+  // touched, which is what leaves yesterday's message up: the correct failure
+  // state, and the only one that looks like a working device from across a
+  // kitchen.
+  bool liveRepaintNeeded = false;
+  const uint32_t liveTimerSeconds = live::engine::onSleep(liveRepaintNeeded);
+  if (liveRepaintNeeded) {
+    LOG_INF("MAIN", "Live brought a new message; repainting the sleep screen");
+    activityManager.goToSleep(fromTimeout);
+  }
+
   if (isQuickResumeSleep) {
     saveSleepFrameBuffer();
   } else if (Storage.exists(SLEEP_FRAME_FILE)) {
@@ -333,10 +398,17 @@ void enterDeepSleep(bool fromTimeout = false) {
 
   halTiltSensor.deepSleep();
   display.deepSleep();
+  powerprobe::beforeSleep();
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  powerManager.startDeepSleep(gpio);
+  // Live's number wins over the build-time one when Live has an opinion. The
+  // build-time constant stays as the power probe's own wake: it exists so a
+  // sleeping board can be measured at all, and a device with Live off is still
+  // the device that measurement describes.
+  const uint64_t timerMicros =
+      liveTimerSeconds > 0 ? static_cast<uint64_t>(liveTimerSeconds) * 1000000ULL : kTimerWakeMicros;
+  startDeepSleepArmed(timerMicros);
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
@@ -485,6 +557,10 @@ void setup() {
   // mount, idempotently, so no writer depends on which save ran first.
   Storage.mkdir("/.crosspoint");
 
+  // Prices the sleep we just came out of, if there was one. Reads the gauge,
+  // appends a line, clears the mark; silent when there is nothing to price.
+  powerprobe::afterBoot();
+
   HalSystem::checkPanic();
 
   APP_STATE.loadFromFile();
@@ -551,12 +627,41 @@ void setup() {
       // device; otherwise the button must still be held (ghost-wake debounce).
       if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
+        powerprobe::beforeSleep();
         Storage.prepareForDeepSleep();
-        powerManager.startDeepSleep(gpio);
+        startDeepSleepArmed(kTimerWakeMicros);
       }
       wakePowerReleasePending = true;
       break;
 #endif
+#if CROSSPLAY_CAN_ARM_TIMER
+    case HalGPIO::WakeupReason::Timer: {
+      // The device woke itself, which is the wake Live exists for: nobody is
+      // looking, so no UI is booted and the panel keeps its retained image
+      // throughout.
+      LOG_DBG("MAIN", "Timer wake: checking Live");
+      bool timerBroughtSomething = false;
+      const uint32_t nextWake = live::engine::onSleep(timerBroughtSomething, /*timerFired=*/true);
+      if (timerBroughtSomething) {
+        // A new message arrived, and drawing it needs the display and the fonts
+        // that this path deliberately skipped. Breaking out of the switch lets
+        // setup() finish, which paints and then sleeps again through
+        // enterDeepSleep -- the same path every other sleep takes, so the image
+        // reaches the glass through one piece of code rather than two.
+        LOG_INF("MAIN", "Timer wake brought a new message; booting far enough to draw it");
+        wakeToSleepScreen = true;
+        break;
+      }
+      // Nothing new. Straight back down, with Live's own number when it has one
+      // so the next wake lands when the service asked for it rather than on the
+      // probe's fixed interval.
+      powerprobe::beforeSleep();
+      Storage.prepareForDeepSleep();
+      startDeepSleepArmed(nextWake > 0 ? static_cast<uint64_t>(nextWake) * 1000000ULL : kTimerWakeMicros);
+      break;
+    }
+#endif
+
     case HalGPIO::WakeupReason::AfterUSBPower:
       // Most devices return to sleep after a USB-powered cold boot.
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
@@ -569,8 +674,9 @@ void setup() {
       // the device in a USB-replug boot loop (or sleep right after a flash).
       break;
 #else
+      powerprobe::beforeSleep();
       Storage.prepareForDeepSleep();
-      powerManager.startDeepSleep(gpio);
+      startDeepSleepArmed(kTimerWakeMicros);
       break;
 #endif
     case HalGPIO::WakeupReason::AfterFlash:
@@ -703,6 +809,15 @@ void setup() {
   devmode::begin();
 
   allowSleepAt = millis() + 2000;
+
+  // Last of all, and it does not return: the timer wake that brought a message
+  // has a display now, so take the ordinary sleep. goToSleep() draws the new
+  // /sleep.bmp and onSleep() finds nothing due a second time, so this costs one
+  // paint and no second request.
+  if (wakeToSleepScreen) {
+    wakeToSleepScreen = false;
+    enterDeepSleep(false);
+  }
 }
 
 #if defined(SIMULATOR)

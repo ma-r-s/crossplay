@@ -86,6 +86,11 @@ enum : fui::ActionId {
   ActionKeep = 7,           // the confirm's safe half: leave it alone
   ActionConfirmDelete = 8,  // the only destructive control in this app
   ActionChoose = 9,         // the header chip: enter or leave choose-a-set mode
+  // The Live screen's three controls. None of them is destructive and none of
+  // them shares a pixel with a control that is: the Live screen has no delete.
+  ActionLiveToggle = 10,  // start or stop showing what the website sends
+  ActionLiveCheck = 11,   // ask the website now instead of at the next check
+  ActionLiveAdd = 12,     // let somebody else send to this reader
 };
 
 // ---------------------------------------------------------------------------
@@ -233,6 +238,11 @@ struct GridChromeModel {
   const char* rightLabel = nullptr;
   const char* warning = nullptr;  // free-space advisory, null when there is room
   bool hasActive = false;         // false -> draw the "tap one to set it" hint
+  // Live is what the sleep screen shows. NOT folded into hasActive: that flag
+  // only buys silence, and silence is what made this wrong -- the "Your phone"
+  // tile wore the selection marker while the strip went on saying nothing was
+  // set. Live needs a line of its own, so it is a fact of its own.
+  bool liveOn = false;
   // The sleep-screen line (#354). Carries every fact that applies at once: what
   // the last selection changed behind the user's back, AND any standing caveat
   // about the wallpaper not reaching the glass. Built by
@@ -248,22 +258,38 @@ struct GridChromeModel {
   bool choosing = false;
 };
 
-// What the header chip says. One place, because the width the title is fitted
-// to comes out of this string's measured width, and a second copy is a second
-// thing to edit alone (the same rule as HackerNews' save chip).
-const char* chooseChipLabel(bool choosing);
+// What the header chip shows. One place, because the room the title is fitted
+// to comes out of the chip, and a second copy is a second thing to edit alone
+// (the same rule as HackerNews' save chip).
+//
+// Two glyphs, and host-tests/wallcaption asserts they are two: a chip whose
+// modes look alike cannot say whether you are in one.
+const freeink::Icon& chooseChipIcon(bool choosing);
 
 // The lowest-priority line on the strip: how you get to a set at all.
 //
-// It names the chip's own word, so the two cannot drift -- host-tests/wallpapers
-// asserts the sentence CONTAINS chooseChipLabel(false), which is the one case
-// where matching the description is the point rather than the bug: rename the
-// chip and this must be renamed with it (derived-facts-written-as-literals).
+// It describes the chip rather than quoting it, because the chip carries no
+// word to quote -- host-tests/wallcaption asserts it does not name one, which
+// is how the old sentence would have gone on pointing at a "CHOOSE" that is no
+// longer on the screen (derived-facts-written-as-literals).
 //
 // It sits BELOW the free-space advisory deliberately. It is chrome, not news,
 // and a permanent hint that outranked a filling card would suppress that
 // warning forever.
 const char* chooseHint();
+
+// The caption on the grid's first tile, and the strip's sentence about it.
+//
+// Published as a pair, and the pair is the point. The sentence names the tile
+// the selection marker is sitting on, so the two carry ONE noun: a second copy
+// of "Your phone" typed into the sentence would go on saying it after the tile
+// stopped (derived-facts-written-as-literals). host-tests/wallcaption asserts
+// the sentence still opens with the caption, which is what makes them one.
+//
+// The caption lives here rather than in the Activity that draws it because a
+// test can link this file and cannot link the Activity.
+const char* liveTileCaption();
+const char* liveStripLine();
 
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model);
 
@@ -302,5 +328,91 @@ struct AddModel {
 // Returns the square the Activity must draw the QR into. The screen cannot draw
 // it: QrUtils needs the renderer, and this file compiles against the SDK alone.
 fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model);
+
+// ---------------------------------------------------------------------------
+// LIVE: where the grid's "Your phone" tile goes.
+//
+// A sleep screen fed from a website. Somebody opens fridge.ma-r-s.com on their
+// phone, sends a drawing or a photo, and the reader shows it. The reader PULLS
+// on a schedule and is asleep the rest of the time, so there is no connection
+// to report and no "now" to show: this screen's whole job is to say when the
+// next check is, how often they come, and who may feed it.
+//
+// A CENTRED STACK: the code dominant, the prose and the QR beneath it. Three
+// arrangements were built and rendered side by side (a stack, a numbered rail,
+// and a split with an inverted panel); Mario picked the stack, and the other
+// two went with the macro that chose between them in the same commit. The stack
+// is the only one whose unpaired half has a single axis: a person holding the
+// reader up to a phone camera or reading digits aloud never has to choose where
+// to look first.
+//
+// Both states, one builder, because they are one destination: before a phone is
+// paired the screen is a code to type, and afterwards it is what that code
+// bought. Building them apart is how the two would come to disagree about what
+// Live even is.
+struct LiveModel {
+  bool configured = false;  // a phone has been paired with this reader
+  bool on = false;          // and Live is what the sleep screen shows
+  // UNPAIRED. Both are drawn; only the Activity's own link is encoded, the same
+  // split buildAdd draws (a QR tells a person nothing, and the address in words
+  // is the only thing to fall back on when a phone will not scan).
+  const char* code = "";  // six digits, grouped so they can be read aloud
+  const char* url = "";   // "fridge.ma-r-s.com" -- drawn, never encoded
+  // What the device is doing right now. Both halves of this screen have ONE
+  // line for it and neither gains a row: unpaired it replaces "Code lasts ten
+  // minutes." under the address, paired it replaces the foot's "BACK RETURNS".
+  // Both stacks are centred against a measured height, and a line added to
+  // either pushes its last element out of the body.
+  //
+  // nullptr means there is nothing to report and the standing line stands.
+  const char* status = nullptr;
+  // PAIRED. Both are sentences the device composes elsewhere, never assembled
+  // per render: a line built inside a paint is a line no test can walk.
+  const char* nextCheck = "";  // "Tomorrow, 6:00"
+  const char* cadence = "";    // "Once a day"
+  struct Sender {
+    const char* who = nullptr;
+    const char* since = nullptr;  // when they were let in: "12 Sep"
+  };
+  // A fixed array rather than a vector. This model is filled on the loop task
+  // and read on the render task with no lock between them, and this app has
+  // already been bitten once by a container reallocated under a paint -- see
+  // SheetModel's sheetIsActive_ above.
+  static constexpr int kMaxSenders = 4;
+  Sender senders[kMaxSenders];
+  int senderCount = 0;
+};
+
+// Every FIXED sentence the Live screen can put in its one status line.
+//
+// Enumerated rather than written at the call sites, because this screen's
+// characteristic defect is a sentence that STOPS: the Toybox cuts above
+// toybox_10 carry no U+2026, so an overflowing line ends at a plausible-looking
+// place and the screenshot looks fine. Three shipped into this screen's first
+// three renders. host-tests/wallcaption lays every one of these out in the box
+// and the face that will draw it and fails if any comes back cut -- which it
+// can only do if they are reachable from a test, and a literal typed inside the
+// Activity is not.
+//
+// A sentence the SERVICE sends is not in here and cannot be: surfacing a
+// server's refusal verbatim is a rule, and the device does not get to invent
+// its own wording for a decision somebody else made. Those are fitted at draw
+// time like any other unbounded string.
+enum class LiveStatus : uint8_t {
+  AskingForCode,
+  WaitingForPhone,
+  Connected,
+  Checking,
+  NothingNew,
+  NewMessage,
+  SharingNotReady,
+  Disconnected,
+  kCount,
+};
+const char* liveStatusLine(LiveStatus status);
+
+// Returns the square the Activity must draw the QR into, empty when this state
+// has none. Same contract as buildAdd, for the same reason.
+fui::Rect buildLive(toybox::Screen& screen, const LiveModel& model);
 
 }  // namespace wallpapersui

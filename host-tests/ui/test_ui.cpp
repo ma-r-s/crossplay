@@ -10958,9 +10958,21 @@ void testEveryAppsBodyStartsOnTheSameRow() {
   CHECK(hnui::listBand(glass).y == toybox::kBodyTop);
   CHECK(xkcdui::listBand(glass).y == toybox::kBodyTop);
 
-  // Wallpapers has no exported body rect -- its hint strip IS the top of its
-  // body, and the grid hangs a fixed distance below it -- so this one is read
-  // off the render. The warning is drawn into the hint rect unexpanded.
+  // Wallpapers is deliberately NOT in the list above, and the reason is worth
+  // stating because this test used to assert it was.
+  //
+  // Its hint strip was standing in for a body top this screen does not export.
+  // That strip is CHROME -- one line about the grid, the twin of a subtitle --
+  // and its body is the grid itself, which hangs a fixed distance lower and
+  // never lined up with anybody's first row anyway. Pinning the strip to
+  // kBodyTop spent the whole body gutter above the sentence and left a sixth
+  // of it below, so it read as a caption stuck to the tiles. Mario reported
+  // that three times.
+  //
+  // What actually has to hold is below: the strip is centred between the rule
+  // and the grid, and the GRID has not moved, because on this screen every row
+  // given to the top comes out of the thumbnails
+  // (testTheWallpapersThumbnailsStayBigEnoughToRead).
   wallpapersui::GridChromeModel model;
   model.title = "WALLPAPERS";
   model.warning = "Card is nearly full";
@@ -10968,7 +10980,18 @@ void testEveryAppsBodyStartsOnTheSameRow() {
   renderWithBezel<wallpapersui::GridChromeModel, wallpapersui::buildGridChrome>(out, model);
   const FakeTarget::TextRun* hint = out.target.find("Card is nearly full");
   CHECK(hint != nullptr);
-  if (hint != nullptr) CHECK(hint->rect.y == toybox::kBodyTop);
+  if (hint != nullptr) {
+    const wallpapersui::GridGeom g = wallpapersui::gridGeom(bezelDevice());
+    const int16_t ruleBottom = toybox::kChromeHeight;
+    const int16_t above = static_cast<int16_t>(hint->rect.y - ruleBottom);
+    const int16_t below = static_cast<int16_t>(g.originY - hint->rect.bottom());
+    // Within the strip's own slack: the box is centred, and where the ink sits
+    // inside it belongs to the cut's line box, not to this layout.
+    const int16_t skew = static_cast<int16_t>(above > below ? above - below : below - above);
+    CHECK(skew <= 4);
+    // And the strip sits BELOW the rule with room, never under the band.
+    CHECK(above > 0);
+  }
 }
 
 // The ink rule again, for the labels apps draw on the band THEMSELVES.
@@ -12065,6 +12088,51 @@ void testWallpapersChromeShowsThePage() {
   CHECK(drewText(out, "PAGE 2 / 3"));
 }
 
+// LIVE IS SHOWING, and the strip has to say so. Without this the grid drew the
+// selection marker on the "Your phone" tile while the strip said "Tap one to
+// set your sleep screen." -- nothing is set, beside a mark saying something is.
+// That is card #354's shape: the marker and the words disagreeing, with nothing
+// on the screen to say why.
+void testWallpapersChromeSaysWhenLiveIsTheSleepScreen() {
+  Rendered out;
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "6 SAVED";
+  // hasActive stays false on purpose: Live and a pinned wallpaper are mutually
+  // exclusive, so this is exactly the state the old strip got wrong.
+  model.hasActive = false;
+  model.liveOn = true;
+  buildWallpapersChrome(out, model);
+  CHECK(drewText(out, wallpapersui::liveStripLine()));
+  CHECK(!drewText(out, "Tap one to set"));
+}
+
+// ...but it does not silence the two lines above it. Both are NEWS -- something
+// changed behind the user's back, or the card is filling -- and Live being on
+// is a standing state that would suppress either for the whole session. That
+// suppression is #354 itself, so the order is asserted rather than assumed.
+void testWallpapersChromeLiveDoesNotDisplaceTheNoteOrTheWarning() {
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.hasActive = false;
+    model.liveOn = true;
+    model.note = "Sleep screen was off. It is on now.";
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, "Sleep screen was off."));
+    CHECK(!drewText(out, wallpapersui::liveStripLine()));
+  }
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.hasActive = false;
+    model.liveOn = true;
+    model.warning = "Could not check card space.";
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, "Could not check card space."));
+    CHECK(!drewText(out, wallpapersui::liveStripLine()));
+  }
+}
+
 // The free-space advisory wins the hint strip and is shown verbatim: "full" and
 // "could not tell" are different sentences.
 void testWallpapersChromeWarningVerbatim() {
@@ -12927,6 +12995,8 @@ int main() {
   testWallpapersChromeIsQuietWhenSomethingIsSet();
   testWallpapersChromeShowsThePage();
   testWallpapersChromeWarningVerbatim();
+  testWallpapersChromeSaysWhenLiveIsTheSleepScreen();
+  testWallpapersChromeLiveDoesNotDisplaceTheNoteOrTheWarning();
   testWallpapersEmptyStateSaysSomething();
   testWallpapersCaptionNeverCollidesWithArtwork();
   // testWallpapersHelpCardPointsAtTheUploader is NOT here: app/wallqr deleted
