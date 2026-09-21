@@ -417,3 +417,30 @@ tick = check
 # band and a four-by-something key field, which is the silhouette of the thing
 # and shares no shape with any other row in Apps.
 calculator = calculator
+
+# ---------------------------------------------------------------------------
+# LIVE, the fridge screen. Four marks at 24px, and 24 is the size because every
+# one of them sits BESIDE A WORD -- three in a 64px button, one at the end of a
+# list row. A 32px mark there crowds the label it is paired with.
+#
+# None of them is alone. WallpapersScreens.cpp already learned on the Add screen
+# that a graphic tells a person nothing by itself (the address is drawn in words
+# next to the QR, and the comment there says why): an e-ink panel has no hover
+# and no tooltip, so a bare glyph is a guess. One short word removes the guess.
+live_check  = rotate-cw   # ask the website now rather than at the next check.
+                          # `refresh-cw` is two arcs chasing each other and they
+                          # blur together at 24px in one bit; one arrow with one
+                          # head survives.
+live_power  = power       # the universal mark, and the one control here that
+                          # stops the reader fetching at all.
+live_add    = plus        # `user-plus` was the literal choice and its head and
+                          # shoulders is mush at this weight. A bare plus has no
+                          # interior detail to lose.
+live_remove = x           # the end of a sender row. `trash-2` is a drawn object
+                          # -- lid, body, three lines -- and it fills in at 24px
+                          # in one bit. An X is two strokes, and it is what every
+                          # list in the world puts at the end of a row you can
+                          # take out. The word is not repeated per row: the
+                          # confirm behind it NAMES who is going, which is the
+                          # sentence that matters and the one place it can be
+                          # read without shrinking four rows to fit it.
