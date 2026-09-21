@@ -54,7 +54,7 @@ class Pairings:
         for code in [c for c, p in self._pending.items() if p["expires"] < now]:
             del self._pending[code]
 
-    def start(self, fridge_id: str, device_token: str) -> dict:
+    def start(self, fridge_id: str, device_token: str, joining: bool = False) -> dict:
         self._sweep()
         # A code already in flight would be claimed by the wrong reader, so
         # keep drawing. The space is a million against a handful of pending
@@ -66,6 +66,11 @@ class Pairings:
         self._pending[code] = {
             "fridge_id": fridge_id,
             "device_token": device_token,
+            # A JOIN code adds a sender to a fridge that already exists. A
+            # setup code makes one. Conflating them is how "add somebody"
+            # would have silently orphaned the first sender and the picture
+            # with it, because /api/pair/start mints a NEW fridge.
+            "joining": joining,
             "poll_token": poll_token,
             "expires": time.time() + CODE_TTL_S,
             "wrong": 0,
@@ -94,7 +99,7 @@ class Pairings:
         if p["sender_token"] is not None:
             return None  # single use
         p["sender_token"] = secrets.token_urlsafe(32)
-        return {"fridge_id": p["fridge_id"], "sender_token": p["sender_token"]}
+        return {"fridge_id": p["fridge_id"], "sender_token": p["sender_token"], "joining": p["joining"]}
 
     def _burn_exhausted(self) -> None:
         for code in [c for c, p in self._pending.items() if p["wrong"] >= WRONG_GUESSES_PER_CODE]:
