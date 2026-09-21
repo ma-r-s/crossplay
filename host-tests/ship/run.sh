@@ -163,7 +163,13 @@ fi
 # CROSSPOINT_VERSION, so it is in every release image by construction rather
 # than a debug line a LOG_LEVEL could compile out.
 checks=$((checks + 1))
-if printf '%s' "$CODE" | grep -q 'strings -a' && printf '%s' "$CODE" | grep -q 'CrossPlay-ESP32-\$NEXT'; then
+# The marker is spelled in the sed that strips it, not as
+# "CrossPlay-ESP32-$NEXT": the probe extracts the version and compares it,
+# rather than grepping for the expected line, because grep -q through a pipe
+# breaks under pipefail (see the check further down).
+if printf '%s' "$CODE" | grep -q 'strings -a' \
+   && printf '%s' "$CODE" | grep -q 'CrossPlay-ESP32-' \
+   && printf '%s' "$CODE" | grep -qE '\[ "\$_found" != "\$NEXT" \]'; then
   ok
 else
   failed=$((failed + 1))
@@ -312,7 +318,25 @@ fi
 # grep -qxF, not -qF: as a substring, an image built as 1.13.14 satisfies a
 # tag of v1.13.1.
 checks=$((checks + 1))
-if printf '%s' "$CODE" | grep -q 'grep -qxF "CrossPlay-ESP32-\$NEXT"'; then
+# NOT `grep -q` THROUGH A PIPE. ship.sh sets `set -o pipefail`, and grep -q
+# exits at the first match, so the producer takes SIGPIPE on a 7MB image and
+# the pipeline reports 141 even though the match succeeded. The probe then
+# refuses a CORRECT pair and says the images came from the wrong commit --
+# which is what it did on the first live run that reached it.
+#
+# An interactive shell has no pipefail, so the same command by hand returns
+# 0: the bug is invisible to exactly the check a person would make. The
+# probe must therefore read the whole stream and compare the value.
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -qE 'strings -a[^|]*\|[^|]*grep -q'; then
+  failed=$((failed + 1))
+  echo "FAIL ship  the version probe pipes strings into grep -q under set -o pipefail. grep -q exits early, strings takes SIGPIPE on a multi-megabyte image, and the pipeline fails on a CORRECT match -- refusing a release whose images are exactly right."
+else
+  ok
+fi
+
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -q 'sed -n .s/\^CrossPlay-ESP32-//p'; then
   ok
 else
   failed=$((failed + 1))
@@ -495,7 +519,7 @@ fi
 # Line order is the whole assertion here, so it is read the same way as the
 # bump-before-build check above.
 TAGPUSH_LINE="$(printf '%s' "$CODE" | grep -nE 'run "git push [^"]*\$TAG' | head -1 | cut -d: -f1)"
-PROBE_LINE="$(printf '%s' "$CODE" | grep -n 'CrossPlay-ESP32-\$NEXT' | head -1 | cut -d: -f1)"
+PROBE_LINE="$(printf '%s' "$CODE" | grep -nE '\[ "\$_found" != "\$NEXT" \]' | head -1 | cut -d: -f1)"
 checks=$((checks + 1))
 if [ -z "$TAGPUSH_LINE" ] || [ -z "$PROBE_LINE" ]; then
   failed=$((failed + 1))
