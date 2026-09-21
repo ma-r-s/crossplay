@@ -91,6 +91,31 @@ expect "raw pio run refused"                    2 pretool "{\"session_id\":\"$WO
 expect "check.sh allowed"                       0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && ./scripts_local/check.sh --tests\"}}"
 expect "pio in a word is not pio run"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -rn 'pio run' docs\"}}"
 
+# Publishing by hand.
+#
+# scripts_local/ship.sh is the only path from a green gate to a release since
+# the GitHub builds were removed, and it is the only one that bumps the
+# version BEFORE the build. platformio.ini compiles the version into both
+# release envs and OtaUpdater compares a release's tag against that compiled
+# string, so a hand-cut tag over older images leaves every device offering an
+# update it already installed -- silently, and on every device at once.
+#
+# Read-only gh release verbs stay allowed: refusing `gh release list` would
+# make the guard something to work around rather than something to obey.
+echo "releases are cut by ship.sh"
+expect "gh release create refused"              2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release create v1.2.3 dist/*\"}}"
+expect "gh release create after a cd refused"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && gh release create v1.2.3\"}}"
+expect "gh release upload refused"              2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release upload v1.2.3 firmware.bin\"}}"
+expect "a version tag refused"                  2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag v1.13.12\"}}"
+expect "an annotated version tag refused"       2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag -a v1.13.12 -m release\"}}"
+expect "pushing a version tag refused"          2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin v1.13.12\"}}"
+expect "ship.sh allowed"                        0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && ./scripts_local/ship.sh\"}}"
+expect "gh release list allowed"                0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release list --repo ma-r-s/crossplay\"}}"
+expect "gh release view allowed"                0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release view v1.13.11\"}}"
+expect "listing tags allowed"                   0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag --list 'v1.13.*'\"}}"
+expect "pushing a work branch allowed"          0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin app/shipfast\"}}"
+expect "a non-version tag allowed"              0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag baseline-before-sync\"}}"
+
 echo "quotes are stripped before the command is split"
 bashjson() { python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' "$WORKER" "$1"; }
 expect "a pipe inside quotes does not cut the quotes"     0 pretool "$(bashjson "cd $ROOT/firmware-next && echo \"in: \$(git tag --contains abc | tr '\\n' ' ')\"")"
