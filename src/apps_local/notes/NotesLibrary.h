@@ -62,14 +62,12 @@ class Library {
   int count() const { return static_cast<int>(entries_.size()); }
 
   bool load(const std::string& name, std::string& doc) const;
-  // Writes beside the file and renames. Refuses when the card is low rather
-  // than writing a truncated note; `message` says which of the two happened.
-  // `growing` is false for a write that cannot make the file bigger -- a tick
-  // flips one byte -- and that write skips the free-space walk entirely.
-  // Storage.freeBytes() walks the FAT, which is slow enough that Wallpapers
-  // caches it rather than re-probing, and asking it on every tick put that walk
-  // between a finger and a tick box.
-  bool save(const std::string& name, const std::string& doc, std::string& message, bool growing = true);
+  // Writes beside the file and renames. `message` says what went wrong, and a
+  // full card is told apart from a broken one only AFTER a write has actually
+  // failed: Storage.freeBytes() walks the FAT, which was measured on hardware
+  // at 5.3 SECONDS, and asking it before a 200-byte write spent that on every
+  // first add of a session to pre-empt a failure the write itself reports.
+  bool save(const std::string& name, const std::string& doc, std::string& message);
 
   // A new, empty note. False when the name is unusable or already taken, with
   // `message` saying which.
@@ -85,6 +83,9 @@ class Library {
   static bool exists(const std::vector<Entry>& entries, const std::string& name);
 
  private:
+  // Asked only when a write has already failed, to say WHY.
+  bool cardIsFull() const;
+
   void sortEntries();
   std::string pathFor(const std::string& name) const;
   std::string partPathFor(const std::string& name) const;

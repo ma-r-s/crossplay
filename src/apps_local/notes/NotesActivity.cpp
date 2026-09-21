@@ -1,6 +1,7 @@
 #include "NotesActivity.h"
 
 #include <ESPmDNS.h>
+#include <Logging.h>
 #include <Memory.h>
 #include <WiFi.h>
 
@@ -194,6 +195,10 @@ void NotesActivity::openDeck() {
 void NotesActivity::reloadNote() {
   doc_.clear();
   library_.load(openName_, doc_);
+  refreshFromDoc();
+}
+
+void NotesActivity::refreshFromDoc() {
   lines_ = notes::parse(doc_);
   rebuildRows();
   const int count = static_cast<int>(taskRows_.size());
@@ -238,7 +243,7 @@ void NotesActivity::toggleTask(const int index) {
   // is the failure mode of every app that saves on exit, and this one is used
   // one-handed in a shop with the power button under a thumb.
   std::string message;
-  if (!library_.save(openName_, doc_, message, /*growing=*/false)) {
+  if (!library_.save(openName_, doc_, message)) {
     doc_ = before;  // the file is the truth; take back what RAM claimed
     lines_ = notes::parse(doc_);
     rebuildRows();
@@ -264,8 +269,7 @@ void NotesActivity::switchKind() {
     return;
   }
   std::string message;
-  // Putting a box on every line grows the file; taking them off cannot.
-  if (!library_.save(openName_, doc_, message, /*growing=*/!wasList)) {
+  if (!library_.save(openName_, doc_, message)) {
     doc_ = before;  // the file is the truth; take back what RAM claimed
     lines_ = notes::parse(doc_);
     rebuildRows();
@@ -274,7 +278,7 @@ void NotesActivity::switchKind() {
   }
   newIsList_ = !wasList;
   noteTop_ = 0;
-  reloadNote();
+  refreshFromDoc();
   view_ = View::Note;
   interactionsReady_ = false;
   requestUpdate();
@@ -293,7 +297,7 @@ void NotesActivity::clearDone() {
     return;
   }
   noteTop_ = 0;
-  reloadNote();
+  refreshFromDoc();
   view_ = View::Note;
   interactionsReady_ = false;
   requestUpdate();
@@ -415,6 +419,12 @@ void NotesActivity::askLine() {
     doc_.push_back('\n');
 
     std::string message;
+    // TIMED, permanently. "Adding an item is slow" was reported twice and both
+    // times the answer had to be guessed from reading the code, because nothing
+    // anywhere said how long the card took. These three numbers are what that
+    // question needs: the write, the rebuild, and everything between OK and the
+    // keyboard coming back.
+    const uint32_t startedAt = millis();
     if (!library_.save(openName_, doc_, message)) {
       doc_ = before;
       lines_ = notes::parse(doc_);
@@ -422,13 +432,18 @@ void NotesActivity::askLine() {
       showNotice(message);
       return;
     }
-    reloadNote();
+    const uint32_t savedAt = millis();
+    // NOT reloadNote(): doc_ is what was just written, byte for byte. Reading
+    // it back turned every OK into a second trip to the card.
+    refreshFromDoc();
     // Onto the page the new line landed on, so a line added to a long list is
     // visibly there rather than two pages away.
     const int page = notePageSize();
     const int count = static_cast<int>(taskRows_.size());
     if (page > 0 && count > 0) noteTop_ = ((count - 1) / page) * page;
     relabelNote();
+    LOG_DBG("NOTES", "add: save %ums, rows %ums, %d items", savedAt - startedAt, millis() - savedAt,
+            static_cast<int>(taskRows_.size()));
     view_ = View::Note;
     // STRAIGHT BACK TO THE KEYBOARD. A list is made of several things, and the
     // way out is Back or an empty line. One visit per item cost two activity
