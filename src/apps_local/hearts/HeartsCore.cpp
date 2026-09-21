@@ -350,6 +350,65 @@ void nextHand(Game& game, uint32_t& seed) {
   deal(game, seed);
 }
 
+bool isConsistent(const Game& game) {
+  switch (game.phase) {
+    case Phase::Passing:
+    case Phase::Playing:
+    case Phase::TrickTaken:
+    case Phase::HandOver:
+    case Phase::GameOver:
+      break;
+    default:
+      return false;
+  }
+  if (seatIndex(game.turn) < 0 || seatIndex(game.turn) >= kSeats) return false;
+  if (seatIndex(game.trick.leader) < 0 || seatIndex(game.trick.leader) >= kSeats) return false;
+  if (game.trick.count > kSeats) return false;
+  if (game.trickNumber > kTricks) return false;
+
+  int onTable = 0;
+  for (int s = 0; s < kSeats; ++s) {
+    if (game.hands[s].count > kHandSize) return false;
+    if (game.passingCount[s] > kPassCount) return false;
+    if (game.receivedCount[s] > kPassCount) return false;
+    if (game.total[s] < 0 || game.taken[s] < 0 || game.taken[s] > kMoonPoints) return false;
+    if (game.tricksWon[s] > kTricks) return false;
+    if (game.trick.played[s] != kNoCard) ++onTable;
+  }
+  if (onTable != game.trick.count) return false;
+
+  // The deck has to add up: each of the 52 is either still in a hand or has
+  // been played, never both and never neither. This is what a torn save fails.
+  //
+  // A card ON THE TABLE is counted by `played`, not separately -- playCard
+  // records it there the moment it leaves the hand. Counting the table as well
+  // makes every live trick look like a duplicated card, which is what the first
+  // version of this function did and what its test caught.
+  int seen[cards::kDeck] = {};
+  const auto index = [](const uint8_t card) {
+    const int rank = cards::rankOf(card);
+    if (rank < 0 || rank >= cards::kRanks) return -1;
+    return static_cast<int>(cards::suitOf(card)) * cards::kRanks + rank;
+  };
+  for (int s = 0; s < kSeats; ++s) {
+    for (int i = 0; i < game.hands[s].count; ++i) {
+      const int at = index(game.hands[s].at(i));
+      if (at < 0) return false;
+      ++seen[at];
+    }
+    // Whatever is face up must also be recorded as spent.
+    if (game.trick.played[s] != kNoCard) {
+      const int at = index(game.trick.played[s]);
+      if (at < 0 || !game.played[at]) return false;
+    }
+  }
+  for (int i = 0; i < cards::kDeck; ++i) {
+    if (game.played[i]) ++seen[i];
+    if (seen[i] != 1) return false;
+  }
+  return true;
+}
+
 Seat leader(const Game& game) {
   int best = 0;
   for (int s = 1; s < kSeats; ++s) {

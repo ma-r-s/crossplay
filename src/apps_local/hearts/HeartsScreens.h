@@ -94,6 +94,8 @@ struct MenuModel {
   int gamesPlayed = 0;
   int gamesWon = 0;
   bool sharp = true;  // which opponent strength is selected
+  // NEW GAME has been tapped once and is asking before it discards the save.
+  bool confirmingNew = false;
 };
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);

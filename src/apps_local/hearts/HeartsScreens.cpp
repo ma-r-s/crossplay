@@ -34,7 +34,12 @@ constexpr int16_t kHandH = cardart::kCardH;
 constexpr int16_t kHandBottomMargin = 12;
 constexpr int16_t kHandTop = kScreenH - kHandBottomMargin - kHandH;  // 346
 constexpr int16_t kStatusH = 34;
-constexpr int16_t kStatusTop = kHandTop - kStatusH - 4;  // 308
+// How far a chosen card lifts out of the fan. NAMED, because the status row
+// has to clear it: at a 10px lift the row ran 308..342 while the raised cards
+// sat at 336, so the heavy top edges of the picked cards cut through the
+// bottoms of the letters in "PICK THREE CARDS TO PASS RIGHT".
+constexpr int16_t kPickedLift = 6;
+constexpr int16_t kStatusTop = kHandTop - kStatusH - kPickedLift - 4;
 // DERIVED FROM THE CHROME, not typed. The band is 56, its rule sits 4 below it
 // and is 3 tall, and the fork's gutter is 12 more -- so content starts at 75,
 // not at the 62 this was. Six pixels under the band looked fine and put the
@@ -131,8 +136,13 @@ void seatPlaque(toybox::Screen& screen, const fui::Rect& box, const SeatView& se
   fittedLabel(screen, fui::makeRect(box.x + pad, box.y, static_cast<int16_t>(box.width - pad - numbersW), box.height),
               seat.name, toybox::kUiFont, fui::TextAlign::Left, invert);
 
+  // WHERE THIS SEAT WOULD STAND IF THE HAND ENDED NOW, not the score from
+  // before it started. `total` alone reads 0 for all four seats through the
+  // entire first hand, so the biggest number on the rail means nothing for
+  // thirteen tricks while the pill beside it is the one that matters. The pill
+  // says how much of this number the current hand put there.
   char running[16];
-  std::snprintf(running, sizeof(running), "%d", seat.total);
+  std::snprintf(running, sizeof(running), "%d", seat.total + seat.taken);
   label(screen, fui::makeRect(static_cast<int16_t>(box.right() - pad - 46), box.y, 46, box.height), running,
         toybox::kUiCut, toybox::kUiFont, fui::TextAlign::Right, invert);
 
@@ -235,9 +245,14 @@ void drawPassPanel(toybox::Screen& screen, const fui::Rect& panel, const BoardMo
   // Which of the chosen cards goes in which slot is not a decision, so they
   // fill left to right in hand order.
   uint8_t chosen[kPassCount] = {kNoCard, kNoCard, kNoCard};
+  int from[kPassCount] = {-1, -1, -1};
   int n = 0;
   for (int i = 0; i < hand.count && n < kPassCount; ++i) {
-    if (model.picked[i]) chosen[n++] = hand.at(i);
+    if (model.picked[i]) {
+      from[n] = i;
+      chosen[n] = hand.at(i);
+      ++n;
+    }
   }
 
   for (int i = 0; i < kPassCount; ++i) {
@@ -247,6 +262,10 @@ void drawPassPanel(toybox::Screen& screen, const fui::Rect& panel, const BoardMo
       target.stroke(slot, black, toybox::kHairline, cardart::kRadius);
     } else {
       cardart::drawCardFace(screen, slot, chosen[i], ch);
+      // TAPPING THE BIG COPY TAKES IT BACK. It is the instinctive way to undo a
+      // choice and it was a dead region; the card carries the hand index it
+      // came from, so the tray and the fan route to the same handler.
+      screen.frame().hit(slot, ActionHandCard, from[i]);
     }
   }
 }
@@ -287,25 +306,32 @@ void drawHand(toybox::Screen& screen, const BoardModel& model, Layout& layout) {
   // the only full face in thirteen, which reads as a selection.
   const bool fanned = step < cw;
 
-  for (int i = 0; i < hand.count; ++i) {
-    const bool picked = model.picked[i];
-    // A picked card lifts out of the fan. Six pixels is enough to read as a
-    // different row without opening a gap the fan cannot close.
-    const int16_t y = static_cast<int16_t>(kHandTop - (picked ? 10 : 0));
-    const fui::Rect rect = fui::makeRect(static_cast<int16_t>(x0 + step * i), y, cw, kHandH);
-    layout.handCard[i] = rect;
+  // TWO PASSES, because a lifted card is drawn OUTSIDE its own cell.
+  //
+  // In one pass the next card repaints from kHandTop down and the raised card's
+  // top strip survives across its full 92px width, terminating in a rounded
+  // corner floating in mid-air above its neighbour. That is the rule in
+  // docs/building-apps.md: anything drawn outside its cell needs its own pass.
+  for (int pass = 0; pass < 2; ++pass) {
+    for (int i = 0; i < hand.count; ++i) {
+      const bool picked = model.picked[i];
+      if ((pass == 1) != picked) continue;
+      const int16_t y = static_cast<int16_t>(kHandTop - (picked ? kPickedLift : 0));
+      const fui::Rect rect = fui::makeRect(static_cast<int16_t>(x0 + step * i), y, cw, kHandH);
+      layout.handCard[i] = rect;
 
-    const cardart::Ink ink = picked           ? cardart::Ink::Picked
-                             : model.legal[i] ? cardart::Ink::Normal
-                                              : cardart::Ink::Dimmed;
-    cardart::drawCardFace(screen, rect, hand.at(i), fanned ? step : kHandH,
-                          fanned ? cardart::Fan::Sideways : cardart::Fan::None, ink);
-    // The hit region is the sliver a fanned card actually shows, and the whole
-    // card once the hand has spread. Derived from the rect that drew it, never
-    // recomputed: hit-testing that recalculates geometry is the rule three
-    // separate bugs in this project came from breaking.
-    const int16_t hitW = (fanned && i + 1 < hand.count) ? step : cw;
-    screen.frame().hit(fui::makeRect(rect.x, rect.y, hitW, kHandH), ActionHandCard, i);
+      const cardart::Ink ink = picked           ? cardart::Ink::Picked
+                               : model.legal[i] ? cardart::Ink::Normal
+                                                : cardart::Ink::Dimmed;
+      cardart::drawCardFace(screen, rect, hand.at(i), fanned ? step : kHandH,
+                            fanned ? cardart::Fan::Sideways : cardart::Fan::None, ink);
+      // The hit region is the sliver a fanned card actually shows, and the whole
+      // card once the hand has spread. Derived from the rect that drew it, never
+      // recomputed: hit-testing that recalculates geometry is the rule three
+      // separate bugs in this project came from breaking.
+      const int16_t hitW = (fanned && i + 1 < hand.count) ? step : cw;
+      screen.frame().hit(fui::makeRect(rect.x, rect.y, hitW, kHandH), ActionHandCard, i);
+    }
   }
 }
 
@@ -342,8 +368,20 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
 
+  // A WAY OUT, ON EVERY IN-GAME SCREEN. The panel had none: no back chevron, no
+  // menu row, and GUI.drawButtonHints draws nothing visible in landscape, so
+  // the only exit was a hardware button nothing on screen mentions. A cold
+  // player could open Hearts and not be able to leave it.
   const int16_t buttonY = 8;
   const int16_t buttonH = static_cast<int16_t>(toybox::headerBandRect(screen).height - buttonY * 2);
+  fui::ButtonProps menu;
+  menu.label = "MENU";
+  menu.action = ActionButton;
+  menu.value = ButtonMenu;
+  menu.styles = knockedOutStyles();
+  menu.borderEdges = fui::EdgesNone;
+  screen.button(menu, fui::makeRect(kScreenW - 122, buttonY, 106, buttonH));
+
   if (model.showConfirm) {
     fui::ButtonProps confirm;
     confirm.label = model.confirmLabel;
@@ -358,7 +396,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
     // nothing to undo.
     confirm.styles = model.confirmEnabled ? knockedOutStyles() : outlinedOnBlackStyles();
     confirm.borderEdges = fui::EdgesNone;
-    screen.button(confirm, fui::makeRect(kScreenW - 150, buttonY, 134, buttonH));
+    screen.button(confirm, fui::makeRect(kScreenW - 272, buttonY, 134, buttonH));
   }
 
   // RAIL: the seats are a column down the left, in table order from the top, so
@@ -432,6 +470,17 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
     } else {
       cardart::drawCardFace(screen, slot, card, ch);
     }
+  }
+
+  // WHICH CARD IS WINNING. Three cards down and nothing said who was taking it,
+  // which is the single fact you need to decide your own play. Drawn in its own
+  // pass because the frame sits outside the card and would be overdrawn by
+  // whichever slot rendered after it.
+  if (!game.trick.empty()) {
+    const fui::Rect& won = layout.trickCard[seatIndex(game.trick.winner())];
+    target.stroke(fui::makeRect(static_cast<int16_t>(won.x - 5), static_cast<int16_t>(won.y - 5),
+                                static_cast<int16_t>(won.width + 10), static_cast<int16_t>(won.height + 10)),
+                  fui::Paint::solid(fui::Color::Black), toybox::kFrame, cardart::kRadius + 4);
   }
 
   drawStatus(screen, model);
@@ -540,7 +589,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const int16_t miniY = static_cast<int16_t>(felt.bottom() - 18 - miniH);
   for (int i = 0; i < 5; ++i) {
     cardart::drawCardBack(screen, fui::makeRect(static_cast<int16_t>(miniX + i * miniStep), miniY, miniW, miniH),
-                          i == 4 ? miniH : miniStep);
+                          i == 4 ? miniH : miniStep, cards::Suit::Hearts);
   }
 
   // The foot. PLAY is the only thing anyone came here to do, so it is solid
@@ -573,7 +622,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     // border, which is a label. Both of these were tappable controls that
     // looked like captions next to the one solid button.
     fui::ButtonProps fresh;
-    fresh.label = "NEW GAME";
+    fresh.label = model.confirmingNew ? "DISCARD IT?" : "NEW GAME";
     fresh.action = ActionButton;
     fresh.value = ButtonMenu;
     fresh.styles = toybox::rowStyles();
@@ -653,6 +702,9 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
     target.stroke(track, black, toybox::kHairline, 9);
     int filled = game.total[s] * barW / kTargetScore;
     if (filled > barW) filled = barW;
+    // A 5-point total is 20px in a 418px track, which reads as a smudge rather
+    // than as a bar. Anything non-zero gets at least a cap's worth.
+    if (game.total[s] > 0 && filled < 26) filled = 26;
     if (filled > 4) {
       target.fill(fui::makeRect(barX, track.y, static_cast<int16_t>(filled), 18),
                   fui::Paint::dither(fui::Color::DarkGray), 9);
@@ -670,21 +722,37 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   // its image with the power off, and this screen had the same hole Solitaire's
   // menu has. What goes in it is the one thing four totals do not say: where
   // you stand and how much room is left.
+  // WHERE YOU STAND, and all three of its claims were wrong.
+  //
+  // A lead is measured against SECOND place, not against the worst player:
+  // totals 5 / 30 / 12 / 40 printed "AHEAD BY 35" for a lead of 7. The winner
+  // was announced as "YOU WINS ON 87", because the seat that is you is the one
+  // named most often and the only one that conjugates. And a tie announced one
+  // of the tied seats as the winner, while hearts::isTied() sat unused --
+  // which is the second opinion this file's own comments warn about twice.
   const int16_t noteY = static_cast<int16_t>(rowTop + kSeats * (rowH + rowGap) + 14);
-  int best = 0;
-  int worst = 0;
-  for (int s = 1; s < kSeats; ++s) {
-    if (game.total[s] < game.total[best]) best = s;
-    if (game.total[s] > game.total[worst]) worst = s;
-  }
   const int me = seatIndex(Seat::South);
+  const int best = seatIndex(leader(game));
+  const bool tied = isTied(game);
+  int second = -1;
+  for (int s = 0; s < kSeats; ++s) {
+    if (s == best) continue;
+    if (second < 0 || game.total[s] < game.total[second]) second = s;
+  }
   char note[80];
   if (model.gameOver) {
-    std::snprintf(note, sizeof(note), "%s WINS ON %d", model.seats[best].name, game.total[best]);
+    if (tied) {
+      std::snprintf(note, sizeof(note), "TIED ON %d", game.total[best]);
+    } else {
+      std::snprintf(note, sizeof(note), "%s %s ON %d", model.seats[best].name, best == me ? "WIN" : "WINS",
+                    game.total[best]);
+    }
+  } else if (tied && game.total[me] == game.total[best]) {
+    std::snprintf(note, sizeof(note), "LEVEL ON %d", game.total[me]);
   } else if (best == me) {
-    std::snprintf(note, sizeof(note), "YOU ARE AHEAD BY %d", game.total[worst == me ? best : worst] - game.total[me]);
+    std::snprintf(note, sizeof(note), "YOU LEAD BY %d", game.total[second] - game.total[me]);
   } else {
-    std::snprintf(note, sizeof(note), "%s IS AHEAD. YOU ARE %d BEHIND", model.seats[best].name,
+    std::snprintf(note, sizeof(note), "%s LEADS. YOU ARE %d BEHIND", model.seats[best].name,
                   game.total[me] - game.total[best]);
   }
   label(screen, fui::makeRect(kPageMargin, noteY, kScreenW - kPageMargin * 2, 44), note,
@@ -697,6 +765,14 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
   go.value = ButtonConfirm;
   go.borderEdges = fui::EdgesNone;
   screen.button(go, fui::makeRect(kPageMargin, footY, 280, footH));
+
+  fui::ButtonProps menu;
+  menu.label = "MENU";
+  menu.action = ActionButton;
+  menu.value = ButtonMenu;
+  menu.styles = knockedOutStyles();
+  menu.borderEdges = fui::EdgesNone;
+  screen.button(menu, fui::makeRect(kScreenW - 122, 8, 106, static_cast<int16_t>(kHeaderBand - 16)));
 
   // The rule, on the one screen where it decides how you feel about the numbers
   // above it. Hearts is the wrong way round from most games and a player two

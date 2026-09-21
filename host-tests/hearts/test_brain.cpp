@@ -66,10 +66,13 @@ static void testObservationCarriesNoOtherHand() {
   }
   CHECK_EQ(goneCount, 0);
 
-  // The struct has no field that could hold another hand. This is a compile-
-  // time fact, stated as a runtime one so it is visible in the suite: an
-  // Observation is smaller than four hands could possibly fit in.
-  CHECK(sizeof(Observation) < sizeof(Game));
+  // There used to be a `sizeof(Observation) < sizeof(Game)` here, presented as
+  // the structural no-cheating check. It proved nothing: four Hands are 56
+  // bytes, so an Observation carrying every one of them would still be smaller
+  // than a Game and the assertion would pass while the brain cheated. The two
+  // checks above and in testGoneTracksPlayedCardsOnly are the real ones --
+  // `gone` carries only what was played, `showsVoid` only what was shown --
+  // and they are about content rather than about size.
 }
 
 static void testGoneTracksPlayedCardsOnly() {
@@ -184,20 +187,58 @@ static void testShedsTheQueenOfSpadesWhenVoid() {
   }
 }
 
-static void testAvoidsBeatingTheQueenWithTheAceOfSpades() {
+static void testShedsHighSpadesWhileTheQueenIsStillOut() {
+  // THIS IS THE CASE THAT ISOLATES THE QUEEN LOGIC, and the test that used to
+  // stand here did not: it put an ace and a low spade behind a led spade, where
+  // the generic "duck with the highest loser" rule already picks the low one by
+  // a margin of 468 to 140. Deleting the queen clause changed nothing, so a
+  // test named for the queen covered none of it.
+  //
+  // Void in the led suit is the branch the clause actually decides. Shedding
+  // the ace of spades scores 100 + rank*6 = 172 without it and 392 with it;
+  // a middling heart scores 100 + 60 + rank*8 = 184. So the heart wins unless
+  // the clause fires, which makes the two outcomes opposite rather than equal.
   Game game;
-  setUpFollow(game, Suit::Spades, 4);  // a low spade led, queen still out
+  setUpFollow(game, Suit::Diamonds, c::kKing);
   game.hands[seatIndex(Seat::West)].add(c::makeCard(Suit::Spades, c::kAce));
-  game.hands[seatIndex(Seat::West)].add(c::makeCard(Suit::Spades, 2));
+  game.hands[seatIndex(Seat::West)].add(c::makeCard(Suit::Hearts, 5));
 
   Observation obs;
   observe(game, Seat::West, obs);
   CHECK(!obs.queenGone());
   uint32_t rng = 5;
   for (int trial = 0; trial < 40; ++trial) {
-    // Playing the ace here wins the trick and invites thirteen points onto it.
-    CHECK_EQ(decidePlay(obs, Skill::Sharp, rng), c::makeCard(Suit::Spades, 2));
+    CHECK_EQ(decidePlay(obs, Skill::Sharp, rng), c::makeCard(Suit::Spades, c::kAce));
   }
+
+  // ONCE SHE HAS FALLEN the ace of spades is just a card, and the dangerous
+  // thing to be holding is the heart. Same position, one fact different.
+  Game after;
+  setUpFollow(after, Suit::Diamonds, c::kKing);
+  after.hands[seatIndex(Seat::West)].add(c::makeCard(Suit::Spades, c::kAce));
+  after.hands[seatIndex(Seat::West)].add(c::makeCard(Suit::Hearts, 5));
+  after.played[static_cast<int>(Suit::Spades) * c::kRanks + c::kQueen] = true;
+  Observation gone;
+  observe(after, Seat::West, gone);
+  CHECK(gone.queenGone());
+  uint32_t rng2 = 5;
+  for (int trial = 0; trial < 40; ++trial) {
+    CHECK_EQ(decidePlay(gone, Skill::Sharp, rng2), c::makeCard(Suit::Hearts, 5));
+  }
+}
+
+// A queen lying face up on the table has fallen, even though observe() keeps
+// the current trick's cards out of `gone` so the trick in front of you can
+// still be read.
+static void testQueenOnTheTableCountsAsFallen() {
+  Game game;
+  setUpFollow(game, Suit::Spades, c::kQueen);
+  game.hands[seatIndex(Seat::West)].add(c::makeCard(Suit::Spades, 3));
+  Observation obs;
+  observe(game, Seat::West, obs);
+  // She is NOT in `gone` -- she is on the table -- and she has still fallen.
+  CHECK(!obs.wasPlayed(Suit::Spades, c::kQueen));
+  CHECK(obs.queenGone());
 }
 
 static void testMoonThreatDetection() {
@@ -250,7 +291,18 @@ static void testPassUrgencyRanksTheQueenTop() {
 
 // Plays one complete game with the given skill per seat. Returns the winning
 // seat (lowest total; ties broken by seat, which the caller accounts for).
+// Moons shot BY A BRAIN across every game playGame runs. A counter rather than
+// an assertion per game: a moon is rare by design, so the question is whether
+// the behaviour exists at all, and that is only answerable over a match.
+static int gBrainMoons = 0;
+static int gBrainMoonShooterWasSharp = 0;
+
 static int playGame(const Skill* skills, uint32_t& seed, int* finalTotals, bool assertLegal) {
+  // WRITTEN BEFORE ANY EARLY RETURN. Both bail-outs below used to leave this
+  // untouched while measureStrength added it to a running total regardless, so
+  // the day a brain returned an illegal card the suite printed garbage averages
+  // and CHECK(sharpAvg < rookieAvg) became a coin flip instead of going red.
+  for (int s = 0; s < kSeats; ++s) finalTotals[s] = 0;
   Game game;
   newGame(game, seed);
   Observation obs;
@@ -289,12 +341,20 @@ static int playGame(const Skill* skills, uint32_t& seed, int* finalTotals, bool 
       continue;
     }
     if (game.phase == Phase::HandOver) {
+      if (game.lastHand.moon) {
+        ++gBrainMoons;
+        if (skills[seatIndex(game.lastHand.shooter)] == Skill::Sharp) ++gBrainMoonShooterWasSharp;
+      }
       nextHand(game, seed);
       continue;
     }
     break;
   }
-  if (game.phase != Game{}.phase && guard >= 8000) return -1;
+  // A game that ran out of steps did not finish, whatever phase it stopped in.
+  // This compared against Game{}.phase, which is Passing, so a table wedged in
+  // the pass skipped the bail-out and reported a winner from an unfinished
+  // game.
+  if (game.phase != Phase::GameOver) return -1;
 
   int best = 0;
   for (int s = 0; s < kSeats; ++s) {
@@ -359,7 +419,17 @@ static void measureStrength() {
   const double sharpAvg = static_cast<double>(sharpScore) / kGames;
   const double rookieAvg = static_cast<double>(rookieScore) / (kGames * 3);
   std::printf("  strength: Sharp wins %.1f%% of %d decided games (chance is 25.0%%)\n", winRate, decided);
+  std::printf("            moons shot by a brain: %d, of which %d by the Sharp seat\n", gBrainMoons,
+              gBrainMoonShooterWasSharp);
   std::printf("            final score, lower is better: Sharp %.1f vs Rookie %.1f\n", sharpAvg, rookieAvg);
+
+  // THE BRAINS MUST ACTUALLY SHOOT. They had moon defence and no offence, so
+  // the SHOT THE MOON screen could only ever fire for the human and three of
+  // the four seats were missing a quarter of the game. Over ~600 games a
+  // handful is what a well-gated shoot looks like; zero means the code is
+  // unreachable and a flood means the gate is too loose.
+  CHECK(gBrainMoons > 0);
+  CHECK(gBrainMoonShooterWasSharp > 0);
 
   // A Sharp that does not beat three Rookies is not worth the two settings.
   // The bar is deliberately well clear of chance rather than just above it, so
@@ -374,7 +444,8 @@ int main() {
   testVoidIsOnlyRecordedWhenShown();
   testDucksWithTheHighestLoser();
   testShedsTheQueenOfSpadesWhenVoid();
-  testAvoidsBeatingTheQueenWithTheAceOfSpades();
+  testShedsHighSpadesWhileTheQueenIsStillOut();
+  testQueenOnTheTableCountsAsFallen();
   testMoonThreatDetection();
   testPassUrgencyRanksTheQueenTop();
   testEveryBrainPlaysLegally();

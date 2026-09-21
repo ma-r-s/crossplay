@@ -68,7 +68,21 @@ struct Observation {
 
   bool firstTrick() const { return trickNumber == 0; }
   bool wasPlayed(Suit suit, int rank) const { return gone[static_cast<int>(suit) * cards::kRanks + rank]; }
-  bool queenGone() const { return wasPlayed(Suit::Spades, cards::kQueen); }
+  // HAS THE QUEEN FALLEN? Not the same question as "is she in `gone`".
+  //
+  // observe() deliberately unmarks the cards lying face up in the current
+  // trick, because for counting the trick in front of you they are visible
+  // rather than spent. For "has she come out yet" that is wrong: a Sharp
+  // fourth to play, with the queen already thrown onto this very trick, still
+  // ducked to avoid drawing her and still paid to shed high spades before her
+  // arrival. Two different questions were sharing one array.
+  bool queenGone() const {
+    if (wasPlayed(Suit::Spades, cards::kQueen)) return true;
+    for (int s = 0; s < kSeats; ++s) {
+      if (trick.played[s] != kNoCard && isQueenOfSpades(trick.played[s])) return true;
+    }
+    return false;
+  }
 };
 
 // Fill `out` with what `seat` is entitled to know about `game`. The only
@@ -88,6 +102,16 @@ uint8_t decidePlay(const Observation& obs, Skill skill, uint32_t& rng);
 // units where bigger means pass it. Exposed because the tests calibrate against
 // it: a value function nobody can inspect is a value function nobody can fix.
 int passUrgency(const Observation& obs, uint8_t card);
+
+// AM I SHOOTING? True when this seat holds every point taken so far and still
+// holds the cards to finish the job.
+//
+// The brains had moon DEFENCE and no moon OFFENCE at all, so the SHOT THE MOON
+// banner could only ever fire for the human and a quarter of what makes Hearts
+// tense was missing from three of the four seats. Deliberately hard to enter: a
+// shoot that fails hands you every point you collected on the way, so the bar
+// is "already committed and still holding the top cards", never a hopeful start.
+bool shootingTheMoon(const Observation& obs);
 
 // Is somebody about to shoot the moon? Returns that seat, or -1. A seat is a
 // threat when it holds every point taken so far and there are enough taken to

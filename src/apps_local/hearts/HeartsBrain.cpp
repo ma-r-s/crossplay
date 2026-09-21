@@ -138,6 +138,13 @@ void decidePass(const Observation& obs, const Skill skill, uint32_t& rng, uint8_
     score[i] += static_cast<int>(nextRandom(rng) % 5u);
   }
 
+  // A hand shorter than the pass cannot fill it, and `best` then stays -1 --
+  // which the loop below used to write to, one slot before the array.
+  // Unreachable in a legal game and reachable from a corrupt save, which is
+  // exactly the class of input this has to survive.
+  for (int pick = 0; pick < kPassCount; ++pick) out[pick] = kNoCard;
+  if (obs.hand.count < kPassCount) return;
+
   bool used[kHandSize] = {};
   for (int pick = 0; pick < kPassCount; ++pick) {
     int best = -1;
@@ -145,9 +152,41 @@ void decidePass(const Observation& obs, const Skill skill, uint32_t& rng, uint8_
       if (used[i]) continue;
       if (best < 0 || score[i] > score[best]) best = i;
     }
+    if (best < 0) return;
     used[best] = true;
     out[pick] = obs.hand.at(best);
   }
+}
+
+bool shootingTheMoon(const Observation& obs) {
+  const int me = seatIndex(obs.me);
+  if (obs.taken[me] <= 0) return false;
+  for (int s = 0; s < kSeats; ++s) {
+    if (s != me && obs.taken[s] > 0) return false;  // somebody else has points: it is already dead
+  }
+  // Committed, not hopeful. Below this a "shoot" is just a seat that took one
+  // early heart, and abandoning it later costs nothing while pursuing it costs
+  // the hand.
+  if (obs.taken[me] < 8) return false;
+
+  // And still able to finish. Every point still out there has to come to me, so
+  // I need cards that win: count how many of my cards nothing outstanding beats.
+  int commanding = 0;
+  for (int i = 0; i < obs.hand.count; ++i) {
+    const uint8_t card = obs.hand.at(i);
+    const Suit suit = c::suitOf(card);
+    const int rank = trickRank(card);
+    bool beatable = false;
+    for (int r = rank + 1; r < c::kRanks; ++r) {
+      const int deckRank = (r == c::kRanks - 1) ? c::kAce : r + 1;
+      if (!obs.wasPlayed(suit, deckRank) && !obs.hand.has(c::makeCard(suit, deckRank))) {
+        beatable = true;
+        break;
+      }
+    }
+    if (!beatable) ++commanding;
+  }
+  return commanding * 2 >= obs.hand.count;
 }
 
 int moonThreat(const Observation& obs) {
@@ -164,13 +203,20 @@ int moonThreat(const Observation& obs) {
     held = obs.taken[s];
   }
   if (holder < 0 || holder == seatIndex(obs.me)) return -1;
-  return held >= 10 ? holder : -1;
+  // The old bar was ten points, which is calibrated for a shoot that opens with
+  // the queen. A hearts-only shoot reaches ten only after ten of the thirteen
+  // hearts have gone to one seat, by which point the hand is decided and the
+  // defence fires too late to be worth having. Six from the fourth trick on
+  // catches both shapes while still ignoring the single early heart that means
+  // nothing.
+  return (held >= 10 || (held >= 6 && obs.trickNumber >= 4)) ? holder : -1;
 }
 
 namespace {
 
 // Pick the card that leads a trick.
 uint8_t chooseLead(const Observation& obs, const Skill skill, const uint8_t* legal, const int n, uint32_t& rng) {
+  const bool shooting = skill == Skill::Sharp && shootingTheMoon(obs);
   int bestAt = 0;
   int bestScore = -1000000;
   for (int i = 0; i < n; ++i) {
@@ -178,6 +224,17 @@ uint8_t chooseLead(const Observation& obs, const Skill skill, const uint8_t* leg
     const Suit suit = c::suitOf(card);
     const int rank = trickRank(card);
     int score = 0;
+
+    if (shooting) {
+      // Lead the cards nothing can beat, so the points keep coming to me.
+      score += rank * 10;
+      score += static_cast<int>(nextRandom(rng) % 7u);
+      if (score > bestScore) {
+        bestScore = score;
+        bestAt = i;
+      }
+      continue;
+    }
 
     // Leading low is the whole art: a low card wins nothing and gives nothing.
     score += (12 - rank) * 6;
@@ -236,6 +293,7 @@ uint8_t chooseFollow(const Observation& obs, const Skill skill, const uint8_t* l
   const int high = currentHigh(obs.trick);
   const int onTable = tablepoints(obs.trick);
   const int threat = (skill == Skill::Sharp) ? moonThreat(obs) : -1;
+  const bool shooting = skill == Skill::Sharp && shootingTheMoon(obs);
   const bool last = lastToPlay(obs);
 
   int bestAt = 0;
@@ -267,6 +325,22 @@ uint8_t chooseFollow(const Observation& obs, const Skill skill, const uint8_t* l
     const bool following = suit == led;
     const bool wouldLead = following && rank > high;
     int score = 0;
+
+    if (shooting) {
+      // EVERYTHING INVERTS. I need every remaining point, so I want to win this
+      // trick and I want it to be worth something.
+      if (following) {
+        score += wouldLead ? 800 + rank * 6 : rank;
+      } else {
+        score += 50 + (12 - rank) * 4;  // void: throw rubbish, keep the winners
+      }
+      score += static_cast<int>(nextRandom(rng) % 7u);
+      if (score > bestScore) {
+        bestScore = score;
+        bestAt = i;
+      }
+      continue;
+    }
 
     if (following) {
       if (!wouldLead) {

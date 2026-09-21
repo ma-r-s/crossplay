@@ -60,7 +60,9 @@ void drawCardFace(toybox::Screen& screen, const fui::Rect& rect, uint8_t card, i
 // A face-down card. `visible` works as above: a card peeking out of a fan gets
 // the frame and the lattice, and only a whole one gets the mark, because a mark
 // sliced in half is worse than no mark.
-void drawCardBack(toybox::Screen& screen, const fui::Rect& rect, int visible);
+// `mark` is the suit stamped on the back. It defaulted to spades and was
+// hardcoded, so a game called Hearts drew a fan of spades on its own menu.
+void drawCardBack(toybox::Screen& screen, const fui::Rect& rect, int visible, cards::Suit mark = cards::Suit::Spades);
 
 // An empty place. A dashed outline rather than a hairline rectangle, which is
 // pixel-identical to a blank card and reads as one.

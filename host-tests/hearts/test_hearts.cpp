@@ -409,6 +409,105 @@ static void testSetPassRejectsRubbish() {
 // ---------------------------------------------------------------------------
 // The soak.
 
+// The consistency check that guards a restored save. Every assertion here is
+// about a position the ACTIVITY could be handed by a torn write, so the test
+// drives real games and then corrupts them one field at a time.
+static void testConsistency() {
+  uint32_t seed = 31337;
+  Game game;
+  newGame(game, seed);
+  CHECK(isConsistent(game));
+
+  for (int s = 0; s < kSeats; ++s) {
+    uint8_t three[kPassCount] = {game.hands[s].at(0), game.hands[s].at(1), game.hands[s].at(2)};
+    setPass(game, static_cast<Seat>(s), three, kPassCount);
+  }
+  commitPass(game);
+  CHECK(isConsistent(game));
+
+  // A LIVE TRICK IS CONSISTENT. The first version of isConsistent counted a
+  // face-up card twice and rejected every game with anything on the table.
+  for (int i = 0; i < 3; ++i) {
+    uint8_t legal[kHandSize];
+    const int n = legalPlays(game, game.turn, legal);
+    CHECK(n > 0);
+    CHECK(playCard(game, legal[0]));
+    CHECK(isConsistent(game));
+  }
+  CHECK_EQ(game.trick.count, 3);
+
+  // And it stays consistent through a whole hand.
+  int guard = 0;
+  while (game.phase != Phase::HandOver && game.phase != Phase::GameOver && ++guard < 200) {
+    if (game.phase == Phase::TrickTaken) {
+      sweepTrick(game);
+    } else {
+      uint8_t legal[kHandSize];
+      const int n = legalPlays(game, game.turn, legal);
+      CHECK(n > 0);
+      if (n == 0) break;
+      CHECK(playCard(game, legal[0]));
+    }
+    CHECK(isConsistent(game));
+  }
+  CHECK(game.phase == Phase::HandOver || game.phase == Phase::GameOver);
+
+  // Now the corruptions a torn save produces, one at a time. Each starts from a
+  // fresh good game so the checks cannot mask each other.
+  const auto fresh = [&seed]() {
+    Game g;
+    newGame(g, seed);
+    return g;
+  };
+  {
+    Game g = fresh();
+    g.phase = static_cast<Phase>(99);
+    CHECK(!isConsistent(g));
+  }
+  {
+    Game g = fresh();
+    g.turn = static_cast<Seat>(5);  // the out-of-bounds hands[5] read
+    CHECK(!isConsistent(g));
+  }
+  {
+    Game g = fresh();
+    g.hands[1].count = 20;  // reads past cards[13], and past picked[13]
+    CHECK(!isConsistent(g));
+  }
+  {
+    Game g = fresh();
+    g.trickNumber = 40;
+    CHECK(!isConsistent(g));
+  }
+  {
+    Game g = fresh();
+    g.taken[2] = 99;
+    CHECK(!isConsistent(g));
+  }
+  {
+    Game g = fresh();
+    g.total[0] = -5;
+    CHECK(!isConsistent(g));
+  }
+  {
+    Game g = fresh();
+    // A DUPLICATED CARD, which is the shape a half-written struct really takes:
+    // South's first card also appears in West's hand.
+    g.hands[1].cards[0] = g.hands[0].at(0);
+    CHECK(!isConsistent(g));
+  }
+  {
+    Game g = fresh();
+    g.hands[0].count = 12;  // a card that is in no hand and was never played
+    CHECK(!isConsistent(g));
+  }
+  {
+    Game g = fresh();
+    g.trick.count = 2;  // says two are down while played[] says none are
+    CHECK(!isConsistent(g));
+  }
+}
+
 static void testSoak() {
   uint32_t seed = 0xC0FFEEu;
   constexpr int kGames = 400;
@@ -552,6 +651,7 @@ int main() {
   testPassMovesThreeEachWay();
   testHoldHandSkipsThePass();
   testSetPassRejectsRubbish();
+  testConsistency();
   testSoak();
 
   std::printf("hearts: %d checks, %d failures\n", gChecks, gFailures);

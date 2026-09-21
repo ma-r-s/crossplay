@@ -107,7 +107,7 @@ void drawCardFace(toybox::Screen& screen, const fui::Rect& rect, const uint8_t c
   drawPip(screen, fui::makeRect(rect.x + rect.width / 2 - 20, rect.y + 64, 46, 48), card);
 }
 
-void drawCardBack(toybox::Screen& screen, const fui::Rect& rect, const int visible) {
+void drawCardBack(toybox::Screen& screen, const fui::Rect& rect, const int visible, const c::Suit markSuit) {
   auto& target = screen.target();
   const fui::Paint black = fui::Paint::solid(fui::Color::Black);
   target.fill(rect, fui::Paint::solid(fui::Color::White), kRadius);
@@ -128,7 +128,7 @@ void drawCardBack(toybox::Screen& screen, const fui::Rect& rect, const int visib
   const fui::Rect halo = fui::makeRect(rect.x + (rect.width - mark) / 2 - pad, rect.y + (rect.height - mark) / 2 - pad,
                                        mark + pad * 2, mark + pad * 2);
   target.fill(halo, fui::Paint::solid(fui::Color::White), 6);
-  drawSuit(screen, fui::makeRect(halo.x + pad, halo.y + pad, mark, mark), c::Suit::Spades, false);
+  drawSuit(screen, fui::makeRect(halo.x + pad, halo.y + pad, mark, mark), markSuit, false);
 }
 
 void drawCardSlot(toybox::Screen& screen, const fui::Rect& rect) {

@@ -18,6 +18,7 @@ using namespace hearts;
 namespace {
 
 constexpr const char* kSavePath = "/.crosspoint/hearts.sav";
+constexpr const char* kSkillPath = "/.crosspoint/hearts.skill";
 constexpr const char* kStatsPath = "/.crosspoint/hearts.res";
 
 // Bumped when the save layout changes, per the cache-format rule. An old save
@@ -25,18 +26,19 @@ constexpr const char* kStatsPath = "/.crosspoint/hearts.res";
 // two of the same card on it.
 constexpr uint8_t kSaveVersion = 1;
 
-// THE SAVE IS WRITTEN AT A TRICK BOUNDARY, never mid-trick.
+// THE SAVE IS WRITTEN AT EVERY TRICK BOUNDARY, AND ON THE WAY OUT.
 //
-// Two reasons, and the second is the real one. Solitaire wrote ~340 bytes on
-// every tap, 150+ times a session, which is the traffic this struct would
-// double; that is the cheap reason. The load-bearing one is that a trick
-// boundary is the only moment this game has NO half-finished state -- no cards
-// on the table, nobody mid-decision, every seat holding the same number of
-// cards. Restoring there is unambiguous. Restoring into a trick with two cards
-// down means reconstructing whose turn it was and what the brains had already
-// decided, which is state the save does not carry.
+// The routine writes are at trick boundaries; leaving the board and exiting the
+// activity write immediately, mid-trick included, because losing a hand to a
+// closed app is worse than the write.
 //
-// A crash mid-trick therefore costs the current trick and nothing else.
+// The reason for the boundary is TRAFFIC, not correctness. Solitaire wrote
+// ~340 bytes on every tap, 150+ times a session, and this struct is bigger; at
+// a boundary it is thirteen writes a hand rather than one per card. Restoring
+// mid-trick is perfectly sound -- the struct carries `turn`, the table and
+// every hand, so nothing has to be reconstructed. An earlier version of this
+// comment claimed the opposite and forbade something the code was already
+// doing two lines away, which is worse than no comment.
 
 // How long a completed trick sits on the table before it is swept.
 //
@@ -66,6 +68,10 @@ const char* seatName(const Seat seat) {
   return "?";
 }
 
+// "YOU TAKES IT" was on the panel. The seat that is you is the only one that
+// conjugates differently, and it is the one named most often.
+const char* takesVerb(const Seat seat) { return seat == Seat::South ? "TAKE" : "TAKES"; }
+
 const char* passName(const Pass pass) {
   switch (pass) {
     case Pass::Left:
@@ -90,6 +96,15 @@ void HeartsActivity::onEnter() {
   renderer.setOrientation(GfxRenderer::Orientation::LandscapeCounterClockwise);
   toybox::ensureFonts(renderer);
   rng = static_cast<uint32_t>(millis()) | 1u;
+  // A PREFERENCE HAS TO SURVIVE LEAVING. Picking ROOKIE and coming back to a
+  // Sharp table -- mid-saved-game -- is the setting silently undoing itself.
+  {
+    HalFile file;
+    uint8_t byte = 0;
+    if (Storage.openFileForRead("HEARTS", kSkillPath, file) && file.read(&byte, 1) == 1) {
+      skill = byte == 0 ? Skill::Rookie : Skill::Sharp;
+    }
+  }
   hasGame = loadGame();
   view = View::Menu;
   requestUpdate();
@@ -100,13 +115,33 @@ void HeartsActivity::onExit() {
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 }
 
-void HeartsActivity::newGame() {
-  hearts::newGame(game, rng);
-  hasGame = true;
-  pickedCount = 0;
+// Deal, then skip the pass if this hand has none. WITHOUT THIS, every fourth
+// hand paints one full frame reading "PASSING NOBODY" with a live PASS button
+// before advance() notices and commits: render runs before the next loop pass,
+// so the phase is briefly Passing on a hand that does not pass.
+void HeartsActivity::startHand() {
+  if (game.phase == Phase::Passing && game.passDirection() == Pass::Hold && passReady(game)) commitPass(game);
   std::memset(picked, 0, sizeof(picked));
+  pickedCount = 0;
   hasLastWinner = false;
   trickShownAt = 0;
+}
+
+void HeartsActivity::newGame() {
+  // A DEAL NEEDS ENTROPY IT DOES NOT GET FROM millis() ALONE. Seeded once at
+  // activity entry, five separate simulator runs dealt the identical opening
+  // hand, because the only thing separating them was how long boot took. The
+  // games already played are persistent and monotonic, and the hand number
+  // moves within a game, so mixing both makes a repeat need the same card
+  // state AND the same millisecond.
+  ui::MenuModel stats;
+  fillStats(stats);
+  rng ^= (static_cast<uint32_t>(millis()) * 2654435761u) + (static_cast<uint32_t>(stats.gamesPlayed) * 40503u) +
+         (static_cast<uint32_t>(game.handNumber) * 2246822519u);
+  if (rng == 0) rng = 0x9E3779B9u;
+  hearts::newGame(game, rng);
+  hasGame = true;
+  startHand();
   view = View::Board;
   saveGame();
   requestUpdate();
@@ -120,19 +155,29 @@ bool HeartsActivity::advance() {
       // The three brains choose in one pass -- their choices are simultaneous
       // and invisible, so there is nothing to watch.
       bool changed = false;
-      if (game.passDirection() != Pass::Hold) {
-        for (int s = 0; s < kSeats; ++s) {
-          if (s == seatIndex(Seat::South)) continue;
-          if (game.passingCount[s] == kPassCount) continue;
-          Observation obs;
-          observe(game, static_cast<Seat>(s), obs);
-          uint8_t three[kPassCount];
-          decidePass(obs, skill, rng, three);
-          setPass(game, static_cast<Seat>(s), three, kPassCount);
-          changed = true;
-        }
-      } else if (passReady(game)) {
+      for (int s = 0; s < kSeats; ++s) {
+        if (s == seatIndex(Seat::South)) continue;
+        if (game.passingCount[s] == kPassCount) continue;
+        Observation obs;
+        observe(game, static_cast<Seat>(s), obs);
+        uint8_t three[kPassCount];
+        decidePass(obs, skill, rng, three);
+        setPass(game, static_cast<Seat>(s), three, kPassCount);
+        changed = true;
+      }
+      // THE COMMIT LIVES WHERE THE PASS BECOMES READY, not in whichever actor
+      // happens to act last. It used to sit only inside the human's confirm, so
+      // a confirm processed before the brains had chosen left every seat ready
+      // and nothing to notice it: the board sat in Passing with a dead PASS
+      // button until the player picked three cards a second time.
+      if (passReady(game)) {
         commitPass(game);
+        // Nothing may stay picked across the commit. On a Hold hand the panel
+        // can be tapped during the single frame before the skip, and a stale
+        // `picked` slot raises whichever card later occupies that POSITION --
+        // a different card after every trick.
+        std::memset(picked, 0, sizeof(picked));
+        pickedCount = 0;
         return true;
       }
       return changed;
@@ -142,15 +187,24 @@ bool HeartsActivity::advance() {
       if (game.turn == Seat::South) return false;  // the player owes a card
       Observation obs;
       observe(game, game.turn, obs);
-      const uint8_t card = decidePlay(obs, skill, rng);
-      if (card == kNoCard) {
-        LOG_ERR("HEARTS", "brain for seat %d returned no card", seatIndex(game.turn));
-        return false;
+      uint8_t card = decidePlay(obs, skill, rng);
+      if (card == kNoCard || !isLegalPlay(game, game.turn, card)) {
+        // The brain asks the rules for legality, so this needs the two to
+        // disagree. RECOVER RATHER THAN RETURN: returning false is exactly the
+        // wedge it was meant to avoid, because nothing else ever moves this
+        // seat -- the panel says "WEST IS THINKING" until the player gives up
+        // and leaves. The rules always have an answer on turn, so take theirs.
+        LOG_ERR("HEARTS", "brain for seat %d gave card %u; falling back to the rules", seatIndex(game.turn), card);
+        uint8_t legal[kHandSize];
+        const int n = legalPlays(game, game.turn, legal);
+        if (n == 0) {
+          LOG_ERR("HEARTS", "seat %d has no legal card at all; hand is wedged", seatIndex(game.turn));
+          return false;
+        }
+        card = legal[0];
       }
       if (!playCard(game, card)) {
-        // The brain asks the rules for legality, so this cannot happen without
-        // the two disagreeing. Log it loudly rather than wedging the hand.
-        LOG_ERR("HEARTS", "brain for seat %d played an illegal card %u", seatIndex(game.turn), card);
+        LOG_ERR("HEARTS", "seat %d could not play %u even after falling back", seatIndex(game.turn), card);
         return false;
       }
       if (game.phase == Phase::TrickTaken) {
@@ -172,6 +226,10 @@ bool HeartsActivity::advance() {
         view = View::Score;
         flashOnNextPaint = game.phase == Phase::GameOver;
         if (game.phase == Phase::GameOver) {
+          // Place is one plus however many finished STRICTLY lower, so a tie
+          // for lowest is a shared first and is recorded as a win. That is a
+          // decision, not an accident: Hearts has no tiebreak, and the score
+          // screen says TIED rather than naming one of them.
           int place = 1;
           for (int s = 0; s < kSeats; ++s) {
             if (s != seatIndex(Seat::South) && game.total[s] < game.total[seatIndex(Seat::South)]) ++place;
@@ -222,11 +280,35 @@ void HeartsActivity::routeHandCard(const int index) {
     return;
   }
 
-  if (game.phase != Phase::Playing || game.turn != Seat::South) return;
+  if (game.phase != Phase::Playing) return;
+  if (game.turn != Seat::South) {
+    rejected = "NOT YOUR TURN YET";
+    requestUpdate();
+    return;
+  }
   // One activation path: the tap asks the rules, exactly as the board asked
   // them to decide whether to dim the card. A card drawn dimmed cannot be
   // played, and a card drawn bright always can.
-  if (!isLegalPlay(game, Seat::South, card)) return;
+  if (!isLegalPlay(game, Seat::South, card)) {
+    // SAY WHY. The dither already said "not this one"; this says which rule,
+    // which is the difference between a game that refuses you and a game that
+    // teaches you. The reasons are in the order the rules bite.
+    if (game.firstTrick() && game.trick.empty()) {
+      rejected = "THE TWO OF CLUBS OPENS THE HAND";
+    } else if (!game.trick.empty() && game.hands[seatIndex(Seat::South)].hasSuit(game.trick.ledSuit()) &&
+               cards::suitOf(card) != game.trick.ledSuit()) {
+      rejected = "YOU STILL HOLD THE LED SUIT";
+    } else if (game.firstTrick() && penaltyOf(card) > 0) {
+      rejected = "NO POINTS ON THE FIRST TRICK";
+    } else if (game.trick.empty() && isHeart(card) && !game.heartsBroken) {
+      rejected = "HEARTS ARE NOT BROKEN YET";
+    } else {
+      rejected = "THE RULES REFUSE THAT CARD";
+    }
+    requestUpdate();
+    return;
+  }
+  rejected = nullptr;
   playCard(game, card);
   if (game.phase == Phase::TrickTaken) {
     lastWinner = game.trick.winner();
@@ -238,6 +320,11 @@ void HeartsActivity::routeHandCard(const int index) {
 
 void HeartsActivity::routeButton(const int button) {
   switch (button) {
+    case ui::ButtonMenu:
+      if (hasGame) saveGame();
+      view = View::Menu;
+      requestUpdate();
+      break;
     case ui::ButtonConfirm:
       if (game.phase == Phase::Passing && pickedCount == kPassCount) {
         const Hand& hand = game.hands[seatIndex(Seat::South)];
@@ -255,9 +342,7 @@ void HeartsActivity::routeButton(const int button) {
         }
       } else if (game.phase == Phase::HandOver) {
         nextHand(game, rng);
-        std::memset(picked, 0, sizeof(picked));
-        pickedCount = 0;
-        hasLastWinner = false;
+        startHand();
         view = View::Board;
         saveGame();
         requestUpdate();
@@ -314,6 +399,7 @@ void HeartsActivity::loop() {
       if (view == View::Menu) {
         switch (action.value) {
           case ui::ButtonConfirm:
+            confirmingNew = false;
             if (hasGame) {
               view = View::Board;
               requestUpdate();
@@ -322,12 +408,28 @@ void HeartsActivity::loop() {
             }
             break;
           case ui::ButtonMenu:
-            newGame();
+            // ONE TAP USED TO DESTROY A SAVED GAME, with NEW GAME sitting
+            // directly beside RESUME and no way back. It asks once now, and
+            // only when there is something to lose.
+            if (hasGame && !confirmingNew) {
+              confirmingNew = true;
+              requestUpdate();
+            } else {
+              confirmingNew = false;
+              newGame();
+            }
             break;
-          case ui::ButtonHint:
+          case ui::ButtonHint: {
             skill = skill == Skill::Sharp ? Skill::Rookie : Skill::Sharp;
+            HalFile file;
+            if (Storage.openFileForWrite("HEARTS", kSkillPath, file)) {
+              const uint8_t byte = skill == Skill::Sharp ? 1 : 0;
+              file.write(&byte, 1);
+              file.flush();
+            }
             requestUpdate();
             break;
+          }
           case ui::ButtonHowTo:
             howToPage = 0;
             view = View::HowTo;
@@ -395,6 +497,13 @@ void HeartsActivity::fillLegal(ui::BoardModel& model) const {
 }
 
 const char* HeartsActivity::statusLine() {
+  // A refusal outranks whatever the board would otherwise be saying, and it
+  // lasts exactly one paint: the next thing that happens replaces it.
+  if (rejected != nullptr) {
+    const char* reason = rejected;
+    rejected = nullptr;
+    return reason;
+  }
   switch (game.phase) {
     case Phase::Passing:
       std::snprintf(statusBuffer, sizeof(statusBuffer), "PICK THREE CARDS TO PASS %s", passName(game.passDirection()));
@@ -438,8 +547,14 @@ const char* HeartsActivity::subStatusLine() {
   }
   // Two facts a Hearts player tracks all hand and cannot see anywhere else.
   const bool queenGone = game.played[static_cast<int>(Suit::Spades) * cards::kRanks + cards::kQueen];
+  // "QUEEN OUT" meant she had NOT been played and "QUEEN GONE" meant she had.
+  // In cards "out" normally means out of play, so the two states were one word
+  // apart, in the smallest type on the screen, and meant opposite things.
+  // "HEARTS SHUT" was invented too: the game's own word is broken, and its
+  // opposite is not broken.
   std::snprintf(subStatusBuffer, sizeof(subStatusBuffer), "%s   %s",
-                game.heartsBroken ? "HEARTS BROKEN" : "HEARTS SHUT", queenGone ? "QUEEN GONE" : "QUEEN OUT");
+                game.heartsBroken ? "HEARTS BROKEN" : "HEARTS NOT BROKEN",
+                queenGone ? "QUEEN PLAYED" : "QUEEN STILL OUT");
   return subStatusBuffer;
 }
 
@@ -474,6 +589,7 @@ void HeartsActivity::render(RenderLock&&) {
     model.hasSave = hasGame;
     model.savedHand = static_cast<int>(game.handNumber) + 1;
     model.sharp = skill == Skill::Sharp;
+    model.confirmingNew = confirmingNew;
     fillStats(model);
     ui::buildMenu(screen, model);
   } else if (game.phase == Phase::HandOver || game.phase == Phase::GameOver) {
@@ -527,6 +643,16 @@ bool HeartsActivity::loadGame() {
   if (file.read(&version, 1) != 1 || version != kSaveVersion) return false;
   Game loaded;
   if (file.read(reinterpret_cast<uint8_t*>(&loaded), sizeof(loaded)) != static_cast<int>(sizeof(loaded))) return false;
+  // A VERSION BYTE AND A LENGTH PROVE NOTHING ABOUT A TORN WRITE. Losing power
+  // during the save leaves a file of exactly the right size holding a mix of
+  // two states, which passes both gates and then restores a seat index of 5 or
+  // a hand of twenty cards -- an out-of-bounds read on the next repaint, and an
+  // out-of-bounds WRITE the first time that hand is tapped. isConsistent asks
+  // the rules whether the position is possible at all.
+  if (!isConsistent(loaded)) {
+    LOG_ERR("HEARTS", "save failed the consistency check; discarding it");
+    return false;
+  }
   if (loaded.phase == Phase::GameOver) return false;
   game = loaded;
   return true;

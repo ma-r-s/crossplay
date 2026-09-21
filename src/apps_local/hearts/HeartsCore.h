@@ -198,7 +198,9 @@ struct Game {
   bool firstTrick() const { return trickNumber == 0; }
 };
 
-// Deal a fresh hand into `game`, advancing handNumber unless this is the first.
+// Deal a fresh hand into `game`. Does NOT touch handNumber -- nextHand() does,
+// and the pass direction is read from it, so dealing twice without it deals the
+// same pass direction again.
 // `seed` is advanced, so a caller holding one rng gets a different deal each
 // time and a test holding a fixed one gets the same deal every time.
 void deal(Game& game, uint32_t& seed);
@@ -266,6 +268,20 @@ void nextHand(Game& game, uint32_t& seed);
 // which is the human, and the screen says "tied" rather than pretending.
 Seat leader(const Game& game);
 bool isTied(const Game& game);
+
+// IS THIS GAME INTERNALLY POSSIBLE?
+//
+// The activity restores a game by reading the whole struct back as bytes, and a
+// torn write leaves a file of exactly the right length holding a mix of two
+// states. A version byte and a length check both pass on that. What does not
+// pass is arithmetic: a seat index out of range, a hand longer than thirteen, a
+// phase that is not one of the five, or -- the one that catches almost
+// everything -- a deck that does not add up to exactly 52 distinct cards across
+// the hands, the table and what has been played.
+//
+// Lives here rather than in the activity so it is testable without a device,
+// and so the rules own the definition of a possible position.
+bool isConsistent(const Game& game);
 
 // A tiny deterministic generator, so a deal is reproducible from a seed and a
 // test can pin one. xorshift32: no state beyond the seed, no library.

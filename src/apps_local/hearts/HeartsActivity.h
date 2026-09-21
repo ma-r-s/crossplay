@@ -30,6 +30,8 @@ class HeartsActivity final : public Activity {
   enum class View : uint8_t { Menu, Board, Score, HowTo };
 
   void newGame();
+  // Deals done; skip a pass this hand does not have, and clear per-hand state.
+  void startHand();
   void routeHandCard(int index);
   void routeButton(int button);
 
@@ -58,6 +60,12 @@ class HeartsActivity final : public Activity {
   bool interactionsReady = false;
   bool flashOnNextPaint = false;
   int howToPage = 0;
+  // NEW GAME asks once before it throws a saved game away.
+  bool confirmingNew = false;
+  // Why the last tap was refused, shown for one paint. A dimmed card that does
+  // nothing when tapped is correct and still unsatisfying: the dither says
+  // "not this one" and nothing says why.
+  const char* rejected = nullptr;
 
   // The three cards the player has picked to pass, as hand indices.
   bool picked[hearts::kHandSize] = {};
