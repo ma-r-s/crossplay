@@ -57,6 +57,11 @@ class NotesActivity final : public Activity {
   // the first line written settles the kind in the file itself.
   bool newIsList_ = true;
   bool openIsPage() const;
+  // ONE description of the open note, used to draw it AND to measure how much
+  // of it fits. They were built separately, and the measuring copy left out the
+  // kind and the tally -- both of which change the layout, so the page size was
+  // computed against a screen nobody ever saw.
+  notesui::NoteModel noteModel() const;
   void askRename();
   void askLine();
   void showNotice(const std::string& text);

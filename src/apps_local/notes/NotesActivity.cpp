@@ -128,12 +128,29 @@ int NotesActivity::deckPageSize() {
   return notesui::deckCapacity(target, target.deviceContext(), probe);
 }
 
+notesui::NoteModel NotesActivity::noteModel() const {
+  notesui::NoteModel model;
+  model.title = openName_.c_str();
+  model.tasks = taskRows_.data();
+  model.count = static_cast<int>(taskRows_.size());
+  model.page = openIsPage();
+  model.anyDone = anyDone();
+  if (!model.page) {
+    const notes::Counts c = notes::counts(lines_);
+    model.done = c.done;
+    model.total = c.marked;
+  }
+  return model;
+}
+
 int NotesActivity::notePageSize() {
   fui::GfxRendererTarget target = toybox::makeTarget(renderer);
-  notesui::NoteModel probe;
-  probe.tasks = taskRows_.data();
-  probe.count = static_cast<int>(taskRows_.size());
-  return notesui::noteCapacity(target, target.deviceContext(), probe);
+  // The model as it will be DRAWN. A probe missing the kind measured a list's
+  // tick boxes against a page's text width, and a probe missing the tally
+  // measured against a band the progress strip was not standing in -- which
+  // fits one row more than the screen draws, so the last item of a page went
+  // missing while the page label counted it.
+  return notesui::noteCapacity(target, target.deviceContext(), noteModel());
 }
 
 void NotesActivity::relabelDeck() {
@@ -694,20 +711,10 @@ void NotesActivity::render(RenderLock&&) {
       break;
     }
     case View::Note: {
-      notesui::NoteModel model;
-      model.title = openName_.c_str();
-      model.tasks = taskRows_.data();
-      model.count = static_cast<int>(taskRows_.size());
+      notesui::NoteModel model = noteModel();
       model.firstVisible = noteTop_;
       model.pageLabel = notePage_.empty() ? nullptr : notePage_.c_str();
       model.menuIcon = &icon_go_settings_32;
-      model.page = openIsPage();
-      model.anyDone = anyDone();
-      if (!model.page) {
-        const notes::Counts c = notes::counts(lines_);
-        model.done = c.done;
-        model.total = c.marked;
-      }
       notesui::buildNote(screen, model);
       break;
     }
