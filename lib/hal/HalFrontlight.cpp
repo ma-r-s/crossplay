@@ -39,6 +39,12 @@ void HalFrontlight::setWarmth(const uint8_t warmPercent) {
 }
 
 void HalFrontlight::setOn(const bool on) {
+  // begin() returns early on a board with no frontlight and never records a
+  // state, so without this a setOn(true) would leave isOn() claiming a lit
+  // panel on a device that has no light at all -- and armSilentReboot(), which
+  // does not check present(), would carry that claim across a restart. Every
+  // other caller already guards on present(); this makes the guard the HAL's.
+  if (!manager.present()) return;
   if (on == lit) return;
   lit = on;
   manager.setBrightness(lit ? lastBrightness : 0);

@@ -79,6 +79,7 @@ static constexpr uint64_t kTimerWakeMicros = static_cast<uint64_t>(CROSSPLAY_TIM
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 #include "util/Timezones.h"
+#include "util/WakeLightPolicy.h"
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -601,16 +602,27 @@ void setup() {
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   // Frontlight PWM up (no-op on boards without one). Brightness and warmth are
-  // always restored from persisted settings. A normal wake starts with the
-  // light off unless Restore Light on Wake is enabled, so the user is not
-  // greeted by a surprise glow or a silent battery drain. A silent restart is
-  // different: it is an automated heap-defrag reboot the user never asked for
-  // (leaving a WiFi activity, say), not a deliberate sleep, so it replays the
-  // live state captured at restart and neither goes dark nor lights up against
-  // the wake preference.
-  const bool restoreLightOn =
-      isSilentReboot ? silentRebootLightOn : (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0);
-  Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
+  // always restored from persisted settings, but the light itself comes up DARK
+  // here and is turned on, if at all, only after the wake switch below.
+  //
+  // begin() still runs on every boot regardless: it releases any pad hold the
+  // last sleep latched, re-attaches the LEDC channels and drives them to zero,
+  // which is what makes "off" a driven level rather than whatever the reset
+  // left behind. Skipping it on the sleeping paths would be trusting a pad we
+  // never wrote. See FrontlightManager::begin and its releaseOnWake comment.
+  const wakelight::Saved savedLight = {
+      /*lightOn=*/SETTINGS.frontlightOn != 0,
+      /*restoreOnWake=*/SETTINGS.frontlightRestoreOnWake != 0,
+      /*silentRebootLightOn=*/silentRebootLightOn,
+  };
+  wakelight::Boot bootKind = isSilentReboot ? wakelight::Boot::Silent : wakelight::Boot::User;
+#if CROSSPLAY_CAN_ARM_TIMER
+  // Live's own scheduled check, and it overrides every other classification:
+  // see the note on Boot::Unattended. Guarded because the simulator links its
+  // own HalGPIO, which has no Timer reason at all.
+  if (wakeupReason == HalGPIO::WakeupReason::Timer) bootKind = wakelight::Boot::Unattended;
+#endif
+  Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, /*on=*/false);
 
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
@@ -684,6 +696,18 @@ void setup() {
     case HalGPIO::WakeupReason::Other:
     default:
       break;
+  }
+
+  // The light, and only now. Every branch above that decided to go back to
+  // sleep did so through startDeepSleepArmed(), which does not return, so a
+  // boot that never shows anybody a UI never reaches this line -- the ghost
+  // power-button wake that failed its hold check and the USB-power cold boot
+  // as well as Live's timer wake. That is the structural half of the rule;
+  // restoreFrontlight() is the half a timer wake needs on its own, because the
+  // wake that FOUND a message breaks out of the switch to draw it and gets
+  // here with nobody in the room.
+  if (wakelight::restoreFrontlight(bootKind, savedLight)) {
+    Frontlight.setOn(true);
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
