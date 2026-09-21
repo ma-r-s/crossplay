@@ -171,6 +171,45 @@ bool aCutWouldHaveFitted(const fitted::RealTarget& target, const fitted::TextRun
   return false;
 }
 
+// WHOLE IS NOT THE SAME QUESTION AS FULL SIZE, and this suite only ever asked
+// the first one.
+//
+// expectWhole passes when the panel would show the entire string. A string that
+// dropped a cut to fit IS entire -- so "PICK THREE TO PASS ACROSS" came back
+// green while rendering at half the cap height of "PICK THREE TO PASS LEFT",
+// beside it, one word different, in a box it then left 190px of empty. The
+// corpus was right and the assertion was the wrong one.
+//
+// Everything Hearts draws is at a chosen cut, so a downgrade is a defect rather
+// than the ladder working. This asks the run which font really drew it.
+void expectAtCut(Tally& tally, const fitted::RealTarget& target, const std::string& source, const fui::FontId wanted) {
+  ++tally.walked;
+  const fitted::TextRun* run = carrier(target.texts, source);
+  if (run == nullptr) {
+    ++tally.missing;
+    if (tally.worst.empty()) {
+      tally.worst = source;
+      tally.worstDrawn = "(never drawn)";
+    }
+    return;
+  }
+  if (run->drawn != source) {
+    ++tally.avoidable;
+    if (tally.worst.size() < source.size()) {
+      tally.worst = source;
+      tally.worstDrawn = run->drawn;
+    }
+    return;
+  }
+  if (run->font != wanted) {
+    ++tally.avoidable;
+    if (tally.worst.size() <= source.size()) {
+      tally.worst = source;
+      tally.worstDrawn = "(shrunk a cut to fit)";
+    }
+  }
+}
+
 void expectWhole(Tally& tally, const fitted::RealTarget& target, const std::string& source) {
   ++tally.walked;
   const fitted::TextRun* run = carrier(target.texts, source);
@@ -403,9 +442,9 @@ void heartsRules() {
     heartsui::HowToModel model;
     model.page = page;
     heartsui::buildHowTo(screen, model);
-    expectWhole(rules, paint.target, heartsui::howToTitle(page));
+    expectAtCut(rules, paint.target, heartsui::howToTitle(page), toybox::kDisplayFont);
     for (int line = 0; line < heartsui::howToLines(page); ++line) {
-      expectWhole(rules, paint.target, heartsui::howToLine(page, line));
+      expectAtCut(rules, paint.target, heartsui::howToLine(page, line), toybox::kUiFont);
     }
   }
   report(rules);
@@ -464,14 +503,82 @@ void heartsStatusLines() {
     model.subStatus = sub;
     heartsui::Layout layout;
     heartsui::buildBoard(screen, model, layout);
-    expectWhole(status, paint.target, main);
-    expectWhole(status, paint.target, sub);
+    expectAtCut(status, paint.target, main, toybox::kUiFont);
+    expectAtCut(status, paint.target, sub, toybox::kSmallFont);
     // And the four seat names, which must all survive at the shared cut: the
     // rail rendered three at cap 50 and NORTH at 26 when they were fitted
     // independently.
-    for (int s = 0; s < hearts::kSeats; ++s) expectWhole(status, paint.target, kNames[s]);
+    for (int s = 0; s < hearts::kSeats; ++s) expectAtCut(status, paint.target, kNames[s], toybox::kUiFont);
   }
   report(status);
+}
+
+// THE OTHER TWO SCREENS. 136 strings, green, and neither buildScore nor
+// buildMenu was in the suite at all -- so TIED ON, WIN/WINS ON, SHOT THE MOON,
+// PLAY AGAIN, HAND %d SCORED, DISCARD IT? and the four place names were
+// measured by nothing. A clean list hiding an absence.
+void heartsScoreAndMenu() {
+  Tally sheet{"hearts: score screen and menu"};
+  static const char* kNames[hearts::kSeats] = {"YOU", "WEST", "NORTH", "EAST"};
+
+  // Three shapes of finished hand: ordinary, a moon (which adds a banner and
+  // shortens every row), and game over (which inverts the winner).
+  for (int shape = 0; shape < 3; ++shape) {
+    hearts::Game game;
+    for (int s = 0; s < hearts::kSeats; ++s) game.total[s] = shape == 2 ? 88 : 20;
+    if (shape == 1) {
+      game.taken[seatIndex(hearts::Seat::North)] = hearts::kMoonPoints;
+    } else {
+      game.taken[0] = 5;
+      game.taken[1] = 8;
+      game.taken[2] = 13;
+    }
+    hearts::scoreHand(game);
+
+    Paint paint("toyboxFaces");
+    toybox::Frame frame(paint.target, landscapePanel(), fui::InputSnapshot{}, paint.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::ScoreModel model;
+    model.game = &game;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].isMe = s == 0;
+    }
+    model.gameOver = shape == 2;
+    heartsui::buildScore(screen, model);
+    for (int s = 0; s < hearts::kSeats; ++s) expectAtCut(sheet, paint.target, kNames[s], toybox::kUiFont);
+    expectAtCut(sheet, paint.target, model.gameOver ? "PLAY AGAIN" : "NEXT HAND", toybox::kUiFont);
+    expectAtCut(sheet, paint.target, "MENU", toybox::kUiFont);
+  }
+
+  // Both menu states, and the armed discard.
+  for (int variant = 0; variant < 3; ++variant) {
+    Paint paint("toyboxFaces");
+    toybox::Frame frame(paint.target, landscapePanel(), fui::InputSnapshot{}, paint.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::MenuModel model;
+    model.hasSave = variant > 0;
+    model.savedHand = 12;
+    model.savedHandDone = variant == 2;
+    model.confirmingNew = variant == 2;
+    model.gamesPlayed = 99;
+    model.gamesWon = 42;
+    model.bestPlace = 4;
+    model.sharp = variant == 0;
+    heartsui::buildMenu(screen, model);
+    expectAtCut(sheet, paint.target, "HEARTS", toybox::kDisplayFont);
+    expectAtCut(sheet, paint.target, "RULES", toybox::kUiFont);
+    expectAtCut(sheet, paint.target, model.sharp ? "TABLE: SHARP" : "TABLE: ROOKIE", toybox::kUiFont);
+    expectAtCut(sheet, paint.target, model.hasSave ? "TABLE WAITING" : "FOUR SEATS", toybox::kDisplayFont);
+    if (model.hasSave)
+      expectAtCut(sheet, paint.target, model.confirmingNew ? "DISCARD IT?" : "NEW GAME", toybox::kUiFont);
+    static const char* kCells[3] = {"GAMES", "WON", "BEST"};
+    for (const char* cell : kCells) expectAtCut(sheet, paint.target, cell, toybox::kSmallFont);
+  }
+  report(sheet);
 }
 
 void dungeonNames() {
@@ -708,6 +815,7 @@ int main() {
   dungeonGuide();
   heartsRules();
   heartsStatusLines();
+  heartsScoreAndMenu();
   dungeonNames();
   foreheadCategories();
   linkGames();

@@ -350,12 +350,20 @@ void drawHand(toybox::Screen& screen, const BoardModel& model, Layout& layout) {
 // each gets its own half and the fitting ladder.
 void drawStatus(toybox::Screen& screen, const BoardModel& model) {
   const int16_t width = static_cast<int16_t>(kScreenW - kPageMargin * 2);
-  // The main line gets 55% and the state pair 45%. Both are measured against
-  // exactly these widths in host-tests/fittedtitle.
-  const int16_t half = static_cast<int16_t>(width * 55 / 100);
+  // FIXED CUT, LIKE EVERYTHING ELSE ON THIS SCREEN. This was the last string in
+  // the app still going through the fitting ladder, and it was the one with no
+  // slack: at 25 characters it dropped TWO cuts, so "PICK THREE TO PASS ACROSS"
+  // rendered at half the cap height of "PICK THREE TO PASS LEFT" sitting beside
+  // it on the previous hand, then left 190px of its own box empty. Every fourth
+  // hand, on the line that tells you what to do.
+  //
+  // The main line gets 62% and the state pair 38%; host-tests/fittedtitle
+  // measures every status template at its longest instantiation against exactly
+  // these widths, AND that none of them shrank to get there.
+  const int16_t half = static_cast<int16_t>(width * 62 / 100);
   if (model.status != nullptr && model.status[0] != '\0') {
-    fittedLabel(screen, fui::makeRect(kPageMargin, kStatusTop, half, kStatusH), model.status, toybox::kUiFont,
-                fui::TextAlign::Left, false);
+    label(screen, fui::makeRect(kPageMargin, kStatusTop, half, kStatusH), model.status, toybox::kUiCut, toybox::kUiFont,
+          fui::TextAlign::Left, false);
   }
   if (model.subStatus != nullptr && model.subStatus[0] != '\0') {
     // FIXED CUT. Fitted, "QUEEN STILL OUT" was shrunk a size and then truncated
@@ -713,37 +721,54 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
     const int s = seatIndex(kOrder[i]);
     const fui::Rect row = fui::makeRect(kPageMargin, static_cast<int16_t>(rowTop + i * (rowH + rowGap)),
                                         static_cast<int16_t>(kScreenW - kPageMargin * 2), rowH);
+    // THE BAR IS A RACE TO A HUNDRED, AND ONCE SOMEBODY GETS THERE THE RACE IS
+    // OVER. Left running on the final screen it made the loudest graphic on it
+    // the LOSER's: finishing on 109 fills the bar completely, beside a winner
+    // on 50 with a half-full one, and a filled progress bar reads as "most
+    // complete" everywhere else in the world. So the bars come off at game
+    // over and the winner's row is inverted instead -- the loudest thing on the
+    // last screen belongs to whoever won it.
     const bool me = model.seats[s].isMe;
-    target.stroke(row, black, me ? toybox::kRule : toybox::kHairline, 8);
+    const bool champion = model.gameOver && !isTied(game) && s == seatIndex(leader(game));
+    if (champion) {
+      target.fill(row, black, 8);
+    } else {
+      target.stroke(row, black, me ? toybox::kRule : toybox::kHairline, 8);
+    }
 
     label(screen, fui::makeRect(row.x + 16, row.y, 130, rowH), model.seats[s].name, toybox::kUiCut, toybox::kUiFont,
-          fui::TextAlign::Left, false);
+          fui::TextAlign::Left, champion);
 
     char delta[24];
     std::snprintf(delta, sizeof(delta), "+%d", game.lastHand.scored[s]);
     label(screen, fui::makeRect(row.x + 150, row.y, 80, rowH), delta, toybox::kUiCut, toybox::kUiFont,
-          fui::TextAlign::Right, false);
+          fui::TextAlign::Right, champion);
 
     // The race to a hundred, drawn. The bar is the row's own width minus the
     // label and total columns, so it cannot drift when those change.
-    const int16_t barX = static_cast<int16_t>(row.x + 250);
-    const int16_t barW = static_cast<int16_t>(row.width - 250 - 100);
-    const fui::Rect track = fui::makeRect(barX, static_cast<int16_t>(row.y + rowH / 2 - 9), barW, 18);
-    target.stroke(track, black, toybox::kHairline, 9);
-    int filled = game.total[s] * barW / kTargetScore;
-    if (filled > barW) filled = barW;
-    // A 5-point total is 20px in a 418px track, which reads as a smudge rather
-    // than as a bar. Anything non-zero gets at least a cap's worth.
-    if (game.total[s] > 0 && filled < 26) filled = 26;
-    if (filled > 4) {
-      target.fill(fui::makeRect(barX, track.y, static_cast<int16_t>(filled), 18),
-                  fui::Paint::dither(fui::Color::DarkGray), 9);
+    if (!model.gameOver) {
+      const int16_t barX = static_cast<int16_t>(row.x + 250);
+      const int16_t barW = static_cast<int16_t>(row.width - 250 - 100);
+      const fui::Rect track = fui::makeRect(barX, static_cast<int16_t>(row.y + rowH / 2 - 9), barW, 18);
+      target.stroke(track, black, toybox::kHairline, 9);
+      int filled = game.total[s] * barW / kTargetScore;
+      if (filled > barW) filled = barW;
+      // A 5-point total is 20px in a 418px track, which reads as a smudge
+      // rather than as a bar. Anything non-zero gets at least a cap's worth.
+      if (game.total[s] > 0 && filled < 26) filled = 26;
+      if (filled > 4) {
+        target.fill(fui::makeRect(barX, track.y, static_cast<int16_t>(filled), 18),
+                    fui::Paint::dither(fui::Color::DarkGray), 9);
+      }
+    } else if (champion) {
+      label(screen, fui::makeRect(static_cast<int16_t>(row.x + 260), row.y, 200, rowH), "WINS", toybox::kUiCut,
+            toybox::kUiFont, fui::TextAlign::Left, true);
     }
 
     char total[24];
     std::snprintf(total, sizeof(total), "%d", game.total[s]);
     label(screen, fui::makeRect(static_cast<int16_t>(row.right() - 90), row.y, 74, rowH), total, toybox::kUiCut,
-          toybox::kUiFont, fui::TextAlign::Right, false);
+          toybox::kUiFont, fui::TextAlign::Right, champion);
   }
 
   // THE BAND BETWEEN THE ROWS AND THE FOOT, which was 80px of nothing.
@@ -785,7 +810,14 @@ void buildScore(toybox::Screen& screen, const ScoreModel& model) {
     if (game.total[me] == game.total[best]) {
       std::snprintf(note, sizeof(note), "LEVEL ON %d", game.total[me]);
     } else {
-      std::snprintf(note, sizeof(note), "TWO LEAD ON %d. YOU ARE %d BEHIND", game.total[best],
+      // isTied() is true for any n > 1, so three opponents level on the lowest
+      // printed "TWO LEAD ON 13" while three seats were on 13. Counted.
+      int level = 0;
+      for (int s = 0; s < kSeats; ++s) {
+        if (game.total[s] == game.total[best]) ++level;
+      }
+      static const char* kCounts[kSeats + 1] = {"NOBODY", "ONE", "TWO", "THREE", "ALL FOUR"};
+      std::snprintf(note, sizeof(note), "%s LEAD ON %d. YOU ARE %d BEHIND", kCounts[level], game.total[best],
                     game.total[me] - game.total[best]);
     }
   } else if (best == me) {

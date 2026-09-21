@@ -519,8 +519,14 @@ void HeartsActivity::fillLegal(ui::BoardModel& model) const {
     // Asking the rules WITHOUT the turn is also strictly more useful: once two
     // cards are down the led suit is settled, so the hand shows what you will
     // be allowed to play before your turn arrives.
-    model.legal[i] =
-        game.phase == Phase::Passing || isLegalCard(hand, game.trick, game.heartsBroken, game.firstTrick(), hand.at(i));
+    // AND NOTHING IS DIMMED WHILE A FINISHED TRICK IS BEING READ. In TrickTaken
+    // the four cards are face up and about to be swept, so legality "into this
+    // completed trick" answers a question nobody is being asked -- and the
+    // answer changes the instant the sweep lands a new led suit. A flicker of
+    // confident wrong information, in the one signal the rules screen has just
+    // taught the player to trust.
+    model.legal[i] = game.phase == Phase::Passing || game.phase == Phase::TrickTaken ||
+                     isLegalCard(hand, game.trick, game.heartsBroken, game.firstTrick(), hand.at(i));
   }
 }
 

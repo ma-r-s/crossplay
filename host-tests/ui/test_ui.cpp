@@ -1062,8 +1062,11 @@ void heartsFillModel(heartsui::BoardModel& model, const hearts::Game& game) {
   for (int i = 0; i < hand.count; ++i) {
     model.legal[i] = hearts::isLegalPlay(game, hearts::Seat::South, hand.at(i));
   }
-  model.status = "FOLLOW CLUBS";
-  model.subStatus = "HEARTS SHUT";
+  // READ OUT OF THE APP, not retyped. This said "HEARTS SHUT" -- a string the
+  // app deleted two commits ago -- which is a corpus already drifting in the
+  // sibling suite of the one built to stop exactly that.
+  model.status = heartsui::statusTemplate(heartsui::Status::FollowSuit);
+  model.subStatus = heartsui::heartsStateText(false);
 }
 
 void heartsDrawsNothingOnTopOfAnythingElse() {
@@ -1095,7 +1098,7 @@ void heartsDrawsNothingOnTopOfAnythingElse() {
   // all would pass exactly as well as one that drew it correctly.
   CHECK(bandRectOf(board.target).height == heartsui::kHeaderBand);
   CHECK(board.target.drew("HEARTS"));
-  CHECK(board.target.drew("FOLLOW CLUBS"));
+  CHECK(board.target.drew(heartsui::statusTemplate(heartsui::Status::FollowSuit)));
 
   // 1. THE FOUR PLACES DO NOT TOUCH. North's card ran six pixels into South's
   //    place once, and the two read as one object.
@@ -1208,6 +1211,69 @@ void heartsScoreSaysWhatHappened() {
     CHECK(score.target.drew("HAND OVER"));
     CHECK(score.target.drew("NEXT HAND"));
     CHECK(bandRectOf(score.target).height == heartsui::kHeaderBand);
+  }
+
+  // GAME OVER, which no test set. The bars come off here: left running, the
+  // fullest bar on the final screen is the LOSER's, because the meter is a race
+  // to a hundred and reaching it is how you lose.
+  {
+    hearts::Game over;
+    // Distinct totals, so there IS a winner to name. The first version of this
+    // put three seats on 40 and then asserted a winner was drawn: the code was
+    // right and the test was wrong, which is the only way round worth having.
+    over.total[seatIndex(hearts::Seat::South)] = 96;
+    over.total[seatIndex(hearts::Seat::West)] = 31;
+    over.total[seatIndex(hearts::Seat::North)] = 52;
+    over.total[seatIndex(hearts::Seat::East)] = 44;
+    over.taken[seatIndex(hearts::Seat::South)] = 13;
+    hearts::scoreHand(over);
+    CHECK(over.phase == hearts::Phase::GameOver);
+    CHECK(!hearts::isTied(over));
+    Rendered score;
+    toybox::Frame frame(score.target, ctx, noInput, score.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::ScoreModel model;
+    model.game = &over;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].isMe = s == 0;
+    }
+    model.gameOver = true;
+    heartsui::buildScore(screen, model);
+    CHECK(score.target.drew("GAME OVER"));
+    CHECK(score.target.drew("PLAY AGAIN"));
+    CHECK(score.target.drew("WINS"));
+    // "YOU WINS" is the conjugation bug this screen already had once.
+    CHECK(!score.target.drew("YOU WINS"));
+  }
+
+  // AND A TIE NAMES NOBODY. isTied() is true for any n > 1, and the note used
+  // to say "TWO LEAD" whatever n actually was.
+  {
+    hearts::Game drawn;
+    for (int s = 0; s < hearts::kSeats; ++s) drawn.total[s] = 37;
+    drawn.total[seatIndex(hearts::Seat::South)] = 101;
+    drawn.taken[seatIndex(hearts::Seat::South)] = 13;
+    hearts::scoreHand(drawn);
+    CHECK(drawn.phase == hearts::Phase::GameOver);
+    CHECK(hearts::isTied(drawn));
+    Rendered tie;
+    toybox::Frame frame(tie.target, ctx, noInput, tie.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::ScoreModel model;
+    model.game = &drawn;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].isMe = s == 0;
+    }
+    model.gameOver = true;
+    heartsui::buildScore(screen, model);
+    CHECK(tie.target.drew("TIED ON 37"));
+    CHECK(!tie.target.drew("WINS"));
   }
 
   // A moon inverts the whole hand. A scoreboard that just shows three seats
