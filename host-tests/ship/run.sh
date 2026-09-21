@@ -429,6 +429,24 @@ else
   echo "FAIL ship  ship.sh gates at line $GATE_LINE and writes the version at line $BUMP_LINE, so it publishes images compiled with the PREVIOUS version. platformio.ini compiles the version in (-DCROSSPOINT_VERSION) and OtaUpdater.cpp:119 compares the tag against it, so every device would keep offering an update it already installed"
 fi
 
+# -- 5c. the fetch must not ask for tags it cannot have --------------------
+#
+# `git fetch origin xteink --tags` exits 1 in this repository and always
+# will: the fork carries CrossPoint's tags (0.1.0, 1.3.0, ...) and fetching
+# all tags is rejected as "would clobber existing tag". run() correctly
+# refuses on a non-zero status, so the first real run of ship.sh died on its
+# very first command. Nothing was wrong except the fetch.
+#
+# Only refs/tags/v* may be asked for -- the fork's own namespace, and the
+# only one last_tag() and release-needed.sh read.
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -qE 'git fetch [^"]*--tags'; then
+  failed=$((failed + 1))
+  echo "FAIL ship  ship.sh fetches --tags, which exits 1 in this repository because CrossPoint's tags are already here and would be clobbered. run() refuses on that status, so ship.sh dies on its first command every time."
+else
+  ok
+fi
+
 # -- 6. current with trunk, or the squash lands a tree nobody built ---------
 checks=$((checks + 1))
 if printf '%s' "$CODE" | grep -q 'merge-base' && printf '%s' "$CODE" | grep -q 'rev-parse origin/xteink'; then

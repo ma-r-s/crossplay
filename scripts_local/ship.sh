@@ -162,7 +162,20 @@ if [ "$DRY" = 0 ]; then
   trap 'rm -rf "$LOCK"' EXIT INT TERM
 fi
 
-run "git fetch -q origin xteink --tags"
+# THE FORK'S OWN TAGS ONLY, and this is not tidiness.
+#
+# `git fetch origin xteink --tags` EXITS 1 IN THIS REPOSITORY, always. The
+# fork carries CrossPoint's whole history including its tags (0.1.0, 1.3.0,
+# 1.4.0 ...), and fetching all tags tries to update those local copies:
+#   ! [rejected] 1.3.0 -> 1.3.0 (would clobber existing tag)
+# Nothing is wrong and nothing needs fixing; git just reports a non-zero
+# status. run() then refuses, so the very first real run of this script died
+# on its first command having done nothing at all.
+#
+# refs/tags/v* is the fork's own namespace -- upstream's carry no v -- so
+# there is nothing to clobber, and v* is the only namespace last_tag() and
+# release-needed.sh ever read.
+run "git fetch -q origin xteink 'refs/tags/v*:refs/tags/v*'"
 
 # UP TO DATE WITH TRUNK, OR NOTHING. The squash below produces a commit whose
 # tree equals this branch's tip ONLY while the branch is already current with
