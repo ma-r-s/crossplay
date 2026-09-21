@@ -24,7 +24,7 @@ Everything above the marker is written by hand.
 ### 1.13.14
 
 - nothing you can see on the device. This is the same firmware as 1.13.13, published by the new two-minute release process rather than the old forty-minute one.
-- Ci: stop GitHub compiling; the gate's binary is the release (#232)
+- nothing you can see on the device. This is the same firmware as 1.13.13, published by a new release process that takes about two minutes instead of forty.
 
 ### 1.13.13
 
