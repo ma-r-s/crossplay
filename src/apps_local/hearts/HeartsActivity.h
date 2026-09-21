@@ -38,8 +38,11 @@ class HeartsActivity final : public Activity {
   bool advance();
   void fillSeats(heartsui::SeatView* seats) const;
   void fillLegal(heartsui::BoardModel& model) const;
-  const char* statusLine() const;
-  const char* subStatusLine() const;
+  // NOT const. They format into the buffers below, and the const versions of
+  // them reached those buffers through a const_cast, which is a lie about what
+  // the function does written in the one place a reader checks.
+  const char* statusLine();
+  const char* subStatusLine();
 
   void saveGame() const;
   bool loadGame();
@@ -63,6 +66,11 @@ class HeartsActivity final : public Activity {
   // A completed trick stays on the table for a beat before it is swept, so the
   // fourth card is actually seen. Zero means nothing is pending.
   uint32_t trickShownAt = 0;
+  // When the table last moved. A MEMBER, not the function-local static it was:
+  // a static inside loop() outlives the activity, so leaving Hearts and coming
+  // back carried the old timestamp into a new game and the first bot either
+  // played instantly or waited for a beat that had already passed.
+  uint32_t lastStep = 0;
   // Who took the last trick, for the line under the table.
   hearts::Seat lastWinner = hearts::Seat::South;
   bool hasLastWinner = false;

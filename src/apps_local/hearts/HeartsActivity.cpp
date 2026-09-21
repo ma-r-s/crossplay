@@ -344,7 +344,6 @@ void HeartsActivity::loop() {
   // Nothing for the player to do: let the table play on. One step per pass so
   // each card gets its own repaint.
   if (view == View::Board || view == View::Score) {
-    static uint32_t lastStep = 0;
     const uint32_t now = static_cast<uint32_t>(millis());
     const bool waitingOnTrick = game.phase == Phase::TrickTaken;
     if (waitingOnTrick || now - lastStep >= kBotThinkMs) {
@@ -381,35 +380,33 @@ void HeartsActivity::fillLegal(ui::BoardModel& model) const {
   }
 }
 
-const char* HeartsActivity::statusLine() const {
-  auto* self = const_cast<HeartsActivity*>(this);
+const char* HeartsActivity::statusLine() {
   switch (game.phase) {
     case Phase::Passing:
-      std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "PICK THREE CARDS TO PASS %s",
-                    passName(game.passDirection()));
-      return self->statusBuffer;
+      std::snprintf(statusBuffer, sizeof(statusBuffer), "PICK THREE CARDS TO PASS %s", passName(game.passDirection()));
+      return statusBuffer;
     case Phase::Playing:
       if (game.turn != Seat::South) {
-        std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "%s IS THINKING", seatName(game.turn));
-        return self->statusBuffer;
+        std::snprintf(statusBuffer, sizeof(statusBuffer), "%s IS THINKING", seatName(game.turn));
+        return statusBuffer;
       }
       if (game.trick.empty()) {
         if (game.firstTrick()) return "YOUR LEAD: THE TWO OF CLUBS OPENS";
-        std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "YOUR LEAD");
-        return self->statusBuffer;
+        std::snprintf(statusBuffer, sizeof(statusBuffer), "YOUR LEAD");
+        return statusBuffer;
       }
-      std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "FOLLOW %s", cards::suitName(game.trick.ledSuit()));
-      return self->statusBuffer;
+      std::snprintf(statusBuffer, sizeof(statusBuffer), "FOLLOW %s", cards::suitName(game.trick.ledSuit()));
+      return statusBuffer;
     case Phase::TrickTaken:
       if (hasLastWinner) {
         const int points = game.trick.points();
         if (points > 0) {
-          std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "%s TAKES IT, %d POINT%s", seatName(lastWinner),
-                        points, points == 1 ? "" : "S");
+          std::snprintf(statusBuffer, sizeof(statusBuffer), "%s TAKES IT, %d POINT%s", seatName(lastWinner), points,
+                        points == 1 ? "" : "S");
         } else {
-          std::snprintf(self->statusBuffer, sizeof(self->statusBuffer), "%s TAKES IT", seatName(lastWinner));
+          std::snprintf(statusBuffer, sizeof(statusBuffer), "%s TAKES IT", seatName(lastWinner));
         }
-        return self->statusBuffer;
+        return statusBuffer;
       }
       return "";
     case Phase::HandOver:
@@ -420,17 +417,16 @@ const char* HeartsActivity::statusLine() const {
   return "";
 }
 
-const char* HeartsActivity::subStatusLine() const {
-  auto* self = const_cast<HeartsActivity*>(this);
+const char* HeartsActivity::subStatusLine() {
   if (game.phase == Phase::Passing) {
-    std::snprintf(self->subStatusBuffer, sizeof(self->subStatusBuffer), "%d OF 3", pickedCount);
-    return self->subStatusBuffer;
+    std::snprintf(subStatusBuffer, sizeof(subStatusBuffer), "%d OF 3", pickedCount);
+    return subStatusBuffer;
   }
   // Two facts a Hearts player tracks all hand and cannot see anywhere else.
   const bool queenGone = game.played[static_cast<int>(Suit::Spades) * cards::kRanks + cards::kQueen];
-  std::snprintf(self->subStatusBuffer, sizeof(self->subStatusBuffer), "%s   %s",
+  std::snprintf(subStatusBuffer, sizeof(subStatusBuffer), "%s   %s",
                 game.heartsBroken ? "HEARTS BROKEN" : "HEARTS SHUT", queenGone ? "QUEEN GONE" : "QUEEN OUT");
-  return self->subStatusBuffer;
+  return subStatusBuffer;
 }
 
 void HeartsActivity::render(RenderLock&&) {
