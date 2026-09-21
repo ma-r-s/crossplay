@@ -156,6 +156,24 @@ constexpr fui::Rect inkCentred(const fui::Rect& box, const CutMetrics& cut) {
                    cut.lineHeight};
 }
 
+// The cut a line height belongs to, or nullptr for one this fork does not ship.
+//
+// Matched on lineHeight because that is the one metric a DrawTarget will
+// answer for a bound font -- the same handle fittedTitle uses to order its
+// rungs. Needed wherever ink has to be placed rather than merely drawn: the
+// component centres a LINE BOX, and a line box carries `ascender - inkHeight`
+// of air above the capitals, so anything centring by eye needs the real
+// numbers.
+constexpr const CutMetrics* cutForLineHeight(const int16_t lineHeight) {
+  const CutMetrics* all[] = {&kTileCut,    &kButtonCut,           &kUiCut,         &kDisplayCut,    &kLargeCut,
+                             &kHugeCut,    &kSerifSmallCut,       &kSerifTileCut,  &kSerifTitleCut, &kReadingSmallCut,
+                             &kReadingCut, &kReadingBoldSmallCut, &kReadingBoldCut};
+  for (const CutMetrics* cut : all) {
+    if (cut->lineHeight == lineHeight) return cut;
+  }
+  return nullptr;
+}
+
 // Font slots by name. Screens should not spell the slot numbers.
 constexpr fui::FontId kSmallFont = fui::FONT_SLOT_SMALL;
 constexpr fui::FontId kUiFont = fui::FONT_SLOT_BODY;
