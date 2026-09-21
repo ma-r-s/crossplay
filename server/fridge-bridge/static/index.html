@@ -5,9 +5,9 @@
 <meta name="description" content="Leave a note on somebody's reader.">
 <style>
   /* CrossPlay's faces, the same two files the site serves. */
-  @font-face{font-family:"Jersey 25";src:url("fonts/jersey25.woff2") format("woff2");
+  @font-face{font-family:"Jersey 25";src:url("/fonts/jersey25.woff2") format("woff2");
     font-weight:400;font-style:normal;font-display:swap}
-  @font-face{font-family:"Instrument Serif";src:url("fonts/instrumentserif.woff2") format("woff2");
+  @font-face{font-family:"Instrument Serif";src:url("/fonts/instrumentserif.woff2") format("woff2");
     font-weight:400;font-style:normal;font-display:swap}
   :root{--ink:#111;--paper:#fff;--line:#d8d6d1;--dim:#6b6862;--bg:#f4f3f0}
   @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
@@ -396,7 +396,19 @@ async function refresh(){
   else { gate.hidden=false; app.hidden=true; }
 }
 
+// The reader's QR lands on /p/<code>, so fill it in and go. Somebody who
+// scanned a screen has already done the one hard part; making them read the
+// digits off and type them back would be the worst of both ways in.
 const codeInput=document.getElementById('code');
+(function fromLink(){
+  const m = location.pathname.match(/^\/p\/(\d{4,8})$/);
+  if (!m) return;
+  codeInput.value = m[1].slice(0,6);
+  // Claimed on load rather than waiting for a press: there is nothing else to
+  // decide on this screen, and a filled box with a button still to find reads
+  // as "did it work?".
+  addEventListener('DOMContentLoaded', () => pair());
+})();
 codeInput.addEventListener('input',()=>{codeInput.value=codeInput.value.replace(/\D/g,'').slice(0,6);});
 codeInput.addEventListener('keydown',e=>{if(e.key==='Enter')pair();});
 async function pair(){

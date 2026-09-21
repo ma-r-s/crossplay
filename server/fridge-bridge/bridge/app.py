@@ -299,4 +299,26 @@ async def put_interval(request: Request, live_sender: str = Cookie(default=None)
 # one certificate, and no CORS between the thing you draw on and the thing that
 # stores it.
 STATIC = os.path.join(os.path.dirname(__file__), "..", "static")
+
+
+@app.get("/p/{code}")
+def pair_link(code: str) -> Response:
+    """The address the reader's QR points at.
+
+    The reader draws a QR of https://<host>/p/<code>, so this is the path an
+    actual person walks: point a phone at the screen, land here, and the code
+    is already filled in. Typing it on the front page is the fallback for
+    somebody who was read the digits down a telephone.
+
+    It serves the page itself rather than redirecting, so the code survives in
+    the address bar and a reload does not lose it. Registered BEFORE the static
+    mount, which otherwise swallows every path.
+    """
+    # Not validated here. A wrong code gets the service's own refusal from
+    # /api/claim, in the service's own words, on the screen the person is
+    # already looking at -- better than a 404 that tells them nothing about
+    # what to do next.
+    return FileResponse(os.path.join(STATIC, "index.html"), media_type="text/html")
+
+
 app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
