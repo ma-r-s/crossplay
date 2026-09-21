@@ -208,7 +208,8 @@ int request(const Endpoint& endpoint, const char* method, const std::string& pat
 }
 
 int getToFile(const Endpoint& endpoint, const std::string& path, const std::string& token, const std::string& destPart,
-              const size_t expectedSize, std::string& message, Headers* headers) {
+              const size_t maxBytes, std::string& message, Headers* headers, size_t* received) {
+  if (received != nullptr) *received = 0;
   if (insufficientHeap(endpoint, message)) return 0;
   freeink::SecureHttpClient http;
   http.setCACert(caRoots(endpoint));
