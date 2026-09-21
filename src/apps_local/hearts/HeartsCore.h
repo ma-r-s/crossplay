@@ -57,10 +57,14 @@ inline Pass passForHand(const int handNumber) { return static_cast<Pass>(handNum
 // its own cards back through the normal path instead of skipping the phase.
 inline Seat passTarget(const Seat seat, const Pass pass) {
   switch (pass) {
-    case Pass::Left: return nextSeat(seat);
-    case Pass::Right: return prevSeat(seat);
-    case Pass::Across: return acrossSeat(seat);
-    case Pass::Hold: break;
+    case Pass::Left:
+      return nextSeat(seat);
+    case Pass::Right:
+      return prevSeat(seat);
+    case Pass::Across:
+      return acrossSeat(seat);
+    case Pass::Hold:
+      break;
   }
   return seat;
 }
@@ -98,11 +102,11 @@ inline uint8_t twoOfClubs() { return cards::makeCard(Suit::Clubs, cards::kTwo); 
 // What the game is waiting for. The board draws from this and nothing else, so
 // a phase that draws wrong is a phase that is wrong.
 enum class Phase : uint8_t {
-  Passing,      // everyone is choosing three cards
-  Playing,      // a trick is in progress and `turn` owes a card
-  TrickTaken,   // four cards are down; the panel is showing them before the sweep
-  HandOver,     // the hand scored; the panel is showing what it cost
-  GameOver,     // somebody reached kTargetScore
+  Passing,     // everyone is choosing three cards
+  Playing,     // a trick is in progress and `turn` owes a card
+  TrickTaken,  // four cards are down; the panel is showing them before the sweep
+  HandOver,    // the hand scored; the panel is showing what it cost
+  GameOver,    // somebody reached kTargetScore
 };
 
 // One seat's cards, kept sorted so the hand never reorders under a finger.
@@ -116,9 +120,9 @@ struct Hand {
   uint8_t at(const int index) const { return (index < 0 || index >= count) ? kNoCard : cards[index]; }
   bool empty() const { return count == 0; }
   void clear() { count = 0; }
-  void add(uint8_t card);            // keeps the sort
-  bool remove(uint8_t card);         // false if it was not there
-  int indexOf(uint8_t card) const;   // -1 if absent
+  void add(uint8_t card);           // keeps the sort
+  bool remove(uint8_t card);        // false if it was not there
+  int indexOf(uint8_t card) const;  // -1 if absent
   bool has(uint8_t card) const { return indexOf(card) >= 0; }
   bool hasSuit(Suit suit) const;
   int countSuit(Suit suit) const;
@@ -135,18 +139,18 @@ struct Trick {
 
   bool empty() const { return count == 0; }
   bool complete() const { return count == kSeats; }
-  Suit ledSuit() const;             // only meaningful when !empty()
-  int points() const;               // what taking it costs
-  Seat winner() const;              // only meaningful when complete()
+  Suit ledSuit() const;  // only meaningful when !empty()
+  int points() const;    // what taking it costs
+  Seat winner() const;   // only meaningful when complete()
   void clear();
 };
 
 // One finished hand, kept so the score screen can say what happened rather than
 // only what it totalled.
 struct HandResult {
-  int taken[kSeats] = {};      // points each seat took, before the moon
-  int scored[kSeats] = {};     // what actually went on the scoreboard
-  int total[kSeats] = {};      // the running total after this hand
+  int taken[kSeats] = {};   // points each seat took, before the moon
+  int scored[kSeats] = {};  // what actually went on the scoreboard
+  int total[kSeats] = {};   // the running total after this hand
   bool moon = false;
   Seat shooter = Seat::South;  // only meaningful when moon
 };
@@ -186,8 +190,8 @@ struct Game {
   Seat turn = Seat::South;
   Phase phase = Phase::Passing;
   bool heartsBroken = false;
-  uint8_t trickNumber = 0;   // 0..12 within the hand
-  uint16_t handNumber = 0;   // grows for the whole game; picks the pass direction
+  uint8_t trickNumber = 0;  // 0..12 within the hand
+  uint16_t handNumber = 0;  // grows for the whole game; picks the pass direction
   HandResult lastHand;
 
   Pass passDirection() const { return passForHand(handNumber); }

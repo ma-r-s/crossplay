@@ -25,6 +25,19 @@ constexpr const char* kStatsPath = "/.crosspoint/hearts.res";
 // two of the same card on it.
 constexpr uint8_t kSaveVersion = 1;
 
+// THE SAVE IS WRITTEN AT A TRICK BOUNDARY, never mid-trick.
+//
+// Two reasons, and the second is the real one. Solitaire wrote ~340 bytes on
+// every tap, 150+ times a session, which is the traffic this struct would
+// double; that is the cheap reason. The load-bearing one is that a trick
+// boundary is the only moment this game has NO half-finished state -- no cards
+// on the table, nobody mid-decision, every seat holding the same number of
+// cards. Restoring there is unambiguous. Restoring into a trick with two cards
+// down means reconstructing whose turn it was and what the brains had already
+// decided, which is state the save does not carry.
+//
+// A crash mid-trick therefore costs the current trick and nothing else.
+
 // How long a completed trick sits on the table before it is swept.
 //
 // THIS IS THE ONE NUMBER THAT DECIDES WHETHER THE GAME IS FOLLOWABLE. A trick
@@ -153,6 +166,8 @@ bool HeartsActivity::advance() {
       if (static_cast<uint32_t>(millis()) - trickShownAt < kTrickHoldMs) return false;
       trickShownAt = 0;
       sweepTrick(game);
+      // The trick boundary: the one moment with nothing half-finished.
+      if (game.phase == Phase::Playing) saveGame();
       if (game.phase == Phase::HandOver || game.phase == Phase::GameOver) {
         view = View::Score;
         flashOnNextPaint = game.phase == Phase::GameOver;
@@ -218,7 +233,6 @@ void HeartsActivity::routeHandCard(const int index) {
     hasLastWinner = true;
     trickShownAt = static_cast<uint32_t>(millis());
   }
-  saveGame();
   requestUpdate();
 }
 

@@ -29,9 +29,9 @@ constexpr int16_t kEdge = 2;
 // index has to go. A fanned card only shows a strip, and the strip is a
 // different shape in each direction.
 enum class Fan : uint8_t {
-  None = 0,   // the whole card is visible
-  Down,       // covered from below: a short wide strip across the top
-  Sideways,   // covered from the right: a tall narrow sliver down the left
+  None = 0,  // the whole card is visible
+  Down,      // covered from below: a short wide strip across the top
+  Sideways,  // covered from the right: a tall narrow sliver down the left
 };
 
 // How a card reads. Dimmed is a dithered face rather than a white one, which is

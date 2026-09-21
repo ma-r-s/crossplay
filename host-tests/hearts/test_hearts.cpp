@@ -17,25 +17,24 @@ namespace c = cards;
 static int gChecks = 0;
 static int gFailures = 0;
 
-#define CHECK(cond)                                                             \
-  do {                                                                          \
-    ++gChecks;                                                                  \
-    if (!(cond)) {                                                              \
-      ++gFailures;                                                              \
-      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);               \
-    }                                                                           \
+#define CHECK(cond)                                               \
+  do {                                                            \
+    ++gChecks;                                                    \
+    if (!(cond)) {                                                \
+      ++gFailures;                                                \
+      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); \
+    }                                                             \
   } while (0)
 
-#define CHECK_EQ(a, b)                                                          \
-  do {                                                                          \
-    ++gChecks;                                                                  \
-    const long long va = static_cast<long long>(a);                             \
-    const long long vb = static_cast<long long>(b);                             \
-    if (va != vb) {                                                             \
-      ++gFailures;                                                              \
-      std::printf("FAIL %s:%d  %s (%lld) != %s (%lld)\n", __FILE__, __LINE__,   \
-                  #a, va, #b, vb);                                              \
-    }                                                                           \
+#define CHECK_EQ(a, b)                                                                         \
+  do {                                                                                         \
+    ++gChecks;                                                                                 \
+    const long long va = static_cast<long long>(a);                                            \
+    const long long vb = static_cast<long long>(b);                                            \
+    if (va != vb) {                                                                            \
+      ++gFailures;                                                                             \
+      std::printf("FAIL %s:%d  %s (%lld) != %s (%lld)\n", __FILE__, __LINE__, #a, va, #b, vb); \
+    }                                                                                          \
   } while (0)
 
 // ---------------------------------------------------------------------------

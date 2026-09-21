@@ -23,25 +23,24 @@ namespace c = cards;
 static int gChecks = 0;
 static int gFailures = 0;
 
-#define CHECK(cond)                                                       \
-  do {                                                                    \
-    ++gChecks;                                                            \
-    if (!(cond)) {                                                        \
-      ++gFailures;                                                        \
-      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);         \
-    }                                                                     \
+#define CHECK(cond)                                               \
+  do {                                                            \
+    ++gChecks;                                                    \
+    if (!(cond)) {                                                \
+      ++gFailures;                                                \
+      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); \
+    }                                                             \
   } while (0)
 
-#define CHECK_EQ(a, b)                                                    \
-  do {                                                                    \
-    ++gChecks;                                                            \
-    const long long va = (long long)(a);                                  \
-    const long long vb = (long long)(b);                                  \
-    if (va != vb) {                                                       \
-      ++gFailures;                                                        \
-      std::printf("FAIL %s:%d  %s (%lld) != %s (%lld)\n", __FILE__,       \
-                  __LINE__, #a, va, #b, vb);                              \
-    }                                                                     \
+#define CHECK_EQ(a, b)                                                                         \
+  do {                                                                                         \
+    ++gChecks;                                                                                 \
+    const long long va = (long long)(a);                                                       \
+    const long long vb = (long long)(b);                                                       \
+    if (va != vb) {                                                                            \
+      ++gFailures;                                                                             \
+      std::printf("FAIL %s:%d  %s (%lld) != %s (%lld)\n", __FILE__, __LINE__, #a, va, #b, vb); \
+    }                                                                                          \
   } while (0)
 
 // ---------------------------------------------------------------------------
@@ -266,8 +265,10 @@ static int playGame(const Skill* skills, uint32_t& seed, int* finalTotals, bool 
           decidePass(obs, skills[s], seed, three);
           // Three distinct cards, all held. A pass the rules reject would
           // wedge the hand forever.
-          if (assertLegal) CHECK(setPass(game, static_cast<Seat>(s), three, kPassCount));
-          else setPass(game, static_cast<Seat>(s), three, kPassCount);
+          if (assertLegal)
+            CHECK(setPass(game, static_cast<Seat>(s), three, kPassCount));
+          else
+            setPass(game, static_cast<Seat>(s), three, kPassCount);
         }
       }
       commitPass(game);

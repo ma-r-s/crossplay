@@ -48,8 +48,8 @@ enum class Skill : uint8_t {
 // another player.
 struct Observation {
   Seat me = Seat::South;
-  Hand hand;                     // my own cards
-  Trick trick;                   // what is on the table, and who led
+  Hand hand;    // my own cards
+  Trick trick;  // what is on the table, and who led
   Phase phase = Phase::Playing;
 
   // Every card dealt this hand that has already been played, indexed
@@ -60,16 +60,14 @@ struct Observation {
   // and the single most valuable thing a Hearts player carries in their head.
   bool showsVoid[kSeats][cards::kSuits] = {};
 
-  int total[kSeats] = {};   // running game scores
-  int taken[kSeats] = {};   // points taken so far this hand
+  int total[kSeats] = {};  // running game scores
+  int taken[kSeats] = {};  // points taken so far this hand
   bool heartsBroken = false;
   uint8_t trickNumber = 0;
   Pass passDirection = Pass::Left;
 
   bool firstTrick() const { return trickNumber == 0; }
-  bool wasPlayed(Suit suit, int rank) const {
-    return gone[static_cast<int>(suit) * cards::kRanks + rank];
-  }
+  bool wasPlayed(Suit suit, int rank) const { return gone[static_cast<int>(suit) * cards::kRanks + rank]; }
   bool queenGone() const { return wasPlayed(Suit::Spades, cards::kQueen); }
 };
 
