@@ -288,7 +288,7 @@ async def put_interval(request: Request, live_sender: str = Cookie(default=None)
     except (TypeError, ValueError):
         seconds = 0
     if not store.MIN_INTERVAL_S <= seconds <= store.MAX_INTERVAL_S:
-        return refused("Pick a interval between fifteen minutes and a week.", 400)
+        return refused("Pick an interval between fifteen minutes and a week.", 400)
     s = fridge.load()
     s["interval_s"] = seconds
     fridge.save(s)
