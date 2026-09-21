@@ -1022,9 +1022,11 @@ function renderHistory() {
     rail.appendChild(emptyTile());
     focused = null;
     renderAct();
+    requestAnimationFrame(markArrows);
     return;
   }
   for (const e of sent.entries) rail.appendChild(tile(e));
+  requestAnimationFrame(markArrows);
   if (!focused || !sent.entries.some((e) => e.id === focused))
     focused = sent.selected || sent.entries[0].id;
   renderAct();
@@ -1119,6 +1121,20 @@ function remove(e) {
     true,
   );
 }
+
+// The arrows are the only thing on the rail saying it goes on, so they appear
+// only when it does: on an empty rail they were two controls offering to scroll
+// a thing with nothing in it.
+const histOlderBtn = document.getElementById("histOlder");
+const histNewerBtn = document.getElementById("histNewer");
+function markArrows() {
+  const more = rail.scrollWidth > rail.clientWidth + 2;
+  histOlderBtn.disabled =
+    !more || rail.scrollLeft >= rail.scrollWidth - rail.clientWidth - 2;
+  histNewerBtn.disabled = !more || rail.scrollLeft <= 2;
+}
+rail.addEventListener("scroll", markArrows, { passive: true });
+addEventListener("resize", markArrows);
 
 document.getElementById("histOlder").onclick = () =>
   rail.scrollBy({ left: rail.clientWidth * 0.8, behavior: "smooth" });
