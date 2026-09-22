@@ -485,8 +485,24 @@ function applyView() {
 // during a stroke, so it is cached and invalidated on the things that do move
 // it: a resize, an orientation change, or entering the surface again.
 let stageBox = null;
+// THE PICTURE'S BOX, NOT THE WINDOW'S. The panel is CONTAINED in the stage,
+// so at most widths there is a bar down one pair of sides and the two boxes are
+// not the same. Measured against the window, the window's edge mapped to the
+// picture's edge and every point was squeezed inward: a stroke near the left
+// landed to its right, one near the right landed to its left, and the middle
+// looked perfect.
+//
+// This is the box BEFORE the zoom transform, which is what the callers expect:
+// they divide by view.s themselves.
 function stageRect() {
-  if (!stageBox) stageBox = stage.getBoundingClientRect();
+  if (!stageBox) {
+    const s = stage.getBoundingClientRect();
+    const w = Math.min(s.width, (s.height * W) / H);
+    const h = (w * H) / W;
+    const left = s.left + (s.width - w) / 2;
+    const top = s.top + (s.height - h) / 2;
+    stageBox = { left, top, width: w, height: h, right: left + w, bottom: top + h };
+  }
   return stageBox;
 }
 function forgetStageRect() {
