@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""The clean list: no book that only exists in another language, no duplicates.
+
+    clean.py --merged merged.jsonl --isbns isbns.jsonl --out clean.jsonl
+
+Two rules, from Mario on 2026-09-17 ("I want this list as clean as possible"):
+
+- A book whose known editions are all in another language is dropped
+  (isbns.py names that language as "only"); so is a book with no English
+  ISBN whose title is not in Latin script.
+- A book is a duplicate of a higher-ranked one when they share any ISBN
+  (editions of one work), or, for a book with no ISBN, when a higher row
+  by the same author has a title that contains its title or is contained
+  by it, or carries the same Amazon review count (Amazon shares one count
+  across every listing of a book). Duplicates are dropped; a dropped duplicate's ISBNs join the
+  survivor's list (after the survivor's own, which are already in
+  popularity order).
+
+Also: a book only Open Library knows counts a quarter, so one library's
+patrons cannot alone put a book in the head of the list.
+
+Writes one line per kept book with a new contiguous rank, the merge's
+rank kept as "was", and prints what each rule removed.
+"""
+
+import argparse
+import collections
+import json
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from universe2 import fold  # noqa: E402
+
+# A listing whose whole title is one of these is a fragment of a subtitle, not a book.
+FRAGMENT = {"novel", "a novel", "memoir", "a memoir", "fiction", "nonfiction", "book", "the book", "hardcover",
+            "paperback", "large print", "edition", "stories", "poems", "essays", "untitled", "audiobook"}
+# Function words that do not occur in English titles; a title carrying one, for a book
+# only Open Library knows and no source has an edition for, is in that language.
+FOREIGN = {"um": "pt", "uma": "pt", "não": "pt", "você": "pt", "das": "de", "der": "de", "die": "de", "und": "de",
+           "el": "es", "los": "es", "las": "es", "una": "es", "del": "es", "que": "es", "les": "fr", "une": "fr",
+           "des": "fr", "du": "fr", "gli": "it", "della": "it", "nel": "it", "een": "nl", "het": "nl", "dan": "id",
+           "yang": "id", "och": "sv", "att": "sv"}
+NON_LATIN = re.compile(r"[Ѐ-ӿͰ-Ͽ֐-׿؀-ۿऀ-ॿ฀-๿぀-ヿ㐀-鿿가-힯]")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--merged", required=True)
+    ap.add_argument("--isbns", required=True)
+    ap.add_argument("--out", required=True)
+    args = ap.parse_args()
+
+    isbn = {}
+    for line in open(args.isbns):
+        d = json.loads(line)
+        isbn[d["rank"]] = d
+    rows = [json.loads(line) for line in open(args.merged)]
+    # A book that only Open Library's log knows is vouched for by one library's
+    # patrons and nobody else; its share counts a quarter. 'Control Your Mind
+    # and Master Your Feelings' sat at #71 on that log alone, sixth on Open
+    # Library, absent from Goodreads (2017) and Amazon. Goodreads-only and
+    # Amazon-only books keep their value: those sources are site-wide.
+    tot = {s: (sum(r[s] for r in rows) or 1) for s in ("gr", "az", "ol")}
+    w = {"gr": 0.4, "az": 0.3, "ol": 0.2}
+    for r in rows:
+        ol = r["ol"] * (0.25 if (r["gr"] == 0 and r["az"] == 0) else 1.0)
+        r["value"] = 1e6 * (w["gr"] * r["gr"] / tot["gr"] + w["az"] * r["az"] / tot["az"] + w["ol"] * ol / tot["ol"]) / sum(w.values())
+    rows.sort(key=lambda r: (-r["value"], r["rank"]))
+    for n, r in enumerate(rows, 1):
+        r["merged_rank"], r["rank"] = r["rank"], n
+    print(f"{len(rows)} books in, {len(isbn)} with edition data", file=sys.stderr, flush=True)
+
+    removed = collections.Counter()
+    keep = []
+    owner = {}          # isbn -> index in keep of the book that owns it
+    by_author = collections.defaultdict(list)  # surname -> [(folded title, amazon count, keep index)]
+    by_title = collections.defaultdict(list)   # folded title -> [(amazon count, keep index)]
+    for r in rows:
+        i = isbn.get(r["merged_rank"])  # isbns.py keyed on the merge's rank, not the re-sorted one
+        isbns = i["isbns"] if i else []
+        title_f = fold(r["title"] or "")
+        surname = r["key"][1] if r.get("key") else ""
+
+        # rule 1: another language only
+        if i and not isbns and i.get("only"):
+            removed["only in " + i["only"]] += 1
+            continue
+        if not isbns and NON_LATIN.search(r["title"] or ""):
+            removed["title not in Latin script"] += 1
+            continue
+        if not i and r["gr"] == 0 and r["az"] == 0:
+            guess = next((FOREIGN[w] for w in title_f.split() if w in FOREIGN), None)
+            if guess:
+                removed["title looks " + guess + ", Open Library only, no edition"] += 1
+                continue
+        if not isbns and title_f in FRAGMENT:
+            removed["title is a fragment"] += 1
+            continue
+
+        # rule 2: a duplicate of a higher-ranked book
+        dup = None
+        for x in isbns:
+            if x in owner:
+                dup = owner[x]
+                break
+        if dup is None and not isbns and surname and title_f:
+            for other_title, other_az, idx in by_author.get(surname, ()):
+                # Amazon shares one review count across the listings of a book, give or
+                # take a crawl's drift, so the same author within 2% is the same book.
+                if other_title and (other_title in title_f or title_f in other_title):
+                    dup = idx
+                    break
+                if r["az"] > 100 and other_az and abs(r["az"] - other_az) <= 0.02 * other_az:
+                    dup = idx
+                    break
+        if dup is None and not isbns and title_f and r["az"] > 100:
+            # The same title under another name (a narrator, a publisher) with the
+            # same count within 2%: the Audible listing of a book already kept.
+            for other_az, idx in by_title.get(title_f, ()):
+                if other_az and abs(r["az"] - other_az) <= 0.02 * other_az:
+                    dup = idx
+                    break
+        if dup is not None:
+            removed["duplicate (shared ISBN)" if isbns else "duplicate (same author, nested title)"] += 1
+            k = keep[dup]
+            for x in isbns:
+                if x not in k["isbns"]:
+                    k["isbns"].append(x)
+                    owner[x] = dup
+            continue
+
+        idx = len(keep)
+        r["isbns"] = list(isbns)
+        r["isbn"] = isbns[0] if isbns else ""
+        r["editions"] = i["editions"] if i else 0
+        keep.append(r)
+        for x in isbns:
+            owner[x] = idx
+        if surname and title_f:
+            by_author[surname].append((title_f, r["az"], idx))
+        if title_f:
+            by_title[title_f].append((r["az"], idx))
+
+    with open(args.out, "w") as out:
+        for n, r in enumerate(keep, 1):
+            r["was"] = r["merged_rank"]
+            r["rank"] = n
+            out.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print(f"{len(keep)} books kept", file=sys.stderr)
+    for k, v in removed.most_common():
+        print(f"  removed, {k}: {v:,}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
