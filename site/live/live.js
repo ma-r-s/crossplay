@@ -1089,21 +1089,46 @@ function historyNote() {
   return `Next up: the ${what} ${sel.by} sent ${whenStamp(sel.at)}.`;
 }
 
-function select(e) {
+async function select(e) {
   if (e.gone) return;
+  // Moved here first and reported second, because a tap has to feel like a
+  // tap. It is put back below if the service disagrees.
+  const was = sent.selected;
   sent.selected = e.id;
   focused = e.id;
   askingDelete = null;
   renderHistory();
   say(historyNote(), true);
-  // WIRING FOLLOWS APPROVAL: this is where POST /api/history/<id>/select goes,
-  // with a refetch of the list afterwards, because two phones share this rail
-  // and the other one may have deleted what was picked here.
+  if (demoCount !== null) return;
+  const r = await api(`/api/history/${encodeURIComponent(e.id)}/select`, {
+    method: "POST",
+  });
+  if (!r.ok) {
+    // TWO PHONES SHARE THIS RAIL. The ordinary way this fails is the other one
+    // deleting the entry between this list being drawn and the tap landing.
+    // The service is right, so the list is fetched again and the service's own
+    // sentence is what gets said.
+    sent.selected = was;
+    await loadHistory();
+    say((r.body && r.body.error) || "That did not work.");
+  }
 }
 
-function remove(e) {
+async function remove(e) {
   askingDelete = null;
   const wasSelected = sent.selected === e.id;
+  if (demoCount === null) {
+    const r = await api(`/api/history/${encodeURIComponent(e.id)}`, {
+      method: "DELETE",
+    });
+    if (!r.ok) {
+      // Already gone, or somebody's access was taken away on the reader. Both
+      // are answered by asking the service what is really there.
+      await loadHistory();
+      say((r.body && r.body.error) || "That did not work.");
+      return;
+    }
+  }
   sent.entries = sent.entries.filter((x) => x.id !== e.id);
   if (wasSelected)
     sent.selected = sent.entries.length ? sent.entries[0].id : null;
@@ -1152,14 +1177,20 @@ async function loadHistory() {
   }
   const r = await api("/api/history");
   if (!r.ok || !r.body) {
-    // The service does not answer this yet. An empty rail is the honest shape
-    // and the one this page starts in anyway.
+    // Not connected, or the service could not be reached; both are said
+    // elsewhere. An empty rail is the honest shape either way.
     sent = { entries: [], selected: null };
     renderHistory();
     return;
   }
+  // The thumbnail path the service gives is relative to the SERVICE, which is
+  // another host. Left as it came it resolved against this page and every tile
+  // asked crossplay.ma-r-s.com for a picture only fridge.ma-r-s.com has.
   sent = {
-    entries: r.body.entries || [],
+    entries: (r.body.entries || []).map((e) => ({
+      ...e,
+      thumb: API + e.thumb,
+    })),
     selected: r.body.selected || null,
   };
   renderHistory();
@@ -1278,6 +1309,17 @@ async function refresh() {
       return;
     }
     state = r.body || { connected: false };
+    if (state.schedule) {
+      // THE SCHEDULE IS THE READER'S, not this browser's. Four phones can be
+      // connected and the one that opens the page second has to see what the
+      // first one chose, not a default it would then quietly re-apply.
+      schedule = {
+        mode: state.schedule.mode,
+        intervalSeconds: state.schedule.intervalSeconds,
+        dailyTime: state.schedule.dailyTime,
+        tz: state.schedule.tz,
+      };
+    }
   }
   if (state.connected) {
     gate.hidden = true;
@@ -1541,15 +1583,21 @@ document.getElementById("schedDone").onclick = async () => {
   openSched(false);
   paint();
   if (demoCount !== null) return;
-  // WIRING FOLLOWS APPROVAL: PUT /api/schedule carries {mode, intervalSeconds,
-  // dailyTime, tz} and the service answers the new nextExpected. Nothing on the
-  // device changes; see the block comment above.
-  const r = await api("/api/interval", {
+  const r = await api("/api/schedule", {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ seconds: schedule.intervalSeconds }),
+    body: JSON.stringify({
+      mode: schedule.mode,
+      intervalSeconds: schedule.intervalSeconds,
+      dailyTime: schedule.dailyTime,
+      tz: schedule.tz,
+    }),
   });
-  if (r.ok) await refresh();
+  if (!r.ok) {
+    say((r.body && r.body.error) || "That did not work.");
+    return;
+  }
+  await refresh();
 };
 
 const sendBtn = document.getElementById("send");
@@ -1557,9 +1605,16 @@ sendBtn.onclick = async () => {
   sendBtn.disabled = true;
   const was = sendBtn.textContent;
   sendBtn.textContent = "Sending...";
-  const r = await api("/api/image", {
-    method: "PUT",
-    headers: { "content-type": "application/octet-stream" },
+  const r = await api("/api/history", {
+    method: "POST",
+    headers: {
+      "content-type": "application/octet-stream",
+      // WHICH TAB MADE IT. The bytes cannot say: the same bitmap typed and
+      // drawn are two different records, and the rail names one "the message"
+      // and the other "the drawing".
+      "x-kind":
+        mode === "write" ? "message" : mode === "photo" ? "photo" : "drawing",
+    },
     body: toBmp(),
   });
   sendBtn.textContent = was;
@@ -1569,9 +1624,9 @@ sendBtn.onclick = async () => {
     return;
   }
   await refresh();
-  // WIRING FOLLOWS APPROVAL: the send becomes POST /api/history, the reply is
-  // the new entry, and the rail is rebuilt from the service rather than pushed
-  // to locally, so the other phones on this reader see the same list.
+  // REBUILT FROM THE SERVICE rather than pushed to locally, because the rail
+  // is shared: fetching it back is also how this phone finds out what the
+  // others did while it was drawing.
   await loadHistory();
   // Sending says BOTH things: that the rail has one more in it and is pointed
   // at it, and when the reader will take it. The countdown above says the

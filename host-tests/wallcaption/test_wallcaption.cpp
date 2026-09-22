@@ -1523,9 +1523,15 @@ int main() {
     // reach the same region by the same path: checkNow hands a transport
     // sentence straight to liveStatus_. The longest is 84 characters about a
     // refused certificate, which is longer than anything the service sends.
+    // AND THE PENDING CADENCE, which is neither: it is a sentence the SERVICE
+    // composes and the reader draws verbatim on this same screen, saying the
+    // schedule has moved and the device has not noticed yet. It is generated
+    // from store.ALLOWED_INTERVALS crossed with the template, so the whole
+    // corpus is measured rather than the one example somebody looked at.
     std::vector<const char*> pairedReports;
     for (const char* s : kServiceRefusals) pairedReports.push_back(s);
     for (const char* s : kDeviceSentences) pairedReports.push_back(s);
+    for (const char* s : kPendingSentences) pairedReports.push_back(s);
     for (const char* refusal : pairedReports) {
       wallpapersui::LiveModel model;
       model.configured = true;
@@ -1703,6 +1709,7 @@ int main() {
     }
     for (const char* s : kServiceRefusals) reports.push_back(s);
     for (const char* s : kDeviceSentences) reports.push_back(s);
+    for (const char* s : kPendingSentences) reports.push_back(s);
 
     for (int joining = 0; joining < 2; ++joining) {
       for (const char* report : reports) {

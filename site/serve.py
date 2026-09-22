@@ -88,6 +88,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         self.fail(404, "Nothing answers PUT here.")
 
+    # DELETE, because /live/ deletes a history entry with one. Without it
+    # http.server answers 501 Unsupported method, the page reports "That did not
+    # work" over a service that was never asked, and the one journey this proxy
+    # exists to make drivable is the one that cannot be driven.
+    def do_DELETE(self):
+        if self.live_path():
+            self.proxy_live()
+            return
+        self.fail(404, "Nothing answers DELETE here.")
+
     # /live/ talks to fridge.ma-r-s.com, which is a DIFFERENT HOST in
     # production and is same-origin with nothing here. Locally it is reached
     # through this proxy, because the alternative does not work and looks like

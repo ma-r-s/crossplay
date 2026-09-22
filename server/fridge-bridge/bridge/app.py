@@ -62,7 +62,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[SITE_ORIGIN],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["content-type"],
     max_age=600,
 )
@@ -85,6 +85,31 @@ def client_ip(request: Request) -> str:
         "x-forwarded-for", ""
     )
     return fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
+
+
+# WHAT THE READER SAYS WHEN THE SCHEDULE HAS MOVED AND IT HAS NOT NOTICED YET.
+#
+# A reader is asleep on the cadence it last picked up. Change the schedule from
+# the website and there is a window -- up to one whole interval -- in which its
+# real next wake and the schedule it is about to adopt disagree. This is the one
+# sentence that names that, it is written HERE because the reader draws a
+# decision this service made verbatim and never invents wording for one, and it
+# is ABSENT rather than empty whenever nothing is pending, so the reader's line
+# appears only when it is news.
+#
+# The website prints the same cadence words on its schedule chip, from
+# store.cadence_words, so the two surfaces cannot tell one person two stories.
+#
+# host-tests/wallcaption expands this template over every phrase
+# store.cadence_words can return and measures each one in the device's real
+# font. That is why ALLOWED_INTERVALS is a finite tuple: a corpus the test
+# cannot enumerate is a corpus nobody has measured.
+PENDING_TEMPLATE = "Changing to {} after the next check."
+
+
+def pending_sentence(fridge: store.Fridge) -> str | None:
+    words = fridge.pending_cadence()
+    return PENDING_TEMPLATE.format(words) if words else None
 
 
 def refused(reason: str, code: int = 429) -> JSONResponse:
@@ -180,7 +205,13 @@ def senders(authorization: str = Header(default="")) -> JSONResponse:
         }
         for s in fridge.load().get("senders", [])
     ]
-    return JSONResponse({"senders": out, "max": store.MAX_SENDERS})
+    body: dict = {"senders": out, "max": store.MAX_SENDERS}
+    # Absent, not null and not equal to the current cadence. The reader draws
+    # the line only when the key is there.
+    pending = pending_sentence(fridge)
+    if pending:
+        body["pending"] = pending
+    return JSONResponse(body)
 
 
 @app.post("/api/senders/revoke")
@@ -278,10 +309,28 @@ def pull(
         return refused("Too many checks. Slow down.", 429)
 
     state = fridge.load()
-    interval = int(state.get("interval_s", store.DEFAULT_INTERVAL_S))
+    schedule = fridge.schedule()
     # A reader that is pulling is running Live; only an explicit 0 says
     # otherwise, so an old or absent header cannot switch a working fridge off.
     live_on = x_live_on.strip() != "0"
+
+    # HOW LONG TO SLEEP, which is not the same number as how often it repeats.
+    #
+    # A repeating schedule hands out its interval. A daily one hands out however
+    # many seconds are left until the next 07:00 in the timezone somebody chose,
+    # which is a different figure every time and is the entire device-side cost
+    # of clock-time schedules: none. The reader has no wall clock worth trusting
+    # and never needs one.
+    #
+    # Clamped to the reader's own bounds (live::clampInterval applies the same
+    # two), so a daily time eight minutes away becomes a fifteen-minute sleep
+    # and overshoots by seven. That is inside the quarter of an hour both
+    # surfaces promise, and it is why they promise a quarter of an hour.
+    now = int(time.time())
+    wake_in = max(
+        store.MIN_INTERVAL_S,
+        min(store.MAX_INTERVAL_S, store.next_after(schedule, now, now) - now),
+    )
     # THE ALARM IS THE INTERVAL IN THIS REPLY, stamped once, here.
     #
     # It is tempting to have the reader report its own alarm -- it is the thing
@@ -299,23 +348,34 @@ def pull(
     # What matters is that it is stamped ONCE, at the check-in, and never
     # recomputed: that is what stops a schedule change from moving a countdown
     # while the reader is still asleep on its old alarm. See next_expected.
-    fridge.touch_checkin(interval, live_on)
-    image_id = state.get("image_id")
+    fridge.touch_checkin(wake_in, live_on)
+    entry = fridge.selected_entry()
 
     headers = {
         # Seconds, not a wall-clock time: the reader arms a relative timer and
         # has no trustworthy clock of its own to convert one against.
-        "X-Next-Wake": str(interval),
-        "X-Server-Time": str(int(time.time())),
+        "X-Next-Wake": str(wake_in),
+        # AND WHAT TO SAY, which is a different question from what to sleep.
+        #
+        # The panel composes "Every N hours" from a figure, and under a daily
+        # schedule the figure above is a part-day whenever the schedule changed
+        # or a check was missed: set 07:00 at four in the morning and a reader
+        # reading X-Next-Wake would announce "Every 3 hours" forever after.
+        # live::scheduleNote reads THIS one, falling back to X-Next-Wake when it
+        # is absent.
+        "X-Cadence": str(store.cadence_seconds(schedule)),
+        "X-Server-Time": str(now),
         "Cache-Control": "no-store",
     }
-    if image_id is None:
-        # Nothing has ever been sent. Not an error: the reader keeps whatever
-        # is on the glass and asks again later.
+    if entry is None:
+        # Nothing is picked: nothing has ever been sent, or the picked entry was
+        # deleted and the history is empty. Not an error -- the reader keeps
+        # whatever is on the glass and asks again later.
         return Response(status_code=204, headers=headers)
+    image_id = entry["sha"]
     if if_none_match.strip('"') == image_id:
         return Response(status_code=304, headers=headers)
-    payload = fridge.read_image()
+    payload = fridge.read_image(image_id)
     if payload is None:
         return Response(status_code=204, headers=headers)
     headers["ETag"] = f'"{image_id}"'
@@ -396,29 +456,102 @@ def state(live_sender: str = Cookie(default=None)) -> JSONResponse:
     if fridge is None or not fridge.exists():
         return JSONResponse({"connected": False})
     s = fridge.load()
+    schedule = fridge.schedule()
+    armed = fridge.armed()
+    body = {
+        "connected": True,
+        "lastCheckin": s.get("last_checkin", 0),
+        # THE SCHEDULE SOMEBODY SET, and separately the cadence the reader is
+        # actually asleep on. The page needs both: the chip says what was
+        # chosen, and the countdown is measured against what is armed.
+        "schedule": {
+            "mode": schedule["mode"],
+            "intervalSeconds": schedule["interval_s"],
+            "dailyTime": schedule["daily_time"],
+            "tz": schedule["tz"],
+        },
+        "armedSeconds": store.cadence_seconds(armed),
+        # 0 while Live is off on the reader: there is no next check, and a
+        # figure there would be one the page then has to explain away.
+        "nextExpected": fridge.next_expected(),
+        # The reader's own report, not this service's opinion: what separates
+        # "switched off on purpose" from "we have not heard from it", which
+        # look identical from here and mean opposite things.
+        "liveOn": bool(s.get("live_on", True)),
+        "senders": len(s.get("senders", [])),
+    }
+    # THE SAME SENTENCE THE READER IS GIVEN, verbatim, so the panel and the page
+    # cannot describe one reader two ways. Absent when nothing is pending.
+    pending = pending_sentence(fridge)
+    if pending:
+        body["pending"] = pending
+    return JSONResponse(body)
+
+
+# ---------------------------------------------------------------- history
+#
+# EVERYTHING EVER SENT TO THIS READER, newest first, SHARED by every phone
+# connected to it. It is the record of what the reader has shown rather than of
+# what any one person sent, so any of them can send an old one out again or
+# delete one, and every entry names who sent it.
+
+
+def _entry_json(e: dict) -> dict:
+    return {
+        "id": e["id"],
+        "kind": e.get("kind", "drawing"),
+        "at": e.get("at", 0),
+        "by": e.get("by", "A phone"),
+        "thumb": f"/api/history/{e['id']}/thumb",
+    }
+
+
+@app.get("/api/history")
+def history(live_sender: str = Cookie(default=None)) -> JSONResponse:
+    fridge = _sender_fridge(live_sender)
+    if fridge is None or not fridge.exists():
+        return refused("This browser is not connected to a reader.", 401)
+    s = fridge.load()
     return JSONResponse(
         {
-            "connected": True,
-            "lastCheckin": s.get("last_checkin", 0),
-            "intervalSeconds": s.get("interval_s", store.DEFAULT_INTERVAL_S),
-            # 0 while Live is off on the reader: there is no next check, and a
-            # figure there would be one the page then has to explain away.
-            "nextExpected": fridge.next_expected(),
-            # The reader's own report, not this service's opinion: what
-            # separates "switched off on purpose" from "we have not heard from
-            # it", which look identical from here and mean opposite things.
-            "liveOn": bool(s.get("live_on", True)),
-            "imageId": s.get("image_id"),
-            "imageSetAt": s.get("image_set_at", 0),
-            "senders": len(s.get("senders", [])),
+            "entries": [_entry_json(e) for e in s.get("history", [])],
+            "selected": s.get("selected"),
         }
     )
 
 
-@app.put("/api/image")
-async def put_image(
-    request: Request, live_sender: str = Cookie(default=None)
-) -> JSONResponse:
+@app.get("/api/history/{entry_id}/thumb")
+def history_thumb(
+    entry_id: str, live_sender: str = Cookie(default=None)
+) -> Response:
+    fridge = _sender_fridge(live_sender)
+    if fridge is None or not fridge.exists():
+        return refused("This browser is not connected to a reader.", 401)
+    entry = fridge.entry(entry_id)
+    if entry is None:
+        return refused("That is not on this reader.", 404)
+    png = fridge.read_thumb(entry["sha"])
+    if png is None:
+        # The record survives its picture. A tile that says the picture is gone
+        # is the truth; a broken image is a page that looks failed.
+        return refused("That picture is gone.", 410)
+    return Response(
+        content=png,
+        media_type="image/png",
+        # Content-addressed, so it can never change under this entry.
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@app.post("/api/history")
+async def send(request: Request, live_sender: str = Cookie(default=None)) -> JSONResponse:
+    """Sending is what puts something in the history, and it is picked.
+
+    The body is the reader picture itself and nothing else; the kind rides in a
+    header and the sender's name is read off the fridge rather than taken from
+    the caller, because a name a request could choose is a name a request could
+    forge.
+    """
     fridge = _sender_fridge(live_sender)
     if fridge is None or not fridge.exists():
         return refused("This browser is not connected to a reader.", 401)
@@ -433,30 +566,81 @@ async def put_image(
             f"That is not a reader picture ({len(payload)} bytes, expected {expected}).",
             400,
         )
-    image_id = fridge.set_image(payload)
+    kind = request.headers.get("x-kind", "drawing")
+    entry = fridge.add_entry(payload, kind, store.sender_name(fridge, live_sender))
     return JSONResponse(
-        {"ok": True, "imageId": image_id, "nextExpected": fridge.next_expected()}
+        {
+            "ok": True,
+            "entry": _entry_json(entry),
+            "selected": entry["id"],
+            "nextExpected": fridge.next_expected(),
+        }
     )
 
 
-@app.put("/api/interval")
-async def put_interval(
-    request: Request, live_sender: str = Cookie(default=None)
-) -> JSONResponse:
+@app.post("/api/history/{entry_id}/select")
+def select(entry_id: str, live_sender: str = Cookie(default=None)) -> JSONResponse:
+    """Point the reader at an older one. It costs the reader nothing until its
+    next wake, and nothing at all if it is already showing that picture: the
+    ETag is the content hash, so a re-select answers 304."""
     fridge = _sender_fridge(live_sender)
     if fridge is None or not fridge.exists():
         return refused("This browser is not connected to a reader.", 401)
-    body = await request.json()
-    try:
-        seconds = int(body.get("seconds", 0))
-    except (TypeError, ValueError):
-        seconds = 0
-    if not store.MIN_INTERVAL_S <= seconds <= store.MAX_INTERVAL_S:
-        return refused("Pick an interval between fifteen minutes and a week.", 400)
+    if not POST_SENDER.allow(fridge.id):
+        return refused("Too many changes at once. Try again shortly.")
+    if not fridge.select(entry_id):
+        # Somebody else on this reader deleted it. The page refetches and says
+        # so rather than reporting a failure nobody caused.
+        return refused("That is not on this reader.", 404)
+    return JSONResponse({"ok": True, "selected": entry_id})
+
+
+@app.delete("/api/history/{entry_id}")
+def delete_entry(entry_id: str, live_sender: str = Cookie(default=None)) -> JSONResponse:
+    """Deleting is for EVERYBODY on this reader, which is why the page asks
+    first. Deleting the picked entry moves the pick to the newest remaining
+    one; the reply names it so the page can say what changed rather than
+    silently re-pointing a device in another country."""
+    fridge = _sender_fridge(live_sender)
+    if fridge is None or not fridge.exists():
+        return refused("This browser is not connected to a reader.", 401)
+    if not POST_SENDER.allow(fridge.id):
+        return refused("Too many changes at once. Try again shortly.")
+    if not fridge.remove_entry(entry_id):
+        return refused("That is not on this reader.", 404)
+    return JSONResponse({"ok": True, "selected": fridge.load().get("selected")})
+
+
+@app.put("/api/schedule")
+async def put_schedule(
+    request: Request, live_sender: str = Cookie(default=None)
+) -> JSONResponse:
+    """Two shapes: every so often, or once a day at a time in a named timezone.
+
+    The reader hears about neither. It is told a number of seconds to sleep for
+    on its next check and that is the whole of its involvement, which is why a
+    daily alarm needed no firmware at all.
+    """
+    fridge = _sender_fridge(live_sender)
+    if fridge is None or not fridge.exists():
+        return refused("This browser is not connected to a reader.", 401)
+    wanted = store.normalise_schedule(await request.json())
+    if wanted is None:
+        return refused("That is not a schedule this reader can keep.", 400)
     s = fridge.load()
-    s["interval_s"] = seconds
+    s["schedule"] = wanted
     fridge.save(s)
-    return JSONResponse({"ok": True, "nextExpected": fridge.next_expected()})
+    body = {
+        "ok": True,
+        "nextExpected": fridge.next_expected(),
+        "cadence": store.cadence_words(wanted),
+    }
+    # The reader is still asleep on the old one, and both surfaces say so in
+    # the same sentence until it wakes up and picks this one up.
+    pending = pending_sentence(fridge)
+    if pending:
+        body["pending"] = pending
+    return JSONResponse(body)
 
 
 # No static mount and no page route: every path this service answers is under

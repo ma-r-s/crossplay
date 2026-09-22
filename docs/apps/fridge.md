@@ -343,21 +343,98 @@ sleeps for exactly that. "Every day at 07:00" is therefore the service working
 out how many seconds are left until the next 07:00 in that timezone, which is
 arithmetic the device never hears about.
 
-**One thing does have to change on the device, and it has not been made.**
-`live::scheduleNote` composes the panel's "Every N hours" from the same
-`intervalSeconds` the reader slept for. Under a daily schedule the first sleep
-is a part-day, so the panel would announce a cadence that is not the cadence:
-set 07:00 at four in the morning and it says "Every 3 hours" forever after. The
-service has to send the two apart -- `X-Next-Wake` for how long to sleep and a
-new `X-Cadence` for what to say, defaulting to `X-Next-Wake` when absent -- and
-`scheduleNote` has to read the second one. `LiveEngine` is held by another
-session; this is written down rather than done.
+**The service sends `X-Cadence` beside `X-Next-Wake`, and one device change is
+owed.** `live::scheduleNote` composes the panel's "Every N hours" from the same
+figure the reader slept for. Under a daily schedule that figure is a part-day
+whenever the schedule changed or a check was missed: set 07:00 at four in the
+morning and a reader reading `X-Next-Wake` announces "Every 3 hours" forever
+after. So `/api/pull` now answers both, `X-Next-Wake` for how long to sleep and
+`X-Cadence` for what to say, and **`scheduleNote` has to read `X-Cadence`,
+falling back to `X-Next-Wake` when the header is absent.** The service half is
+done and proved in `host-tests/fridge`; `LiveEngine` is held by another session,
+so the device half is written down here rather than made.
 
 **How good the hour is, in the page's own words:** it aims for the time and
 lands within about a quarter of an hour either side, every check puts it back on
 time so the error never accumulates, and a reader in somebody's hands at 07:00
 catches up when they put it down. Not "07:00 sharp", and not hedged until it
 reads as broken.
+
+**A schedule may only be one of six intervals, or a clock time.**
+`store.ALLOWED_INTERVALS` is a finite tuple rather than the 15-minutes-to-a-week
+range `X-Next-Wake` is clamped to, and the two are different questions: the
+clamp bounds what the reader will believe, the tuple bounds what somebody may
+choose. It is finite so the sentences below are a corpus that can be enumerated
+and measured rather than sampled.
+
+### `pending`: the window where the reader disagrees with the schedule
+
+A reader is asleep on the cadence it last picked up. Change the schedule from
+the website and the two disagree until it next wakes, which on a weekly cadence
+is a week. `pending` is the one field that names that window, and the reader
+shows a line only when it is present.
+
+**Shape.** `GET /api/senders` (the reader's own call, bearer token) and
+`GET /api/state` (the browser's) both carry it:
+
+```json
+{ "senders": [...], "max": 4, "pending": "Changing to 07:00 daily after the next check." }
+```
+
+**It is ABSENT when nothing is pending.** Not `null`, not `""`, and never equal
+to the current cadence. The key missing is the whole signal; a reader that had
+to compare two strings to decide whether to draw a line would be a reader
+deciding something the service already knows.
+
+**The sentence is the service's, and the reader draws it verbatim.** The reader
+never invents wording for a decision this service made (`BridgeHttp.h`), so this
+is a sentence, not a value to format. It is
+`app.PENDING_TEMPLATE.format(store.cadence_words(schedule))`, which is exactly:
+
+| schedule         | sentence                                             |
+| ---------------- | ---------------------------------------------------- |
+| every 15 minutes | `Changing to every 15 minutes after the next check.` |
+| every 6 hours    | `Changing to every 6 hours after the next check.`    |
+| every 12 hours   | `Changing to every 12 hours after the next check.`   |
+| every 24 hours   | `Changing to every 24 hours after the next check.`   |
+| every 2 days     | `Changing to every 2 days after the next check.`     |
+| every 7 days     | `Changing to every 7 days after the next check.`     |
+| a clock time     | `Changing to 07:00 daily after the next check.`      |
+
+`host-tests/wallcaption` generates that whole cross product out of
+`ALLOWED_INTERVALS`, `INTERVAL_WORDS` and `PENDING_TEMPLATE` and measures every
+member in the device's real cuts, so a sentence nobody looked at cannot reach
+the panel too wide. The generator stops the run rather than thinning the corpus
+if any of the three is renamed or widened into a range.
+
+**The same sentence, on both surfaces.** `/api/state` carries the identical
+string and the website prints it verbatim, because two surfaces describing one
+reader two ways is the failure this whole feature has spent its life fighting.
+`store.cadence_words` is also what the website's schedule chip says, so "07:00
+daily" is one phrase with one source.
+
+**When it is present.** `store.Fridge.pending_cadence()` returns the cadence
+words when `schedule` and `armed` name different things, and `None` otherwise.
+`armed` is the schedule the reader last picked up; it moves in `touch_checkin`,
+which is the moment the reader is handed a reply, because a pull it got an
+answer to makes it adopt that reply. Nothing pending survives a check-in by
+construction rather than by a second write somewhere else.
+
+Three cases that are deliberately NOT pending:
+
+- **Before the first check-in.** `armed` starts at `DEFAULT_SCHEDULE`, which is
+  what the reader seeds itself with (`live::kDefaultIntervalSeconds` equals
+  `DEFAULT_INTERVAL_S`, and `host-tests/live` regenerates the check from
+  `store.py` so the two cannot drift). A reader that was paired and immediately
+  moved to "every 15 minutes" is therefore correctly pending, and
+  `next_expected` is measured against `armed` rather than against what somebody
+  has since chosen.
+- **The same schedule chosen again**, or a timezone change that leaves the local
+  time alone. `same_cadence` compares the WORDS, so a pending line nobody could
+  explain never appears.
+- **Live switched off on the reader.** There is no next check for anything to
+  take effect after, and a promise about one would be the fake number this field
+  exists to avoid.
 
 ## The service
 
