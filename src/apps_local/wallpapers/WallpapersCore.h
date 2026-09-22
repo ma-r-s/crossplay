@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace wallpapers {
 
@@ -360,6 +361,49 @@ ShuffleLine shuffleStripLine(bool choosing, int chosenCount, bool shadowedSet, R
 // "blake.bmp". A case-sensitive membership test would then draw no marker for a
 // wallpaper that is in the set.
 bool sameFileName(std::string_view a, std::string_view b);
+
+// WHAT AN UPLOAD IS CALLED. "w0007.bmp": the slot number, zero-padded to four.
+//
+// The upload handler renames every picture on the way in and DISCARDS the name
+// the phone sent, deliberately -- a name off a phone is an unvalidated path
+// component, and this fork has shipped a handler that took one. So no screen in
+// this app can ever show a person the name they sent, and anything that reasons
+// about "the name of an uploaded wallpaper" has to reason about this shape.
+//
+// Here rather than in the web server because three things need it and only one
+// of them can link that file: the server MINTS the name, the screenshot harness
+// has to pick a file that could have come from the route, and
+// host-tests/wallpapers walks names the route can really produce. A corpus of
+// names the system cannot emit tests nothing.
+// The last slot the handler will mint; it gives up rather than going to five
+// digits, which is what keeps every upload name the same width.
+inline constexpr int kMaxUploadSlot = 9999;
+std::string uploadFileName(int slot);
+bool isUploadName(std::string_view fileName);
+
+// THE MOST RECENTLY UPLOADED NAME IN `now` THAT IS NOT IN `before`, as an
+// index, or -1 for none.
+//
+// Freestanding because it is the whole of "which picture just arrived", and the
+// upload route now ENDS by putting that picture on the sleep screen -- so the
+// wrong answer pins the wrong wallpaper, and it is the one step of that route a
+// host suite can walk. The Activity has the web server, the SD card and the
+// poll timer; this has the rule.
+//
+// THE LAST ONE, not the first, and the order is real rather than assumed. An
+// earlier version of this took the first and said in its own comment that
+// nothing records arrival order. That was wrong: nextWallpaperPath() scans
+// slots from 1 upward and takes the LOWEST free one, so two pictures sent
+// inside one poll window get ascending numbers, and uploadFileName() zero-pads
+// them so ascending numbers sort ascending. The last new name is therefore the
+// most recent send -- which is the one the person is looking at their phone
+// wondering about. Taking the first showed them the older of the two.
+//
+// Names are compared through sameFileName, so the FAT case fold applies here
+// too: a card remounted between two scans can hand back "W0007.BMP" for a file
+// written as "w0007.bmp", and a case-sensitive comparison would report it as a
+// new arrival and re-pin a wallpaper nobody sent.
+int lastNewName(const std::vector<std::string>& before, const std::vector<std::string>& now);
 
 enum class Room : uint8_t { Ok, TooFull, Unknown };
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes);

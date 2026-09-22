@@ -47,6 +47,7 @@ int slotsAtFullList = 0;
 // And the same for the "Your phone" destination, which is two controls and
 // must stay two: it is the screen every route through this app now passes.
 int phoneSlots = 0;
+int addSlots = 0;
 std::vector<std::string> firstFailures;
 
 void check(const bool ok, const std::string& what) {
@@ -1206,6 +1207,7 @@ int main() {
     // screen can be -- and the state that pushed the add control off the bottom
     // when the rows were still untappable text.
     for (int names = 0; names < 2; ++names) {
+      const bool widest = names != 0;
       wallpapersui::LiveModel model;
       model.configured = true;
       model.on = true;
@@ -1214,10 +1216,10 @@ int main() {
       model.cadence = sample.note.c_str();
       model.senderCount = wallpapersui::LiveModel::kMaxSenders;
       for (int i = 0; i < model.senderCount; ++i) {
-        model.senders[i].who = names == 0 ? kRealNames[i] : kWidest;
+        model.senders[i].who = widest ? kWidest : kRealNames[i];
         model.senders[i].since = "12 Sep";
       }
-      const std::string where = names == 0 ? " [real names]" : " [24-char names]";
+      const std::string where = widest ? " [24-char names]" : " [real names]";
 
       LiveTarget target(true);
       toybox::Interactions interactions;
@@ -1561,11 +1563,12 @@ int main() {
     // that destroys anything.
     for (int names = 0; names < 2; ++names) {
       for (int dated = 0; dated < 2; ++dated) {
+        const bool undated = dated != 0;
         wallpapersui::RevokeModel model;
         model.who = names == 0 ? "Android phone" : kWidest;
-        model.since = dated == 0 ? "12 Sep" : nullptr;
+        model.since = undated ? nullptr : "12 Sep";
         const std::string where =
-            std::string(names == 0 ? " [real name]" : " [24-char name]") + (dated == 0 ? " [dated]" : " [no date]");
+            std::string(names == 0 ? " [real name]" : " [24-char name]") + (undated ? " [no date]" : " [dated]");
 
         LiveTarget target(true);
         toybox::Interactions interactions;
@@ -1598,7 +1601,7 @@ int main() {
               "the confirm does not say what removing them costs, so it asks for a decision with nothing to "
               "decide on" +
                   where);
-        if (dated == 0) {
+        if (!undated) {
           bool dateShown = false;
           bool labelShown = false;
           for (const LiveTarget::Run& run : target.runs) {
@@ -1838,11 +1841,140 @@ int main() {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // ADD A WALLPAPER, ONCE A PICTURE HAS LANDED.
+  //
+  // The route exists because somebody wanted their own photo on the glass, and
+  // it used to end with the photo merely filed -- on a reader with Live
+  // running, the panel then went on showing what the website sends. It ends on
+  // this screen now, and this screen has to confirm it.
+  //
+  // THE NAMES ARE GENERATED FROM uploadFileName(), not typed. Every upload is
+  // renamed w0001.bmp, w0002.bmp and the phone's own name is discarded, so a
+  // corpus of "beach" and "kids-on-the-beach" would be a corpus of names this
+  // route cannot emit. It is also why the picture is the confirmation and the
+  // name is not: "w0007" tells nobody which photo they just sent.
+  {
+    fui::DeviceContext ctx = device();
+    ctx.safeArea = fui::Insets{10, 1, 0, 1};
+    const fui::Rect panelRect = fui::makeRect(0, 0, ctx.width, ctx.height);
+    const fui::InputSnapshot noInput{};
+    // A run is the name whole, or its own prefix followed by the ellipsis this
+    // face can really draw. The only way to tell "fitted" from "silently cut".
+    const auto isName = [](const std::string& run, const std::string& want) {
+      if (run == want) return true;
+      if (run.size() < 4 || run.compare(run.size() - 3, 3, "...") != 0) return false;
+      const std::string body = run.substr(0, run.size() - 3);
+      return !body.empty() && body.size() < want.size() && want.compare(0, body.size(), body) == 0;
+    };
+    // Every width the shape can take: the first slot, a middle one, and the
+    // last the handler will ever mint.
+    const int slots[] = {1, 42, 9999};
+    for (const int slot : slots) {
+      const std::string name = wallpapers::displayName(wallpapers::uploadFileName(slot)).full;
+      for (int arrived = 0; arrived < 2; ++arrived) {
+        wallpapersui::AddModel model;
+        model.url = "http://crossplay-a1b2c3.local/w";
+        model.altUrl = "http://192.168.1.42/w";
+        model.added = arrived;
+        model.arrived = arrived != 0 ? name.c_str() : nullptr;
+        const std::string where = std::string(" [\"") + name + "\"]" + (arrived == 0 ? " [nothing yet]" : " [landed]");
+
+        LiveTarget target(true);
+        toybox::Interactions interactions;
+        toybox::Frame frame(target, ctx, noInput, interactions);
+        toybox::Screen screen(frame);
+        const wallpapersui::AddRects rects = wallpapersui::buildAdd(screen, model);
+
+        // 1. EXACTLY ONE OF THE TWO SQUARES, and the picture only once there is
+        //    one. A thumbnail rect handed back with no arrival would have the
+        //    Activity blit a Thumb it never decoded; a code rect returned
+        //    beside the picture would have it draw a QR over the photo.
+        check((rects.qr.width > 0) != (rects.thumb.width > 0),
+              "the screen asks for both a code and a picture, or for neither" + where);
+        check((rects.thumb.width > 0) == (arrived != 0),
+              "the picture's square does not follow whether a picture has arrived" + where);
+        check(rects.qr.width == rects.qr.height && rects.thumb.width == rects.thumb.height,
+              "a square on this screen is not square" + where);
+        // THE SIDE THE ACTIVITY DECODES AT. It decodes before this rect exists,
+        // off the paint, so the two are one published number or the picture
+        // lands in a box it does not fit.
+        if (arrived != 0) {
+          check(rects.thumb.width == wallpapersui::addPictureSide(),
+                "the picture is placed at a side the Activity did not decode at" + where);
+        }
+        check(rects.thumb.x >= 0 && rects.thumb.right() <= panelRect.width,
+              "the arrival's picture is placed off the side of the panel" + where);
+        check(rects.thumb.bottom() <= panelRect.height, "the arrival's picture is placed below the panel" + where);
+
+        // 2. THERE IS ALWAYS A WAY TO SEND ANOTHER, and it is labelled. Once
+        //    the code is gone the button is the only way back to it, and a hit
+        //    rect whose word never reached the panel is a black box sitting
+        //    exactly where the code used to be.
+        bool another = false;
+        for (size_t h = 0; h < interactions.count(); ++h) {
+          if (interactions.data()[h].action == wallpapersui::ActionAddAnother) another = true;
+        }
+        check(rects.qr.width > 0 || another, "nothing on this screen leads to sending a second picture" + where);
+        bool labelled = false;
+        bool named = false;
+        bool said = false;
+        bool waiting = false;
+        bool finished = false;
+        for (const LiveTarget::Run& run : target.runs) {
+          if (run.text == wallpapersui::addAnotherLabel()) labelled = true;
+          if (run.text == wallpapersui::addArrivedHeadline()) said = true;
+          if (isName(run.text, name)) named = true;
+          if (run.text == wallpapersui::addFootWaiting()) waiting = true;
+          if (run.text == wallpapersui::addFootArrived()) finished = true;
+        }
+        check(another == labelled, "the control that sends another picture is registered without its label" + where);
+
+        // 3. IT SAYS WHERE THE PICTURE WENT, and names it -- whole, even at
+        //    w9999. The name is not the confirmation (the picture is), but it
+        //    is what the grid's caption will say, so it has to be the same
+        //    word and it has to survive the cut.
+        check(said == (arrived != 0), "the screen's headline does not follow whether a picture arrived" + where);
+        check(named == (arrived != 0), "the screen does not name the picture that landed" + where);
+
+        // 4. AND THE WAY OUT CHANGES MEANING WITH IT. Waiting, Back abandons
+        //    the wait; once a picture is on the glass, Back is how the route
+        //    finishes. A screen still offering to STOP after it has succeeded
+        //    describes its own success as an abort.
+        check(finished == (arrived != 0) && waiting == (arrived == 0),
+              std::string(arrived != 0 ? "the screen still offers to stop after it has succeeded"
+                                       : "the screen says leaving finishes something before anything has arrived") +
+                  where);
+
+        // 5. NOTHING RUNS OFF THE PANEL, OR OFF ITS OWN BOX. Above the 10px cut
+        //    these faces carry no ellipsis, so an overflow stops at a plausible
+        //    place and the screenshot looks fine (typography-fold). The box
+        //    checks catch a rect in the wrong place; only measuring the string
+        //    in the face that draws it catches a line too long for a rect that
+        //    is in the right one.
+        for (const LiveTarget::Run& run : target.runs) {
+          check(run.box.x >= 0 && run.box.right() <= panelRect.width,
+                "a line on the Add screen is drawn off the panel: \"" + run.text + "\"" + where);
+          check(run.box.bottom() <= panelRect.height,
+                "a line on the Add screen is drawn below the panel: \"" + run.text + "\"" + where);
+          const int lines = run.style.maxLines > 0 ? run.style.maxLines : 1;
+          check(toybox::fitLines(target, run.text.c_str(), run.box.width, lines, run.style) == run.text,
+                "a line on the Add screen does not fit its box: \"" + run.text + "\"" + where);
+        }
+        check(interactions.count() <= toybox::kMaxInteractions,
+              "the Add screen overflows the interaction table" + where);
+        if (arrived != 0) addSlots = static_cast<int>(interactions.count());
+      }
+    }
+  }
+
   std::printf("wallcaption: widest caption \"%s\" = %dpx in a %dpx box (%dpx spare)\n", widestName.c_str(), widest,
               wallpapersui::captionRect(g, 0).width, wallpapersui::captionRect(g, 0).width - widest);
   std::printf("wallcaption: Live spends %d of %d interaction slots with four phones listed\n", slotsAtFullList,
               static_cast<int>(toybox::kMaxInteractions));
   std::printf("wallcaption: Your phone spends %d of %d interaction slots\n", phoneSlots,
+              static_cast<int>(toybox::kMaxInteractions));
+  std::printf("wallcaption: Add spends %d of %d interaction slots with a picture landed\n", addSlots,
               static_cast<int>(toybox::kMaxInteractions));
   std::printf("wallcaption: %d checks, %d failed\n", checks, failed);
   for (const std::string& f : firstFailures) std::printf("  FAIL: %s\n", f.c_str());

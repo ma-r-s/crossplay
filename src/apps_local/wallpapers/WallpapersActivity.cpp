@@ -612,6 +612,28 @@ bool WallpapersActivity::commitSelection(const std::vector<std::string>& want) {
     liveRunning_ = false;
     liveStatus_.clear();
     live::save(liveState_);
+    // AND SAY SO, once, the way the Live screen's own toggle does.
+    //
+    // This half was missing and the gap was visible to the one person the
+    // feature is for. The device half is real -- the card says off, and
+    // live::decide returns no timer at all for a reader that is off, so it
+    // genuinely stops waking. But the SERVICE learns what a reader is doing
+    // only when the reader speaks, and a reader that has stopped waking never
+    // speaks again. So the website counted down to a check that would not
+    // happen and then reported a reader it had not heard from -- which is what
+    // a flat battery and a router that moved also look like. It has an honest
+    // state for this ("Live is off on the reader. Your drawing is saved and
+    // appears the moment Live is switched back on.") and nothing on this path
+    // could reach it.
+    //
+    // QUEUED, like every other radio step here: the card is already written, so
+    // nothing depends on the call getting out, and a failure costs a courtesy
+    // rather than a fact. A check queued behind it would tell the service "on"
+    // last and undo this, so it goes.
+    if (liveState_.paired()) {
+      liveCheckQueued_ = false;
+      liveOffQueued_ = true;
+    }
     LOG_INF("WALL", "a wallpaper was chosen, so Live is off; its pairing is kept");
   }
 
@@ -876,6 +898,25 @@ void WallpapersActivity::prewarmThumbs() {
   cachedPage_ = -1;
 }
 
+// A set bit is ink, placed at the offset the aspect fit worked out. A thumbnail
+// that would not decode gets the cross rather than a blank box: an empty frame
+// where a picture belongs reads as a crash, which cold testers have twice
+// reported on this fork.
+void WallpapersActivity::drawThumbInto(const Thumb& t, const fui::Rect& box) const {
+  if (!t.ok) {
+    renderer.drawLine(box.x, box.y, box.right() - 1, box.bottom() - 1, true);
+    renderer.drawLine(box.x, box.bottom() - 1, box.right() - 1, box.y, true);
+    return;
+  }
+  const int bytesPerRow = (t.w + 7) / 8;
+  for (int y = 0; y < t.h; ++y) {
+    const uint8_t* row = t.bits.data() + static_cast<size_t>(bytesPerRow) * y;
+    for (int x = 0; x < t.w; ++x) {
+      if (row[x >> 3] & (0x80 >> (x & 7))) renderer.drawPixel(box.x + t.ox + x, box.y + t.oy + y, true);
+    }
+  }
+}
+
 void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
   const int base = page_ * geom.perPage;
   const int specials = specialTiles();
@@ -902,21 +943,7 @@ void WallpapersActivity::drawGrid(const wallpapersui::GridGeom& geom) {
     }
     const int idx = combined - specials;
     const Thumb& t = thumbs_[static_cast<size_t>(slot)];
-
-    // The thumbnail. A set bit is ink.
-    if (t.ok) {
-      const int bytesPerRow = (t.w + 7) / 8;
-      for (int y = 0; y < t.h; ++y) {
-        const uint8_t* row = t.bits.data() + static_cast<size_t>(bytesPerRow) * y;
-        for (int x = 0; x < t.w; ++x) {
-          if (row[x >> 3] & (0x80 >> (x & 7))) renderer.drawPixel(th.x + t.ox + x, th.y + t.oy + y, true);
-        }
-      }
-    } else {
-      // A wallpaper that would not decode still gets a mark, never a blank cell.
-      renderer.drawLine(th.x, th.y, th.right() - 1, th.bottom() - 1, true);
-      renderer.drawLine(th.x, th.bottom() - 1, th.right() - 1, th.y, true);
-    }
+    drawThumbInto(t, th);
 
     // A hairline on every cell so a mostly-white wallpaper still reads as a
     // framed tile. This is not the selection signal: it is on every cell.
@@ -1832,21 +1859,36 @@ void WallpapersActivity::toggleLive() {
 // not happen, and the page has an honest fallback for its absence: the deadline
 // passes and it reports a reader it has not heard from, which is the truth.
 void WallpapersActivity::runLiveOffReport() {
+  // ONLY THE LIVE SCREEN CAN SHOW THE DIFFERENCE, so only it is repainted.
+  //
+  // This report is queued from two places now: the Live screen's own toggle,
+  // where the status line under the controls is what changes, and
+  // commitSelection, which runs from a tap on the GRID. Nothing on the grid
+  // draws liveStatus_ and the tile's marker went out with the selection that
+  // queued this, so an unconditional repaint there is 0.3-2s of an e-ink panel
+  // flashing to show exactly what it was already showing -- and it lands a
+  // second or two after the tap, which reads as the app doing something of its
+  // own.
+  const bool visible = view_ == View::Live;
   std::string message;
   live::engine::RadioLease radio(message);
   if (!radio.held()) {
-    // Not an error on this screen. The user asked for Live to stop, and it has
-    // stopped; what did not happen is a courtesy to a website.
+    // Not an error. The user asked for Live to stop, and it has stopped; what
+    // did not happen is a courtesy to a website.
     LOG_INF("WALL", "no radio to tell Live this reader is off; the website will work it out");
     liveStatus_.clear();
-    interactionsReady_ = false;
-    requestUpdate();
+    if (visible) {
+      interactionsReady_ = false;
+      requestUpdate();
+    }
     return;
   }
   live::reportOff(liveState_.deviceToken, message);
   liveStatus_.clear();
-  interactionsReady_ = false;
-  requestUpdate();
+  if (visible) {
+    interactionsReady_ = false;
+    requestUpdate();
+  }
 }
 
 // The same call the picker makes, through the same WallpapersCore rules, so
@@ -1892,6 +1934,45 @@ void WallpapersActivity::openAdd() {
   addAltUrl_ = "http://192.168.1.42/w";
   addBefore_ = static_cast<int>(names_.size());
   addArrived_ = 0;
+  addArrivedName_.clear();
+  addArrivedThumb_ = Thumb{};
+#if WALLPAPERS_ADD_ARRIVED != 0
+  // THE STATE A TAP SCRIPT CANNOT PLAY INTO. Reaching it for real needs a
+  // phone on the same Wi-Fi posting a file to a server the simulator does not
+  // compile, so without this the one screen the whole route ends on could never
+  // be rendered -- and a screen that cannot be rendered cannot be reviewed,
+  // which is how every layout defect in this app was found. Same harness stub
+  // as WALLPAPERS_LIVE_CONFIGURED, default off, and it forces nothing on a
+  // device: SIMULATOR already guards it.
+  //
+  // It runs the REAL commit, not a pretend one, so what the screen reports and
+  // what the card says are the same two facts a real arrival produces --
+  // including Live coming off the sleep screen.
+  //
+  // AND IT WILL ONLY PICK A FILE THE ROUTE COULD HAVE MADE. The first version
+  // took names_[0], which on a seeded card is a built-in with an editorial name
+  // -- so the render showed "kids-on-the-beach is on your sleep screen" for a
+  // route that renames every upload w0007.bmp and throws the phone's name away.
+  // The picture looked convincing and the sentence was one no reader can
+  // produce. If the card holds no upload-shaped file the stub does nothing and
+  // says why, because a harness that quietly substitutes something plausible is
+  // the thing it exists to avoid.
+  int arrival = -1;
+  for (size_t i = 0; i < names_.size() && arrival < 0; ++i) {
+    if (wallpapers::isUploadName(names_[i])) arrival = static_cast<int>(i);
+  }
+  if (arrival < 0) {
+    LOG_ERR("WALL",
+            "WALLPAPERS_ADD_ARRIVED is on but the card holds no %s-shaped file; "
+            "seed one or this screen renders its waiting state",
+            wallpapers::uploadFileName(1).c_str());
+  } else if (setWallpaper(arrival)) {
+    const int16_t side = wallpapersui::addPictureSide();
+    addArrivedThumb_ = decodeThumb(sourcePathFor(names_[static_cast<size_t>(arrival)]), side, side);
+    addArrivedName_ = wallpapers::displayName(names_[static_cast<size_t>(arrival)]).full;
+    addArrived_ = 1;
+  }
+#endif
   view_ = View::Add;
   interactionsReady_ = false;
   requestUpdate();
@@ -1987,7 +2068,26 @@ void WallpapersActivity::startAddServer() {
 
   addBefore_ = static_cast<int>(names_.size());
   addArrived_ = 0;
+  addArrivedName_.clear();
+  addArrivedThumb_ = Thumb{};
   view_ = View::Add;
+  interactionsReady_ = false;
+  requestUpdate();
+}
+
+// SEND ANOTHER, on the arrangement where the arrival takes the square. The
+// server is already running and the radio is already held, so this is a view
+// change and nothing else -- which is why it is not ActionAddOwn, whose job
+// starts with the WiFi picker and can end on the no-WiFi notice.
+//
+// The baseline moves to what is on the card NOW, so the count under the code
+// answers "how many since I pressed this" rather than carrying the last
+// picture's total forward into a second sentence about it.
+void WallpapersActivity::addAnother() {
+  addBefore_ = static_cast<int>(names_.size());
+  addArrived_ = 0;
+  addArrivedName_.clear();
+  addArrivedThumb_ = Thumb{};
   interactionsReady_ = false;
   requestUpdate();
 }
@@ -2024,12 +2124,69 @@ void WallpapersActivity::pollAddArrivals() {
   if (now - addLastPoll_ < kPollMs) return;
   addLastPoll_ = now;
 
-  const int was = static_cast<int>(names_.size());
+  // SWAPPED OUT, not copied: the old list is needed to say which name is new,
+  // and a copy of every name on the card every 1.5 seconds would be a per-poll
+  // allocation for an answer that is wanted once. A swap costs nothing and the
+  // old vector is destroyed on the way out of this function either way.
+  std::vector<std::string> before;
+  before.swap(names_);
+  const int was = static_cast<int>(before.size());
   scanLibrary();
   const int isNow = static_cast<int>(names_.size());
   if (isNow == was) return;
   addArrived_ = isNow - addBefore_;
   if (addArrived_ < 0) addArrived_ = 0;
+
+  // WHAT LANDED GOES ON THE SLEEP SCREEN. The person opened this route to put
+  // their own picture on the glass, and it used to end with the picture merely
+  // filed: on a reader with Live running, the panel then went on showing what
+  // the website sends. commitSelection is what makes that impossible -- it is
+  // the only writer of /sleep.bmp and it takes Live off on the way through --
+  // so choosing here is also the whole of "do not leave Live selected".
+  //
+  // WHICH one is wallpapers::lastNewName's, freestanding so the step that
+  // decides which picture gets pinned can be walked by a host suite rather than
+  // only by driving the simulator.
+  const int fresh = wallpapers::lastNewName(before, names_);
+  if (fresh >= 0) {
+    const std::string file = names_[static_cast<size_t>(fresh)];
+    if (!setWallpaper(fresh)) {
+      // NOT a hint on a strip this screen does not draw. warningPending_ feeds
+      // computeWarning(), which reaches the panel only through the GRID's hint
+      // band -- so on the Add screen a card that refused the copy looked
+      // exactly like nothing having arrived, while the picture WAS on the card
+      // and the sleep screen was not the one it names. Every other failure in
+      // this file goes through showNotice and so does this one.
+      loadSelection();
+      computeWarning();
+      cachedPage_ = -1;
+      LOG_ERR("WALL", "uploaded wallpaper %s could not be set; card full?", file.c_str());
+      showNotice("IT ARRIVED, BUT",
+                 "Your picture is on the reader and your sleep screen is unchanged. The card may be full. Pick it "
+                 "from the grid to try again.",
+                 "OK", wallpapersui::ActionDismiss);
+      return;
+    }
+    // DECODED HERE, on the loop task, at the size the screen will place. A
+    // decode is an SD read and a downscale; inside a paint it is work on the
+    // wrong task, and the window where it has produced nothing is a 232px
+    // square of blank paper, which this fork's own notes say reads as a crash.
+    const int16_t side = wallpapersui::addPictureSide();
+    Thumb picture = decodeThumb(sourcePathFor(file), side, side);
+    const std::string shown = wallpapers::displayName(file).full;
+    // ONE LOCK ROUND THE PUBLICATION. render() runs on the other FreeRTOS task
+    // and holds this same mutex for the whole paint; without it the second
+    // upload of a session reassigns a std::string and a vector the paint is
+    // reading, which is a read of freed memory rather than a torn word. The
+    // poll that does it fires every 1.5s for as long as this screen is up.
+    {
+      RenderLock lock(*this);
+      addArrivedName_ = shown;
+      addArrivedThumb_ = std::move(picture);
+    }
+    LOG_INF("WALL", "an uploaded wallpaper is now the sleep screen: %s", file.c_str());
+  }
+
   loadSelection();
   computeWarning();
   cachedPage_ = -1;
@@ -2461,7 +2618,7 @@ void WallpapersActivity::loop() {
   // not shown yet, which is what stops a tap aimed at the screen underneath
   // from landing on the one that replaced it during a 0.3-2s e-ink repaint.
   if (view_ == View::Offer || view_ == View::Notice || view_ == View::Sheet || view_ == View::Confirm ||
-      view_ == View::Phone || view_ == View::Live) {
+      view_ == View::Phone || view_ == View::Live || view_ == View::Add) {
     int ax = 0;
     int ay = 0;
     if (!mappedInput.wasScreenTapped(ax, ay) || !interactionsReady_) return;
@@ -2479,6 +2636,9 @@ void WallpapersActivity::loop() {
         // Two screens carry this: the offer's USE MY OWN PHOTO, and SEND A
         // PICTURE on the "Your phone" destination. One id, one destination.
         openAdd();
+        return;
+      case wallpapersui::ActionAddAnother:
+        addAnother();
         return;
       case wallpapersui::ActionLiveOpen:
         openLive();
@@ -2797,18 +2957,39 @@ void WallpapersActivity::render(RenderLock&&) {
     model.url = addUrl_.c_str();
     model.altUrl = addAltUrl_.c_str();
     model.added = addArrived_;
-    // No plural: fmtwidth cannot bound a "%s" that switches word, and a count
-    // beside a fixed noun says the same thing (the trivia precedent).
-    if (addArrived_ > 0) {
+    if (!addArrivedName_.empty()) model.arrived = addArrivedName_.c_str();
+    // The count, for the window between a file landing and its commit -- and
+    // for a commit that failed, where the notice says the rest. Once the
+    // picture is on the sleep screen the screen IS the picture and this line is
+    // not drawn at all. No plural: fmtwidth cannot bound a "%s" that switches
+    // word, and a count beside a fixed noun says the same thing.
+    if (addArrived_ > 0 && addArrivedName_.empty()) {
       char line[96];
       std::snprintf(line, sizeof(line), "Added: %d. Send another, or press Back to see them.", addArrived_);
       addStatus_ = line;
       model.status = addStatus_.c_str();
     }
-    const fui::Rect qr = wallpapersui::buildAdd(surface, model);
+    const wallpapersui::AddRects rects = wallpapersui::buildAdd(surface, model);
     // addQrUrl_, NOT addUrl_ (app/wallqr): the code carries the numeric address,
     // which depends on no responder; the name is the half a human reads.
-    QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, addQrUrl_);
+    if (rects.qr.width > 0) {
+      QrUtils::drawQrCode(renderer, Rect{rects.qr.x, rects.qr.y, rects.qr.width, rects.qr.height}, addQrUrl_);
+    }
+    // The picture, already decoded at exactly this side (addPictureSide is what
+    // both the rect and the decode are built from). Blitted and nothing more:
+    // no file is opened on this task.
+    if (rects.thumb.width > 0) {
+      drawThumbInto(addArrivedThumb_, rects.thumb);
+      // The hairline goes round the INK, not round the box. A 480x800 wallpaper
+      // fitted into a square leaves gutters, and a frame on the box presents
+      // those gutters as part of the picture -- which is what somebody checking
+      // their own photo reads as "it got cropped".
+      if (addArrivedThumb_.ok) {
+        renderer.drawRect(static_cast<int16_t>(rects.thumb.x + addArrivedThumb_.ox),
+                          static_cast<int16_t>(rects.thumb.y + addArrivedThumb_.oy), addArrivedThumb_.w,
+                          addArrivedThumb_.h, 1, true);
+      }
+    }
   } else if (view_ == View::Phone) {
     wallpapersui::PhoneModel model;
     // A MEMBER, for the reason every string on the Live screens is one:
@@ -2983,7 +3164,12 @@ void WallpapersActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   // The offer screen draws its truchet band live, so the paint cost is worth a
   // number rather than an assumption about a 240MHz part.
-  LOG_INF("WALL", "render view=%d took %ums", static_cast<int>(view_), millis() - tPaint);
+  // The slot count, every paint. reportOverflow only speaks once the table is
+  // already full, which is the moment a control that draws normally has stopped
+  // being tappable with nothing on screen to say so; the number beside it is
+  // what says how close a screen was getting before that happened.
+  LOG_INF("WALL", "render view=%d took %ums, %d/%d slots", static_cast<int>(view_), millis() - tPaint,
+          static_cast<int>(interactions_.count()), static_cast<int>(toybox::kMaxInteractions));
   renderer.displayBuffer();
   painted_ = true;
 }

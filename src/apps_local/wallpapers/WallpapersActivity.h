@@ -32,8 +32,13 @@
 // went with the macro that chose between them in the same commit.
 //
 // That tile keeps + Add's CELL so no learned pixel moves, and it is the only
-// chrome tile in front of the library now: the local upload server keeps its
-// own way in through the offer screen's USE MY OWN PHOTO.
+// chrome tile in front of the library now. It leads to a destination naming
+// BOTH routes (wallpapersui::buildPhone): this comment used to say the upload
+// server kept its own way in through the offer screen's USE MY OWN PHOTO, and
+// that was false -- the offer screen stops appearing the moment a reader has
+// any wallpapers at all, so on every reader past its first fetch there was no
+// route to the upload server. Walk the screens rather than grep for openAdd():
+// the function survived the release that made it unreachable.
 
 // Whether a Live slot has been set up on this device, and whether it is what
 // the sleep screen shows right now. Compile-time, because this slice is the
@@ -44,6 +49,14 @@
 #endif
 #ifndef WALLPAPERS_LIVE_ON
 #define WALLPAPERS_LIVE_ON 0
+#endif
+// And whether a picture has just landed on the Add screen. Reaching that for
+// real needs a phone posting a file to a server the simulator does not compile
+// at all, so the one screen the upload route ends on would otherwise be the one
+// screen no render could ever show. Read only inside the SIMULATOR branch of
+// openAdd(), default off.
+#ifndef WALLPAPERS_ADD_ARRIVED
+#define WALLPAPERS_ADD_ARRIVED 0
 #endif
 
 class WallpapersActivity final : public Activity {
@@ -80,9 +93,10 @@ class WallpapersActivity final : public Activity {
   //
   // Help is absent on purpose: app/wallqr removed it with buildHelp when the QR
   // screen replaced it, and a member nothing sets is a branch nothing reaches.
-  // Live is the "Your phone" tile's destination: the pairing code before a
-  // phone is attached, the schedule and the senders afterwards. It reaches the
-  // panel through wallpapersui::buildLive like every other screen here.
+  // Live is one of the two routes BEHIND that destination: the pairing code
+  // before a phone is attached, the schedule and the senders afterwards. It
+  // reaches the panel through wallpapersui::buildLive like every other screen
+  // here.
   // Phone is the "Your phone" tile's destination: the two-route screen that
   // names what a phone can do with this reader. Live sits behind it now rather
   // than being it, and Add is reachable from it -- which is the whole of the
@@ -119,6 +133,7 @@ class WallpapersActivity final : public Activity {
   void applySleepSettings();
   void toggleChosen(int index);  // a tap on a tile while choosing
   void openAdd();                // entry: get the radio, then serve
+  void addAnother();             // put the code back after a picture has landed
   void startAddServer();         // latch dev mode, bind, advertise, build the address
   void stopAddServer();          // and undo all four, in reverse
   void pollAddArrivals();        // has a wallpaper landed while the code was up?
@@ -143,6 +158,11 @@ class WallpapersActivity final : public Activity {
   // Cached decode: reads /wallpapers/.thumbs/<name>.thb when it still matches
   // the source and the cell size, otherwise decodes and writes it.
   Thumb thumbFor(const std::string& name, const std::string& path, int16_t cellW, int16_t cellH, int* decoded);
+  // One blit, two callers: the grid's cells and the Add screen's arrival. A
+  // second copy of "a set bit is ink, offset by the fit" is a second thing to
+  // get wrong, and this fork's recurring bug is the fix landing on one of two
+  // identical paths (fix-the-twin-too).
+  void drawThumbInto(const Thumb& t, const freeink::ui::Rect& box) const;
   void drawGrid(const wallpapersui::GridGeom& geom);
   void drawGetSetTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th, int slot) const;
   void drawLiveTile(const wallpapersui::GridGeom& geom, const freeink::ui::Rect& th, int slot) const;
@@ -284,6 +304,22 @@ class WallpapersActivity final : public Activity {
   std::unique_ptr<CrossPointWebServer> addServer_;
   int addBefore_ = 0;   // library size when the code went up
   int addArrived_ = 0;  // how many have landed since
+  // The display name of the picture that landed and is now the sleep screen,
+  // empty while nothing has. A MEMBER because the screen reads it as a
+  // `const char*` and render() runs on the other FreeRTOS task, like every
+  // other string on these screens. Cleared on the way into the screen rather
+  // than remembered, because it is a fact about this visit.
+  std::string addArrivedName_;
+  // And the picture itself, decoded ONCE when it lands rather than per paint.
+  //
+  // NOT through thumbFor: that cache is keyed on the file name alone and its
+  // staleness check includes the cell size, so asking it for this screen's
+  // 232px square would evict the grid's prewarmed entry for the same file at
+  // the grid's cell size -- and the next grid paint would decode again, and
+  // evict this one back. Two screens sharing a one-entry-per-name cache at two
+  // sizes do not share it, they take turns destroying it. decodeThumb reads and
+  // returns without touching the card's cache at all.
+  Thumb addArrivedThumb_;
   bool addWaitingWifi_ = false;
   unsigned long addLastPoll_ = 0;
   // Whether THIS screen is the one holding dev mode's yield. The LinkRadio

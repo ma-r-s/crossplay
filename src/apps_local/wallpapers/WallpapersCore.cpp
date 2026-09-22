@@ -1,6 +1,7 @@
 #include "WallpapersCore.h"
 
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 
 namespace wallpapers {
@@ -397,6 +398,48 @@ bool sameFileName(const std::string_view a, const std::string_view b) {
     if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i]))) return false;
   }
   return true;
+}
+
+std::string uploadFileName(const int slot) {
+  // CLAMPED to the range the handler really mints, because this is the one
+  // producer of a name isUploadName() has to accept: a slot outside it would
+  // make the pair disagree, and the predicate is what the screenshot harness
+  // and the host corpus both select by.
+  const int bounded = slot < 1 ? 1 : (slot > kMaxUploadSlot ? kMaxUploadSlot : slot);
+  // 24, not 16. The clamp above means only ten bytes are ever written, but the
+  // BUFFER is sized against what the FORMAT can print -- "%04d" takes an int,
+  // and host-tests/fmtwidth measures the format rather than trusting the
+  // caller. A buffer sized by what today's callers pass is one a new caller
+  // silently overruns.
+  char name[24];
+  std::snprintf(name, sizeof(name), "w%04d.bmp", bounded);
+  return std::string(name);
+}
+
+bool isUploadName(const std::string_view fileName) {
+  // Length, then shape. Four digits is what the format writes; a fifth would be
+  // a file this app did not make, and the handler stops at 9999 anyway.
+  if (fileName.size() != 9) return false;
+  if (fileName[0] != 'w' && fileName[0] != 'W') return false;
+  for (size_t i = 1; i < 5; ++i) {
+    if (fileName[i] < '0' || fileName[i] > '9') return false;
+  }
+  return sameFileName(fileName.substr(5), ".bmp");
+}
+
+int lastNewName(const std::vector<std::string>& before, const std::vector<std::string>& now) {
+  for (size_t i = now.size(); i > 0; --i) {
+    const std::string& candidate = now[i - 1];
+    bool known = false;
+    for (const std::string& old : before) {
+      if (sameFileName(old, candidate)) {
+        known = true;
+        break;
+      }
+    }
+    if (!known) return static_cast<int>(i - 1);
+  }
+  return -1;
 }
 
 Room roomFor(bool queryOk, uint64_t freeBytes, uint64_t floorBytes) {

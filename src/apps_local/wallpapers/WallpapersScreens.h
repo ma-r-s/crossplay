@@ -106,6 +106,11 @@ enum : fui::ActionId {
   // MY OWN PHOTO opens the same local upload server, and two ids for one
   // destination is two things to keep in step.
   ActionLiveOpen = 16,
+  // Put the code back after a picture has landed. NOT ActionAddOwn: that one
+  // means "get me to the upload server", takes the radio and can end on the no
+  // WiFi notice, and the server is already running by the time this control
+  // exists. One id per destination, and these are two.
+  ActionAddAnother = 17,
 };
 
 // ---------------------------------------------------------------------------
@@ -338,11 +343,56 @@ struct AddModel {
   const char* altUrl = nullptr;  // "http://192.168.1.42/w" -- printed, never encoded
   int added = 0;                 // how many have arrived while this screen has been up
   const char* status = nullptr;  // a line replacing the prose while connecting
+  // THE PICTURE THAT JUST LANDED, and it is on the sleep screen. Its display
+  // name, or nullptr while nothing has arrived on this visit.
+  //
+  // The route exists because somebody wanted their own photo on the glass, so
+  // it ends with their own photo on the glass: the arrival is committed as the
+  // chosen wallpaper by the Activity the moment it lands, which -- through the
+  // one exclusivity rule in commitSelection -- also takes Live off the sleep
+  // screen. Before this, the upload route ended in a library the person then
+  // had to go and tap in, and on a reader with Live running it ended with Live
+  // still owning the panel.
+  const char* arrived = nullptr;
 };
 
-// Returns the square the Activity must draw the QR into. The screen cannot draw
-// it: QrUtils needs the renderer, and this file compiles against the SDK alone.
-fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model);
+// Where the Activity must draw, for one arrangement of the Add screen.
+//
+// TWO RECTS FROM ONE FUNCTION rather than a rect and a rule the Activity would
+// have to repeat: whether this arrangement is showing a code, a picture or both
+// is the screen's own business, and a zero width means "not on this screen".
+// The Activity draws what it is given and knows nothing about the arrangement,
+// which is what stops the two from disagreeing about which square holds what.
+struct AddRects {
+  fui::Rect qr{};     // the QR square; zero when no code is on this screen
+  fui::Rect thumb{};  // the arrival's thumbnail; zero when no picture is on it
+};
+
+// The screen cannot draw either one: QrUtils and the BMP decoder both need the
+// renderer, and this file compiles against the SDK alone.
+AddRects buildAdd(toybox::Screen& screen, const AddModel& model);
+
+// HOW BIG THE ARRIVAL'S PICTURE IS, published because two things need it and
+// they must not each pick their own. The screen places a square of this side;
+// the Activity DECODES at this side, off the paint and before the rect exists,
+// because a thumbnail is a BMP read off the card and a decode inside a render
+// is work on the wrong task. A decode at one size dropped into a rect of
+// another is either a gap round the picture or a picture through the caption.
+int16_t addPictureSide();
+
+// The Add screen's own strings, for the test that walks it. Functions rather
+// than extern constants for the reason liveRemoveMark() is one: a
+// header-declared object is a different object per translation unit.
+const char* addArrivedHeadline();
+const char* addAnotherLabel();
+const char* addArrivedLine();
+const char* addAgainLine();
+// The foot's two words. They are not decoration: while the screen is waiting
+// for a picture, leaving ABANDONS the wait, and once one has arrived leaving
+// is how the route finishes. A screen that kept saying "BACK STOPS" after a
+// success would be describing that success as an abort.
+const char* addFootWaiting();
+const char* addFootArrived();
 
 // ---------------------------------------------------------------------------
 // LIVE: where the grid's "Your phone" tile goes.
