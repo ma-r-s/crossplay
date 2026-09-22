@@ -1026,13 +1026,54 @@
   object-fit: cover;
   image-rendering: pixelated;
 }
-/* INSIDE the tile. Sitting 1px proud, the top of the ring was clipped by the
-   rail's own scroll box, so the picked tile had three sides and a gap. Drawn
-   within its own edge it cannot be cut, and it reads as a ring on the picture
-   rather than a box floating around it. */
+/* BRACKETS, NOT A BOX. A full ring around the picked tile read as a frame the
+   picture was mounted in; four corners sit ON it and mark it without enclosing
+   it, the way a viewfinder does. Drawn inside the tile's own edge so the
+   rail's scroll box cannot clip them, and in ABSOLUTE ink rather than the
+   theme's: these sit on the reader's paper, which is white in both themes, so
+   `--ink` would have drawn them near-white on white the moment somebody's
+   phone was in dark mode. Same trap the black header's controls hit.
+
+   Two gradients do it. Each corner is one layer whose background-size is the
+   corner's box, positioned into that corner, and the gradient inside it paints
+   only the two arms. No extra element, so nothing changes about the tile's
+   size or what a screen reader sees. */
 .lv-card[data-selected="true"] .lv-card-pick {
-  outline: 3px solid var(--ink);
-  outline-offset: -3px;
+  --bkt: 18px; /* arm length */
+  --bkt-w: 3px; /* arm thickness */
+  --bkt-ink: #111110; /* the panel is white in both themes */
+  position: relative;
+}
+.lv-card[data-selected="true"] .lv-card-pick::after {
+  content: "";
+  position: absolute;
+  /* The picture, not the whole tile: the foot carries the "Next up" band, and
+     brackets in absolute ink on a black band are black on black. */
+  inset: 0 0 var(--badge-h, 1.35rem) 0;
+  pointer-events: none;
+  /* Over the "Next up" band, which sits along the foot of the picture: under
+     it, the two bottom corners were hidden and the mark had only two. */
+  z-index: 2;
+  background-image:
+    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
+    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
+    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
+    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
+    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
+    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
+    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
+    linear-gradient(var(--bkt-ink), var(--bkt-ink));
+  background-repeat: no-repeat;
+  background-size:
+    var(--bkt) var(--bkt-w), var(--bkt-w) var(--bkt),
+    var(--bkt) var(--bkt-w), var(--bkt-w) var(--bkt),
+    var(--bkt) var(--bkt-w), var(--bkt-w) var(--bkt),
+    var(--bkt) var(--bkt-w), var(--bkt-w) var(--bkt);
+  background-position:
+    left top, left top,
+    right top, right top,
+    left bottom, left bottom,
+    right bottom, right bottom;
 }
 /* WHAT IS GOING OUT NEXT, said on the tile rather than only in the line below
    it. Laid over the foot of the picture rather than under it, so every tile is
@@ -1046,7 +1087,9 @@
   font-family: var(--display);
   font-size: 0.6rem;
   letter-spacing: 0.06em;
-  line-height: 1.5;
+  /* Stated, and shared with the brackets' bottom inset below, so the marks
+     frame the picture rather than running into this band. */
+  line-height: var(--badge-h, 1.35rem);
   text-transform: uppercase;
   text-align: center;
   background: #111110;
