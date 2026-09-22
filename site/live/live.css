@@ -993,6 +993,12 @@
      wide for the same reason -- a neighbour must not sit inside them. */
   column-gap: 1.8rem;
   padding: 13px;
+  /* AND THE SNAP HAS TO RESPECT IT. Padding alone is not enough: snapping a
+     tile to the start, or scrolling one into view, scrolls the padding out of
+     sight -- measured at scrollLeft exactly 13, the padding's own width -- so
+     the first tile's brackets had nowhere to be and were clipped. This keeps
+     that gutter on screen when a tile comes to rest against it. */
+  scroll-padding: 13px;
   scrollbar-width: thin;
 }
 .lv-card {
