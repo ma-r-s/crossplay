@@ -156,7 +156,25 @@ function render() {
 // Pixels only. Enabling undo and saving the draft are per-STROKE facts, not
 // per-event ones, so they happen once when the finger lifts instead of on
 // every sample; running them here put a style recalc in the middle of a line.
+// ONE PAINT PER FRAME. A phone delivers pointermove far faster than it can
+// composite -- 120Hz sampling and higher with coalescing -- so painting on
+// every sample does work the screen never shows and starves the frame that
+// matters. The marks still land on every sample; only the blit is batched.
+let painting = 0;
 function renderStroke() {
+  if (!dirty || painting) return;
+  painting = requestAnimationFrame(() => {
+    painting = 0;
+    if (!dirty) return;
+    blit(dirty[0], dirty[1], dirty[2], dirty[3]);
+    dirty = null;
+  });
+}
+function renderStrokeNow() {
+  if (painting) {
+    cancelAnimationFrame(painting);
+    painting = 0;
+  }
   if (!dirty) return;
   blit(dirty[0], dirty[1], dirty[2], dirty[3]);
   dirty = null;
@@ -208,15 +226,21 @@ const grey = (px, n) => {
   return g;
 };
 
+// ONE offscreen canvas, kept. Allocating a 480x800 canvas per raster meant a
+// new 1.5MB surface for every keystroke, and the old ones waiting on the
+// collector while somebody was still typing.
+const off = document.createElement("canvas");
+off.width = W;
+off.height = H;
+const offCtx = off.getContext("2d", { willReadFrequently: true });
+
 function rasterise(draw, useDither) {
-  const off = document.createElement("canvas");
-  off.width = W;
-  off.height = H;
-  const o = off.getContext("2d");
+  const t0 = performance.now();
+  const o = offCtx;
   o.fillStyle = "#fff";
   o.fillRect(0, 0, W, H);
   draw(o);
-  const g = grey(o.getImageData(0, 0, W, H).data, W * H);
+  const src = o.getImageData(0, 0, W, H).data;
   // A PHOTOGRAPH IS DITHERED ACROSS THE FOUR LEVELS; text is thresholded.
   //
   // Snapping each pixel to its nearest level, which is what this did, turns a
@@ -225,14 +249,51 @@ function rasterise(draw, useDither) {
   // strictly more tone -- the four shades stay exactly as available as before
   // and the eye reconstructs everything in between. Text still thresholds,
   // because an edge wants to be an edge and diffusion only fringes it.
-  bits = useDither
-    ? diffuse(g, inverted)
-    : Uint8Array.from(g, (v) => (v >= 128 !== inverted ? 3 : 0));
-  render();
+  // Text is QUANTISED, not thresholded. A hard cut at 128 throws the
+  // anti-aliasing away and leaves every letter jagged; the panel has four
+  // levels and the softened edge pixels are exactly what they are for. It is
+  // not dithered, because diffusing error across a letterform fringes it.
+  if (useDither) {
+    // Diffusion has to see the whole plane before it can place a pixel, so it
+    // keeps its own pass over a greyscale copy.
+    bits = diffuse(grey(src, W * H), inverted);
+    scanInk();
+    render();
+  } else {
+    // ONE PASS. Greying, quantising and filling the display buffer each walked
+    // all 384,000 pixels separately, and a fourth walk blitted them. They read
+    // the same pixel and write the same index, so they are one loop that ends
+    // in a single upload.
+    const px = bits;
+    const d = frame.data;
+    let ink = false;
+    for (let i = 0; i < W * H; i++) {
+      const k = i * 4;
+      let v = (src[k] * 77 + src[k + 1] * 150 + src[k + 2] * 29) >> 8;
+      if (inverted) v = 255 - v;
+      const lvl = NEAREST[v];
+      px[i] = lvl;
+      if (lvl !== 3) ink = true;
+      const out = LEVEL_GREY[lvl];
+      d[k] = d[k + 1] = d[k + 2] = out;
+    }
+    inked = ink;
+    ctx.putImageData(frame, 0, 0);
+    dirty = null;
+    markTools();
+    saveDraftSoon();
+  }
+  if (window.__perf) window.__perf("raster", performance.now() - t0);
 }
 
 // Nearest level by the brightness the PANEL actually shows, not by index.
-function nearestLevel(v) {
+//
+// A TABLE, not a search. There are 256 possible inputs and four levels, so the
+// answer is precomputed once; calling a four-way search per pixel meant about
+// 1.5 million comparisons for every keystroke, which is what made typing crawl
+// after this replaced a single threshold compare.
+const NEAREST = new Uint8Array(256);
+for (let v = 0; v < 256; v++) {
   let best = 0;
   let bestD = Infinity;
   for (let i = 0; i < LEVEL_GREY.length; i++) {
@@ -242,7 +303,12 @@ function nearestLevel(v) {
       best = i;
     }
   }
-  return best;
+  NEAREST[v] = best;
+}
+// Diffusion carries error, so the value can leave 0..255 and has to be clamped
+// into the table rather than indexing past it.
+function nearestLevel(v) {
+  return NEAREST[v < 0 ? 0 : v > 255 ? 255 : v | 0];
 }
 
 // Floyd-Steinberg, serpentine. Serpentine because scanning every row the same
@@ -299,7 +365,10 @@ function stampAt(x, y, r) {
     const dy = yy - y;
     for (let xx = x0; xx <= x1; xx++) {
       const dx = xx - x;
-      if (dx * dx + dy * dy <= r2) bits[yy * W + xx] = lv;
+      if (dx * dx + dy * dy <= r2) {
+        bits[yy * W + xx] = lv;
+        if (lv !== 3) inked = true;
+      }
     }
   }
   markDirty(x0, y0, x1, y1);
@@ -589,15 +658,21 @@ stage.addEventListener("pointermove", (e) => {
   }
   if (!drawing) return;
   e.preventDefault();
-  const p = pointAt(e);
-  line(last[0], last[1], p[0], p[1], pen / 2);
-  last = p;
+  // EVERY SAMPLE, not just the one the browser chose to deliver. Coalesced
+  // events are the ones a fast finger produced between frames; dropping them
+  // is what turns a quick stroke into a polygon.
+  const pts = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const c of pts.length ? pts : [e]) {
+    const p = pointAt(c);
+    line(last[0], last[1], p[0], p[1], pen / 2);
+    last = p;
+  }
   renderStroke();
 });
 
 const liftPointer = (e) => {
   if (drawing) {
-    renderStroke();
+    renderStrokeNow();
     markTools();
     saveDraftSoon();
   }
@@ -632,6 +707,8 @@ stage.addEventListener(
 // magnification: the mark is fixed in panel pixels, so on screen it is exactly
 // as much bigger as everything else under the glass.
 function placeNib(e) {
+  // A finger covers it, and positioning it cost a style write on every sample.
+  if (e.pointerType === "touch") return;
   if (onControls(e)) return;
   const r = stageRect();
   const d = pen * (r.width / W) * view.s;
@@ -727,7 +804,19 @@ const penTools = document.getElementById("penTools");
 const undoBtn = document.getElementById("undo");
 const clearBtn = document.getElementById("clear");
 
-const isBlank = () => !bits.some((v) => v !== 3);
+// A FLAG, not a scan. This walked 384,000 elements through a callback and ran
+// twice per raster (markTools and markWay both ask). Every writer of `bits`
+// already knows whether it put ink down, so it says so.
+let inked = false;
+const isBlank = () => !inked;
+function scanInk() {
+  inked = false;
+  for (let i = 0; i < bits.length; i++)
+    if (bits[i] !== 3) {
+      inked = true;
+      return;
+    }
+}
 
 // Both icons say whether they can do anything, which is the whole of what a
 // word used to say: an undo with nothing behind it and a clear on blank paper
@@ -800,6 +889,33 @@ function regen() {
     rasterise(drawPhoto, true);
   }
 }
+// --- what your phone is actually running, and how fast ------------------
+//
+// OFF PRODUCTION ONLY. Four rounds of "it is still slow" were spent with me
+// timing a laptop and Mario timing a phone, and neither of us could see the
+// other's number. This puts both on the screen: which build he has, so a
+// cached tab is obvious rather than suspected, and how long the last raster
+// took, so "sluggish" becomes a figure.
+if (offProduction) {
+  const tag = document.createElement("div");
+  tag.style.cssText =
+    "position:fixed;left:0;right:0;bottom:0;z-index:99;font:11px ui-monospace,monospace;" +
+    "background:#000;color:#0f0;padding:2px 6px;text-align:center;pointer-events:none";
+  tag.textContent = "build ?  raster -";
+  document.body.appendChild(tag);
+  let built = "?";
+  fetch("live.js", { method: "HEAD", cache: "no-store" })
+    .then((r) => {
+      const d = new Date(r.headers.get("last-modified") || Date.now());
+      built = d.toTimeString().slice(0, 8);
+    })
+    .catch(() => {});
+  window.__perf = (what, ms) => {
+    tag.textContent =
+      "build " + built + "   " + what + " " + ms.toFixed(1) + "ms";
+  };
+}
+
 // --- the two screens -------------------------------------------------------
 //
 // A phone gets a home page (when the reader looks, what is going out, what has
@@ -865,7 +981,36 @@ addEventListener("pagehide", closeCompose);
 document.querySelectorAll("#tabs button").forEach((t) => {
   t.onclick = () => setMode(t.dataset.mode);
 });
-document.getElementById("msg").addEventListener("input", regen);
+// ONE RASTER PER FRAME, ONE UNDO STEP PER EDIT. Typing used to re-rasterise
+// the whole panel and push an undo snapshot on every keystroke: five passes
+// over 384,000 pixels and a 96KB snapshot per character, which a 20-deep undo
+// stack fills with a single word. The textarea has its own undo for typing;
+// what belongs here is one step for "the message changed".
+let typing = 0;
+let typedSnap = false;
+document.getElementById("msg").addEventListener("input", () => {
+  if (!typedSnap) {
+    typedSnap = true;
+    snap();
+  }
+  // LIVE, BUT NEVER MORE THAN ONCE A FRAME. Waiting for a pause made the
+  // preview lag behind deliberately; rastering on every keystroke let the work
+  // queue up behind a fast typist, which is what took five seconds to catch
+  // up. One per frame is both: the panel follows within a frame of the letter,
+  // and a burst of twenty keystroke between two frames still costs one raster.
+  //
+  // The keystroke handler itself does nothing but schedule, so typing latency
+  // does not depend on how long a raster takes. A slower phone shows a preview
+  // at a lower rate; it never shows slower typing.
+  if (typing) return;
+  typing = requestAnimationFrame(() => {
+    typing = 0;
+    rasterise(drawText, false);
+  });
+});
+document.getElementById("msg").addEventListener("blur", () => {
+  typedSnap = false;
+});
 document.getElementById("file").addEventListener("change", (e) => {
   const f = e.target.files[0];
   if (!f) return;

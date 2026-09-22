@@ -781,7 +781,11 @@
 }
 .lv-swatches {
   display: flex;
-  gap: 0.3rem;
+  /* Wide enough for the chosen one's ring. The selected outline sits 2px
+     proud with a 2px stroke, so it reaches 4px past the swatch on each side;
+     at the old 0.3rem it landed on the neighbours and read as a shared box
+     rather than as one square being picked out. */
+  gap: 0.65rem;
   align-items: center;
   flex: none;
 }
