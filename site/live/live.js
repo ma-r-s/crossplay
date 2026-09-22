@@ -1395,6 +1395,14 @@ function tile(e) {
     img.loading = "lazy";
     img.decoding = "async";
     img.alt = "";
+    // THE COOKIE HAS TO RIDE. A thumbnail lives behind the same session as the
+    // history it belongs to, and an <img> sends no credentials by default, so
+    // in production every tile asked the service anonymously and got a 401.
+    // It never showed up in development because the dev server proxies the API
+    // onto the page's own origin, where the cookie is sent without asking.
+    // use-credentials also puts the request in CORS mode, which is what lets
+    // the service's own Cross-Origin-Resource-Policy satisfy the site's COEP.
+    img.crossOrigin = "use-credentials";
     img.src = e.thumb;
     thumb.appendChild(img);
   }
