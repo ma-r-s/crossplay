@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Live &middot; CrossPlay</title>
 <meta name="description" content="Leave a handwritten note on a reader sitting on somebody's fridge, from anywhere. Draw it here, send it, and the reader shows it the next time it wakes.">
 <meta property="og:title" content="Live">
@@ -30,6 +30,7 @@
   <defs>
     <g id="i-undo"><path d="M7 5 3 9l4 4"/><path d="M3 9h11a5 5 0 0 1 0 10h-6"/></g>
     <g id="i-clear"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></g>
+    <g id="i-back"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></g>
     <g id="i-left"><path d="m14 6-6 6 6 6"/></g>
     <g id="i-right"><path d="m10 6 6 6-6 6"/></g>
   </defs>
@@ -94,6 +95,11 @@
       <button class="btn primary" id="pair" type="button">Connect</button>
     </div>
     <p class="lv-gate-fine">The code lasts ten minutes.</p>
+    <!-- Why this copy of the page starts with no reader, when it is not the
+         production one. A connected reader lives in a cookie for ma-r-s.com, so
+         a dev server or a preview is a different site to the browser and has
+         none -- which looks exactly like never having paired. -->
+    <p class="lv-gate-fine lv-dev-note" id="devNote" hidden></p>
   </section>
 
   <!-- Connected. On a phone this is the whole viewport and nothing scrolls:
@@ -109,16 +115,27 @@
     <div class="lv-when" id="when">
       <!-- The sentence, in the panel's own words. It is the headline where
            there is room, and the fallback for the states that have no count. -->
+      <!-- ONE STATEMENT, NOT TWO. "They will see this in about 5 hours" and
+           "about 05:12:27 left" were the same fact said twice, one above the
+           other; the prose came first and nothing removed it when the ticking
+           figure arrived. The sentence now leads into the number instead of
+           repeating it, and "about" stays muted so the hedge is never further
+           than one word from what it hedges. -->
       <p class="lv-when-line" id="whenLine">&nbsp;</p>
-      <!-- THE COUNT, and it ticks. "about" and "left" are muted and the figure
-           is not, so the hedge is never further than one word from the number
-           it hedges. -->
       <p class="lv-tick" id="whenTick" hidden>
-        <span class="lv-tick-about">about</span>
         <span class="lv-tick-clock" id="tickClock">0:00:00</span>
-        <span class="lv-tick-about">left</span>
       </p>
       <p class="lv-when-sub" id="whenSub"></p>
+      <!-- THE SERVICE'S SENTENCE, VERBATIM, and the reader's foot line says the
+           same words at the same time. It appears only when the service sends
+           `pending`, which it does only while the reader is still asleep on the
+           cadence it last picked up; an absent key is nothing pending and must
+           never become a positive claim.
+           The page composes nothing here: the sentence is generated for the
+           reader's own corpus and measured in the device's font, so inventing a
+           second wording is how the panel and the page come to tell one person
+           two stories. -->
+      <p class="lv-pending" id="pendingLine" role="status" aria-live="polite" hidden></p>
       <!-- The schedule, closed. One button saying what the schedule IS, which
            opens the two shapes it can take. -->
       <button class="lv-btn lv-every" id="schedChip" type="button"
@@ -159,21 +176,61 @@
         </label>
         <input type="time" id="dailyTime" value="07:00" aria-label="The time of day it looks">
       </div>
-      <div class="lv-sched-row">
-        <span class="lv-sched-tzlabel" id="tzWords">Times are your time.</span>
-        <select id="tz" aria-label="Which timezone those times are in"></select>
-      </div>
+      <!-- NO TIMEZONE PICKER. "07:00" means seven in the morning where the
+           person setting it is standing, which is the only thing anybody means
+           by it. The browser already knows that, so asking was a question with
+           one sensible answer and a list of wrong ones. -->
+      <span class="lv-sched-tzlabel" id="tzWords" hidden></span>
       <p class="lv-sched-fine" id="schedFine"></p>
+      <!-- Said while a finger is still on the control, because this is the
+           moment somebody is most likely to expect otherwise: they changed the
+           schedule here, and the reader will go on keeping the old one until it
+           wakes up. -->
+      <p class="lv-sched-fine lv-sched-lag">A change lands on the reader's next
+        check, not now.</p>
       <div class="lv-sched-row is-end">
         <button class="lv-btn is-primary" id="schedDone" type="button">Done</button>
       </div>
     </div>
 
-    <div class="lv-tabs" id="tabs" role="tablist" aria-label="What to send">
-      <button type="button" role="tab" aria-selected="true" data-mode="draw">Draw</button>
-      <button type="button" role="tab" aria-selected="false" data-mode="write">Write</button>
-      <button type="button" role="tab" aria-selected="false" data-mode="photo">Photo</button>
+    <!-- THE WAY IN, on a phone. Mario, having used the shipped page: "Way too
+         crowded. I imagined more like a 'draw' button that would take me to an
+         unscrollable page or modal that would let me draw there with a phone
+         width canvas." So the drawing surface gets a screen of its own and the
+         countdown, the schedule and the history stay behind on this one.
+
+         Draw is the large one because it is what this page is for; the other
+         two are the same door with a different mode already picked. There is
+         no such row on a desktop, where the canvas and its controls already
+         sit side by side with room to spare. -->
+    <!-- ONE DOOR. Draw, Write and Photo were three buttons here and three tabs
+         again on the surface behind them, so the choice was asked twice and the
+         home page spent a row on it. This says what the page is for; the tabs
+         on the surface say which kind. -->
+    <div class="lv-ways" id="ways">
+      <button class="lv-btn is-primary is-big" id="goDraw" type="button">
+        Send something new
+      </button>
     </div>
+
+    <!-- THE DRAWING SURFACE. On a phone this is the whole screen while it is
+         open, the site bar included: nothing on it competes with the canvas,
+         and nothing scrolls. On a desktop it is `display: contents` and its
+         children lay out in the board's own grid exactly as before, because he
+         has not complained about the desktop and a full-width canvas on a
+         1440px screen is not what he asked for. -->
+    <div class="lv-compose" id="compose">
+      <div class="lv-compose-head">
+        <button class="lv-btn lv-icon lv-close" id="closeCompose" type="button"
+                title="Back, keeping the drawing" aria-label="Back, keeping the drawing">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+        </button>
+        <div class="lv-tabs" id="tabs" role="tablist" aria-label="What to send">
+          <button type="button" role="tab" aria-selected="true" data-mode="draw">Draw</button>
+          <button type="button" role="tab" aria-selected="false" data-mode="write">Write</button>
+          <button type="button" role="tab" aria-selected="false" data-mode="photo">Photo</button>
+        </div>
+      </div>
 
     <!-- The stage is sized from the space left over, not from a fixed number of
          pixels: `container-type: size` on lv-stage-fit turns its own height
@@ -189,25 +246,32 @@
       <div class="lv-stage" id="stage">
         <canvas id="pad" width="480" height="800"></canvas>
         <div class="lv-nib" id="nib"></div>
-        <!-- ZOOM IS A VIEW, NEVER THE DOCUMENT AND NEVER THE DRAWING. The
-             canvas stays 480x800 whatever the magnification, so a stroke drawn
-             zoomed in is the same width on the panel as one drawn zoomed out.
-             The controls live on the picture rather than in a row of their own,
-             because a phone has no row to spare and they act on what is under
-             them. -->
+      </div>
+      </div>
+      <!-- ZOOM IS A VIEW, NEVER THE DOCUMENT AND NEVER THE DRAWING. The canvas
+           stays 480x800 whatever the magnification, so a stroke drawn zoomed in
+           is the same width on the panel as one drawn zoomed out.
+
+           BESIDE THE CANVAS, NOT ON IT. These sat in the picture's bottom-right
+           corner and covered part of Mario's photo: a control drawn over the
+           thing it is for. They cost a 26px strip here and the canvas is 20px
+           narrower for it, which is the right way round. -->
+      <div class="lv-zoom" id="zoomCtl">
         <div class="lv-map" id="zoomMap" hidden aria-hidden="true">
           <span class="lv-map-box" id="zoomBox"></span>
         </div>
-        <div class="lv-zoom" id="zoomCtl">
-          <button class="lv-zbtn" id="zoomOut" type="button" title="Zoom out" aria-label="Zoom out">-</button>
-          <span class="lv-zoom-level" id="zoomLevel">1x</span>
-          <button class="lv-zbtn" id="zoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
-          <button class="lv-zbtn is-wide" id="zoomFit" type="button" hidden
-                  title="Show the whole panel" aria-label="Show the whole panel">Fit</button>
-        </div>
+        <!-- NO FIGURE. Mario: "We don't need a x1.5 indicator ever. But the map
+             showing we zoomed in is important." The map is what answers the
+             question a number never did, which is where in the panel you are;
+             "3.4x" is a fact about the view that nobody acts on. Fit stays,
+             because going back to the whole panel is navigation and not a
+             readout. -->
+        <button class="lv-zbtn" id="zoomOut" type="button" title="Zoom out" aria-label="Zoom out">-</button>
+        <button class="lv-zbtn" id="zoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+        <button class="lv-zbtn is-wide" id="zoomFit" type="button" hidden
+                title="Show the whole panel" aria-label="Show the whole panel">Fit</button>
+        <p class="lv-stage-hint" id="stageHint"></p>
       </div>
-      </div>
-      <p class="lv-stage-hint" id="stageHint"></p>
     </div>
 
     <!-- What the drawing is made OF: brush and tone. The two things that act on
@@ -245,6 +309,7 @@
       </button>
       <button class="lv-btn is-primary" id="send" type="button">Send to the reader</button>
     </div>
+    </div><!-- /.lv-compose -->
 
     <!-- Everything ever sent to this reader, by anybody holding it. Newest
          first. Sending puts one more here and picks it; picking an older one

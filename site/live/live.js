@@ -8,33 +8,62 @@
 // request needs, and "same-origin", which is the default, would send nothing at
 // all and every call would come back as "not connected".
 
+// UNROUTABLE FROM THE INTERNET. This is now only about ?demo: it is the one
+// flag that shows made-up content, so it is allowed only where the page cannot
+// be something somebody shares. It was also the gate on ?local, which is now
+// decided from the origin instead.
+const PRIVATE_HOST =
+  /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|.*\.local)$/;
+
 const LIVE_API = "https://fridge.ma-r-s.com";
-// Local work only, and it is the one thing that can point this page anywhere
-// else: ?local sends every request to this page's own origin, which
-// site/serve.py proxies to the real service. Honoured on localhost alone, so a
-// link carrying it can never redirect somebody's drawing off the real host.
-const onLocalhost = ["localhost", "127.0.0.1", "[::1]"].includes(
-  location.hostname,
-);
+// THE PRODUCTION PAGE, and the only origin the service will talk to: its CORS
+// list is exactly this one string, with credentials, because a list of origins
+// is a list of sites allowed to draw on somebody's reader.
+const SITE_ORIGIN = "https://crossplay.ma-r-s.com";
+
+// OFF PRODUCTION, USE THE PROXY. No flag, no hostname list.
+//
+// This was `?local`, honoured on localhost, and the default off production was
+// therefore the broken one: Mario opened the dev server on his phone without
+// the query string, the page called fridge.ma-r-s.com from an IP-address
+// origin, the service refused the origin outright, and the page said "could not
+// reach the service" -- accurate, useless, and recoverable only by a flag
+// nobody would guess.
+//
+// Decided from the page's OWN ORIGIN rather than from a list of hostnames, so a
+// laptop, a phone on the LAN, a tunnel and a preview deployment all behave the
+// same without anybody enumerating them. `?local` still works and still forces
+// the proxy, so nothing that relies on it breaks; it is simply no longer the
+// only way.
 const params = new URLSearchParams(location.search);
-const local = onLocalhost && params.has("local");
+const offProduction = location.origin !== SITE_ORIGIN;
+const local = offProduction || params.has("local");
 const API = local ? "" : LIVE_API;
-// LOOKING AT THE LAYOUT, and localhost only, on the same rule as ?local: the
-// board and the history have to be judged full before either is wired, and an
-// empty rail and a rail of forty tiles are different designs. ?demo=N fills the
-// history with N made-up entries and ?demo=0 empties it. It can never fill a
-// real reader's rail: off localhost the flag is not read at all.
+
+// WHETHER THIS ORIGIN HAS A PROXY AT ALL is a different question from whether
+// it is production, and the two were conflated. site/serve.py proxies /api/ to
+// the real service; a preview deployment is static hosting and does not. Both
+// are "off production", and only one of them can reach a reader.
+//
+// Answered by what /api/ actually replies rather than by guessing from the
+// host: `probedProxy` is set on the first call, and until then nothing claims
+// either way.
+let probedProxy = null;
+
+// ?demo=N fills the page with made-up entries and needs no service at all,
+// which is the right way to judge a layout. Localhost-ish only, so it can never
+// dress up a real reader's page: `offProduction` is true on a preview too, and
+// a made-up history on a URL somebody might share is a lie with a link.
 const demoCount =
-  onLocalhost && params.has("demo") ? +params.get("demo") : null;
-// Where the page sends itself once a code in the address has been spent. It
-// has to KEEP ?local, because dropping it is how the flag silently stopped
-// applying the moment a local run got as far as connecting: every load after
-// that went cross-site to the real service, the browser refused it on CORS
-// before any of this code ran, and the page sat on its initial state with
-// neither half shown and nothing on screen saying why.
+  PRIVATE_HOST.test(location.hostname) && params.has("demo")
+    ? +params.get("demo")
+    : null;
+
 const keep = [];
 if (local) keep.push("local");
 if (demoCount !== null) keep.push("demo=" + demoCount);
+if (PRIVATE_HOST.test(location.hostname) && params.has("pending"))
+  keep.push("pending");
 const cleanUrl = () =>
   location.pathname + (keep.length ? "?" + keep.join("&") : "");
 
@@ -77,17 +106,78 @@ const snap = () => {
   if (undoStack.length > 20) undoStack.shift();
 };
 
-function render() {
-  const img = ctx.createImageData(W, H);
-  const d = img.data;
-  for (let i = 0; i < W * H; i++) {
-    const v = LEVEL_GREY[bits[i]];
-    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
-    d[i * 4 + 3] = 255;
+// ONE BUFFER, KEPT. Allocating a 480x800 ImageData and rewriting all 384,000
+// pixels is fine once; it was happening on every pointermove, which is what
+// made a fast finger lag. The buffer is allocated once and only the pixels
+// that changed are rewritten.
+const frame = ctx.createImageData(W, H);
+{
+  const d = frame.data;
+  for (let i = 3; i < d.length; i += 4) d[i] = 255;
+}
+
+// The box a stroke has touched since the last blit, in panel pixels.
+let dirty = null;
+function markDirty(x0, y0, x1, y1) {
+  if (!dirty) dirty = [x0, y0, x1, y1];
+  else {
+    if (x0 < dirty[0]) dirty[0] = x0;
+    if (y0 < dirty[1]) dirty[1] = y0;
+    if (x1 > dirty[2]) dirty[2] = x1;
+    if (y1 > dirty[3]) dirty[3] = y1;
   }
-  ctx.putImageData(img, 0, 0);
+}
+
+function blit(x0, y0, x1, y1) {
+  const d = frame.data;
+  for (let yy = y0; yy <= y1; yy++) {
+    const row = yy * W;
+    for (let xx = x0; xx <= x1; xx++) {
+      const i = row + xx;
+      const v = LEVEL_GREY[bits[i]];
+      d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
+    }
+  }
+  ctx.putImageData(frame, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+}
+
+// The whole panel. Every caller that replaces `bits` wholesale -- undo, clear,
+// a photo, a draft restored -- goes through here, so none of them can be left
+// showing a stale region.
+function render() {
+  blit(0, 0, W - 1, H - 1);
+  dirty = null;
   markTools();
   saveDraftSoon();
+}
+
+// Just what the current stroke touched. Used only by the two paths that mark
+// the panel a few pixels at a time.
+// Pixels only. Enabling undo and saving the draft are per-STROKE facts, not
+// per-event ones, so they happen once when the finger lifts instead of on
+// every sample; running them here put a style recalc in the middle of a line.
+// ONE PAINT PER FRAME. A phone delivers pointermove far faster than it can
+// composite -- 120Hz sampling and higher with coalescing -- so painting on
+// every sample does work the screen never shows and starves the frame that
+// matters. The marks still land on every sample; only the blit is batched.
+let painting = 0;
+function renderStroke() {
+  if (!dirty || painting) return;
+  painting = requestAnimationFrame(() => {
+    painting = 0;
+    if (!dirty) return;
+    blit(dirty[0], dirty[1], dirty[2], dirty[3]);
+    dirty = null;
+  });
+}
+function renderStrokeNow() {
+  if (painting) {
+    cancelAnimationFrame(painting);
+    painting = 0;
+  }
+  if (!dirty) return;
+  blit(dirty[0], dirty[1], dirty[2], dirty[3]);
+  dirty = null;
 }
 
 // THE DRAWING SURVIVES A RELOAD, which is what makes an unconfirmed Clear an
@@ -136,26 +226,117 @@ const grey = (px, n) => {
   return g;
 };
 
+// ONE offscreen canvas, kept. Allocating a 480x800 canvas per raster meant a
+// new 1.5MB surface for every keystroke, and the old ones waiting on the
+// collector while somebody was still typing.
+const off = document.createElement("canvas");
+off.width = W;
+off.height = H;
+const offCtx = off.getContext("2d", { willReadFrequently: true });
+
 function rasterise(draw, useDither) {
-  const off = document.createElement("canvas");
-  off.width = W;
-  off.height = H;
-  const o = off.getContext("2d");
+  const o = offCtx;
   o.fillStyle = "#fff";
   o.fillRect(0, 0, W, H);
   draw(o);
-  const g = grey(o.getImageData(0, 0, W, H).data, W * H);
-  // QUANTISED to the four levels, not dithered: the panel can show these greys,
-  // so faking them with black and white would throw away three quarters of what
-  // it can do. Flat ink still thresholds, because text wants an edge and not a
-  // tone, and error diffusion over solid black only fringes its edges.
-  bits = useDither
-    ? Uint8Array.from(g, (v) => {
-        const x = inverted ? 255 - v : v;
-        return x < 43 ? 0 : x < 128 ? 1 : x < 213 ? 2 : 3;
-      })
-    : Uint8Array.from(g, (v) => (v >= 128 !== inverted ? 3 : 0));
-  render();
+  const src = o.getImageData(0, 0, W, H).data;
+  // A PHOTOGRAPH IS DITHERED ACROSS THE FOUR LEVELS; text is thresholded.
+  //
+  // Snapping each pixel to its nearest level, which is what this did, turns a
+  // photograph into four flat bands: every face becomes a poster. Using all
+  // four levels AND diffusing the error between them is not a trade, it is
+  // strictly more tone -- the four shades stay exactly as available as before
+  // and the eye reconstructs everything in between. Text still thresholds,
+  // because an edge wants to be an edge and diffusion only fringes it.
+  // Text is QUANTISED, not thresholded. A hard cut at 128 throws the
+  // anti-aliasing away and leaves every letter jagged; the panel has four
+  // levels and the softened edge pixels are exactly what they are for. It is
+  // not dithered, because diffusing error across a letterform fringes it.
+  if (useDither) {
+    // Diffusion has to see the whole plane before it can place a pixel, so it
+    // keeps its own pass over a greyscale copy.
+    bits = diffuse(grey(src, W * H), inverted);
+    scanInk();
+    render();
+  } else {
+    // ONE PASS. Greying, quantising and filling the display buffer each walked
+    // all 384,000 pixels separately, and a fourth walk blitted them. They read
+    // the same pixel and write the same index, so they are one loop that ends
+    // in a single upload.
+    const px = bits;
+    const d = frame.data;
+    let ink = false;
+    for (let i = 0; i < W * H; i++) {
+      const k = i * 4;
+      let v = (src[k] * 77 + src[k + 1] * 150 + src[k + 2] * 29) >> 8;
+      if (inverted) v = 255 - v;
+      const lvl = NEAREST[v];
+      px[i] = lvl;
+      if (lvl !== 3) ink = true;
+      const out = LEVEL_GREY[lvl];
+      d[k] = d[k + 1] = d[k + 2] = out;
+    }
+    inked = ink;
+    ctx.putImageData(frame, 0, 0);
+    dirty = null;
+    markTools();
+    saveDraftSoon();
+  }
+}
+
+// Nearest level by the brightness the PANEL actually shows, not by index.
+//
+// A TABLE, not a search. There are 256 possible inputs and four levels, so the
+// answer is precomputed once; calling a four-way search per pixel meant about
+// 1.5 million comparisons for every keystroke, which is what made typing crawl
+// after this replaced a single threshold compare.
+const NEAREST = new Uint8Array(256);
+for (let v = 0; v < 256; v++) {
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < LEVEL_GREY.length; i++) {
+    const d = Math.abs(v - LEVEL_GREY[i]);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  NEAREST[v] = best;
+}
+// Diffusion carries error, so the value can leave 0..255 and has to be clamped
+// into the table rather than indexing past it.
+function nearestLevel(v) {
+  return NEAREST[v < 0 ? 0 : v > 255 ? 255 : v | 0];
+}
+
+// Floyd-Steinberg, serpentine. Serpentine because scanning every row the same
+// way walks the error in one direction and lays down the faint diagonal combing
+// that gives cheap dithering away; alternating the direction cancels it.
+function diffuse(g, inv) {
+  const err = new Float32Array(W * H);
+  const out = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const ltr = (y & 1) === 0;
+    for (let k = 0; k < W; k++) {
+      const x = ltr ? k : W - 1 - k;
+      const i = y * W + x;
+      const want = (inv ? 255 - g[i] : g[i]) + err[i];
+      const lvl = nearestLevel(want);
+      out[i] = lvl;
+      const e = want - LEVEL_GREY[lvl];
+      const fwd = ltr ? 1 : -1;
+      const right = x + fwd;
+      if (right >= 0 && right < W) err[i + fwd] += (e * 7) / 16;
+      if (y + 1 < H) {
+        const below = i + W;
+        if (right >= 0 && right < W) err[below + fwd] += (e * 1) / 16;
+        err[below] += (e * 5) / 16;
+        const back = x - fwd;
+        if (back >= 0 && back < W) err[below - fwd] += (e * 3) / 16;
+      }
+    }
+  }
+  return out;
 }
 
 // FOUR TONES, AND THEY ARE REAL. The X4 Pro's panel driver declares
@@ -182,9 +363,13 @@ function stampAt(x, y, r) {
     const dy = yy - y;
     for (let xx = x0; xx <= x1; xx++) {
       const dx = xx - x;
-      if (dx * dx + dy * dy <= r2) bits[yy * W + xx] = lv;
+      if (dx * dx + dy * dy <= r2) {
+        bits[yy * W + xx] = lv;
+        if (lv !== 3) inked = true;
+      }
     }
   }
+  markDirty(x0, y0, x1, y1);
 }
 
 function line(x0, y0, x1, y1, r) {
@@ -259,7 +444,6 @@ const view = { s: 1, x: 0, y: 0 };
 const zoomCtl = document.getElementById("zoomCtl");
 const zoomMap = document.getElementById("zoomMap");
 const zoomBox = document.getElementById("zoomBox");
-const zoomLevel = document.getElementById("zoomLevel");
 const zoomIn = document.getElementById("zoomIn");
 const zoomOut = document.getElementById("zoomOut");
 const zoomFit = document.getElementById("zoomFit");
@@ -276,7 +460,8 @@ function applyView() {
   clampView();
   pad.style.transform = `scale(${view.s}) translate(${(-view.x / W) * 100}%, ${(-view.y / H) * 100}%)`;
   const zoomed = view.s > 1.001;
-  zoomLevel.textContent = (Math.round(view.s * 10) / 10).toString() + "x";
+  // THE MAP APPEARING IS THE INDICATOR. At 1x its box would fill it and say
+  // nothing, so it is absent at 1x and its presence is the signal.
   zoomMap.hidden = !zoomed;
   zoomFit.hidden = !zoomed;
   zoomOut.disabled = !zoomed;
@@ -292,8 +477,27 @@ function applyView() {
 // Panel coordinates under a point on the screen. Everything that has to know
 // where a finger is goes through this, so there is one place the magnification
 // is undone and no second copy of the arithmetic to drift.
+// THE STAGE'S BOX, READ ONCE PER GESTURE RATHER THAN PER EVENT.
+// getBoundingClientRect forces style and layout, and this stage is a size
+// container whose canvas is sized in container units, so every read also
+// re-resolved that. Four reads per pointermove (here, the nib, and the pan and
+// pinch branches) made a fast finger measurably laggy. The box cannot change
+// during a stroke, so it is cached and invalidated on the things that do move
+// it: a resize, an orientation change, or entering the surface again.
+let stageBox = null;
+function stageRect() {
+  if (!stageBox) stageBox = stage.getBoundingClientRect();
+  return stageBox;
+}
+function forgetStageRect() {
+  stageBox = null;
+}
+addEventListener("resize", forgetStageRect);
+addEventListener("orientationchange", forgetStageRect);
+addEventListener("scroll", forgetStageRect, true);
+
 function atClient(cx, cy) {
-  const r = stage.getBoundingClientRect();
+  const r = stageRect();
   return [
     view.x + ((cx - r.left) / r.width) * (W / view.s),
     view.y + ((cy - r.top) / r.height) * (H / view.s),
@@ -324,7 +528,7 @@ zoomIn.onclick = () => zoomAbout(1.6, ...stageCentre());
 zoomOut.onclick = () => zoomAbout(1 / 1.6, ...stageCentre());
 zoomFit.onclick = fitView;
 function stageCentre() {
-  const r = stage.getBoundingClientRect();
+  const r = stageRect();
   return [r.left + r.width / 2, r.top + r.height / 2];
 }
 
@@ -344,12 +548,46 @@ const onControls = (e) => !!(e.target.closest && e.target.closest(".lv-zoom"));
 const mid = (a, b) => [(a.x + b.x) / 2, (a.y + b.y) / 2];
 const spread = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
+// The snapshot the stroke in progress pushed, so a gesture can take the stroke
+// back rather than merely stop extending it. null between strokes.
+let strokeUndo = null;
+
 const endStroke = () => {
   drawing = false;
   last = null;
+  strokeUndo = null;
 };
 
+// A STROKE THAT TURNED OUT TO BE A PINCH NEVER HAPPENED.
+//
+// Mario, on the shipped page: "whenever I try to zoom in [it] confuses stuff
+// with me drawing and leaves dots around." The first finger of a pinch lands
+// alone, and for the fifty-odd milliseconds before the second one arrives it is
+// an ordinary stroke: it snapshots, it stamps, it paints. Ending the stroke
+// when the second finger arrives stops it growing and leaves the dot, so every
+// attempt to zoom cost one mark. Repeat it a few times and the drawing is
+// freckled.
+//
+// Taking it back is the whole fix, and it is exact: the stroke pushed one
+// snapshot, so this pops that exact snapshot and restores it. It is not "undo
+// the last thing", which would eat a real stroke if the stack had moved under
+// it -- the identity check is what makes it safe.
+function unstroke() {
+  if (!strokeUndo) {
+    endStroke();
+    return;
+  }
+  if (undoStack.length && undoStack[undoStack.length - 1] === strokeUndo) {
+    bits = unpack(undoStack.pop());
+    endStroke();
+    render();
+    return;
+  }
+  endStroke();
+}
+
 stage.addEventListener("pointerdown", (e) => {
+  forgetStageRect();
   if (onControls(e)) return;
   // The gesture belongs to the drawing and to nothing else: without this a drag
   // that starts on the canvas is also a text selection (the page paints blue
@@ -361,11 +599,11 @@ stage.addEventListener("pointerdown", (e) => {
   stage.setPointerCapture(e.pointerId);
 
   if (pointers.size >= 2) {
-    // A second finger turns a stroke into a gesture. The stroke ENDS rather
-    // than continuing under the pinch: carried on, the first finger goes on
-    // drawing while the picture moves under it and leaves a line nobody asked
-    // for. What it already drew stays, and undo covers it.
-    endStroke();
+    // A second finger says the first one was never a stroke. Whatever it drew
+    // is taken back, not merely stopped: see unstroke. A palm landing on the
+    // glass mid-stroke arrives here too and is treated the same way, which is
+    // right for a surface drawn on with fingers.
+    unstroke();
     const [a, b] = [...pointers.values()];
     pinch = { dist: spread(a, b), mid: mid(a, b) };
     return;
@@ -376,10 +614,12 @@ stage.addEventListener("pointerdown", (e) => {
   }
   if (mode !== "draw") return;
   snap();
+  strokeUndo = undoStack[undoStack.length - 1];
   drawing = true;
   last = pointAt(e);
   stampAt(last[0], last[1], pen / 2);
-  render();
+  renderStroke();
+  markTools();
 });
 
 stage.addEventListener("pointermove", (e) => {
@@ -397,7 +637,7 @@ stage.addEventListener("pointermove", (e) => {
       const after = atClient(m[0], m[1]);
       view.x += before[0] - after[0];
       view.y += before[1] - after[1];
-      const r = stage.getBoundingClientRect();
+      const r = stageRect();
       view.x -= ((m[0] - pinch.mid[0]) / r.width) * (W / view.s);
       view.y -= ((m[1] - pinch.mid[1]) / r.height) * (H / view.s);
       applyView();
@@ -407,7 +647,7 @@ stage.addEventListener("pointermove", (e) => {
   }
   if (panning) {
     e.preventDefault();
-    const r = stage.getBoundingClientRect();
+    const r = stageRect();
     view.x -= ((e.clientX - panning[0]) / r.width) * (W / view.s);
     view.y -= ((e.clientY - panning[1]) / r.height) * (H / view.s);
     panning = [e.clientX, e.clientY];
@@ -416,17 +656,32 @@ stage.addEventListener("pointermove", (e) => {
   }
   if (!drawing) return;
   e.preventDefault();
-  const p = pointAt(e);
-  line(last[0], last[1], p[0], p[1], pen / 2);
-  last = p;
-  render();
+  // EVERY SAMPLE, not just the one the browser chose to deliver. Coalesced
+  // events are the ones a fast finger produced between frames; dropping them
+  // is what turns a quick stroke into a polygon.
+  const pts = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const c of pts.length ? pts : [e]) {
+    const p = pointAt(c);
+    line(last[0], last[1], p[0], p[1], pen / 2);
+    last = p;
+  }
+  renderStroke();
 });
 
 const liftPointer = (e) => {
+  if (drawing) {
+    renderStrokeNow();
+    markTools();
+    saveDraftSoon();
+  }
   pointers.delete(e.pointerId);
   if (pointers.size < 2) pinch = null;
   if (pointers.size === 0) {
     panning = null;
+    // KEPT, not taken back. A stroke the system interrupted -- a notification,
+    // a call -- is a real stroke that got cut short, and undo is right there
+    // for somebody who disagrees. Only a second finger says the mark was never
+    // meant, because only a second finger is a different gesture.
     endStroke();
   }
 };
@@ -450,8 +705,10 @@ stage.addEventListener(
 // magnification: the mark is fixed in panel pixels, so on screen it is exactly
 // as much bigger as everything else under the glass.
 function placeNib(e) {
+  // A finger covers it, and positioning it cost a style write on every sample.
+  if (e.pointerType === "touch") return;
   if (onControls(e)) return;
-  const r = stage.getBoundingClientRect();
+  const r = stageRect();
   const d = pen * (r.width / W) * view.s;
   nib.style.width = d + "px";
   nib.style.height = d + "px";
@@ -473,7 +730,7 @@ const sizesEl = document.getElementById("sizes");
 const SWATCH = 34;
 const SWATCH_MAX = SWATCH - 11; // always clear of the button's edge
 function stageScale() {
-  const r = stage.getBoundingClientRect();
+  const r = stageRect();
   return (r.width || 300) / W;
 }
 function sizeSwatches() {
@@ -545,7 +802,19 @@ const penTools = document.getElementById("penTools");
 const undoBtn = document.getElementById("undo");
 const clearBtn = document.getElementById("clear");
 
-const isBlank = () => !bits.some((v) => v !== 3);
+// A FLAG, not a scan. This walked 384,000 elements through a callback and ran
+// twice per raster (markTools and markWay both ask). Every writer of `bits`
+// already knows whether it put ink down, so it says so.
+let inked = false;
+const isBlank = () => !inked;
+function scanInk() {
+  inked = false;
+  for (let i = 0; i < bits.length; i++)
+    if (bits[i] !== 3) {
+      inked = true;
+      return;
+    }
+}
 
 // Both icons say whether they can do anything, which is the whole of what a
 // word used to say: an undo with nothing behind it and a clear on blank paper
@@ -553,6 +822,7 @@ const isBlank = () => !bits.some((v) => v !== 3);
 function markTools() {
   undoBtn.disabled = undoStack.length === 0;
   clearBtn.disabled = isBlank();
+  markWay();
 }
 
 // CLEAR IS NOT CONFIRMED. It is undoable, it says so, and it points at the
@@ -617,20 +887,99 @@ function regen() {
     rasterise(drawPhoto, true);
   }
 }
-document.querySelectorAll("#tabs button").forEach((t) => {
-  t.onclick = () => {
-    document
-      .querySelectorAll("#tabs button")
-      .forEach((x) => x.setAttribute("aria-selected", String(x === t)));
-    mode = t.dataset.mode;
-    writePane.hidden = mode !== "write";
-    photoPane.hidden = mode !== "photo";
-    penTools.hidden = mode !== "draw";
-    regen();
+// --- the two screens -------------------------------------------------------
+//
+// A phone gets a home page (when the reader looks, what is going out, what has
+// been sent) and a drawing surface that is the whole screen. A desktop gets
+// neither: it has the room for both at once and always did, so `openCompose`
+// is a no-op there beyond setting the mode.
+const compose = document.getElementById("compose");
+const ways = document.getElementById("ways");
+const goDraw = document.getElementById("goDraw");
+
+const onPhone = () => !matchMedia("(min-width: 900px)").matches;
+
+function setMode(next) {
+  mode = next;
+  document
+    .querySelectorAll("#tabs button")
+    .forEach((x) =>
+      x.setAttribute("aria-selected", String(x.dataset.mode === next)),
+    );
+  writePane.hidden = next !== "write";
+  photoPane.hidden = next !== "photo";
+  penTools.hidden = next !== "draw";
+  regen();
+  sizeSwatches();
+}
+
+function openCompose(next) {
+  // The surface is about to change size, so the cached box is stale.
+  forgetStageRect();
+  setMode(next);
+  if (!onPhone()) return;
+  document.body.classList.add("lv-drawing");
+  // The stage had no size while the surface was closed, so the brush dots were
+  // drawn against the 300px fallback and would be a lie until something else
+  // resized them.
+  requestAnimationFrame(() => {
     sizeSwatches();
-  };
+    applyView();
+  });
+}
+
+function closeCompose() {
+  document.body.classList.remove("lv-drawing");
+  markWay();
+}
+
+// WHAT THE DOOR SAYS depends on what is behind it. A drawing survives being
+// left, so the button that goes back to it should not say "Draw" as though the
+// paper were blank.
+function markWay() {
+  goDraw.textContent = isBlank() ? "Send something new" : "Keep going";
+}
+
+goDraw.onclick = () => openCompose("draw");
+document.getElementById("closeCompose").onclick = closeCompose;
+// The surface is a screen, so the phone's back gesture should leave it rather
+// than leaving the page. Nothing is pushed on open, so this only ever fires for
+// a real back on the page itself; the class is cleared either way.
+addEventListener("pagehide", closeCompose);
+
+document.querySelectorAll("#tabs button").forEach((t) => {
+  t.onclick = () => setMode(t.dataset.mode);
 });
-document.getElementById("msg").addEventListener("input", regen);
+// ONE RASTER PER FRAME, ONE UNDO STEP PER EDIT. Typing used to re-rasterise
+// the whole panel and push an undo snapshot on every keystroke: five passes
+// over 384,000 pixels and a 96KB snapshot per character, which a 20-deep undo
+// stack fills with a single word. The textarea has its own undo for typing;
+// what belongs here is one step for "the message changed".
+let typing = 0;
+let typedSnap = false;
+document.getElementById("msg").addEventListener("input", () => {
+  if (!typedSnap) {
+    typedSnap = true;
+    snap();
+  }
+  // LIVE, BUT NEVER MORE THAN ONCE A FRAME. Waiting for a pause made the
+  // preview lag behind deliberately; rastering on every keystroke let the work
+  // queue up behind a fast typist, which is what took five seconds to catch
+  // up. One per frame is both: the panel follows within a frame of the letter,
+  // and a burst of twenty keystroke between two frames still costs one raster.
+  //
+  // The keystroke handler itself does nothing but schedule, so typing latency
+  // does not depend on how long a raster takes. A slower phone shows a preview
+  // at a lower rate; it never shows slower typing.
+  if (typing) return;
+  typing = requestAnimationFrame(() => {
+    typing = 0;
+    rasterise(drawText, false);
+  });
+});
+document.getElementById("msg").addEventListener("blur", () => {
+  typedSnap = false;
+});
 document.getElementById("file").addEventListener("change", (e) => {
   const f = e.target.files[0];
   if (!f) return;
@@ -672,6 +1021,24 @@ const app = document.getElementById("app");
 // service nobody could reach made no decision.
 const OFFLINE = "Could not reach the service.";
 const OFFLINE_HINT = "Check the connection and reload this page.";
+// A DIFFERENT CAUSE, SAID DIFFERENTLY. "Could not reach the service" is what a
+// browser reports for a refused preflight, a refused origin, a dropped
+// connection and a dead host alike, and tonight three of those four have
+// happened: a missing allowed header, then a refused origin, and it sent
+// somebody looking in the wrong place both times. This one is the case the page
+// CAN tell apart -- an origin with no proxy behind it -- so it says that and
+// nothing broader.
+const NO_PROXY = "This copy of the page has no way to reach the reader.";
+const NO_PROXY_HINT =
+  "Only crossplay.ma-r-s.com can talk to the service. To look at the layout " +
+  "without a reader, add ?demo=12 to the address.";
+// Why a pairing does not follow you off production. It is a cookie for
+// ma-r-s.com, so a dev server or a preview is a different site to the browser
+// and starts with nothing -- which looks exactly like never having paired, and
+// that is the sentence somebody needs rather than the ordinary invitation.
+const OTHER_ORIGIN =
+  "You are not on crossplay.ma-r-s.com, and a connected reader is remembered " +
+  "per site, so this copy of the page starts with none.";
 
 async function api(path, opts) {
   // credentials: "include" and not "same-origin" -- see the note at the top.
@@ -680,6 +1047,18 @@ async function api(path, opts) {
     r = await fetch(API + path, { credentials: "include", ...opts });
   } catch (e) {
     return { ok: false, status: 0, offline: true, body: { error: OFFLINE } };
+  }
+  // IS THERE A PROXY HERE AT ALL? Off production the calls go same-origin, and
+  // a static host answers /api/ with its own 404 rather than with the
+  // service's JSON. That is a different fact from "not connected" and from "the
+  // service is down", and it is the one a preview deployment produces.
+  if (probedProxy === null && local) {
+    probedProxy =
+      r.status !== 404 ||
+      (r.headers.get("content-type") || "").includes("json");
+  }
+  if (probedProxy === false) {
+    return { ok: false, status: 0, noProxy: true, body: { error: NO_PROXY } };
   }
   let body = null;
   try {
@@ -695,10 +1074,23 @@ async function api(path, opts) {
   return { ok: r.ok, status: r.status, body };
 }
 
+const devNote = document.getElementById("devNote");
+
 function showGate() {
   gate.hidden = false;
   app.hidden = true;
   document.body.classList.remove("lv-connected");
+  // Off production and unpaired is not the same story as unpaired, and showing
+  // the ordinary invitation made it look as though a reader he had already
+  // connected had been forgotten.
+  const note =
+    demoCount !== null
+      ? "Made-up entries, for looking at the layout. No reader is involved."
+      : offProduction
+        ? OTHER_ORIGIN
+        : "";
+  devNote.textContent = note;
+  devNote.hidden = !note;
 }
 
 // A name the reader can tell apart, taken from the browser rather than asked
@@ -799,6 +1191,7 @@ const whenLine = document.getElementById("whenLine");
 const whenTick = document.getElementById("whenTick");
 const tickClock = document.getElementById("tickClock");
 const whenSub = document.getElementById("whenSub");
+const pendingLine = document.getElementById("pendingLine");
 const sendNote = document.getElementById("sendNote");
 let state = null;
 let band = "";
@@ -842,6 +1235,19 @@ function bandNow() {
 
 function paint() {
   if (!state || !state.connected) return;
+  // THE SAME SENTENCE THE PANEL DRAWS, or nothing at all.
+  //
+  // The service sends `pending` while the reader is still asleep on the cadence
+  // it last picked up, and the reader prints it on its foot line. The page read
+  // neither copy, so the panel said something about the reader that the page
+  // never mentioned -- and the person best placed to be confused by that is the
+  // one who just changed the schedule here and was told nothing.
+  //
+  // An ABSENT key is nothing pending. It is never turned into a positive claim,
+  // which is the mistake this feature has made twice in the other direction.
+  const pending = typeof state.pending === "string" ? state.pending : "";
+  pendingLine.textContent = pending;
+  pendingLine.hidden = !pending;
   whenLine.className = "lv-when-line";
   // ONE PHRASE FOR THE CADENCE, whichever shape the schedule has. "about every
   // day" and "07:00 each day" answer the same question, and the chip, the small
@@ -857,7 +1263,10 @@ function paint() {
   schedChipText.textContent = scheduleWords();
   band = bandNow();
   whenTick.hidden = band !== "counting";
-  whenLine.hidden = band === "counting" && !wide();
+  // Always shown. It was hidden while counting on a phone because the count
+  // and the sentence could not both fit beside the canvas; the canvas has its
+  // own screen now and this card is only ever on the home page.
+  whenLine.hidden = false;
 
   if (band === "off") {
     // OFF ON THE READER. No countdown, because there is no next check: the
@@ -891,12 +1300,11 @@ function paint() {
   // thing in the panel's own rounding and only fits where there is room.
   const left = secondsLeft();
   tickClock.textContent = clockSpan(left);
-  whenLine.textContent = `They will see this ${human(left)}.`;
-  whenSub.textContent =
-    (state.lastCheckin
-      ? `Give or take: ${looks}`
-      : `Give or take: its first check since you connected, and ${looks}`) +
-    ", and only on its way to sleep.";
+  whenLine.textContent = "They will see this in about";
+  // NO HEDGING PARAGRAPH. The headline already says when, the chip already
+  // says how often, and a sentence explaining the reader's sleep habits is
+  // something nobody opened this page to read.
+  whenSub.textContent = "";
 }
 
 const wide = () => matchMedia("(min-width: 900px)").matches;
@@ -954,6 +1362,7 @@ function whenStamp(at) {
 function tile(e) {
   const card = document.createElement("div");
   card.className = "lv-card";
+  card.dataset.id = e.id;
   card.dataset.selected = String(e.id === sent.selected);
   card.dataset.gone = String(!!e.gone);
 
@@ -1016,6 +1425,22 @@ function emptyTile() {
   return d;
 }
 
+// MOVING THE PICK DOES NOT REBUILD THE RAIL. renderHistory empties it and
+// makes every tile again, which recreates every <img> and makes the whole
+// carousel blink -- for a change that is one attribute on two tiles. The
+// pictures themselves have not changed, so nothing about them should be
+// touched.
+function markSelected() {
+  for (const card of rail.querySelectorAll(".lv-card")) {
+    const on = String(card.dataset.id === sent.selected);
+    if (card.dataset.selected !== on) {
+      card.dataset.selected = on;
+      const pick = card.querySelector(".lv-card-pick");
+      if (pick) pick.setAttribute("aria-pressed", on);
+    }
+  }
+}
+
 function renderHistory() {
   rail.textContent = "";
   if (!sent.entries.length) {
@@ -1040,39 +1465,33 @@ function renderAct() {
   histAct.textContent = "";
   const e = sent.entries.find((x) => x.id === focused);
   if (!e) return;
-  if (askingDelete === e.id) {
-    const q = document.createElement("span");
-    q.className = "lv-note";
-    q.textContent = "Delete for everyone?";
-    const yes = document.createElement("button");
-    yes.type = "button";
-    yes.className = "lv-btn is-yes";
-    yes.textContent = "Yes, delete";
-    yes.onclick = () => remove(e);
-    const no = document.createElement("button");
-    no.type = "button";
-    no.className = "lv-btn";
-    no.textContent = "Keep";
-    no.onclick = () => {
-      askingDelete = null;
-      renderAct();
-    };
-    histAct.append(q, yes, no);
-    return;
-  }
+  // ONE BUTTON THAT CHANGES ITS MIND. Swapping the line for a question and
+  // two more buttons reflowed the row under the rail every time somebody
+  // reached for Delete, which is a layout jumping under a finger that is
+  // about to tap. The same button asks instead: press it and it says what it
+  // is about to do, press it again and it does it. It goes back by itself.
   // A WORD, NOT AN ICON, and this is the reason: the board's Clear is an
   // eraser, this is a bin, and on a phone they sit a thumb's width apart while
   // meaning completely different things -- rub out a drawing you can undo, and
   // remove a record from everybody's reader forever. An icon cannot carry that
   // difference. A word can, and this is the one control on the page rare enough
   // to spend the room on one.
+  const armed = askingDelete === e.id;
   const del = document.createElement("button");
   del.type = "button";
-  del.className = "lv-btn";
-  del.textContent = "Delete";
-  del.title = "Delete this from the reader, for everyone";
-  del.setAttribute("aria-label", "Delete this from the reader, for everyone");
+  del.className = armed ? "lv-btn is-yes" : "lv-btn";
+  del.textContent = armed ? "Really delete?" : "Delete";
+  const what = armed
+    ? "Press again to delete this from the reader, for everyone"
+    : "Delete this from the reader, for everyone";
+  del.title = what;
+  del.setAttribute("aria-label", what);
   del.onclick = () => {
+    if (armed) {
+      clearTimeout(askTimer);
+      remove(e);
+      return;
+    }
     askingDelete = e.id;
     renderAct();
     clearTimeout(askTimer);
@@ -1104,7 +1523,8 @@ async function select(e) {
   sent.selected = e.id;
   focused = e.id;
   askingDelete = null;
-  renderHistory();
+  markSelected();
+  renderAct();
   say(historyNote(), true);
   if (demoCount !== null) return;
   const r = await api(`/api/history/${encodeURIComponent(e.id)}/select`, {
@@ -1254,19 +1674,21 @@ function demoHistory(n) {
       o.stroke();
     }
     // Down to a tile, through the same four levels the panel has.
+    // THE PANEL'S OWN SIZE, because anything less is guesswork about the
+    // screen it lands on. 72x120 was a seven-times upscale; 240x400 was still
+    // nearly a two-times one on a 3x phone, because a 152px tile is 456 real
+    // pixels there. 480x800 is the source's full resolution, so the tile is
+    // always downscaled and never invented, whatever the density.
+    //
+    // It is NOT re-quantised to the four levels either: the source is already
+    // dithered, and cutting a shrunken copy back to four shades throws away
+    // the averaging that makes a dither work, which is what left blotches.
     const t = document.createElement("canvas");
-    t.width = 72;
-    t.height = 120;
+    t.width = W;
+    t.height = H;
     const tc = t.getContext("2d");
     tc.imageSmoothingQuality = "high";
-    tc.drawImage(off, 0, 0, 72, 120);
-    const px = tc.getImageData(0, 0, 72, 120);
-    for (let k = 0; k < px.data.length; k += 4) {
-      const v = px.data[k];
-      const q = LEVEL_GREY[v < 43 ? 0 : v < 128 ? 1 : v < 213 ? 2 : 3];
-      px.data[k] = px.data[k + 1] = px.data[k + 2] = q;
-    }
-    tc.putImageData(px, 0, 0);
+    tc.drawImage(off, 0, 0, W, H);
     entries.push({
       id: "d" + i,
       kind,
@@ -1299,19 +1721,30 @@ async function refresh() {
       dailyTime: "07:00",
       tz: browserTz(),
     };
+    // ?demo=12&pending puts the service's pending sentence on the card, so the
+    // state can be LOOKED AT without a reader that has not woken up yet. The
+    // words are the service's own template (app.PENDING_TEMPLATE crossed with
+    // store.cadence_words), not a plausible-looking sentence typed here: a
+    // render of a screen that cannot occur is worse than no render.
+    if (params.has("pending")) {
+      state.pending = "Changing to every 15 minutes after the next check.";
+    }
   } else {
     const r = await api("/api/state");
-    if (r.offline) {
+    if (r.offline || r.noProxy) {
       // A board already on screen STAYS on screen. Tearing it down over one
       // failed poll would take somebody's drawing away because a lift lost
       // signal for ten seconds; the honest thing is to say the page may be out
       // of date and leave it alone.
       if (app.hidden) {
         showGate();
-        codeError.textContent = OFFLINE;
-        codeHint.textContent = OFFLINE_HINT;
+        codeError.textContent = r.noProxy ? NO_PROXY : OFFLINE;
+        codeHint.textContent = r.noProxy ? NO_PROXY_HINT : OFFLINE_HINT;
       } else {
-        say(OFFLINE + " What is on screen may be out of date.");
+        say(
+          (r.noProxy ? NO_PROXY : OFFLINE) +
+            " What is on screen may be out of date.",
+        );
       }
       return;
     }
@@ -1437,7 +1870,28 @@ async function pair(quiet) {
   }
   rememberSpent(code);
   await refresh();
-  await loadHistory();
+  // A CLAIM THAT WORKED AND LEFT YOU ON THE GATE IS ITS OWN CONDITION.
+  //
+  // Mario, on his phone: "The code adds the device but doesn't take me to the
+  // ui to send." The claim returned 200, the reader gained the phone, and the
+  // very next /api/state said not connected -- because the session cookie had
+  // been silently refused. The page redrew the same screen, which reads as the
+  // six digits being wrong when they were right, and there is nothing on it to
+  // suggest otherwise.
+  //
+  // This is diagnosable and narrow: the service accepted the code, so the
+  // reader IS paired; what did not survive is the cookie that says which phone
+  // this is. Say that, rather than inviting another code.
+  if (!app.hidden) {
+    await loadHistory();
+    return null;
+  }
+  codeError.textContent =
+    "The reader took the code, but this browser was not remembered.";
+  codeHint.textContent =
+    "The code worked and the reader has this phone. What did not stick is the " +
+    "cookie that signs you in, which a browser refuses over a plain http " +
+    "address. Open the page on crossplay.ma-r-s.com.";
   return null;
 }
 document.getElementById("pair").onclick = () => pair(false);
@@ -1467,7 +1921,6 @@ const modeEvery = document.getElementById("modeEvery");
 const modeDaily = document.getElementById("modeDaily");
 const intervalSel = document.getElementById("interval");
 const dailyTime = document.getElementById("dailyTime");
-const tzSel = document.getElementById("tz");
 const tzWords = document.getElementById("tzWords");
 const schedFine = document.getElementById("schedFine");
 
@@ -1515,24 +1968,6 @@ function scheduleWords() {
 const cadenceSeconds = () =>
   schedule.mode === "daily" ? 86400 : schedule.intervalSeconds;
 
-function fillTimezones() {
-  if (tzSel.options.length) return;
-  let zones = [];
-  try {
-    zones = Intl.supportedValuesOf("timeZone");
-  } catch (e) {
-    zones = [];
-  }
-  if (!zones.includes(schedule.tz)) zones = [schedule.tz].concat(zones);
-  for (const z of zones) {
-    const o = document.createElement("option");
-    o.value = z;
-    const off = offsetOf(z);
-    o.textContent = placeOf(z) + (off ? ` (${off})` : "");
-    tzSel.appendChild(o);
-  }
-}
-
 // HOW GOOD THE HOUR IS, in one sentence, neither promising 07:00 sharp nor
 // hedged until it reads as broken. The sleep drifts about a percent, so a day
 // lands within roughly a quarter of an hour; every check-in re-syncs, so the
@@ -1545,21 +1980,15 @@ function paintSchedule() {
   intervalSel.disabled = schedule.mode !== "every";
   dailyTime.value = schedule.dailyTime;
   dailyTime.disabled = schedule.mode !== "daily";
-  fillTimezones();
-  tzSel.value = schedule.tz;
-  tzSel.disabled = schedule.mode !== "daily";
-  const off = offsetOf(schedule.tz);
-  tzWords.textContent =
-    schedule.mode === "daily"
-      ? `Times are ${placeOf(schedule.tz)} time${off ? ` (${off})` : ""}.`
-      : "Timezone only matters for a daily time.";
+  // The zone is simply where this browser is. Not asked, and not announced
+  // either: "07:00" already means seven where you are standing, so saying so
+  // is a line spent telling somebody something they assumed correctly.
+  tzWords.textContent = "";
+  // ONE LINE. Three sentences of caveat about drift, re-syncing and readers in
+  // somebody's hands is a paragraph nobody reads to set an alarm. The only
+  // part that changes what a person expects is that it is approximate.
   schedFine.textContent =
-    schedule.mode === "daily"
-      ? `It aims for ${schedule.dailyTime} and lands within about a quarter of an hour ` +
-        "either side. Each check puts it back on time. If somebody is reading at " +
-        `${schedule.dailyTime} it arrives when they put the reader down.`
-      : "It looks on its way into sleep, so a reader in somebody's hands catches up " +
-        "when they put it down.";
+    schedule.mode === "daily" ? "Give or take a quarter of an hour." : "";
 }
 
 function openSched(open) {
@@ -1582,10 +2011,6 @@ dailyTime.onchange = () => {
   schedule.dailyTime = dailyTime.value || "07:00";
   paintSchedule();
 };
-tzSel.onchange = () => {
-  schedule.tz = tzSel.value;
-  paintSchedule();
-};
 document.getElementById("schedDone").onclick = async () => {
   openSched(false);
   paint();
@@ -1604,6 +2029,8 @@ document.getElementById("schedDone").onclick = async () => {
     say((r.body && r.body.error) || "That did not work.");
     return;
   }
+  // The reply carries the pending sentence too; refresh() is what puts it on
+  // the card, from /api/state, so both copies come from one place.
   await refresh();
 };
 
@@ -1631,6 +2058,12 @@ sendBtn.onclick = async () => {
     return;
   }
   await refresh();
+  // SENDING IS THE WAY OUT. Two taps become one, and the screen it lands on is
+  // the one that shows the consequence: the new entry at the head of the rail,
+  // picked, with the line under it saying when the reader takes it. Sending
+  // from the home page instead would have been Done-then-Send, two decisions
+  // for one act, with a finished drawing sitting in limbo in between.
+  closeCompose();
   // REBUILT FROM THE SERVICE rather than pushed to locally, because the rail
   // is shared: fetching it back is also how this phone finds out what the
   // others did while it was drawing.
@@ -1657,6 +2090,7 @@ render();
 markTools();
 applyView();
 paintSchedule();
+markWay();
 
 // A code in the address claims itself: there is nothing else to decide on that
 // screen, and a filled box with a button still to find reads as "did it work?".

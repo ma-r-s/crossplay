@@ -212,8 +212,14 @@ def _atomic_write(path: pathlib.Path, payload: bytes) -> None:
 # 46px tile. Generated here, from the picture the reader is actually sent, the
 # tile cannot disagree with what is on the glass -- and no image library is
 # added to a service whose whole point is that it has no compiled dependencies.
-THUMB_W = 60
-THUMB_H = 100
+# THE PANEL'S OWN SIZE. 60x100 was a SEVEN-TIMES upscale by the time a phone
+# drew a rail tile: 152 CSS pixels is 456 real ones at 3x, and a browser
+# cannot invent what is not there. The source is exactly 480x800, so serving
+# that means every tile is downscaled and never stretched, at any density.
+# It also costs nothing worth counting: the full image beside it is 96KB, and
+# a four-level PNG of the same pixels is a fraction of that.
+THUMB_W = 480
+THUMB_H = 800
 
 
 def _bmp_levels(payload: bytes) -> list[list[int]] | None:
@@ -278,7 +284,8 @@ def _png_grey(width: int, height: int, rows: list[bytes]) -> bytes:
 
 
 def thumbnail(payload: bytes) -> bytes | None:
-    """A 60x100 greyscale PNG of a reader picture, or None if it cannot be read.
+    """A THUMB_W x THUMB_H greyscale PNG of a reader picture, or None if it
+    cannot be read.
 
     Box-averaged rather than sampled: a 480x800 line drawing point-sampled to a
     tenth of its size loses most of its strokes, and a rail of tiles that are

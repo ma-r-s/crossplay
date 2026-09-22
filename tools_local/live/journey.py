@@ -152,6 +152,9 @@ async def main():
             check("the rail starts empty", await page.locator(".lv-empty").count() == 1)
 
             # --- drawing and sending ---------------------------------------
+            # The canvas has a screen of its own; Draw is the door.
+            await page.click("#goDraw")
+            await page.wait_for_timeout(350)
             box = await page.locator("#stage").bounding_box()
             cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
             for dy in (-40, 0, 40):
@@ -163,6 +166,10 @@ async def main():
             await page.wait_for_timeout(1200)
             note = await page.locator("#sendNote").text_content()
             check("sending says it went", note.startswith("Sent."), note)
+            check(
+                "and it puts you back where the history is",
+                await page.locator("#ways").is_visible(),
+            )
             check("and it says when", "reader takes it" in note, note)
             n = await page.locator(".lv-card").count()
             check("and the rail has one in it", n == 1, n)
@@ -179,6 +186,9 @@ async def main():
             check("the tile is a real thumbnail", loaded == [60, 100, True], loaded)
 
             # --- a second send, and picking the older one ------------------
+            # Sending returned us to the home page, which is the point of it.
+            await page.click("#goDraw")
+            await page.wait_for_timeout(350)
             await page.click("#clear")
             await page.mouse.move(cx - 30, cy - 60)
             await page.mouse.down()
@@ -255,6 +265,38 @@ async def main():
                 "one sentence, both surfaces",
                 senders.get("pending") == st.get("pending"),
                 (senders.get("pending"), st.get("pending")),
+            )
+            # AND THE PAGE SAYS IT. The service sent this and the reader drew it
+            # on its foot line while the page mentioned nothing, so the panel
+            # was saying something about the reader the page never named -- to
+            # the one person who had just caused it.
+            shown = await page.locator("#pendingLine").text_content()
+            check(
+                "and the page says it, in the service's own words",
+                shown.strip() == st.get("pending"),
+                (shown.strip(), st.get("pending")),
+            )
+            check(
+                "and the editor says a change waits for the next check",
+                "next" in (await page.locator(".lv-sched-lag").text_content()).lower(),
+            )
+            # AN ABSENT KEY IS NOTHING PENDING. Once the reader has picked the
+            # schedule up, the line goes away rather than standing as a claim.
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"http://127.0.0.1:{api_port}/api/pull",
+                    headers={"Authorization": f"Bearer {polled['deviceToken']}"},
+                )
+            ).read()
+            await page.reload(wait_until="networkidle")
+            await page.wait_for_timeout(800)
+            st2 = await page.evaluate(
+                "fetch('/api/state', {credentials:'include'}).then(r => r.json())"
+            )
+            check("nothing is pending after the reader wakes", "pending" not in st2, st2.get("pending"))
+            check(
+                "and the page says nothing rather than something",
+                await page.locator("#pendingLine").is_hidden(),
             )
 
             # --- a second phone sees the same rail -------------------------
