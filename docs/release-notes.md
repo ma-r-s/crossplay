@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.18
+
+- Live: the board fits a phone, the history is shared, and a schedule can be a time of day
+
 ### 1.13.17
 
 - Wallpapers: the upload route ends with the picture you sent
