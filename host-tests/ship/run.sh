@@ -604,6 +604,24 @@ if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   q git -C "$SCRATCH/repo" add -A
   q git -C "$SCRATCH/repo" commit -q -m init
 
+  # THE SETUP IS ASSERTED, NOT ASSUMED.
+  #
+  # Every git call above is silenced by q(), so a setup that failed produced a
+  # scratch repo on a detached HEAD -- and ship.sh's FIRST guard refuses a
+  # detached HEAD. Both refusal checks below then failed, blaming the guard
+  # each was testing, in a run whose real fault was three lines earlier. That
+  # cost a nightly and two wrong diagnoses on 2026-09-22.
+  setup_branch="$(git -C "$SCRATCH/repo" branch --show-current)"
+  checks=$((checks + 1))
+  if [ "$setup_branch" != "app/scratch" ]; then
+    failed=$((failed + 1))
+    echo "FAIL ship  the scratch repo is on [$setup_branch], not app/scratch, so the refusal checks below test nothing they claim to"
+    echo "     SCRATCH=[$SCRATCH] dir=$([ -d "$SCRATCH/repo" ] && echo present || echo MISSING) git-dir=$([ -d "$SCRATCH/repo/.git" ] && echo present || echo MISSING)"
+    echo "     ship.sh copied: $([ -x "$SCRATCH/repo/scripts_local/ship.sh" ] && echo yes || echo NO)"
+    echo "     git version: $(git --version)"
+    git -C "$SCRATCH/repo" status --short 2>&1 | head -3 | sed "s/^/       /"
+  fi
+
   # dirty tree
   echo dirt > "$SCRATCH/repo/dirt.txt"
   out="$(cd "$SCRATCH/repo" && ./scripts_local/ship.sh --dry-run 2>&1)"; rc=$?
@@ -613,6 +631,8 @@ if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   else
     failed=$((failed + 1))
     echo "FAIL ship  ship.sh did not refuse a dirty working tree (exit $rc). An uncommitted file is not in the commit the gate verified, so the images would not be the ones this tree describes"
+    echo "     it was on branch [$(git -C "$SCRATCH/repo" branch --show-current)] and said:"
+    printf '%s\n' "$out" | sed 's/^/       /'
   fi
   rm -f "$SCRATCH/repo/dirt.txt"
 
@@ -625,6 +645,8 @@ if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   else
     failed=$((failed + 1))
     echo "FAIL ship  ship.sh did not refuse being run on xteink itself (exit $rc)"
+    echo "     it was on branch [$(git -C "$SCRATCH/repo" branch --show-current)] and said:"
+    printf '%s\n' "$out" | sed 's/^/       /'
   fi
 else
   skip "not a git checkout; the live refusal checks need one"
