@@ -344,10 +344,43 @@ const onControls = (e) => !!(e.target.closest && e.target.closest(".lv-zoom"));
 const mid = (a, b) => [(a.x + b.x) / 2, (a.y + b.y) / 2];
 const spread = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
+// The snapshot the stroke in progress pushed, so a gesture can take the stroke
+// back rather than merely stop extending it. null between strokes.
+let strokeUndo = null;
+
 const endStroke = () => {
   drawing = false;
   last = null;
+  strokeUndo = null;
 };
+
+// A STROKE THAT TURNED OUT TO BE A PINCH NEVER HAPPENED.
+//
+// Mario, on the shipped page: "whenever I try to zoom in [it] confuses stuff
+// with me drawing and leaves dots around." The first finger of a pinch lands
+// alone, and for the fifty-odd milliseconds before the second one arrives it is
+// an ordinary stroke: it snapshots, it stamps, it paints. Ending the stroke
+// when the second finger arrives stops it growing and leaves the dot, so every
+// attempt to zoom cost one mark. Repeat it a few times and the drawing is
+// freckled.
+//
+// Taking it back is the whole fix, and it is exact: the stroke pushed one
+// snapshot, so this pops that exact snapshot and restores it. It is not "undo
+// the last thing", which would eat a real stroke if the stack had moved under
+// it -- the identity check is what makes it safe.
+function unstroke() {
+  if (!strokeUndo) {
+    endStroke();
+    return;
+  }
+  if (undoStack.length && undoStack[undoStack.length - 1] === strokeUndo) {
+    bits = unpack(undoStack.pop());
+    endStroke();
+    render();
+    return;
+  }
+  endStroke();
+}
 
 stage.addEventListener("pointerdown", (e) => {
   if (onControls(e)) return;
@@ -361,11 +394,11 @@ stage.addEventListener("pointerdown", (e) => {
   stage.setPointerCapture(e.pointerId);
 
   if (pointers.size >= 2) {
-    // A second finger turns a stroke into a gesture. The stroke ENDS rather
-    // than continuing under the pinch: carried on, the first finger goes on
-    // drawing while the picture moves under it and leaves a line nobody asked
-    // for. What it already drew stays, and undo covers it.
-    endStroke();
+    // A second finger says the first one was never a stroke. Whatever it drew
+    // is taken back, not merely stopped: see unstroke. A palm landing on the
+    // glass mid-stroke arrives here too and is treated the same way, which is
+    // right for a surface drawn on with fingers.
+    unstroke();
     const [a, b] = [...pointers.values()];
     pinch = { dist: spread(a, b), mid: mid(a, b) };
     return;
@@ -376,6 +409,7 @@ stage.addEventListener("pointerdown", (e) => {
   }
   if (mode !== "draw") return;
   snap();
+  strokeUndo = undoStack[undoStack.length - 1];
   drawing = true;
   last = pointAt(e);
   stampAt(last[0], last[1], pen / 2);
@@ -427,6 +461,10 @@ const liftPointer = (e) => {
   if (pointers.size < 2) pinch = null;
   if (pointers.size === 0) {
     panning = null;
+    // KEPT, not taken back. A stroke the system interrupted -- a notification,
+    // a call -- is a real stroke that got cut short, and undo is right there
+    // for somebody who disagrees. Only a second finger says the mark was never
+    // meant, because only a second finger is a different gesture.
     endStroke();
   }
 };
@@ -553,6 +591,7 @@ const isBlank = () => !bits.some((v) => v !== 3);
 function markTools() {
   undoBtn.disabled = undoStack.length === 0;
   clearBtn.disabled = isBlank();
+  markWay();
 }
 
 // CLEAR IS NOT CONFIRMED. It is undoable, it says so, and it points at the
@@ -617,18 +656,68 @@ function regen() {
     rasterise(drawPhoto, true);
   }
 }
-document.querySelectorAll("#tabs button").forEach((t) => {
-  t.onclick = () => {
-    document
-      .querySelectorAll("#tabs button")
-      .forEach((x) => x.setAttribute("aria-selected", String(x === t)));
-    mode = t.dataset.mode;
-    writePane.hidden = mode !== "write";
-    photoPane.hidden = mode !== "photo";
-    penTools.hidden = mode !== "draw";
-    regen();
+// --- the two screens -------------------------------------------------------
+//
+// A phone gets a home page (when the reader looks, what is going out, what has
+// been sent) and a drawing surface that is the whole screen. A desktop gets
+// neither: it has the room for both at once and always did, so `openCompose`
+// is a no-op there beyond setting the mode.
+const compose = document.getElementById("compose");
+const ways = document.getElementById("ways");
+const goDraw = document.getElementById("goDraw");
+
+const onPhone = () => !matchMedia("(min-width: 900px)").matches;
+
+function setMode(next) {
+  mode = next;
+  document
+    .querySelectorAll("#tabs button")
+    .forEach((x) =>
+      x.setAttribute("aria-selected", String(x.dataset.mode === next)),
+    );
+  writePane.hidden = next !== "write";
+  photoPane.hidden = next !== "photo";
+  penTools.hidden = next !== "draw";
+  regen();
+  sizeSwatches();
+}
+
+function openCompose(next) {
+  setMode(next);
+  if (!onPhone()) return;
+  document.body.classList.add("lv-drawing");
+  // The stage had no size while the surface was closed, so the brush dots were
+  // drawn against the 300px fallback and would be a lie until something else
+  // resized them.
+  requestAnimationFrame(() => {
     sizeSwatches();
-  };
+    applyView();
+  });
+}
+
+function closeCompose() {
+  document.body.classList.remove("lv-drawing");
+  markWay();
+}
+
+// WHAT THE DOOR SAYS depends on what is behind it. A drawing survives being
+// left, so the button that goes back to it should not say "Draw" as though the
+// paper were blank.
+function markWay() {
+  goDraw.textContent = isBlank() ? "Draw" : "Keep drawing";
+}
+
+goDraw.onclick = () => openCompose("draw");
+document.getElementById("goWrite").onclick = () => openCompose("write");
+document.getElementById("goPhoto").onclick = () => openCompose("photo");
+document.getElementById("closeCompose").onclick = closeCompose;
+// The surface is a screen, so the phone's back gesture should leave it rather
+// than leaving the page. Nothing is pushed on open, so this only ever fires for
+// a real back on the page itself; the class is cleared either way.
+addEventListener("pagehide", closeCompose);
+
+document.querySelectorAll("#tabs button").forEach((t) => {
+  t.onclick = () => setMode(t.dataset.mode);
 });
 document.getElementById("msg").addEventListener("input", regen);
 document.getElementById("file").addEventListener("change", (e) => {
@@ -857,7 +946,10 @@ function paint() {
   schedChipText.textContent = scheduleWords();
   band = bandNow();
   whenTick.hidden = band !== "counting";
-  whenLine.hidden = band === "counting" && !wide();
+  // Always shown. It was hidden while counting on a phone because the count
+  // and the sentence could not both fit beside the canvas; the canvas has its
+  // own screen now and this card is only ever on the home page.
+  whenLine.hidden = false;
 
   if (band === "off") {
     // OFF ON THE READER. No countdown, because there is no next check: the
@@ -1631,6 +1723,12 @@ sendBtn.onclick = async () => {
     return;
   }
   await refresh();
+  // SENDING IS THE WAY OUT. Two taps become one, and the screen it lands on is
+  // the one that shows the consequence: the new entry at the head of the rail,
+  // picked, with the line under it saying when the reader takes it. Sending
+  // from the home page instead would have been Done-then-Send, two decisions
+  // for one act, with a finished drawing sitting in limbo in between.
+  closeCompose();
   // REBUILT FROM THE SERVICE rather than pushed to locally, because the rail
   // is shared: fetching it back is also how this phone finds out what the
   // others did while it was drawing.
@@ -1657,6 +1755,7 @@ render();
 markTools();
 applyView();
 paintSchedule();
+markWay();
 
 // A code in the address claims itself: there is nothing else to decide on that
 // screen, and a filled box with a button still to find reads as "did it work?".

@@ -20,6 +20,31 @@
    The service this talks to is on another host (fridge.ma-r-s.com) and has no
    page of its own. */
 
+/* THREE WEIGHTS, AND MOST THINGS ARE QUIET.
+ *
+ * Mario, on the shipped page: "so much bad ui I don't even know where to start"
+ * and, before that, "way too crowded". The density was survivable; the uniform
+ * weight was not. The countdown box, the tab strip, the canvas, every tone
+ * swatch, every brush ring, both buttons and every history tile carried the
+ * same 3px ink border, so eleven elements all claimed to be the most important
+ * and the eye had nowhere to rest.
+ *
+ *   LOUD   3px ink, and only two things get it: the canvas, which is the
+ *          reader's own paper, and the primary action, which is filled rather
+ *          than outlined.
+ *   QUIET  1px --lv-line: the countdown, the schedule, the tab strip, the
+ *          secondary buttons, a history tile.
+ *   NONE   the brush dots and the tone swatches. They are shapes and colours;
+ *          a frame around a colour is a frame around nothing.
+ *
+ * --lv-line is derived from the ink rather than picked, so it follows the
+ * theme: in dark mode it is a light hairline on dark paper and reads as the
+ * same suggestion it does in light. */
+:root {
+  --lv-line: color-mix(in srgb, var(--ink) 34%, var(--paper));
+  --lv-line-strong: color-mix(in srgb, var(--ink) 62%, var(--paper));
+}
+
 .lv-defs {
   position: absolute;
   width: 0;
@@ -63,7 +88,7 @@
  * keystroke lands.
  */
 .lv-gate {
-  border: 3px solid var(--ink);
+  border: 1px solid var(--lv-line-strong);
   background: var(--paper-2);
   padding: clamp(1.25rem, 4vw, 2rem);
   max-width: 30rem;
@@ -167,7 +192,7 @@
 
 /* --- when they will see it ---------------------------------------------- */
 .lv-when {
-  border: 3px solid var(--ink);
+  border: 1px solid var(--lv-line);
   padding: 0.5rem 0.7rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -259,7 +284,7 @@
  * arithmetic the service does and the device never hears about.
  */
 .lv-sched {
-  border: 3px solid var(--ink);
+  border: 1px solid var(--lv-line);
   background: var(--paper-2);
   padding: 0.6rem 0.7rem;
   flex: none;
@@ -330,28 +355,78 @@
   line-height: 1.25;
 }
 
+/* --- the way in, and the surface it opens --------------------------------
+ * The home page is the countdown, the schedule and the history. The drawing
+ * surface is a screen of its own and holds only what a person needs while
+ * drawing: the canvas, the brush, the tones, undo, clear, and the way out.
+ */
+.lv-ways {
+  display: flex;
+  gap: 0.5rem;
+  flex: none;
+}
+.lv-btn.is-big {
+  flex: 3;
+  padding: 0.9rem 1rem;
+  font-size: 1.3rem;
+}
+.lv-ways .lv-btn:not(.is-big) {
+  flex: 1;
+}
+
+.lv-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+}
+.lv-compose-head {
+  display: flex;
+  align-items: stretch;
+  gap: 0.45rem;
+  flex: none;
+  min-width: 0;
+}
+.lv-btn.lv-close {
+  flex: none;
+  width: 2.9rem;
+  height: auto;
+}
+.lv-compose-head .lv-tabs {
+  flex: 1;
+  min-width: 0;
+}
+
 /* --- the three ways in --------------------------------------------------- */
+/* SELECTION READS AS SELECTION IN BOTH THEMES, which it did not.
+   The unselected tabs were `background: var(--paper)`, which in dark mode is
+   near-black: on his phone the one he had chosen was a light slab and the two
+   he had not were heavy black ones, so the unchosen pair was louder than the
+   choice. Unselected is now the page itself and selected is the only filled
+   thing in the strip, which is true whichever way the tokens point. */
 .lv-tabs {
   display: flex;
-  border: 3px solid var(--ink);
+  border: 1px solid var(--lv-line);
   overflow: hidden;
   flex: none;
 }
 .lv-tabs button {
   appearance: none;
   border: 0;
-  background: var(--paper);
-  color: var(--ink);
+  background: transparent;
+  color: var(--muted);
   font: inherit;
   font-family: var(--display);
   letter-spacing: 0.03em;
-  font-size: 1.05rem;
-  padding: 0.35rem 1rem;
+  font-size: 1rem;
+  padding: 0.4rem 0.8rem;
   flex: 1;
   cursor: pointer;
 }
 .lv-tabs button + button {
-  border-left: 3px solid var(--ink);
+  border-left: 1px solid var(--lv-line);
 }
 .lv-tabs button[aria-selected="true"] {
   background: var(--ink);
@@ -432,48 +507,45 @@
    theme tokens flip with the system, so a control drawn in them came out light
    ink on its own light strip the moment somebody's phone was in dark mode. Same
    trap as the black header's. */
+/* A strip of its own under the panel. It is theme-coloured again now that it
+   is not lying on the reader's white paper, which is what forced the absolute
+   ink before. */
+.lv-zoom {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+  min-height: 1.6rem;
+}
 .lv-map {
-  position: absolute;
-  top: 0.3rem;
-  right: 0.3rem;
-  width: 2.2rem;
+  width: 0.95rem;
   aspect-ratio: 480 / 800;
-  border: 2px solid #111110;
-  background: rgba(255, 255, 255, 0.85);
-  pointer-events: none;
+  position: relative;
+  border: 1px solid var(--lv-line-strong);
+  flex: none;
 }
 .lv-map-box {
   position: absolute;
   box-sizing: border-box;
-  border: 2px solid #111110;
-  background: rgba(0, 0, 0, 0.14);
-}
-.lv-zoom {
-  position: absolute;
-  right: 0.3rem;
-  bottom: 0.3rem;
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-  background: rgba(255, 255, 255, 0.85);
-  border: 2px solid #111110;
-  padding: 0.1rem;
+  border: 1px solid var(--ink);
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
 }
 .lv-zbtn {
   appearance: none;
   font: inherit;
   font-family: var(--display);
-  font-size: 1.1rem;
+  font-size: 1rem;
   line-height: 1;
-  width: 1.6rem;
-  height: 1.6rem;
+  width: 1.5rem;
+  height: 1.5rem;
   display: grid;
   place-items: center;
-  border: 2px solid #111110;
-  background: #fff;
-  color: #111110;
+  border: 1px solid var(--lv-line-strong);
+  background: transparent;
+  color: var(--ink);
   cursor: pointer;
   padding: 0;
+  flex: none;
 }
 .lv-zbtn.is-wide {
   width: auto;
@@ -481,11 +553,12 @@
   font-size: 0.8rem;
 }
 .lv-zbtn[disabled] {
-  opacity: 0.35;
+  opacity: 0.4;
+  border-style: dashed;
   cursor: not-allowed;
 }
 .lv-zoom-level {
-  color: #111110;
+  color: var(--muted);
   font-family: var(--display);
   font-size: 0.75rem;
   min-width: 1.7rem;
@@ -496,10 +569,11 @@
    the gesture it already knows and two buttons it can see. */
 .lv-stage-hint {
   display: none;
-  margin: 0.35rem 0 0;
+  margin: 0;
   color: var(--muted);
   font-size: 0.8rem;
-  text-align: center;
+  flex: 1;
+  min-width: 0;
 }
 
 /* --- the tools ----------------------------------------------------------- */
@@ -523,8 +597,8 @@
   letter-spacing: 0.03em;
   font-size: 1.05rem;
   padding: 0.4rem 0.9rem;
-  border: 3px solid var(--ink);
-  background: var(--paper);
+  border: 1px solid var(--lv-line-strong);
+  background: transparent;
   color: var(--ink);
   cursor: pointer;
   flex: none;
@@ -532,12 +606,19 @@
 .lv-btn.is-primary {
   background: var(--ink);
   color: var(--paper);
+  border-color: var(--ink);
   flex: 1;
   padding: 0.6rem 1.4rem;
   font-size: 1.15rem;
 }
+/* DEAD MUST NOT LOOK LIKE ALIVE, and it did: undo is dimmed while there is
+   nothing to undo, which is how the board opens, and a dimmed thin outline
+   beside a heavy erase glyph read as "undo is broken, erase is the button".
+   A disabled control now loses its line as well as its ink, so the difference
+   is a kind of border and not a shade of grey. */
 .lv-btn[disabled] {
-  opacity: 0.35;
+  opacity: 0.4;
+  border-style: dashed;
   cursor: not-allowed;
 }
 /* UNDO AND CLEAR ARE ICONS. They were words, which cost a phone two of the
@@ -550,6 +631,17 @@
   padding: 0;
   display: grid;
   place-items: center;
+}
+/* The safety net is reached for constantly and the wipe is reached for rarely,
+   so the weights go that way round. They were identical, and the eraser glyph
+   is the denser drawing of the two, which made the destructive one look like
+   the primary. */
+#undo:not([disabled]) {
+  border-color: var(--ink);
+  border-width: 2px;
+}
+#clear {
+  color: var(--muted);
 }
 .lv-btn.lv-icon svg {
   width: 1.35rem;
@@ -596,6 +688,10 @@
   padding: 0;
   position: relative;
   overflow: hidden;
+  /* A hairline, because a tone swatch IS its colour and the paper one needs an
+     edge to exist at all. Three pixels of ink around each of four squares was
+     four more frames competing with the canvas. */
+  border: 1px solid var(--lv-line);
 }
 .lv-btn.lv-tone canvas {
   width: 100%;
@@ -603,19 +699,32 @@
   display: block;
   image-rendering: pixelated;
 }
+/* NO RING. The four brushes differed only by a small inner dot inside four
+   identical 3px circles, so at a glance they were four identical circles. The
+   dot is now the whole control, drawn at the size it will really mark, and the
+   only ring on the row belongs to the one that is chosen. */
 .lv-btn.lv-size {
+  border: 0;
   border-radius: 50%;
   padding: 0;
   display: grid;
   place-items: center;
+  /* Barely there, and there for a reason: the smallest brush is a 3px dot, and
+     without a backing the target under it was invisible. The dot is still the
+     only thing that says which size. */
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .lv-btn.lv-size i {
   display: block;
   background: var(--ink);
   border-radius: 50%;
 }
+.lv-btn.lv-size[aria-pressed="true"] {
+  outline: 2px solid var(--lv-line-strong);
+  outline-offset: -2px;
+}
 .lv-btn[aria-pressed="true"] {
-  outline: 3px solid var(--ink);
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
 .lv-swatches {
@@ -754,6 +863,11 @@
   margin-top: 0.25rem;
   min-height: 1.75rem;
 }
+/* The sentence takes only the room it needs, so Delete follows it instead of
+   being flung to the opposite corner from the tile it removes. */
+.lv-hist-foot .lv-note {
+  flex: 0 1 auto;
+}
 .lv-hist-act {
   display: flex;
   align-items: center;
@@ -813,7 +927,7 @@
   display: block;
   width: 100%;
   padding: 0;
-  border: 3px solid var(--ink);
+  border: 1px solid var(--lv-line);
   background: var(--paper);
   color: var(--ink);
   cursor: pointer;
@@ -835,8 +949,8 @@
   image-rendering: pixelated;
 }
 .lv-card[data-selected="true"] .lv-card-pick {
-  outline: 3px solid var(--ink);
-  outline-offset: 2px;
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
 }
 /* WHAT IS GOING OUT NEXT, said on the tile rather than only in the line below
    it. Laid over the foot of the picture rather than under it, so every tile is
@@ -901,7 +1015,7 @@
   padding: 0.2rem;
   background: repeating-linear-gradient(
     45deg,
-    var(--paper-2) 0 4px,
+    color-mix(in srgb, var(--ink) 22%, var(--paper)) 0 4px,
     var(--paper) 4px 8px
   );
 }
@@ -909,7 +1023,7 @@
    empty strip reads as a thing that failed to load. */
 .lv-empty {
   flex: none;
-  border: 3px dashed var(--ink);
+  border: 1px dashed var(--lv-line);
   color: var(--muted);
   padding: 0.5rem 0.7rem;
   font-size: 0.8rem;
@@ -972,14 +1086,101 @@
   body.lv-connected .lv-foot {
     display: none;
   }
+  /* HOME: the surface is not here. */
+  body.lv-connected .lv-compose {
+    display: none;
+  }
+  /* DRAWING: the surface is the screen, and everything else steps off it --
+     the site bar included. There is one way back and it is on the surface, so
+     the bar is 50px of somewhere-else in the middle of a drawing. */
+  body.lv-drawing .topbar,
+  body.lv-drawing .lv-when,
+  body.lv-drawing .lv-sched,
+  body.lv-drawing .lv-ways,
+  body.lv-drawing .lv-history {
+    display: none;
+  }
+  body.lv-drawing .lv-compose {
+    display: flex;
+  }
+  /* The gutter goes too. The canvas is the thing he asked to be phone width,
+     and 40px of margin is 40px it does not have. */
+  body.lv-drawing .lv-main {
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
+  }
   body.lv-connected .lv-app {
     flex: 1;
     min-height: 0;
   }
-  /* No room for the sentence beside the count. The states that have no count
-     put it back (see paint() in live.js). */
-  body.lv-connected .lv-when-line:not([hidden]) {
-    font-size: 0.95rem;
+  /* THE HOME PAGE HAS ROOM, so the two things it is for get it. The countdown
+     was squeezed to a chip when the canvas shared this screen; the canvas has
+     its own screen now, and a page whose whole job is "when will they see it,
+     and what is going out" should not be a third full with two thirds of void
+     under it. */
+  body.lv-connected:not(.lv-drawing) .lv-when {
+    padding: 0.9rem 0.9rem 1rem;
+  }
+  body.lv-connected:not(.lv-drawing) .lv-when-line {
+    font-size: 1.45rem;
+  }
+  body.lv-connected:not(.lv-drawing) .lv-tick-clock {
+    font-size: 2.3rem;
+  }
+  body.lv-connected:not(.lv-drawing) .lv-tick {
+    margin-top: 0.2rem;
+  }
+  body.lv-connected:not(.lv-drawing) .lv-when-sub {
+    font-size: 0.82rem;
+    margin-top: 0.35rem;
+  }
+  /* And the rail takes what is left, so the pictures are big enough to pick
+     from. It is still one horizontal carousel; it is simply not a 46px one on
+     a screen with 500px spare. */
+  /* PINNED TO THE BOTTOM, with the air in the middle. A page anchored at both
+     ends reads as laid out; the same content stacked at the top and trailing
+     off into a third of a screen of nothing reads as unfinished, which is half
+     of what "so much bad ui" was looking at. */
+  body.lv-connected:not(.lv-drawing) .lv-history {
+    margin-top: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  body.lv-connected:not(.lv-drawing) .lv-hist-foot {
+    flex: none;
+  }
+  /* Three tiles and a sliver of the fourth: enough to be a picture you can
+     pick from, and enough for the rail to say it goes on. Two 163px tiles
+     filled the height and stopped looking like a carousel. */
+  body.lv-connected:not(.lv-drawing) .lv-rail {
+    height: 15rem;
+    flex: none;
+    align-items: stretch;
+  }
+  /* The schedule panel borrows the rail's room while it is open, the way it
+     borrowed the canvas's before the canvas moved out. Without this the home
+     page overflowed by eleven pixels, which is a scrollbar on a page whose one
+     promise is that it does not scroll. */
+  body.lv-connected:not(.lv-drawing)
+    .lv-sched:not([hidden])
+    ~ .lv-history
+    .lv-rail {
+    height: 7.5rem;
+  }
+  /* Sized from the rail, the same rule a phone lying down uses. */
+  body.lv-connected:not(.lv-drawing) .lv-card,
+  body.lv-connected:not(.lv-drawing) .lv-card-pick,
+  body.lv-connected:not(.lv-drawing) .lv-card-thumb {
+    width: auto;
+    height: 100%;
+  }
+  body.lv-connected:not(.lv-drawing) .lv-card-thumb {
+    aspect-ratio: 480 / 800;
+  }
+  body.lv-connected:not(.lv-drawing) .lv-card-badge {
+    font-size: 0.6rem;
+    line-height: 1.5;
   }
   /* THE COUNT GETS THE WHOLE ROW and the schedule chip drops to the next one.
      Beside each other on a 350px phone the chip's max-content took 245px, the
@@ -1028,24 +1229,65 @@
   }
 }
 
-/* A phone lying down: two columns, so the canvas keeps the whole height. */
+/* A phone lying down. The HOME page is a plain column -- it is three short
+   things. The SURFACE is two columns, because 390px of height is the scarce
+   thing there and the canvas should have all of it. */
 @media (max-width: 899px) and (orientation: landscape) {
-  body.lv-connected .lv-app {
+  body.lv-drawing .lv-compose {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas:
-      "stage when"
-      "stage sched"
-      "stage tabs"
+      "stage head"
       "stage tools"
-      "stage send"
-      "stage hist";
-    /* minmax(0, 1fr), not 1fr: a bare 1fr keeps an automatic minimum of its
-       content, so the rail refused to shrink and pushed its own caption off
-       the bottom of a phone lying down. */
-    grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
-    align-content: start;
+      "stage send";
+    /* NOT `align-content: start`. The stage spans all three rows, so with the
+       rows packed to their content it got the height of the tools and the send
+       button and came out 89px wide. Stretched, it gets the screen. */
+    grid-template-rows: auto auto 1fr;
     column-gap: 0.6rem;
+    height: 100%;
+    min-height: 0;
+  }
+  body.lv-drawing .lv-compose-head {
+    grid-area: head;
+  }
+  /* `container-type: size` means this box has NO intrinsic size, so an `auto`
+     grid column measures it at zero and the panel came out six pixels wide. In
+     a column it has to be told: 0.6 is 480/800, so this is exactly as wide as
+     the screen is tall. */
+  body.lv-drawing .lv-stage-wrap {
+    grid-area: stage;
+    width: calc(0.6 * (100svh - 1.2rem));
+    max-width: 55vw;
+  }
+  body.lv-drawing .lv-tools {
+    grid-area: tools;
+  }
+  body.lv-drawing .lv-send {
+    grid-area: send;
+    align-self: start;
+  }
+  /* Two lines of height bought back from the row that needs it least. */
+  body.lv-connected .lv-btn.is-primary {
+    padding: 0.4rem 1rem;
+    font-size: 1rem;
+  }
+  body.lv-connected .lv-btn.lv-icon {
+    width: 2.4rem;
+    height: 2.4rem;
+  }
+  /* A column, so the rail is what gives way when the room runs out. Laid out as
+     a block it was the CAPTION that went over the bottom edge, which is the one
+     line saying who sent the picture that is going out and the only control
+     that deletes. */
+  body.lv-connected:not(.lv-drawing) .lv-history {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  body.lv-connected:not(.lv-drawing) .lv-hist-foot {
+    flex: none;
   }
   /* Lying down there is width to spare and no height at all, so the countdown,
      its small print and the schedule chip sit in one row of three. */
@@ -1064,18 +1306,8 @@
     grid-column: 3;
     grid-row: 1;
   }
-  /* A column, so the rail is what gives way when the room runs out. Laid out as
-     a block it was the CAPTION that went over the bottom edge, which is the one
-     line saying who sent the picture that is going out and the only control
-     that deletes. */
-  body.lv-connected .lv-history {
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  body.lv-connected .lv-hist-foot {
-    flex: none;
+  .lv-card {
+    --card-w: 2rem;
   }
   /* THE TILE IS SIZED FROM THE RAIL, not the other way round. Everywhere else
      the rail is as tall as a tile; lying down the rail is whatever height is
@@ -1104,59 +1336,22 @@
     min-height: 0;
     align-items: stretch;
   }
-  /* Two lines of height bought back from the row that needs it least. */
-  body.lv-connected .lv-btn.is-primary {
-    padding: 0.4rem 1rem;
-    font-size: 1rem;
-  }
-  body.lv-connected .lv-btn.lv-icon {
-    width: 2.4rem;
-    height: 2.4rem;
-  }
-  /* `container-type: size` means this box has NO intrinsic size, so an `auto`
-     grid column measures it at zero and the panel came out six pixels wide. In
-     a column it has to be told: 0.6 is 480/800, so this is exactly as wide as
-     the screen is tall. */
-  body.lv-connected .lv-stage-wrap {
-    grid-area: stage;
-    width: calc(0.6 * (100svh - 1.6rem));
-    max-width: 50vw;
-  }
-  body.lv-connected .lv-when {
-    grid-area: when;
-  }
-  body.lv-connected .lv-sched {
-    grid-area: sched;
-  }
-  body.lv-connected .lv-tabs {
-    grid-area: tabs;
-  }
-  body.lv-connected .lv-tools {
-    grid-area: tools;
-  }
-  body.lv-connected .lv-send {
-    grid-area: send;
-  }
-  body.lv-connected .lv-history {
-    grid-area: hist;
-    min-height: 0;
-  }
 }
 
 /* Genuinely small screens. Below this the controls would be shaved to nothing,
    and a board you cannot read is worse than one you scroll: it lets go rather
    than clipping the buttons off the bottom, which is the failure it replaced. */
+/* A genuinely small phone. The HOME page is three short things and fits
+   anywhere; it is the SURFACE that has to give, and it gives by being smaller
+   rather than by scrolling, because a drawing surface you have to scroll is
+   the thing this whole screen exists to avoid. */
 @media (max-width: 899px) and (max-height: 700px) and (orientation: portrait) {
-  body.lv-connected {
-    height: auto;
-    overflow: auto;
+  body.lv-drawing .lv-btn.is-primary {
+    padding: 0.4rem 1rem;
+    font-size: 1rem;
   }
-  body.lv-connected .lv-main {
-    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
-  }
-  body.lv-connected .lv-stage-wrap {
-    height: 17rem;
-    flex: none;
+  body.lv-drawing .lv-compose {
+    gap: 0.4rem;
   }
 }
 
@@ -1193,6 +1388,24 @@
     grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
     gap: 0.9rem 1.6rem;
     align-items: start;
+  }
+  /* `display: contents` and the wrapper is gone: its children lay out in this
+     grid exactly as they did before the surface existed. That is the point --
+     the phone needed a second screen and the desktop did not, so the desktop
+     keeps the layout nobody has complained about rather than inheriting a flow
+     built for a 390px screen. */
+  .lv-compose {
+    display: contents;
+  }
+  .lv-ways {
+    display: none;
+  }
+  .lv-compose-head {
+    grid-area: tabs;
+    display: block;
+  }
+  .lv-btn.lv-close {
+    display: none;
   }
   .lv-when {
     grid-area: when;
@@ -1240,9 +1453,6 @@
        board and the rail together clear a 900px window without scrolling. */
     height: min(56vh, 29rem);
     width: min(18rem, 34vw);
-  }
-  .lv-tabs {
-    grid-area: tabs;
   }
   .lv-tools {
     grid-area: tools;
