@@ -235,7 +235,6 @@ off.height = H;
 const offCtx = off.getContext("2d", { willReadFrequently: true });
 
 function rasterise(draw, useDither) {
-  const t0 = performance.now();
   const o = offCtx;
   o.fillStyle = "#fff";
   o.fillRect(0, 0, W, H);
@@ -283,7 +282,6 @@ function rasterise(draw, useDither) {
     markTools();
     saveDraftSoon();
   }
-  if (window.__perf) window.__perf("raster", performance.now() - t0);
 }
 
 // Nearest level by the brightness the PANEL actually shows, not by index.
@@ -889,33 +887,6 @@ function regen() {
     rasterise(drawPhoto, true);
   }
 }
-// --- what your phone is actually running, and how fast ------------------
-//
-// OFF PRODUCTION ONLY. Four rounds of "it is still slow" were spent with me
-// timing a laptop and Mario timing a phone, and neither of us could see the
-// other's number. This puts both on the screen: which build he has, so a
-// cached tab is obvious rather than suspected, and how long the last raster
-// took, so "sluggish" becomes a figure.
-if (offProduction) {
-  const tag = document.createElement("div");
-  tag.style.cssText =
-    "position:fixed;left:0;right:0;bottom:0;z-index:99;font:11px ui-monospace,monospace;" +
-    "background:#000;color:#0f0;padding:2px 6px;text-align:center;pointer-events:none";
-  tag.textContent = "build ?  raster -";
-  document.body.appendChild(tag);
-  let built = "?";
-  fetch("live.js", { method: "HEAD", cache: "no-store" })
-    .then((r) => {
-      const d = new Date(r.headers.get("last-modified") || Date.now());
-      built = d.toTimeString().slice(0, 8);
-    })
-    .catch(() => {});
-  window.__perf = (what, ms) => {
-    tag.textContent =
-      "build " + built + "   " + what + " " + ms.toFixed(1) + "ms";
-  };
-}
-
 // --- the two screens -------------------------------------------------------
 //
 // A phone gets a home page (when the reader looks, what is going out, what has
