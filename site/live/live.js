@@ -8,46 +8,62 @@
 // request needs, and "same-origin", which is the default, would send nothing at
 // all and every call would come back as "not connected".
 
-const LIVE_API = "https://fridge.ma-r-s.com";
-// Local work only, and it is the one thing that can point this page anywhere
-// else: ?local sends every request to this page's own origin, which
-// site/serve.py proxies to the real service. Honoured on localhost alone, so a
-// link carrying it can never redirect somebody's drawing off the real host.
-// ON A MACHINE THAT CANNOT BE THE INTERNET, which is a wider set than
-// "localhost" and has to be: the one thing /live/ most needs before it ships is
-// a phone holding it, and a phone reaches this Mac's dev server by LAN address.
-// Gated on localhost alone, `?local` was silently ignored from 192.168.x.x, the
-// page called fridge.ma-r-s.com directly, the sender cookie was cross-SITE from
-// an IP address, and it reported "not connected" with nothing on screen to say
-// why.
-//
-// The safety property is unchanged and it is what the gate is for: a link
-// carrying `?local` must never be able to redirect somebody's drawing off the
-// real host. Every address below is unroutable from the internet, so a page
-// served from crossplay.ma-r-s.com can never match one.
+// UNROUTABLE FROM THE INTERNET. This is now only about ?demo: it is the one
+// flag that shows made-up content, so it is allowed only where the page cannot
+// be something somebody shares. It was also the gate on ?local, which is now
+// decided from the origin instead.
 const PRIVATE_HOST =
   /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|.*\.local)$/;
-const onLocalhost = PRIVATE_HOST.test(location.hostname);
+
+const LIVE_API = "https://fridge.ma-r-s.com";
+// THE PRODUCTION PAGE, and the only origin the service will talk to: its CORS
+// list is exactly this one string, with credentials, because a list of origins
+// is a list of sites allowed to draw on somebody's reader.
+const SITE_ORIGIN = "https://crossplay.ma-r-s.com";
+
+// OFF PRODUCTION, USE THE PROXY. No flag, no hostname list.
+//
+// This was `?local`, honoured on localhost, and the default off production was
+// therefore the broken one: Mario opened the dev server on his phone without
+// the query string, the page called fridge.ma-r-s.com from an IP-address
+// origin, the service refused the origin outright, and the page said "could not
+// reach the service" -- accurate, useless, and recoverable only by a flag
+// nobody would guess.
+//
+// Decided from the page's OWN ORIGIN rather than from a list of hostnames, so a
+// laptop, a phone on the LAN, a tunnel and a preview deployment all behave the
+// same without anybody enumerating them. `?local` still works and still forces
+// the proxy, so nothing that relies on it breaks; it is simply no longer the
+// only way.
 const params = new URLSearchParams(location.search);
-const local = onLocalhost && params.has("local");
+const offProduction = location.origin !== SITE_ORIGIN;
+const local = offProduction || params.has("local");
 const API = local ? "" : LIVE_API;
-// LOOKING AT THE LAYOUT, and localhost only, on the same rule as ?local: the
-// board and the history have to be judged full before either is wired, and an
-// empty rail and a rail of forty tiles are different designs. ?demo=N fills the
-// history with N made-up entries and ?demo=0 empties it. It can never fill a
-// real reader's rail: off localhost the flag is not read at all.
+
+// WHETHER THIS ORIGIN HAS A PROXY AT ALL is a different question from whether
+// it is production, and the two were conflated. site/serve.py proxies /api/ to
+// the real service; a preview deployment is static hosting and does not. Both
+// are "off production", and only one of them can reach a reader.
+//
+// Answered by what /api/ actually replies rather than by guessing from the
+// host: `probedProxy` is set on the first call, and until then nothing claims
+// either way.
+let probedProxy = null;
+
+// ?demo=N fills the page with made-up entries and needs no service at all,
+// which is the right way to judge a layout. Localhost-ish only, so it can never
+// dress up a real reader's page: `offProduction` is true on a preview too, and
+// a made-up history on a URL somebody might share is a lie with a link.
 const demoCount =
-  onLocalhost && params.has("demo") ? +params.get("demo") : null;
-// Where the page sends itself once a code in the address has been spent. It
-// has to KEEP ?local, because dropping it is how the flag silently stopped
-// applying the moment a local run got as far as connecting: every load after
-// that went cross-site to the real service, the browser refused it on CORS
-// before any of this code ran, and the page sat on its initial state with
-// neither half shown and nothing on screen saying why.
+  PRIVATE_HOST.test(location.hostname) && params.has("demo")
+    ? +params.get("demo")
+    : null;
+
 const keep = [];
 if (local) keep.push("local");
 if (demoCount !== null) keep.push("demo=" + demoCount);
-if (onLocalhost && params.has("pending")) keep.push("pending");
+if (PRIVATE_HOST.test(location.hostname) && params.has("pending"))
+  keep.push("pending");
 const cleanUrl = () =>
   location.pathname + (keep.length ? "?" + keep.join("&") : "");
 
@@ -774,6 +790,24 @@ const app = document.getElementById("app");
 // service nobody could reach made no decision.
 const OFFLINE = "Could not reach the service.";
 const OFFLINE_HINT = "Check the connection and reload this page.";
+// A DIFFERENT CAUSE, SAID DIFFERENTLY. "Could not reach the service" is what a
+// browser reports for a refused preflight, a refused origin, a dropped
+// connection and a dead host alike, and tonight three of those four have
+// happened: a missing allowed header, then a refused origin, and it sent
+// somebody looking in the wrong place both times. This one is the case the page
+// CAN tell apart -- an origin with no proxy behind it -- so it says that and
+// nothing broader.
+const NO_PROXY = "This copy of the page has no way to reach the reader.";
+const NO_PROXY_HINT =
+  "Only crossplay.ma-r-s.com can talk to the service. To look at the layout " +
+  "without a reader, add ?demo=12 to the address.";
+// Why a pairing does not follow you off production. It is a cookie for
+// ma-r-s.com, so a dev server or a preview is a different site to the browser
+// and starts with nothing -- which looks exactly like never having paired, and
+// that is the sentence somebody needs rather than the ordinary invitation.
+const OTHER_ORIGIN =
+  "You are not on crossplay.ma-r-s.com, and a connected reader is remembered " +
+  "per site, so this copy of the page starts with none.";
 
 async function api(path, opts) {
   // credentials: "include" and not "same-origin" -- see the note at the top.
@@ -782,6 +816,18 @@ async function api(path, opts) {
     r = await fetch(API + path, { credentials: "include", ...opts });
   } catch (e) {
     return { ok: false, status: 0, offline: true, body: { error: OFFLINE } };
+  }
+  // IS THERE A PROXY HERE AT ALL? Off production the calls go same-origin, and
+  // a static host answers /api/ with its own 404 rather than with the
+  // service's JSON. That is a different fact from "not connected" and from "the
+  // service is down", and it is the one a preview deployment produces.
+  if (probedProxy === null && local) {
+    probedProxy =
+      r.status !== 404 ||
+      (r.headers.get("content-type") || "").includes("json");
+  }
+  if (probedProxy === false) {
+    return { ok: false, status: 0, noProxy: true, body: { error: NO_PROXY } };
   }
   let body = null;
   try {
@@ -797,10 +843,23 @@ async function api(path, opts) {
   return { ok: r.ok, status: r.status, body };
 }
 
+const devNote = document.getElementById("devNote");
+
 function showGate() {
   gate.hidden = false;
   app.hidden = true;
   document.body.classList.remove("lv-connected");
+  // Off production and unpaired is not the same story as unpaired, and showing
+  // the ordinary invitation made it look as though a reader he had already
+  // connected had been forgotten.
+  const note =
+    demoCount !== null
+      ? "Made-up entries, for looking at the layout. No reader is involved."
+      : offProduction
+        ? OTHER_ORIGIN
+        : "";
+  devNote.textContent = note;
+  devNote.hidden = !note;
 }
 
 // A name the reader can tell apart, taken from the browser rather than asked
@@ -1428,17 +1487,20 @@ async function refresh() {
     }
   } else {
     const r = await api("/api/state");
-    if (r.offline) {
+    if (r.offline || r.noProxy) {
       // A board already on screen STAYS on screen. Tearing it down over one
       // failed poll would take somebody's drawing away because a lift lost
       // signal for ten seconds; the honest thing is to say the page may be out
       // of date and leave it alone.
       if (app.hidden) {
         showGate();
-        codeError.textContent = OFFLINE;
-        codeHint.textContent = OFFLINE_HINT;
+        codeError.textContent = r.noProxy ? NO_PROXY : OFFLINE;
+        codeHint.textContent = r.noProxy ? NO_PROXY_HINT : OFFLINE_HINT;
       } else {
-        say(OFFLINE + " What is on screen may be out of date.");
+        say(
+          (r.noProxy ? NO_PROXY : OFFLINE) +
+            " What is on screen may be out of date.",
+        );
       }
       return;
     }
@@ -1564,7 +1626,28 @@ async function pair(quiet) {
   }
   rememberSpent(code);
   await refresh();
-  await loadHistory();
+  // A CLAIM THAT WORKED AND LEFT YOU ON THE GATE IS ITS OWN CONDITION.
+  //
+  // Mario, on his phone: "The code adds the device but doesn't take me to the
+  // ui to send." The claim returned 200, the reader gained the phone, and the
+  // very next /api/state said not connected -- because the session cookie had
+  // been silently refused. The page redrew the same screen, which reads as the
+  // six digits being wrong when they were right, and there is nothing on it to
+  // suggest otherwise.
+  //
+  // This is diagnosable and narrow: the service accepted the code, so the
+  // reader IS paired; what did not survive is the cookie that says which phone
+  // this is. Say that, rather than inviting another code.
+  if (!app.hidden) {
+    await loadHistory();
+    return null;
+  }
+  codeError.textContent =
+    "The reader took the code, but this browser was not remembered.";
+  codeHint.textContent =
+    "The code worked and the reader has this phone. What did not stick is the " +
+    "cookie that signs you in, which a browser refuses over a plain http " +
+    "address. Open the page on crossplay.ma-r-s.com.";
   return null;
 }
 document.getElementById("pair").onclick = () => pair(false);

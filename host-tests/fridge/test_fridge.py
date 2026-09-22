@@ -321,6 +321,74 @@ for h in sent_headers:
     )
     check(f"the browser may send {h}", r.status_code == 200, (h, r.status_code))
 
+# --- the dev proxy's cookie, against the one the service really sets --------
+#
+# Three times tonight a cookie or header attribute was silently dropped by a
+# browser and surfaced as an unrelated message: a missing allowed header read as
+# "could not reach the service", and a Secure cookie over plain http read as the
+# six digits being wrong. site/serve.py rewrites the forwarded Set-Cookie so a
+# local page keeps its session, and that rewriting was trusted rather than
+# asserted.
+#
+# THE COOKIE HERE IS THE SERVICE'S OWN, taken off the claim above rather than
+# typed: a literal in a test goes on passing after the service changes what it
+# sets, which is the shape of half the bugs in this file's history.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "site"))
+import serve  # noqa: E402
+
+# UNDER THE HEADER PRODUCTION SENDS. The service marks the cookie Secure from
+# the scheme its request arrived on, and this in-process client speaks http, so
+# a plain claim here would produce a cookie with no Secure on it and the case
+# that broke Mario's phone would go unobserved. Cloudflare and cloudflared send
+# x-forwarded-proto, so the claim below is the production one.
+fresh = c.post("/api/pair/start").json()
+claimed_https = c.post(
+    "/api/claim",
+    json={"code": fresh["code"], "name": "iPhone"},
+    headers={"x-forwarded-proto": "https"},
+)
+raw = claimed_https.headers.get("set-cookie", "")
+check("the claim really sets a cookie", "live_sender=" in raw, raw[:60])
+check(
+    "and marks it Secure behind https, which is what makes this necessary",
+    "secure" in raw.lower(),
+    raw,
+)
+check(
+    "and does not mark it Secure over plain http, which is why it is derived",
+    "secure" not in claimed.headers.get("set-cookie", "").lower(),
+    claimed.headers.get("set-cookie", ""),
+)
+over_http = serve.dev_cookie(raw, https=False)
+over_https = serve.dev_cookie(raw, https=True)
+check(
+    "the proxy drops Domain, which no host but ma-r-s.com may keep",
+    "domain=" not in over_http.lower() and "domain=" not in over_https.lower(),
+    over_http,
+)
+check(
+    "and drops Secure over plain http, which is where the session was lost",
+    "secure" not in over_http.lower(),
+    over_http,
+)
+check(
+    "and keeps Secure when the dev server is itself https",
+    "secure" in over_https.lower(),
+    over_https,
+)
+for attr in ("httponly", "samesite"):
+    if attr in raw.lower():
+        check(
+            f"and leaves {attr} exactly as sent",
+            attr in over_http.lower() and attr in over_https.lower(),
+            over_http,
+        )
+check(
+    "and keeps the value itself",
+    over_http.startswith("live_sender="),
+    over_http[:40],
+)
+
 print("PASS" if not bad else "FAIL")
 for x in ok:
     print("  ok   " + x)

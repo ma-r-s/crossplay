@@ -95,6 +95,11 @@
       <button class="btn primary" id="pair" type="button">Connect</button>
     </div>
     <p class="lv-gate-fine">The code lasts ten minutes.</p>
+    <!-- Why this copy of the page starts with no reader, when it is not the
+         production one. A connected reader lives in a cookie for ma-r-s.com, so
+         a dev server or a preview is a different site to the browser and has
+         none -- which looks exactly like never having paired. -->
+    <p class="lv-gate-fine lv-dev-note" id="devNote" hidden></p>
   </section>
 
   <!-- Connected. On a phone this is the whole viewport and nothing scrolls:

@@ -128,6 +128,12 @@
 .lv-gate .cta-row {
   margin-top: 0.9rem;
 }
+/* The off-production note. It is an explanation rather than a warning, so it
+   sits with the fine print and takes the rule the pending line uses. */
+.lv-dev-note {
+  padding-left: 0.55rem;
+  border-left: 3px solid var(--lv-line-strong);
+}
 .lv-gate-fine {
   margin: 1rem 0 0;
   font-size: 0.85rem;
