@@ -17,6 +17,7 @@ import json
 import os
 import pathlib
 import secrets
+import shutil
 import struct
 import tempfile
 import time
@@ -337,15 +338,22 @@ class Fridge:
 
     def create(self, device_token_hash: str) -> dict:
         state = {
-            # WHEN THE READER WAS SYNCED, and the anchor the first countdown is
-            # measured from. A fridge is made by /api/pair/start, which is the
-            # reader showing its code, so this is within a minute of the moment
-            # somebody finished pairing -- and a reader that pairs again gets a
-            # NEW fridge with a new stamp, so re-pairing re-anchors by
-            # construction rather than by a migration.
+            # WHEN THE PAIRING WAS CLAIMED, and the anchor the first countdown
+            # is measured from. A fridge is made by /api/claim, so this is the
+            # moment somebody actually typed the code -- and a reader that
+            # pairs again gets a NEW fridge with a new stamp, so re-pairing
+            # re-anchors by construction rather than by a migration.
             "created": int(time.time()),
             "device_token_hash": device_token_hash,
             "last_checkin": 0,
+            # HOW MANY TIMES THE READER HAS COME BACK, and when it first did.
+            # last_checkin alone is a pure overwrite, so it can only answer
+            # "ever" or "never" -- and "ever" counts a reader that pulled once
+            # during setup the same as one that has been on a fridge for a
+            # month. The second check-in is the first evidence that anybody
+            # kept it, so it has to be countable.
+            "checkins": 0,
+            "first_checkin": 0,
             # WHAT THE READER SAID ITS OWN ALARM IS, converted to this clock
             # when it said it. 0 until it has spoken once.
             "next_wake": 0,
@@ -483,9 +491,11 @@ class Fridge:
         except OSError:
             return None
 
-    def touch_checkin(self, wake_in: int, live_on: bool) -> None:
+    def touch_checkin(self, wake_in: int, live_on: bool) -> int:
         """The reader spoke, was handed `wake_in` seconds, and has picked the
-        current schedule up.
+        current schedule up. Returns which check-in this was: 1 the first
+        time, 2 the second, and so on.
+
 
         `wake_in` is SECONDS FROM NOW, converted here to this service's clock.
         Never an absolute time from the reader: its only clock comes from
@@ -497,9 +507,19 @@ class Fridge:
         makes it adopt the reply's figure, so the moment we answer, the schedule
         it is asleep on IS the schedule we just used. Nothing pending survives a
         check-in, by construction rather than by a second write somewhere else.
+
+        The check-in counter costs no extra write: this method already saves. A
+        fridge made before the counter existed has no `checkins` key and starts
+        from whatever it can prove -- 1 if it has ever checked in, 0 if not --
+        so an old record reads as "at least this many" rather than as zero.
         """
         now = int(time.time())
         state = self.load()
+        if "checkins" not in state:
+            state["checkins"] = 1 if state.get("last_checkin") else 0
+        state["checkins"] = int(state.get("checkins") or 0) + 1
+        if not state.get("first_checkin"):
+            state["first_checkin"] = state.get("last_checkin") or now
         state["last_checkin"] = now
         state["live_on"] = bool(live_on)
         state["next_wake"] = now + int(wake_in) if live_on and wake_in > 0 else 0
@@ -507,6 +527,7 @@ class Fridge:
             state.get("schedule") or DEFAULT_SCHEDULE,
         )
         self.save(state)
+        return int(state["checkins"])
 
     def set_live(self, on: bool) -> None:
         """The reader saying Live was switched off on it.
@@ -619,6 +640,52 @@ def index_token(token: str, fridge_id: str) -> None:
     index = _load_index()
     index[_hash(token)] = fridge_id
     _atomic_write(_index_path(), json.dumps(index).encode())
+
+
+def sweep_orphans(older_than_s: int = 3600) -> int:
+    """Delete fridges nobody ever claimed. Returns how many went.
+
+    Repairs the records the old pairing flow left behind: until 2026-09-21 a
+    fridge was written when the reader SHOWED a code, so every visit to the
+    Live setup screen made one and nothing ever removed it. Nineteen hours of
+    one person testing left 67, which is why "how many fridges" was not a
+    number anybody could use.
+
+    The new flow cannot make one, so this only ever has old records to find.
+    It stays because the repair has to run on the deployed data, not only in
+    the code: a rule that is right for new writes and leaves the old ones
+    wrong still shows the wrong number.
+
+    An orphan is a fridge with NO SENDER and NO CHECK-IN that is older than
+    `older_than_s`. A claimed fridge gets its first sender in the same request
+    that creates it, so nothing live can match. The age bound is belt and
+    braces against a claim caught mid-flight.
+    """
+    root = data_root() / "fridges"
+    if not root.is_dir():
+        return 0
+    now = int(time.time())
+    index = _load_index()
+    gone, changed = 0, False
+    for d in sorted(root.iterdir()):
+        if not d.is_dir():
+            continue
+        try:
+            state = json.loads((d / "state.json").read_text())
+        except (OSError, ValueError):
+            continue
+        if state.get("senders") or state.get("last_checkin") or state.get("checkins"):
+            continue
+        if now - int(state.get("created", 0)) < older_than_s:
+            continue
+        for h in [k for k, v in index.items() if v == d.name]:
+            del index[h]
+            changed = True
+        shutil.rmtree(d, ignore_errors=True)
+        gone += 1
+    if changed:
+        _atomic_write(_index_path(), json.dumps(index).encode())
+    return gone
 
 
 def add_sender(fridge: "Fridge", token: str, name: str) -> bool:

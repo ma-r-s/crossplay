@@ -79,7 +79,13 @@ class Pairings:
         return {"code": code, "pollToken": poll_token, "expiresIn": CODE_TTL_S}
 
     def claim(self, code: str) -> dict | None:
-        """Returns {fridge_id, sender_token} on success, None otherwise.
+        """Returns {fridge_id, sender_token, joining, device_token} on success,
+        None otherwise.
+
+        device_token is in there because a SETUP fridge is written when its
+        code is claimed, not when it is shown, and the writer needs the token
+        to hash into the new record. It never leaves the service: claim()'s
+        caller puts only fridge_id in the response body.
 
         A wrong guess is charged against the code it guessed at, not against
         nothing: without that, six digits is a million tries at whatever rate
@@ -99,7 +105,12 @@ class Pairings:
         if p["sender_token"] is not None:
             return None  # single use
         p["sender_token"] = secrets.token_urlsafe(32)
-        return {"fridge_id": p["fridge_id"], "sender_token": p["sender_token"], "joining": p["joining"]}
+        return {
+            "fridge_id": p["fridge_id"],
+            "sender_token": p["sender_token"],
+            "joining": p["joining"],
+            "device_token": p["device_token"],
+        }
 
     def _burn_exhausted(self) -> None:
         for code in [c for c, p in self._pending.items() if p["wrong"] >= WRONG_GUESSES_PER_CODE]:

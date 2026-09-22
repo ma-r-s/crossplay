@@ -24,6 +24,11 @@ services:
       - 9.9.9.9
     environment:
       FRIDGE_DATA: /data
+      # Where pairings, check-ins and errors go (docs/workflow/events.md).
+      # Both optional: with either unset the service posts nothing and logs so
+      # once at startup. The anon key can only insert.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
     volumes:
       - ./data:/data
     user: "10004:10004"

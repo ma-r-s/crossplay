@@ -997,11 +997,12 @@ fi
 # and the offsets are picked apart from each other AND from the link suite,
 # which owns LINKPLAY_BASE_PORT+0..7 (LinkRadio.cpp, kSlots). readbridge takes
 # 8..11 because its harness derives a fake-service port from the base; study
-# takes 12. Sharing an offset would only bite when two trees gate at once,
-# which is exactly when nobody is looking.
+# takes 12; fridgebridge takes 13. Sharing an offset would only bite when two
+# trees gate at once, which is exactly when nobody is looking.
 for entry in \
   "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py tests/test_window.py tests/test_events.py tests/test_pages.py" \
-  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_listing.py tests/test_window.py tests/test_lockout.py tests/test_engine.py tests/test_api.py tests/test_events.py tests/test_pages.py"
+  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_listing.py tests/test_window.py tests/test_lockout.py tests/test_engine.py tests/test_api.py tests/test_events.py tests/test_pages.py" \
+  "server/fridge-bridge:fridgebridge:13:tests/test_events.py tests/test_live_events.py"
 do
   BRIDGE_DIR="$REPO/${entry%%:*}"
   rest="${entry#*:}"

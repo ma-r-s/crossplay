@@ -26,7 +26,7 @@ variables. The public key can only insert; it cannot read anything back.
 
 | Field     | What goes in it                                                                                                                                      |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `service` | `firmware`, `getbooks`, `anki`, `instapaper`, `site`, `release`, `pulse`, `upstream-sync`, `workflow`. One word, lowercase, the same word every time.                                    |
+| `service` | `firmware`, `getbooks`, `anki`, `instapaper`, `live`, `site`, `release`, `pulse`, `upstream-sync`, `workflow`. One word, lowercase, the same word every time. The inbox page holds the same list (`site/assets/fleet.js`, `KNOWN_SERVICES`) so a service that has never posted is shown as silent rather than absent; add a word here and there together.                                    |
 | `event`   | What happened: `download`, `search`, `sync`, `install`, `report`, `crash`, `update`, `probe`, `run`. Same rule.                                          |
 | `level`   | `info` (default) or `error`.                                                                                                                         |
 | `device`  | The id from the device's `X-CrossPlay-Device` header (below): pseudonymous, the same on every request from one device, and not matchable to a MAC without that device's secret. Never the MAC, never a name. A service whose request carried no id may use its own salted hash of an account or token instead, or leave it out. |
@@ -83,7 +83,7 @@ X-CrossPlay-Report: {"battery_pct":84,"heap_min_kb":112,"uptime_h":31,
 | Header               | What is in it                                                                                                                                                                                                                                      |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `User-Agent`         | `CrossPlay-ESP32-<version>`, as it always was. The version is read from here and nowhere else.                                                                                                                                                     |
-| `X-CrossPlay-Device` | 64 hex: sha256(MAC + a 16-byte secret the device made once from its hardware RNG and keeps in NVS, namespace `crossplay`, key `hbsecret`). The MAC and the secret are never sent; without the secret the id cannot be matched to a MAC. A flash that erases NVS makes a new secret, so the device comes back as a new id: the site's Install button writes around the NVS partition (card 463; before that every reinstall was a new device), while `esptool erase-flash` by hand still resets it. |
+| `X-CrossPlay-Device` | 64 hex: sha256(MAC + a 16-byte secret the device made once from its hardware RNG and keeps in NVS, namespace `crossplay`, key `hbsecret`). The MAC and the secret are never sent; without the secret the id cannot be matched to a MAC. A flash that erases NVS makes a new secret, so the device comes back as a new id: the site's Install button writes around the NVS partition (card 463; before that every reinstall was a new device), while `esptool erase-flash` by hand still resets it. **A THIRD case makes a second id for one device and is not an erase at all:** when `Preferences::begin("crossplay")` fails, `computeId()` falls back to the fixed salt `kSalt` (`DeviceReport.cpp:123`), so the device reports `sha256(MAC + kSalt)` -- stable, but a different id from its NVS one, and it flips back the moment NVS opens again. A full NVS partition is the way to get there. All three cases are invisible on the board: one reader becomes two ids with nothing saying so, which reads as one device leaving and another arriving. |
 | `X-CrossPlay-Board`  | `x4pro` or `sticky`.                                                                                                                                                                                                                               |
 | `X-CrossPlay-Report` | Compact JSON, at most 600 bytes. Always `battery_pct`, `heap_min_kb` (lowest free heap since boot) and `uptime_h` (hours since boot; deep sleep is a boot). While one is pending, `crash` and/or `ota`, below.                                        |
 
@@ -161,6 +161,46 @@ Each service says `device report via <service>: crash on <version>` or
 `update <level>` in its log when it posts one. The service that heard it is
 `props.via`; the card lands on the firmware.
 
+### Live, and why it counts two things
+
+Live (`server/fridge-bridge`) posted **nothing at all** until 2026-09-21, so on
+this table it read as a service nobody used. It posts four events now, and
+every one carries `props.fridge`: a salted hash of the fridge id, which is the
+SETUP, not the reader.
+
+- `pair-start` -- a reader showed a pairing code. `device` when it sent one.
+- `paired` -- a browser claimed a code. No `device`: a browser sent it.
+- `checkin` -- `GET /api/pull` succeeded. `device` from the reader's header.
+- `image` -- a phone sent a picture. No `device`.
+
+**`device` and `props.fridge` are two axes and are never added together.** A
+fridge is a setup somebody began; a device is a reader that exists. Using the
+fridge id as `device` would put every abandoned pairing into the fleet's device
+count, which is the inflation this instrumentation exposes.
+
+Live's `/api/pull` has always carried the three device headers -- it goes
+through `bridge::getToFile`, which calls `identify()`, and `fridge.ma-r-s.com`
+is inside the zone `isOwnHost()` allows -- so a check-in was always
+attributable and this service was simply discarding them. Nothing in the
+firmware changed to make Live appear per device; `host-tests/devreport` pins
+that host so it cannot quietly stop being ours.
+
+**`checkin` carries `props.n`, which check-in this was.** That field is the
+point. `last_checkin` is a pure overwrite, so it answers only "ever" or
+"never", and "ever" counts a reader that pulled once while somebody was
+setting it up exactly like one that has woken on a fridge for a month. A
+SECOND check-in is the first evidence anybody kept it, so `live_fridges`
+reports `paired` and `returning` separately and the inbox page prints what
+each one proves.
+
+**A fridge record is written when a code is CLAIMED, not when it is shown.** It
+used to be written at `/api/pair/start`, and the reader mints a code every time
+the Live screen opens unpaired, again when one expires on screen, and again on
+a 401 -- with nothing deleting the unclaimed ones. So the service held 67
+fridges after nineteen hours of one person testing and "fridges" meant "visits
+to a setup screen". `store.sweep_orphans()` runs at startup and removes what
+that flow left behind; the current flow cannot create one.
+
 ## Reading the numbers
 
 Signed-in users (the inbox page) lead with the owner's facts, one view
@@ -168,12 +208,33 @@ each (`20260910000200_owner_views.sql`): `devices_heard_from` (distinct
 devices in the last 24 hours, 7, 30 and 90 days, one row), `devices_new`
 (first heard this week and the week before), `devices_now` (every device
 once, at the version it last reported, with when it arrived there; 30
-days), `versions_now` (the same devices grouped, so the table's sum IS the
+days), `versions_now` (the same devices grouped ONE ROW PER VERSION, newest
+first, with a `boards` map of board to count, so the table's sum IS the
 device count), `field_7d` (devices that crashed, failed an install, or
 installed fine) and `crashes_7d` (panics by reason, devices first). A
 per-version table summed over its rows is NOT a device count: a device
 that updated inside the window sits in two rows, and the page showed that
-sum until 2026-09-10. Under the fold, the workshop's views:
+sum until 2026-09-10.
+
+Four more since 2026-09-21 (`20260921000100_fleet_analytics.sql`), which are
+the questions the page could not answer at all: `device_versions` (every
+version one device has run, with when it was first and last seen on it -- the
+update history), `device_services` (which services one device has used, with
+counts and errors), `service_metrics` (per service: devices over 7 and 30 days,
+events, errors, first and last heard) and `live_fridges` (Live's counts,
+above). `version_key()` turns "1.13.15" into `{1,13,15}` so ordering is
+numeric; as text "1.13.9" sorts after it and the newest release landed in the
+middle of the table.
+
+Two limits the page states rather than hides. `device_services` can only show
+services with a SERVER: a game, the reader and everything else that runs on the
+device posts nothing, by design, so a short list means "nothing was sent", not
+"this reader does nothing". And a service that has never posted has no row in
+`service_metrics` at all, so the page carries the known-service list and prints
+the missing ones as silent -- absent reads as "not a service", which is exactly
+how Live went unnoticed.
+
+Under the fold, the workshop's views:
 `devices_by_version` (distinct devices per board and version, over
 every event with a device and a version in the last 7 days),
 `daily_active_devices` (distinct devices per day, 30 days),

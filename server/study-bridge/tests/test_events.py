@@ -189,7 +189,7 @@ def main():
     ok(len(sent) == before and len(cap.records) == 1, "one warning, no request")
 
     # --- the device headers: what a request says about the device
-    via = {"study-bridge": "anki", "read-bridge": "instapaper"}.get(ROOT.name, "anki")
+    via = {"study-bridge": "anki", "read-bridge": "instapaper", "fridge-bridge": "live"}.get(ROOT.name, "anki")
     cap.records.clear()
     cap.setLevel(logging.DEBUG)
     log.setLevel(logging.DEBUG)
@@ -337,17 +337,25 @@ def main():
     body = json.loads(sent[-1][0].data)
     ok("version" not in body and "board" not in body, "and an empty one is no field, not an empty string")
 
-    # --- the twin
-    other = [s for s in ("study-bridge", "read-bridge") if s != ROOT.name]
-    twin = ROOT.parent / other[0] / "bridge" / "events.py"
+    # --- the twins
+    # THREE copies since 2026-09-21, not two: fridge-bridge (Live) carries one
+    # as well. EVERY other copy is compared, not just the first one found --
+    # with three bridges `other[0]` checked one pair and left the other
+    # unchecked, so a fix could land on two of the three and stay green.
+    siblings = [s for s in ("study-bridge", "read-bridge", "fridge-bridge") if s != ROOT.name]
     mine = ROOT / "bridge" / "events.py"
-    if twin.exists():
+    compared = 0
+    for name in siblings:
+        twin = ROOT.parent / name / "bridge" / "events.py"
+        if not twin.exists():
+            continue
+        compared += 1
         ok(
             mine.read_bytes() == twin.read_bytes(),
-            f"bridge/events.py is byte-identical to its twin in {other[0]}",
+            f"bridge/events.py is byte-identical to the copy in {name}",
         )
-    else:
-        print(f"  (no twin at {twin}; the byte-identity check needs the whole repo)")
+    if not compared:
+        print(f"  (no sibling bridge beside {ROOT.parent}; the byte-identity check needs the whole repo)")
 
     print(f"{checks} checks, {failures} failed")
     return 1 if failures else 0
