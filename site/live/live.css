@@ -536,7 +536,7 @@
   min-height: 1.6rem;
 }
 .lv-map {
-  width: 0.95rem;
+  width: 1.15rem;
   aspect-ratio: 480 / 800;
   position: relative;
   border: 1px solid var(--lv-line-strong);
@@ -574,14 +574,6 @@
   opacity: 0.4;
   border-style: dashed;
   cursor: not-allowed;
-}
-.lv-zoom-level {
-  color: var(--muted);
-  font-family: var(--display);
-  font-size: 0.75rem;
-  min-width: 1.7rem;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
 }
 /* Said only where a pointer can be told what to do with it. A phone is handed
    the gesture it already knows and two buttons it can see. */

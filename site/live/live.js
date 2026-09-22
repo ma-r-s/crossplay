@@ -13,9 +13,21 @@ const LIVE_API = "https://fridge.ma-r-s.com";
 // else: ?local sends every request to this page's own origin, which
 // site/serve.py proxies to the real service. Honoured on localhost alone, so a
 // link carrying it can never redirect somebody's drawing off the real host.
-const onLocalhost = ["localhost", "127.0.0.1", "[::1]"].includes(
-  location.hostname,
-);
+// ON A MACHINE THAT CANNOT BE THE INTERNET, which is a wider set than
+// "localhost" and has to be: the one thing /live/ most needs before it ships is
+// a phone holding it, and a phone reaches this Mac's dev server by LAN address.
+// Gated on localhost alone, `?local` was silently ignored from 192.168.x.x, the
+// page called fridge.ma-r-s.com directly, the sender cookie was cross-SITE from
+// an IP address, and it reported "not connected" with nothing on screen to say
+// why.
+//
+// The safety property is unchanged and it is what the gate is for: a link
+// carrying `?local` must never be able to redirect somebody's drawing off the
+// real host. Every address below is unroutable from the internet, so a page
+// served from crossplay.ma-r-s.com can never match one.
+const PRIVATE_HOST =
+  /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|.*\.local)$/;
+const onLocalhost = PRIVATE_HOST.test(location.hostname);
 const params = new URLSearchParams(location.search);
 const local = onLocalhost && params.has("local");
 const API = local ? "" : LIVE_API;
@@ -260,7 +272,6 @@ const view = { s: 1, x: 0, y: 0 };
 const zoomCtl = document.getElementById("zoomCtl");
 const zoomMap = document.getElementById("zoomMap");
 const zoomBox = document.getElementById("zoomBox");
-const zoomLevel = document.getElementById("zoomLevel");
 const zoomIn = document.getElementById("zoomIn");
 const zoomOut = document.getElementById("zoomOut");
 const zoomFit = document.getElementById("zoomFit");
@@ -277,7 +288,8 @@ function applyView() {
   clampView();
   pad.style.transform = `scale(${view.s}) translate(${(-view.x / W) * 100}%, ${(-view.y / H) * 100}%)`;
   const zoomed = view.s > 1.001;
-  zoomLevel.textContent = (Math.round(view.s * 10) / 10).toString() + "x";
+  // THE MAP APPEARING IS THE INDICATOR. At 1x its box would fill it and say
+  // nothing, so it is absent at 1x and its presence is the signal.
   zoomMap.hidden = !zoomed;
   zoomFit.hidden = !zoomed;
   zoomOut.disabled = !zoomed;

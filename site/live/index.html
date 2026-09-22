@@ -249,8 +249,13 @@
         <div class="lv-map" id="zoomMap" hidden aria-hidden="true">
           <span class="lv-map-box" id="zoomBox"></span>
         </div>
+        <!-- NO FIGURE. Mario: "We don't need a x1.5 indicator ever. But the map
+             showing we zoomed in is important." The map is what answers the
+             question a number never did, which is where in the panel you are;
+             "3.4x" is a fact about the view that nobody acts on. Fit stays,
+             because going back to the whole panel is navigation and not a
+             readout. -->
         <button class="lv-zbtn" id="zoomOut" type="button" title="Zoom out" aria-label="Zoom out">-</button>
-        <span class="lv-zoom-level" id="zoomLevel">1x</span>
         <button class="lv-zbtn" id="zoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
         <button class="lv-zbtn is-wide" id="zoomFit" type="button" hidden
                 title="Show the whole panel" aria-label="Show the whole panel">Fit</button>

@@ -278,9 +278,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+# ALL INTERFACES, DELIBERATELY, AND DEV ONLY.
+#
+# Bound to 127.0.0.1 this is reachable from this Mac and nothing else, and the
+# one thing /live/ most needs before it ships is a phone holding it: the layout
+# is for a 390px screen, the gestures are touch, and neither is really testable
+# in an emulated viewport. So it listens on the LAN.
+#
+# It stays dev-only by construction rather than by promise: production is
+# Vercel's static hosting and never runs this file at all (see the module
+# docstring). What is exposed while it runs is this working tree's copy of the
+# site plus the /api/ proxy, on a local network, for as long as somebody leaves
+# it up. Stop it by pid when you are done.
+#
+# `?local` still matters from a phone, and for the reason the proxy exists: the
+# page would otherwise call fridge.ma-r-s.com directly, the sender cookie is
+# cross-SITE from an IP address, and the page would report "not connected" with
+# nothing on screen to say why.
 socketserver.TCPServer.allow_reuse_address = True
 with socketserver.ThreadingTCPServer(
-    ("127.0.0.1", PORT), functools.partial(Handler, directory=ROOT)
+    ("0.0.0.0", PORT), functools.partial(Handler, directory=ROOT)
 ) as httpd:
-    print(f"serving {ROOT} on {PORT} (cross-origin isolated)")
+    print(f"serving {ROOT} on {PORT} (cross-origin isolated, all interfaces)")
     httpd.serve_forever()
