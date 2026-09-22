@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.17
+
+- Wallpapers: the upload route ends with the picture you sent
+
 ### 1.13.16
 
 - Live: a scheduled refresh shows nobody anything

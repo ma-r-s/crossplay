@@ -520,6 +520,28 @@ void drawAltAddress(toybox::Screen& screen, const fui::Rect& box, const char* ur
 constexpr const char* kProse = "Pick a photo and it lands here. Phone or computer, on this same WiFi.";
 constexpr const char* kFoot = "BACK STOPS";
 
+// WHAT THE SCREEN SAYS ONCE A PICTURE HAS LANDED.
+//
+// The route ends where the person was going: their photo is on the sleep
+// screen before they look up from the phone, so every sentence here reports
+// that rather than offering it. "BACK RETURNS", not "BACK STOPS": once
+// something has arrived, leaving is finishing, and a word that reads as
+// cancelling would be the screen describing its own success as an abort.
+// SHORT ENOUGH TO KEEP THE DISPLAY CUT, which is the whole reason it is not
+// anything longer: "ON YOUR SLEEP SCREEN" and "SLEEP SCREEN SET" both measure
+// past the 448px body at toybox_30, so
+// the ladder steps it down to the same serif as the prose under it and the
+// screen loses its hierarchy without ever looking broken -- the same trap
+// "SCAN WITH YOUR PHONE" fell into on this screen's first render. The picture
+// directly below says what was set.
+constexpr const char* kArrivedHead = "SLEEP SCREEN";
+constexpr const char* kArrivedHere = "On your sleep screen.";
+constexpr const char* kArrivedAgain = "Send another to replace it.";
+constexpr const char* kAnother = "SEND ANOTHER";
+constexpr const char* kArrivedFoot = "BACK RETURNS";
+// The square, shared by the code and by the picture that replaces it.
+constexpr int16_t kAddPictureSide = 232;
+
 // Inherited from the Instapaper twin as `bottom() - 30, height 24`, which is
 // correct THERE because it draws in toybox_10 (line box 21). Here the same box
 // holds a 40px line box: DrawTarget::text clamps a negative centring offset to
@@ -547,7 +569,16 @@ void drawHeadline(toybox::Screen& screen, const fui::Rect& box, const char* text
 
 }  // namespace
 
-fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
+const char* addArrivedHeadline() { return kArrivedHead; }
+const char* addAnotherLabel() { return kAnother; }
+const char* addArrivedLine() { return kArrivedHere; }
+const char* addFootWaiting() { return kFoot; }
+const char* addFootArrived() { return kArrivedFoot; }
+const char* addAgainLine() { return kArrivedAgain; }
+
+int16_t addPictureSide() { return kAddPictureSide; }
+
+AddRects buildAdd(toybox::Screen& screen, const AddModel& model) {
   // No right label. Any label at all costs the band its display cut: the widest
   // that fits is 62px, and "ADD A WALLPAPER" needs 433 of the 448 either way, so
   // the title steps from a 38px Jersey cap to a 21px serif one the moment a
@@ -555,10 +586,13 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
   // other than one.
   chrome(screen, "ADD A WALLPAPER", nullptr);
   const fui::Rect body = screen.body();
+  const bool arrived = model.arrived != nullptr && model.arrived[0] != '\0';
+  AddRects out;
 
   // The pairing twin. Same skeleton as InstapaperScreens::buildPairQr, with the
-  // address occupying the line its 8-character code does.
-  constexpr int16_t kQrSide = 232;
+  // address occupying the line its 8-character code does. The arrival's picture
+  // takes the same square, which is why one constant serves both.
+  constexpr int16_t kQrSide = kAddPictureSide;
   constexpr int16_t kHead = 48;
   // Every text block's height is asked of the face that will draw it, never
   // typed. The two literals here were 46 and 108 against line boxes of 45 and
@@ -566,20 +600,69 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
   // were then wrong for anything laid out against them.
   const int16_t addrH = screen.target().lineHeight(fui::FONT_SLOT_SMALL);
   const int16_t proseLine = screen.target().lineHeight(fui::FONT_SLOT_BODY);
-  const int16_t proseH = static_cast<int16_t>(proseLine * 3);
+
+  // ONCE A PICTURE HAS LANDED, THE PICTURE IS THE SCREEN.
+  //
+  // Chosen from three rendered arrangements (the other two: the code screen
+  // keeping its shape with one sentence carrying the news, and the code
+  // shrinking to make room for a thumbnail strip beside it). The reason this
+  // one won is a fact about the route rather than a preference: every upload is
+  // renamed w0001.bmp, w0002.bmp and so on by
+  // CrossPointWebServer::nextWallpaperPath, and the phone's own name is
+  // discarded there by design. So the NAME can never confirm anything -- "w0007
+  // is on your sleep screen" tells a person nothing about which picture they
+  // just sent -- and the only honest confirmation available is the picture
+  // itself, at the size the square was already spending.
+  //
+  // The name is drawn under it anyway, small: it is what the grid's caption
+  // will say, so somebody looking for this wallpaper again has the word for it.
+  if (arrived) {
+    const int16_t proseH = proseLine;
+    const int16_t stack = static_cast<int16_t>(kHead + toybox::kMargin * 2 + kQrSide + toybox::kMargin + addrH +
+                                               toybox::kGutter + proseH + toybox::kGutter + kButtonH);
+    int16_t y = static_cast<int16_t>(body.y + (body.height - proseLine - stack) / 2);
+    if (y < body.y) y = body.y;
+
+    drawHeadline(screen, fui::makeRect(body.x, y, body.width, kHead), kArrivedHead);
+    out.thumb = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
+                              static_cast<int16_t>(y + kHead + toybox::kMargin * 2), kQrSide, kQrSide);
+
+    const int16_t nameY = static_cast<int16_t>(out.thumb.bottom() + toybox::kMargin);
+    // FONT_SLOT_SMALL, which readingAddressFaces binds to the bold reading cut:
+    // the one step of hierarchy this face set has between the prose and the
+    // headline. A `bold = true` on the BODY slot is not it -- that face has no
+    // bold and the flag draws the same regular.
+    fui::TextStyle nameStyle = onPaper(screen.theme().bodyText, fui::TextAlign::Center, 1);
+    nameStyle.font = fui::FONT_SLOT_SMALL;
+    screen.target().text(fui::makeRect(body.x, nameY, body.width, addrH),
+                         toybox::fittedTitle(screen.target(), model.arrived, body.width, nameStyle).c_str(), nameStyle);
+
+    const int16_t proseY = static_cast<int16_t>(nameY + addrH + toybox::kGutter);
+    screen.target().text(fui::makeRect(body.x, proseY, body.width, proseH), kArrivedAgain,
+                         onPaper(screen.theme().bodyText, fui::TextAlign::Center, 1));
+    // The one interaction slot this screen spends, and it buys the code back.
+    // Without it the screen is a dead end one picture into a route whose whole
+    // point is sending pictures.
+    drawButton(screen,
+               fui::makeRect(body.x, static_cast<int16_t>(proseY + proseH + toybox::kGutter), body.width, kButtonH),
+               kAnother, ActionAddAnother);
+    drawFoot(screen, body, kArrivedFoot);
+    return out;
+  }
 
   // Centred in the body rather than hung from its top, so the leftover is
   // shared above and below instead of pooling into a dead band over the footer.
+  const int16_t proseH = static_cast<int16_t>(proseLine * 3);
   const int16_t stack =
       static_cast<int16_t>(kHead + toybox::kMargin * 2 + kQrSide + toybox::kMargin + addrH + toybox::kGutter + proseH);
   int16_t y = static_cast<int16_t>(body.y + (body.height - proseLine - stack) / 2);
   if (y < body.y) y = body.y;
 
   drawHeadline(screen, fui::makeRect(body.x, y, body.width, kHead), "SCAN THIS CODE");
-  const fui::Rect qr = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
-                                     static_cast<int16_t>(y + kHead + toybox::kMargin * 2), kQrSide, kQrSide);
+  out.qr = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
+                         static_cast<int16_t>(y + kHead + toybox::kMargin * 2), kQrSide, kQrSide);
 
-  const int16_t addrY = static_cast<int16_t>(qr.bottom() + toybox::kMargin);
+  const int16_t addrY = static_cast<int16_t>(out.qr.bottom() + toybox::kMargin);
   drawAddress(screen, fui::makeRect(body.x, addrY, body.width, addrH), model.url);
   drawAltAddress(screen, fui::makeRect(body.x, static_cast<int16_t>(addrY + addrH), body.width, proseLine),
                  model.altUrl);
@@ -589,8 +672,8 @@ fui::Rect buildAdd(toybox::Screen& screen, const AddModel& model) {
   screen.target().text(
       fui::makeRect(body.x, static_cast<int16_t>(addrY + addrH + proseLine + toybox::kGutter), body.width, proseH),
       model.status != nullptr ? model.status : kProse, onPaper(screen.theme().bodyText, fui::TextAlign::Center, 3));
-  drawFoot(screen, body);
-  return qr;
+  drawFoot(screen, body, kFoot);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1124,6 +1207,7 @@ fui::Rect buildLiveStackPaired(toybox::Screen& screen, const LiveModel& model) {
   // reads as an aside to the line above, which is what it is.
   drawFitted(screen, fui::makeRect(body.x, g.heroY, body.width, g.heroH), model.nextCheck,
              liveCut(screen, kLiveHeroSlot, fui::TextAlign::Left));
+
   drawFitted(screen, fui::makeRect(body.x, g.cadenceY, body.width, g.labelH), model.cadence,
              liveCut(screen, fui::FONT_SLOT_SMALL, fui::TextAlign::Left));
 

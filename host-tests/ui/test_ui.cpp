@@ -12616,13 +12616,31 @@ void testWallpapersAddScreenDropsAnAddressItCannotStandBehind() {
     wallpapersui::AddModel model;
     model.url = "http://crossplay-a1b2c3.local/w";
     model.altUrl = "http://192.168.1.42/w";
-    const fui::Rect qr = wallpapersui::buildAdd(screen, model);
+    const wallpapersui::AddRects rects = wallpapersui::buildAdd(screen, model);
     CHECK(drewText(out, "SCAN THIS CODE"));
     CHECK(drewText(out, "crossplay-a1b2c3.local/w"));
     CHECK(drewText(out, "192.168.1.42/w"));
     // The scheme is encoded, never drawn: it costs the address its type cut.
     CHECK(!drewText(out, "http://crossplay-a1b2c3.local/w"));
-    CHECK(qr.width > 0 && qr.height > 0);
+    CHECK(rects.qr.width > 0 && rects.qr.height > 0);
+    // Nothing has arrived, so there is no picture to place and the Activity is
+    // told so rather than left to work it out from a name it does not have.
+    CHECK(rects.thumb.width == 0 && rects.thumb.height == 0);
+    // And once one has, the picture takes the square and the address goes with
+    // the code: the whole screen changes, so neither rect may be left behind.
+    {
+      Rendered landed;
+      toybox::Frame f2(landed.target, ctx, noInput, landed.interactions);
+      toybox::Screen s2(f2, toybox::themeTokens());
+      wallpapersui::AddModel arrived = model;
+      arrived.arrived = "w0007";
+      const wallpapersui::AddRects r2 = wallpapersui::buildAdd(s2, arrived);
+      CHECK(r2.thumb.width == wallpapersui::addPictureSide());
+      CHECK(r2.qr.width == 0 && r2.qr.height == 0);
+      CHECK(drewText(landed, "w0007"));
+      CHECK(!drewText(landed, "SCAN THIS CODE"));
+      CHECK(!drewText(landed, "crossplay-a1b2c3.local/w"));
+    }
   }
   {
     Rendered out;

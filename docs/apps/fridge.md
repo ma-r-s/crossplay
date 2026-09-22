@@ -111,6 +111,79 @@ up nothing in the grid says it exists. The destination names both intents; the
 tile names only where you are going. Once the device-hosted upload server is
 retired both actions genuinely are "use your phone".
 
+**Taking the upload route ends with the uploaded picture on the sleep screen.**
+Mario, 2026-09-21: _"when I click live and then I click to upload a new
+wallpaper is weird that then live is what gets selected if what I really wanted
+was to upload a new wallpaper."_ The route existed to put a person's own photo
+on the glass and it used to end with the photo merely filed in the library, so
+on a reader with Live running the panel went on showing what the website sends.
+`pollAddArrivals()` now commits the arrival through `commitSelection()`, which
+is the only writer of `/sleep.bmp` and the one place the Live-or-a-wallpaper
+exclusivity holds -- so choosing the arrival is also the whole of "and do not
+leave Live selected". Nothing on this route turns Live ON, and the pairing is
+untouched either way.
+
+**And the ADD A WALLPAPER screen becomes the picture.** Chosen from three
+rendered arrangements; the reason is a fact about the route rather than a
+preference. `CrossPointWebServer::nextWallpaperPath()` renames every upload
+`w0001.bmp`, `w0002.bmp` and so on and discards the name the phone sent -- on
+purpose, since a name off a phone is an unvalidated path component. So the
+screen can never tell a person "kids-on-the-beach is on your sleep screen"; the
+best it can ever say is "w0007", which confirms nothing. **The picture is the
+only honest confirmation this route can offer**, so it takes the square the code
+had, and `SEND ANOTHER` puts the code back. The name is still drawn, small,
+because it is what the grid's caption will say.
+
+**Reproducing that render**, because the first set of them could not be. The
+build flag was typed on a command line (which is the convention
+`docs/building-apps.md` prescribes, and it is why `WALLPAPERS_FLOW_VARIANT`
+appears in no build configuration) but the SD card was seeded from a script in
+an agent's scratchpad, so nothing in the tree could produce the images again --
+and one of the files that script wrote was named `kids-on-the-beach.bmp`, which
+this route cannot emit at all. Both halves are in the repository now:
+
+```bash
+tools_local/wallpapers/seed_sim_card.py fs_agent
+PLATFORMIO_BUILD_FLAGS="-DWALLPAPERS_ADD_ARRIVED=1" ./scripts_local/sim-shot.sh \
+  '1800:TAP:150,723;3400:TAP:240,480;7000:TAP:152,290;10000:TAP:240,246;15000:QUIT' \
+  '13500:./qa-artifacts/winner.bmp'
+```
+
+`WALLPAPERS_ADD_ARRIVED` is the screenshot harness's only way into this screen:
+reaching it for real needs a phone posting to a server the simulator does not
+compile. It picks the first upload-shaped file on the card and **refuses, with a
+log line, when there is none** rather than substituting a built-in -- which is
+what the first version did, and why the render showed a name no reader can
+produce.
+
+The shape lives in `wallpapers::uploadFileName()` / `isUploadName()` rather than
+in the web server, because three things need it: the server mints it, the
+screenshot harness picks an arrival by it, and `host-tests/wallpapers` builds
+its corpus from it. The first version of that test walked names a phone might
+send, which this route cannot emit -- a corpus of impossible inputs passes
+without testing anything.
+
+**Which arrival, when two land inside one poll: the HIGHEST slot.**
+`nextWallpaperPath()` scans from 1 upward and takes the lowest free slot, so two
+sends in one window number ascending and the zero-padding makes them sort that
+way. `wallpapers::lastNewName()` takes the last, which is the most recent send.
+An earlier version took the first and showed the person the older picture under
+a comment claiming nothing recorded arrival order.
+
+**Choosing a wallpaper really does stop Live, and it now says so.** The device
+half was already a mechanism rather than a comment: `commitSelection()` writes
+`on: false` through `live::save`, and `live::decide` returns `fetchNow false,
+timerSeconds 0` for a reader that is off -- no timer at all, so the reader
+genuinely stops waking. What was missing was the other half. The service learns
+what a reader is doing only when the reader speaks, and a reader that has
+stopped waking never speaks again, so the website counted down to a check that
+would not happen and then reported a reader it had not heard from -- which is
+also what a flat battery and a router that moved look like. It has an honest
+state for exactly this ("Live is off on the reader. Your drawing is saved and
+appears the moment Live is switched back on.") and nothing on this path could
+reach it. `commitSelection()` now queues the same `POST /api/off` the screen's
+own toggle sends.
+
 **That destination was not built, and its absence removed a whole feature.**
 The tile went straight to the Live screen on the reasoning that the local
 upload server kept its own way in through the offer screen's USE MY OWN PHOTO.
@@ -532,6 +605,53 @@ asked" as due right now, so the reader will normally beat the page's first
 countdown by checking in at its very next sleep -- which, straight after
 pairing, is seconds. The page's first figure is therefore an upper bound, and
 the two agree from the first check-in onwards.
+
+### Two cadences, and the window where they differ -- NOT BUILT
+
+Mario, 2026-09-21: _"should we let user see the actual refresh time that is on
+the device and what will it be after it syncs? Can we do so in a minimalistic
+way?"_
+
+**The question is real and the answer is not built.** There are two facts. **The
+alarm** is what the reader will actually do: the interval the service sent at
+the last check-in, the one the RTC timer was armed from, and what `nextCheck`
+and `cadence` on the panel already come off. **The schedule** is what the
+service has configured now. Change it from the website and the reader is asleep
+on the old alarm and learns nothing until its next check-in. For that window the
+two disagree and the panel shows only the first.
+
+The service already models both -- `next_wake` is the alarm the reader reported,
+`interval_s` is the schedule, and `next_expected()` returns the former for
+exactly this reason. What is missing is any way for the READER to see the
+latter: `/api/pull` sends `X-Next-Wake`, which the reader adopts on arrival, so
+a pull can never show it a schedule it is not already on.
+
+**A first attempt was cut rather than shipped** (card #552, 2026-09-21). The
+reader-side half was built -- a `pending` field parsed off `/api/senders`, a
+line on the paired screen, three rendered arrangements -- and `GET /api/senders`
+in `app.py` was never changed, so the field was one nobody sent and the screens
+drew a state no reader could reach. That is the stub-QR shape one round earlier
+in this same feature: something plausible standing in for data the real system
+cannot produce. It is all removed. What it would take, written down so the next
+attempt starts from here rather than from the idea:
+
+1. `/api/senders` gains `"pending"`, present only while `interval_s` disagrees
+   with the interval behind the stored `next_wake` (the reader's adopted
+   interval is `next_wake - last_checkin`), and absent whenever they agree --
+   which is every ordinary call, and also what an older service gives, so
+   deploying in either order cannot make the reader claim anything.
+2. **The service writes the words and the reader draws them verbatim**, the rule
+   its refusals already travel under. How much it may say depends on the
+   arrangement: a full-width line takes a sentence, a labelled column takes a
+   phrase. That choice has to be made before the contract is written.
+3. The reader clears it on any successful check, because the check is the moment
+   the pending cadence stops being pending.
+4. **The page has to say the same thing**, in the same words. `/api/state`
+   already carries both numbers (`nextExpected` from the alarm,
+   `intervalSeconds` from the schedule).
+5. Neither figure may read as exact: the alarm runs off an RC oscillator that
+   drifts about a percent and the reader only fetches on its way into sleep.
+   `roughSpan` bands both sides already.
 
 ## Still to build
 

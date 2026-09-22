@@ -2469,10 +2469,13 @@ namespace {
 // The original name is no loss: the picker captions a user's wallpaper with its
 // file stem, and a phone hands over "IMG_0001".
 std::string nextWallpaperPath() {
-  for (int i = 1; i <= 9999; ++i) {
-    char name[48];
-    std::snprintf(name, sizeof(name), "%s/w%04d.bmp", wallpapers::kLibraryDir, i);
-    if (!Storage.exists(name)) return std::string(name);
+  for (int i = 1; i <= wallpapers::kMaxUploadSlot; ++i) {
+    // The SHAPE comes from wallpapers::uploadFileName, which is also what the
+    // picker's harness picks a plausible arrival by and what
+    // host-tests/wallpapers builds its corpus from. Spelled here as well, it
+    // would go stale the first time one of the three moved.
+    const std::string path = std::string(wallpapers::kLibraryDir) + "/" + wallpapers::uploadFileName(i);
+    if (!Storage.exists(path.c_str())) return path;
   }
   return std::string();
 }

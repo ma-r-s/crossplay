@@ -699,6 +699,74 @@ int main() {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // WHICH PICTURE JUST ARRIVED.
+  //
+  // The upload route ENDS by putting that picture on the sleep screen, so the
+  // wrong answer pins a wallpaper nobody sent. It is the one step of that route
+  // that can be walked without a web server, an SD card and a poll timer.
+  //
+  // THE CORPUS IS GENERATED FROM uploadFileName(), not typed. Every upload is
+  // renamed w0001.bmp, w0002.bmp and so on and the phone's own name is thrown
+  // away, so a corpus of "beach.bmp" and "kids-on-the-beach.bmp" would be a
+  // corpus of names this route cannot emit -- it would test nothing and pass.
+  {
+    using V = std::vector<std::string>;
+    const auto up = [](int n) { return wallpapers::uploadFileName(n); };
+
+    // The shape itself, both ways, since three things now depend on it.
+    CHECK(up(1) == "w0001.bmp");
+    CHECK(up(wallpapers::kMaxUploadSlot) == "w9999.bmp");
+    // CLAMPED, so this producer can never emit a name its own predicate would
+    // reject -- the harness and the corpus both select by that predicate, and a
+    // producer/predicate pair that disagree is a corpus with a hole in it.
+    CHECK(wallpapers::isUploadName(up(0)));
+    CHECK(wallpapers::isUploadName(up(-1)));
+    CHECK(wallpapers::isUploadName(up(100000)));
+    for (const int slot : {-2147483647 - 1, -1, 0, 1, 42, 9998, 9999, 10000, 2147483647}) {
+      CHECK(wallpapers::isUploadName(up(slot)));
+      CHECK(up(slot).size() == 9);
+    }
+    CHECK(wallpapers::isUploadName(up(7)));
+    CHECK(wallpapers::isUploadName("W0007.BMP"));  // the FAT fold, as a remount hands it back
+    CHECK(!wallpapers::isUploadName("beach.bmp"));
+    CHECK(!wallpapers::isUploadName("w007.bmp"));
+    CHECK(!wallpapers::isUploadName("w00007.bmp"));
+    CHECK(!wallpapers::isUploadName("bauhaus.bmp"));
+
+    const V two = {up(1), up(2)};
+
+    // Nothing new: the poll ran, the count moved for some other reason, and
+    // nothing may be pinned on the strength of it.
+    CHECK(wallpapers::lastNewName(two, two) == -1);
+    CHECK(wallpapers::lastNewName(V{}, V{}) == -1);
+    // A library that SHRANK reports nothing new rather than a survivor, which
+    // is what a delete between two scans looks like.
+    CHECK(wallpapers::lastNewName(two, V{up(1)}) == -1);
+
+    // One arrival, wherever the re-sort put it. The list is rebuilt and
+    // re-sorted on every scan, so the new name is not reliably last.
+    CHECK(wallpapers::lastNewName(two, V{up(1), up(2), up(3)}) == 2);
+    CHECK(wallpapers::lastNewName(two, V{"aaa.bmp", up(1), up(2)}) == 0);
+    CHECK(wallpapers::lastNewName(V{}, V{up(1)}) == 0);
+
+    // TWO INSIDE ONE POLL: the MOST RECENT, which is the higher slot.
+    // nextWallpaperPath takes the lowest free slot, so two sends in one window
+    // number ascending and uploadFileName zero-pads them to sort that way. An
+    // earlier version took the first and showed the person the older picture.
+    CHECK(wallpapers::lastNewName(two, V{up(1), up(2), up(3), up(4)}) == 3);
+    // And with a HOLE: w0002 was deleted earlier, so the next two sends take
+    // slots 2 and 5. The second send is still the higher number.
+    CHECK(wallpapers::lastNewName(V{up(1), up(3), up(4)}, V{up(1), up(2), up(3), up(4), up(5)}) == 4);
+
+    // THE FAT CASE FOLD APPLIES HERE TOO. A card remounted between two scans
+    // can hand back "W0001.BMP" for a file written as "w0001.bmp", and a
+    // case-sensitive comparison would call it an arrival and re-pin a wallpaper
+    // nobody sent.
+    CHECK(wallpapers::lastNewName(two, V{"W0001.BMP", up(2)}) == -1);
+    CHECK(wallpapers::lastNewName(two, V{"W0001.BMP", "W0002.BMP", up(3)}) == 2);
+  }
+
   std::printf("wallpapers: %d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
 }
