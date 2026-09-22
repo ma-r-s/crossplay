@@ -488,6 +488,16 @@ physical presence.
 handed the browser a different fridge and silently orphaned both the phone
 already sending and the picture already on the glass. `/api/pair/join` takes
 the reader's bearer token and mints a code against the fridge it already has.
+
+Since 2026-09-21 "mints" means the id and the device token are drawn and held
+in memory by `Pairings`; the `state.json` is written by `/api/claim`. Before
+that it was written here, and because the reader asks for a code every time
+the Live screen opens unpaired, again when a code expires on screen and again
+on a 401 -- with nothing ever deleting the unclaimed ones -- the service held
+67 fridges from nineteen hours of one person testing. Waiting for the claim
+costs nothing: the reader does not receive its token from `pair/start`, only
+from `pair/poll`, which answers only once somebody has claimed, so a token
+never exists for a fridge that does not.
 Two endpoints rather than one with a flag, because a flag defaulted the wrong
 way is the same bug back.
 
@@ -735,7 +745,9 @@ yet" for the whole minute after pairing. Mario: _"shouldn't refresh time should
 start since sync? Makes little sense if it's never shown at the start"_.
 
 Before the first check-in the anchor is the pairing instant (`created +
-interval_s`), so there is always a figure.
+interval_s`), so there is always a figure. `created` is the moment the code was
+CLAIMED, which is when the record is written; it was the moment the code was
+shown until 2026-09-21, a difference of however long somebody took to type it.
 
 **The two seed intervals are now equal on purpose.** The reader seeded six hours
 and the service a day, and the reader's report is composed BEFORE it reads the

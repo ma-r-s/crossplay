@@ -366,6 +366,12 @@ void testIsOwnHost() {
   check(devreport::isOwnHost("sync.ma-r-s.com"), "sync is ours");
   check(devreport::isOwnHost("read.ma-r-s.com"), "read is ours");
   check(devreport::isOwnHost("crossplay.ma-r-s.com"), "the site is ours");
+  // Load-bearing since 2026-09-21: Live's /api/pull goes through
+  // bridge::getToFile, which calls identify(), so a check-in already carries
+  // the device headers and fridge-bridge can attribute it to a device without
+  // the firmware sending anything new. If this host ever stopped being ours,
+  // per-device Live use on the inbox page would quietly become zero.
+  check(devreport::isOwnHost("fridge.ma-r-s.com"), "Live's host is ours, so a check-in is attributable");
   check(devreport::isOwnHost("ma-r-s.com"), "the zone itself is ours");
   check(devreport::isOwnHost("BOOKS.MA-R-S.COM"), "case does not matter");
   check(!devreport::isOwnHost("news.ycombinator.com"), "hacker news is not ours");

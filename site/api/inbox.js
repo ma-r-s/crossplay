@@ -13,7 +13,8 @@
 //   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card],
 //                people: [reports from people he has not read],
 //                triage: {waiting, claimed, for_mario, oldest_h, last_triaged_at, since_triage_h} or null}
-//   numbers  -> {heard, fresh, now, devices, field, crashes, byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
+//   numbers  -> {heard, fresh, now, devices, field, crashes, byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp,
+//                deviceVersions, deviceServices, serviceMetrics, live}
 //   answer   -> closes one blocker: {card_id, n, choice, note}
 //   seen     -> marks one report from a person as read: {card_id, note}
 
@@ -131,7 +132,9 @@ async function opList() {
   // here; a report without one gets null and the page shows no picture.
   const rows = await Promise.all(
     (people.rows || []).map(async (r) =>
-      Object.assign({}, r, { photo_url: r.photo_path ? await photoUrl(r.photo_path) : null }),
+      Object.assign({}, r, {
+        photo_url: r.photo_path ? await photoUrl(r.photo_path) : null,
+      }),
     ),
   );
   return {
@@ -143,6 +146,10 @@ async function opList() {
     recurring: recurring || [],
   };
 }
+
+// What PostgREST will return at most, whatever `limit` asks for. Kept beside
+// the queries that depend on it, and handed to the page in the answer.
+const ROW_LIMIT = 1000;
 
 async function opNumbers() {
   const q = (p) => rest(p).catch(() => []);
@@ -163,6 +170,10 @@ async function opNumbers() {
     dwell,
     latency,
     byApp,
+    deviceVersions,
+    deviceServices,
+    serviceMetrics,
+    live,
   ] = await Promise.all([
     // The owner's facts first (20260910000200_owner_views.sql): distinct
     // devices per window, growth, what runs right now with each device once,
@@ -185,6 +196,27 @@ async function opNumbers() {
     q("state_dwell?select=*"),
     q("inbox_latency?select=*"),
     q("open_cards_by_app?select=*"),
+    // Per device and per service (20260921000100_fleet_analytics.sql). These
+    // are the four Mario asked for and the page could not answer: what this
+    // device has run, what it has used, what each service is worth, and
+    // whether Live's numbers mean anything yet.
+    //
+    // device_versions and device_services are one row per pair, so they grow
+    // with the fleet rather than with time, and the page says when a table was
+    // truncated: one that looks complete and is not is the bug this whole card
+    // is about.
+    //
+    // ROW_LIMIT is the number PostgREST itself enforces (db-max-rows), not a
+    // number chosen here. Measured against the real board: asking `events` for
+    // 4000 rows returns `content-range: 0-999/8679`, so a bigger limit is
+    // silently ignored. It was 4000, which meant the page's "hit the cap"
+    // warning compared against a length that could never be reached -- a guard
+    // that cannot fire. The page is told the limit rather than holding its own
+    // copy, so the two can never disagree.
+    q(`device_versions?select=*&limit=${ROW_LIMIT}`),
+    q(`device_services?select=*&limit=${ROW_LIMIT}`),
+    q("service_metrics?select=*"),
+    q("live_fridges?select=*"),
   ]);
   return {
     heard: (heard || [])[0] || null,
@@ -203,6 +235,11 @@ async function opNumbers() {
     dwell,
     latency: (latency || [])[0] || null,
     byApp,
+    deviceVersions,
+    deviceServices,
+    serviceMetrics,
+    live: (live || [])[0] || null,
+    rowLimit: ROW_LIMIT,
   };
 }
 
@@ -289,7 +326,8 @@ async function opSeen(body) {
   const patch = { mario_seen_at: new Date().toISOString() };
   if (note) {
     patch.body =
-      ((card.body || "").replace(/\s+$/, "") + (card.body ? "\n\n" : "")) +
+      (card.body || "").replace(/\s+$/, "") +
+      (card.body ? "\n\n" : "") +
       `${MARIO_SAID} ${note}`;
     if (card.state === "reported") patch.state = "triaged";
   }
