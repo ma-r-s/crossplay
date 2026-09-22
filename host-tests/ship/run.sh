@@ -592,7 +592,20 @@ fi
 # is present and unreachable reads exactly like a guard that works. Both cases
 # are driven in a scratch clone so nothing here can touch a real branch, and
 # --dry-run is deliberately NOT used: the refusals must fire before it.
-SCRATCH="$(mktemp -d -t ship-suite)"
+# PORTABLE FORM, with the X's spelled out. `mktemp -d -t ship-suite` is BSD
+# syntax: macOS appends a suffix, GNU coreutils reads the argument as the
+# TEMPLATE and refuses it for having no trailing X's. On Linux it therefore
+# printed nothing and exited non-zero, SCRATCH was empty, the scratch repo was
+# never created, and the two refusal checks below ran ship.sh in the REAL
+# checkout -- which actions/checkout leaves on a detached HEAD, so ship.sh's
+# first guard refused that instead and both checks blamed the guard they were
+# testing. Green on every Mac, red on every runner.
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/ship-suite.XXXXXXXX")"
+[ -n "$SCRATCH" ] && [ -d "$SCRATCH" ] || {
+  echo "FAIL ship  mktemp produced no scratch directory; the live refusal checks cannot run"
+  echo "1 checks, 1 failed"
+  exit 1
+}
 trap 'rm -rf "$SCRATCH"' EXIT
 if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   q() { "$@" >/dev/null 2>&1; }
