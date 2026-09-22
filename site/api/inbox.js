@@ -13,7 +13,8 @@
 //   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card],
 //                people: [reports from people he has not read],
 //                triage: {waiting, claimed, for_mario, oldest_h, last_triaged_at, since_triage_h} or null}
-//   numbers  -> {heard, fresh, now, devices, field, crashes, byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
+//   numbers  -> {heard, fresh, now, devices, field, crashes, byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp,
+//                deviceVersions, deviceServices, serviceMetrics, live}
 //   answer   -> closes one blocker: {card_id, n, choice, note}
 //   seen     -> marks one report from a person as read: {card_id, note}
 
@@ -163,6 +164,10 @@ async function opNumbers() {
     dwell,
     latency,
     byApp,
+    deviceVersions,
+    deviceServices,
+    serviceMetrics,
+    live,
   ] = await Promise.all([
     // The owner's facts first (20260910000200_owner_views.sql): distinct
     // devices per window, growth, what runs right now with each device once,
@@ -185,6 +190,19 @@ async function opNumbers() {
     q("state_dwell?select=*"),
     q("inbox_latency?select=*"),
     q("open_cards_by_app?select=*"),
+    // Per device and per service (20260921000100_fleet_analytics.sql). These
+    // are the four Mario asked for and the page could not answer: what this
+    // device has run, what it has used, what each service is worth, and
+    // whether Live's numbers mean anything yet.
+    //
+    // device_versions and device_services are one row per pair, so they grow
+    // with the fleet rather than with time. The caps are deliberate and the
+    // page says when it hit one: a truncated table that looks complete is the
+    // bug this whole card is about.
+    q("device_versions?select=*&limit=4000"),
+    q("device_services?select=*&limit=4000"),
+    q("service_metrics?select=*"),
+    q("live_fridges?select=*"),
   ]);
   return {
     heard: (heard || [])[0] || null,
@@ -203,6 +221,10 @@ async function opNumbers() {
     dwell,
     latency: (latency || [])[0] || null,
     byApp,
+    deviceVersions,
+    deviceServices,
+    serviceMetrics,
+    live: (live || [])[0] || null,
   };
 }
 

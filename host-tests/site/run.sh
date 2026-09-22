@@ -432,6 +432,22 @@ fi
 # and the page talks only to that gate, never to the board directly
 grep -q '"/api/inbox"' "$ROOT/site/inbox/index.html" && ok || bad "the inbox page does not call /api/inbox"
 
+# assets/fleet.js: version ordering, one row per version, and the services that
+# posted nothing. Pure functions, so they run under plain node.
+if fleet_out="$(node "$HERE/fleet_js.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$fleet_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "fleet_js: $line"; done < <(printf '%s\n' "$fleet_out" | grep '^  FAIL'); }
+else
+  bad "fleet_js.js could not run, so the fleet tables' arithmetic went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$fleet_out"
+fi
+# The page must actually USE it: a helper nobody calls sorts nothing.
+grep -q 'assets/fleet.js' "$ROOT/site/inbox/index.html" \
+  && ok || bad "the inbox page does not load assets/fleet.js, so its tables sort themselves"
+grep -q 'FLEET.foldVersions' "$ROOT/site/inbox/index.html" \
+  && ok || bad "the inbox page does not fold the versions table, so a version can be listed twice"
+
 # api/trivia.js takes question reports off a device. Two of its properties are
 # invisible in the code and only a test can hold them: the device id is used to
 # build the row key and is then DROPPED, so it appears in no column; and the key

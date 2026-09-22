@@ -323,6 +323,10 @@ const expect = (label, got, want) =>
     "state_dwell",
     "inbox_latency",
     "open_cards_by_app",
+    "device_versions",
+    "device_services",
+    "service_metrics",
+    "live_fridges",
   ].forEach(function (v) {
     expect(
       "and reads " + v,
