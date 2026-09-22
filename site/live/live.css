@@ -986,10 +986,13 @@
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
-  /* Wide enough that the picked tile's outside brackets never reach into the
-     tile beside it. */
-  column-gap: 1.1rem;
-  padding-bottom: 0.2rem;
+  /* THE PICKED TILE'S BRACKETS LIVE OUTSIDE IT, and this is a scroll box, so
+     it clips on all four sides. The room has to be here, on the rail itself,
+     rather than on one layout's override: the desktop grid has its own rule
+     and was clipping the top corners while the phone was fine. The gap is
+     wide for the same reason -- a neighbour must not sit inside them. */
+  column-gap: 1.8rem;
+  padding: 13px;
   scrollbar-width: thin;
 }
 .lv-card {
@@ -1041,7 +1044,7 @@
 .lv-card[data-selected="true"] .lv-card-pick {
   --bkt: 16px; /* arm length */
   --bkt-w: 3px; /* arm thickness */
-  --bkt-gap: 5px; /* clear air between the mark and the picture */
+  --bkt-gap: 11px; /* clear air between the mark and the picture */
   position: relative;
 }
 .lv-card[data-selected="true"] .lv-card-pick::after {
@@ -1288,8 +1291,6 @@
        one tile is not a rail. Whatever is left over falls below, where a page
        ending reads as a page ending rather than as a hole in the middle. */
     height: 16rem;
-    /* The picked tile's brackets sit outside it, and this box clips. */
-    padding-block: 7px;
     flex: none;
     min-height: 0;
     align-items: stretch;
