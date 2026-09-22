@@ -1772,7 +1772,13 @@ async function refresh() {
         mode: state.schedule.mode,
         intervalSeconds: state.schedule.intervalSeconds,
         dailyTime: state.schedule.dailyTime,
-        tz: state.schedule.tz,
+        // NOT the stored one. The zone is defined as wherever the person
+        // reading this page is standing, so it is asserted every time rather
+        // than adopted: echoing back what the service happens to hold let a
+        // "UTC" that got in once perpetuate itself, and 01:00 was then
+        // computed in UTC -- five hours off, which read as "in 19 hours" for a
+        // check due in forty minutes.
+        tz: browserTz(),
       };
     }
   }
@@ -2037,7 +2043,7 @@ document.getElementById("schedDone").onclick = async () => {
       mode: schedule.mode,
       intervalSeconds: schedule.intervalSeconds,
       dailyTime: schedule.dailyTime,
-      tz: schedule.tz,
+      tz: browserTz(),
     }),
   });
   if (!r.ok) {
