@@ -28,6 +28,12 @@ bool load(State& out) {
   // hand, or written by a build whose limits differed, is an input like any
   // other -- and a zero here would busy-wake the radio flat overnight.
   out.intervalSeconds = clampInterval(doc["intervalSeconds"] | static_cast<int64_t>(kDefaultIntervalSeconds));
+  // NOT through the clamp unconditionally, unlike the line above.
+  // clampInterval(0) is fifteen minutes, so clamping an absent key would turn
+  // "this card predates the field" into a cadence nobody chose and print it on
+  // the panel. 0 stays 0 and Schedule::cadence answers with the interval.
+  const int64_t storedCadence = doc["cadenceSeconds"] | static_cast<int64_t>(0);
+  out.cadenceSeconds = storedCadence > 0 ? clampInterval(storedCadence) : 0;
   out.lastAttemptEpoch = doc["lastAttemptEpoch"] | static_cast<int64_t>(0);
   out.lastSuccessEpoch = doc["lastSuccessEpoch"] | static_cast<int64_t>(0);
   out.consecutiveFailures = doc["consecutiveFailures"] | 0;
@@ -42,6 +48,7 @@ bool save(const State& state) {
   doc["etag"] = state.etag;
   doc["on"] = state.on;
   doc["intervalSeconds"] = state.intervalSeconds;
+  doc["cadenceSeconds"] = state.cadenceSeconds;
   doc["lastAttemptEpoch"] = state.lastAttemptEpoch;
   doc["lastSuccessEpoch"] = state.lastSuccessEpoch;
   doc["consecutiveFailures"] = state.consecutiveFailures;

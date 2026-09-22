@@ -205,7 +205,7 @@ async def main():
             )
 
             # --- deleting the picked one -----------------------------------
-            await page.click("#histAct .lv-icon")
+            await page.click("#histAct .lv-btn")
             await page.wait_for_timeout(200)
             await page.click("#histAct .is-yes")
             await page.wait_for_timeout(800)

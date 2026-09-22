@@ -882,10 +882,17 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
+/* `width: 0; min-width: 100%` is the trick and it is load-bearing: a span with
+   words in it contributes its max-content to the width of every box above it,
+   so where the tile is sized from its HEIGHT (a rail that owns its height:
+   desktop, and a phone lying down) the words widened the thumbnail and the
+   rail came out with tiles of six different widths. Zero min-content
+   contribution, laid out at the full width it is given. */
 .lv-card-gone {
   display: grid;
   place-items: center;
-  width: 100%;
+  width: 0;
+  min-width: 100%;
   height: 100%;
   font-size: 0.6rem;
   line-height: 1.1;
@@ -1095,6 +1102,7 @@
   .lv-rail {
     flex: 1;
     min-height: 0;
+    align-items: stretch;
   }
   /* Two lines of height bought back from the row that needs it least. */
   body.lv-connected .lv-btn.is-primary {
@@ -1170,14 +1178,19 @@
   .lv-app {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
+    /* THE RAIL IS IN THE COLUMN, and it takes the row that is left over.
+       Under both columns instead, the right one ended at the send button with
+       150 to 250px of nothing between the tones and the buttons: not air, an
+       unfinished look. Here the leftover height goes into the thumbnails,
+       which is the one thing on this page that is better for being bigger. */
     grid-template-areas:
       "stage  when"
       "stage  sched"
       "stage  tabs"
       "stage  tools"
       "stage  send"
-      "hist   hist";
-    grid-template-rows: auto auto auto auto 1fr auto;
+      "stage  hist";
+    grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
     gap: 0.9rem 1.6rem;
     align-items: start;
   }
@@ -1250,7 +1263,56 @@
   .lv-history {
     grid-area: hist;
     border-top: 3px solid var(--ink);
-    padding-top: 0.9rem;
+    padding-top: 0.7rem;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .lv-rail {
+    flex: 1;
+    min-height: 0;
+    /* STRETCH, not the base rule's flex-start: the tiles are one height because
+       the tallest caption sets it, and a tile shorter than its neighbours is
+       what made the rail look ragged. The thumbnail keeps its ratio because it
+       is `flex: none` above. */
+    align-items: stretch;
+  }
+  .lv-hist-foot {
+    flex: none;
+  }
+  /* SIZED FROM THE RAIL, the same rule a phone lying down uses: the rail has a
+     height it was given, so the tile takes it and derives its width from the
+     panel's ratio. In rem it would be a guess that is wrong on the next window
+     size, and the part that gets cut is the band along the picture's foot. */
+  /* THE TILE IS SIZED FROM ITS WIDTH HERE, not from the rail's height.
+     Deriving the width from the height is what a phone lying down does, and it
+     is right there because the rail's height is the scarce thing. Here it is
+     CIRCULAR: the card's auto width comes from its contents, the thumbnail's
+     width comes from the card, and the pair settles at twelve pixels. The rail
+     sitting in the column is what closed the dead gap; elastic thumbnails were
+     never the part that mattered. */
+  .lv-card-pick {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .lv-card-thumb {
+    flex: none;
+  }
+  /* The caption keeps two lines whether it needs them or not, so which day a
+     drawing was sent cannot change how tall its tile is: "yesterday 09:02 PM"
+     wraps where "today 01:02 PM" does not, and the rail came out ragged by a
+     whole line. */
+  /* Three lines and the padding, so a date that wraps still leaves room for the
+     name under it. At two it was the NAME that got cut, which is the half of
+     the caption a picture cannot tell you. */
+  .lv-card-meta {
+    flex: none;
+    height: 3rem;
+    overflow: hidden;
+  }
+  .lv-empty {
+    align-self: center;
   }
   .lv-hist-title {
     font-size: 1.1rem;
@@ -1262,7 +1324,7 @@
     display: flex;
   }
   .lv-card {
-    --card-w: 5.6rem;
+    --card-w: 6.2rem;
   }
   .lv-card-badge {
     font-size: 0.68rem;

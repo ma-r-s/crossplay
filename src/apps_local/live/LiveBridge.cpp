@@ -201,6 +201,7 @@ bool pull(const std::string& deviceToken, const std::string& knownEtag, const bo
   headers.add("X-Live-On", liveOn ? "1" : "0");
   headers.collect("ETag");
   headers.collect("X-Next-Wake");
+  headers.collect("X-Cadence");
   headers.collect("X-Server-Time");
 
   size_t received = 0;
@@ -213,6 +214,11 @@ bool pull(const std::string& deviceToken, const std::string& knownEtag, const bo
   // most needs to know when to come back.
   const int64_t wake = headerNumber(headers, "X-Next-Wake");
   if (wake > 0) out.nextWakeSeconds = clampInterval(wake);
+  // CLAMPED ONLY IF IT WAS SENT. clampInterval(0) is 15 minutes, not 0, so
+  // clamping unconditionally would turn "the service said nothing" into "every
+  // fifteen minutes" and print a cadence nobody chose.
+  const int64_t cadence = headerNumber(headers, "X-Cadence");
+  if (cadence > 0) out.cadenceSeconds = clampInterval(cadence);
   out.serverEpoch = headerNumber(headers, "X-Server-Time");
 
   switch (out.status) {

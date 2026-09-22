@@ -23,9 +23,13 @@ struct PullResult {
   int status = 0;                // 200, 304, 204, 401, or 0 for "could not reach"
   std::string etag;              // quotes stripped; empty on anything but a 200
   uint32_t nextWakeSeconds = 0;  // clamped by LiveCore, 0 when the header was absent
-  int64_t serverEpoch = 0;       // 0 when absent
-  size_t bytes = 0;              // what a 200 actually wrote, for the completeness check
-  std::string message;           // a sentence for a screen, when there is one to show
+  // X-Cadence: how often it repeats, which a clock-time schedule makes a
+  // different number from the sleep above. 0 when the header was absent, which
+  // the caller resolves through Schedule::cadence rather than guessing here.
+  uint32_t cadenceSeconds = 0;
+  int64_t serverEpoch = 0;  // 0 when absent
+  size_t bytes = 0;         // what a 200 actually wrote, for the completeness check
+  std::string message;      // a sentence for a screen, when there is one to show
 };
 
 struct PairStart {

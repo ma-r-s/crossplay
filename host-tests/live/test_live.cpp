@@ -552,6 +552,65 @@ static void testNextCheckPhrase() {
   }
 }
 
+// A CLOCK-TIME SCHEDULE. The sleep the service hands out is however many
+// seconds are left until the next 07:00, so it is a part-day whenever the
+// schedule changed or a check was missed; the cadence beside it is a day.
+static live::Schedule pairedDaily(const uint32_t nextSleep, const int64_t lastAttempt) {
+  live::Schedule s = pairedEvery(nextSleep, lastAttempt);
+  s.cadenceSeconds = 86400;
+  return s;
+}
+
+// WHAT THE PANEL SAYS IS NOT WHAT IT SLEPT FOR, and it was one field.
+//
+// Set "every day at 07:00" at four in the morning and the service answers
+// X-Next-Wake: 10800. Composing the cadence from that figure, the panel said
+// "Every 3 hours" from then on -- confidently, and forever, because every later
+// reply is also a part-day whenever anything slips. A wrong cadence is worse
+// than none: it gets believed, and it is the one place the panel contradicts
+// the website about the same reader.
+static void testCadenceIsNotTheSleep() {
+  std::printf("cadence apart from the sleep\n");
+  const int64_t base = live::kPlausibleEpochFloor + 1000000;
+
+  checkStr(live::scheduleNote(pairedDaily(10800, base)), "Every day",
+           "a daily schedule set at four in the morning is still daily");
+  checkStr(live::scheduleNote(pairedDaily(900, base)), "Every day",
+           "and still daily when the next check is the clamp away");
+  checkStr(live::scheduleNote(pairedDaily(86400, base)), "Every day", "and when the two agree");
+
+  // THE SLEEP IS UNTOUCHED. The cadence is a word on a screen; the alarm is
+  // the thing that wakes the radio, and it must go on coming from X-Next-Wake
+  // alone or a daily reader would wake a day late on the morning it was set.
+  check(live::waitSeconds(pairedDaily(10800, base)) == 10800u,
+        "the alarm is the sleep the service asked for, not the cadence");
+  const live::Decision d = live::decide(pairedDaily(10800, base), base + 10, false);
+  check(!d.fetchNow && d.timerSeconds == 10790u, "the timer counts down the sleep the service asked for");
+  check(d.timerSeconds < 86400u,
+        "and never the cadence, which would put a daily reader a day late on the "
+        "morning somebody set it");
+
+  // ABSENT IS NOT ZERO AND NOT FIFTEEN MINUTES. A service that does not send
+  // the header, and a card written before the field existed, both arrive here
+  // as 0 and must read exactly as this reader read before either existed.
+  live::Schedule silent = pairedEvery(21600, base);
+  check(silent.cadenceSeconds == 0u, "a schedule says nothing about its cadence until told");
+  checkStr(live::scheduleNote(silent), "Every 6 hours",
+           "an absent cadence falls back to the sleep, which is the old behaviour verbatim");
+  check(silent.cadence() == 21600u, "and cadence() is where that fallback lives");
+
+  // THE TRAP THE STORE MUST NOT WALK INTO. clampInterval(0) is not 0, so a load
+  // that clamps an absent key unconditionally -- which is what the line above
+  // it does for the interval, correctly -- would turn "never told" into "every
+  // fifteen minutes" and print a cadence nobody chose.
+  check(live::clampInterval(0) == live::kMinIntervalSeconds, "clamping an absent cadence would invent one");
+
+  // Off, the suffix still belongs to the cadence and not to the sleep.
+  live::Schedule off = pairedDaily(10800, base);
+  off.on = false;
+  checkStr(live::scheduleNote(off), "Every day when on", "a paused daily reader names its cadence");
+}
+
 static void testScheduleNote() {
   std::printf("schedule note\n");
   const int64_t base = live::kPlausibleEpochFloor + 1000000;
@@ -636,6 +695,7 @@ int main() {
   testShortDate();
   testNextCheckPhrase();
   testScheduleNote();
+  testCadenceIsNotTheSleep();
   if (failures != 0) {
     std::printf("live: %d checks, %d failed\n", checks, failures);
     return 1;

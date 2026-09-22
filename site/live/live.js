@@ -1047,7 +1047,7 @@ function renderAct() {
     const yes = document.createElement("button");
     yes.type = "button";
     yes.className = "lv-btn is-yes";
-    yes.textContent = "Delete";
+    yes.textContent = "Yes, delete";
     yes.onclick = () => remove(e);
     const no = document.createElement("button");
     no.type = "button";
@@ -1060,13 +1060,18 @@ function renderAct() {
     histAct.append(q, yes, no);
     return;
   }
+  // A WORD, NOT AN ICON, and this is the reason: the board's Clear is an
+  // eraser, this is a bin, and on a phone they sit a thumb's width apart while
+  // meaning completely different things -- rub out a drawing you can undo, and
+  // remove a record from everybody's reader forever. An icon cannot carry that
+  // difference. A word can, and this is the one control on the page rare enough
+  // to spend the room on one.
   const del = document.createElement("button");
   del.type = "button";
-  del.className = "lv-btn lv-icon";
-  del.title = "Delete this one";
-  del.setAttribute("aria-label", "Delete this one");
-  del.innerHTML =
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trash"/></svg>';
+  del.className = "lv-btn";
+  del.textContent = "Delete";
+  del.title = "Delete this from the reader, for everyone";
+  del.setAttribute("aria-label", "Delete this from the reader, for everyone");
   del.onclick = () => {
     askingDelete = e.id;
     renderAct();
@@ -1085,8 +1090,10 @@ function historyNote() {
   if (!sent.entries.length) return "";
   const sel = sent.entries.find((e) => e.id === sent.selected);
   if (!sel) return "Nothing is picked. The reader keeps what is on it.";
-  const what = KIND_WORD[sel.kind] || "picture";
-  return `Next up: the ${what} ${sel.by} sent ${whenStamp(sel.at)}.`;
+  // The tile beside it is the picture, so this says the two things a picture
+  // cannot: who sent it and when. It is also short enough to leave room for the
+  // Delete beside it on a 350px phone.
+  return `Next up: ${sel.by}, ${whenStamp(sel.at)}.`;
 }
 
 async function select(e) {

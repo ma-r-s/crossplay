@@ -210,7 +210,10 @@ std::string scheduleNote(const Schedule& schedule) {
     std::snprintf(buf, sizeof(buf), "%d checks failed.", schedule.consecutiveFailures);
     return std::string(buf);
   }
-  const uint32_t intervalSeconds = schedule.intervalSeconds;
+  // THE CADENCE, not the last sleep. See Schedule::cadence: the two are the
+  // same number under a repeating schedule and differ under a clock-time one,
+  // which is the whole reason the service sends them apart.
+  const uint32_t intervalSeconds = schedule.cadence();
   const char* suffix = schedule.on ? "" : " when on";
   // BANDED, not "exact multiples or else minutes". The interval is whatever the
   // service's X-Next-Wake asked for, clamped to 15 minutes..7 days and nothing
