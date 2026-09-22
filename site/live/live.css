@@ -986,6 +986,9 @@
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
+  /* Wide enough that the picked tile's outside brackets never reach into the
+     tile beside it. */
+  column-gap: 1.1rem;
   padding-bottom: 0.2rem;
   scrollbar-width: thin;
 }
@@ -1026,43 +1029,35 @@
   object-fit: cover;
   image-rendering: pixelated;
 }
-/* BRACKETS, NOT A BOX. A full ring around the picked tile read as a frame the
-   picture was mounted in; four corners sit ON it and mark it without enclosing
-   it, the way a viewfinder does. Drawn inside the tile's own edge so the
-   rail's scroll box cannot clip them, and in ABSOLUTE ink rather than the
-   theme's: these sit on the reader's paper, which is white in both themes, so
-   `--ink` would have drawn them near-white on white the moment somebody's
-   phone was in dark mode. Same trap the black header's controls hit.
-
-   Two gradients do it. Each corner is one layer whose background-size is the
-   corner's box, positioned into that corner, and the gradient inside it paints
-   only the two arms. No extra element, so nothing changes about the tile's
-   size or what a screen reader sees. */
+/* BRACKETS AROUND THE PICTURE, NOT ON IT. Four corners set OUTSIDE the tile
+   and clear of it, so they mark the picture the way a viewfinder does without
+   touching or enclosing it.
+   Outside means they sit on the PAGE, not on the reader's paper, so they take
+   the theme's ink: black on the light theme, white on the dark one. (Drawn
+   inside, on the panel, they would have to be absolute ink instead -- the
+   paper is white in both themes.)
+   Two gradients per corner, eight layers on one ::after: no extra element, so
+   nothing changes about the tile's size or what a screen reader sees. */
 .lv-card[data-selected="true"] .lv-card-pick {
-  --bkt: 18px; /* arm length */
+  --bkt: 16px; /* arm length */
   --bkt-w: 3px; /* arm thickness */
-  --bkt-ink: #111110; /* the panel is white in both themes */
+  --bkt-gap: 5px; /* clear air between the mark and the picture */
   position: relative;
 }
 .lv-card[data-selected="true"] .lv-card-pick::after {
   content: "";
   position: absolute;
-  /* The picture, not the whole tile: the foot carries the "Next up" band, and
-     brackets in absolute ink on a black band are black on black. */
-  inset: 0 0 var(--badge-h, 1.35rem) 0;
+  inset: calc(var(--bkt-gap) * -1);
   pointer-events: none;
-  /* Over the "Next up" band, which sits along the foot of the picture: under
-     it, the two bottom corners were hidden and the mark had only two. */
-  z-index: 2;
   background-image:
-    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
-    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
-    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
-    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
-    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
-    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
-    linear-gradient(var(--bkt-ink), var(--bkt-ink)),
-    linear-gradient(var(--bkt-ink), var(--bkt-ink));
+    linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink)),
+    linear-gradient(var(--ink), var(--ink));
   background-repeat: no-repeat;
   background-size:
     var(--bkt) var(--bkt-w), var(--bkt-w) var(--bkt),
@@ -1293,13 +1288,11 @@
        one tile is not a rail. Whatever is left over falls below, where a page
        ending reads as a page ending rather than as a hole in the middle. */
     height: 16rem;
+    /* The picked tile's brackets sit outside it, and this box clips. */
+    padding-block: 7px;
     flex: none;
     min-height: 0;
     align-items: stretch;
-    /* Room for the selected ring, which is drawn inside the tile now but the
-       scroll box still clipped the old one. The base rule's bottom padding is
-       kept; padding-block would have replaced it. */
-    padding-top: 2px;
   }
   /* The schedule panel borrows the rail's room while it is open, the way it
      borrowed the canvas's before the canvas moved out. Without this the home
@@ -1324,6 +1317,12 @@
     width: auto;
     height: 100%;
     aspect-ratio: 480 / 800;
+  }
+  /* Only the picture is clipped. Clipping the tile and the button as well cut
+     off the picked tile's brackets, which are drawn OUTSIDE them on purpose.
+     The stated ratio is what keeps the tile from measuring its own contents;
+     the hidden overflow was never what did that. */
+  body.lv-connected:not(.lv-drawing) .lv-card-thumb {
     overflow: hidden;
   }
   body.lv-connected:not(.lv-drawing) .lv-card-thumb {
