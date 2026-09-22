@@ -90,6 +90,18 @@
    Modern Safari ignores it anyway. Elements that need to own the gesture
    entirely -- the drawing canvas, the game boards -- already declare
    `touch-action: none` themselves, and that still wins here. */
+/* ON EVERY ELEMENT, not just the document. touch-action is NOT inherited, and
+   browsers differ on how far up the tree they look when deciding whether a
+   double tap may zoom -- Safari in particular wants it on the element the
+   finger actually lands on. Setting it on html and body alone left the gesture
+   working on buttons and links, which is most of what anybody taps.
+   `manipulation` is the mild value: panning and PINCH ZOOM still work, only
+   the double-tap gesture goes, and with it the ~300ms the browser spends
+   waiting to find out whether a second tap is coming.
+   Anything that owns its gesture completely -- the drawing canvas, the game
+   boards -- declares `touch-action: none` in a class rule, which outranks
+   this. */
+*,
 html,
 body {
   touch-action: manipulation;
