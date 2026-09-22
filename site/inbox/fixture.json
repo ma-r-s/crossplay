@@ -431,9 +431,9 @@
   "numbers": {
     "heard": {
       "h24": 6,
-      "d7": 11,
-      "d30": 14,
-      "d90": 14
+      "d7": 12,
+      "d30": 18,
+      "d90": 18
     },
     "fresh": {
       "this_week": 3,
@@ -450,9 +450,10 @@
       },
       {
         "version": "1.13.9",
-        "devices": 2,
+        "devices": 3,
         "boards": {
-          "x4pro": 2
+          "x4pro": 2,
+          "unknown": 1
         }
       },
       {
@@ -471,8 +472,9 @@
       },
       {
         "version": "1.12.48",
-        "devices": 1,
+        "devices": 2,
         "boards": {
+          "lilygo": 1,
           "x4pro": 1
         }
       },
@@ -484,7 +486,21 @@
         }
       },
       {
+        "version": "1.6.0",
+        "devices": 1,
+        "boards": {
+          "papermono": 1
+        }
+      },
+      {
         "version": "dev-local",
+        "devices": 1,
+        "boards": {
+          "x4pro": 1
+        }
+      },
+      {
+        "version": "slim-sd",
         "devices": 1,
         "boards": {
           "x4pro": 1
@@ -547,6 +563,15 @@
         "versions_run": 1
       },
       {
+        "device": "55858555296ede56c89a74e708b5bddb7855bd91f47140a440618c0f2bd74c6d",
+        "board": "x4pro",
+        "version": "slim-sd",
+        "since": "2026-09-20T09:30:00Z",
+        "first_seen": "2026-09-20T08:05:00Z",
+        "last_seen": "2026-09-20T17:40:00Z",
+        "versions_run": 1
+      },
+      {
         "device": "b78a23ff97c0b5687645cf015b076f9745eeadb4ec179d49deaba34e76b9b28a",
         "board": "sticky",
         "version": "1.13.15",
@@ -563,6 +588,15 @@
         "first_seen": "2026-07-30T08:05:00Z",
         "last_seen": "2026-09-17T17:40:00Z",
         "versions_run": 2
+      },
+      {
+        "device": "bb0ec63bac973cad2d8735a0261ee386c9e1e7be6f4b6ac7d85c25ca754581da",
+        "board": "unknown",
+        "version": "1.13.9",
+        "since": "2026-09-16T09:30:00Z",
+        "first_seen": "2026-09-16T08:05:00Z",
+        "last_seen": "2026-09-16T17:40:00Z",
+        "versions_run": 1
       },
       {
         "device": "18f8e6ed2139b81b0f9c23092894aae220e974db5ace7d71305daf34fcbba94b",
@@ -601,6 +635,15 @@
         "versions_run": 1
       },
       {
+        "device": "5b82a3069343d3c9ec3e471ee8a57f300595ab6d2de08d9d2a46bda2375c7fb4",
+        "board": "lilygo",
+        "version": "1.12.48",
+        "since": "2026-09-02T09:30:00Z",
+        "first_seen": "2026-09-02T08:05:00Z",
+        "last_seen": "2026-09-02T17:40:00Z",
+        "versions_run": 1
+      },
+      {
         "device": "38e8289de72938d2d082d24158f2d6f3961d26de7e9736fbafcc3d07bc20f8f7",
         "board": "x4pro",
         "version": "1.12.48",
@@ -616,6 +659,15 @@
         "since": "2026-06-14T09:30:00Z",
         "first_seen": "2026-06-14T08:05:00Z",
         "last_seen": "2026-08-25T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "45415bc117ae92dd968f64dd9b8a35bb7c6a90a030422206fb99277460fa45ed",
+        "board": "papermono",
+        "version": "1.6.0",
+        "since": "2026-07-21T09:30:00Z",
+        "first_seen": "2026-07-21T08:05:00Z",
+        "last_seen": "2026-07-21T17:40:00Z",
         "versions_run": 1
       }
     ],
@@ -1316,6 +1368,34 @@
         "first_at": "2026-09-19T09:30:00Z",
         "last_at": "2026-09-21T17:40:00Z",
         "events": 7
+      },
+      {
+        "device": "bb0ec63bac973cad2d8735a0261ee386c9e1e7be6f4b6ac7d85c25ca754581da",
+        "version": "1.13.9",
+        "first_at": "2026-09-16T09:30:00Z",
+        "last_at": "2026-09-16T17:40:00Z",
+        "events": 3
+      },
+      {
+        "device": "5b82a3069343d3c9ec3e471ee8a57f300595ab6d2de08d9d2a46bda2375c7fb4",
+        "version": "1.12.48",
+        "first_at": "2026-09-02T09:30:00Z",
+        "last_at": "2026-09-02T17:40:00Z",
+        "events": 3
+      },
+      {
+        "device": "45415bc117ae92dd968f64dd9b8a35bb7c6a90a030422206fb99277460fa45ed",
+        "version": "1.6.0",
+        "first_at": "2026-07-21T09:30:00Z",
+        "last_at": "2026-07-21T17:40:00Z",
+        "events": 3
+      },
+      {
+        "device": "55858555296ede56c89a74e708b5bddb7855bd91f47140a440618c0f2bd74c6d",
+        "version": "slim-sd",
+        "first_at": "2026-09-20T09:30:00Z",
+        "last_at": "2026-09-20T17:40:00Z",
+        "events": 3
       }
     ],
     "deviceServices": [
@@ -1510,6 +1590,30 @@
         "first_at": "2026-09-19T10:15:00Z",
         "last_at": "2026-09-21T16:20:00Z",
         "errors": 0
+      },
+      {
+        "device": "bb0ec63bac973cad2d8735a0261ee386c9e1e7be6f4b6ac7d85c25ca754581da",
+        "service": "site",
+        "events": 5,
+        "first_at": "2026-09-16T10:15:00Z",
+        "last_at": "2026-09-16T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "5b82a3069343d3c9ec3e471ee8a57f300595ab6d2de08d9d2a46bda2375c7fb4",
+        "service": "site",
+        "events": 5,
+        "first_at": "2026-09-02T10:15:00Z",
+        "last_at": "2026-09-02T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "55858555296ede56c89a74e708b5bddb7855bd91f47140a440618c0f2bd74c6d",
+        "service": "site",
+        "events": 5,
+        "first_at": "2026-09-20T10:15:00Z",
+        "last_at": "2026-09-20T16:20:00Z",
+        "errors": 0
       }
     ],
     "serviceMetrics": [
@@ -1592,6 +1696,16 @@
         "errors_7d": 0,
         "first_at": "2026-06-01T12:00:00Z",
         "last_at": "2026-09-21T15:00:00Z"
+      },
+      {
+        "service": "trivia",
+        "devices_7d": 0,
+        "devices_30d": 0,
+        "events_7d": 0,
+        "events_30d": 4,
+        "errors_7d": 0,
+        "first_at": "2026-08-30T12:00:00Z",
+        "last_at": "2026-09-02T12:00:00Z"
       }
     ],
     "live": {
@@ -1602,6 +1716,7 @@
       "reader_devices": 2,
       "pictures_sent": 16,
       "last_at": "2026-09-21T16:20:00Z"
-    }
+    },
+    "rowLimit": 1000
   }
 }

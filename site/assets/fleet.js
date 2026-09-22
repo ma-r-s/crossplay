@@ -144,6 +144,12 @@
   // it collected; this list is how the page knows what it did not.
   //
   // Kept in step with the `service` column in docs/workflow/events.md.
+  //
+  // `trivia` is in this list because the real board has been posting it, and
+  // neither that table nor a first draft of this one mentioned it: the list
+  // was taken from the docs and the docs were incomplete. A service missing
+  // from here is not dropped -- a row the board returns is always shown -- but
+  // it would never be reported as SILENT, which is the case that matters.
   var KNOWN_SERVICES = [
     "firmware",
     "site",
@@ -151,6 +157,7 @@
     "anki",
     "instapaper",
     "live",
+    "trivia",
     "release",
     "pulse",
     "upstream-sync",

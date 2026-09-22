@@ -507,6 +507,14 @@
       var seen = Number(l.codes_shown) || 0;
       var paired = Number(l.paired) || 0;
       var back = Number(l.returning) || 0;
+      // Nothing has arrived. Five rows of zeros beside a "nothing yet" row in
+      // the table above says the same thing twice and reads as "Live has no
+      // users" rather than "Live has not reported yet", which are different
+      // facts and only one of them is known.
+      if (!l.last_at && !seen && !paired && !back) {
+        return '<p class="nums-h">Live, last 30 days</p>' +
+          '<p class="status">Live has not posted an event yet, so there is nothing to count. That is a gap in the reporting, not a measurement of how many people use it.</p>';
+      }
       return '<p class="nums-h">Live, last 30 days</p>' +
         tbl(["what", "how many", "what it proves"], [
           ["codes shown", seen, "somebody opened the pairing screen"],
@@ -619,9 +627,13 @@
       // a number whose blind spots are in small grey type gets quoted without
       // them. Each line is a specific thing that makes a figure above a floor
       // or a split, not a general disclaimer.
+      // The limit comes from the answer, never from a copy kept here: the
+      // board's own row cap is what truncates, and a threshold guessed in this
+      // file could sit above it forever and never fire.
+      var cap = Number(n.rowLimit) || 0;
       var capped = [];
-      if ((n.deviceVersions || []).length >= 4000) capped.push("update histories");
-      if ((n.deviceServices || []).length >= 4000) capped.push("service lists");
+      if (cap && (n.deviceVersions || []).length >= cap) capped.push("update histories");
+      if (cap && (n.deviceServices || []).length >= cap) capped.push("service lists");
       var silent = FLEET.withSilentServices(n.serviceMetrics || []).filter(function (r) { return r.silent; })
         .map(function (r) { return r.service; });
       gapsEl.innerHTML = '<div class="gaps"><ul>' + [
