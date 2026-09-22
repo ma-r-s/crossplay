@@ -45,6 +45,10 @@ struct State {
   std::string etag;  // unquoted; empty means "I have nothing, send me whatever you have"
   bool on = false;
   uint32_t intervalSeconds = kDefaultIntervalSeconds;
+  // The last X-Cadence, or 0 when the service has never sent one. Kept apart
+  // from the interval because under a clock-time schedule they differ, and
+  // resolved only through Schedule::cadence.
+  uint32_t cadenceSeconds = 0;
   int64_t lastAttemptEpoch = 0;
   int consecutiveFailures = 0;
   // Purely for the screen: the last thing that happened, so a user who opens
@@ -58,6 +62,7 @@ struct State {
     s.paired = paired();
     s.lastAttemptEpoch = lastAttemptEpoch;
     s.intervalSeconds = intervalSeconds;
+    s.cadenceSeconds = cadenceSeconds;
     s.consecutiveFailures = consecutiveFailures;
     return s;
   }

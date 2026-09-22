@@ -23,6 +23,18 @@
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
+<!-- The icons the board uses, defined once. Stroked, 24x24, currentColor, the
+     same cut as the lucide set the firmware vendors, so the page and the panel
+     draw the same shapes for the same ideas. -->
+<svg class="lv-defs" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+    <g id="i-undo"><path d="M7 5 3 9l4 4"/><path d="M3 9h11a5 5 0 0 1 0 10h-6"/></g>
+    <g id="i-clear"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></g>
+    <g id="i-left"><path d="m14 6-6 6 6 6"/></g>
+    <g id="i-right"><path d="m10 6 6 6-6 6"/></g>
+  </defs>
+</svg>
+
 <div class="topbar">
   <a class="wordmark" href="/">
     <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
@@ -50,6 +62,9 @@
 </div>
 
 <main id="main" class="lv-main">
+  <!-- The hero. It is the whole page before anybody is connected, and on a
+       phone it steps aside the moment they are: the board has to fit the
+       screen, and a headline is the first thing worth the room it costs. -->
   <div class="lv-head">
     <p class="eyebrow">Live <span class="eyebrow-sep">&middot;</span> on somebody's fridge</p>
     <h1 class="lv-title">Leave a note on their reader.</h1>
@@ -81,75 +96,189 @@
     <p class="lv-gate-fine">The code lasts ten minutes.</p>
   </section>
 
-  <!-- Connected. -->
-  <div id="app" hidden>
-    <div class="lv-when">
+  <!-- Connected. On a phone this is the whole viewport and nothing scrolls:
+       canvas, brush, tones, undo, clear, send and the history are all reachable
+       without leaving the drawing. On a desktop the same elements re-grid into
+       two columns with a rail underneath. -->
+  <div id="app" class="lv-app" hidden>
+
+    <!-- A grid, not a row: the schedule chip rides beside the small print and
+         the count gets the full width above both. Side by side the sentence had
+         a 150px column to wrap in and ran to four lines, which is a third of a
+         phone screen spent on the least of the three things here. -->
+    <div class="lv-when" id="when">
+      <!-- The sentence, in the panel's own words. It is the headline where
+           there is room, and the fallback for the states that have no count. -->
       <p class="lv-when-line" id="whenLine">&nbsp;</p>
+      <!-- THE COUNT, and it ticks. "about" and "left" are muted and the figure
+           is not, so the hedge is never further than one word from the number
+           it hedges. -->
+      <p class="lv-tick" id="whenTick" hidden>
+        <span class="lv-tick-about">about</span>
+        <span class="lv-tick-clock" id="tickClock">0:00:00</span>
+        <span class="lv-tick-about">left</span>
+      </p>
       <p class="lv-when-sub" id="whenSub"></p>
+      <!-- The schedule, closed. One button saying what the schedule IS, which
+           opens the two shapes it can take. -->
+      <button class="lv-btn lv-every" id="schedChip" type="button"
+              aria-expanded="false" aria-controls="sched">
+        <span class="lv-every-label">Looks</span>
+        <span id="schedChipText">once a day</span>
+      </button>
     </div>
 
-    <div class="lv-work">
-      <div class="lv-panel">
-        <div class="lv-frame">
-          <div class="lv-stage" id="stage">
-            <canvas id="pad" width="480" height="800"></canvas>
-            <div class="lv-nib" id="nib"></div>
-          </div>
+    <!-- The schedule, open. It takes the board's room while it is open and
+         gives it back on Done: a phone has one screen, and the alternative is
+         the dialog over the drawing that this layout exists to avoid.
+
+         TWO SHAPES AND NO MORE. Repeat every so often, or once a day at a time
+         somebody picked. A fridge magnet does not need a cron expression, and
+         the reader could not run one: the service owns the calendar and hands
+         the device a plain number of seconds to sleep for. -->
+    <div class="lv-sched" id="sched" hidden>
+      <p class="lv-sched-title">When it looks</p>
+      <div class="lv-sched-row">
+        <label class="lv-radio">
+          <input type="radio" name="schedMode" value="every" id="modeEvery" checked>
+          <span>Every</span>
+        </label>
+        <select id="interval" aria-label="How often the reader looks">
+          <option value="900">15 minutes</option>
+          <option value="21600">6 hours</option>
+          <option value="43200">12 hours</option>
+          <option value="86400" selected>24 hours</option>
+          <option value="172800">2 days</option>
+          <option value="604800">7 days</option>
+        </select>
+      </div>
+      <div class="lv-sched-row">
+        <label class="lv-radio">
+          <input type="radio" name="schedMode" value="daily" id="modeDaily">
+          <span>Once a day at</span>
+        </label>
+        <input type="time" id="dailyTime" value="07:00" aria-label="The time of day it looks">
+      </div>
+      <div class="lv-sched-row">
+        <span class="lv-sched-tzlabel" id="tzWords">Times are your time.</span>
+        <select id="tz" aria-label="Which timezone those times are in"></select>
+      </div>
+      <p class="lv-sched-fine" id="schedFine"></p>
+      <div class="lv-sched-row is-end">
+        <button class="lv-btn is-primary" id="schedDone" type="button">Done</button>
+      </div>
+    </div>
+
+    <div class="lv-tabs" id="tabs" role="tablist" aria-label="What to send">
+      <button type="button" role="tab" aria-selected="true" data-mode="draw">Draw</button>
+      <button type="button" role="tab" aria-selected="false" data-mode="write">Write</button>
+      <button type="button" role="tab" aria-selected="false" data-mode="photo">Photo</button>
+    </div>
+
+    <!-- The stage is sized from the space left over, not from a fixed number of
+         pixels: `container-type: size` on lv-stage-fit turns its own height
+         into a unit the stage can be a fraction of, which is what keeps 480x800
+         whole while the controls keep their room.
+
+         The hint sits OUTSIDE that box on purpose. `container-type: size` is
+         `contain: size`, so anything inside is laid out within a height decided
+         without it: put in there, the line was pushed under the panel and cut
+         off halfway through its first word. -->
+    <div class="lv-stage-wrap" id="stageWrap">
+      <div class="lv-stage-fit">
+      <div class="lv-stage" id="stage">
+        <canvas id="pad" width="480" height="800"></canvas>
+        <div class="lv-nib" id="nib"></div>
+        <!-- ZOOM IS A VIEW, NEVER THE DOCUMENT AND NEVER THE DRAWING. The
+             canvas stays 480x800 whatever the magnification, so a stroke drawn
+             zoomed in is the same width on the panel as one drawn zoomed out.
+             The controls live on the picture rather than in a row of their own,
+             because a phone has no row to spare and they act on what is under
+             them. -->
+        <div class="lv-map" id="zoomMap" hidden aria-hidden="true">
+          <span class="lv-map-box" id="zoomBox"></span>
         </div>
-        <p class="lv-cap">480 &times; 800 &middot; four tones &middot; this is the screen, not a preview of it</p>
+        <div class="lv-zoom" id="zoomCtl">
+          <button class="lv-zbtn" id="zoomOut" type="button" title="Zoom out" aria-label="Zoom out">-</button>
+          <span class="lv-zoom-level" id="zoomLevel">1x</span>
+          <button class="lv-zbtn" id="zoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+          <button class="lv-zbtn is-wide" id="zoomFit" type="button" hidden
+                  title="Show the whole panel" aria-label="Show the whole panel">Fit</button>
+        </div>
+      </div>
+      </div>
+      <p class="lv-stage-hint" id="stageHint"></p>
+    </div>
+
+    <!-- What the drawing is made OF: brush and tone. The two things that act on
+         a finished drawing (undo, clear) sit with Send on the row below, which
+         is also the only way all three fit across a 350px phone without
+         shrinking a swatch under the thumb. -->
+    <div class="lv-tools" id="tools">
+      <div class="lv-toolrow" id="penTools">
+        <span class="lv-swatches" id="sizes"></span>
+        <span class="lv-toolgap"></span>
+        <span class="lv-swatches" id="tones"></span>
       </div>
 
-      <div>
-        <div class="lv-tabs" id="tabs" role="tablist" aria-label="What to send">
-          <button type="button" role="tab" aria-selected="true" data-mode="draw">Draw</button>
-          <button type="button" role="tab" aria-selected="false" data-mode="write">Write</button>
-          <button type="button" role="tab" aria-selected="false" data-mode="photo">Photo</button>
-        </div>
+      <label class="lv-field lv-toolrow" id="writePane" for="msg" hidden><span>Your message</span>
+        <textarea id="msg" placeholder="Write something."></textarea></label>
 
-        <div id="penTools">
-          <p class="lv-ctl-title">Pen</p>
-          <div class="lv-tools">
-            <span class="lv-swatches" id="sizes"></span>
-            <span class="lv-swatches" id="tones"></span>
-          </div>
-          <div class="lv-tools">
-            <button class="lv-btn" id="undo" type="button">Undo</button>
-            <button class="lv-btn" id="clear" type="button">Clear</button>
-          </div>
-        </div>
+      <div class="lv-toolrow" id="photoPane" hidden>
+        <label class="lv-file" for="file">
+          <input type="file" id="file" accept="image/*">
+          <span>Choose a picture</span>
+        </label>
+        <span class="lv-toolgap"></span>
+        <button class="lv-btn" id="fit" type="button">Fit</button>
+        <button class="lv-btn" id="fill" type="button">Fill</button>
+        <button class="lv-btn" id="invert" type="button">Invert</button>
+      </div>
+    </div>
 
-        <label class="lv-field" id="writePane" for="msg" hidden><span>Your message</span>
-          <textarea id="msg" placeholder="Write something."></textarea></label>
+    <div class="lv-send">
+      <button class="lv-btn lv-icon" id="undo" type="button" title="Undo" aria-label="Undo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-undo"/></svg>
+      </button>
+      <button class="lv-btn lv-icon" id="clear" type="button" title="Clear the whole drawing" aria-label="Clear the whole drawing">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-clear"/></svg>
+      </button>
+      <button class="lv-btn is-primary" id="send" type="button">Send to the reader</button>
+    </div>
 
-        <div id="photoPane" hidden>
-          <label class="lv-field" for="file"><span>Choose a picture</span>
-            <input type="file" id="file" accept="image/*"></label>
-          <div class="lv-tools">
-            <button class="lv-btn" id="fit" type="button">Fit</button>
-            <button class="lv-btn" id="fill" type="button">Fill</button>
-            <button class="lv-btn" id="invert" type="button">Invert</button>
-          </div>
-        </div>
+    <!-- Everything ever sent to this reader, by anybody holding it. Newest
+         first. Sending puts one more here and picks it; picking an older one
+         points the reader back at it.
 
-        <label class="lv-field" for="interval"><span>How often the reader looks</span>
-          <select id="interval">
-            <option value="900">Every 15 minutes</option>
-            <option value="21600">Every 6 hours</option>
-            <option value="43200">Twice a day</option>
-            <option value="86400" selected>Once a day</option>
-            <option value="172800">Every other day</option>
-          </select></label>
-
-        <div class="lv-send">
-          <button class="lv-btn is-primary" id="send" type="button">Send to the reader</button>
-        </div>
+         The tiles are pictures and nothing else on a phone, and the line under
+         the rail says who sent the one that is going out and when. That line is
+         also where deleting happens: a trash icon on a 46px tile, a thumb's
+         width from the tile that merely picks, is how somebody loses a drawing
+         for everybody on this reader. -->
+    <section class="lv-history" id="history" aria-label="Sent to this reader">
+      <div class="lv-hist-head">
+        <h2 class="lv-hist-title">History</h2>
+        <span class="lv-hist-arrows">
+          <button class="lv-btn lv-icon lv-arrow" id="histNewer" type="button" title="Newer" aria-label="Scroll to newer">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-left"/></svg>
+          </button>
+          <button class="lv-btn lv-icon lv-arrow" id="histOlder" type="button" title="Older" aria-label="Scroll to older">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-right"/></svg>
+          </button>
+        </span>
+      </div>
+      <div class="lv-rail" id="rail"></div>
+      <div class="lv-hist-foot">
         <p class="lv-note" id="sendNote" role="status" aria-live="polite"></p>
+        <span class="lv-hist-act" id="histAct"></span>
       </div>
-    </div>
+    </section>
   </div>
 
   <p class="lv-foot">
-    Anyone with this page connected to that reader can put a picture on it.
+    Anyone with this page connected to that reader can put a picture on it, and
+    everybody sees the same history: what is here is the record of what that
+    reader has shown, not of what you personally sent.
     Access is taken away on the reader itself, which is the point: when the
     person sending is in another country, the device is the one thing anybody
     can physically reach. On it, <strong>Apps &rsaquo; Wallpapers &rsaquo; Your

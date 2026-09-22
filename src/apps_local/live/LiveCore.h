@@ -156,6 +156,26 @@ struct Schedule {
   int64_t lastAttemptEpoch = 0;
   int consecutiveFailures = 0;                         // 0 after any success
   uint32_t intervalSeconds = kDefaultIntervalSeconds;  // last X-Next-Wake, clamped
+  // HOW OFTEN IT REPEATS, which is NOT how long the last sleep was.
+  //
+  // They were one field, and under a clock-time schedule that is wrong in a way
+  // that gets believed. The service works out how many seconds are left until
+  // the next 07:00 and sends that as X-Next-Wake, so the figure is a part-day
+  // whenever the schedule changed or a check was missed: set 07:00 at four in
+  // the morning and the panel, composing "Every N hours" from the sleep, said
+  // "Every 3 hours" from then on. A wrong cadence is worse than none, because a
+  // figure gets believed -- and it is the one place the panel would contradict
+  // the website about the same reader.
+  //
+  // 0 means the service did not say (an older service, or a card written before
+  // this field existed). Read it through cadence() and never directly, so the
+  // fallback exists exactly once.
+  uint32_t cadenceSeconds = 0;  // last X-Cadence, clamped; 0 when absent
+
+  // The cadence to SAY, falling back to the sleep we were last given. The
+  // fallback is today's behaviour verbatim, so a reader talking to a service
+  // that does not send the header behaves exactly as it did before it existed.
+  uint32_t cadence() const { return cadenceSeconds > 0 ? cadenceSeconds : intervalSeconds; }
 };
 
 struct Decision {

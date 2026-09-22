@@ -11,12 +11,17 @@ secrets kept are HASHES of tokens, so a copy of this directory cannot be
 replayed against the service.
 """
 
+import datetime
+import hashlib
 import json
 import os
 import pathlib
 import secrets
+import struct
 import tempfile
 import time
+import zlib
+import zoneinfo
 
 # The reader's sleep canvas: 480x800 at 1 bit, header and palette included.
 # Byte-exact on purpose. The reader's own uploader checks the same number, and
@@ -51,6 +56,128 @@ DEFAULT_INTERVAL_S = 86400
 MIN_INTERVAL_S = 900
 MAX_INTERVAL_S = 7 * 86400
 
+# WHAT A SCHEDULE MAY BE SET TO, which is not the same question as what the
+# reader will accept.
+#
+# MIN/MAX above bound X-Next-Wake, and they have to stay a range: under a daily
+# schedule the number handed out is however many seconds are left until the next
+# 07:00, which is a different figure every time. This tuple is the separate,
+# FINITE question of what somebody may choose, and it is finite on purpose. The
+# reader draws the cadence in words, host-tests/wallcaption measures every
+# sentence the reader can draw in the device's real font, and a corpus it cannot
+# enumerate is a corpus it cannot prove. See cadence_words.
+ALLOWED_INTERVALS = (900, 21600, 43200, 86400, 172800, 604800)
+
+# TWO SHAPES AND NO MORE: repeat every so often, or once a day at a time. A
+# fridge magnet does not need a cron expression, and the reader could not run
+# one -- it has no wall clock worth trusting, so it is told a number of seconds
+# to sleep for and this service owns the calendar entirely.
+DEFAULT_SCHEDULE = {
+    "mode": "every",
+    "interval_s": DEFAULT_INTERVAL_S,
+    "daily_time": "07:00",
+    "tz": "UTC",
+}
+
+
+def normalise_schedule(raw: dict) -> dict | None:
+    """The schedule a request asks for, or None when it asks for nonsense."""
+    if not isinstance(raw, dict):
+        return None
+    mode = str(raw.get("mode", "every"))
+    if mode not in ("every", "daily"):
+        return None
+    out = dict(DEFAULT_SCHEDULE)
+    out["mode"] = mode
+    try:
+        seconds = int(raw.get("intervalSeconds", DEFAULT_INTERVAL_S))
+    except (TypeError, ValueError):
+        return None
+    if seconds not in ALLOWED_INTERVALS:
+        return None
+    out["interval_s"] = seconds
+    hhmm = str(raw.get("dailyTime", "07:00"))
+    if len(hhmm) != 5 or hhmm[2] != ":" or not (hhmm[:2] + hhmm[3:]).isdigit():
+        return None
+    if not (0 <= int(hhmm[:2]) <= 23 and 0 <= int(hhmm[3:]) <= 59):
+        return None
+    out["daily_time"] = hhmm
+    tz = str(raw.get("tz", "UTC"))
+    try:
+        zoneinfo.ZoneInfo(tz)
+    except Exception:  # noqa: BLE001 - any zoneinfo failure is a bad name
+        return None
+    out["tz"] = tz
+    return out
+
+
+# THE WORDS, and they are the service's, not the reader's.
+#
+# The reader draws a decision this service made verbatim and never rewords one
+# (see BridgeHttp.h), and the website prints the same phrase on its schedule
+# chip, so one function produces the cadence for both surfaces. Two surfaces
+# telling one person two different stories is the failure this feature has spent
+# its whole life fighting.
+INTERVAL_WORDS = {
+    900: "every 15 minutes",
+    21600: "every 6 hours",
+    43200: "every 12 hours",
+    86400: "every 24 hours",
+    172800: "every 2 days",
+    604800: "every 7 days",
+}
+
+
+def cadence_words(schedule: dict) -> str:
+    if schedule.get("mode") == "daily":
+        return f"{schedule.get('daily_time', '07:00')} daily"
+    return INTERVAL_WORDS.get(
+        int(schedule.get("interval_s", DEFAULT_INTERVAL_S)), "every 24 hours"
+    )
+
+
+def cadence_seconds(schedule: dict) -> int:
+    """How often it repeats, which is NOT how long the next sleep is.
+
+    Under a daily schedule the sleep is a part-day whenever the schedule
+    changed or a check was missed, and the reader composes "Every N hours" on
+    its panel from whatever figure it was handed. Sent apart (X-Cadence beside
+    X-Next-Wake) it announces the cadence rather than the leftover.
+    """
+    if schedule.get("mode") == "daily":
+        return 86400
+    return int(schedule.get("interval_s", DEFAULT_INTERVAL_S))
+
+
+def same_cadence(a: dict, b: dict) -> bool:
+    """Whether two schedules name the same thing to a person.
+
+    The words, not the dict: a timezone that moved without moving the local
+    time is not a change anybody can see, and a pending line nobody can explain
+    is worse than none.
+    """
+    return cadence_words(a) == cadence_words(b)
+
+
+def next_after(schedule: dict, anchor: int, now: int) -> int:
+    """When the reader is due to look next, as an epoch.
+
+    `anchor` is what a repeating schedule counts from (the last check-in, or the
+    pairing instant before there has been one). A daily schedule ignores it: the
+    next 07:00 is the next 07:00 whatever happened last.
+    """
+    if schedule.get("mode") == "daily":
+        zone = zoneinfo.ZoneInfo(schedule.get("tz", "UTC"))
+        local = datetime.datetime.fromtimestamp(now, zone)
+        hhmm = schedule.get("daily_time", "07:00")
+        target = local.replace(
+            hour=int(hhmm[:2]), minute=int(hhmm[3:]), second=0, microsecond=0
+        )
+        if target <= local:
+            target += datetime.timedelta(days=1)
+        return int(target.timestamp())
+    return anchor + int(schedule.get("interval_s", DEFAULT_INTERVAL_S))
+
 
 def data_root() -> pathlib.Path:
     return pathlib.Path(os.environ.get("FRIDGE_DATA", "/data"))
@@ -74,6 +201,113 @@ def _atomic_write(path: pathlib.Path, payload: bytes) -> None:
             os.unlink(tmp)
 
 
+# --------------------------------------------------------------- thumbnails
+#
+# THE TILE IS THE REAL BYTES, downsampled here rather than uploaded beside them.
+#
+# The rail on the website is a strip of thumbnails and the file behind each one
+# is 96070 bytes of 2-bit BMP, which browsers render inconsistently and which
+# nobody should spend a megabyte of somebody's cellular data fetching to paint a
+# 46px tile. Generated here, from the picture the reader is actually sent, the
+# tile cannot disagree with what is on the glass -- and no image library is
+# added to a service whose whole point is that it has no compiled dependencies.
+THUMB_W = 60
+THUMB_H = 100
+
+
+def _bmp_levels(payload: bytes) -> list[list[int]] | None:
+    """The greys of one of our own BMPs, as rows top-down. None if unreadable.
+
+    Only the two shapes this service accepts: 1-bit and 2-bit, bottom-up, rows
+    padded to four bytes, palette immediately after a 40-byte header.
+    """
+    try:
+        if len(payload) < 58 or payload[:2] != b"BM":
+            return None
+        off = struct.unpack_from("<I", payload, 10)[0]
+        width = struct.unpack_from("<i", payload, 18)[0]
+        height = struct.unpack_from("<i", payload, 22)[0]
+        depth = struct.unpack_from("<H", payload, 28)[0]
+        if depth not in (1, 2) or width <= 0 or height <= 0:
+            return None
+        palette = []
+        for i in range(1 << depth):
+            b = payload[54 + i * 4]
+            g = payload[54 + i * 4 + 1]
+            r = payload[54 + i * 4 + 2]
+            palette.append((r * 77 + g * 150 + b * 29) >> 8)
+        row_bytes = ((width * depth + 31) >> 5) << 2
+        per_byte = 8 // depth
+        mask = (1 << depth) - 1
+        rows = []
+        for y in range(height):
+            base = off + (height - 1 - y) * row_bytes
+            if base + row_bytes > len(payload):
+                return None
+            row = []
+            for x in range(width):
+                byte = payload[base + x // per_byte]
+                shift = (per_byte - 1 - (x % per_byte)) * depth
+                row.append(palette[(byte >> shift) & mask])
+            rows.append(row)
+        return rows
+    except (IndexError, struct.error):
+        return None
+
+
+def _png_grey(width: int, height: int, rows: list[bytes]) -> bytes:
+    """An 8-bit greyscale PNG, by hand. zlib is in the standard library and a
+    PNG is four chunks; a dependency for this would be a dependency to audit."""
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return (
+            struct.pack(">I", len(data))
+            + body
+            + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+        )
+
+    raw = b"".join(b"\x00" + bytes(r) for r in rows)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 6))
+        + chunk(b"IEND", b"")
+    )
+
+
+def thumbnail(payload: bytes) -> bytes | None:
+    """A 60x100 greyscale PNG of a reader picture, or None if it cannot be read.
+
+    Box-averaged rather than sampled: a 480x800 line drawing point-sampled to a
+    tenth of its size loses most of its strokes, and a rail of tiles that are
+    mostly blank paper is a rail nobody can pick from.
+    """
+    levels = _bmp_levels(payload)
+    if not levels:
+        return None
+    height = len(levels)
+    width = len(levels[0])
+    out = []
+    for ty in range(THUMB_H):
+        y0 = (ty * height) // THUMB_H
+        y1 = max(y0 + 1, ((ty + 1) * height) // THUMB_H)
+        row = bytearray(THUMB_W)
+        for tx in range(THUMB_W):
+            x0 = (tx * width) // THUMB_W
+            x1 = max(x0 + 1, ((tx + 1) * width) // THUMB_W)
+            total = 0
+            count = 0
+            for y in range(y0, y1):
+                src = levels[y]
+                for x in range(x0, x1):
+                    total += src[x]
+                    count += 1
+            row[tx] = total // count if count else 255
+        out.append(row)
+    return _png_grey(THUMB_W, THUMB_H, out)
+
+
 class Fridge:
     def __init__(self, fridge_id: str):
         self.id = fridge_id
@@ -83,9 +317,11 @@ class Fridge:
     def state_path(self) -> pathlib.Path:
         return self.root / "state.json"
 
-    @property
-    def image_path(self) -> pathlib.Path:
-        return self.root / "image.bmp"
+    def image_path(self, sha: str) -> pathlib.Path:
+        return self.root / "images" / f"{sha}.bmp"
+
+    def thumb_path(self, sha: str) -> pathlib.Path:
+        return self.root / "thumbs" / f"{sha}.png"
 
     def exists(self) -> bool:
         return self.state_path.exists()
@@ -109,7 +345,6 @@ class Fridge:
             # construction rather than by a migration.
             "created": int(time.time()),
             "device_token_hash": device_token_hash,
-            "interval_s": DEFAULT_INTERVAL_S,
             "last_checkin": 0,
             # WHAT THE READER SAID ITS OWN ALARM IS, converted to this clock
             # when it said it. 0 until it has spoken once.
@@ -118,50 +353,159 @@ class Fridge:
             # goes false when the reader says so (POST /api/off) and true again
             # on the check-in that follows switching it back on.
             "live_on": True,
-            "image_id": None,
-            "image_set_at": 0,
+            # The schedule somebody set, and the one the READER is asleep on.
+            #
+            # They differ for as long as it takes the reader to wake up once,
+            # and that window is the whole reason `pending` exists: a reader
+            # told at midnight to change to 07:00 daily is still armed for the
+            # old cadence until its next check-in, and both surfaces have to
+            # say so rather than pretending the change already happened.
+            #
+            # `armed` starts at the default because that is exactly what the
+            # reader seeds ITSELF with before this service has ever spoken to
+            # it: live::kDefaultIntervalSeconds equals DEFAULT_INTERVAL_S, and
+            # host-tests/live regenerates the check from this file so the two
+            # cannot drift apart again.
+            "schedule": dict(DEFAULT_SCHEDULE),
+            "armed": dict(DEFAULT_SCHEDULE),
+            # EVERYTHING EVER SENT, newest first, and it is SHARED: it is the
+            # record of what this reader has shown, not of what any one phone
+            # sent. Each entry names the phone that sent it.
+            "history": [],
+            "selected": None,
             "senders": [],
         }
         self.save(state)
         return state
 
-    def set_image(self, payload: bytes) -> str:
-        """Stores the image and returns its id.
+    # ------------------------------------------------------------- history
 
-        The id is the content hash, so a resend of the same picture does not
-        make the reader spend a wake downloading and repainting what is already
-        on the glass.
+    def schedule(self) -> dict:
+        s = self.load().get("schedule")
+        return dict(s) if isinstance(s, dict) else dict(DEFAULT_SCHEDULE)
+
+    def armed(self) -> dict:
+        s = self.load().get("armed")
+        return dict(s) if isinstance(s, dict) else dict(DEFAULT_SCHEDULE)
+
+    def add_entry(self, payload: bytes, kind: str, by: str) -> dict:
+        """Puts one more picture in the history and points the reader at it.
+
+        The FILE is content-addressed and the ENTRY is not: sending the same
+        picture twice is two moments in the record and one file on the disk,
+        which is also what makes a re-send free for the reader (the ETag does
+        not move, so it answers 304 and spends no wake repainting what is
+        already on the glass).
         """
-        import hashlib
-
-        image_id = hashlib.sha256(payload).hexdigest()[:16]
-        _atomic_write(self.image_path, payload)
+        sha = hashlib.sha256(payload).hexdigest()[:16]
+        if not self.image_path(sha).exists():
+            _atomic_write(self.image_path(sha), payload)
+        if not self.thumb_path(sha).exists():
+            png = thumbnail(payload)
+            if png:
+                _atomic_write(self.thumb_path(sha), png)
         state = self.load()
-        state["image_id"] = image_id
-        state["image_set_at"] = int(time.time())
+        entry = {
+            "id": secrets.token_hex(8),
+            "sha": sha,
+            "kind": kind if kind in ("drawing", "message", "photo") else "drawing",
+            "at": int(time.time()),
+            "by": by[:24] or "A phone",
+        }
+        state.setdefault("history", []).insert(0, entry)
+        state["selected"] = entry["id"]
         self.save(state)
-        return image_id
+        return entry
 
-    def read_image(self) -> bytes | None:
+    def entry(self, entry_id: str) -> dict | None:
+        for e in self.load().get("history", []):
+            if e.get("id") == entry_id:
+                return e
+        return None
+
+    def select(self, entry_id: str) -> bool:
+        state = self.load()
+        if not any(e.get("id") == entry_id for e in state.get("history", [])):
+            return False
+        state["selected"] = entry_id
+        self.save(state)
+        return True
+
+    def remove_entry(self, entry_id: str) -> bool:
+        """Deletes an entry for EVERYBODY on this reader, and moves the pick.
+
+        Leaving the pick on a deleted entry would point a device in another
+        country at a file that is gone; moving it silently would change what is
+        on somebody's fridge as a side effect of tidying. It moves to the newest
+        remaining entry and both surfaces say so.
+        """
+        state = self.load()
+        history = state.get("history", [])
+        kept = [e for e in history if e.get("id") != entry_id]
+        if len(kept) == len(history):
+            return False
+        state["history"] = kept
+        if state.get("selected") == entry_id:
+            state["selected"] = kept[0]["id"] if kept else None
+        self.save(state)
+        # The file goes only when nothing else in the record points at it: two
+        # sends of one picture share one file, and deleting either must not
+        # blank the other.
+        gone = next((e for e in history if e.get("id") == entry_id), {})
+        sha = gone.get("sha")
+        if sha and not any(e.get("sha") == sha for e in kept):
+            for path in (self.image_path(sha), self.thumb_path(sha)):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+        return True
+
+    def selected_entry(self) -> dict | None:
+        state = self.load()
+        want = state.get("selected")
+        if not want:
+            return None
+        for e in state.get("history", []):
+            if e.get("id") == want:
+                return e
+        return None
+
+    def read_image(self, sha: str) -> bytes | None:
         try:
-            return self.image_path.read_bytes()
+            return self.image_path(sha).read_bytes()
+        except OSError:
+            return None
+
+    def read_thumb(self, sha: str) -> bytes | None:
+        try:
+            return self.thumb_path(sha).read_bytes()
         except OSError:
             return None
 
     def touch_checkin(self, wake_in: int, live_on: bool) -> None:
-        """The reader spoke, and said when it will be back.
+        """The reader spoke, was handed `wake_in` seconds, and has picked the
+        current schedule up.
 
         `wake_in` is SECONDS FROM NOW, converted here to this service's clock.
         Never an absolute time from the reader: its only clock comes from
         X-Server-Time, and a device whose battery went flat comes back at the
         epoch, so a timestamp it sent would be a number from 1970 stored as a
         fact.
+
+        THIS IS ALSO WHERE `armed` MOVES. A pull the reader got an answer to
+        makes it adopt the reply's figure, so the moment we answer, the schedule
+        it is asleep on IS the schedule we just used. Nothing pending survives a
+        check-in, by construction rather than by a second write somewhere else.
         """
         now = int(time.time())
         state = self.load()
         state["last_checkin"] = now
         state["live_on"] = bool(live_on)
         state["next_wake"] = now + int(wake_in) if live_on and wake_in > 0 else 0
+        state["armed"] = dict(
+            state.get("schedule") or DEFAULT_SCHEDULE,
+        )
         self.save(state)
 
     def set_live(self, on: bool) -> None:
@@ -212,7 +556,32 @@ class Fridge:
         anchor = int(state.get("last_checkin", 0)) or int(state.get("created", 0))
         if anchor <= 0:
             return 0
-        return anchor + int(state.get("interval_s", DEFAULT_INTERVAL_S))
+        # BEFORE THE FIRST CHECK-IN the reader is asleep on what it seeded
+        # itself with, not on what somebody has since chosen on the website. The
+        # figure has to be the ARMED schedule for the same reason the pending
+        # line exists at all: a reader paired an hour ago and switched to "every
+        # 15 minutes" is still going to wake a day from pairing.
+        return next_after(self.armed(), anchor, int(time.time()))
+
+    def pending_cadence(self) -> str | None:
+        """The cadence that takes effect after the reader's next check-in, or
+        None when nothing is pending.
+
+        ABSENT, never empty and never equal to the current one: the reader draws
+        the line only when it differs, which is what keeps that screen to one
+        line of news rather than a permanent restatement of the obvious.
+        """
+        state = self.load()
+        schedule = self.schedule()
+        armed = self.armed()
+        if not state.get("live_on", True):
+            # Live is off; there is no next check to take effect after, and a
+            # promise about one would be the fake number this field exists to
+            # avoid.
+            return None
+        if same_cadence(schedule, armed):
+            return None
+        return cadence_words(schedule)
 
 
 def fridge_for_sender(sender_token: str) -> Fridge | None:
@@ -268,6 +637,20 @@ def add_sender(fridge: "Fridge", token: str, name: str) -> bool:
     fridge.save(state)
     index_token(token, fridge.id)
     return True
+
+
+def sender_name(fridge: "Fridge", token: str) -> str:
+    """Whose phone this is, for the history's attribution.
+
+    The history is shared and every entry names its sender, so this is read
+    from the fridge's own list rather than from anything the browser sends: a
+    name a caller could choose per request is a name a caller could forge.
+    """
+    want = _hash(token)
+    for s in fridge.load().get("senders", []):
+        if s.get("token_hash") == want:
+            return str(s.get("name") or "A phone")
+    return "A phone"
 
 
 def revoke_sender(fridge: "Fridge", token_hash: str) -> bool:
