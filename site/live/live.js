@@ -106,17 +106,60 @@ const snap = () => {
   if (undoStack.length > 20) undoStack.shift();
 };
 
-function render() {
-  const img = ctx.createImageData(W, H);
-  const d = img.data;
-  for (let i = 0; i < W * H; i++) {
-    const v = LEVEL_GREY[bits[i]];
-    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
-    d[i * 4 + 3] = 255;
+// ONE BUFFER, KEPT. Allocating a 480x800 ImageData and rewriting all 384,000
+// pixels is fine once; it was happening on every pointermove, which is what
+// made a fast finger lag. The buffer is allocated once and only the pixels
+// that changed are rewritten.
+const frame = ctx.createImageData(W, H);
+{
+  const d = frame.data;
+  for (let i = 3; i < d.length; i += 4) d[i] = 255;
+}
+
+// The box a stroke has touched since the last blit, in panel pixels.
+let dirty = null;
+function markDirty(x0, y0, x1, y1) {
+  if (!dirty) dirty = [x0, y0, x1, y1];
+  else {
+    if (x0 < dirty[0]) dirty[0] = x0;
+    if (y0 < dirty[1]) dirty[1] = y0;
+    if (x1 > dirty[2]) dirty[2] = x1;
+    if (y1 > dirty[3]) dirty[3] = y1;
   }
-  ctx.putImageData(img, 0, 0);
+}
+
+function blit(x0, y0, x1, y1) {
+  const d = frame.data;
+  for (let yy = y0; yy <= y1; yy++) {
+    const row = yy * W;
+    for (let xx = x0; xx <= x1; xx++) {
+      const i = row + xx;
+      const v = LEVEL_GREY[bits[i]];
+      d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
+    }
+  }
+  ctx.putImageData(frame, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+}
+
+// The whole panel. Every caller that replaces `bits` wholesale -- undo, clear,
+// a photo, a draft restored -- goes through here, so none of them can be left
+// showing a stale region.
+function render() {
+  blit(0, 0, W - 1, H - 1);
+  dirty = null;
   markTools();
   saveDraftSoon();
+}
+
+// Just what the current stroke touched. Used only by the two paths that mark
+// the panel a few pixels at a time.
+// Pixels only. Enabling undo and saving the draft are per-STROKE facts, not
+// per-event ones, so they happen once when the finger lifts instead of on
+// every sample; running them here put a style recalc in the middle of a line.
+function renderStroke() {
+  if (!dirty) return;
+  blit(dirty[0], dirty[1], dirty[2], dirty[3]);
+  dirty = null;
 }
 
 // THE DRAWING SURVIVES A RELOAD, which is what makes an unconfirmed Clear an
@@ -174,17 +217,62 @@ function rasterise(draw, useDither) {
   o.fillRect(0, 0, W, H);
   draw(o);
   const g = grey(o.getImageData(0, 0, W, H).data, W * H);
-  // QUANTISED to the four levels, not dithered: the panel can show these greys,
-  // so faking them with black and white would throw away three quarters of what
-  // it can do. Flat ink still thresholds, because text wants an edge and not a
-  // tone, and error diffusion over solid black only fringes its edges.
+  // A PHOTOGRAPH IS DITHERED ACROSS THE FOUR LEVELS; text is thresholded.
+  //
+  // Snapping each pixel to its nearest level, which is what this did, turns a
+  // photograph into four flat bands: every face becomes a poster. Using all
+  // four levels AND diffusing the error between them is not a trade, it is
+  // strictly more tone -- the four shades stay exactly as available as before
+  // and the eye reconstructs everything in between. Text still thresholds,
+  // because an edge wants to be an edge and diffusion only fringes it.
   bits = useDither
-    ? Uint8Array.from(g, (v) => {
-        const x = inverted ? 255 - v : v;
-        return x < 43 ? 0 : x < 128 ? 1 : x < 213 ? 2 : 3;
-      })
+    ? diffuse(g, inverted)
     : Uint8Array.from(g, (v) => (v >= 128 !== inverted ? 3 : 0));
   render();
+}
+
+// Nearest level by the brightness the PANEL actually shows, not by index.
+function nearestLevel(v) {
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < LEVEL_GREY.length; i++) {
+    const d = Math.abs(v - LEVEL_GREY[i]);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+// Floyd-Steinberg, serpentine. Serpentine because scanning every row the same
+// way walks the error in one direction and lays down the faint diagonal combing
+// that gives cheap dithering away; alternating the direction cancels it.
+function diffuse(g, inv) {
+  const err = new Float32Array(W * H);
+  const out = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const ltr = (y & 1) === 0;
+    for (let k = 0; k < W; k++) {
+      const x = ltr ? k : W - 1 - k;
+      const i = y * W + x;
+      const want = (inv ? 255 - g[i] : g[i]) + err[i];
+      const lvl = nearestLevel(want);
+      out[i] = lvl;
+      const e = want - LEVEL_GREY[lvl];
+      const fwd = ltr ? 1 : -1;
+      const right = x + fwd;
+      if (right >= 0 && right < W) err[i + fwd] += (e * 7) / 16;
+      if (y + 1 < H) {
+        const below = i + W;
+        if (right >= 0 && right < W) err[below + fwd] += (e * 1) / 16;
+        err[below] += (e * 5) / 16;
+        const back = x - fwd;
+        if (back >= 0 && back < W) err[below - fwd] += (e * 3) / 16;
+      }
+    }
+  }
+  return out;
 }
 
 // FOUR TONES, AND THEY ARE REAL. The X4 Pro's panel driver declares
@@ -214,6 +302,7 @@ function stampAt(x, y, r) {
       if (dx * dx + dy * dy <= r2) bits[yy * W + xx] = lv;
     }
   }
+  markDirty(x0, y0, x1, y1);
 }
 
 function line(x0, y0, x1, y1, r) {
@@ -321,8 +410,27 @@ function applyView() {
 // Panel coordinates under a point on the screen. Everything that has to know
 // where a finger is goes through this, so there is one place the magnification
 // is undone and no second copy of the arithmetic to drift.
+// THE STAGE'S BOX, READ ONCE PER GESTURE RATHER THAN PER EVENT.
+// getBoundingClientRect forces style and layout, and this stage is a size
+// container whose canvas is sized in container units, so every read also
+// re-resolved that. Four reads per pointermove (here, the nib, and the pan and
+// pinch branches) made a fast finger measurably laggy. The box cannot change
+// during a stroke, so it is cached and invalidated on the things that do move
+// it: a resize, an orientation change, or entering the surface again.
+let stageBox = null;
+function stageRect() {
+  if (!stageBox) stageBox = stage.getBoundingClientRect();
+  return stageBox;
+}
+function forgetStageRect() {
+  stageBox = null;
+}
+addEventListener("resize", forgetStageRect);
+addEventListener("orientationchange", forgetStageRect);
+addEventListener("scroll", forgetStageRect, true);
+
 function atClient(cx, cy) {
-  const r = stage.getBoundingClientRect();
+  const r = stageRect();
   return [
     view.x + ((cx - r.left) / r.width) * (W / view.s),
     view.y + ((cy - r.top) / r.height) * (H / view.s),
@@ -353,7 +461,7 @@ zoomIn.onclick = () => zoomAbout(1.6, ...stageCentre());
 zoomOut.onclick = () => zoomAbout(1 / 1.6, ...stageCentre());
 zoomFit.onclick = fitView;
 function stageCentre() {
-  const r = stage.getBoundingClientRect();
+  const r = stageRect();
   return [r.left + r.width / 2, r.top + r.height / 2];
 }
 
@@ -412,6 +520,7 @@ function unstroke() {
 }
 
 stage.addEventListener("pointerdown", (e) => {
+  forgetStageRect();
   if (onControls(e)) return;
   // The gesture belongs to the drawing and to nothing else: without this a drag
   // that starts on the canvas is also a text selection (the page paints blue
@@ -442,7 +551,8 @@ stage.addEventListener("pointerdown", (e) => {
   drawing = true;
   last = pointAt(e);
   stampAt(last[0], last[1], pen / 2);
-  render();
+  renderStroke();
+  markTools();
 });
 
 stage.addEventListener("pointermove", (e) => {
@@ -460,7 +570,7 @@ stage.addEventListener("pointermove", (e) => {
       const after = atClient(m[0], m[1]);
       view.x += before[0] - after[0];
       view.y += before[1] - after[1];
-      const r = stage.getBoundingClientRect();
+      const r = stageRect();
       view.x -= ((m[0] - pinch.mid[0]) / r.width) * (W / view.s);
       view.y -= ((m[1] - pinch.mid[1]) / r.height) * (H / view.s);
       applyView();
@@ -470,7 +580,7 @@ stage.addEventListener("pointermove", (e) => {
   }
   if (panning) {
     e.preventDefault();
-    const r = stage.getBoundingClientRect();
+    const r = stageRect();
     view.x -= ((e.clientX - panning[0]) / r.width) * (W / view.s);
     view.y -= ((e.clientY - panning[1]) / r.height) * (H / view.s);
     panning = [e.clientX, e.clientY];
@@ -482,10 +592,15 @@ stage.addEventListener("pointermove", (e) => {
   const p = pointAt(e);
   line(last[0], last[1], p[0], p[1], pen / 2);
   last = p;
-  render();
+  renderStroke();
 });
 
 const liftPointer = (e) => {
+  if (drawing) {
+    renderStroke();
+    markTools();
+    saveDraftSoon();
+  }
   pointers.delete(e.pointerId);
   if (pointers.size < 2) pinch = null;
   if (pointers.size === 0) {
@@ -518,7 +633,7 @@ stage.addEventListener(
 // as much bigger as everything else under the glass.
 function placeNib(e) {
   if (onControls(e)) return;
-  const r = stage.getBoundingClientRect();
+  const r = stageRect();
   const d = pen * (r.width / W) * view.s;
   nib.style.width = d + "px";
   nib.style.height = d + "px";
@@ -540,7 +655,7 @@ const sizesEl = document.getElementById("sizes");
 const SWATCH = 34;
 const SWATCH_MAX = SWATCH - 11; // always clear of the button's edge
 function stageScale() {
-  const r = stage.getBoundingClientRect();
+  const r = stageRect();
   return (r.width || 300) / W;
 }
 function sizeSwatches() {
@@ -712,6 +827,8 @@ function setMode(next) {
 }
 
 function openCompose(next) {
+  // The surface is about to change size, so the cached box is stale.
+  forgetStageRect();
   setMode(next);
   if (!onPhone()) return;
   document.body.classList.add("lv-drawing");

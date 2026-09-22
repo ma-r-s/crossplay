@@ -484,22 +484,55 @@
   display: grid;
   place-items: center;
 }
+/* THE WINDOW IS FIXED; THE PICTURE MOVES INSIDE IT. The stage fills its box
+   and never changes shape, so the panel sits in it letterboxed with a bar
+   each side at 1x, and zooming in grows the picture until the bars shrink
+   away. Sizing the stage to the panel instead made the stage the picture,
+   and any zoom then snapped it from panel-shaped to full width in one jump. */
 .lv-stage {
   position: relative;
-  aspect-ratio: 480 / 800;
   width: min(300px, 78vw); /* if container units are missing */
-  width: min(100cqw, 60cqh);
+  width: 100cqw;
+  height: 100cqh;
+  /* The picture is contained against THIS box, not the outer one. Measured
+     against the outer container it came out as tall as the window's border
+     box, so the 3px frame clipped the top and bottom of the panel. */
+  container-type: size;
   overflow: hidden;
-  background: #fff;
-  border: 3px solid var(--ink);
+  /* THERE ARE NO BARS. The window is transparent and unframed, so the space
+     either side of the panel is simply the page. Painting it and framing the
+     whole window made the empty space look like a drawn object; the only
+     thing that should read as an object is the paper. */
+  background: none;
+  border: 0;
   touch-action: none;
 }
 .lv-stage canvas {
   position: absolute;
+  top: 0;
+  left: 0;
+  /* THE PICTURE NEVER DISTORTS. Width tracks the window, height follows the
+     panel's own ratio, so when the window stops being 480x800 the canvas is
+     simply taller than what shows and the stage clips it. Filling the stage
+     both ways instead would stretch the drawing the moment it is zoomed. */
   inset: 0;
-  width: 100%;
-  height: 100%;
+  margin: auto;
+  /* CONTAINED, LIKE A PHOTO IN A GALLERY. min() picks whichever of the two
+     the window runs out of first, so the whole panel is visible at 1x with a
+     bar wherever the shapes differ, and the ratio is never clamped away.
+     Setting height:100% with a max-width instead kept the full height while
+     cutting the width, which is a squashed picture, not a contained one. */
+  width: min(100cqw, 60cqh);
+  height: auto;
+  aspect-ratio: 480 / 800;
   display: block;
+  /* The paper carries its own edge now that the window has none, and it does
+     it with an outline rather than a shadow: this element repaints on every
+     stroke, and a box-shadow made each of those repaints re-rasterise a ring
+     around a transformed layer. An outline costs nothing and takes no space. */
+  background: #fff;
+  outline: 3px solid var(--ink);
+  outline-offset: -1px;
   image-rendering: pixelated;
   pointer-events: none;
 }
@@ -540,6 +573,9 @@
   gap: 0.3rem;
   flex: none;
   min-height: 1.6rem;
+  /* Clear of the paper. The window fills its box, so without this the strip
+     sits flush against the panel's edge and reads as part of it. */
+  margin-top: 0.45rem;
 }
 .lv-map {
   width: 1.15rem;
@@ -1124,6 +1160,14 @@
   body.lv-drawing .lv-main {
     padding-left: 0.4rem;
     padding-right: 0.4rem;
+    padding-top: 0;
+  }
+  /* THE TOP BAR'S SPACE GOES WITH THE TOP BAR. body reserves room for the
+     site's fixed header; the drawing view hides that header and the reserved
+     band stayed behind as an empty strip above the tabs, on the one screen
+     whose whole point is that the canvas gets the room. */
+  body.lv-drawing {
+    padding-top: 0;
   }
   body.lv-connected .lv-app {
     flex: 1;
