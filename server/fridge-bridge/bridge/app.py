@@ -63,7 +63,13 @@ app.add_middleware(
     allow_origins=[SITE_ORIGIN],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["content-type"],
+    # EVERY header the page sends cross-origin. A custom header makes the request
+    # non-simple, so the browser preflights it, and one missing here fails that
+    # preflight with a 400 the browser reports as a network error -- which the
+    # page shows as "could not reach the service", naming the wrong cause
+    # entirely. x-kind arrived with the history rail and was never added here,
+    # so every send was refused while the service was healthy.
+    allow_headers=["content-type", "x-kind"],
     max_age=600,
 )
 
