@@ -600,7 +600,6 @@ def state(live_sender: str = Cookie(default=None)) -> JSONResponse:
         return JSONResponse({"connected": False})
     s = fridge.load()
     schedule = fridge.schedule()
-    armed = fridge.armed()
     body = {
         "connected": True,
         "lastCheckin": s.get("last_checkin", 0),
@@ -613,7 +612,6 @@ def state(live_sender: str = Cookie(default=None)) -> JSONResponse:
             "dailyTime": schedule["daily_time"],
             "tz": schedule["tz"],
         },
-        "armedSeconds": store.cadence_seconds(armed),
         # 0 while Live is off on the reader: there is no next check, and a
         # figure there would be one the page then has to explain away.
         "nextExpected": fridge.next_expected(),

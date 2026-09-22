@@ -35,6 +35,7 @@ const demoCount =
 const keep = [];
 if (local) keep.push("local");
 if (demoCount !== null) keep.push("demo=" + demoCount);
+if (onLocalhost && params.has("pending")) keep.push("pending");
 const cleanUrl = () =>
   location.pathname + (keep.length ? "?" + keep.join("&") : "");
 
@@ -888,6 +889,7 @@ const whenLine = document.getElementById("whenLine");
 const whenTick = document.getElementById("whenTick");
 const tickClock = document.getElementById("tickClock");
 const whenSub = document.getElementById("whenSub");
+const pendingLine = document.getElementById("pendingLine");
 const sendNote = document.getElementById("sendNote");
 let state = null;
 let band = "";
@@ -931,6 +933,19 @@ function bandNow() {
 
 function paint() {
   if (!state || !state.connected) return;
+  // THE SAME SENTENCE THE PANEL DRAWS, or nothing at all.
+  //
+  // The service sends `pending` while the reader is still asleep on the cadence
+  // it last picked up, and the reader prints it on its foot line. The page read
+  // neither copy, so the panel said something about the reader that the page
+  // never mentioned -- and the person best placed to be confused by that is the
+  // one who just changed the schedule here and was told nothing.
+  //
+  // An ABSENT key is nothing pending. It is never turned into a positive claim,
+  // which is the mistake this feature has made twice in the other direction.
+  const pending = typeof state.pending === "string" ? state.pending : "";
+  pendingLine.textContent = pending;
+  pendingLine.hidden = !pending;
   whenLine.className = "lv-when-line";
   // ONE PHRASE FOR THE CADENCE, whichever shape the schedule has. "about every
   // day" and "07:00 each day" answer the same question, and the chip, the small
@@ -1391,6 +1406,14 @@ async function refresh() {
       dailyTime: "07:00",
       tz: browserTz(),
     };
+    // ?demo=12&pending puts the service's pending sentence on the card, so the
+    // state can be LOOKED AT without a reader that has not woken up yet. The
+    // words are the service's own template (app.PENDING_TEMPLATE crossed with
+    // store.cadence_words), not a plausible-looking sentence typed here: a
+    // render of a screen that cannot occur is worse than no render.
+    if (params.has("pending")) {
+      state.pending = "Changing to every 15 minutes after the next check.";
+    }
   } else {
     const r = await api("/api/state");
     if (r.offline) {
@@ -1696,6 +1719,8 @@ document.getElementById("schedDone").onclick = async () => {
     say((r.body && r.body.error) || "That did not work.");
     return;
   }
+  // The reply carries the pending sentence too; refresh() is what puts it on
+  // the card, from /api/state, so both copies come from one place.
   await refresh();
 };
 

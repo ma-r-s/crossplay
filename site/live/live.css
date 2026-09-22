@@ -117,8 +117,8 @@
   font-size: 2.1rem;
   letter-spacing: 0.3em;
   text-indent: 0.3em;
-  border: 3px solid var(--ink);
-  background: var(--paper);
+  border: 2px solid var(--lv-line-strong);
+  background: transparent;
   color: var(--ink);
 }
 /* styles.css gives .cta-row 2.2rem of air, which is right under a hero and far
@@ -245,6 +245,24 @@
   font-size: 0.78rem;
   line-height: 1.25;
 }
+/* The pending cadence. It is news rather than a warning, so it reads as a note
+   with a rule beside it rather than as an error: the schedule is fine, the
+   reader simply has not heard yet. Spans both columns so it never has to share
+   a line with the schedule chip it is about. */
+.lv-pending {
+  grid-column: 1 / -1;
+  margin: 0.4rem 0 0;
+  padding-left: 0.55rem;
+  border-left: 3px solid var(--ink);
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+.lv-sched-lag {
+  margin-top: 0.1rem;
+  font-style: italic;
+}
+
 /* Past its window. Loud enough to notice, never an error: a reader that has
    not checked in is not a fault, it is a reader out of Wi-Fi. */
 .lv-stale {
@@ -328,8 +346,8 @@
   font-family: var(--display);
   font-size: 0.95rem;
   color: var(--ink);
-  background: var(--paper);
-  border: 3px solid var(--ink);
+  background: transparent;
+  border: 1px solid var(--lv-line-strong);
   border-radius: 0;
   padding: 0.22rem 0.3rem;
   min-width: 0;
@@ -749,8 +767,8 @@
 .lv-field textarea {
   width: 100%;
   padding: 0.5rem 0.6rem;
-  border: 3px solid var(--ink);
-  background: var(--paper);
+  border: 1px solid var(--lv-line-strong);
+  background: transparent;
   color: var(--ink);
   font: inherit;
   border-radius: 0;
@@ -768,8 +786,8 @@
   letter-spacing: 0.03em;
   font-size: 1.05rem;
   padding: 0.4rem 0.9rem;
-  border: 3px solid var(--ink);
-  background: var(--paper);
+  border: 1px solid var(--lv-line-strong);
+  background: transparent;
   color: var(--ink);
   cursor: pointer;
   flex: none;
@@ -928,7 +946,7 @@
   width: 100%;
   padding: 0;
   border: 1px solid var(--lv-line);
-  background: var(--paper);
+  background: transparent;
   color: var(--ink);
   cursor: pointer;
   font: inherit;
@@ -1045,7 +1063,7 @@
 
 .lv-foot {
   margin-top: 3rem;
-  border-top: 3px solid var(--ink);
+  border-top: 1px solid var(--lv-line);
   padding-top: 1.5rem;
   max-width: 48rem;
   color: var(--muted);
@@ -1472,7 +1490,7 @@
   }
   .lv-history {
     grid-area: hist;
-    border-top: 3px solid var(--ink);
+    border-top: 1px solid var(--lv-line);
     padding-top: 0.7rem;
     min-height: 0;
     display: flex;

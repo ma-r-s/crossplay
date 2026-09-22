@@ -266,6 +266,38 @@ async def main():
                 senders.get("pending") == st.get("pending"),
                 (senders.get("pending"), st.get("pending")),
             )
+            # AND THE PAGE SAYS IT. The service sent this and the reader drew it
+            # on its foot line while the page mentioned nothing, so the panel
+            # was saying something about the reader the page never named -- to
+            # the one person who had just caused it.
+            shown = await page.locator("#pendingLine").text_content()
+            check(
+                "and the page says it, in the service's own words",
+                shown.strip() == st.get("pending"),
+                (shown.strip(), st.get("pending")),
+            )
+            check(
+                "and the editor says a change waits for the next check",
+                "next" in (await page.locator(".lv-sched-lag").text_content()).lower(),
+            )
+            # AN ABSENT KEY IS NOTHING PENDING. Once the reader has picked the
+            # schedule up, the line goes away rather than standing as a claim.
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"http://127.0.0.1:{api_port}/api/pull",
+                    headers={"Authorization": f"Bearer {polled['deviceToken']}"},
+                )
+            ).read()
+            await page.reload(wait_until="networkidle")
+            await page.wait_for_timeout(800)
+            st2 = await page.evaluate(
+                "fetch('/api/state', {credentials:'include'}).then(r => r.json())"
+            )
+            check("nothing is pending after the reader wakes", "pending" not in st2, st2.get("pending"))
+            check(
+                "and the page says nothing rather than something",
+                await page.locator("#pendingLine").is_hidden(),
+            )
 
             # --- a second phone sees the same rail -------------------------
             other = await b.new_context(viewport={"width": 1440, "height": 900})

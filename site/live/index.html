@@ -120,6 +120,16 @@
         <span class="lv-tick-about">left</span>
       </p>
       <p class="lv-when-sub" id="whenSub"></p>
+      <!-- THE SERVICE'S SENTENCE, VERBATIM, and the reader's foot line says the
+           same words at the same time. It appears only when the service sends
+           `pending`, which it does only while the reader is still asleep on the
+           cadence it last picked up; an absent key is nothing pending and must
+           never become a positive claim.
+           The page composes nothing here: the sentence is generated for the
+           reader's own corpus and measured in the device's font, so inventing a
+           second wording is how the panel and the page come to tell one person
+           two stories. -->
+      <p class="lv-pending" id="pendingLine" role="status" aria-live="polite" hidden></p>
       <!-- The schedule, closed. One button saying what the schedule IS, which
            opens the two shapes it can take. -->
       <button class="lv-btn lv-every" id="schedChip" type="button"
@@ -165,6 +175,12 @@
         <select id="tz" aria-label="Which timezone those times are in"></select>
       </div>
       <p class="lv-sched-fine" id="schedFine"></p>
+      <!-- Said while a finger is still on the control, because this is the
+           moment somebody is most likely to expect otherwise: they changed the
+           schedule here, and the reader will go on keeping the old one until it
+           wakes up. -->
+      <p class="lv-sched-fine lv-sched-lag">A change lands on the reader's next
+        check, not now.</p>
       <div class="lv-sched-row is-end">
         <button class="lv-btn is-primary" id="schedDone" type="button">Done</button>
       </div>
