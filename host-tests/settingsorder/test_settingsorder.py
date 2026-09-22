@@ -27,10 +27,32 @@ _mb = subprocess.run(["git", "merge-base", "HEAD", "crosspoint/develop"],
 MERGE_BASE = _mb.stdout.strip() if _mb.returncode == 0 else ""
 
 if not MERGE_BASE:
-    # Without the remote there is nothing to compare against, and a suite that
-    # silently checks nothing is worse than one that says so.
-    print("SKIP settingsorder  crosspoint/develop not fetched; nothing to compare against")
-    sys.exit(0)
+    # TWO DIFFERENT SITUATIONS, and they must not print the same sentence.
+    #
+    # No remote at all is a developer who has not fetched upstream: nothing to
+    # compare against, so skip and say so.
+    #
+    # A remote that EXISTS but yields no merge base is a shallow fetch, and it
+    # is not benign. It happens only where this suite is configured to run --
+    # CI -- and it is the one environment where the check does real work. A
+    # `--depth=1` fetch of upstream did exactly this: the suite printed
+    # "not fetched" about a ref that was right there, exited 0, and tested
+    # nothing on the only machine that runs it. Silence there buys nothing and
+    # hides a suite, so it is a failure with the command that fixes it.
+    _have = subprocess.run(["git", "rev-parse", "--verify", "-q",
+                            "crosspoint/develop"], capture_output=True, text=True)
+    if _have.returncode != 0:
+        print("SKIP settingsorder  crosspoint/develop not fetched; nothing to "
+              "compare against (git fetch crosspoint develop)")
+        sys.exit(0)
+    print("FAIL settingsorder  crosspoint/develop is fetched but too shallow to "
+          "share history with HEAD, so ownership cannot be decided and every "
+          "check below would be vacuous. Deepen it: "
+          "git fetch --no-tags --shallow-since='6 months ago' "
+          "https://github.com/crosspoint-reader/crosspoint-reader.git "
+          "develop:refs/remotes/crosspoint/develop")
+    print("1 checks, 1 failed")
+    sys.exit(1)
 
 
 def body_of(func):
