@@ -115,14 +115,15 @@
     <div class="lv-when" id="when">
       <!-- The sentence, in the panel's own words. It is the headline where
            there is room, and the fallback for the states that have no count. -->
+      <!-- ONE STATEMENT, NOT TWO. "They will see this in about 5 hours" and
+           "about 05:12:27 left" were the same fact said twice, one above the
+           other; the prose came first and nothing removed it when the ticking
+           figure arrived. The sentence now leads into the number instead of
+           repeating it, and "about" stays muted so the hedge is never further
+           than one word from what it hedges. -->
       <p class="lv-when-line" id="whenLine">&nbsp;</p>
-      <!-- THE COUNT, and it ticks. "about" and "left" are muted and the figure
-           is not, so the hedge is never further than one word from the number
-           it hedges. -->
       <p class="lv-tick" id="whenTick" hidden>
-        <span class="lv-tick-about">about</span>
         <span class="lv-tick-clock" id="tickClock">0:00:00</span>
-        <span class="lv-tick-about">left</span>
       </p>
       <p class="lv-when-sub" id="whenSub"></p>
       <!-- THE SERVICE'S SENTENCE, VERBATIM, and the reader's foot line says the
@@ -175,10 +176,11 @@
         </label>
         <input type="time" id="dailyTime" value="07:00" aria-label="The time of day it looks">
       </div>
-      <div class="lv-sched-row">
-        <span class="lv-sched-tzlabel" id="tzWords">Times are your time.</span>
-        <select id="tz" aria-label="Which timezone those times are in"></select>
-      </div>
+      <!-- NO TIMEZONE PICKER. "07:00" means seven in the morning where the
+           person setting it is standing, which is the only thing anybody means
+           by it. The browser already knows that, so asking was a question with
+           one sensible answer and a list of wrong ones. -->
+      <span class="lv-sched-tzlabel" id="tzWords" hidden></span>
       <p class="lv-sched-fine" id="schedFine"></p>
       <!-- Said while a finger is still on the control, because this is the
            moment somebody is most likely to expect otherwise: they changed the
@@ -201,10 +203,14 @@
          two are the same door with a different mode already picked. There is
          no such row on a desktop, where the canvas and its controls already
          sit side by side with room to spare. -->
+    <!-- ONE DOOR. Draw, Write and Photo were three buttons here and three tabs
+         again on the surface behind them, so the choice was asked twice and the
+         home page spent a row on it. This says what the page is for; the tabs
+         on the surface say which kind. -->
     <div class="lv-ways" id="ways">
-      <button class="lv-btn is-primary is-big" id="goDraw" type="button">Draw</button>
-      <button class="lv-btn" id="goWrite" type="button">Write</button>
-      <button class="lv-btn" id="goPhoto" type="button">Photo</button>
+      <button class="lv-btn is-primary is-big" id="goDraw" type="button">
+        Send something new
+      </button>
     </div>
 
     <!-- THE DRAWING SURFACE. On a phone this is the whole screen while it is

@@ -210,11 +210,19 @@
    the states with no countdown (late, due now, Live switched off) show it
    instead of the ticker, because those are the states where a figure would be
    a fiction. */
+/* ONE FACE IN ONE STATEMENT. The words were the serif and the figure the
+   display face, which is fine for two separate blocks and wrong the moment
+   they became a single sentence. The chip beside it already sets the pattern
+   for this box: a small label and a value, both in the display face. */
+/* THE PAGE'S STATEMENT, not a label for the number under it. One face with
+   the clock, because they are one sentence, but at sentence weight and size:
+   set small, muted and uppercase it read as form furniture above the figure,
+   which is the opposite of what it is. */
 .lv-when-line {
   grid-column: 1;
-  font-family: var(--serif);
-  font-size: 1.15rem;
-  line-height: 1.15;
+  font-family: var(--display);
+  font-size: 1.25rem;
+  line-height: 1.2;
   margin: 0;
 }
 .lv-when-line[hidden] + .lv-tick {
@@ -255,14 +263,23 @@
    with a rule beside it rather than as an error: the schedule is fine, the
    reader simply has not heard yet. Spans both columns so it never has to share
    a line with the schedule chip it is about. */
+/* Even space either side. It had 12px above and nothing at all below, so it
+   floated away from the countdown it belongs to and collided with the chip. */
+/* IT LIVES IN THE COUNTDOWN CARD, so it is set like the countdown card. A
+   small serif sentence between the clock above it and the chip below was the
+   one thing in that box not in the display face, and at 0.82rem it whispered
+   a change to the schedule. */
 .lv-pending {
+  font-family: var(--display);
   grid-column: 1 / -1;
-  margin: 0.4rem 0 0;
-  padding-left: 0.55rem;
+  margin: 0.55rem 0 0.5rem;
+  padding-left: 0.6rem;
   border-left: 3px solid var(--ink);
   color: var(--ink);
-  font-size: 0.82rem;
-  line-height: 1.3;
+  font-size: 1rem;
+  /* Jersey is a condensed face with tall caps: 1.25 set two wrapped lines
+     almost touching. It needs more leading than a text face does, not less. */
+  line-height: 1.5;
 }
 .lv-sched-lag {
   margin-top: 0.1rem;
@@ -846,7 +863,11 @@
 .lv-send .lv-btn.is-primary {
   min-width: 0;
 }
+/* THE PROSE FACE, STATED. `.lv-note` and the history foot set a size and no
+   family, so they fell through to the browser's own UI font: a third typeface
+   on a page that has two, arriving by omission rather than by choice. */
 .lv-note {
+  font-family: var(--serif);
   margin: 0;
   color: var(--muted);
   font-size: 0.8rem;
@@ -913,6 +934,7 @@
 /* The line under the rail: who sent the one going out and when, what just
    happened, and the only control that deletes. */
 .lv-hist-foot {
+  font-family: var(--serif);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1004,9 +1026,13 @@
   object-fit: cover;
   image-rendering: pixelated;
 }
+/* INSIDE the tile. Sitting 1px proud, the top of the ring was clipped by the
+   rail's own scroll box, so the picked tile had three sides and a gap. Drawn
+   within its own edge it cannot be cut, and it reads as a ring on the picture
+   rather than a box floating around it. */
 .lv-card[data-selected="true"] .lv-card-pick {
-  outline: 2px solid var(--ink);
-  outline-offset: 1px;
+  outline: 3px solid var(--ink);
+  outline-offset: -3px;
 }
 /* WHAT IS GOING OUT NEXT, said on the tile rather than only in the line below
    it. Laid over the foot of the picture rather than under it, so every tile is
@@ -1182,14 +1208,13 @@
      its own screen now, and a page whose whole job is "when will they see it,
      and what is going out" should not be a third full with two thirds of void
      under it. */
+  /* THE COUNTDOWN ABSORBS THE SLACK. A rail of portrait tiles cannot use a
+     tall screen: tiles big enough to fill it would be 270px wide and barely
+     one and a half would fit, which is not a carousel. So the leftover goes to
+     the thing somebody opens this page to read, and the rail stays a size that
+     shows two and a half pictures. No hole above it, none below. */
   body.lv-connected:not(.lv-drawing) .lv-when {
     padding: 0.9rem 0.9rem 1rem;
-  }
-  body.lv-connected:not(.lv-drawing) .lv-when-line {
-    font-size: 1.45rem;
-  }
-  body.lv-connected:not(.lv-drawing) .lv-tick-clock {
-    font-size: 2.3rem;
   }
   body.lv-connected:not(.lv-drawing) .lv-tick {
     margin-top: 0.2rem;
@@ -1201,12 +1226,14 @@
   /* And the rail takes what is left, so the pictures are big enough to pick
      from. It is still one horizontal carousel; it is simply not a 46px one on
      a screen with 500px spare. */
-  /* PINNED TO THE BOTTOM, with the air in the middle. A page anchored at both
-     ends reads as laid out; the same content stacked at the top and trailing
-     off into a third of a screen of nothing reads as unfinished, which is half
-     of what "so much bad ui" was looking at. */
+  /* NO AIR IN THE MIDDLE. Pinning the rail to the bottom left a third of a
+     screen of nothing between the three doors and the pictures, which reads as
+     something that failed to load rather than as composition. The rail takes
+     the room instead, so the tiles are bigger for the same reason the gap is
+     gone. */
   body.lv-connected:not(.lv-drawing) .lv-history {
-    margin-top: auto;
+    margin-top: 0;
+    flex: none;
     min-height: 0;
     display: flex;
     flex-direction: column;
@@ -1218,9 +1245,18 @@
      pick from, and enough for the rail to say it goes on. Two 163px tiles
      filled the height and stopped looking like a carousel. */
   body.lv-connected:not(.lv-drawing) .lv-rail {
-    height: 15rem;
+    /* Tall enough for the pictures to be worth looking at, short enough that
+       three of them and a sliver of the fourth are on screen: a rail showing
+       one tile is not a rail. Whatever is left over falls below, where a page
+       ending reads as a page ending rather than as a hole in the middle. */
+    height: 16rem;
     flex: none;
+    min-height: 0;
     align-items: stretch;
+    /* Room for the selected ring, which is drawn inside the tile now but the
+       scroll box still clipped the old one. The base rule's bottom padding is
+       kept; padding-block would have replaced it. */
+    padding-top: 2px;
   }
   /* The schedule panel borrows the rail's room while it is open, the way it
      borrowed the canvas's before the canvas moved out. Without this the home
@@ -1233,11 +1269,19 @@
     height: 7.5rem;
   }
   /* Sized from the rail, the same rule a phone lying down uses. */
+  /* A TILE IS THE SHAPE OF THE PANEL, whatever is inside it. With width:auto
+     alone the tile measured its own contents, so anything wider than the
+     picture -- a caption that did not get hidden at some particular screen
+     width, or an image that failed to load and reported no size -- stretched
+     one tile across the rail as a thin empty box. Stating the ratio makes the
+     width follow the rail's height and nothing else. */
   body.lv-connected:not(.lv-drawing) .lv-card,
   body.lv-connected:not(.lv-drawing) .lv-card-pick,
   body.lv-connected:not(.lv-drawing) .lv-card-thumb {
     width: auto;
     height: 100%;
+    aspect-ratio: 480 / 800;
+    overflow: hidden;
   }
   body.lv-connected:not(.lv-drawing) .lv-card-thumb {
     aspect-ratio: 480 / 800;

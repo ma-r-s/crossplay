@@ -937,12 +937,10 @@ function closeCompose() {
 // left, so the button that goes back to it should not say "Draw" as though the
 // paper were blank.
 function markWay() {
-  goDraw.textContent = isBlank() ? "Draw" : "Keep drawing";
+  goDraw.textContent = isBlank() ? "Send something new" : "Keep going";
 }
 
 goDraw.onclick = () => openCompose("draw");
-document.getElementById("goWrite").onclick = () => openCompose("write");
-document.getElementById("goPhoto").onclick = () => openCompose("photo");
 document.getElementById("closeCompose").onclick = closeCompose;
 // The surface is a screen, so the phone's back gesture should leave it rather
 // than leaving the page. Nothing is pushed on open, so this only ever fires for
@@ -1302,12 +1300,11 @@ function paint() {
   // thing in the panel's own rounding and only fits where there is room.
   const left = secondsLeft();
   tickClock.textContent = clockSpan(left);
-  whenLine.textContent = `They will see this ${human(left)}.`;
-  whenSub.textContent =
-    (state.lastCheckin
-      ? `Give or take: ${looks}`
-      : `Give or take: its first check since you connected, and ${looks}`) +
-    ", and only on its way to sleep.";
+  whenLine.textContent = "They will see this in about";
+  // NO HEDGING PARAGRAPH. The headline already says when, the chip already
+  // says how often, and a sentence explaining the reader's sleep habits is
+  // something nobody opened this page to read.
+  whenSub.textContent = "";
 }
 
 const wide = () => matchMedia("(min-width: 900px)").matches;
@@ -1365,6 +1362,7 @@ function whenStamp(at) {
 function tile(e) {
   const card = document.createElement("div");
   card.className = "lv-card";
+  card.dataset.id = e.id;
   card.dataset.selected = String(e.id === sent.selected);
   card.dataset.gone = String(!!e.gone);
 
@@ -1427,6 +1425,22 @@ function emptyTile() {
   return d;
 }
 
+// MOVING THE PICK DOES NOT REBUILD THE RAIL. renderHistory empties it and
+// makes every tile again, which recreates every <img> and makes the whole
+// carousel blink -- for a change that is one attribute on two tiles. The
+// pictures themselves have not changed, so nothing about them should be
+// touched.
+function markSelected() {
+  for (const card of rail.querySelectorAll(".lv-card")) {
+    const on = String(card.dataset.id === sent.selected);
+    if (card.dataset.selected !== on) {
+      card.dataset.selected = on;
+      const pick = card.querySelector(".lv-card-pick");
+      if (pick) pick.setAttribute("aria-pressed", on);
+    }
+  }
+}
+
 function renderHistory() {
   rail.textContent = "";
   if (!sent.entries.length) {
@@ -1451,39 +1465,33 @@ function renderAct() {
   histAct.textContent = "";
   const e = sent.entries.find((x) => x.id === focused);
   if (!e) return;
-  if (askingDelete === e.id) {
-    const q = document.createElement("span");
-    q.className = "lv-note";
-    q.textContent = "Delete for everyone?";
-    const yes = document.createElement("button");
-    yes.type = "button";
-    yes.className = "lv-btn is-yes";
-    yes.textContent = "Yes, delete";
-    yes.onclick = () => remove(e);
-    const no = document.createElement("button");
-    no.type = "button";
-    no.className = "lv-btn";
-    no.textContent = "Keep";
-    no.onclick = () => {
-      askingDelete = null;
-      renderAct();
-    };
-    histAct.append(q, yes, no);
-    return;
-  }
+  // ONE BUTTON THAT CHANGES ITS MIND. Swapping the line for a question and
+  // two more buttons reflowed the row under the rail every time somebody
+  // reached for Delete, which is a layout jumping under a finger that is
+  // about to tap. The same button asks instead: press it and it says what it
+  // is about to do, press it again and it does it. It goes back by itself.
   // A WORD, NOT AN ICON, and this is the reason: the board's Clear is an
   // eraser, this is a bin, and on a phone they sit a thumb's width apart while
   // meaning completely different things -- rub out a drawing you can undo, and
   // remove a record from everybody's reader forever. An icon cannot carry that
   // difference. A word can, and this is the one control on the page rare enough
   // to spend the room on one.
+  const armed = askingDelete === e.id;
   const del = document.createElement("button");
   del.type = "button";
-  del.className = "lv-btn";
-  del.textContent = "Delete";
-  del.title = "Delete this from the reader, for everyone";
-  del.setAttribute("aria-label", "Delete this from the reader, for everyone");
+  del.className = armed ? "lv-btn is-yes" : "lv-btn";
+  del.textContent = armed ? "Really delete?" : "Delete";
+  const what = armed
+    ? "Press again to delete this from the reader, for everyone"
+    : "Delete this from the reader, for everyone";
+  del.title = what;
+  del.setAttribute("aria-label", what);
   del.onclick = () => {
+    if (armed) {
+      clearTimeout(askTimer);
+      remove(e);
+      return;
+    }
     askingDelete = e.id;
     renderAct();
     clearTimeout(askTimer);
@@ -1515,7 +1523,8 @@ async function select(e) {
   sent.selected = e.id;
   focused = e.id;
   askingDelete = null;
-  renderHistory();
+  markSelected();
+  renderAct();
   say(historyNote(), true);
   if (demoCount !== null) return;
   const r = await api(`/api/history/${encodeURIComponent(e.id)}/select`, {
@@ -1665,19 +1674,21 @@ function demoHistory(n) {
       o.stroke();
     }
     // Down to a tile, through the same four levels the panel has.
+    // THE PANEL'S OWN SIZE, because anything less is guesswork about the
+    // screen it lands on. 72x120 was a seven-times upscale; 240x400 was still
+    // nearly a two-times one on a 3x phone, because a 152px tile is 456 real
+    // pixels there. 480x800 is the source's full resolution, so the tile is
+    // always downscaled and never invented, whatever the density.
+    //
+    // It is NOT re-quantised to the four levels either: the source is already
+    // dithered, and cutting a shrunken copy back to four shades throws away
+    // the averaging that makes a dither work, which is what left blotches.
     const t = document.createElement("canvas");
-    t.width = 72;
-    t.height = 120;
+    t.width = W;
+    t.height = H;
     const tc = t.getContext("2d");
     tc.imageSmoothingQuality = "high";
-    tc.drawImage(off, 0, 0, 72, 120);
-    const px = tc.getImageData(0, 0, 72, 120);
-    for (let k = 0; k < px.data.length; k += 4) {
-      const v = px.data[k];
-      const q = LEVEL_GREY[v < 43 ? 0 : v < 128 ? 1 : v < 213 ? 2 : 3];
-      px.data[k] = px.data[k + 1] = px.data[k + 2] = q;
-    }
-    tc.putImageData(px, 0, 0);
+    tc.drawImage(off, 0, 0, W, H);
     entries.push({
       id: "d" + i,
       kind,
@@ -1910,7 +1921,6 @@ const modeEvery = document.getElementById("modeEvery");
 const modeDaily = document.getElementById("modeDaily");
 const intervalSel = document.getElementById("interval");
 const dailyTime = document.getElementById("dailyTime");
-const tzSel = document.getElementById("tz");
 const tzWords = document.getElementById("tzWords");
 const schedFine = document.getElementById("schedFine");
 
@@ -1958,24 +1968,6 @@ function scheduleWords() {
 const cadenceSeconds = () =>
   schedule.mode === "daily" ? 86400 : schedule.intervalSeconds;
 
-function fillTimezones() {
-  if (tzSel.options.length) return;
-  let zones = [];
-  try {
-    zones = Intl.supportedValuesOf("timeZone");
-  } catch (e) {
-    zones = [];
-  }
-  if (!zones.includes(schedule.tz)) zones = [schedule.tz].concat(zones);
-  for (const z of zones) {
-    const o = document.createElement("option");
-    o.value = z;
-    const off = offsetOf(z);
-    o.textContent = placeOf(z) + (off ? ` (${off})` : "");
-    tzSel.appendChild(o);
-  }
-}
-
 // HOW GOOD THE HOUR IS, in one sentence, neither promising 07:00 sharp nor
 // hedged until it reads as broken. The sleep drifts about a percent, so a day
 // lands within roughly a quarter of an hour; every check-in re-syncs, so the
@@ -1988,21 +1980,15 @@ function paintSchedule() {
   intervalSel.disabled = schedule.mode !== "every";
   dailyTime.value = schedule.dailyTime;
   dailyTime.disabled = schedule.mode !== "daily";
-  fillTimezones();
-  tzSel.value = schedule.tz;
-  tzSel.disabled = schedule.mode !== "daily";
-  const off = offsetOf(schedule.tz);
-  tzWords.textContent =
-    schedule.mode === "daily"
-      ? `Times are ${placeOf(schedule.tz)} time${off ? ` (${off})` : ""}.`
-      : "Timezone only matters for a daily time.";
+  // The zone is simply where this browser is. Not asked, and not announced
+  // either: "07:00" already means seven where you are standing, so saying so
+  // is a line spent telling somebody something they assumed correctly.
+  tzWords.textContent = "";
+  // ONE LINE. Three sentences of caveat about drift, re-syncing and readers in
+  // somebody's hands is a paragraph nobody reads to set an alarm. The only
+  // part that changes what a person expects is that it is approximate.
   schedFine.textContent =
-    schedule.mode === "daily"
-      ? `It aims for ${schedule.dailyTime} and lands within about a quarter of an hour ` +
-        "either side. Each check puts it back on time. If somebody is reading at " +
-        `${schedule.dailyTime} it arrives when they put the reader down.`
-      : "It looks on its way into sleep, so a reader in somebody's hands catches up " +
-        "when they put it down.";
+    schedule.mode === "daily" ? "Give or take a quarter of an hour." : "";
 }
 
 function openSched(open) {
@@ -2023,10 +2009,6 @@ intervalSel.onchange = () => {
 };
 dailyTime.onchange = () => {
   schedule.dailyTime = dailyTime.value || "07:00";
-  paintSchedule();
-};
-tzSel.onchange = () => {
-  schedule.tz = tzSel.value;
   paintSchedule();
 };
 document.getElementById("schedDone").onclick = async () => {
