@@ -8,6 +8,7 @@ reader is still asleep on the schedule it last picked up.
 """
 
 import pathlib
+import re
 import struct
 import sys
 
@@ -16,7 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "server" / 
 from fastapi.testclient import TestClient  # noqa: E402
 
 from bridge import store  # noqa: E402
-from bridge.app import app  # noqa: E402
+from bridge.app import SITE_ORIGIN, app  # noqa: E402
 
 ok, bad = [], []
 
@@ -288,6 +289,37 @@ words.append(store.cadence_words({"mode": "daily", "daily_time": "00:00"}))
 longest = max((PENDING_TEMPLATE.format(w) for w in words), key=len)
 check("the pending corpus is finite", len(words) == 7, words)
 check("and its longest sentence is short", len(longest) <= 52, (len(longest), longest))
+
+# --- the browser is allowed to make the calls the page actually makes -------
+#
+# A CUSTOM HEADER MAKES A REQUEST NON-SIMPLE, so the browser asks permission
+# first, and a header the service does not name is refused. The browser then
+# reports that refusal as a network failure, and the page says "could not reach
+# the service" -- naming the wrong cause while the service is perfectly
+# healthy. x-kind shipped with the history rail and was not added to
+# allow_headers, so every send was blocked in production and the message sent
+# everybody looking at the wrong thing.
+#
+# So the corpus is GENERATED from the page, not typed here: any header live.js
+# sends cross-origin must survive a preflight. A new one cannot repeat this.
+site_js = (
+    pathlib.Path(__file__).resolve().parents[2] / "site" / "live" / "live.js"
+).read_text()
+sent_headers = sorted(
+    {h.lower() for h in re.findall(r'"(x-[a-z0-9-]+)"\s*:', site_js)}
+    | {"content-type"}
+)
+check("the page's cross-origin headers were found", len(sent_headers) >= 2, sent_headers)
+for h in sent_headers:
+    r = c.options(
+        "/api/history",
+        headers={
+            "Origin": SITE_ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": h,
+        },
+    )
+    check(f"the browser may send {h}", r.status_code == 200, (h, r.status_code))
 
 print("PASS" if not bad else "FAIL")
 for x in ok:

@@ -58,12 +58,31 @@ COOKIE_DOMAIN = ".ma-r-s.com"
 # -- and a list of origins is a list of sites allowed to draw on somebody's
 # reader. The reader is not a browser, sends no Origin and is unaffected by any
 # of this; only the page is.
+# THE SITE DEMANDS require-corp, so anything it loads from here must say it is
+# willing to be loaded cross-origin. Without this header every history
+# thumbnail is blocked by the browser and the rail draws broken-image icons --
+# which looks like the pictures were lost rather than like a header is missing.
+# CORS governs fetch(); this governs <img>. They are separate permissions and
+# passing one does not pass the other.
+@app.middleware("http")
+async def allow_cross_origin_embedding(request, call_next):
+    response = await call_next(request)
+    response.headers["cross-origin-resource-policy"] = "cross-origin"
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[SITE_ORIGIN],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["content-type"],
+    # EVERY header the page sends cross-origin. A custom header makes the request
+    # non-simple, so the browser preflights it, and one missing here fails that
+    # preflight with a 400 the browser reports as a network error -- which the
+    # page shows as "could not reach the service", naming the wrong cause
+    # entirely. x-kind arrived with the history rail and was never added here,
+    # so every send was refused while the service was healthy.
+    allow_headers=["content-type", "x-kind"],
     max_age=600,
 )
 
