@@ -679,8 +679,18 @@ def history_thumb(
     return Response(
         content=png,
         media_type="image/png",
-        # Content-addressed, so it can never change under this entry.
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        headers={
+            # PRIVATE. This picture is behind a session: `public` invited any
+            # shared cache between here and a phone to keep one person's
+            # drawing and hand it to the next, and it let the browser reuse a
+            # copy fetched before the page started sending credentials --
+            # which then had no CORS header and was refused. Content-addressed
+            # still, so it never changes under this entry.
+            "Cache-Control": "private, max-age=31536000, immutable",
+            # The answer differs by Origin, so anything caching it has to key
+            # on that rather than serve the first copy it happened to store.
+            "Vary": "Origin",
+        },
     )
 
 

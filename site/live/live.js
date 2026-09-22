@@ -1403,7 +1403,13 @@ function tile(e) {
     // use-credentials also puts the request in CORS mode, which is what lets
     // the service's own Cross-Origin-Resource-Policy satisfy the site's COEP.
     img.crossOrigin = "use-credentials";
-    img.src = e.thumb;
+    // A VERSION IN THE URL. The response is immutable for a year, which is
+    // right for something content-addressed and wrong the moment a browser has
+    // cached a FAILURE under that address: it never revalidates, so a tile that
+    // broke once stays broken for a year. The entry's own timestamp changes the
+    // address whenever the picture behind it does, and never otherwise.
+    const v = "v=" + (e.at || 0);
+    img.src = e.thumb + (e.thumb.includes("?") ? "&" : "?") + v;
     thumb.appendChild(img);
   }
   const badge = document.createElement("span");
