@@ -1044,7 +1044,7 @@
 .lv-card[data-selected="true"] .lv-card-pick {
   --bkt: 16px; /* arm length */
   --bkt-w: 3px; /* arm thickness */
-  --bkt-gap: 11px; /* clear air between the mark and the picture */
+  --bkt-gap: 7px; /* clear air between the mark and the picture */
   position: relative;
 }
 .lv-card[data-selected="true"] .lv-card-pick::after {
@@ -1145,7 +1145,11 @@
 /* Nothing sent yet. A tile-shaped answer rather than an empty strip, because an
    empty strip reads as a thing that failed to load. */
 .lv-empty {
-  flex: none;
+  /* IT MUST FIT. At 22rem it was wider than a narrow phone's rail, so the
+     carousel scrolled sideways with nothing to scroll to and the sentence was
+     cut off mid-word. Nothing has been sent: there is nothing to scroll. */
+  flex: 1 1 auto;
+  min-width: 0;
   border: 1px dashed var(--lv-line);
   color: var(--muted);
   padding: 0.5rem 0.7rem;
@@ -1155,6 +1159,7 @@
   display: grid;
   align-content: center;
   max-width: 22rem;
+  width: 100%;
 }
 .lv-empty strong {
   display: block;
@@ -1274,7 +1279,11 @@
      gone. */
   body.lv-connected:not(.lv-drawing) .lv-history {
     margin-top: 0;
-    flex: none;
+    /* Shrinkable. Fixed, the rail pushed the column past a short phone's
+       viewport and the page scrolled -- which this layout exists not to do.
+       It keeps its size wherever there is room and gives way where there is
+       not. */
+    flex: 0 1 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
@@ -1291,7 +1300,8 @@
        one tile is not a rail. Whatever is left over falls below, where a page
        ending reads as a page ending rather than as a hole in the middle. */
     height: 16rem;
-    flex: none;
+    max-height: 100%;
+    flex: 0 1 auto;
     min-height: 0;
     align-items: stretch;
   }
