@@ -177,7 +177,14 @@ jobs:
       # CI when the ref is missing.
       - name: Fetch upstream's tip, for the docs ownership checks
         run: |
-          git fetch --no-tags --depth=1 \
+          # NOT --depth=1. Ownership checks ask for the MERGE BASE, and a
+          # depth-1 fetch has no ancestry to compute one from -- settingsorder
+          # then SKIPPED here, which is the only environment it runs in, so
+          # the suite silently tested nothing. --shallow-since reaches past
+          # any realistic sync cadence and still fetches a fraction of the
+          # history. If a sync ever predates this window the suites say so
+          # rather than skipping.
+          git fetch --no-tags --shallow-since='6 months ago' \
             https://github.com/crosspoint-reader/crosspoint-reader.git \
             develop:refs/remotes/crosspoint/develop
           git rev-parse --verify crosspoint/develop
