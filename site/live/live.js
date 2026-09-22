@@ -1408,8 +1408,11 @@ function tile(e) {
     // cached a FAILURE under that address: it never revalidates, so a tile that
     // broke once stays broken for a year. The entry's own timestamp changes the
     // address whenever the picture behind it does, and never otherwise.
-    const v = "v=" + (e.at || 0);
-    img.src = e.thumb + (e.thumb.includes("?") ? "&" : "?") + v;
+    // Only a fetched URL takes the version. A data: URL carries its own bytes
+    // and a query string appended to one corrupts it.
+    img.src = /^https?:/i.test(e.thumb)
+      ? e.thumb + (e.thumb.includes("?") ? "&" : "?") + "v=" + (e.at || 0)
+      : e.thumb;
     thumb.appendChild(img);
   }
   const badge = document.createElement("span");
@@ -1418,12 +1421,10 @@ function tile(e) {
   thumb.appendChild(badge);
   pick.appendChild(thumb);
 
-  const meta = document.createElement("span");
-  meta.className = "lv-card-meta";
-  meta.innerHTML =
-    `<span>${whenStamp(e.at)}</span>` +
-    `<span class="lv-card-by">${e.by}</span>`;
-  pick.appendChild(meta);
+  // NO CAPTION UNDER THE TILE. A time and a device under every picture made
+  // the rail a table of records rather than a row of pictures, and the line
+  // under the rail already names the one that is going out. The tile's own
+  // label still carries both for anything reading the page aloud.
 
   pick.onclick = () => select(e);
   card.appendChild(pick);
