@@ -81,26 +81,20 @@
   box-sizing: border-box;
 }
 
-/* NO DOUBLE-TAP ZOOM, ANYWHERE. `manipulation` drops the double-tap gesture
-   and the 300ms tap delay that comes with waiting to see if a second tap is
-   arriving, so every control on the site answers immediately instead of a
-   third of a second later.
+/* NO DOUBLE-TAP ZOOM, ANYWHERE, AND ON EVERY ELEMENT.
+   `manipulation` drops the double-tap gesture and the ~300ms tap delay that
+   comes with waiting to see if a second tap is arriving, so every control on
+   the site answers immediately instead of a third of a second later.
+   It goes on `*` rather than on html and body, because touch-action is NOT
+   inherited and browsers differ on how far up the tree they look before
+   deciding a double tap may zoom -- Safari wants it on the element the finger
+   actually lands on. Set on the document alone, every button and link still
+   computed `auto`, which is most of what anybody taps.
    PINCH ZOOM IS KEPT. Taking it away needs user-scalable=no in the viewport
-   meta, which removes somebody's ability to magnify a page they cannot read.
-   Modern Safari ignores it anyway. Elements that need to own the gesture
-   entirely -- the drawing canvas, the game boards -- already declare
-   `touch-action: none` themselves, and that still wins here. */
-/* ON EVERY ELEMENT, not just the document. touch-action is NOT inherited, and
-   browsers differ on how far up the tree they look when deciding whether a
-   double tap may zoom -- Safari in particular wants it on the element the
-   finger actually lands on. Setting it on html and body alone left the gesture
-   working on buttons and links, which is most of what anybody taps.
-   `manipulation` is the mild value: panning and PINCH ZOOM still work, only
-   the double-tap gesture goes, and with it the ~300ms the browser spends
-   waiting to find out whether a second tap is coming.
-   Anything that owns its gesture completely -- the drawing canvas, the game
-   boards -- declares `touch-action: none` in a class rule, which outranks
-   this. */
+   meta, which removes somebody's ability to magnify a page they cannot read,
+   and modern Safari ignores it anyway. Anything that owns its gesture
+   entirely -- the drawing canvas, the game boards -- declares
+   `touch-action: none` in a class rule, which outranks this. */
 *,
 html,
 body {
