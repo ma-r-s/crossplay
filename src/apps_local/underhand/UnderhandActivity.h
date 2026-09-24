@@ -61,6 +61,7 @@ class UnderhandActivity final : public Activity {
   static constexpr int kFastRefreshes = 12;
   int fastRefreshes = 0;
   bool confirmGiveUp = false;  // the menu is asking before the run is thrown away
+  bool saveSetAside = false;   // the save could not be read and was renamed .bad
   bool flashNext = false;
   bool auditPending = false;
   std::atomic<bool> ready{false};  // onEnter has finished; render draws nothing before

@@ -11,7 +11,7 @@
 // Taps: an option that can be paid one way is taken by tapping it. One that
 // can be paid several ways shows them as chips joined by OR, the first filled
 // black: tapping a chip pays that way and tapping the rest of the option pays
-// the black one. When they do not all fit, the last chip is MORE, which lists
+// the black one. When they do not all fit, the last chip is ALL, which lists
 // every way a page at a time. An option that cannot be taken is dithered,
 // still shows what it asks, gives and does, says why, and takes no tap.
 // Tapping the bar of symbols, or the line above it, opens How to Play.
@@ -42,7 +42,7 @@ enum : fui::ActionId {
 
 constexpr int kMostWays = view::kMostPayments;
 constexpr int kWayStride = kMostWays;  // so option * stride + way is unique
-constexpr int kChips = 3;              // ways shown on an option before MORE
+constexpr int kChips = 3;              // ways shown on an option before ALL
 constexpr int kHelpPages = 2;
 
 // A tap that pays carries the turn its card was drawn on. Two cards with the
@@ -57,8 +57,8 @@ static_assert((underhand::kMaxOptions - 1) * kWayStride + kMostWays - 1 <= 0xFF,
 
 struct OptionRow {
   const char* text = "";
-  int ways = 0;      // how many exact payments there are
-  int sensible = 0;  // of them, the ones not spending a relic on suspicion; they come first
+  int ways = 0;          // how many ways it can be paid (view::choices)
+  bool guarded = false;  // relics would pay for no suspicion lost: a tap opens the list
   view::Tokens way[kChips];
   view::Tokens give;  // the cost as asked, shown when it cannot be paid
   view::Tokens get;
@@ -104,13 +104,13 @@ struct CardModel {
   int wayCount = 0;
   int wayPage = 0;
   view::Tokens listed[kMostWays];
-  bool keepsSuspicion[kMostWays] = {};  // a relic pays for suspicion, which stays
 };
 
 struct MenuModel {
   bool inRun = false;
   bool confirmGiveUp = false;  // asking before the run is thrown away
   bool tutorial = false;       // the next run is the tutorial
+  bool saveSetAside = false;   // the save on the card could not be read
   int turn = 0;
   int gods = 0;
   const char* godName[underhand::kMaxGods] = {};

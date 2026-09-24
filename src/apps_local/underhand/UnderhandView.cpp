@@ -196,6 +196,33 @@ int payments(const Game& game, const Cards& cards, int k, Counts* out, int max) 
   return found;
 }
 
+int choices(const Game& game, const Cards& cards, int k, Counts* out, int max) {
+  Counts all[kMostPayments];
+  const int found = payments(game, cards, k, all, kMostPayments);
+  const int kept = found < kMostPayments ? found : kMostPayments;
+  const int asked = game.cost[k][Suspicion] > 0 ? game.cost[k][Suspicion] : 0;
+  const int spendable = asked < game.held[Suspicion] ? asked : game.held[Suspicion];
+  int n = 0;
+  for (int i = 0; i < kept; ++i) {
+    if (all[i][Suspicion] < spendable) continue;
+    if (n < max) out[n] = all[i];
+    ++n;
+  }
+  return n;
+}
+
+bool buysNothing(const Game& game, const Cards& cards, int k) {
+  const Card* card = cards.card(game.card);
+  if (!card || k < 0 || k >= card->optionCount) return false;
+  const int asked = game.cost[k][Suspicion];
+  if (asked <= 0 || game.held[Suspicion] > 0) return false;
+  for (int16_t n : game.gain[k]) {
+    if (n > 0) return false;
+  }
+  const Option& o = card->option[k];
+  return o.addCount == 0 && o.rollCount == 0 && !o.foresight && o.win < 0 && !o.lose;
+}
+
 void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size) {
   Line line(out, size);
   const Card* card = cards.card(game.card);

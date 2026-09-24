@@ -62,6 +62,19 @@ Tokens tokensOf(const Counts& counts);
 constexpr int kMostPayments = 64;
 int payments(const Game& game, const Cards& cards, int k, Counts* out, int max);
 
+// The ways worth offering a player: every exact payment except those that
+// leave suspicion unspent which is held and asked for, paying a relic in its
+// place. Keeping suspicion is never better (it invites a raid and counts
+// toward Greed), so those ways are not offered at all. Same order as
+// payments(), so the first is suggest()'s. Returns how many there are,
+// writing at most `max`.
+int choices(const Game& game, const Cards& cards, int k, Counts* out, int max);
+
+// Whether option k asks for suspicion that is not held and does nothing else:
+// relics would pay for it and take no suspicion off. Such an option is never
+// taken with one tap.
+bool buysNothing(const Game& game, const Cards& cards, int k);
+
 // Why option k cannot be taken, in capitals: "SHORT: 2 CULTISTS, 1 FOOD",
 // "ONLY WITH NO CULTISTS", "LOCKED: ANOTHER CHOICE IS OPEN". Empty when it can.
 void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size);

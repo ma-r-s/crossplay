@@ -318,11 +318,9 @@ void status(toybox::Screen& screen, const fui::Rect& area, const CardModel& mode
 // x the chips end at.
 int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui::Rect& row, const fui::Rect& reach,
           int getWidth) {
-  // Only sensible ways become chips; the rest, and any that do not fit, are
-  // behind ALL.
   const int available = row.width - getWidth - kBetween;
   int widths[kChips] = {};
-  for (int i = 0; i < kChips && i < o.sensible; ++i) widths[i] = tokensWidth(screen, o.way[i], '-') + kChipPad * 2;
+  for (int i = 0; i < kChips && i < o.ways; ++i) widths[i] = tokensWidth(screen, o.way[i], '-') + kChipPad * 2;
   // ALL says how many ways there are, sized for the most there can be.
   const int more = measure(screen, "ALL 64") + kChipPad * 2;
   const int orWidth = measure(screen, "OR") + kOrPad * 2;
@@ -332,13 +330,18 @@ int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui
     if (n < o.ways) w += orWidth + more;
     return w;
   };
-  int shown = o.sensible < kChips ? o.sensible : kChips;
+  int shown = o.ways < kChips ? o.ways : kChips;
   if (shown < o.ways && shown == kChips) shown = kChips - 1;
   while (shown > 1 && width(shown) > available) --shown;
   if (width(shown) > available) report("payment chips do not fit beside what the option gives");
 
   const int midY = row.y + row.height / 2;
+  // The last chip also answers a little past its right edge, short of what
+  // the option gives: a near miss there should not pay the black way.
+  const int gains = right(row) - getWidth - kBetween / 2;
+  auto pastEnd = [&](int end) { return end + 20 < gains ? end + 20 : (gains > end ? gains : end); };
   int x = row.x;
+  int answered = x;
   auto joiner = [&]() {
     small(screen, rect(x, row.y, orWidth, row.height), "OR", fui::TextAlign::Center);
     x += orWidth;
@@ -355,9 +358,11 @@ int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui
     // A finger is wider than the chip is tall: the chip answers over the band
     // around it and half of each OR beside it.
     const int left = i ? x - orWidth / 2 : reach.x;
-    const int rightEdge = x + widths[i] + (i + 1 < shown || shown < o.ways ? orWidth / 2 : 0);
+    const bool last = i + 1 == shown && shown == o.ways;
+    const int rightEdge = last ? pastEnd(x + widths[i]) : x + widths[i] + orWidth / 2;
     screen.frame().hit(rect(left, reach.y, rightEdge - left, reach.height), ActionPay, stamp(turn, k * kWayStride + i));
     x += widths[i];
+    answered = rightEdge;
   }
   if (shown < o.ways) {
     joiner();
@@ -366,10 +371,13 @@ int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui
     char label[24];
     std::snprintf(label, sizeof(label), "ALL %d", o.ways);
     small(screen, chip, label, fui::TextAlign::Center);
-    screen.frame().hit(rect(x - orWidth / 2, reach.y, more + orWidth / 2, reach.height), ActionMore, stamp(turn, k));
+    const int end = pastEnd(x + more);
+    screen.frame().hit(rect(x - orWidth / 2, reach.y, end - (x - orWidth / 2), reach.height), ActionMore,
+                       stamp(turn, k));
     x += more;
+    answered = end;
   }
-  return x;
+  return answered;
 }
 
 void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& model) {
@@ -418,9 +426,9 @@ void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& mod
     const int reachTop = row.y - 20 > textBottom + 2 ? row.y - 20 : textBottom + 2;
     const int reachBottom = noteH ? bottom(row) + 4 : bottom(box);
     const fui::Rect reach = rect(box.x, reachTop, box.width, reachBottom - reachTop);
-    if (o.sensible == 0) {
-      // Every way spends a relic on suspicion, which keeps the suspicion: not
-      // something one stray tap should do. The option opens the list.
+    if (o.guarded) {
+      // Relics would pay for suspicion that is not held, and the option does
+      // nothing else: not something one stray tap should do. It opens the list.
       tokens(screen, row.x, midY, o.way[0], '-', false);
       screen.frame().hit(box, ActionMore, stamp(model.turn, k));
       continue;
@@ -557,12 +565,7 @@ void ways(toybox::Screen& screen, const fui::Rect& area, const CardModel& model)
   for (int i = 0; i < shown; ++i) {
     const int way = first + i;
     const fui::Rect row = rect(inner.x, top + i * kRow, inner.width, kRow - 8);
-    // A relic paying for suspicion leaves the suspicion held: say so on the
-    // row, since this list is the only place such a way can be chosen.
-    const bool keeps = model.keepsSuspicion[way];
-    const int stays = measure(screen, "STAYS");
-    const int tagWidth = keeps ? kTokenIcon + 4 + stays + kChipPad : 0;
-    if (tokensWidth(screen, model.listed[way], '-') + kChipPad * 2 + tagWidth > row.width) {
+    if (tokensWidth(screen, model.listed[way], '-') + kChipPad * 2 > row.width) {
       report("a way to pay is wider than its row");
     }
     const fui::Color ink = way == 0 ? fui::Color::White : fui::Color::Black;
@@ -572,12 +575,6 @@ void ways(toybox::Screen& screen, const fui::Rect& area, const CardModel& model)
       screen.target().stroke(row, fui::Paint::solid(fui::Color::Black), 2);
     }
     tokens(screen, row.x + kChipPad, row.y + row.height / 2, model.listed[way], '-', false, ink);
-    if (keeps) {
-      const int end = right(row) - kChipPad;
-      small(screen, rect(end - stays - 2, row.y, stays + 2, row.height), "STAYS", fui::TextAlign::Right, ink);
-      icon(screen, rect(end - stays - 4 - kTokenIcon, row.y + (row.height - kTokenIcon) / 2, kTokenIcon, kTokenIcon),
-           *kIcon24[underhand::Suspicion], ink);
-    }
     // The gap between rows belongs to the row above it.
     screen.frame().hit(rect(row.x, row.y, row.width, kRow), ActionPay,
                        stamp(model.turn, model.waysFor * kWayStride + way));
@@ -684,6 +681,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     std::snprintf(headline, sizeof(headline), "NEW RUN");
     sub = "Summon a god to win.";
   }
+  if (model.saveSetAside) sub = "The last save could not be read, and was kept aside.";
   label(screen, rect(x, body.y + 20, width, 70), headline, toybox::kDisplayFont, toybox::kDisplayCut,
         fui::TextAlign::Left);
   const int subLines = linesFor(screen, sub, width, 2);
@@ -797,7 +795,7 @@ void buildHelp(toybox::Screen& screen, int page) {
         {kIcon32[underhand::Food], "FOOD", "NONE LEFT: DESPERATE MEASURES"},
         {kIcon32[underhand::Prisoner], "PRISONER", "ONE OF THEIRS, HELD CAPTIVE"},
         {kIcon32[underhand::Suspicion], "SUSPICION", "AT 5 OR MORE: A POLICE RAID"},
-        {&icon_uh_alert_32, "A PUNISHMENT MAY COME", "GREED: 16 OR MORE HELD IN ALL"},
+        {&icon_uh_alert_32, "A PUNISHMENT MAY COME", "GREED: 16+ IN ALL, SUSPICION TOO"},
     };
     constexpr int kEntry = 56;
     for (const Entry& e : entries) {

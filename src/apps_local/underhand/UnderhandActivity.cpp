@@ -87,14 +87,9 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
       }
       row.give.count = static_cast<uint8_t>(kept);
     }
-    uh::Counts ways[ui::kMostWays];
-    row.ways = uh::view::payments(g, cards, k, ways, ui::kMostWays);
-    // Ways that spend a relic on suspicion come last; the rest are sensible.
-    const int suspicionCost = g.cost[k][uh::Suspicion] > 0 ? g.cost[k][uh::Suspicion] : 0;
-    while (row.sensible < row.ways && row.sensible < ui::kMostWays &&
-           ways[row.sensible][uh::Suspicion] >= suspicionCost) {
-      ++row.sensible;
-    }
+    uh::Counts ways[ui::kChips];
+    row.ways = uh::view::choices(g, cards, k, ways, ui::kChips);
+    row.guarded = row.ways > 0 && uh::view::buysNothing(g, cards, k);
     for (int i = 0; i < row.ways && i < ui::kChips; ++i) {
       row.way[i] = uh::view::tokensOf(ways[i]);
       // The random part is the same whichever way the rest is paid.
@@ -105,8 +100,8 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     // reach is exactly what the player is saving for.
     char effect[112];
     uh::view::effectLine(g, cards, k, effect, sizeof(effect));
-    if (row.state == uh::view::OptionState::Open && row.ways > 0 && row.sensible == 0) {
-      std::snprintf(row.note, sizeof(row.note), "Relic pays, suspicion stays%s%s", effect[0] ? ". " : "", effect);
+    if (row.state == uh::view::OptionState::Open && row.guarded) {
+      std::snprintf(row.note, sizeof(row.note), "Relics pay, no suspicion is lost");
     } else if (row.state == uh::view::OptionState::Open) {
       std::snprintf(row.note, sizeof(row.note), "%s", effect);
     } else {
@@ -140,15 +135,13 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     m.waysFor = waysFor;
     m.wayPage = waysPage;
     uh::Counts ways[ui::kMostWays];
-    const int n = uh::view::payments(g, cards, waysFor, ways, ui::kMostWays);
+    const int n = uh::view::choices(g, cards, waysFor, ways, ui::kMostWays);
     m.wayCount = n < ui::kMostWays ? n : ui::kMostWays;
-    const int suspicionCost = g.cost[waysFor][uh::Suspicion] > 0 ? g.cost[waysFor][uh::Suspicion] : 0;
     for (int i = 0; i < m.wayCount; ++i) {
       uh::view::Tokens& t = m.listed[i];
       t = uh::view::tokensOf(ways[i]);
       const uh::Option& o = card->option[waysFor];
       if (o.randomCost > 0) t.token[t.count++] = uh::view::Token{uh::view::Token::Random, 0, o.randomCost};
-      m.keepsSuspicion[i] = ways[i][uh::Suspicion] < suspicionCost;
     }
   }
 }
@@ -186,8 +179,9 @@ void fillEnd(const uh::Cards& cards, const uh::Game& g, const uh::Profile& profi
   std::snprintf(m.detail[1], sizeof(m.detail[1]), "It lasted %d turns.", g.turn);
 }
 
-void fillMenu(const uh::Cards& cards, const uh::Save& state, bool confirm, ui::MenuModel& m) {
+void fillMenu(const uh::Cards& cards, const uh::Save& state, bool confirm, bool setAside, ui::MenuModel& m) {
   m.inRun = state.inRun;
+  m.saveSetAside = setAside && !state.inRun;
   m.confirmGiveUp = confirm && state.inRun;
   m.tutorial = !state.profile.tutorialDone;
   m.turn = state.game.turn;
@@ -271,6 +265,7 @@ void UnderhandActivity::load() {
     if (Storage.exists(aside)) Storage.remove(aside);
     Storage.rename(kSavePath, aside);
     state = uh::Save{};
+    saveSetAside = true;
     return;
   }
   if (size != uh::kSaveBytes)
@@ -305,6 +300,7 @@ void UnderhandActivity::newRun() {
   uh::start(state.game, *cards, state.profile, rng);
   state.inRun = true;
   state.showOutcome = false;
+  saveSetAside = false;
   waysFor = -1;
   confirmGiveUp = false;
   view = View::Play;
@@ -316,8 +312,9 @@ void UnderhandActivity::newRun() {
 
 void UnderhandActivity::pay(int option, int way) {
   uh::Game& g = state.game;
+  // The same list the screen offered, so a way's number means the same way.
   uh::Counts ways[ui::kWayStride];
-  const int n = uh::view::payments(g, *cards, option, ways, ui::kWayStride);
+  const int n = uh::view::choices(g, *cards, option, ways, ui::kWayStride);
   if (way < 0 || way >= n || way >= ui::kWayStride || !uh::choose(g, *cards, option, ways[way], rng)) {
     LOG_ERR("UNDERHAND", "Card %d option %d way %d refused (%d ways)", g.card, option, way, n);
     return;
@@ -537,10 +534,12 @@ void UnderhandActivity::audit() {
   const uh::Counts crowded = {12, 25, 18, 10, 22, 15};
   // Only relics: every cost paid by them, suspicion included.
   const uh::Counts relics = {9, 0, 0, 0, 0, 0};
+  // All three punishments possible at once, none of them certain.
+  const uh::Counts threeOdds = {0, 5, 5, 0, 1, 5};
   uh::Rng r(7);
   for (int i = 0; i < cards->count(); ++i) {
     const uh::Card& c = cards->at(i);
-    for (const uh::Counts* held : {&rich, &starving, &poor, &crowded, &relics}) {
+    for (const uh::Counts* held : {&rich, &starving, &poor, &crowded, &relics, &threeOdds}) {
       uh::Game g;
       g.held = *held;
       g.card = c.id;
@@ -654,14 +653,14 @@ void UnderhandActivity::audit() {
   }
   // The menu in each of its states: between runs, in one, asking to give it
   // up, and before the tutorial.
-  for (int form = 0; form < 4; ++form) {
+  for (int form = 0; form < 5; ++form) {
     uh::Save s;
     s.inRun = form == 1 || form == 2;
     s.game.turn = 999;
     s.profile.summoned = 0x55;
     s.profile.tutorialDone = form != 3;
     ui::MenuModel m;
-    fillMenu(*cards, s, form == 2, m);
+    fillMenu(*cards, s, form == 2, form == 4, m);
     draw([&](toybox::Screen& sc) { ui::buildMenu(sc, m); });
     check("menu form", form);
   }
@@ -688,7 +687,7 @@ void UnderhandActivity::render(RenderLock&&) {
   switch (view) {
     case View::Menu: {
       ui::MenuModel model;
-      fillMenu(*cards, state, confirmGiveUp, model);
+      fillMenu(*cards, state, confirmGiveUp, saveSetAside, model);
       ui::buildMenu(screen, model);
       break;
     }

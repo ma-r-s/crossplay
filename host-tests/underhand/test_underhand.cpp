@@ -834,7 +834,12 @@ void waysToPayAreEveryExactPayment() {
   none.opts[0].cost = {0, 0, underhand::kOnlyIfNone, 0, 0, 0};
   CardSpec calm{4};
   calm.opts[0].cost = {0, 1, 0, 0, 0, 1};
-  auto cards = load(world({swap, plain, none, calm}));
+  CardSpec tamper{5};  // Reduce Suspicion's Tamper: 3 suspicion, nothing else
+  tamper.opts[0].cost = {0, 0, 0, 0, 0, 3};
+  tamper.opts.push_back(Opt{});
+  tamper.opts[1].cost = {0, 0, 0, 0, 0, 1};
+  tamper.opts[1].gain = {1, 0, 0, 0, 0, 0};  // and one that gives something for it
+  auto cards = load(world({swap, plain, none, calm, tamper}));
   if (failures) return;
   Counts ways[8];
 
@@ -873,6 +878,28 @@ void waysToPayAreEveryExactPayment() {
   CHECK(ways[0] == C(0, 1, 0, 0, 0, 1) && ways[1] == C(1, 0, 0, 0, 0, 1));
   CHECK(ways[2] == C(1, 1, 0, 0, 0, 0) && ways[3] == C(2, 0, 0, 0, 0, 0));
   CHECK(suggest(calmHand, *cards, 0, first) && first == ways[0]);
+
+  // What is offered: never a way that leaves held suspicion unspent.
+  // Holding all 3: the relic ways keep suspicion and are not offered.
+  Game t = table(*cards, 5, C(2, 0, 0, 1, 0, 3));
+  CHECK(view::payments(t, *cards, 0, ways, 8) == 3);
+  CHECK(view::choices(t, *cards, 0, ways, 8) == 1 && ways[0] == C(0, 0, 0, 0, 0, 3));
+  CHECK(!view::buysNothing(t, *cards, 0));
+  // Holding 2 of the 3: a relic makes up the third, and that is the way.
+  t = table(*cards, 5, C(2, 0, 0, 1, 0, 2));
+  CHECK(view::choices(t, *cards, 0, ways, 8) == 1 && ways[0] == C(1, 0, 0, 0, 0, 2));
+  CHECK(!view::buysNothing(t, *cards, 0));
+  // Holding none: relics pay and take no suspicion off, which is nothing.
+  t = table(*cards, 5, C(3, 0, 0, 1, 0, 0));
+  CHECK(view::choices(t, *cards, 0, ways, 8) == 1 && ways[0] == C(3, 0, 0, 0, 0, 0));
+  CHECK(view::buysNothing(t, *cards, 0));
+  // Unless the option gives something besides.
+  CHECK(view::choices(t, *cards, 1, ways, 8) == 1 && !view::buysNothing(t, *cards, 1));
+  // The first choice is always suggest()'s.
+  for (const Counts& held : {C(2, 0, 0, 1, 0, 3), C(2, 0, 0, 1, 0, 2), C(3, 0, 0, 1, 0, 0)}) {
+    t = table(*cards, 5, held);
+    CHECK(view::choices(t, *cards, 0, ways, 8) >= 1 && suggest(t, *cards, 0, first) && first == ways[0]);
+  }
 }
 
 void savesRoundTripAndRefuseDamage() {

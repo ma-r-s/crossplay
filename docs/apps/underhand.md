@@ -150,8 +150,8 @@ The panel of options gives its place, and only its place, to three others:
 what a choice did, foresight, and the ways to pay.
 
 **Symbols.** One Lucide symbol per resource (gem, coins, user-round, wheat,
-user-lock, eye), a count before it: `-2` takes, `+2` gives, `NO` means only
-while none is held, a cultist and a prisoner joined by a slash mean either,
+user-lock, eye), a count before it: `-2` takes, `+2` gives, a cultist and a
+prisoner joined by a slash mean either,
 `AT RANDOM` is Greed's random loss. The bar shows each count beside its symbol,
 the whole bar in one size: the large symbol, the smaller one when a count has
 two digits, and the small face when even that does not fit. Food and suspicion
@@ -163,15 +163,21 @@ invert while they invite a punishment.
 - an option that can be paid several ways shows them as chips joined by `OR`,
   the first filled black. Tapping a chip pays that way; tapping the rest of the
   option pays the black one, so the common case is still one tap. The first is
-  `suggest()`'s: fewest relics, prisoners before cultists. A relic paying for
-  suspicion keeps the suspicion and loses the relic, so those ways come last,
-  are never chips (only in the full list, where each is tagged with the
-  suspicion symbol and `STAYS`), and when they are the only ways the option
-  says `RELIC PAYS, SUSPICION STAYS` and a tap opens the list rather than
+  `suggest()`'s: fewest relics, prisoners before cultists. The ways offered
+  are `view::choices()`: every exact payment except those that leave held
+  suspicion unspent, paying a relic in its place, which is never better
+  (suspicion invites a raid and counts toward Greed). With 2 suspicion held
+  and 3 asked, a relic and the 2 is the way; with 3 held, the relic ways are
+  not offered at all;
+- an option that asks for suspicion when none is held, and does nothing else
+  (`view::buysNothing()`), would spend relics to take no suspicion off. It says
+  `RELICS PAY, NO SUSPICION IS LOST` and a tap opens the list rather than
   paying;
 - each chip answers over the band around it and half of each OR beside it,
   because a finger is wider than a 36px chip is tall: up to 20px above it
-  (never over the option's own words) and down to the note;
+  (never over the option's own words) and down to the note, and the last chip
+  20px past its right edge, short of what the option gives, so a near miss
+  there does not pay the black way;
 - when the chips do not all fit, the last one is `ALL n`, which lists every way
   a page at a time (`PAY WHICH WAY?`, `NEXT PAGE`, `BACK`). The screen pages by
   the room it has. Up to 64 ways are kept; no option of the real cards has more
@@ -246,8 +252,8 @@ them) and what the next run is dealt, or the card that ended it and how long it
 lasted, with `PLAY AGAIN` and `MENU`.
 
 **How to play** is two pages: the seven symbols and what each danger is called,
-then the goal, the tap rule, grey choices and `NO`, the warning line and
-`DECK`. It opens from the menu and from a tap on the bar or the line above it,
+then the goal, the tap rule, grey choices, the warning line and its black
+counts, `LAST` and `DECK`. It opens from the menu and from a tap on the bar or the line above it,
 where a small question mark says so.
 
 **Refresh.** A screen change is a full refresh, and so is every twelfth frame,
@@ -278,13 +284,14 @@ Two instruments, both run from the simulator:
 
 - **The audit.** `UNDERHAND_AUDIT=1` makes the activity render, before its
   first real frame, every card with a full hand, a hand that raises all three
-  dangers, an empty one, one with two digits in every cell of the bar and one
-  of nothing but relics;
+  dangers with Greed certain, one with all three odds showing, an empty one,
+  one with two digits in every cell of the bar and one of nothing but relics;
   every page of every list of ways; every option's
   outcome with every card it can add, a reshuffle and five kinds lost at
   random; the last turn of every option on the status line; foresight over
   every card; every win, every losing option, every stuck card; the menu in
-  its four states; both pages of how to play. About 1,760 screens. The builders report any
+  its five states (the fifth after a save was set aside); both pages of how to
+  play. About 1,830 screens. The builders report any
   label wider than its box, prose needing more lines than its box, tokens
   running into each other, a panel running into its buttons. It logs `AUDIT
 <screen> <id>: <problem>` and then `AUDIT: <n> screens, <m> layout
@@ -316,7 +323,8 @@ random state. A save that fails `valid()` keeps the profile and drops the run,
 and so does one written by a build with a different `Game` (the profile sits
 in front of it, where it always was) or with a flags byte no build writes. A
 file that cannot be read at all is renamed `underhand.sav.bad` rather than
-overwritten, since the gods summoned may still be in it; the first such file
+overwritten, since the gods summoned may still be in it, and the menu says
+so until the next run starts; the first such file
 is never replaced (a later one is `underhand.sav.bad2`), and a failed read is
 tried twice before anything is set aside. The `Game`'s own flags are read back
 as bytes, so a damaged one cannot be a bool that is neither true nor false.
