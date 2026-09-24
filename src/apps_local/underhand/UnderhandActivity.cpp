@@ -52,20 +52,11 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     for (char* c = m.title; *c; ++c) *c = static_cast<char>(std::toupper(static_cast<unsigned char>(*c)));
     m.flavor = uh::view::flavorText(cards, *card);
   }
+  m.turn = g.turn;
   m.deck = g.draw.size;
   for (int r = 0; r < uh::kResources; ++r) m.held[r] = g.held[r];
-  m.danger = uh::view::danger(g);
-
-  // Every danger, by its cause, in the order the punishments are rolled. All
-  // three leave no room for the word; the warning sign says it anyway.
-  if (m.danger.total || m.danger.suspicion || m.danger.food) {
-    const bool all = m.danger.total && m.danger.suspicion && m.danger.food;
-    std::snprintf(m.status, sizeof(m.status), "%s%s%s%s%s%s", all ? "" : "DANGER: ", m.danger.total ? "16+ HELD" : "",
-                  m.danger.total && (m.danger.suspicion || m.danger.food) ? ", " : "",
-                  m.danger.suspicion ? "SUSPICION 5+" : "", m.danger.suspicion && m.danger.food ? ", " : "",
-                  m.danger.food ? "NO FOOD" : "");
-    m.statusIsDanger = true;
-  } else if (!showOutcome) {
+  m.odds = uh::punishmentOdds(g);
+  if (!showOutcome) {
     m.lastPaid = uh::view::tokensOf(g.paid);
     m.lastGained = uh::view::tokensOf(g.gained);
   }
@@ -89,11 +80,18 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
       if (o.randomCost > 0)
         row.way[i].token[row.way[i].count++] = uh::view::Token{uh::view::Token::Random, 0, o.randomCost};
     }
-    if (row.state != uh::view::OptionState::Open) {
-      uh::view::whyNot(g, cards, k, row.note, sizeof(row.note));
-      continue;
+    // What it does, and when it cannot be taken, why not: a summons out of
+    // reach is exactly what the player is saving for.
+    char effect[112];
+    uh::view::effectLine(g, cards, k, effect, sizeof(effect));
+    if (row.state == uh::view::OptionState::Open) {
+      std::snprintf(row.note, sizeof(row.note), "%s", effect);
+    } else {
+      char why[64];
+      uh::view::whyNot(g, cards, k, why, sizeof(why));
+      std::snprintf(row.note, sizeof(row.note), "%s%s%s", effect, effect[0] ? ". " : "", why);
+      if (effect[0]) std::snprintf(row.shortNote, sizeof(row.shortNote), "%s", why);
     }
-    uh::view::effectLine(g, cards, k, row.note, sizeof(row.note));
     capitals(row.note);
   }
 
@@ -134,22 +132,24 @@ void fillEnd(const uh::Cards& cards, const uh::Game& g, const uh::Profile& profi
   m.won = g.phase == uh::Phase::Won;
   if (m.won) {
     const uh::God& god = cards.god(g.god);
-    m.headline = cards.text(god.name);
-    std::snprintf(m.detail[0], sizeof(m.detail[0]), "has answered your call on turn %d. %d of %d gods now serve you.",
-                  g.turn, profile.summonedCount(), cards.godCount());
+    std::snprintf(m.headline, sizeof(m.headline), "%s", cards.text(god.name));
+    capitals(m.headline);
+    const int serving = profile.summonedCount();
+    std::snprintf(m.detail[0], sizeof(m.detail[0]), "has answered your call on turn %d. %d of %d gods now %s you.",
+                  g.turn, serving, cards.godCount(), serving == 1 ? "serves" : "serve");
     const uh::Card* a = cards.card(god.unlock[0]);
     const uh::Card* b = cards.card(god.unlock[1]);
-    std::snprintf(m.detail[1], sizeof(m.detail[1]), "Your next run begins with %s and %s.",
+    std::snprintf(m.detail[1], sizeof(m.detail[1]), "Your next run begins with \"%s\" and \"%s\".",
                   a ? cards.text(a->title) : "?", b ? cards.text(b->title) : "?");
     return;
   }
-  m.headline = "The cult falls";
+  std::snprintf(m.headline, sizeof(m.headline), "THE CULT FALLS");
   const uh::Card* card = cards.card(g.loss == uh::LossReason::Choice ? g.played : g.card);
   const char* title = card ? cards.text(card->title) : "?";
   switch (g.loss) {
     case uh::LossReason::Choice:
       std::snprintf(m.detail[0], sizeof(m.detail[0]), "%s: %s.", title,
-                    card && g.playedOption >= 0 ? cards.text(card->option[g.playedOption].text) : "");
+                    card && g.playedOption >= 0 ? uh::view::optionText(cards, *card, g.playedOption) : "");
       break;
     case uh::LossReason::Stuck:
       std::snprintf(m.detail[0], sizeof(m.detail[0]), "Nothing %s asked for could be paid.", title);
@@ -213,6 +213,12 @@ void UnderhandActivity::onEnter() {
 ui::CardModel& UnderhandActivity::freshCard() { return *new (cardModel.get()) ui::CardModel(); }
 
 void UnderhandActivity::load() {
+  // Power lost between save()'s remove and its rename leaves only the new
+  // file, complete, under its temporary name.
+  if (!Storage.exists(kSavePath) && Storage.exists(kSaveTempPath)) {
+    LOG_INF("UNDERHAND", "Recovering the save from %s", kSaveTempPath);
+    Storage.rename(kSaveTempPath, kSavePath);
+  }
   HalFile f = Storage.open(kSavePath, O_RDONLY);
   if (!f.isOpen()) return;
   uint8_t bytes[uh::kSaveBytes];
@@ -252,7 +258,7 @@ void UnderhandActivity::newRun() {
   rng = uh::Rng((static_cast<uint64_t>(millis()) << 20) ^ (rng.state() * 0x9E3779B97F4A7C15ULL) ^ 1);
   uh::start(state.game, *cards, state.profile, rng);
   state.inRun = true;
-  showOutcome = false;
+  state.showOutcome = false;
   waysFor = -1;
   confirmGiveUp = false;
   view = View::Play;
@@ -288,7 +294,7 @@ void UnderhandActivity::afterChoice() {
     LOG_INF("UNDERHAND", "Run over on turn %d: %s", g.turn,
             g.phase == uh::Phase::Won ? cards->text(cards->god(g.god).name) : "lost");
   } else {
-    showOutcome = g.phase == uh::Phase::Choosing && g.played != 0 && notable(g);
+    state.showOutcome = g.phase == uh::Phase::Choosing && g.played != 0 && notable(g);
   }
   save();
   requestUpdate();
@@ -299,7 +305,12 @@ void UnderhandActivity::route(int action, int value) {
     case View::Menu:
       if (confirmGiveUp) {
         if (action == ui::ActionNewRun) newRun();
-        if (action == ui::ActionCancel) confirmGiveUp = false;
+        // KEEP PLAYING means the card, not the menu it was asked from.
+        if (action == ui::ActionCancel) {
+          confirmGiveUp = false;
+          view = View::Play;
+          flashNext = true;
+        }
       } else if (action == ui::ActionMain) {
         if (state.inRun) {
           view = View::Play;
@@ -311,17 +322,25 @@ void UnderhandActivity::route(int action, int value) {
         confirmGiveUp = true;
       } else if (action == ui::ActionHelp) {
         helpFrom = View::Menu;
+        helpPage = 0;
         view = View::Help;
       }
       requestUpdate();
       return;
     case View::Play:
+      // A tap that pays is for the card it was drawn on; one made on an
+      // earlier card, while this one was being painted, does nothing.
+      if ((action == ui::ActionOption || action == ui::ActionPay || action == ui::ActionMore) &&
+          !ui::stampedFor(value, state.game.turn)) {
+        LOG_DBG("UNDERHAND", "Tap for an earlier card ignored (turn %d)", state.game.turn);
+        return;
+      }
       if (action == ui::ActionOption) {
-        pay(value, 0);
+        pay(ui::payloadOf(value), 0);
       } else if (action == ui::ActionPay) {
-        pay(value / ui::kWayStride, value % ui::kWayStride);
+        pay(ui::payloadOf(value) / ui::kWayStride, ui::payloadOf(value) % ui::kWayStride);
       } else if (action == ui::ActionMore) {
-        waysFor = value;
+        waysFor = ui::payloadOf(value);
         waysPage = 0;
         requestUpdate();
       } else if (action == ui::ActionNextWays) {
@@ -329,18 +348,23 @@ void UnderhandActivity::route(int action, int value) {
         requestUpdate();
       } else if (action == ui::ActionHelp) {
         helpFrom = View::Play;
+        helpPage = 0;
         view = View::Help;
         requestUpdate();
       } else if (action == ui::ActionCancel) {
         waysFor = -1;
         requestUpdate();
       } else if (action == ui::ActionContinue) {
-        if (showOutcome) {
-          showOutcome = false;
+        if (state.showOutcome) {
+          state.showOutcome = false;
+          save();
           requestUpdate();
         } else if (state.game.phase == uh::Phase::Foresight) {
           uh::endForesight(state.game, *cards, rng);
           afterChoice();
+          // The choice was shown before foresight; its outcome is not news.
+          state.showOutcome = false;
+          save();
         }
       } else if (action == ui::ActionSeen) {
         uh::toggleDiscard(state.game, value);
@@ -353,6 +377,7 @@ void UnderhandActivity::route(int action, int value) {
         newRun();
       } else if (action == ui::ActionMenu) {
         view = View::Menu;
+        flashNext = true;
         requestUpdate();
       }
       return;
@@ -360,11 +385,14 @@ void UnderhandActivity::route(int action, int value) {
       if (action == ui::ActionCancel) {
         view = helpFrom;
         requestUpdate();
+      } else if (action == ui::ActionHelpPage) {
+        helpPage = value;
+        requestUpdate();
       }
       return;
     case View::Broken:
-      // Either button leaves: there is nothing to play.
-      if (action == ui::ActionNewRun || action == ui::ActionMenu) shelf::leave(renderer, mappedInput);
+      // Its one button leaves: there is nothing to play.
+      if (action == ui::ActionMenu) shelf::leave(renderer, mappedInput);
       return;
   }
 }
@@ -428,14 +456,17 @@ void UnderhandActivity::audit() {
     build(screen);
   };
   // Rich enough for every way to pay and every danger at once; starving adds
-  // the third danger; poor closes every option that costs anything.
+  // the third danger; poor closes every option that costs anything; crowded
+  // puts two digits in every cell of the bar.
   const uh::Counts rich = {3, 9, 9, 9, 9, 9};
   const uh::Counts starving = {3, 9, 9, 0, 9, 9};
   const uh::Counts poor = {0, 0, 0, 0, 0, 0};
+  // Two digits in every cell, the widest counts a long run reaches.
+  const uh::Counts crowded = {12, 25, 18, 10, 22, 15};
   uh::Rng r(7);
   for (int i = 0; i < cards->count(); ++i) {
     const uh::Card& c = cards->at(i);
-    for (const uh::Counts* held : {&rich, &starving, &poor}) {
+    for (const uh::Counts* held : {&rich, &starving, &poor, &crowded}) {
       uh::Game g;
       g.held = *held;
       g.card = c.id;
@@ -560,8 +591,10 @@ void UnderhandActivity::audit() {
     draw([&](toybox::Screen& sc) { ui::buildMenu(sc, m); });
     check("menu form", form);
   }
-  draw([&](toybox::Screen& sc) { ui::buildHelp(sc); });
-  check("how to play", 0);
+  for (int page = 0; page < ui::kHelpPages; ++page) {
+    draw([&](toybox::Screen& sc) { ui::buildHelp(sc, page); });
+    check("how to play page", page);
+  }
   LOG_INF("UNDERHAND", "AUDIT: %d screens, %d layout problems", screens, ui::layoutProblems());
 }
 
@@ -585,7 +618,7 @@ void UnderhandActivity::render(RenderLock&&) {
     }
     case View::Play: {
       ui::CardModel& model = freshCard();
-      fillCard(*cards, state.game, showOutcome, waysFor, waysPage, model);
+      fillCard(*cards, state.game, state.showOutcome, waysFor, waysPage, model);
       ui::buildCard(screen, model);
       break;
     }
@@ -596,11 +629,12 @@ void UnderhandActivity::render(RenderLock&&) {
       break;
     }
     case View::Help:
-      ui::buildHelp(screen);
+      ui::buildHelp(screen, helpPage);
       break;
     case View::Broken: {
       ui::EndModel model;
-      model.headline = "Cards missing";
+      model.leaveOnly = true;
+      std::snprintf(model.headline, sizeof(model.headline), "CARDS MISSING");
       std::snprintf(model.detail[0], sizeof(model.detail[0]), "The card data could not be read. See the log.");
       ui::buildEnd(screen, model);
       break;
@@ -608,6 +642,10 @@ void UnderhandActivity::render(RenderLock&&) {
   }
   interactionsReady = true;
   toybox::reportOverflow(interactions, "Underhand");
+  // Fast refreshes leave a little of every card behind; a run of a few dozen
+  // cards gets one full refresh every kFastRefreshes to clear it.
+  if (++fastRefreshes >= kFastRefreshes) flashNext = true;
+  if (flashNext) fastRefreshes = 0;
   renderer.displayBuffer(flashNext ? HalDisplay::FULL_REFRESH : HalDisplay::FAST_REFRESH);
   flashNext = false;
 }

@@ -142,8 +142,8 @@ One screen carries a run, and nothing on it moves while a card is played:
     | | ADDS ...                          | |  and what else it does
     | +----------------------------------+ |
     | | ...                              | |  up to three options
-    | ! DANGER: SUSPICION 5+               |  a danger, or what the last turn did
-    | R 1  $ 3  C 2  F 4  P 2  S 2         |  what is held; tap for how to play
+    | ! RAID 50%   LAST -2$ +1F        (?) |  dangers and their odds, the last turn
+    | R 1  $ 3  C 2  F 4  P 2  S 2         |  what is held; tap either for how to play
     +--------------------------------------+
 
 The panel of options gives its place, and only its place, to three others:
@@ -152,8 +152,10 @@ what a choice did, foresight, and the ways to pay.
 **Symbols.** One Lucide symbol per resource (gem, coins, user-round, wheat,
 user-lock, eye), a count before it: `-2` takes, `+2` gives, `NO` means only
 while none is held, a cultist and a prisoner joined by a slash mean either,
-`AT RANDOM` is Greed's random loss. The bar shows each count beside its symbol;
-food and suspicion invert when they invite a punishment.
+`AT RANDOM` is Greed's random loss. The bar shows each count beside its symbol,
+the whole bar in one size: the large symbol, the smaller one when a count has
+two digits, and the small face when even that does not fit. Food and suspicion
+invert while they invite a punishment.
 
 **Taking an option.** Fewest taps was the brief:
 
@@ -161,13 +163,26 @@ food and suspicion invert when they invite a punishment.
 - an option that can be paid several ways shows them as chips joined by `OR`,
   the first filled black. Tapping a chip pays that way; tapping the rest of the
   option pays the black one, so the common case is still one tap. The first is
-  `suggest()`'s: fewest relics, prisoners before cultists;
+  `suggest()`'s: fewest relics, prisoners before cultists. A relic paying for
+  suspicion keeps the suspicion and loses the relic, so those ways come last;
+- each chip answers over the band around it and half of each OR beside it,
+  because a finger is wider than a 36px chip is tall;
 - when the chips do not all fit, the last one is `MORE`, which lists every way
   a page at a time (`PAY WHICH WAY?`, `NEXT PAGE`, `BACK`). The screen pages by
-  the room it has; up to 32 ways are listed (`payments()` finds all of them);
-- an option that cannot be taken is dithered, still shows what it asks and
-  gives (for planning), says why in capitals (`SHORT: 1 MONEY, 1 FOOD`, `ONLY
-WITH NO CULTISTS`, `LOCKED: ANOTHER CHOICE IS OPEN`) and takes no tap.
+  the room it has. Up to 64 ways are kept; no option of the real cards has more
+  than 56 even from a hand of 9 relics and 25 of everything (a test holds it);
+- an option that cannot be taken is dithered, still shows what it asks, gives
+  and does (a summons out of reach is what the player is saving for), says why
+  in capitals (`SUMMONS UHL'UHT'C. SHORT: 1 RELIC`, `ONLY WITH NO CULTISTS`,
+  `ENDS THE RUN. LOCKED: ANOTHER CHOICE IS OPEN`) and takes no tap. When the
+  option's own words need the room, only the why is shown.
+
+**A tap is for the card it was made on.** Every tap that pays carries the
+card's turn (`ui::stamp`), so two cards with the same buttons in the same
+places still build different tap tables. The fork's tap gate
+(`lib/GfxRenderer/RevealedInteractions.h`) holds a tap made while a changed
+table is still being painted, so a second tap during the refresh cannot pay
+for a card nobody has seen; one that slips through is refused by the turn.
 
 On a card of one or two options each option takes half the panel: every option
 text long enough to need a third line is on such a card.
@@ -177,14 +192,18 @@ something at random, the options step aside for a panel: `YOU CHOSE`, the
 option, what it took and gave, what was lost at random, and one sentence about
 the deck ("3 x Reading the Necronomicon join the deck at the next shuffle.",
 "The deck was reshuffled and now holds Harvest.", "... goes on top of the
-deck." in the tutorial). A tap anywhere on it carries on. A plain trade does not
-stop play; the status line says what it took and gave instead.
+deck." in the tutorial). A tap anywhere on it carries on. It is saved, so
+leaving the app or sleeping over it does not lose it. A plain trade does not
+stop play; the status line says what it took and gave instead. The choice that
+opened foresight does not show an outcome after it.
 
 **Foresight** lists the next three cards, top first. With discard, tapping a
 card toggles KEEP and DISCARD; `CONTINUE` applies it.
 
-**Danger** is named by cause on the status line (`16+ HELD`, `SUSPICION 5+`,
-`NO FOOD`), never during the tutorial, which has no punishments.
+**Danger** is on the status line with the chance of each roll before the next
+card (`GREED 35%`, `RAID 50%`, `HUNGER 20%`), from `punishmentOdds()`, the same
+function the roll uses. None during the tutorial and none on a punishment card,
+after which nothing is rolled. The last turn shares the line when there is room.
 
 **The tutorial's words.** Five tutorial lines describe the phone's controls
 (drag from your hand, the middle of the option box, the `Insert` keyword, "this
@@ -201,15 +220,22 @@ shows its own text. Everything else on screen is the card data's.
 | 99 option  | This symbol means a mix of prisoners and cultists can be used | Here prisoners and cultists pay in any mix                              |
 
 **The menu** opens only when there is no run: a run in progress opens straight
-onto its card. Headline (`TURN 17`, `FIRST RUN`, `NEW RUN`), the seven gods with
-the summoned ones filled, `HOW TO PLAY`, `GIVE UP` during a run (which asks
-first), and the primary button at the bottom (`CONTINUE`, `BEGIN`, `START`).
+onto its card. Headline (`TURN 17`, `FIRST RUN`, `NEW RUN`) over the goal, the
+seven gods with the summoned ones filled, `HOW TO PLAY`, `GIVE UP` during a run
+(which asks first; `KEEP PLAYING` goes back to the card), and the primary
+button at the bottom (`CONTINUE`, `BEGIN`, `START`).
 
-**The end of a run** names the god and what the next run is dealt, or the card
-that ended it and how long it lasted, with `PLAY AGAIN` and `MENU`.
+**The end of a run** names the god in capitals (on two lines when it needs
+them) and what the next run is dealt, or the card that ended it and how long it
+lasted, with `PLAY AGAIN` and `MENU`.
 
-**How to play** explains the seven symbols (and the 16-held danger), the slash,
-and the tap rule. It opens from the menu and from a tap on the bar.
+**How to play** is two pages: the seven symbols and what each danger is called,
+then the goal, the tap rule, grey choices and `NO`, the warning line and
+`DECK`. It opens from the menu and from a tap on the bar or the line above it,
+where a small question mark says so.
+
+**Refresh.** A screen change is a full refresh, and so is every twelfth frame,
+so a long run of fast refreshes does not leave ghosts of earlier cards.
 
 No credit is shown in the app (Mario, 2026-09-24).
 
@@ -230,11 +256,12 @@ Two instruments, both run from the simulator:
 
 - **The audit.** `UNDERHAND_AUDIT=1` makes the activity render, before its
   first real frame, every card with a full hand, a hand that raises all three
-  dangers and an empty one; every page of every list of ways; every option's
+  dangers, an empty one and one with two digits in every cell of the bar;
+  every page of every list of ways; every option's
   outcome with every card it can add, a reshuffle and five kinds lost at
   random; the last turn of every option on the status line; foresight over
   every card; every win, every losing option, every stuck card; the menu in
-  its four states; how to play. About 1,330 screens. The builders report any
+  its four states; both pages of how to play. About 1,640 screens. The builders report any
   label wider than its box, prose needing more lines than its box, tokens
   running into each other, a panel running into its buttons. It logs `AUDIT
 <screen> <id>: <problem>` and then `AUDIT: <n> screens, <m> layout
@@ -258,14 +285,16 @@ simulator then opens on it. Build and usage are in its header, for example:
 
 ## The save
 
-`/.crosspoint/underhand.sav`, written to a `.tmp` and renamed. Magic `UHND`,
-version 1, the size of a `Game`, the profile, whether a run is in progress, the
-`Game` bytes and the random state. A save that fails `valid()` keeps the
-profile and drops the run.
+`/.crosspoint/underhand.sav`, written to a `.tmp` and renamed; a `.tmp` found
+alone at launch (power lost between the remove and the rename) is taken as the
+save. Magic `UHND`, version 1, the size of a `Game`, the profile, one byte of
+flags (a run in progress, the outcome panel showing), the `Game` bytes and the
+random state. A save that fails `valid()` keeps the profile and drops the run.
 
 ## Memory
 
-About 40KB of `Cards` and a 3.5KB `CardModel`, both allocated once in
+About 39KB of `Cards` (in PSRAM: allocations over 4KB go there on this board)
+and a `CardModel` of a few KB, both allocated once in
 `onEnter` (the model holds every way to pay for the list, too much for the
 render task's stack; it is rebuilt in place for each frame).
 

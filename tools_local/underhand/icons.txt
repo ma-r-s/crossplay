@@ -15,3 +15,4 @@ uh_prisoner  = user-lock   # one of theirs, held
 uh_suspicion = eye         # being watched
 uh_alert     = triangle-alert
 uh_deck      = layers
+uh_help      = circle-question-mark  # what the symbols mean

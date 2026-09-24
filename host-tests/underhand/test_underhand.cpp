@@ -375,6 +375,33 @@ void reshuffleIsWeightedAndPicksToTheBottom() {
   CHECK(share > 0.828 && share < 0.839);
 }
 
+void punishmentOddsAreWhatIsRolled() {
+  Game g;
+  g.card = 1;
+  CHECK(punishmentOdds(g).greed == 0 && punishmentOdds(g).police == 0 && punishmentOdds(g).desperate == 20);
+  g.held = C(0, 5, 5, 1, 0, 5);  // 16 held, suspicion 5
+  Odds o = punishmentOdds(g);
+  CHECK(o.greed == 35 && o.police == 35 && o.desperate == 0);
+  g.held = C(0, 5, 5, 1, 0, 4);  // 15 held, suspicion 4: neither
+  o = punishmentOdds(g);
+  CHECK(o.greed == 0 && o.police == 0);
+  g.held = C(0, 9, 9, 1, 0, 9);  // 28 held, suspicion 9
+  o = punishmentOdds(g);
+  CHECK(o.greed == 100 && o.police == 95);
+  g.held[Suspicion] = 10;
+  CHECK(punishmentOdds(g).police == 100);
+  // Nothing is rolled in the tutorial or straight after a punishment.
+  g.tutorial = true;
+  o = punishmentOdds(g);
+  CHECK(o.greed == 0 && o.police == 0 && o.desperate == 0);
+  g.tutorial = false;
+  for (uint8_t id : {ids::kGreed, ids::kPoliceRaid, ids::kDesperate}) {
+    g.card = id;
+    o = punishmentOdds(g);
+    CHECK(o.greed == 0 && o.police == 0 && o.desperate == 0);
+  }
+}
+
 void punishmentsFollowTheOriginalOdds() {
   auto cards = load(world({{1}}));
   auto run = [&](Counts held, std::vector<int> script, int card = 1, bool tutorial = false) {
@@ -797,7 +824,9 @@ void waysToPayAreEveryExactPayment() {
   plain.opts[0].cost = {0, 1, 0, 1, 0, 0};
   CardSpec none{3};
   none.opts[0].cost = {0, 0, underhand::kOnlyIfNone, 0, 0, 0};
-  auto cards = load(world({swap, plain, none}));
+  CardSpec calm{4};
+  calm.opts[0].cost = {0, 1, 0, 0, 0, 1};
+  auto cards = load(world({swap, plain, none, calm}));
   if (failures) return;
   Counts ways[8];
 
@@ -829,6 +858,13 @@ void waysToPayAreEveryExactPayment() {
   CHECK(std::strcmp(why, "ONLY WITH NO CULTISTS") == 0);
   view::whyNot(g, *cards, 0, why, sizeof(why));
   CHECK(why[0] == '\0');
+  // A relic paying for suspicion keeps the suspicion: those ways come last,
+  // even after a way spending more relics on something else.
+  const Game calmHand = table(*cards, 4, C(2, 1, 0, 1, 0, 1));
+  CHECK(view::payments(calmHand, *cards, 0, ways, 8) == 4);
+  CHECK(ways[0] == C(0, 1, 0, 0, 0, 1) && ways[1] == C(1, 0, 0, 0, 0, 1));
+  CHECK(ways[2] == C(1, 1, 0, 0, 0, 0) && ways[3] == C(2, 0, 0, 0, 0, 0));
+  CHECK(suggest(calmHand, *cards, 0, first) && first == ways[0]);
 }
 
 void savesRoundTripAndRefuseDamage() {
@@ -847,6 +883,16 @@ void savesRoundTripAndRefuseDamage() {
   CHECK(decode(bytes, sizeof(bytes), *cards, back));
   CHECK(back.inRun && back.rng == 0xABCDEF && back.profile.summoned == 0b101 && back.profile.previous == 2);
   CHECK(std::memcmp(&back.game, &s.game, sizeof(Game)) == 0);
+  CHECK(!back.showOutcome);
+  // The outcome panel survives leaving, but only over a choice that was made.
+  Save shown = s;
+  shown.showOutcome = true;
+  encode(shown, bytes);
+  CHECK(decode(bytes, sizeof(bytes), *cards, back) && !back.showOutcome);
+  shown.game.played = 1;
+  encode(shown, bytes);
+  CHECK(decode(bytes, sizeof(bytes), *cards, back) && back.showOutcome && back.inRun);
+  encode(s, bytes);
   // The wrong length, or another app's bytes, are refused outright.
   CHECK(!decode(bytes, sizeof(bytes) - 1, *cards, back));
   uint8_t other[kSaveBytes];
@@ -1054,12 +1100,12 @@ void theScreenSaysWhatHappened() {
   g.rolled[0][2] = 19;
   char effect[112];
   view::effectLine(g, *cards, 0, effect, sizeof(effect));
-  CHECK(std::string(effect) == "Adds 3 x Reading the Necronomicon");
+  CHECK(std::string(effect) == "Adds 3 x \"Reading the Necronomicon\"");
   const view::Adds adds = view::optionAdds(g, *cards, 0);
   CHECK(adds.count == 1 && adds.copies[0] == 3);
   g.card = 4;  // Gods Demand Sacrifice: its third option names its card
   view::effectLine(g, *cards, 2, effect, sizeof(effect));
-  CHECK(std::string(effect) == "Adds Wrath of the Gods");
+  CHECK(std::string(effect) == "Adds \"Wrath of the Gods\"");
 
   // After the choice: one sentence, by where the cards went.
   Game d;
@@ -1068,10 +1114,10 @@ void theScreenSaysWhatHappened() {
   d.added[2] = Game::Added{5, 2};
   d.addedCount = 3;
   CHECK(said(view::deckSentence, d, *cards) ==
-        "2 x Reading the Necronomicon and 2 x Wrath of the Gods join the deck at the next shuffle.");
+        "2 x \"Reading the Necronomicon\" and 2 x \"Wrath of the Gods\" join the deck at the next shuffle.");
   d.reshuffled = true;
   CHECK(said(view::deckSentence, d, *cards) ==
-        "The deck was reshuffled and now holds 2 x Reading the Necronomicon and 2 x Wrath of the Gods.");
+        "The deck was reshuffled and now holds 2 x \"Reading the Necronomicon\" and 2 x \"Wrath of the Gods\".");
   d.addedCount = 0;
   CHECK(said(view::deckSentence, d, *cards) == "The deck was reshuffled.");
   d.reshuffled = false;
@@ -1079,14 +1125,14 @@ void theScreenSaysWhatHappened() {
   d.tutorial = true;
   d.added[0] = Game::Added{92, 1};
   d.addedCount = 1;
-  CHECK(said(view::deckSentence, d, *cards) == "Other Options Require Resources goes on top of the deck.");
+  CHECK(said(view::deckSentence, d, *cards) == "\"Other Options Require Resources\" goes on top of the deck.");
   d.tutorial = false;
   d.added[1] = Game::Added{93, 1};
   d.added[2] = Game::Added{94, 1};
   d.addedCount = 3;
   CHECK(said(view::deckSentence, d, *cards) ==
-        "Other Options Require Resources, Adding Cards to the Deck and God Event Chains join the deck at the next "
-        "shuffle.");
+        "\"Other Options Require Resources\", \"Adding Cards to the Deck\" and \"God Event Chains\" join the deck "
+        "at the next shuffle.");
 
   // The tutorial's words for dragging, as words for tapping; everything else
   // is the card's own.
@@ -1100,6 +1146,24 @@ void theScreenSaysWhatHappened() {
   CHECK(std::string(view::optionText(*cards, *cards->card(91), 0)) == "This option gives you one of each resource");
   // Matched on the words as well as the id: a card 92 that says something
   // else says it.
+  // No option of the real cards has more ways to pay than the screens list,
+  // even from a hand fuller than any run reaches.
+  int most = 0;
+  for (int i = 0; i < cards->count(); ++i) {
+    Game h;
+    h.card = cards->at(i).id;
+    h.held = C(9, 25, 25, 25, 25, 25);
+    Rng rolls(static_cast<uint64_t>(i) + 1);
+    detail::resolve(h, *cards, rolls);
+    Counts all[view::kMostPayments];
+    for (int k = 0; k < cards->at(i).optionCount; ++k) {
+      const int n = view::payments(h, *cards, k, all, view::kMostPayments);
+      most = n > most ? n : most;
+    }
+  }
+  std::printf("  most ways to pay any option: %d of %d\n", most, view::kMostPayments);
+  CHECK(most <= view::kMostPayments);
+
   auto fixture = load(world({CardSpec{92}}));
   CHECK(std::string(view::flavorText(*fixture, *fixture->card(92))) == "flavor");
   CHECK(std::string(view::optionText(*fixture, *fixture->card(92), 0)) == "Go");
@@ -1194,6 +1258,7 @@ int main() {
   RUN(refusesWhatItCannotPlay);
   RUN(reshuffleIsWeightedAndPicksToTheBottom);
   RUN(punishmentsFollowTheOriginalOdds);
+  RUN(punishmentOddsAreWhatIsRolled);
   RUN(drawnCardsResolveHalvesAndRolls);
   RUN(paymentIsExactWithRelicsAsWildcards);
   RUN(losingOptionsAreLockedWhileAnotherCanBePaid);

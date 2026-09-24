@@ -55,8 +55,11 @@ Tokens payTokens(const Game& game, const Cards& cards, int k, bool* relicStandsI
 Tokens tokensOf(const Counts& counts);
 
 // Every exact payment for option k that what is held can make, best first:
-// fewest relics, then prisoners before cultists. The first is suggest()'s.
-// Returns how many there are, writing at most `max` of them.
+// relics paying for suspicion last (they keep the suspicion), then fewest
+// relics, then prisoners before cultists. The first is suggest()'s. Returns
+// how many there are, writing at most `max` of them; no option of the real
+// cards has more than kMostPayments (a test holds that).
+constexpr int kMostPayments = 64;
 int payments(const Game& game, const Cards& cards, int k, Counts* out, int max);
 
 // Why option k cannot be taken, in capitals: "SHORT: 2 CULTISTS, 1 FOOD",
@@ -76,14 +79,14 @@ Adds optionAdds(const Game& game, const Cards& cards, int k);
 // What the last choice added.
 Adds lastAdds(const Game& game, const Cards& cards);
 
-// What the last choice did to the deck, as one sentence: "3 x Reading the
-// Necronomicon join the deck at the next shuffle.", "The deck was reshuffled
-// and now holds Harvest.", "Tips and Tricks goes on top of the deck." Empty
-// when it did nothing to the deck.
+// What the last choice did to the deck, as one sentence: '3 x "Reading the
+// Necronomicon" join the deck at the next shuffle.', 'The deck was reshuffled
+// and now holds "Harvest".', '"Tips and Tricks" goes on top of the deck.'
+// Empty when it did nothing to the deck.
 void deckSentence(const Game& game, const Cards& cards, char* out, size_t size);
 
-// What else an option does, in a few words: "Adds Aeromancy", "Adds 3 x
-// Reading the Necronomicon", "See the next 3 cards", "Summons Rhybaax",
+// What else an option does, in a few words: 'Adds "Aeromancy"', 'Adds 3 x
+// "Reading the Necronomicon"', "See the next 3 cards", "Summons Rhybaax",
 // "Ends the run". Empty when it only trades resources.
 void effectLine(const Game& game, const Cards& cards, int k, char* out, size_t size);
 
@@ -93,14 +96,5 @@ void effectLine(const Game& game, const Cards& cards, int k, char* out, size_t s
 // layout. Every other line is the card data's own.
 const char* flavorText(const Cards& cards, const Card& card);
 const char* optionText(const Cards& cards, const Card& card, int k);
-
-// The danger the original signals: the punishment each count invites before
-// the next draw. Empty during the tutorial, which has none.
-struct Danger {
-  bool food = false;       // none held: Desperate Measures, 20%
-  bool suspicion = false;  // 5 or more: Police Raid
-  bool total = false;      // 16 or more in all: Greed
-};
-Danger danger(const Game& game);
 
 }  // namespace underhand::view

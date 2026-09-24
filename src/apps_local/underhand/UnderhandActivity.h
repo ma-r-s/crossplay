@@ -53,10 +53,12 @@ class UnderhandActivity final : public Activity {
   underhand::Rng rng;
   underhand::Game ended;  // the run the end screen is about
   View view = View::Menu;
-  bool showOutcome = false;    // the options give their place to what just happened
   int waysFor = -1;            // the option whose ways to pay are listed
   int waysPage = 0;            // which page of them
   View helpFrom = View::Menu;  // where how to play goes back to
+  int helpPage = 0;
+  static constexpr int kFastRefreshes = 12;
+  int fastRefreshes = 0;
   bool confirmGiveUp = false;  // the menu is asking before the run is thrown away
   bool flashNext = false;
   bool auditPending = false;

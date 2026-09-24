@@ -137,6 +137,18 @@ struct Game {
 // god's unlock cards are dealt into this run only, so `previous` is spent.
 void start(Game& game, const Cards& cards, Profile& profile, Random& random);
 
+// The chance, in percent, of each punishment being rolled before the next
+// draw if the hand stood as it is now (DeckController::resolvePunishments):
+// Greed at 16 or more held, a Police Raid at 5 or more suspicion, Desperate
+// Measures with no food. Each is rolled only if the one before it missed. All
+// 0 in the tutorial and on a punishment card, after which nothing is rolled.
+struct Odds {
+  int greed = 0;
+  int police = 0;
+  int desperate = 0;
+};
+Odds punishmentOdds(const Game& game);
+
 // Whether option `k` of the card on the table can be paid from what is held.
 bool affordable(const Game& game, const Cards& cards, int k);
 // Whether `offer` pays option `k` exactly, as the original requires: relics

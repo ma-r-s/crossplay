@@ -148,7 +148,7 @@ int payments(const Game& game, const Cards& cards, int k, Counts* out, int max) 
   // relics make up the rest. With a swap, cultists and prisoners split one
   // shared need between them. Exact by construction.
   const int shared = need[Cultist] + need[Prisoner];
-  constexpr int kMost = 32;
+  constexpr int kMost = kMostPayments;
   Counts all[kMost];
   int found = 0;
   for (int money = upTo(held[Money], need[Money]); money >= 0; --money) {
@@ -174,11 +174,19 @@ int payments(const Game& game, const Cards& cards, int k, Counts* out, int max) 
       }
     }
   }
-  // Fewest relics first, keeping the walk's order otherwise, which already
-  // spends named resources and prisoners before relics and cultists.
+  // A relic paying for suspicion keeps the suspicion and loses the relic, so
+  // those ways go last; then fewest relics first, keeping the walk's order
+  // otherwise, which already spends named resources and prisoners before
+  // relics and cultists.
+  auto later = [&](const Counts& a, const Counts& b) {
+    const int aSuspicion = need[Suspicion] - a[Suspicion];
+    const int bSuspicion = need[Suspicion] - b[Suspicion];
+    if (aSuspicion != bSuspicion) return aSuspicion > bSuspicion;
+    return a[Relic] > b[Relic];
+  };
   const int kept = found < kMost ? found : kMost;
   for (int i = 1; i < kept; ++i) {
-    for (int j = i; j > 0 && all[j][Relic] < all[j - 1][Relic]; --j) {
+    for (int j = i; j > 0 && later(all[j - 1], all[j]); --j) {
       const Counts t = all[j];
       all[j] = all[j - 1];
       all[j - 1] = t;
@@ -301,9 +309,9 @@ void deckSentence(const Game& game, const Cards& cards, char* out, size_t size) 
     copies += adds.copies[a];
     const char* joiner = a == 0 ? "" : a + 1 == adds.count ? " and " : ", ";
     if (adds.copies[a] > 1) {
-      std::snprintf(one, sizeof(one), "%s%d x %s", joiner, adds.copies[a], adds.title[a]);
+      std::snprintf(one, sizeof(one), "%s%d x \"%s\"", joiner, adds.copies[a], adds.title[a]);
     } else {
-      std::snprintf(one, sizeof(one), "%s%s", joiner, adds.title[a]);
+      std::snprintf(one, sizeof(one), "%s\"%s\"", joiner, adds.title[a]);
     }
     put(one);
   }
@@ -336,15 +344,19 @@ void effectLine(const Game& game, const Cards& cards, int k, char* out, size_t s
     const int w = std::snprintf(out + used, size - used, "%s%s", used ? ". " : "", text);
     if (w > 0) used += static_cast<size_t>(w) < size - used ? static_cast<size_t>(w) : size - used - 1;
   };
-  char one[96];
+  // One sentence for every card it adds: 'Adds "A", 2 x "B" and "C"'.
   const Adds adds = optionAdds(game, cards, k);
-  for (int i = 0; i < adds.count; ++i) {
-    if (adds.copies[i] == 1) {
-      std::snprintf(one, sizeof(one), "Adds %s", adds.title[i]);
-    } else {
-      std::snprintf(one, sizeof(one), "Adds %d x %s", adds.copies[i], adds.title[i]);
+  if (adds.count > 0) {
+    char list[160];
+    size_t at = 0;
+    for (int i = 0; i < adds.count && at + 1 < sizeof(list); ++i) {
+      const char* joiner = i == 0 ? "Adds " : i + 1 == adds.count ? " and " : ", ";
+      const int w = adds.copies[i] == 1 ? std::snprintf(list + at, sizeof(list) - at, "%s\"%s\"", joiner, adds.title[i])
+                                        : std::snprintf(list + at, sizeof(list) - at, "%s%d x \"%s\"", joiner,
+                                                        adds.copies[i], adds.title[i]);
+      if (w > 0) at += static_cast<size_t>(w) < sizeof(list) - at ? static_cast<size_t>(w) : sizeof(list) - at - 1;
     }
-    sentence(one);
+    sentence(list);
   }
   if (o.foresight) sentence(o.foresightDiscard ? "See the next 3, discard any" : "See the next 3 cards");
 }
@@ -383,17 +395,6 @@ const char* flavorText(const Cards& cards, const Card& card) { return reworded(c
 const char* optionText(const Cards& cards, const Card& card, int k) {
   if (k < 0 || k >= card.optionCount) return "";
   return reworded(card, k, cards.text(card.option[k].text));
-}
-
-Danger danger(const Game& game) {
-  Danger d;
-  if (game.tutorial) return d;
-  int total = 0;
-  for (int16_t n : game.held) total += n;
-  d.food = game.held[Food] == 0;
-  d.suspicion = game.held[Suspicion] >= 5;
-  d.total = total >= 16;
-  return d;
 }
 
 }  // namespace underhand::view

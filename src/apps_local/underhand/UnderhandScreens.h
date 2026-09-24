@@ -13,8 +13,8 @@
 // black: tapping a chip pays that way and tapping the rest of the option pays
 // the black one. When they do not all fit, the last chip is MORE, which lists
 // every way a page at a time. An option that cannot be taken is dithered,
-// still shows what it asks and gives, says why, and takes no tap. Tapping the
-// bar of symbols explains them.
+// still shows what it asks, gives and does, says why, and takes no tap.
+// Tapping the bar of symbols, or the line above it, opens How to Play.
 
 #include "../ui/ToyboxScreen.h"
 #include "UnderhandView.h"
@@ -27,21 +27,33 @@ namespace view = underhand::view;
 enum : fui::ActionId {
   ActionMain = 1,       // menu: continue the run, or begin one
   ActionNewRun = 2,     // menu: give up the run and start again; end: play again
-  ActionOption = 3,     // value: which option, paid its first way
+  ActionOption = 3,     // value: stamp(turn, option), paid its first way
   ActionContinue = 4,   // outcome and foresight: carry on
   ActionSeen = 5,       // foresight: value is which card to keep or discard
   ActionMenu = 6,       // end: back to the menu
-  ActionPay = 7,        // value: option * kWayStride + way
-  ActionMore = 8,       // value: which option's ways to list
+  ActionPay = 7,        // value: stamp(turn, option * kWayStride + way)
+  ActionMore = 8,       // value: stamp(turn, option), whose ways to list
   ActionCancel = 9,     // ways list: back to the options; menu: keep the run
   ActionGiveUp = 10,    // menu: ask before giving up the run
   ActionHelp = 11,      // card: the bar of symbols; menu: how to play
   ActionNextWays = 12,  // ways list: value is the page to show
+  ActionHelpPage = 13,  // how to play: value is the page to show
 };
 
-constexpr int kMostWays = 32;          // payments() never finds more
+constexpr int kMostWays = view::kMostPayments;
 constexpr int kWayStride = kMostWays;  // so option * stride + way is unique
 constexpr int kChips = 3;              // ways shown on an option before MORE
+constexpr int kHelpPages = 2;
+
+// A tap that pays carries the turn its card was drawn on. Two cards with the
+// same buttons in the same places then still build different tables, so the
+// tap gate (RevealedInteractions) holds a second tap made while the next card
+// is being painted instead of spending it on a card nobody has seen. Six bits
+// of turn and a byte of payload; always positive, which touch needs.
+constexpr int16_t stamp(int turn, int payload) { return static_cast<int16_t>(((turn & 0x3F) << 8) | (payload & 0xFF)); }
+constexpr bool stampedFor(int value, int turn) { return value >= 0 && (value >> 8) == (turn & 0x3F); }
+constexpr int payloadOf(int value) { return value & 0xFF; }
+static_assert((underhand::kMaxOptions - 1) * kWayStride + kMostWays - 1 <= 0xFF, "a payment must fit its byte");
 
 struct OptionRow {
   const char* text = "";
@@ -49,22 +61,22 @@ struct OptionRow {
   view::Tokens way[kChips];
   view::Tokens give;  // the cost as asked, shown when it cannot be paid
   view::Tokens get;
-  // What else it does when it can be taken; why not when it cannot.
+  // What else it does; when it cannot be taken, then why not. shortNote is
+  // only the why, for a closed option whose words need the room.
   char note[112] = {};
+  char shortNote[64] = {};
   view::OptionState state = view::OptionState::Open;
 };
 
 enum class Panel : uint8_t { Options, Outcome, Foresight, Ways };
 
 struct CardModel {
+  int turn = 0;         // stamped into every tap that pays
   char title[64] = {};  // in capitals
   const char* flavor = "";
   int deck = 0;  // cards left before the next reshuffle
   int16_t held[underhand::kResources] = {};
-  view::Danger danger;
-  // A danger when there is one; otherwise what the last choice paid and gained.
-  char status[112] = {};
-  bool statusIsDanger = false;
+  underhand::Odds odds;  // of each punishment before the next draw
   view::Tokens lastPaid;
   view::Tokens lastGained;
 
@@ -104,7 +116,8 @@ struct MenuModel {
 
 struct EndModel {
   bool won = false;
-  const char* headline = "";
+  bool leaveOnly = false;  // nothing to play: one button, and it leaves
+  char headline[48] = {};  // in capitals
   char detail[2][160] = {};
 };
 
@@ -121,7 +134,7 @@ int lastWaysPages();
 void buildCard(toybox::Screen& screen, const CardModel& model);
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
 void buildEnd(toybox::Screen& screen, const EndModel& model);
-// The symbols, the dangers and the tap rules. Static.
-void buildHelp(toybox::Screen& screen);
+// The symbols, then the rules, a page each. Static.
+void buildHelp(toybox::Screen& screen, int page);
 
 }  // namespace underhandui

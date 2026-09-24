@@ -13,13 +13,16 @@ namespace underhand {
 struct Save {
   Profile profile;
   bool inRun = false;
+  // The options have stepped aside for what the last choice did, and the
+  // player has not carried on yet. Only with a run in progress.
+  bool showOutcome = false;
   Game game;
   uint64_t rng = 1;
 };
 
-// Magic, version and sizeof(Game), then the fields as they lie in memory. A
-// changed Game layout changes the size, so an old save is refused rather than
-// misread.
+// Magic, version and sizeof(Game), then the fields as they lie in memory, the
+// two flags sharing a byte. A changed Game layout changes the size, so an old
+// save is refused rather than misread.
 constexpr size_t kSaveBytes = 4 + 2 + 2 + sizeof(Profile) + 1 + sizeof(Game) + sizeof(uint64_t);
 
 // Writes `save` into `out`, which holds kSaveBytes.

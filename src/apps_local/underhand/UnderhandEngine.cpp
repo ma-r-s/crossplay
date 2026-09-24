@@ -19,6 +19,21 @@ int smaller(int a, int b) { return a < b ? a : b; }
 
 bool isPunishment(uint8_t id) { return id == ids::kGreed || id == ids::kPoliceRaid || id == ids::kDesperate; }
 
+// The three rolls' chances with this hand, in percent: 35 at the threshold
+// and 15 more for each one past it, capped at certain.
+Odds oddsFor(const Counts& held) {
+  auto curve = [](int n, int threshold) {
+    if (n < threshold) return 0;
+    const int percent = 35 + 15 * (n - threshold);
+    return percent < 100 ? percent : 100;
+  };
+  Odds odds;
+  odds.greed = curve(total(held), 16);
+  odds.police = curve(held[Suspicion], 5);
+  odds.desperate = held[Food] == 0 ? 20 : 0;
+  return odds;
+}
+
 bool alwaysDealt(uint8_t id) {
   for (uint8_t a : ids::kAlwaysDealt) {
     if (a == id) return true;
@@ -118,13 +133,13 @@ void reshuffle(Game& game, const Cards& cards, Random& random) {
 
 // DeckController::resolvePunishments: at most one, placed on top of the deck.
 void punish(Game& game, Random& random) {
-  const int held = total(game.held);
-  const int suspicion = game.held[Suspicion];
-  if (held >= 16 && random.below(100) < 15 * held - 205) {
+  // 15 * held - 205 and 15 * suspicion - 40 in the original; the same numbers.
+  const Odds odds = oddsFor(game.held);
+  if (odds.greed > 0 && random.below(100) < odds.greed) {
     game.draw.push(ids::kGreed);
-  } else if (suspicion >= 5 && random.below(100) < 15 * suspicion - 40) {
+  } else if (odds.police > 0 && random.below(100) < odds.police) {
     game.draw.push(ids::kPoliceRaid);
-  } else if (game.held[Food] == 0 && random.below(100) < 20) {
+  } else if (odds.desperate > 0 && random.below(100) < odds.desperate) {
     game.draw.push(ids::kDesperate);
   }
 }
@@ -309,6 +324,11 @@ void start(Game& game, const Cards& cards, Profile& profile, Random& random) {
   game.draw.insert(game.draw.size - random.below(ids::kRumorsDepth), ids::kRumors);
   if (game.tutorial) game.draw.push(ids::kTutorial);
   detail::nextCard(game, cards, random);
+}
+
+Odds punishmentOdds(const Game& game) {
+  if (game.tutorial || isPunishment(game.card)) return Odds{};
+  return oddsFor(game.held);
 }
 
 bool affordable(const Game& game, const Cards& cards, int k) {
