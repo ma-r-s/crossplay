@@ -158,7 +158,9 @@ deck count rather than beside it). While Greed can strike, the count sits in
 a white box on the black band, as the bar's counts turn black.
 
 **Symbols.** One Lucide symbol per resource (gem, coins, user-round, wheat,
-user-lock, eye), a count before it: `-2` takes, `+2` gives, a cultist and a
+lock, eye; the prisoner was a person with a small lock until Mario, seeing
+it beside the cultist at bar size, picked the plain padlock from three
+rendered on 2026-09-24), a count before it: `-2` takes, `+2` gives, a cultist and a
 prisoner joined by a slash mean either,
 `AT RANDOM` is Greed's random loss. The bar shows each count beside its symbol,
 the whole bar in one size: the large symbol, the smaller one when a count has
