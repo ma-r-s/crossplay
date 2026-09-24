@@ -1251,6 +1251,7 @@ function bandNow() {
 
 function paint() {
   if (!state || !state.connected) return;
+  paintBatteryChip();
   // THE SAME SENTENCE THE PANEL DRAWS, or nothing at all.
   //
   // The service sends `pending` while the reader is still asleep on the cadence
@@ -1339,7 +1340,207 @@ setInterval(() => {
 }, 1000);
 addEventListener("resize", () => {
   if (state && state.connected) paint();
+  if (!battPanel.hidden) drawBattery();
 });
+
+// --- the battery -------------------------------------------------------------
+//
+// THE READER'S OWN FIGURE, AS OF ITS LAST CHECK. It rides the pull the reader
+// already makes, so knowing it costs the reader no wake and no radio time --
+// and it is never fresher than that check, which is why its age is printed
+// beside it rather than in small print somewhere else.
+//
+// ABSENT UNTIL REPORTED. A reader that has not sent a reading yet has no chip
+// at all; a 0% nobody measured would send somebody to find a charger.
+
+const battChip = document.getElementById("battChip");
+const battChipText = document.getElementById("battChipText");
+const battLevel = document.getElementById("battLevel");
+const battPanel = document.getElementById("batt");
+const battFigure = document.getElementById("battFigure");
+const battAge = document.getElementById("battAge");
+const battGraph = document.getElementById("battGraph");
+const battFine = document.getElementById("battFine");
+// The chip goes solid at or below this. Low enough that a solid chip means
+// "charge it on the next visit", not a permanent state for a month.
+const LOW_BATTERY = 20;
+// The icon's inner bar at 100%, in its own viewBox units (index.html).
+const BATT_LEVEL_W = 17;
+let battData = null;
+let battFailed = false;
+
+const hasBattery = () => !!state && typeof state.battery === "number";
+
+function paintBatteryChip() {
+  battChip.hidden = !hasBattery();
+  if (!hasBattery()) {
+    if (!battPanel.hidden) openBattery(false);
+    return;
+  }
+  const pct = state.battery;
+  battChipText.textContent = `${pct}%`;
+  battLevel.setAttribute("width", String((BATT_LEVEL_W * pct) / 100));
+  battChip.classList.toggle("is-low", pct <= LOW_BATTERY);
+  battChip.setAttribute(
+    "aria-label",
+    `Battery ${pct}%, ${ago(state.batteryAt)}. Show the last 30 days.`,
+  );
+  if (!battPanel.hidden) paintBatteryNow();
+}
+
+async function openBattery(open) {
+  if (open && !schedPanel.hidden) openSched(false);
+  battPanel.hidden = !open;
+  battChip.setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  battData = null;
+  battFailed = false;
+  drawBattery();
+  if (demoCount !== null) {
+    battData = demoBattery();
+  } else {
+    const r = await api("/api/battery");
+    battData = r.ok ? r.body : null;
+    battFailed = !r.ok;
+  }
+  if (!battPanel.hidden) drawBattery();
+}
+battChip.onclick = () => openBattery(battPanel.hidden);
+document.getElementById("battDone").onclick = () => openBattery(false);
+
+function paintBatteryNow() {
+  battFigure.textContent = `${state.battery}%`;
+  battAge.textContent = state.batteryAt ? ago(state.batteryAt) : "";
+}
+
+// "About 4 weeks left". Rounded to the unit a person plans in: nobody needs
+// "29 days", and a projection from a gauge that reports whole percent is not
+// worth more digits than that.
+function lastsPhrase(days) {
+  if (days < 1) return "Less than a day left";
+  if (days < 1.5) return "About a day left";
+  if (days < 14) return `About ${Math.round(days)} days left`;
+  if (days < 60) return `About ${Math.round(days / 7)} weeks left`;
+  return `About ${Math.round(days / 30)} months left`;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(name, attrs, text) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+const shortDay = (epoch) =>
+  new Date(epoch * 1000).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+
+// THE LINE, drawn at the size it is shown rather than scaled into place, so
+// the stroke and the labels stay crisp and the dot stays round at any width.
+//
+// The axis runs from the first reading (at least a day back) to NOW, not to
+// the last reading. A reader that has not checked in for two days leaves two
+// days of empty paper at the right, which is the honest picture: the line ends
+// where the knowledge ends.
+function drawBattery() {
+  if (!hasBattery()) return;
+  paintBatteryNow();
+  const pts = battData && Array.isArray(battData.points) ? battData.points : [];
+  const W = Math.max(220, Math.round(battGraph.clientWidth || 300));
+  const H = wide() ? 140 : 112;
+  const L = 34, R = 10, T = 6, B = 20;
+  const now = battData && battData.now ? battData.now : Date.now() / 1000;
+  const t0 = pts.length ? Math.min(pts[0][0], now - 86400) : now - 86400;
+  const x = (t) => L + ((t - t0) / Math.max(1, now - t0)) * (W - L - R);
+  const y = (p) => T + ((100 - p) / 100) * (H - T - B);
+
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    width: W,
+    height: H,
+    "aria-hidden": "true",
+    focusable: "false",
+  });
+  for (const level of [100, 50, 0]) {
+    svg.append(
+      svgEl("line", {
+        class: "lv-batt-grid",
+        x1: L, x2: W - R, y1: y(level), y2: y(level),
+      }),
+      svgEl(
+        "text",
+        { class: "lv-batt-label", x: L - 6, y: y(level) + 4, "text-anchor": "end" },
+        `${level}%`,
+      ),
+    );
+  }
+  if (pts.length) {
+    const line = pts
+      .map(([t, p], i) => `${i ? "L" : "M"}${x(t).toFixed(1)} ${y(p).toFixed(1)}`)
+      .join(" ");
+    const [lastT, lastP] = pts[pts.length - 1];
+    if (pts.length > 1) {
+      svg.append(
+        svgEl("path", {
+          class: "lv-batt-area",
+          d: `${line} L${x(lastT).toFixed(1)} ${y(0)} L${x(pts[0][0]).toFixed(1)} ${y(0)} Z`,
+        }),
+        svgEl("path", { class: "lv-batt-line", d: line }),
+      );
+    }
+    svg.append(svgEl("circle", { class: "lv-batt-dot", cx: x(lastT), cy: y(lastP), r: 3.5 }));
+  }
+  svg.append(
+    svgEl("text", { class: "lv-batt-label", x: L, y: H - 4 }, shortDay(t0)),
+    svgEl("text", { class: "lv-batt-label", x: W - R, y: H - 4, "text-anchor": "end" }, "Now"),
+  );
+  battGraph.replaceChildren(svg);
+  battGraph.setAttribute(
+    "aria-label",
+    pts.length > 1
+      ? `Battery since ${shortDay(pts[0][0])}: from ${pts[0][1]}% to ${pts[pts.length - 1][1]}%.`
+      : "Battery history, not enough readings yet.",
+  );
+
+  // WHAT THE LINE MEANS, in at most two short sentences, and each only when the
+  // service could stand behind it. An absent key is "cannot tell", never 0.
+  const bits = [];
+  if (battFailed) bits.push("The history could not be loaded just now.");
+  else if (battData && pts.length < 2) {
+    bits.push("The line fills in as the reader checks in.");
+  }
+  if (battData && typeof battData.chargedAt === "number") {
+    bits.push(`Charged ${ago(battData.chargedAt)}.`);
+  }
+  if (battData && typeof battData.daysLeft === "number") {
+    bits.push(`${lastsPhrase(battData.daysLeft)} at this rate.`);
+  }
+  battFine.textContent = bits.join(" ");
+}
+
+// ?demo: thirty daily check-ins, the default schedule, with a charge twelve
+// days ago. ?demo&low is a month with no charge that ends at 12%. The
+// chargedAt and daysLeft beside each are what the service's
+// store.battery_outlook returns for exactly these readings; they are here
+// because the demo has no service, not because the page computes them.
+function demoBattery() {
+  const now = Math.floor(Date.now() / 1000);
+  const last = now - 3600 * 5;
+  const points = [];
+  if (params.has("low")) {
+    for (let d = 29; d >= 0; d--) {
+      points.push([last - d * 86400, Math.round(98 - (29 - d) * 2.95)]);
+    }
+    return { now, points, daysLeft: 4.1 };
+  }
+  for (let d = 29; d >= 0; d--) {
+    const pct = d >= 13 ? Math.round(78 - (29 - d) * 2.4) : Math.round(100 - (12 - d) * 2.4);
+    points.push([last - d * 86400, pct]);
+  }
+  return { now, points, chargedAt: last - 12 * 86400, daysLeft: 29.5 };
+}
 
 // --- the history -----------------------------------------------------------
 //
@@ -1746,6 +1947,11 @@ async function refresh() {
       nextExpected: Math.floor(Date.now() / 1000) + 18750,
       liveOn: true,
     };
+    // The chip reads the LAST DEMO READING, so the chip, the panel's figure
+    // and the end of the line cannot disagree in a render.
+    const lastReading = demoBattery().points.slice(-1)[0];
+    state.battery = lastReading[1];
+    state.batteryAt = lastReading[0];
     schedule = {
       mode: "daily",
       intervalSeconds: 86400,
@@ -2029,6 +2235,7 @@ function paintSchedule() {
 }
 
 function openSched(open) {
+  if (open && !battPanel.hidden) openBattery(false);
   schedPanel.hidden = !open;
   schedChip.setAttribute("aria-expanded", String(open));
   if (open) paintSchedule();

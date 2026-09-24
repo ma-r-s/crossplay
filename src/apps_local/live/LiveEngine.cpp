@@ -8,6 +8,10 @@
 #include "LiveBridge.h"
 #include "LiveCore.h"
 
+#if !defined(SIMULATOR)
+#include <BatteryMonitor.h>
+#endif
+
 #if defined(FREEINK_NET_WOLFSSL)
 #include <Arduino.h>
 #include <WiFi.h>
@@ -26,6 +30,26 @@ namespace engine {
 namespace {
 
 int64_t nowEpoch() { return static_cast<int64_t>(std::time(nullptr)); }
+
+// The reader's own battery, whole percent, or -1 when the gauge did not answer.
+//
+// Read BEFORE the radio comes up: a Wi-Fi join draws enough to sag the cell,
+// and a board that estimates charge from voltage would report the sag as
+// charge it does not have.
+//
+// The CHECKED read, not HalPowerManager::getBatteryPercentage(), which answers
+// a failed read with its cache -- and on a wake the cache is the 0 it was born
+// with. The simulator links its own BatteryMonitor with no cell behind it, so
+// it reports nothing rather than a number somebody made up.
+int readBatteryPercent() {
+#if defined(SIMULATOR)
+  return -1;
+#else
+  static const BatteryMonitor battery;
+  uint16_t percent = 0;
+  return battery.readPercentageChecked(percent) ? static_cast<int>(percent) : -1;
+#endif
+}
 
 // Set the clock from X-Server-Time.
 //
@@ -191,6 +215,7 @@ bool checkNow(State& state, bool& imageArrived, std::string& message) {
     return false;
   }
 
+  const int batteryPercent = readBatteryPercent();
   if (!joinWifi(message)) {
     // releaseWifi() BEFORE the early return, not only on the success paths: a
     // join that failed after devmode::pause() still owes dev mode its resume,
@@ -203,7 +228,7 @@ bool checkNow(State& state, bool& imageArrived, std::string& message) {
   }
 
   PullResult result;
-  const bool ok = pull(state.deviceToken, state.etag, state.on, kSleepImagePart, result);
+  const bool ok = pull(state.deviceToken, state.etag, state.on, batteryPercent, kSleepImagePart, result);
 
   // The schedule headers are believed on every status that carried them,
   // including the failures that still answered. A 401 knows the cadence just as

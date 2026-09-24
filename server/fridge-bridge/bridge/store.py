@@ -180,6 +180,84 @@ def next_after(schedule: dict, anchor: int, now: int) -> int:
     return anchor + int(schedule.get("interval_s", DEFAULT_INTERVAL_S))
 
 
+# THE READER'S BATTERY, as it reported it on each check-in.
+#
+# It rides the pull the reader already makes, as one header, so knowing it
+# costs the reader no wake, no request and no radio time it was not already
+# spending. Everything below is therefore only as fresh as the last check-in,
+# and the page says when that was rather than presenting the figure as now.
+#
+# THIRTY DAYS, one line per check-in, in a log of its own beside state.json.
+# At the fastest schedule that is 2880 lines; keeping them in state.json would
+# rewrite and re-parse the whole record on every request the page makes.
+BATTERY_KEEP_S = 30 * 86400
+# The log is appended to and only rewritten once it passes this, so a check-in
+# costs one short append rather than a rewrite of a month of readings.
+BATTERY_LOG_TRIM_BYTES = 64 * 1024
+# A reading this much higher than the one before it was a charge. The gauge
+# reports whole percent and wobbles by one with temperature, so a single step
+# up is noise, not somebody plugging it in.
+BATTERY_CHARGE_STEP = 3
+# How much discharge it takes before "about how long is left" is worth saying.
+# Two days of readings and three points of drop: fewer and the slope is the
+# gauge's rounding, not the reader's consumption.
+BATTERY_ESTIMATE_MIN_S = 2 * 86400
+BATTERY_ESTIMATE_MIN_DROP = 3
+
+
+def parse_battery(raw: str) -> int | None:
+    """The reader's X-Battery header as a whole percent, or None.
+
+    None for anything that is not a plain 0..100: an absent header is a reader
+    that could not read its gauge, and it must stay absent rather than become a
+    0% that sends somebody to find a charger for a full battery.
+    """
+    raw = (raw or "").strip()
+    if not raw.isdigit() or len(raw) > 3:
+        return None
+    value = int(raw)
+    return value if 0 <= value <= 100 else None
+
+
+def battery_outlook(points: list[tuple[int, int]]) -> dict:
+    """When the reader was last charged and roughly how long it has left.
+
+    `points` are (epoch, percent), oldest first. Returns a dict with
+    `charged_at` (the first reading after the most recent charge) and
+    `days_left`, each present only when the readings can support it. An absent
+    key is "cannot tell", which the page says nothing about; a guess would be a
+    number somebody plans a trip to the fridge around.
+    """
+    out: dict = {}
+    if not points:
+        return out
+    start = 0
+    for i in range(1, len(points)):
+        if points[i][1] - points[i - 1][1] >= BATTERY_CHARGE_STEP:
+            start = i
+    if start > 0:
+        out["charged_at"] = points[start][0]
+    run = points[start:]
+    span = run[-1][0] - run[0][0]
+    drop = run[0][1] - run[-1][1]
+    if span < BATTERY_ESTIMATE_MIN_S or drop < BATTERY_ESTIMATE_MIN_DROP:
+        return out
+    # Least squares over the whole discharge, not first-to-last: the gauge
+    # steps in whole percent, and two endpoints can each sit a step either side
+    # of the truth.
+    n = len(run)
+    mt = sum(t for t, _ in run) / n
+    mp = sum(p for _, p in run) / n
+    var = sum((t - mt) ** 2 for t, _ in run)
+    if var <= 0:
+        return out
+    slope = sum((t - mt) * (p - mp) for t, p in run) / var
+    if slope >= 0:
+        return out
+    out["days_left"] = round(run[-1][1] / -slope / 86400, 1)
+    return out
+
+
 def data_root() -> pathlib.Path:
     return pathlib.Path(os.environ.get("FRIDGE_DATA", "/data"))
 
@@ -330,6 +408,36 @@ class Fridge:
 
     def thumb_path(self, sha: str) -> pathlib.Path:
         return self.root / "thumbs" / f"{sha}.png"
+
+    @property
+    def battery_path(self) -> pathlib.Path:
+        return self.root / "battery.log"
+
+    def battery_log(self, now: int | None = None) -> list[tuple[int, int]]:
+        """The last BATTERY_KEEP_S of readings, oldest first."""
+        now = int(time.time()) if now is None else now
+        try:
+            lines = self.battery_path.read_text().splitlines()
+        except OSError:
+            return []
+        points = []
+        for line in lines:
+            parts = line.split()
+            if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                continue
+            t, p = int(parts[0]), int(parts[1])
+            if now - t <= BATTERY_KEEP_S and 0 <= p <= 100:
+                points.append((t, p))
+        points.sort(key=lambda p: p[0])  # arrival order within one second
+        return points
+
+    def _record_battery(self, now: int, percent: int) -> None:
+        self.battery_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.battery_path, "a") as f:
+            f.write(f"{now} {percent}\n")
+        if self.battery_path.stat().st_size > BATTERY_LOG_TRIM_BYTES:
+            kept = "".join(f"{t} {p}\n" for t, p in self.battery_log(now))
+            _atomic_write(self.battery_path, kept.encode())
 
     def exists(self) -> bool:
         return self.state_path.exists()
@@ -498,7 +606,7 @@ class Fridge:
         except OSError:
             return None
 
-    def touch_checkin(self, wake_in: int, live_on: bool) -> int:
+    def touch_checkin(self, wake_in: int, live_on: bool, battery: int | None = None) -> int:
         """The reader spoke, was handed `wake_in` seconds, and has picked the
         current schedule up. Returns which check-in this was: 1 the first
         time, 2 the second, and so on.
@@ -519,6 +627,10 @@ class Fridge:
         fridge made before the counter existed has no `checkins` key and starts
         from whatever it can prove -- 1 if it has ever checked in, 0 if not --
         so an old record reads as "at least this many" rather than as zero.
+
+        `battery` is the reader's own percent from X-Battery, or None when it
+        sent none. None leaves the last reading standing, with its own time
+        beside it, rather than replacing a real figure with a missing one.
         """
         now = int(time.time())
         state = self.load()
@@ -533,7 +645,12 @@ class Fridge:
         state["armed"] = dict(
             state.get("schedule") or DEFAULT_SCHEDULE,
         )
+        if battery is not None:
+            state["battery"] = int(battery)
+            state["battery_at"] = now
         self.save(state)
+        if battery is not None:
+            self._record_battery(now, int(battery))
         return int(state["checkins"])
 
     def set_live(self, on: bool) -> None:

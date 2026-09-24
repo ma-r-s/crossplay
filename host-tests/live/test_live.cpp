@@ -165,6 +165,14 @@ static void headerFor(uint8_t* out, const uint32_t declared) {
   out[5] = static_cast<uint8_t>((declared >> 24) & 0xff);
 }
 
+static void testBatteryHeader() {
+  checkStr(live::batteryHeader(73), "73", "a reading goes out as whole percent");
+  checkStr(live::batteryHeader(0), "0", "an empty battery is still a reading");
+  checkStr(live::batteryHeader(100), "100", "and so is a full one");
+  checkStr(live::batteryHeader(-1), "", "a gauge that did not answer sends nothing, never 0");
+  checkStr(live::batteryHeader(101), "", "nor a figure the service would refuse");
+}
+
 static void testImageCompleteness() {
   std::printf("image completeness\n");
   uint8_t h[6];
@@ -689,6 +697,7 @@ int main() {
   testClampInterval();
   testBackoff();
   testEtag();
+  testBatteryHeader();
   testImageCompleteness();
   testClock();
   testDecide();

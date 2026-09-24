@@ -186,8 +186,8 @@ bool reportOff(const std::string& deviceToken, std::string& message) {
   return false;
 }
 
-bool pull(const std::string& deviceToken, const std::string& knownEtag, const bool liveOn, const char* destPath,
-          PullResult& out) {
+bool pull(const std::string& deviceToken, const std::string& knownEtag, const bool liveOn, const int batteryPercent,
+          const char* destPath, PullResult& out) {
   out = PullResult{};
 
   bridge::Headers headers;
@@ -199,6 +199,8 @@ bool pull(const std::string& deviceToken, const std::string& knownEtag, const bo
   // service cannot ask a sleeping device anything, and a call of its own would
   // double the round trips a wake costs.
   headers.add("X-Live-On", liveOn ? "1" : "0");
+  const std::string battery = batteryHeader(batteryPercent);
+  if (!battery.empty()) headers.add("X-Battery", battery);
   headers.collect("ETag");
   headers.collect("X-Next-Wake");
   headers.collect("X-Cadence");
