@@ -33,12 +33,6 @@ struct Line {
   }
 };
 
-void listCounts(Line& line, const Counts& counts, const char* fmt) {
-  for (int r = 0; r < kResources; ++r) {
-    if (counts[r] > 0) line.add(fmt, counts[r], resourceName(r, counts[r]));
-  }
-}
-
 }  // namespace
 
 const char* resourceName(int resource, int count) {
@@ -49,48 +43,6 @@ const char* resourceName(int resource, int count) {
 OptionState optionState(const Game& game, const Cards& cards, int k) {
   if (game.lockedMask & (1 << k)) return OptionState::Locked;
   return affordable(game, cards, k) ? OptionState::Open : OptionState::Short;
-}
-
-void costLine(const Game& game, const Cards& cards, int k, char* out, size_t size) {
-  Line line(out, size);
-  const Card* card = cards.card(game.card);
-  if (!card || k < 0 || k >= card->optionCount || (game.lockedMask & (1 << k))) return;
-  const Option& o = card->option[k];
-  const Counts& cost = game.cost[k];
-  for (int r = 0; r < kResources; ++r) {
-    if (cost[r] == kOnlyIfNone) line.words("ONLY WITH NO ", kPlural[r]);
-  }
-  for (int r = 0; r < kResources; ++r) {
-    if (cost[r] <= 0 || cost[r] == kOnlyIfNone) continue;
-    if (o.swap && r == Prisoner) continue;
-    if (o.swap && r == Cultist) {
-      const int n = cost[Cultist] + cost[Prisoner];
-      line.add(n == 1 ? "%s%d %s OR PRISONER" : "%s%d %s OR PRISONERS", n, resourceName(Cultist, n));
-      continue;
-    }
-    line.add("%s%d %s", cost[r], resourceName(r, cost[r]));
-  }
-  if (o.swap && cost[Cultist] <= 0 && cost[Prisoner] > 0 && cost[Prisoner] != kOnlyIfNone) {
-    const int n = cost[Prisoner];
-    line.add(n == 1 ? "%s%d %s OR CULTIST" : "%s%d %s OR CULTISTS", n, resourceName(Prisoner, n));
-  }
-  if (o.randomCost > 0) line.add("%s%d %s", o.randomCost, "AT RANDOM");
-}
-
-void gainLine(const Game& game, int k, char* out, size_t size) {
-  Line line(out, size);
-  if (k < 0 || k >= kMaxOptions) return;
-  listCounts(line, game.gain[k], "%s+%d %s");
-}
-
-void lastTurnLine(const Game& game, char* out, size_t size) {
-  Line line(out, size);
-  bool any = false;
-  for (int r = 0; r < kResources; ++r) any = any || game.paid[r] || game.gained[r] || game.lost[r];
-  if (!any) return;
-  listCounts(line, game.paid, "%sPAID %d %s");
-  listCounts(line, game.gained, "%sGAINED %d %s");
-  listCounts(line, game.lost, "%sLOST %d %s");
 }
 
 Tokens giveTokens(const Game& game, const Cards& cards, int k) {
@@ -124,17 +76,6 @@ Tokens tokensOf(const Counts& counts) {
   for (int r = 0; r < kResources; ++r) {
     if (counts[r] > 0) out.token[out.count++] = Token{Token::Count, static_cast<uint8_t>(r), counts[r]};
   }
-  return out;
-}
-
-Tokens payTokens(const Game& game, const Cards& cards, int k, bool* relicStandsIn) {
-  if (relicStandsIn) *relicStandsIn = false;
-  Counts pay{};
-  if (!suggest(game, cards, k, pay)) return giveTokens(game, cards, k);
-  if (relicStandsIn) *relicStandsIn = pay[Relic] > game.cost[k][Relic];
-  Tokens out = tokensOf(pay);
-  const Option& o = cards.card(game.card)->option[k];
-  if (o.randomCost > 0) out.token[out.count++] = Token{Token::Random, 0, o.randomCost};
   return out;
 }
 
@@ -196,10 +137,12 @@ int payments(const Game& game, const Cards& cards, int k, Counts* out, int max) 
   return found;
 }
 
-int choices(const Game& game, const Cards& cards, int k, Counts* out, int max) {
-  Counts all[kMostPayments];
-  const int found = payments(game, cards, k, all, kMostPayments);
-  const int kept = found < kMostPayments ? found : kMostPayments;
+namespace {
+
+// Keeps the ways in all[0, kept) that spend all the suspicion they can,
+// writing at most `max` of them to `out` (which may be `all`). Returns how
+// many there are.
+int keepChoices(const Game& game, int k, const Counts* all, int kept, Counts* out, int max) {
   const int asked = game.cost[k][Suspicion] > 0 ? game.cost[k][Suspicion] : 0;
   const int spendable = asked < game.held[Suspicion] ? asked : game.held[Suspicion];
   int n = 0;
@@ -209,6 +152,22 @@ int choices(const Game& game, const Cards& cards, int k, Counts* out, int max) {
     ++n;
   }
   return n;
+}
+
+int choicesThrough(const Game& game, const Cards& cards, int k, Counts* out, int max) {
+  Counts all[kMostPayments];
+  const int found = payments(game, cards, k, all, kMostPayments);
+  return keepChoices(game, k, all, found < kMostPayments ? found : kMostPayments, out, max);
+}
+
+}  // namespace
+
+int choices(const Game& game, const Cards& cards, int k, Counts* out, int max) {
+  // A buffer that holds every payment is filtered in place, which keeps a
+  // second 64-way array off the stack; a smaller one goes through one.
+  if (max < kMostPayments) return choicesThrough(game, cards, k, out, max);
+  const int found = payments(game, cards, k, out, max);
+  return keepChoices(game, k, out, found < kMostPayments ? found : kMostPayments, out, max);
 }
 
 bool buysNothing(const Game& game, const Cards& cards, int k) {
@@ -223,7 +182,7 @@ bool buysNothing(const Game& game, const Cards& cards, int k) {
   return o.addCount == 0 && o.rollCount == 0 && !o.foresight && o.win < 0 && !o.lose;
 }
 
-void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size) {
+void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size, bool relics) {
   Line line(out, size);
   const Card* card = cards.card(game.card);
   if (!card || k < 0 || k >= card->optionCount) return;
@@ -268,6 +227,26 @@ void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size)
     }
   }
   line.words("SHORT: ", list);
+  // Relics pay for any of it: say how much they would, so the list is not
+  // read as all of it still wanted.
+  int missing = 0;
+  for (int r = 0; r < kResources; ++r) {
+    if (o.swap && r == Prisoner) continue;
+    int want = need[r] > 0 && need[r] != kOnlyIfNone ? need[r] : 0;
+    int have = held[r];
+    if (o.swap && r == Cultist) {
+      want += need[Prisoner] > 0 && need[Prisoner] != kOnlyIfNone ? need[Prisoner] : 0;
+      have += held[Prisoner];
+    }
+    if (r != Relic && want > have) missing += want - have;
+  }
+  const int spare = held[Relic] - (need[Relic] > 0 ? need[Relic] : 0);
+  if (relics && spare > 0 && missing > 0) {
+    const int cover = spare < missing ? spare : missing;
+    char covered[32];
+    std::snprintf(covered, sizeof(covered), cover == 1 ? "A RELIC COVERS %d" : "RELICS COVER %d", cover);
+    line.words("", covered);
+  }
 }
 
 Tokens getTokens(const Game& game, int k) {

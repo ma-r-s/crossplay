@@ -540,10 +540,18 @@ void ways(toybox::Screen& screen, const fui::Rect& area, const CardModel& model)
   const char* text = model.option[model.waysFor].text;
   const int lines = linesFor(screen, text, inner.width, 3);
   prose(screen, rect(inner.x, inner.y + 32, inner.width, lines * line), text, 3);
+  int below = inner.y + 32 + lines * line + 8;
+  if (model.waysGuarded) {
+    // The list opened instead of paying; this is why.
+    const char* why = "YOU HOLD NO SUSPICION: RELICS WOULD BUY NOTHING";
+    const int height = noteLines(screen, why, inner.width) * smallLine(screen);
+    note(screen, rect(inner.x, below, inner.width, height), why);
+    below += height + 8;
+  }
 
   // As many rows as the room left holds, a page at a time.
   constexpr int kRow = 56;
-  const int top = inner.y + 32 + lines * line + 8;
+  const int top = below;
   const int last = bottom(inner) - kButtonHeight - kGap;
   int perPage = (last - top) / kRow;
   if (perPage < 1) {
@@ -795,7 +803,7 @@ void buildHelp(toybox::Screen& screen, int page) {
         {kIcon32[underhand::Food], "FOOD", "NONE LEFT: DESPERATE MEASURES"},
         {kIcon32[underhand::Prisoner], "PRISONER", "ONE OF THEIRS, HELD CAPTIVE"},
         {kIcon32[underhand::Suspicion], "SUSPICION", "AT 5 OR MORE: A POLICE RAID"},
-        {&icon_uh_alert_32, "A PUNISHMENT MAY COME", "GREED: 16+ IN ALL, SUSPICION TOO"},
+        {&icon_uh_alert_32, "A PUNISHMENT MAY COME", "GREED: 16+ HELD, SUSPICION TOO"},
     };
     constexpr int kEntry = 56;
     for (const Entry& e : entries) {

@@ -37,6 +37,17 @@ void capitals(char* text) {
   }
 }
 
+// Whether every option that can be taken ends the run: no card is drawn
+// after this one, so no punishment is rolled.
+bool lastCard(const uh::Cards& cards, const uh::Game& g) {
+  const uh::Card* card = cards.card(g.card);
+  if (!card || g.phase != uh::Phase::Choosing) return false;
+  for (int k = 0; k < card->optionCount; ++k) {
+    if (!card->option[k].lose && uh::view::optionState(g, cards, k) == uh::view::OptionState::Open) return false;
+  }
+  return true;
+}
+
 bool notable(const uh::Game& g) {
   if (g.addedCount > 0 || g.reshuffled) return true;
   for (int16_t n : g.lost) {
@@ -59,9 +70,12 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
   m.deck = g.draw.size;
   for (int r = 0; r < uh::kResources; ++r) m.held[r] = g.held[r];
   // Under an outcome the next card is already drawn, so its odds would
-  // describe the draw after it: the warning waits for the card.
-  if (!showOutcome) m.odds = uh::view::chances(g);
-  m.rolls = uh::punishmentOdds(g);
+  // describe the draw after it: the warning, and the black counts, wait for
+  // the card. So do they on a card whose only way out ends the run.
+  if (!showOutcome && !lastCard(cards, g)) {
+    m.odds = uh::view::chances(g);
+    m.rolls = uh::punishmentOdds(g);
+  }
   if (!showOutcome) {
     m.lastPaid = uh::view::tokensOf(g.paid);
     m.lastGained = uh::view::tokensOf(g.gained);
@@ -101,14 +115,21 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     char effect[112];
     uh::view::effectLine(g, cards, k, effect, sizeof(effect));
     if (row.state == uh::view::OptionState::Open && row.guarded) {
-      std::snprintf(row.note, sizeof(row.note), "Relics pay, no suspicion is lost");
+      std::snprintf(row.note, sizeof(row.note), "No suspicion: relics buy nothing");
     } else if (row.state == uh::view::OptionState::Open) {
       std::snprintf(row.note, sizeof(row.note), "%s", effect);
     } else {
-      char why[64];
+      char why[112];
       uh::view::whyNot(g, cards, k, why, sizeof(why));
       std::snprintf(row.note, sizeof(row.note), "%s%s%s", effect, effect[0] ? ". " : "", why);
-      if (effect[0]) std::snprintf(row.shortNote, sizeof(row.shortNote), "%s", why);
+      // Where the option's words need the room: only why, and without the
+      // relics' share.
+      char bare[112];
+      uh::view::whyNot(g, cards, k, bare, sizeof(bare), false);
+      if (effect[0] || std::strcmp(bare, why) != 0) {
+        std::snprintf(row.shortNote, sizeof(row.shortNote), "%s", bare);
+        capitals(row.shortNote);
+      }
     }
     capitals(row.note);
   }
@@ -134,6 +155,7 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     m.panel = ui::Panel::Ways;
     m.waysFor = waysFor;
     m.wayPage = waysPage;
+    m.waysGuarded = uh::view::buysNothing(g, cards, waysFor);
     uh::Counts ways[ui::kMostWays];
     const int n = uh::view::choices(g, cards, waysFor, ways, ui::kMostWays);
     m.wayCount = n < ui::kMostWays ? n : ui::kMostWays;
@@ -480,6 +502,12 @@ void UnderhandActivity::loop() {
     int tapX = 0;
     int tapY = 0;
     if (mappedInput.wasScreenTapped(tapX, tapY)) {
+      // Nothing here is a hold, and most taps cannot be undone: a finger
+      // that rested before lifting did not mean to choose.
+      if (mappedInput.tapWasHeldLong()) {
+        LOG_DBG("UNDERHAND", "Long press at %d,%d ignored", tapX, tapY);
+        return;
+      }
       input.touchReleased = true;
       input.touchX = static_cast<int16_t>(tapX);
       input.touchY = static_cast<int16_t>(tapY);

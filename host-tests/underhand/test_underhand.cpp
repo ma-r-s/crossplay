@@ -864,6 +864,9 @@ void waysToPayAreEveryExactPayment() {
   CHECK(view::payments(poor, *cards, 0, ways, 8) == 0);
   view::whyNot(poor, *cards, 0, why, sizeof(why));
   CHECK(std::strcmp(why, "SHORT: 1 MONEY") == 0);
+  // A relic that would pay for part of it says so.
+  view::whyNot(table(*cards, 2, C(1, 0, 0, 0, 0, 0)), *cards, 0, why, sizeof(why));
+  CHECK(std::strcmp(why, "SHORT: 1 MONEY, 1 FOOD, A RELIC COVERS 1") == 0);
   const Game swapPoor = table(*cards, 1, C(0, 0, 1, 1, 0, 0));
   view::whyNot(swapPoor, *cards, 0, why, sizeof(why));
   CHECK(std::strcmp(why, "SHORT: 1 CULTIST OR PRISONER") == 0);
@@ -1074,13 +1077,25 @@ Stats campaign(const Cards& cards, bool explore) {
           detail::resolve(g, cards, rng);
         }
         const Card& card = *cards.card(g.card);
+        // What the screen offers and pay() reads: some way exactly when the
+        // option can be paid, the first suggest()'s, each exact, none leaving
+        // held suspicion unspent.
         for (int k = 0; k < card.optionCount; ++k) {
           Counts ways[8];
-          const int n = view::payments(g, cards, k, ways, 8);
+          const int n = view::choices(g, cards, k, ways, 8);
           CHECK((n > 0) == affordable(g, cards, k));
           Counts first;
           if (n > 0) CHECK(suggest(g, cards, k, first) && first == ways[0]);
-          for (int i = 0; i < n && i < 8; ++i) CHECK(exact(g, cards, k, ways[i]));
+          const int asked = g.cost[k][Suspicion] > 0 ? g.cost[k][Suspicion] : 0;
+          const int spendable = std::min(asked, static_cast<int>(g.held[Suspicion]));
+          for (int i = 0; i < n && i < 8; ++i) {
+            CHECK(exact(g, cards, k, ways[i]));
+            CHECK(ways[i][Suspicion] == spendable);
+          }
+          // The full list, in place, agrees with the short one.
+          Counts all[view::kMostPayments];
+          CHECK(view::choices(g, cards, k, all, view::kMostPayments) == n);
+          for (int i = 0; i < n && i < 8; ++i) CHECK(all[i] == ways[i]);
         }
         int best[kMaxOptions];
         int n = 0;

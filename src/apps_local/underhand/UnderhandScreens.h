@@ -65,7 +65,7 @@ struct OptionRow {
   // What else it does; when it cannot be taken, then why not. shortNote is
   // only the why, for a closed option whose words need the room.
   char note[112] = {};
-  char shortNote[64] = {};
+  char shortNote[112] = {};
   view::OptionState state = view::OptionState::Open;
 };
 
@@ -103,6 +103,7 @@ struct CardModel {
   int waysFor = -1;
   int wayCount = 0;
   int wayPage = 0;
+  bool waysGuarded = false;  // relics would pay for no suspicion lost: say so here too
   view::Tokens listed[kMostWays];
 };
 

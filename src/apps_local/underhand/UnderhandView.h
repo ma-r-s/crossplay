@@ -20,15 +20,6 @@ enum class OptionState : uint8_t {
 };
 OptionState optionState(const Game& game, const Cards& cards, int k);
 
-// "2 MONEY, 1 FOOD", "3 CULTISTS OR PRISONERS", "5 AT RANDOM",
-// "ONLY WITH NO CULTISTS". Empty when the option is free.
-void costLine(const Game& game, const Cards& cards, int k, char* out, size_t size);
-// "+1 FOOD, +2 MONEY". Empty when it gives nothing.
-void gainLine(const Game& game, int k, char* out, size_t size);
-// "PAID 2 MONEY. GAINED 1 FOOD." with any random loss after. Empty before the
-// first choice of a run.
-void lastTurnLine(const Game& game, char* out, size_t size);
-
 // What an option takes or gives, as marks to draw rather than words.
 struct Token {
   enum Kind : uint8_t {
@@ -47,10 +38,6 @@ struct Tokens {
 };
 Tokens giveTokens(const Game& game, const Cards& cards, int k);
 Tokens getTokens(const Game& game, int k);
-// What will actually leave the hand if option k is taken: the suggested
-// payment when it can be paid, the cost as asked when it cannot. `relicStandsIn`
-// says a relic covers something not held.
-Tokens payTokens(const Game& game, const Cards& cards, int k, bool* relicStandsIn = nullptr);
 // A plain count per resource, for what was paid, gained or lost.
 Tokens tokensOf(const Counts& counts);
 
@@ -77,7 +64,9 @@ bool buysNothing(const Game& game, const Cards& cards, int k);
 
 // Why option k cannot be taken, in capitals: "SHORT: 2 CULTISTS, 1 FOOD",
 // "ONLY WITH NO CULTISTS", "LOCKED: ANOTHER CHOICE IS OPEN". Empty when it can.
-void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size);
+// With `relics`, a shortfall that relics would partly cover says how much
+// ("SHORT: 1 MONEY, 1 FOOD, A RELIC COVERS 1").
+void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size, bool relics = true);
 
 // Cards added to the deck, alike titles counted together: the six "Reading
 // the Necronomicon" cards are six ids with one name.

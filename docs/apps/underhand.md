@@ -171,8 +171,8 @@ invert while they invite a punishment.
   not offered at all;
 - an option that asks for suspicion when none is held, and does nothing else
   (`view::buysNothing()`), would spend relics to take no suspicion off. It says
-  `RELICS PAY, NO SUSPICION IS LOST` and a tap opens the list rather than
-  paying;
+  `NO SUSPICION: RELICS BUY NOTHING` and a tap opens the list rather than
+  paying, which says why again above its one row;
 - each chip answers over the band around it and half of each OR beside it,
   because a finger is wider than a 36px chip is tall: up to 20px above it
   (never over the option's own words) and down to the note, and the last chip
@@ -185,8 +185,10 @@ invert while they invite a punishment.
 - an option that cannot be taken is dithered, still shows what it asks, gives
   and does (a summons out of reach is what the player is saving for), says why
   in capitals (`SUMMONS UHL'UHT'C. SHORT: 1 RELIC`, `ONLY WITH NO CULTISTS`,
-  `ENDS THE RUN. LOCKED: ANOTHER CHOICE IS OPEN`) and takes no tap. When the
-  option's own words need the room, only the why is shown.
+  `ENDS THE RUN. LOCKED: ANOTHER CHOICE IS OPEN`, and with a spare relic
+  `SHORT: 1 MONEY, 1 FOOD, A RELIC COVERS 1`) and takes no tap. When the
+  option's own words need the room, only the why is shown, without the
+  relics' share.
 
 **A tap is for the card it was made on.** Every tap that pays carries the
 card's turn (`ui::stamp`), so two cards with the same buttons in the same
@@ -223,8 +225,9 @@ inverted cells follow each roll's own chance: a certain Greed hides a raid from
 the warning line, not from the roll after it. None during
 the tutorial and none on a punishment card, after which nothing is rolled. The
 last turn shares the line when there is room. Under an outcome panel the
-warning waits: the next card is already drawn, so the odds would describe the
-draw after it.
+warning and the black counts wait: the next card is already drawn, so the odds
+would describe the draw after it. On a card whose only open options end the
+run there is no warning at all, since no card follows.
 
 **The tutorial's words.** Five tutorial lines describe the phone's controls
 (drag from your hand, the middle of the option box, the `Insert` keyword, "this
@@ -259,6 +262,10 @@ where a small question mark says so.
 **Refresh.** A screen change is a full refresh, and so is every twelfth frame,
 so a long run of fast refreshes does not leave ghosts of earlier cards. A tap
 that changes nothing repaints nothing.
+
+**Long presses.** Nothing in the game is a hold and most taps cannot be
+undone, so a touch held past the fork's 500ms threshold before lifting is
+ignored (`tapWasHeldLong()`).
 
 **Threads.** The render task reads the game while it draws, so every change
 from a tap or Back is made under the `RenderLock`, and leaving the app happens
