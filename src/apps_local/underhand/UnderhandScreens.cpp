@@ -817,7 +817,7 @@ void buildHelp(toybox::Screen& screen, int page) {
     paragraph("Tap a choice to take it, paid the black way, or tap another way. ALL shows every way.", 3);
     paragraph("A grey choice cannot be taken, and says why.", 2);
     paragraph("The warning is each punishment's chance if your hand stays as it is. A black count invites one.", 4);
-    paragraph("LAST is what your last choice paid and gained. DECK counts cards before a reshuffle.", 3);
+    paragraph("LAST is what your last choice paid, lost and gained. DECK counts cards before a reshuffle.", 3);
   }
 
   const int buttons = bottom(body) - kMargin - kButtonHeight;

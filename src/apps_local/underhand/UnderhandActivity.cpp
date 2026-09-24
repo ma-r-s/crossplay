@@ -586,6 +586,8 @@ void UnderhandActivity::audit() {
         g.paid[x] = g.cost[k][x] == uh::kOnlyIfNone || g.cost[k][x] < 0 ? 0 : g.cost[k][x];
         g.gained[x] = g.gain[k][x];
       }
+      // Only a random cost loses at random: as many kinds as it takes.
+      for (int x = 0; x < uh::kResources && x < c.option[k].randomCost; ++x) g.lost[x] = 1;
       g.played = c.id;
       ui::CardModel& m = freshCard();
       fillCard(*cards, g, false, -1, 0, m);

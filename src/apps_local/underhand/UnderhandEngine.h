@@ -148,6 +148,8 @@ struct Odds {
   int desperate = 0;
 };
 Odds punishmentOdds(const Game& game);
+// The same three chances for a hand alone, as if a roll were due.
+Odds handOdds(const Counts& held);
 
 // Whether option `k` of the card on the table can be paid from what is held.
 bool affordable(const Game& game, const Cards& cards, int k);

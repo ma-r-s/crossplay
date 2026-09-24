@@ -326,6 +326,8 @@ void start(Game& game, const Cards& cards, Profile& profile, Random& random) {
   detail::nextCard(game, cards, random);
 }
 
+Odds handOdds(const Counts& held) { return oddsFor(held); }
+
 Odds punishmentOdds(const Game& game) {
   if (game.tutorial || isPunishment(game.card)) return Odds{};
   return oddsFor(game.held);

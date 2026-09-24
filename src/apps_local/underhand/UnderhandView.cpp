@@ -178,11 +178,14 @@ bool buysNothing(const Game& game, const Cards& cards, int k) {
   if (asked <= 0 || game.held[Suspicion] > 0) return false;
   // Greed counts relics too, and is rolled on the hand after paying: where
   // the payment lowers its chance, the relics buy that.
-  Counts pay{};
-  if (!suggest(game, cards, k, pay)) return false;
-  Game after = game;
-  for (int r = 0; r < kResources; ++r) after.held[r] = static_cast<int16_t>(after.held[r] - pay[r]);
-  if (punishmentOdds(after).greed < punishmentOdds(game).greed) return false;
+  const int before = punishmentOdds(game).greed;
+  if (before > 0) {
+    Counts pay{};
+    if (!suggest(game, cards, k, pay)) return false;
+    Counts after = game.held;
+    for (int r = 0; r < kResources; ++r) after[r] = static_cast<int16_t>(after[r] - pay[r]);
+    if (handOdds(after).greed < before) return false;
+  }
   for (int16_t n : game.gain[k]) {
     if (n > 0) return false;
   }

@@ -171,11 +171,12 @@ invert while they invite a punishment.
   not offered at all;
 - an option that asks for suspicion when none is held, and does nothing else,
   where paying would not lower Greed's chance either (`view::buysNothing()`:
-  Greed counts relics and is rolled on the hand after paying, so between 16
-  and 21 held a relic spent is worth something; past that Greed is certain
-  whatever is paid), would spend relics and change nothing. It says
+  Greed counts relics and is rolled on the hand after paying, so a payment
+  that brings the total down past Greed's threshold, or lowers its chance, is
+  worth something; the check compares the chance before and after), would
+  spend relics and change nothing. It says
   `NO SUSPICION: RELICS BUY NOTHING` and a tap opens the list rather than
-  paying; the list is titled `PAY ANYWAY?` and says why above its one row;
+  paying; the list is titled `PAY ANYWAY?` and says why above its rows;
 - each chip answers over the band around it and half of each OR beside it,
   because a finger is wider than a 36px chip is tall: up to 20px above it
   (never over the option's own words) and down to the note, and the last chip
