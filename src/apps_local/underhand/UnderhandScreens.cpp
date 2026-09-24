@@ -336,19 +336,36 @@ void status(toybox::Screen& screen, const fui::Rect& area, const CardModel& mode
 
 // ---- the panels ----------------------------------------------------------------
 
-// Several ways to pay, each one tap on the option itself: after the card's
-// cost, a chip per way showing what it pays that the others do not, the
-// first filled black. The rest of the option pays the black one, so every
-// option is one tap. Returns false, drawing nothing, when the chips do not
-// fit: CHOOSE and the paying panel instead.
+// The chips after the card's cost (view::chips): a chip per way showing what
+// it pays that the others do not, or for a single way the payment its relics
+// stand in for, the first filled black. The rest of the option pays the
+// black one, so every option is one tap and no relic is spent unseen.
+// Returns false, drawing nothing, when the chips do not fit: CHOOSE and the
+// paying panel instead.
 bool oneTap(toybox::Screen& screen, const CardModel& model, const OptionRow& o, int k, const fui::Rect& row,
             const fui::Rect& reach, const fui::Rect& box, int giveWidth, int getWidth) {
   const int midY = row.y + row.height / 2;
   const int start = row.x + giveWidth + kBetween;
-  int end = start;
-  for (int i = 0; i < o.ways; ++i) end += tokensWidth(screen, o.wayPart[i], 0) + kChipPad * 2 + (i ? kChipGap : 0);
   const int gains = right(row) - getWidth - (getWidth ? kBetween : 0);
-  if (end > gains) return false;
+  view::Tokens part[kShownWays];
+  auto fits = [&]() {
+    int end = start;
+    for (int i = 0; i < o.ways; ++i) end += tokensWidth(screen, part[i], 0) + kChipPad * 2 + (i ? kChipGap : 0);
+    return end <= gains;
+  };
+  for (int i = 0; i < o.ways; ++i) part[i] = o.wayPart[i];
+  if (!fits() && o.ways == 1) {
+    // One way whose whole payment does not fit: the relics in it, at least.
+    view::Tokens relics;
+    for (int t = 0; t < part[0].count; ++t) {
+      if (part[0].token[t].resource == underhand::Relic) relics.token[relics.count++] = part[0].token[t];
+    }
+    part[0] = relics;
+  }
+  if (!fits()) {
+    if (o.ways == 1) report("a relic standing in has no room to show");
+    return false;
+  }
   tokens(screen, row.x, midY, o.give, '-', false);
 
   auto wayTap = [&](int way) { return stamp(model.turn, k * kWayStride + way); };
@@ -360,7 +377,7 @@ bool oneTap(toybox::Screen& screen, const CardModel& model, const OptionRow& o, 
   int answered = box.x;
   for (int i = 0; i < o.ways; ++i) {
     if (i) x += kChipGap;
-    const int w = tokensWidth(screen, o.wayPart[i], 0) + kChipPad * 2;
+    const int w = tokensWidth(screen, part[i], 0) + kChipPad * 2;
     const fui::Rect chip = rect(x, row.y + 2, w, row.height - 4);
     const bool first = i == 0;
     if (first) {
@@ -368,7 +385,7 @@ bool oneTap(toybox::Screen& screen, const CardModel& model, const OptionRow& o, 
     } else {
       screen.target().stroke(chip, fui::Paint::solid(fui::Color::Black), 2);
     }
-    tokens(screen, x + kChipPad, midY, o.wayPart[i], 0, false, first ? fui::Color::White : fui::Color::Black);
+    tokens(screen, x + kChipPad, midY, part[i], 0, false, first ? fui::Color::White : fui::Color::Black);
     const int left = first ? box.x : x - kChipGap / 2;
     const int rightEdge = i + 1 == o.ways ? (gains > x + w ? gains : x + w) : x + w + kChipGap / 2;
     screen.frame().hit(rect(left, reach.y, rightEdge - left, reach.height), ActionWay, wayTap(i));

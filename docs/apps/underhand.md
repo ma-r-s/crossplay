@@ -170,8 +170,12 @@ invert while they invite a punishment.
 card comes back, never the ways the hand could meet it; and every option is
 one tap, choice or not. (The punishment cards' "half of what you hold" shows
 what that half is now, so it is the one cost that changes.) Nothing is said
-that the screen already shows: no note that a relic stands in, no list of
-what is missing (the cost beside the bar says it), and no parentheses.
+that the screen already shows (no list of what is missing: the cost beside
+the bar says it), nothing is in parentheses, and nothing leaves the hand
+unseen: whenever a tap would not take literally what the card says, the
+payment shows before the tap (Mario, after a tap spent his relics: "if it's
+not going to take exactly what the card says it costs I wish it'd let me
+know").
 
 - every option draws its cost as the card states it (`-1 C/P`, `-2 $`);
 - the ways that count are `view::choices()`: every exact payment, less those
@@ -184,11 +188,18 @@ what is missing (the cost beside the bar says it), and no parentheses.
   the player picks), since starving invites Desperate Measures. Not where
   nothing is rolled after: the tutorial, a punishment card, a choice that
   wins or loses the run; and not when the choice gives food back;
-- one way: a tap anywhere on the option pays it, relics and all;
+- one way: a tap anywhere on the option pays it. When that payment is not
+  literally the card's cost (relics stand in for part of it, or a
+  cultist-or-prisoner cost resolves to one of them), a black chip after the
+  cost shows the whole payment: `-2 $ [1 R 1 $]`, `-1 C/P [P]`. Where the
+  whole payment has no room, the chip shows the relics in it, and the audit
+  reports one that cannot show even those (`view::chips()`; a campaign check
+  holds that a single way has a chip exactly when it is not literal);
 - two to four ways (a cultist or a prisoner, a split of them, a relic for
   the last food): after the cost, a chip per way showing what it pays that
-  the others do not (`[prisoner] [cultist]`, `[food] [relic]`, `[1 C 2 P]
-  [2 C 1 P]`; the count is left out where every way is one of something).
+  the others do not, and the relics in it wherever relics stand in
+  (`[prisoner] [cultist]`, `[food] [relic]`, `[1 C 2 P] [2 C 1 P]`; the
+  count is left out where every way is one of something).
   The first, `suggest()`'s, is filled black, and the rest of the option pays
   it, so the usual choice is a tap anywhere and the other is a tap on its
   chip. Chosen from three rendered layouts (the others: the cost's own

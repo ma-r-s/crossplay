@@ -235,6 +235,41 @@ Counts common(const Game& game, const Cards& cards, int k) {
   return least;
 }
 
+int chips(const Game& game, const Cards& cards, int k, Tokens* out, int max) {
+  Counts all[kMostPayments];
+  const int found = choices(game, cards, k, all, kMostPayments);
+  const int n = found < kMostPayments ? found : kMostPayments;
+  if (n <= 0) return 0;
+  const Counts& cost = game.cost[k];
+  const int asked = cost[Relic] > 0 && cost[Relic] != kOnlyIfNone ? cost[Relic] : 0;
+  bool standIn = false;
+  for (int i = 0; i < n; ++i) standIn = standIn || all[i][Relic] > asked;
+  // A cultist-or-prisoner cost does not say which goes.
+  const bool either = cards.card(game.card)->option[k].swap && cost[Cultist] + cost[Prisoner] > 0;
+  if (n == 1 && !standIn && !either) return 0;
+  if (n > max) return n;
+  if (n == 1) {
+    out[0] = tokensOf(all[0]);
+    if (out[0].count == 1 && out[0].token[0].amount == 1) out[0].token[0].kind = Token::Symbol;
+    return 1;
+  }
+  bool differs[kResources] = {};
+  for (int r = 0; r < kResources; ++r) {
+    for (int i = 1; i < n; ++i) differs[r] = differs[r] || all[i][r] != all[0][r];
+  }
+  differs[Relic] = differs[Relic] || standIn;
+  bool single = true;
+  for (int i = 0; i < n; ++i) {
+    Counts part{};
+    for (int r = 0; r < kResources; ++r) part[r] = differs[r] ? all[i][r] : 0;
+    out[i] = tokensOf(part);
+    single = single && out[i].count == 1 && out[i].token[0].amount == 1;
+  }
+  // Where every way is one of something, the count only repeats the cost.
+  for (int i = 0; i < n && single; ++i) out[i].token[0].kind = Token::Symbol;
+  return n;
+}
+
 bool savesLastFood(const Game& game, const Cards& cards, int k) {
   Counts all[kMostPayments];
   const int found = choices(game, cards, k, all, kMostPayments);

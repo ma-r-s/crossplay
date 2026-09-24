@@ -107,26 +107,11 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int p
       row.why = uh::view::whyNot(g, cards, k);
     } else if (row.guarded) {
       std::snprintf(row.note, sizeof(row.note), "No suspicion: relics buy nothing");
-    } else if (ways > 1 && ways <= ui::kShownWays) {
-      // Few enough ways to offer on the option itself: each by what it pays
-      // that the others do not.
-      bool differs[uh::kResources] = {};
-      for (int r = 0; r < uh::kResources; ++r) {
-        for (int i = 1; i < ways; ++i) differs[r] = differs[r] || all[i][r] != all[0][r];
-      }
-      row.ways = ways;
-      for (int i = 0; i < ways; ++i) {
-        uh::Counts part{};
-        for (int r = 0; r < uh::kResources; ++r) part[r] = differs[r] ? all[i][r] : 0;
-        row.wayPart[i] = uh::view::tokensOf(part);
-      }
-      // Where every way is one of something, the count only repeats the
-      // cost: the symbol alone.
-      bool single = true;
-      for (int i = 0; i < ways; ++i) {
-        single = single && row.wayPart[i].count == 1 && row.wayPart[i].token[0].amount == 1;
-      }
-      for (int i = 0; i < ways && single; ++i) row.wayPart[i].token[0].kind = uh::view::Token::Symbol;
+    } else {
+      // A chip per way, or one showing the relics a single way spends; too
+      // many to show, and CHOOSE opens the paying panel instead.
+      const int shown = uh::view::chips(g, cards, k, row.wayPart, ui::kShownWays);
+      row.ways = shown <= ui::kShownWays ? shown : 0;
     }
     capitals(row.note);
   }

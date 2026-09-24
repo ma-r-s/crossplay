@@ -63,6 +63,18 @@ int choices(const Game& game, const Cards& cards, int k, Counts* out, int max);
 // opens with it already picked, so only the real choice takes taps.
 Counts common(const Game& game, const Cards& cards, int k);
 
+// The chips option k shows after its cost, one per way in choices() order,
+// each what that way pays that the others do not, and the relics in it
+// wherever relics stand in for what the cost names, so none is ever spent
+// unseen. One way gets a chip, showing the whole payment, exactly when that
+// payment is not literally the card's cost: relics stand in, or a
+// cultist-or-prisoner cost resolves to one of them (Mario: "if it's not going
+// to take exactly what the card says it costs I wish it'd let me know").
+// Where every way is one of something, a chip is the symbol alone. Returns
+// how many ways there are, writing chips only when that is at most `max`; 0
+// when the cost says it all.
+int chips(const Game& game, const Cards& cards, int k, Tokens* out, int max);
+
 // Whether choices() for option k includes a relic paid to keep the last food.
 bool savesLastFood(const Game& game, const Cards& cards, int k);
 

@@ -204,15 +204,21 @@ std::vector<int> pile(const Pile& p) { return std::vector<int>(p.card, p.card + 
 // A game with `id` on the table and nothing else, costs resolved.
 // A Why as text: its words, then each symbol as a count and a letter
 // ("MISSING 1M 1F", "ONLY WITH NO C", "MISSING 1C/P").
-std::string said(const view::Why& why) {
-  std::string out = why.words;
+std::string marks(const view::Tokens& tokens) {
+  std::string out;
   const char* const letters = "RMCFPS";
-  for (int i = 0; i < why.tokens.count; ++i) {
-    const view::Token& t = why.tokens.token[i];
-    out += ' ';
+  for (int i = 0; i < tokens.count; ++i) {
+    const view::Token& t = tokens.token[i];
+    if (i) out += ' ';
     if (t.kind != view::Token::Symbol) out += std::to_string(t.amount);
     out += t.kind == view::Token::Either ? std::string("C/P") : std::string(1, letters[t.resource]);
   }
+  return out;
+}
+
+std::string said(const view::Why& why) {
+  std::string out = why.words;
+  if (why.tokens.count) out += ' ' + marks(why.tokens);
   return out;
 }
 
@@ -914,6 +920,49 @@ void lastFoodIsWorthARelic() {
   CHECK(punishmentOdds(learning, C(1, 0, 0, 0, 0, 0)).desperate == 0);
 }
 
+// Mario, 2026-09-24: short of money, a tap spent his relics as the only way
+// to pay, and he "wished it'd had told me". A relic standing in always shows
+// on a chip before the tap; a choice shows only what differs.
+void relicsAreNeverSpentUnseen() {
+  CardSpec plain{10};
+  plain.opts[0].cost = {0, 1, 0, 1, 0, 0};
+  CardSpec either{11};
+  either.opts[0].cost = {0, 0, 1, 1, 0, 0};
+  either.opts[0].swap = 1;
+  CardSpec three{16};
+  three.opts[0].cost = {0, 0, 3, 0, 0, 0};
+  three.opts[0].swap = 1;
+  auto cards = load(world({plain, either, three}));
+  if (failures) return;
+  view::Tokens chip[4];
+  // Paid as the cost says: no chip.
+  CHECK(view::chips(table(*cards, 10, C(0, 1, 0, 2, 0, 0)), *cards, 0, chip, 4) == 0);
+  // Short of money, a relic stands in: the whole payment shows.
+  CHECK(view::chips(table(*cards, 10, C(1, 0, 0, 2, 0, 0)), *cards, 0, chip, 4) == 1);
+  CHECK(marks(chip[0]) == "1R 1F");
+  // The last food: the food or a relic, each a symbol alone.
+  CHECK(view::chips(table(*cards, 10, C(1, 1, 0, 1, 0, 0)), *cards, 0, chip, 4) == 2);
+  CHECK(marks(chip[0]) == "F" && marks(chip[1]) == "R");
+  // A cultist or a prisoner, prisoners first.
+  CHECK(view::chips(table(*cards, 11, C(0, 0, 1, 2, 1, 0)), *cards, 0, chip, 4) == 2);
+  CHECK(marks(chip[0]) == "P" && marks(chip[1]) == "C");
+  // One way to pay a cultist-or-prisoner cost: the chip says which goes.
+  CHECK(view::chips(table(*cards, 11, C(0, 0, 0, 2, 1, 0)), *cards, 0, chip, 4) == 1);
+  CHECK(marks(chip[0]) == "1F 1P");
+  CHECK(view::chips(table(*cards, 16, C(0, 0, 0, 0, 3, 0)), *cards, 0, chip, 4) == 1);
+  CHECK(marks(chip[0]) == "3P");
+  // Every way needs a relic for the food: the relic is on every chip, not
+  // left out as what they share.
+  CHECK(view::chips(table(*cards, 11, C(1, 0, 1, 0, 1, 0)), *cards, 0, chip, 4) == 2);
+  CHECK(marks(chip[0]) == "1R 1P" && marks(chip[1]) == "1R 1C");
+  // Splits of three: counts, since a symbol alone would not say how many.
+  CHECK(view::chips(table(*cards, 16, C(0, 0, 2, 0, 2, 0)), *cards, 0, chip, 4) == 2);
+  CHECK(marks(chip[0]) == "1C 2P" && marks(chip[1]) == "2C 1P");
+  // More ways than chips: counted, none written.
+  chip[0] = view::Tokens{};
+  CHECK(view::chips(table(*cards, 16, C(0, 0, 3, 0, 3, 0)), *cards, 0, chip, 3) == 4 && chip[0].count == 0);
+}
+
 // Every pick the bar allows, from nothing or from what the panel opens on,
 // can still be finished, and PAY lights exactly on the ways offered.
 void walkPicks(const Game& g, const Cards& cards, int k, const Counts* ways, int n) {
@@ -1248,6 +1297,27 @@ Stats campaign(const Cards& cards, bool explore) {
             CHECK(all[i][Relic] == all[0][Relic] || (all[i][Relic] > all[0][Relic] && food == 1));
           }
           if (n > 1) walkPicks(g, cards, k, all, std::min(n, view::kMostPayments));
+          // No relic is spent unseen: wherever a way pays relics beyond the
+          // cost's own, its chip shows them.
+          view::Tokens chip[view::kMostPayments];
+          const int chipCount = view::chips(g, cards, k, chip, view::kMostPayments);
+          const int askedRelics = g.cost[k][Relic] > 0 && g.cost[k][Relic] != kOnlyIfNone ? g.cost[k][Relic] : 0;
+          for (int i = 0; i < n && i < view::kMostPayments; ++i) {
+            if (all[i][Relic] <= askedRelics) continue;
+            CHECK(chipCount == n);
+            bool shown = false;
+            for (int t = 0; t < chip[i].count; ++t) shown = shown || chip[i].token[t].resource == Relic;
+            CHECK(shown);
+          }
+          // One way shows a chip exactly when it is not literally the cost.
+          if (n == 1) {
+            bool literal = !(card.option[k].swap && g.cost[k][Cultist] + g.cost[k][Prisoner] > 0);
+            for (int r = 0; r < kResources; ++r) {
+              const int asked = g.cost[k][r] > 0 && g.cost[k][r] != kOnlyIfNone ? g.cost[k][r] : 0;
+              literal = literal && all[0][r] == asked;
+            }
+            CHECK((chipCount == 1) == !literal);
+          }
         }
         int best[kMaxOptions];
         int n = 0;
@@ -1499,6 +1569,7 @@ int main() {
   RUN(savesAreCheckedBeforeTheyAreTrusted);
   RUN(waysToPayAreEveryExactPayment);
   RUN(lastFoodIsWorthARelic);
+  RUN(relicsAreNeverSpentUnseen);
   RUN(savesRoundTripAndRefuseDamage);
   RUN(rngIsUniformAndRepeatable);
 

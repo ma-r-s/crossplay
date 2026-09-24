@@ -10,7 +10,9 @@
 //
 // Every option shows the card's own cost, the same each time the card comes
 // back (a punishment's "half of what you hold" shows what that is now). One
-// that can be paid only one way is taken by tapping it. One with a choice of
+// that can be paid only one way is taken by tapping it; where relics stand in
+// for part of the cost, a black chip after it shows the whole payment, so no
+// relic is spent unseen. One with a choice of
 // what pays (a cultist or a prisoner, or a relic for the last food) shows a
 // chip per way after the cost, the first black: a tap on a chip pays that
 // way, anywhere else on the option the black one. When the chips do not fit,
@@ -72,8 +74,8 @@ struct OptionRow {
   char note[112] = {};  // what else it does
   view::Why why;        // when it cannot be taken
   view::OptionState state = view::OptionState::Open;
-  // Several ways to pay, few enough to offer on the option itself: what each
-  // pays that the others do not, in choices() order.
+  // The chips after the cost (view::chips): one per way, or one showing the
+  // relics a single way spends. 0 when the cost says it all.
   int ways = 0;
   view::Tokens wayPart[kShownWays];
 };
