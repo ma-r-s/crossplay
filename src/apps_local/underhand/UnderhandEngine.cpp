@@ -53,11 +53,17 @@ bool anyAffordable(const Game& game, const Cards& cards) {
 }
 
 // After a choice: foresight discards, then the played card, then the next.
+// In the tutorial the choice's shuffle-ins went on top after the peek, so the
+// cards seen sit under them; the card marked is the card discarded.
 void advance(Game& game, const Cards& cards, Random& random) {
+  int above = 0;
+  if (game.tutorial && game.seenCount > 0) {
+    for (int a = 0; a < game.addedCount; ++a) above += game.added[a].copies;
+  }
   int removed = 0;
   for (int i = 0; i < game.seenCount; ++i) {
     if (!(game.discardMask & (1 << i))) continue;
-    const int at = game.draw.size - 1 - (i - removed);
+    const int at = game.draw.size - 1 - above - (i - removed);
     if (at >= 0) game.discard.push(game.draw.erase(at));
     ++removed;
   }
@@ -350,8 +356,11 @@ bool choose(Game& game, const Cards& cards, int k, const Counts& offer, Random& 
   // ResourceController::fulfillOption: the payment, then any random loss, a
   // type at a time until one is held.
   for (int r = 0; r < kResources; ++r) game.held[r] = static_cast<int16_t>(game.held[r] - p[r]);
+  game.played = game.card;
+  game.playedOption = static_cast<int8_t>(k);
   game.paid = p;
   game.lost = Counts{};
+  game.addedCount = 0;
   game.reshuffled = false;
   for (int n = 0; n < o.randomCost && total(game.held) > 0; ++n) {
     int r;
@@ -362,6 +371,7 @@ bool choose(Game& game, const Cards& cards, int k, const Counts& offer, Random& 
     ++game.lost[r];
   }
   for (int r = 0; r < kResources; ++r) game.held[r] = static_cast<int16_t>(game.held[r] + game.gain[k][r]);
+  game.gained = game.gain[k];
 
   if (o.win >= 0) {
     game.phase = Phase::Won;
@@ -389,8 +399,12 @@ bool choose(Game& game, const Cards& cards, int k, const Counts& offer, Random& 
   Pile& into = game.tutorial ? game.draw : game.discard;
   for (int a = 0; a < o.addCount; ++a) {
     for (int c = 0; c < o.add[a].copies; ++c) into.push(o.add[a].card);
+    game.added[game.addedCount++] = Game::Added{o.add[a].card, o.add[a].copies};
   }
-  for (int j = 0; j < o.rollCount; ++j) into.push(game.rolled[k][j]);
+  for (int j = 0; j < o.rollCount; ++j) {
+    into.push(game.rolled[k][j]);
+    game.added[game.addedCount++] = Game::Added{game.rolled[k][j], 1};
+  }
 
   if (o.foresight) {
     game.phase = Phase::Foresight;

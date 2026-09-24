@@ -266,6 +266,7 @@ sudoku      = hash
 # rings, which is checkers' mark with more strokes), `atom` and `orbit` (a
 # diagram of a different subject).
 go          = grip
+underhand   = skull       # the cult; a hand in the name, a skull on the shelf
 
 # GO's in-app marks. Rows in this fork carry an icon on the right, and these
 # six are chosen so the icon says something the label cannot: the three signal

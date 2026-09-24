@@ -1,6 +1,6 @@
 # What is in docs/apps/
 
-One directory, 34 files, and until this index they were a raw file listing. A
+One directory, and until this index its files were a raw listing. A
 doc lands here when something about an app would otherwise be rediscovered the
 hard way; not every app has one, and some have several.
 
@@ -41,6 +41,7 @@ them. These are the ones worth a stranger's time.
 | [`murdle.md`](murdle.md) | A logic grid built through the solver, so a case is never a guess. |
 | [`wavelength.md`](wavelength.md) | The dial, and why the board is public. |
 | [`forehead.md`](forehead.md) | The first game to make both physical buttons load-bearing. |
+| [`underhand.md`](underhand.md) | The cult card game, its rules read from the original's compiled code, and a screen that never moves. |
 | [`trivia.md`](trivia.md) | Also the app doc, above. |
 
 ## Where the content came from

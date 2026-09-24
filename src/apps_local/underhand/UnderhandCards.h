@@ -24,7 +24,7 @@ constexpr int16_t kOnlyIfNone = 840;  // payable only while you hold none
 constexpr int kMaxCards = 128;  // the game has 118
 constexpr int kMaxOptions = 3;
 constexpr int kMaxAdds = 2;  // the game adds at most one kind per option
-constexpr int kMaxRoll = 4;  // the game rolls at most one card per option
+constexpr int kMaxRoll = 4;  // cards an option rolls at random; the data rolls up to 4
 constexpr int kMaxGods = 8;  // the game has 7
 constexpr size_t kTextBytes = 20 * 1024;
 

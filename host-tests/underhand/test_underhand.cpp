@@ -4,9 +4,10 @@
 // and script every random number, so each expectation below is worked out by
 // hand from the rule, not read back from the code.
 //
-// With UNDERHAND_DATA set to a directory holding the game's cardwip.json and
-// savedatafiletemplate.json, a bot then plays the real cards and checks the
-// invariants over thousands of runs.
+// Then bots play the real cards, embedded in UnderhandOriginalData.h, and
+// check the invariants over thousands of runs. With UNDERHAND_DATA set to a
+// folder holding the APK's cardwip.json and savedatafiletemplate.json, the
+// embedded copies are also compared with them.
 
 #include <algorithm>
 #include <cstdio>
@@ -22,6 +23,9 @@
 
 #include "UnderhandCards.h"
 #include "UnderhandEngine.h"
+#include "UnderhandOriginalData.h"
+#include "UnderhandSave.h"
+#include "UnderhandView.h"
 
 using namespace underhand;
 
@@ -560,10 +564,12 @@ void choosingPaysGainsAndShufflesIn() {
   detail::resolve(g, *cards, none);
   CHECK(take(g, *cards, 0, none));
   CHECK(g.paid == C(0, 2, 0, 0, 0, 0));
+  CHECK(g.gained == C(0, 0, 0, 1, 0, 0));
   CHECK(g.held == C(0, 0, 0, 2, 0, 0));
   // The shuffled-in cards and then the played card, which recurs, wait in the
   // discard pile; the next card comes off the deck.
   CHECK((pile(g.discard) == std::vector<int>{3, 3, 1}));
+  CHECK(g.addedCount == 1 && g.added[0].card == 3 && g.added[0].copies == 2);
   CHECK(g.card == 2 && g.draw.size == 0 && g.phase == Phase::Choosing);
 
   // A card rolled when the option was drawn goes the same way.
@@ -576,6 +582,8 @@ void choosingPaysGainsAndShufflesIn() {
   CHECK(rolled.rolled[0][0] == 5);
   CHECK(take(rolled, *cards, 0, none));
   CHECK((pile(rolled.discard) == std::vector<int>{5}));
+  CHECK(rolled.played == 10 && rolled.playedOption == 0);
+  CHECK(rolled.addedCount == 1 && rolled.added[0].card == 5 && rolled.added[0].copies == 1);
 
   // A card that does not recur leaves the game.
   Game h = table(*cards, 2, C(0, 0, 0, 1, 0, 0), {3});
@@ -631,7 +639,12 @@ void foresightShowsTheTopAndDiscardsByPosition() {
   CardSpec seeAgain{7, 10, 0, 1};  // recurs
   seeAgain.opts[0].see = 1;
   seeAgain.opts[0].discard = 1;
-  auto cards = load(world({see, seeAgain, {3}, {4}, {5}, {6}}));
+  CardSpec seeAndAdd{8};
+  seeAndAdd.opts[0].see = 1;
+  seeAndAdd.opts[0].discard = 1;
+  seeAndAdd.opts[0].ids = {9};
+  seeAndAdd.opts[0].copies = {1};
+  auto cards = load(world({see, seeAgain, seeAndAdd, {3}, {4}, {5}, {6}, {9}}));
 
   Game g = table(*cards, 1, C(0, 0, 0, 1, 0, 0), {6, 5, 4, 3});
   Script none;
@@ -661,6 +674,19 @@ void foresightShowsTheTopAndDiscardsByPosition() {
   toggleDiscard(r, 0);
   endForesight(r, *cards, none);
   CHECK((pile(r.discard) == std::vector<int>{3, 7}));
+
+  // In the tutorial a shuffle-in lands on top after the peek. The card marked
+  // is still the one discarded. (The original removes the card one position
+  // up and discards the marked one, so a card is lost and another doubled; no
+  // shipped card has foresight and a shuffle-in together.)
+  Game t = table(*cards, 8, C(0, 0, 0, 1, 0, 0), {6, 5, 4, 3});
+  t.tutorial = true;
+  CHECK(take(t, *cards, 0, none));
+  CHECK(t.seenCount == 3 && t.seen[0] == 3 && t.seen[1] == 4 && t.seen[2] == 5);
+  toggleDiscard(t, 2);
+  endForesight(t, *cards, none);
+  CHECK((pile(t.discard) == std::vector<int>{5}));
+  CHECK(t.card == 9 && (pile(t.draw) == std::vector<int>{6, 4, 3}));
 }
 
 void startDealsTheOriginalDeck() {
@@ -761,6 +787,78 @@ void savesAreCheckedBeforeTheyAreTrusted() {
   Pile full;
   for (int i = 0; i < Pile::kCapacity; ++i) CHECK(full.push(1));
   CHECK(!full.overflowed && !full.push(1) && full.overflowed && full.size == Pile::kCapacity);
+}
+
+void waysToPayAreEveryExactPayment() {
+  CardSpec swap{1};
+  swap.opts[0].cost = {0, 0, 2, 0, 0, 0};
+  swap.opts[0].swap = 1;
+  CardSpec plain{2};
+  plain.opts[0].cost = {0, 1, 0, 1, 0, 0};
+  CardSpec none{3};
+  none.opts[0].cost = {0, 0, underhand::kOnlyIfNone, 0, 0, 0};
+  auto cards = load(world({swap, plain, none}));
+  if (failures) return;
+  Counts ways[8];
+
+  // Two cultists or prisoners from three cultists and one prisoner: the
+  // prisoner first, then both cultists.
+  Game g = table(*cards, 1, C(0, 0, 3, 1, 1, 0));
+  CHECK(view::payments(g, *cards, 0, ways, 8) == 2);
+  CHECK(ways[0] == C(0, 0, 1, 0, 1, 0) && ways[1] == C(0, 0, 2, 0, 0, 0));
+  // A relic adds the ways it could stand in, after the ways without it.
+  Game r = table(*cards, 1, C(1, 0, 3, 1, 1, 0));
+  const int n = view::payments(r, *cards, 0, ways, 8);
+  CHECK(n == 4);
+  CHECK(ways[0][Relic] == 0 && ways[1][Relic] == 0 && ways[2][Relic] == 1 && ways[3][Relic] == 1);
+  Counts first;
+  CHECK(suggest(r, *cards, 0, first) && first == ways[0]);
+  for (int i = 0; i < n && i < 8; ++i) CHECK(exact(r, *cards, 0, ways[i]));
+  // One way only when nothing can stand in.
+  CHECK(view::payments(table(*cards, 2, C(0, 1, 0, 1, 0, 0)), *cards, 0, ways, 8) == 1);
+  // None when it cannot be paid, and the reason says what is short.
+  char why[96];
+  const Game poor = table(*cards, 2, C(0, 0, 0, 1, 0, 0));
+  CHECK(view::payments(poor, *cards, 0, ways, 8) == 0);
+  view::whyNot(poor, *cards, 0, why, sizeof(why));
+  CHECK(std::strcmp(why, "SHORT: 1 MONEY") == 0);
+  const Game swapPoor = table(*cards, 1, C(0, 0, 1, 1, 0, 0));
+  view::whyNot(swapPoor, *cards, 0, why, sizeof(why));
+  CHECK(std::strcmp(why, "SHORT: 1 CULTIST OR PRISONER") == 0);
+  view::whyNot(table(*cards, 3, C(0, 0, 2, 1, 0, 0)), *cards, 0, why, sizeof(why));
+  CHECK(std::strcmp(why, "ONLY WITH NO CULTISTS") == 0);
+  view::whyNot(g, *cards, 0, why, sizeof(why));
+  CHECK(why[0] == '\0');
+}
+
+void savesRoundTripAndRefuseDamage() {
+  auto cards = load(world({{1}, {3}}));
+  if (failures) return;
+  Save s;
+  s.profile.summoned = 0b101;
+  s.profile.previous = 2;
+  s.profile.tutorialDone = true;
+  s.inRun = true;
+  s.game = table(*cards, 1, C(1, 2, 3, 4, 5, 6), {3});
+  s.rng = 0xABCDEF;
+  uint8_t bytes[kSaveBytes];
+  encode(s, bytes);
+  Save back;
+  CHECK(decode(bytes, sizeof(bytes), *cards, back));
+  CHECK(back.inRun && back.rng == 0xABCDEF && back.profile.summoned == 0b101 && back.profile.previous == 2);
+  CHECK(std::memcmp(&back.game, &s.game, sizeof(Game)) == 0);
+  // The wrong length, or another app's bytes, are refused outright.
+  CHECK(!decode(bytes, sizeof(bytes) - 1, *cards, back));
+  uint8_t other[kSaveBytes];
+  std::memcpy(other, bytes, sizeof(bytes));
+  other[0] = 'X';
+  CHECK(!decode(other, sizeof(other), *cards, back));
+  // A run these cards cannot continue is dropped and the profile kept.
+  Save broken = s;
+  broken.game.card = 99;
+  encode(broken, other);
+  CHECK(decode(other, sizeof(other), *cards, back));
+  CHECK(!back.inRun && back.profile.summoned == 0b101);
 }
 
 void rngIsUniformAndRepeatable() {
@@ -867,6 +965,14 @@ Stats campaign(const Cards& cards, bool explore) {
           detail::resolve(g, cards, rng);
         }
         const Card& card = *cards.card(g.card);
+        for (int k = 0; k < card.optionCount; ++k) {
+          Counts ways[8];
+          const int n = view::payments(g, cards, k, ways, 8);
+          CHECK((n > 0) == affordable(g, cards, k));
+          Counts first;
+          if (n > 0) CHECK(suggest(g, cards, k, first) && first == ways[0]);
+          for (int i = 0; i < n && i < 8; ++i) CHECK(exact(g, cards, k, ways[i]));
+        }
         int best[kMaxOptions];
         int n = 0;
         int bestScore = -1;
@@ -906,11 +1012,103 @@ Stats campaign(const Cards& cards, bool explore) {
   return s;
 }
 
-void playsTheRealCards(const char* dir) {
-  auto cards = std::make_unique<Cards>();
-  const std::string gods = readFile(std::string(dir) + "/savedatafiletemplate.json");
-  const std::string json = readFile(std::string(dir) + "/cardwip.json");
+// The embedded cards are the original files apart from line endings.
+void embeddedCardsAreTheOriginalFiles(const char* dir) {
+  auto withoutCR = [](std::string s) {
+    s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
+    return s;
+  };
+  const std::string gods = withoutCR(readFile(std::string(dir) + "/savedatafiletemplate.json"));
+  const std::string json = withoutCR(readFile(std::string(dir) + "/cardwip.json"));
   CHECK(!gods.empty() && !json.empty());
+  CHECK(gods == std::string(kGodsJson));
+  CHECK(json == std::string(kCardsJson));
+}
+
+std::unique_ptr<Cards> realCards() {
+  auto cards = std::make_unique<Cards>();
+  const std::string gods(kGodsJson);
+  const std::string json(kCardsJson);
+  CHECK(CardsReader::read(*cards, CardsReader::File::Gods, gods.data(), gods.size()));
+  CHECK(CardsReader::read(*cards, CardsReader::File::Cards, json.data(), json.size()));
+  return cards;
+}
+
+std::string said(void (*line)(const Game&, const Cards&, char*, size_t), const Game& g, const Cards& cards) {
+  char out[160];
+  line(g, cards, out, sizeof(out));
+  return out;
+}
+
+// The words the screen adds to the card data: added cards counted by title,
+// what a choice did to the deck, and the tutorial lines that describe the
+// phone's controls.
+void theScreenSaysWhatHappened() {
+  auto cards = realCards();
+
+  // The Necronomicon rolls three of six cards that share one title.
+  Game g;
+  g.card = 14;
+  g.rolled[0][0] = 15;
+  g.rolled[0][1] = 17;
+  g.rolled[0][2] = 19;
+  char effect[112];
+  view::effectLine(g, *cards, 0, effect, sizeof(effect));
+  CHECK(std::string(effect) == "Adds 3 x Reading the Necronomicon");
+  const view::Adds adds = view::optionAdds(g, *cards, 0);
+  CHECK(adds.count == 1 && adds.copies[0] == 3);
+  g.card = 4;  // Gods Demand Sacrifice: its third option names its card
+  view::effectLine(g, *cards, 2, effect, sizeof(effect));
+  CHECK(std::string(effect) == "Adds Wrath of the Gods");
+
+  // After the choice: one sentence, by where the cards went.
+  Game d;
+  d.added[0] = Game::Added{15, 1};
+  d.added[1] = Game::Added{16, 1};
+  d.added[2] = Game::Added{5, 2};
+  d.addedCount = 3;
+  CHECK(said(view::deckSentence, d, *cards) ==
+        "2 x Reading the Necronomicon and 2 x Wrath of the Gods join the deck at the next shuffle.");
+  d.reshuffled = true;
+  CHECK(said(view::deckSentence, d, *cards) ==
+        "The deck was reshuffled and now holds 2 x Reading the Necronomicon and 2 x Wrath of the Gods.");
+  d.addedCount = 0;
+  CHECK(said(view::deckSentence, d, *cards) == "The deck was reshuffled.");
+  d.reshuffled = false;
+  CHECK(said(view::deckSentence, d, *cards).empty());
+  d.tutorial = true;
+  d.added[0] = Game::Added{92, 1};
+  d.addedCount = 1;
+  CHECK(said(view::deckSentence, d, *cards) == "Other Options Require Resources goes on top of the deck.");
+  d.tutorial = false;
+  d.added[1] = Game::Added{93, 1};
+  d.added[2] = Game::Added{94, 1};
+  d.addedCount = 3;
+  CHECK(said(view::deckSentence, d, *cards) ==
+        "Other Options Require Resources, Adding Cards to the Deck and God Event Chains join the deck at the next "
+        "shuffle.");
+
+  // The tutorial's words for dragging, as words for tapping; everything else
+  // is the card's own.
+  CHECK(std::string(view::flavorText(*cards, *cards->card(92))) == "Tap an option to pay for it from what you hold");
+  CHECK(std::string(view::optionText(*cards, *cards->card(92), 0)) == "What an option takes is shown at its left");
+  CHECK(std::string(view::optionText(*cards, *cards->card(93), 0)) == "The option says which card it adds");
+  CHECK(std::string(view::optionText(*cards, *cards->card(99), 0)) == "Here prisoners and cultists pay in any mix");
+  CHECK(std::string(view::flavorText(*cards, *cards->card(91))) ==
+        "What an option gives is shown at its right, and what else it does below");
+  CHECK(std::string(view::flavorText(*cards, *cards->card(1))) == "She probably doesn't know who she's selling to");
+  CHECK(std::string(view::optionText(*cards, *cards->card(91), 0)) == "This option gives you one of each resource");
+  // Matched on the words as well as the id: a card 92 that says something
+  // else says it.
+  auto fixture = load(world({CardSpec{92}}));
+  CHECK(std::string(view::flavorText(*fixture, *fixture->card(92))) == "flavor");
+  CHECK(std::string(view::optionText(*fixture, *fixture->card(92), 0)) == "Go");
+}
+
+void playsTheRealCards() {
+  auto cards = std::make_unique<Cards>();
+  const std::string gods(kGodsJson);
+  const std::string json(kCardsJson);
   const char* why = nullptr;
   CHECK(CardsReader::read(*cards, CardsReader::File::Gods, gods.data(), gods.size(), &why));
   CHECK(CardsReader::read(*cards, CardsReader::File::Cards, json.data(), json.size(), &why));
@@ -1004,14 +1202,17 @@ int main() {
   RUN(startDealsTheOriginalDeck);
   RUN(profileRemembersWins);
   RUN(savesAreCheckedBeforeTheyAreTrusted);
+  RUN(waysToPayAreEveryExactPayment);
+  RUN(savesRoundTripAndRefuseDamage);
   RUN(rngIsUniformAndRepeatable);
 
+  RUN(theScreenSaysWhatHappened);
+  RUN(playsTheRealCards);
   if (const char* dir = std::getenv("UNDERHAND_DATA")) {
-    playsTheRealCards(dir);
+    std::printf("embeddedCardsAreTheOriginalFiles\n");
+    embeddedCardsAreTheOriginalFiles(dir);
   } else {
-    std::printf(
-        "REAL CARDS NOT PLAYED: set UNDERHAND_DATA to a folder holding the game's cardwip.json and "
-        "savedatafiletemplate.json\n");
+    std::printf("embedded cards not compared with the APK: set UNDERHAND_DATA to use its two JSON files\n");
   }
 
   std::printf("%d checks, %d failed\n", checks, failures);

@@ -117,9 +117,18 @@ struct Game {
   uint8_t discardMask = 0;
   bool mayDiscard = false;
 
-  // What the last choice did, for the screen to report.
+  // What the last choice did, for the screen to report: the card and option it
+  // was made on, what it took, gave and lost at random, what it shuffled in.
+  uint8_t played = 0;
+  int8_t playedOption = -1;
   Counts paid{};
   Counts lost{};
+  Counts gained{};
+  struct Added {
+    uint8_t card;
+    uint8_t copies;
+  } added[kMaxAdds + kMaxRoll]{};
+  uint8_t addedCount = 0;
   bool reshuffled = false;
   uint16_t turn = 0;
 };
