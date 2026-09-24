@@ -72,6 +72,7 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Trivia**       | 50,000 questions off 42 years of Jeopardy. Read them out, or play alone.     |
 | **Wavelength**   | A hidden point on a spectrum, one clue, and the whole table arguing.         |
 | **Go**           | 9x9 or 13x13, against the device or someone next to you. It counts for you.  |
+| **Underhand**    | The 2017 cult card game: bribe, sacrifice, dodge the police, summon a god.   |
 
 ### Apps
 
@@ -219,6 +220,8 @@ you ask it to, from the community mirror at
 [Eyefyre/NYT-Connections-Answers](https://github.com/Eyefyre/NYT-Connections-Answers).
 Trivia's questions are built from the community
 [Jeopardy! clue dataset](https://github.com/jwolle1/jeopardy_clue_dataset).
+Underhand's cards are the text of Underhand (Spoopy Squad, Cornell GDIAC, 2017),
+used with its authors' permission; none of its art or sound is.
 Type is Jersey 25 and Instrument Serif, both SIL OFL. The Calculator's
 arithmetic is IBM's [decNumber](https://speleotrove.com/decimal/decnumber.html),
 under the ICU License (ICU 1.8.1 and later), vendored at `lib/decNumber` with
