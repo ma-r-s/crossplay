@@ -151,11 +151,7 @@ void button(toybox::Screen& screen, const fui::Rect& box, const char* text, fui:
 int token(toybox::Screen& screen, int x, int midY, const view::Token& t, char sign, bool draw,
           fui::Color colour = fui::Color::Black) {
   char number[16];
-  if (t.kind == view::Token::OnlyIfNone) {
-    std::snprintf(number, sizeof(number), "NO");
-  } else {
-    std::snprintf(number, sizeof(number), "%c%d", sign, t.amount);
-  }
+  std::snprintf(number, sizeof(number), "%c%d", sign, t.amount);
   const int w = measure(screen, number);
   if (draw) small(screen, rect(x, midY - 15, w + 2, 30), number, fui::TextAlign::Left, colour);
   int at = x + w + 3;
@@ -170,7 +166,6 @@ int token(toybox::Screen& screen, int x, int midY, const view::Token& t, char si
   };
   switch (t.kind) {
     case view::Token::Count:
-    case view::Token::OnlyIfNone:
       symbol(t.resource);
       break;
     case view::Token::Either:
@@ -564,7 +559,8 @@ void ways(toybox::Screen& screen, const fui::Rect& area, const CardModel& model)
   const int first = page * perPage;
   const int shown = model.wayCount - first < perPage ? model.wayCount - first : perPage;
 
-  small(screen, rect(inner.x, inner.y, inner.width, 28), "PAY WHICH WAY?", fui::TextAlign::Left);
+  small(screen, rect(inner.x, inner.y, inner.width, 28), model.waysGuarded ? "PAY ANYWAY?" : "PAY WHICH WAY?",
+        fui::TextAlign::Left);
   if (pages > 1) {
     char range[48];
     std::snprintf(range, sizeof(range), "%d-%d OF %d", first + 1, first + shown, model.wayCount);

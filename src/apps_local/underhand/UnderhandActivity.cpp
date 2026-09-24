@@ -77,7 +77,10 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     m.rolls = uh::punishmentOdds(g);
   }
   if (!showOutcome) {
-    m.lastPaid = uh::view::tokensOf(g.paid);
+    // What left the hand, the random loss included, and what came in.
+    uh::Counts left = g.paid;
+    for (int r = 0; r < uh::kResources; ++r) left[r] = static_cast<int16_t>(left[r] + g.lost[r]);
+    m.lastPaid = uh::view::tokensOf(left);
     m.lastGained = uh::view::tokensOf(g.gained);
   }
   if (!card) return;
@@ -92,15 +95,6 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     row.state = uh::view::optionState(g, cards, k);
     row.get = uh::view::getTokens(g, k);
     row.give = uh::view::giveTokens(g, cards, k);
-    // "Only with none" is said in the note of an option it closes; the mark
-    // would say it twice.
-    if (row.state != uh::view::OptionState::Open) {
-      int kept = 0;
-      for (int t = 0; t < row.give.count; ++t) {
-        if (row.give.token[t].kind != uh::view::Token::OnlyIfNone) row.give.token[kept++] = row.give.token[t];
-      }
-      row.give.count = static_cast<uint8_t>(kept);
-    }
     uh::Counts ways[ui::kChips];
     row.ways = uh::view::choices(g, cards, k, ways, ui::kChips);
     row.guarded = row.ways > 0 && uh::view::buysNothing(g, cards, k);
@@ -179,7 +173,7 @@ void fillEnd(const uh::Cards& cards, const uh::Game& g, const uh::Profile& profi
                   g.turn, serving, cards.godCount(), serving == 1 ? "serves" : "serve");
     const uh::Card* a = cards.card(god.unlock[0]);
     const uh::Card* b = cards.card(god.unlock[1]);
-    std::snprintf(m.detail[1], sizeof(m.detail[1]), "Your next run begins with \"%s\" and \"%s\".",
+    std::snprintf(m.detail[1], sizeof(m.detail[1]), "Your next run's deck adds \"%s\" and \"%s\".",
                   a ? cards.text(a->title) : "?", b ? cards.text(b->title) : "?");
     return;
   }

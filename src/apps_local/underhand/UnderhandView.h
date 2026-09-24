@@ -23,10 +23,9 @@ OptionState optionState(const Game& game, const Cards& cards, int k);
 // What an option takes or gives, as marks to draw rather than words.
 struct Token {
   enum Kind : uint8_t {
-    Count,      // `amount` of `resource`
-    Either,     // `amount` cultists or prisoners, in any split
-    Random,     // `amount` resources of any kind, chosen at random
-    OnlyIfNone  // payable only while none of `resource` is held
+    Count,   // `amount` of `resource`
+    Either,  // `amount` cultists or prisoners, in any split
+    Random,  // `amount` resources of any kind, chosen at random
   };
   Kind kind = Count;
   uint8_t resource = 0;
@@ -58,8 +57,8 @@ int payments(const Game& game, const Cards& cards, int k, Counts* out, int max);
 int choices(const Game& game, const Cards& cards, int k, Counts* out, int max);
 
 // Whether option k asks for suspicion that is not held and does nothing else,
-// with Greed out of reach: relics would pay for it and change nothing. Such an
-// option is never taken with one tap.
+// and paying it would not lower Greed's chance either: relics would pay and
+// change nothing. Such an option is never taken with one tap.
 bool buysNothing(const Game& game, const Cards& cards, int k);
 
 // Why option k cannot be taken, in capitals: "SHORT: 2 CULTISTS, 1 FOOD",

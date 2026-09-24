@@ -59,9 +59,6 @@ Tokens giveTokens(const Game& game, const Cards& cards, int k) {
     out.token[out.count++] = Token{kind, static_cast<uint8_t>(resource), static_cast<int16_t>(amount)};
   };
   for (int r = 0; r < kResources; ++r) {
-    if (cost[r] == kOnlyIfNone) push(Token::OnlyIfNone, r, 0);
-  }
-  for (int r = 0; r < kResources; ++r) {
     if (cost[r] <= 0 || cost[r] == kOnlyIfNone) continue;
     if (o.swap && (r == Cultist || r == Prisoner)) continue;
     push(Token::Count, r, cost[r]);
@@ -179,9 +176,13 @@ bool buysNothing(const Game& game, const Cards& cards, int k) {
   if (!card || k < 0 || k >= card->optionCount) return false;
   const int asked = game.cost[k][Suspicion];
   if (asked <= 0 || game.held[Suspicion] > 0) return false;
-  // Greed counts relics too: at 16 or more held, spending one lowers its
-  // chance, which is worth something.
-  if (punishmentOdds(game).greed > 0) return false;
+  // Greed counts relics too, and is rolled on the hand after paying: where
+  // the payment lowers its chance, the relics buy that.
+  Counts pay{};
+  if (!suggest(game, cards, k, pay)) return false;
+  Game after = game;
+  for (int r = 0; r < kResources; ++r) after.held[r] = static_cast<int16_t>(after.held[r] - pay[r]);
+  if (punishmentOdds(after).greed < punishmentOdds(game).greed) return false;
   for (int16_t n : game.gain[k]) {
     if (n > 0) return false;
   }
@@ -211,6 +212,15 @@ void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size,
   for (int16_t n : held) total += n;
   if (o.randomCost > total) {
     line.add("%sNEED %d %s", o.randomCost, "RESOURCES");
+    return;
+  }
+  // Asked only for suspicion, holding none: there is none to lose.
+  bool onlySuspicion = need[Suspicion] > held[Suspicion] && held[Suspicion] == 0;
+  for (int r = 0; r < kResources && onlySuspicion; ++r) {
+    if (r != Suspicion && need[r] > held[r]) onlySuspicion = false;
+  }
+  if (onlySuspicion && !o.swap) {
+    line.words("", "NO SUSPICION TO LOSE");
     return;
   }
   // What is short before any relic, so it reads against the bar.

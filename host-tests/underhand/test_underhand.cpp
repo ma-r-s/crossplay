@@ -900,9 +900,15 @@ void waysToPayAreEveryExactPayment() {
   CHECK(view::buysNothing(t, *cards, 0));
   // Unless the option gives something besides.
   CHECK(view::choices(t, *cards, 1, ways, 8) == 1 && !view::buysNothing(t, *cards, 1));
-  // Or Greed is in reach: at 16 held, spending relics lowers its chance.
+  // Or paying lowers Greed's chance: at 16 held, 3 relics take it to 0.
   t = table(*cards, 5, C(3, 5, 5, 3, 0, 0));
   CHECK(punishmentOdds(t).greed == 35 && !view::buysNothing(t, *cards, 0));
+  // But where Greed stays certain after paying, the relics still buy nothing.
+  t = table(*cards, 5, C(3, 9, 9, 3, 0, 0));
+  CHECK(punishmentOdds(t).greed == 100 && view::buysNothing(t, *cards, 0));
+  // Without the relics to pay, there is simply no suspicion to lose.
+  view::whyNot(table(*cards, 5, C(0, 1, 0, 1, 0, 0)), *cards, 0, why, sizeof(why));
+  CHECK(std::strcmp(why, "NO SUSPICION TO LOSE") == 0);
   // The first choice is always suggest()'s.
   for (const Counts& held : {C(2, 0, 0, 1, 0, 3), C(2, 0, 0, 1, 0, 2), C(3, 0, 0, 1, 0, 0)}) {
     t = table(*cards, 5, held);

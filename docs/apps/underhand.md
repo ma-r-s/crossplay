@@ -170,11 +170,12 @@ invert while they invite a punishment.
   and 3 asked, a relic and the 2 is the way; with 3 held, the relic ways are
   not offered at all;
 - an option that asks for suspicion when none is held, and does nothing else,
-  with Greed out of reach (`view::buysNothing()`), would spend relics and
-  change nothing; at 16 or more held a relic spent lowers Greed's chance, so
-  there it is an ordinary option. It says
+  where paying would not lower Greed's chance either (`view::buysNothing()`:
+  Greed counts relics and is rolled on the hand after paying, so between 16
+  and 21 held a relic spent is worth something; past that Greed is certain
+  whatever is paid), would spend relics and change nothing. It says
   `NO SUSPICION: RELICS BUY NOTHING` and a tap opens the list rather than
-  paying, which says why again above its one row;
+  paying; the list is titled `PAY ANYWAY?` and says why above its one row;
 - each chip answers over the band around it and half of each OR beside it,
   because a finger is wider than a 36px chip is tall: up to 20px above it
   (never over the option's own words) and down to the note, and the last chip
@@ -226,7 +227,8 @@ only when Greed missed and Desperate Measures only when both did. The bar's
 inverted cells follow each roll's own chance: a certain Greed hides a raid from
 the warning line, not from the roll after it. None during
 the tutorial and none on a punishment card, after which nothing is rolled. The
-last turn shares the line when there is room. Under an outcome panel the
+last turn (`LAST`: what left the hand, the random loss included, and what
+came in) shares the line when there is room. Under an outcome panel the
 warning and the black counts wait: the next card is already drawn, so the odds
 would describe the draw after it. On a card whose only open options end the
 run there is no warning at all, since no card follows.
@@ -253,7 +255,7 @@ controls), `HOW TO PLAY`, `GIVE UP` during a run
 button at the bottom (`CONTINUE`, `BEGIN`, `START`).
 
 **The end of a run** names the god in capitals (on two lines when it needs
-them) and what the next run is dealt, or the card that ended it and how long it
+them) and the two cards the next run's deck adds, or the card that ended it and how long it
 lasted, with `PLAY AGAIN` and `MENU`.
 
 **How to play** is two pages: the seven symbols and what each danger is called,
