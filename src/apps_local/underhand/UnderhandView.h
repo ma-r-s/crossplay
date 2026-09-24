@@ -57,15 +57,15 @@ int payments(const Game& game, const Cards& cards, int k, Counts* out, int max);
 // writing at most `max`.
 int choices(const Game& game, const Cards& cards, int k, Counts* out, int max);
 
-// Whether option k asks for suspicion that is not held and does nothing else:
-// relics would pay for it and take no suspicion off. Such an option is never
-// taken with one tap.
+// Whether option k asks for suspicion that is not held and does nothing else,
+// with Greed out of reach: relics would pay for it and change nothing. Such an
+// option is never taken with one tap.
 bool buysNothing(const Game& game, const Cards& cards, int k);
 
 // Why option k cannot be taken, in capitals: "SHORT: 2 CULTISTS, 1 FOOD",
 // "ONLY WITH NO CULTISTS", "LOCKED: ANOTHER CHOICE IS OPEN". Empty when it can.
 // With `relics`, a shortfall that relics would partly cover says how much
-// ("SHORT: 1 MONEY, 1 FOOD, A RELIC COVERS 1").
+// ("SHORT: 1 MONEY, 1 FOOD (A RELIC COVERS 1)").
 void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size, bool relics = true);
 
 // Cards added to the deck, alike titles counted together: the six "Reading

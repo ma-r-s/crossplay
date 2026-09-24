@@ -24,6 +24,10 @@ struct Line {
     if (used + 1 >= size) return;
     advance(std::snprintf(out + used, size - used, fmt, used ? ", " : "", n, word));
   }
+  void raw(const char* text) {
+    if (used + 1 >= size) return;
+    advance(std::snprintf(out + used, size - used, "%s", text));
+  }
   void words(const char* prefix, const char* word) {
     if (used + 1 >= size) return;
     advance(std::snprintf(out + used, size - used, "%s%s%s", used ? ", " : "", prefix, word));
@@ -175,6 +179,9 @@ bool buysNothing(const Game& game, const Cards& cards, int k) {
   if (!card || k < 0 || k >= card->optionCount) return false;
   const int asked = game.cost[k][Suspicion];
   if (asked <= 0 || game.held[Suspicion] > 0) return false;
+  // Greed counts relics too: at 16 or more held, spending one lowers its
+  // chance, which is worth something.
+  if (punishmentOdds(game).greed > 0) return false;
   for (int16_t n : game.gain[k]) {
     if (n > 0) return false;
   }
@@ -244,8 +251,8 @@ void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size,
   if (relics && spare > 0 && missing > 0) {
     const int cover = spare < missing ? spare : missing;
     char covered[32];
-    std::snprintf(covered, sizeof(covered), cover == 1 ? "A RELIC COVERS %d" : "RELICS COVER %d", cover);
-    line.words("", covered);
+    std::snprintf(covered, sizeof(covered), cover == 1 ? " (A RELIC COVERS %d)" : " (RELICS COVER %d)", cover);
+    line.raw(covered);
   }
 }
 

@@ -502,12 +502,6 @@ void UnderhandActivity::loop() {
     int tapX = 0;
     int tapY = 0;
     if (mappedInput.wasScreenTapped(tapX, tapY)) {
-      // Nothing here is a hold, and most taps cannot be undone: a finger
-      // that rested before lifting did not mean to choose.
-      if (mappedInput.tapWasHeldLong()) {
-        LOG_DBG("UNDERHAND", "Long press at %d,%d ignored", tapX, tapY);
-        return;
-      }
       input.touchReleased = true;
       input.touchX = static_cast<int16_t>(tapX);
       input.touchY = static_cast<int16_t>(tapY);
@@ -581,7 +575,7 @@ void UnderhandActivity::audit() {
         for (int page = 0;; ++page) {
           ui::CardModel& w = freshCard();
           fillCard(*cards, g, false, k, page, w);
-          if (w.panel != ui::Panel::Ways || w.wayCount < 2) break;
+          if (w.panel != ui::Panel::Ways || (w.wayCount < 2 && !w.waysGuarded)) break;
           draw([&](toybox::Screen& s) { ui::buildCard(s, w); });
           check("ways on card", c.id);
           if (page + 1 >= ui::lastWaysPages()) break;

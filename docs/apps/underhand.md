@@ -169,8 +169,10 @@ invert while they invite a punishment.
   (suspicion invites a raid and counts toward Greed). With 2 suspicion held
   and 3 asked, a relic and the 2 is the way; with 3 held, the relic ways are
   not offered at all;
-- an option that asks for suspicion when none is held, and does nothing else
-  (`view::buysNothing()`), would spend relics to take no suspicion off. It says
+- an option that asks for suspicion when none is held, and does nothing else,
+  with Greed out of reach (`view::buysNothing()`), would spend relics and
+  change nothing; at 16 or more held a relic spent lowers Greed's chance, so
+  there it is an ordinary option. It says
   `NO SUSPICION: RELICS BUY NOTHING` and a tap opens the list rather than
   paying, which says why again above its one row;
 - each chip answers over the band around it and half of each OR beside it,
@@ -186,7 +188,7 @@ invert while they invite a punishment.
   and does (a summons out of reach is what the player is saving for), says why
   in capitals (`SUMMONS UHL'UHT'C. SHORT: 1 RELIC`, `ONLY WITH NO CULTISTS`,
   `ENDS THE RUN. LOCKED: ANOTHER CHOICE IS OPEN`, and with a spare relic
-  `SHORT: 1 MONEY, 1 FOOD, A RELIC COVERS 1`) and takes no tap. When the
+  `SHORT: 1 MONEY, 1 FOOD (A RELIC COVERS 1)`) and takes no tap. When the
   option's own words need the room, only the why is shown, without the
   relics' share.
 
@@ -263,10 +265,6 @@ where a small question mark says so.
 so a long run of fast refreshes does not leave ghosts of earlier cards. A tap
 that changes nothing repaints nothing.
 
-**Long presses.** Nothing in the game is a hold and most taps cannot be
-undone, so a touch held past the fork's 500ms threshold before lifting is
-ignored (`tapWasHeldLong()`).
-
 **Threads.** The render task reads the game while it draws, so every change
 from a tap or Back is made under the `RenderLock`, and leaving the app happens
 after it is released. `render()` draws nothing until `onEnter()` has finished
@@ -298,7 +296,7 @@ Two instruments, both run from the simulator:
   random; the last turn of every option on the status line; foresight over
   every card; every win, every losing option, every stuck card; the menu in
   its five states (the fifth after a save was set aside); both pages of how to
-  play. About 1,830 screens. The builders report any
+  play; the one-row list a guarded option opens. About 1,840 screens. The builders report any
   label wider than its box, prose needing more lines than its box, tokens
   running into each other, a panel running into its buttons. It logs `AUDIT
 <screen> <id>: <problem>` and then `AUDIT: <n> screens, <m> layout

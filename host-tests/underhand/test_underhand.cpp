@@ -866,7 +866,9 @@ void waysToPayAreEveryExactPayment() {
   CHECK(std::strcmp(why, "SHORT: 1 MONEY") == 0);
   // A relic that would pay for part of it says so.
   view::whyNot(table(*cards, 2, C(1, 0, 0, 0, 0, 0)), *cards, 0, why, sizeof(why));
-  CHECK(std::strcmp(why, "SHORT: 1 MONEY, 1 FOOD, A RELIC COVERS 1") == 0);
+  CHECK(std::strcmp(why, "SHORT: 1 MONEY, 1 FOOD (A RELIC COVERS 1)") == 0);
+  view::whyNot(table(*cards, 2, C(1, 0, 0, 0, 0, 0)), *cards, 0, why, sizeof(why), false);
+  CHECK(std::strcmp(why, "SHORT: 1 MONEY, 1 FOOD") == 0);
   const Game swapPoor = table(*cards, 1, C(0, 0, 1, 1, 0, 0));
   view::whyNot(swapPoor, *cards, 0, why, sizeof(why));
   CHECK(std::strcmp(why, "SHORT: 1 CULTIST OR PRISONER") == 0);
@@ -898,6 +900,9 @@ void waysToPayAreEveryExactPayment() {
   CHECK(view::buysNothing(t, *cards, 0));
   // Unless the option gives something besides.
   CHECK(view::choices(t, *cards, 1, ways, 8) == 1 && !view::buysNothing(t, *cards, 1));
+  // Or Greed is in reach: at 16 held, spending relics lowers its chance.
+  t = table(*cards, 5, C(3, 5, 5, 3, 0, 0));
+  CHECK(punishmentOdds(t).greed == 35 && !view::buysNothing(t, *cards, 0));
   // The first choice is always suggest()'s.
   for (const Counts& held : {C(2, 0, 0, 1, 0, 3), C(2, 0, 0, 1, 0, 2), C(3, 0, 0, 1, 0, 0)}) {
     t = table(*cards, 5, held);
