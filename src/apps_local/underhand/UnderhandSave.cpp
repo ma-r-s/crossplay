@@ -59,10 +59,11 @@ bool decode(const uint8_t* data, size_t len, const Cards& cards, Save& out) {
   size_t at = 8;
   s.profile = readProfile(data + at, cards);
   at += sizeof(Profile);
+  // A flags byte no build writes means the run cannot be trusted; the
+  // profile in front of it still can.
   const uint8_t flags = data[at++];
-  if (flags > 3) return false;
-  s.inRun = (flags & 1) != 0;
-  s.showOutcome = (flags & 2) != 0;
+  s.inRun = flags <= 3 && (flags & 1) != 0;
+  s.showOutcome = flags <= 3 && (flags & 2) != 0;
   std::memcpy(&s.game, data + at, sizeof(Game));
   at += sizeof(Game);
   std::memcpy(&s.rng, data + at, sizeof(uint64_t));

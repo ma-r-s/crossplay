@@ -238,8 +238,10 @@ void bar(toybox::Screen& screen, const fui::Rect& area, const CardModel& model) 
   if (size + 3 + (big ? widest : widestSmall) > room) report("a count does not fit its cell");
   for (int r = 0; r < kResources; ++r) {
     const fui::Rect box = rect(area.x + r * cell, area.y + toybox::kRule + 3, cell, area.height - toybox::kRule - 3);
+    // By each roll's own chance: a certain Greed hides the others from the
+    // warning line, not from the roll after it.
     const bool alarm =
-        (r == underhand::Food && model.odds.desperate > 0) || (r == underhand::Suspicion && model.odds.police > 0);
+        (r == underhand::Food && model.rolls.desperate > 0) || (r == underhand::Suspicion && model.rolls.police > 0);
     const fui::Color ink = alarm ? fui::Color::White : fui::Color::Black;
     if (alarm) screen.target().fill(box.inset(fui::Insets{0, 1, 0, 1}), fui::Paint::solid(fui::Color::Black));
     const int numberWidth = big ? screen.target().measureText(toybox::kDisplayFont, count[r], numberStyle).width
@@ -321,7 +323,8 @@ int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui
   const int available = row.width - getWidth - kBetween;
   int widths[kChips] = {};
   for (int i = 0; i < kChips && i < o.sensible; ++i) widths[i] = tokensWidth(screen, o.way[i], '-') + kChipPad * 2;
-  const int more = measure(screen, "MORE") + kChipPad * 2;
+  // MORE says how many it hides, sized for the longest it can be.
+  const int more = measure(screen, "64 MORE") + kChipPad * 2;
   const int orWidth = measure(screen, "OR") + kOrPad * 2;
   auto width = [&](int n) {
     int w = 0;
@@ -360,7 +363,9 @@ int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui
     joiner();
     const fui::Rect chip = rect(x, row.y, more, row.height);
     screen.target().stroke(chip, fui::Paint::solid(fui::Color::Black), 2);
-    small(screen, chip, "MORE", fui::TextAlign::Center);
+    char label[24];
+    std::snprintf(label, sizeof(label), "%d MORE", o.ways - shown);
+    small(screen, chip, label, fui::TextAlign::Center);
     screen.frame().hit(rect(x - orWidth / 2, reach.y, more + orWidth / 2, reach.height), ActionMore, stamp(turn, k));
     x += more;
   }
@@ -495,24 +500,27 @@ void foresight(toybox::Screen& screen, const fui::Rect& area, const CardModel& m
   for (int i = 0; i < model.seenCount; ++i) {
     const fui::Rect row = rect(inner.x, inner.y + 36 + i * (kRow + kGap), inner.width, kRow);
     const bool marked = model.discard[i];
-    screen.target().stroke(row, fui::Paint::solid(fui::Color::Black), marked ? 3 : 1);
+    // A card marked for discard greys out, like anything else not in play.
+    if (marked) screen.target().fill(row, fui::Paint::dither(fui::Color::LightGray));
+    screen.target().stroke(row, fui::Paint::solid(fui::Color::Black), marked ? 1 : 2);
     char number[12];
     std::snprintf(number, sizeof(number), "%d", i + 1);
     small(screen, rect(row.x + 8, row.y, 20, row.height), number, fui::TextAlign::Left);
-    const int tag = model.mayDiscard ? 108 : 0;
-    const int textRight = model.mayDiscard ? right(row) - tag - 16 : right(row) - 10;
+    const int tag = model.mayDiscard ? measure(screen, "KEPT") + 2 : 0;
+    const int textRight = model.mayDiscard ? right(row) - tag - 18 : right(row) - 10;
     prose(screen, rect(row.x + 32, row.y + 4, textRight - row.x - 32, row.height - 8), model.seenTitle[i], 2, true);
     if (!model.mayDiscard) continue;
-    // A state, not a button: the whole row is what a tap flips. Kept cards
-    // say so in plain text; a discard is marked in black.
-    const fui::Rect pill = rect(right(row) - tag - 8, row.y + 16, tag, row.height - 32);
-    if (marked) screen.target().fill(pill, fui::Paint::solid(fui::Color::Black));
-    small(screen, pill.inset(fui::Insets{0, 8, 0, 8}), marked ? "DISCARD" : "KEPT", fui::TextAlign::Center,
-          marked ? fui::Color::White : fui::Color::Black);
+    // A state, not a button: the whole row is what a tap flips.
+    small(screen, rect(right(row) - tag - 8, row.y, tag, row.height), marked ? "OUT" : "KEPT", fui::TextAlign::Right);
     screen.frame().hit(row, ActionSeen, static_cast<int16_t>(i));
   }
   const int last = inner.y + 36 + model.seenCount * (kRow + kGap);
-  if (last > bottom(inner) - kButtonHeight) report("the cards seen run into CONTINUE");
+  if (model.mayDiscard) {
+    small(screen, rect(inner.x, last, inner.width, 28), "DISCARDS RETURN AT A RESHUFFLE", fui::TextAlign::Left);
+  }
+  if (last + (model.mayDiscard ? 28 : 0) > bottom(inner) - kButtonHeight - 4) {
+    report("the cards seen run into CONTINUE");
+  }
   button(screen, rect(inner.x, bottom(inner) - kButtonHeight, inner.width, kButtonHeight), "CONTINUE", ActionContinue,
          true);
 }
@@ -549,16 +557,27 @@ void ways(toybox::Screen& screen, const fui::Rect& area, const CardModel& model)
   for (int i = 0; i < shown; ++i) {
     const int way = first + i;
     const fui::Rect row = rect(inner.x, top + i * kRow, inner.width, kRow - 8);
-    if (tokensWidth(screen, model.listed[way], '-') + kChipPad * 2 > row.width) {
+    // A relic paying for suspicion leaves the suspicion held: say so on the
+    // row, since this list is the only place such a way can be chosen.
+    const bool keeps = model.keepsSuspicion[way];
+    const int stays = measure(screen, "STAYS");
+    const int tagWidth = keeps ? kTokenIcon + 4 + stays + kChipPad : 0;
+    if (tokensWidth(screen, model.listed[way], '-') + kChipPad * 2 + tagWidth > row.width) {
       report("a way to pay is wider than its row");
     }
+    const fui::Color ink = way == 0 ? fui::Color::White : fui::Color::Black;
     if (way == 0) {
       screen.target().fill(row, fui::Paint::solid(fui::Color::Black));
     } else {
       screen.target().stroke(row, fui::Paint::solid(fui::Color::Black), 2);
     }
-    tokens(screen, row.x + kChipPad, row.y + row.height / 2, model.listed[way], '-', false,
-           way == 0 ? fui::Color::White : fui::Color::Black);
+    tokens(screen, row.x + kChipPad, row.y + row.height / 2, model.listed[way], '-', false, ink);
+    if (keeps) {
+      const int end = right(row) - kChipPad;
+      small(screen, rect(end - stays - 2, row.y, stays + 2, row.height), "STAYS", fui::TextAlign::Right, ink);
+      icon(screen, rect(end - stays - 4 - kTokenIcon, row.y + (row.height - kTokenIcon) / 2, kTokenIcon, kTokenIcon),
+           *kIcon24[underhand::Suspicion], ink);
+    }
     // The gap between rows belongs to the row above it.
     screen.frame().hit(rect(row.x, row.y, row.width, kRow), ActionPay,
                        stamp(model.turn, model.waysFor * kWayStride + way));
@@ -778,7 +797,7 @@ void buildHelp(toybox::Screen& screen, int page) {
         {kIcon32[underhand::Food], "FOOD", "NONE LEFT: DESPERATE MEASURES"},
         {kIcon32[underhand::Prisoner], "PRISONER", "ONE OF THEIRS, HELD CAPTIVE"},
         {kIcon32[underhand::Suspicion], "SUSPICION", "AT 5 OR MORE: A POLICE RAID"},
-        {&icon_uh_alert_32, "GREED", "16 OR MORE HELD IN ALL"},
+        {&icon_uh_alert_32, "A PUNISHMENT MAY COME", "GREED AT 16+ HELD, SUSPICION TOO"},
     };
     constexpr int kEntry = 56;
     for (const Entry& e : entries) {

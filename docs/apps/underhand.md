@@ -165,13 +165,14 @@ invert while they invite a punishment.
   option pays the black one, so the common case is still one tap. The first is
   `suggest()`'s: fewest relics, prisoners before cultists. A relic paying for
   suspicion keeps the suspicion and loses the relic, so those ways come last,
-  are never chips (only in the MORE list), and when they are the only ways the
-  option says `RELIC PAYS, SUSPICION STAYS` and a tap opens the list rather
-  than paying;
+  are never chips (only in the MORE list, where each is tagged with the
+  suspicion symbol and `STAYS`), and when they are the only ways the option
+  says `RELIC PAYS, SUSPICION STAYS` and a tap opens the list rather than
+  paying;
 - each chip answers over the band around it and half of each OR beside it,
   because a finger is wider than a 36px chip is tall: up to 20px above it
   (never over the option's own words) and down to the note;
-- when the chips do not all fit, the last one is `MORE`, which lists every way
+- when the chips do not all fit, the last one is `n MORE`, which lists every way
   a page at a time (`PAY WHICH WAY?`, `NEXT PAGE`, `BACK`). The screen pages by
   the room it has. Up to 64 ways are kept; no option of the real cards has more
   than 56 even from a hand of 9 relics and 25 of everything (a test holds it);
@@ -183,10 +184,11 @@ invert while they invite a punishment.
 
 **A tap is for the card it was made on.** Every tap that pays carries the
 card's turn (`ui::stamp`), so two cards with the same buttons in the same
-places still build different tap tables. The fork's tap gate
-(`lib/GfxRenderer/RevealedInteractions.h`) holds a tap made while a changed
-table is still being painted, so a second tap during the refresh cannot pay
-for a card nobody has seen; one that slips through is refused by the turn.
+places still build different tap tables, and the fork's tap gate
+(`lib/GfxRenderer/RevealedInteractions.h`) drops a tap made while a changed
+table is being painted. The render task holds the `RenderLock` until the panel
+has changed, so `loop()` also notes the paint counter before taking the lock
+and drops a tap that had to wait out a paint: it was made on the screen before.
 
 On a card of one or two options each option takes half the panel: every option
 text long enough to need a third line is on such a card.
@@ -202,14 +204,17 @@ stop play; the status line says what it took and gave instead. The choice that
 opened foresight does not show an outcome after it.
 
 **Foresight** lists the next three cards, top first. With discard, tapping a
-card toggles it between `KEPT` (plain text, a state rather than a button) and
-`DISCARD` (black); `CONTINUE` applies it.
+card toggles it between `KEPT` and `OUT` (plain words, a state rather than a
+button; a card that is out greys), a line says discards return at a reshuffle,
+and `CONTINUE` applies it.
 
 **Danger** is on the status line with the chance of each punishment striking
 before the next card if the hand stays as it is (`GREED 35% RAID 23%
 DESPERATE 8%`). `punishmentOdds()` gives each roll's own chance, the same
 numbers the roll uses; `view::chances()` chains them, since a raid is rolled
-only when Greed missed and Desperate Measures only when both did. None during
+only when Greed missed and Desperate Measures only when both did. The bar's
+inverted cells follow each roll's own chance: a certain Greed hides a raid from
+the warning line, not from the roll after it. None during
 the tutorial and none on a punishment card, after which nothing is rolled. The
 last turn shares the line when there is room.
 
@@ -249,7 +254,8 @@ that changes nothing repaints nothing.
 
 **Threads.** The render task reads the game while it draws, so every change
 from a tap or Back is made under the `RenderLock`, and leaving the app happens
-after it is released.
+after it is released. `render()` draws nothing until `onEnter()` has finished
+(`ready`), in case a render was already requested when the app opened.
 
 No credit is shown in the app (Mario, 2026-09-24).
 
@@ -305,7 +311,9 @@ save. Magic `UHND`, version 1, the size of a `Game`, the profile, one byte of
 flags (a run in progress, the outcome panel showing), the `Game` bytes and the
 random state. A save that fails `valid()` keeps the profile and drops the run,
 and so does one written by a build with a different `Game` (the profile sits
-in front of it, where it always was).
+in front of it, where it always was) or with a flags byte no build writes. A
+file that cannot be read at all is renamed `underhand.sav.bad` rather than
+overwritten, since the gods summoned may still be in it.
 
 ## Memory
 

@@ -3,6 +3,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <PaintClock.h>
 
 #include <cctype>
 #include <cstdio>
@@ -20,6 +21,7 @@ namespace {
 
 constexpr char kSavePath[] = "/.crosspoint/underhand.sav";
 constexpr char kSaveTempPath[] = "/.crosspoint/underhand.sav.tmp";
+constexpr char kSaveBadPath[] = "/.crosspoint/underhand.sav.bad";
 
 namespace uh = underhand;
 namespace ui = underhandui;
@@ -56,6 +58,7 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
   m.deck = g.draw.size;
   for (int r = 0; r < uh::kResources; ++r) m.held[r] = g.held[r];
   m.odds = uh::view::chances(g);
+  m.rolls = uh::punishmentOdds(g);
   if (!showOutcome) {
     m.lastPaid = uh::view::tokensOf(g.paid);
     m.lastGained = uh::view::tokensOf(g.gained);
@@ -127,11 +130,13 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     uh::Counts ways[ui::kMostWays];
     const int n = uh::view::payments(g, cards, waysFor, ways, ui::kMostWays);
     m.wayCount = n < ui::kMostWays ? n : ui::kMostWays;
+    const int suspicionCost = g.cost[waysFor][uh::Suspicion] > 0 ? g.cost[waysFor][uh::Suspicion] : 0;
     for (int i = 0; i < m.wayCount; ++i) {
       uh::view::Tokens& t = m.listed[i];
       t = uh::view::tokensOf(ways[i]);
       const uh::Option& o = card->option[waysFor];
       if (o.randomCost > 0) t.token[t.count++] = uh::view::Token{uh::view::Token::Random, 0, o.randomCost};
+      m.keepsSuspicion[i] = ways[i][uh::Suspicion] < suspicionCost;
     }
   }
 }
@@ -215,6 +220,7 @@ void UnderhandActivity::onEnter() {
 #endif
   }
   flashNext = true;
+  ready = true;
   requestUpdate();
 }
 
@@ -236,7 +242,13 @@ void UnderhandActivity::load() {
   const size_t want = size < sizeof(bytes) ? size : sizeof(bytes);
   const int got = f.read(bytes, want);
   if (got != static_cast<int>(want) || !uh::decode(bytes, want, *cards, state)) {
-    LOG_ERR("UNDERHAND", "Save not readable (%d bytes); starting fresh", static_cast<int>(size));
+    // Kept aside rather than overwritten by the next save: the gods summoned
+    // may still be in it.
+    f.close();
+    LOG_ERR("UNDERHAND", "Save not readable (%d bytes); kept as %s, starting fresh", static_cast<int>(size),
+            kSaveBadPath);
+    Storage.remove(kSaveBadPath);
+    Storage.rename(kSavePath, kSaveBadPath);
     state = uh::Save{};
     return;
   }
@@ -455,8 +467,16 @@ void UnderhandActivity::loop() {
       input.touchY = static_cast<int16_t>(tapY);
     }
     if (!input.touchReleased || !interactionsReady) return;
-    // The table and the game both belong to the render task while it draws.
+    // The table and the game both belong to the render task while it draws,
+    // and it holds the lock until the panel has changed. A tap that waited
+    // out a paint was made on the screen before it: drop it rather than route
+    // it against a card the player has not seen.
+    const uint32_t seen = paintclock::painted();
     RenderLock lock;
+    if (paintclock::painted() != seen) {
+      LOG_DBG("UNDERHAND", "Tap made during a repaint dropped");
+      return;
+    }
     const freeink::ui::ActionEvent event = interactions.route(input);
     leave = route(static_cast<int>(event.action), static_cast<int>(event.value));
   }
@@ -630,6 +650,8 @@ void UnderhandActivity::audit() {
 }
 
 void UnderhandActivity::render(RenderLock&&) {
+  // A render requested before onEnter finished has nothing to draw yet.
+  if (!ready) return;
   if (auditPending) {
     auditPending = false;
     audit();

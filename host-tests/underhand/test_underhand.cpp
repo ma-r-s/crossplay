@@ -900,6 +900,11 @@ void savesRoundTripAndRefuseDamage() {
   shown.game.played = 1;
   encode(shown, bytes);
   CHECK(decode(bytes, sizeof(bytes), *cards, back) && back.showOutcome && back.inRun);
+  // A flags byte no build writes drops the run and keeps the profile.
+  encode(s, bytes);
+  bytes[8 + sizeof(Profile)] = 0x7F;
+  CHECK(decode(bytes, sizeof(bytes), *cards, back) && !back.inRun && !back.showOutcome);
+  CHECK(back.profile.summoned == 0b101 && back.profile.tutorialDone);
   // A save from a build whose Game differs keeps the gods and the tutorial.
   encode(s, bytes);
   uint8_t older[kSaveBytes];

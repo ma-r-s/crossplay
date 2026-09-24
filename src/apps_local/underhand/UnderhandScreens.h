@@ -77,7 +77,8 @@ struct CardModel {
   const char* flavor = "";
   int deck = 0;  // cards left before the next reshuffle
   int16_t held[underhand::kResources] = {};
-  underhand::Odds odds;  // of each punishment before the next draw
+  underhand::Odds odds;   // each punishment's chance of striking before the next draw
+  underhand::Odds rolls;  // each roll's own chance: which counts invite one at all
   view::Tokens lastPaid;
   view::Tokens lastGained;
 
@@ -103,6 +104,7 @@ struct CardModel {
   int wayCount = 0;
   int wayPage = 0;
   view::Tokens listed[kMostWays];
+  bool keepsSuspicion[kMostWays] = {};  // a relic pays for suspicion, which stays
 };
 
 struct MenuModel {

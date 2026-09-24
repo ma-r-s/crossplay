@@ -12,6 +12,7 @@
 //   the menu                -> the shelf
 //   the end of a run        -> the menu
 
+#include <atomic>
 #include <memory>
 
 #include "../../activities/Activity.h"
@@ -62,6 +63,7 @@ class UnderhandActivity final : public Activity {
   bool confirmGiveUp = false;  // the menu is asking before the run is thrown away
   bool flashNext = false;
   bool auditPending = false;
+  std::atomic<bool> ready{false};  // onEnter has finished; render draws nothing before
 
   toybox::Interactions interactions;
   bool interactionsReady = false;
