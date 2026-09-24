@@ -48,18 +48,24 @@ Tokens tokensOf(const Counts& counts);
 constexpr int kMostPayments = 64;
 int payments(const Game& game, const Cards& cards, int k, Counts* out, int max);
 
-// The ways worth offering a player: every exact payment except those that
-// leave suspicion unspent which is held and asked for, paying a relic in its
-// place. Keeping suspicion is never better (it invites a raid and counts
-// toward Greed), so those ways are not offered at all. Same order as
-// payments(), so the first is suggest()'s. Returns how many there are,
-// writing at most `max`.
+// The ways worth offering a player, in payments() order, so the first is
+// suggest()'s: those using only the relics the hand needs (where the named
+// resources are held, a relic saves nothing: Greed counts both) and spending
+// all the suspicion they can (keeping it is never better); plus, when those
+// would all leave no food, the first way that keeps one food by paying a
+// relic for it, food being the one resource whose running out is punished.
+// Returns how many there are, writing at most `max`.
 int choices(const Game& game, const Cards& cards, int k, Counts* out, int max);
 
 // Whether option k asks for suspicion that is not held and does nothing else,
 // and paying it would not lower Greed's chance either: relics would pay and
 // change nothing. Such an option is never taken with one tap.
 bool buysNothing(const Game& game, const Cards& cards, int k);
+
+// Whether one more of `resource` can go toward option k's payment on top of
+// `offer`: it is held beyond what the offer already takes, and the offer
+// would still fit inside one of the ways choices() offers.
+bool canAdd(const Game& game, const Cards& cards, int k, const Counts& offer, int resource);
 
 // Why option k cannot be taken, in capitals: "SHORT: 2 CULTISTS, 1 FOOD",
 // "ONLY WITH NO CULTISTS", "LOCKED: ANOTHER CHOICE IS OPEN". Empty when it can.

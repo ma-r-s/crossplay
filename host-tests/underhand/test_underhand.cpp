@@ -909,6 +909,38 @@ void waysToPayAreEveryExactPayment() {
   // Without the relics to pay, there is simply no suspicion to lose.
   view::whyNot(table(*cards, 5, C(0, 1, 0, 1, 0, 0)), *cards, 0, why, sizeof(why));
   CHECK(std::strcmp(why, "NO SUSPICION TO LOSE") == 0);
+  // Relics are offered only where the hand needs them: 1 money and 1 food
+  // asked, both held, a relic spare: one way, the money and the food...
+  CHECK(view::choices(table(*cards, 2, C(1, 1, 0, 2, 0, 0)), *cards, 0, ways, 8) == 1);
+  CHECK(ways[0] == C(0, 1, 0, 1, 0, 0));
+  // ...unless that food is the last one: then the relic may pay for it.
+  Game hungry = table(*cards, 2, C(1, 1, 0, 1, 0, 0));
+  CHECK(view::choices(hungry, *cards, 0, ways, 8) == 2);
+  CHECK(ways[0] == C(0, 1, 0, 1, 0, 0) && ways[1] == C(1, 1, 0, 0, 0, 0));
+  // No relic, no choice.
+  CHECK(view::choices(table(*cards, 2, C(0, 1, 0, 1, 0, 0)), *cards, 0, ways, 8) == 1);
+  // Short of money, the relic pays for it and there is nothing to choose.
+  CHECK(view::choices(table(*cards, 2, C(1, 0, 0, 2, 0, 0)), *cards, 0, ways, 8) == 1);
+  CHECK(ways[0] == C(1, 0, 0, 1, 0, 0));
+
+  // Choosing from the bar: only what the option asks for, never more.
+  const Counts empty{};
+  CHECK(view::canAdd(hungry, *cards, 0, empty, Money) && view::canAdd(hungry, *cards, 0, empty, Food));
+  CHECK(view::canAdd(hungry, *cards, 0, empty, Relic) && !view::canAdd(hungry, *cards, 0, empty, Cultist));
+  CHECK(!view::canAdd(hungry, *cards, 0, C(0, 1, 0, 1, 0, 0), Relic));  // already paid in full
+  CHECK(!view::canAdd(hungry, *cards, 0, C(1, 0, 0, 0, 0, 0), Relic));  // the only relic is taken
+  CHECK(view::canAdd(hungry, *cards, 0, C(1, 0, 0, 0, 0, 0), Money));
+  CHECK(exact(hungry, *cards, 0, C(1, 1, 0, 0, 0, 0)) && !exact(hungry, *cards, 0, C(1, 0, 0, 0, 0, 0)));
+  // A cultist or a prisoner, either, up to what is held.
+  Game people = table(*cards, 1, C(0, 0, 3, 1, 1, 0));
+  CHECK(view::canAdd(people, *cards, 0, empty, Prisoner) && view::canAdd(people, *cards, 0, empty, Cultist));
+  CHECK(!view::canAdd(people, *cards, 0, C(0, 0, 0, 0, 1, 0), Prisoner));
+  CHECK(view::canAdd(people, *cards, 0, C(0, 0, 0, 0, 1, 0), Cultist));
+  CHECK(!view::canAdd(people, *cards, 0, C(0, 0, 1, 0, 1, 0), Cultist));
+  // A spare relic is not offered for people who are held.
+  Game spare = table(*cards, 1, C(1, 0, 3, 1, 1, 0));
+  CHECK(!view::canAdd(spare, *cards, 0, empty, Relic) && view::canAdd(spare, *cards, 0, empty, Prisoner));
+
   // The first choice is always suggest()'s.
   for (const Counts& held : {C(2, 0, 0, 1, 0, 3), C(2, 0, 0, 1, 0, 2), C(3, 0, 0, 1, 0, 0)}) {
     t = table(*cards, 5, held);

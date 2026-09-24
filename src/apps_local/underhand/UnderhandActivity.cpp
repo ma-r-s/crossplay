@@ -56,9 +56,9 @@ bool notable(const uh::Game& g) {
   return false;
 }
 
-// The card screen for a game, the same for play and for the audit. `waysFor`
-// lists that option's ways to pay, from page `waysPage`.
-void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int waysFor, int waysPage,
+// The card screen for a game, the same for play and for the audit. With
+// `payingFor` an option's paying panel, `picked` what is on it so far.
+void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int payingFor, const uh::Counts& picked,
               ui::CardModel& m) {
   const uh::Card* card = cards.card(showOutcome ? g.played : g.card);
   if (card) {
@@ -85,7 +85,7 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
   }
   if (!card) return;
 
-  // The options are filled whatever the panel, so the list of ways can read them.
+  // The options are filled whatever the panel, so the paying panel can read them.
   m.optionCount = card->optionCount;
   for (int k = 0; k < card->optionCount; ++k) {
     ui::OptionRow& row = m.option[k];
@@ -95,15 +95,10 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     row.state = uh::view::optionState(g, cards, k);
     row.get = uh::view::getTokens(g, k);
     row.give = uh::view::giveTokens(g, cards, k);
-    uh::Counts ways[ui::kChips];
-    row.ways = uh::view::choices(g, cards, k, ways, ui::kChips);
-    row.guarded = row.ways > 0 && uh::view::buysNothing(g, cards, k);
-    for (int i = 0; i < row.ways && i < ui::kChips; ++i) {
-      row.way[i] = uh::view::tokensOf(ways[i]);
-      // The random part is the same whichever way the rest is paid.
-      if (o.randomCost > 0)
-        row.way[i].token[row.way[i].count++] = uh::view::Token{uh::view::Token::Random, 0, o.randomCost};
-    }
+    uh::Counts first{};
+    const int ways = uh::view::choices(g, cards, k, &first, 1);
+    row.guarded = ways > 0 && uh::view::buysNothing(g, cards, k);
+    row.chooses = ways > 1 || row.guarded;
     // What it does, and when it cannot be taken, why not: a summons out of
     // reach is exactly what the player is saving for.
     char effect[112];
@@ -111,6 +106,10 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     if (row.state == uh::view::OptionState::Open && row.guarded) {
       std::snprintf(row.note, sizeof(row.note), "No suspicion: relics buy nothing");
     } else if (row.state == uh::view::OptionState::Open) {
+      // Paid one way, but not with what the cost shows: the cost row says
+      // how many relics stand in, so a tap holds no surprise.
+      const int asked = g.cost[k][uh::Relic] > 0 ? g.cost[k][uh::Relic] : 0;
+      row.standIn = !row.chooses && ways == 1 && first[uh::Relic] > asked ? first[uh::Relic] - asked : 0;
       std::snprintf(row.note, sizeof(row.note), "%s", effect);
     } else {
       char why[112];
@@ -145,20 +144,14 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
       m.seenTitle[i] = seen ? cards.text(seen->title) : "?";
       m.discard[i] = (g.discardMask & (1 << i)) != 0;
     }
-  } else if (waysFor >= 0 && waysFor < card->optionCount) {
-    m.panel = ui::Panel::Ways;
-    m.waysFor = waysFor;
-    m.wayPage = waysPage;
-    m.waysGuarded = uh::view::buysNothing(g, cards, waysFor);
-    uh::Counts ways[ui::kMostWays];
-    const int n = uh::view::choices(g, cards, waysFor, ways, ui::kMostWays);
-    m.wayCount = n < ui::kMostWays ? n : ui::kMostWays;
-    for (int i = 0; i < m.wayCount; ++i) {
-      uh::view::Tokens& t = m.listed[i];
-      t = uh::view::tokensOf(ways[i]);
-      const uh::Option& o = card->option[waysFor];
-      if (o.randomCost > 0) t.token[t.count++] = uh::view::Token{uh::view::Token::Random, 0, o.randomCost};
+  } else if (payingFor >= 0 && payingFor < card->optionCount) {
+    m.panel = ui::Panel::Paying;
+    m.payingFor = payingFor;
+    for (int r = 0; r < uh::kResources; ++r) {
+      m.picked[r] = picked[r];
+      m.pickable[r] = uh::view::canAdd(g, cards, payingFor, picked, r);
     }
+    m.pickedExactly = uh::exact(g, cards, payingFor, picked);
   }
 }
 
@@ -317,7 +310,8 @@ void UnderhandActivity::newRun() {
   state.inRun = true;
   state.showOutcome = false;
   saveSetAside = false;
-  waysFor = -1;
+  payingFor = -1;
+  picked = uh::Counts{};
   confirmGiveUp = false;
   view = View::Play;
   flashNext = true;
@@ -326,17 +320,33 @@ void UnderhandActivity::newRun() {
   afterChoice();
 }
 
-void UnderhandActivity::pay(int option, int way) {
+// A tap on an option: paid at once when there is one way to pay it, the
+// paying panel otherwise.
+void UnderhandActivity::take(int option) {
   uh::Game& g = state.game;
-  // The same list the screen offered, so a way's number means the same way.
-  uh::Counts ways[ui::kWayStride];
-  const int n = uh::view::choices(g, *cards, option, ways, ui::kWayStride);
-  if (way < 0 || way >= n || way >= ui::kWayStride || !uh::choose(g, *cards, option, ways[way], rng)) {
-    LOG_ERR("UNDERHAND", "Card %d option %d way %d refused (%d ways)", g.card, option, way, n);
+  if (uh::view::optionState(g, *cards, option) != uh::view::OptionState::Open) return;
+  uh::Counts first{};
+  const int ways = uh::view::choices(g, *cards, option, &first, 1);
+  if (ways > 1 || (ways == 1 && uh::view::buysNothing(g, *cards, option))) {
+    payingFor = option;
+    picked = uh::Counts{};
+    LOG_DBG("UNDERHAND", "Card %d option %d: choosing from %d ways", g.card, option, ways);
+    requestUpdate();
     return;
   }
-  waysFor = -1;
-  LOG_DBG("UNDERHAND", "Card %d option %d way %d; next card %d", g.played, option, way, g.card);
+  pay(option, first);
+}
+
+void UnderhandActivity::pay(int option, const uh::Counts& offer) {
+  uh::Game& g = state.game;
+  if (!uh::choose(g, *cards, option, offer, rng)) {
+    LOG_ERR("UNDERHAND", "Card %d option %d refused %d %d %d %d %d %d", g.card, option, offer[0], offer[1], offer[2],
+            offer[3], offer[4], offer[5]);
+    return;
+  }
+  payingFor = -1;
+  picked = uh::Counts{};
+  LOG_DBG("UNDERHAND", "Card %d option %d paid; next card %d", g.played, option, g.card);
   afterChoice();
 }
 
@@ -397,22 +407,26 @@ bool UnderhandActivity::route(int action, int value) {
     case View::Play:
       // A tap that pays is for the card it was drawn on; one made on an
       // earlier card, while this one was being painted, does nothing.
-      if ((action == ui::ActionOption || action == ui::ActionPay || action == ui::ActionMore) &&
-          !ui::stampedFor(value, state.game.turn)) {
+      if ((action == ui::ActionOption || action == ui::ActionPay) && !ui::stampedFor(value, state.game.turn)) {
         LOG_DBG("UNDERHAND", "Tap for an earlier card ignored (turn %d)", state.game.turn);
         return false;
       }
       if (action == ui::ActionOption) {
-        pay(ui::payloadOf(value), 0);
+        take(ui::payloadOf(value));
       } else if (action == ui::ActionPay) {
-        pay(ui::payloadOf(value) / ui::kWayStride, ui::payloadOf(value) % ui::kWayStride);
-      } else if (action == ui::ActionMore) {
-        waysFor = ui::payloadOf(value);
-        waysPage = 0;
-        requestUpdate();
-      } else if (action == ui::ActionNextWays) {
-        waysPage = value;
-        requestUpdate();
+        if (ui::payloadOf(value) == payingFor && uh::exact(state.game, *cards, payingFor, picked)) {
+          pay(payingFor, picked);
+        }
+      } else if (action == ui::ActionPick) {
+        if (payingFor >= 0 && uh::view::canAdd(state.game, *cards, payingFor, picked, value)) {
+          ++picked[value];
+          requestUpdate();
+        }
+      } else if (action == ui::ActionUnpick) {
+        if (payingFor >= 0 && value >= 0 && value < uh::kResources && picked[value] > 0) {
+          --picked[value];
+          requestUpdate();
+        }
       } else if (action == ui::ActionHelp) {
         helpFrom = View::Play;
         helpPage = 0;
@@ -420,7 +434,8 @@ bool UnderhandActivity::route(int action, int value) {
         flashNext = true;
         requestUpdate();
       } else if (action == ui::ActionCancel) {
-        waysFor = -1;
+        payingFor = -1;
+        picked = uh::Counts{};
         requestUpdate();
       } else if (action == ui::ActionContinue) {
         if (state.showOutcome) {
@@ -468,8 +483,9 @@ bool UnderhandActivity::route(int action, int value) {
 
 // Called with the render lock held, like route(); true means leave the app.
 bool UnderhandActivity::back() {
-  if (view == View::Play && waysFor >= 0) {
-    waysFor = -1;
+  if (view == View::Play && payingFor >= 0) {
+    payingFor = -1;
+    picked = uh::Counts{};
   } else if (view == View::Menu && confirmGiveUp) {
     confirmGiveUp = false;
     flashNext = true;
@@ -562,17 +578,21 @@ void UnderhandActivity::audit() {
       for (int d = 0; d < 20; ++d) g.draw.push(c.id);
       uh::detail::resolve(g, *cards, r);
       ui::CardModel& m = freshCard();
-      fillCard(*cards, g, false, -1, 0, m);
+      fillCard(*cards, g, false, -1, uh::Counts{}, m);
       draw([&](toybox::Screen& s) { ui::buildCard(s, m); });
       check("card", c.id);
+      // The paying panel of every option that asks for a choice, with
+      // nothing picked and with a whole payment picked.
       for (int k = 0; k < c.optionCount; ++k) {
-        for (int page = 0;; ++page) {
+        if (uh::view::optionState(g, *cards, k) != uh::view::OptionState::Open) continue;
+        uh::Counts first{};
+        const int ways = uh::view::choices(g, *cards, k, &first, 1);
+        if (ways < 2 && !(ways == 1 && uh::view::buysNothing(g, *cards, k))) continue;
+        for (const uh::Counts& offer : {uh::Counts{}, first}) {
           ui::CardModel& w = freshCard();
-          fillCard(*cards, g, false, k, page, w);
-          if (w.panel != ui::Panel::Ways || (w.wayCount < 2 && !w.waysGuarded)) break;
+          fillCard(*cards, g, false, k, offer, w);
           draw([&](toybox::Screen& s) { ui::buildCard(s, w); });
-          check("ways on card", c.id);
-          if (page + 1 >= ui::lastWaysPages()) break;
+          check("paying on card", c.id);
         }
       }
     }
@@ -590,7 +610,7 @@ void UnderhandActivity::audit() {
       for (int x = 0; x < uh::kResources && x < c.option[k].randomCost; ++x) g.lost[x] = 1;
       g.played = c.id;
       ui::CardModel& m = freshCard();
-      fillCard(*cards, g, false, -1, 0, m);
+      fillCard(*cards, g, false, -1, uh::Counts{}, m);
       draw([&](toybox::Screen& s) { ui::buildCard(s, m); });
       check("last turn of card", c.id);
     }
@@ -612,7 +632,7 @@ void UnderhandActivity::audit() {
       for (int j = 0; j < o.rollCount; ++j) g.added[g.addedCount++] = uh::Game::Added{g.rolled[k][j], 1};
       g.reshuffled = true;
       ui::CardModel& m = freshCard();
-      fillCard(*cards, g, true, -1, 0, m);
+      fillCard(*cards, g, true, -1, uh::Counts{}, m);
       draw([&](toybox::Screen& s) { ui::buildCard(s, m); });
       check("outcome of card", c.id);
     }
@@ -627,7 +647,7 @@ void UnderhandActivity::audit() {
     g.seenCount = 3;
     for (int s = 0; s < 3; ++s) g.seen[s] = cards->at(i + s).id;
     ui::CardModel& m = freshCard();
-    fillCard(*cards, g, false, -1, 0, m);
+    fillCard(*cards, g, false, -1, uh::Counts{}, m);
     draw([&](toybox::Screen& s) { ui::buildCard(s, m); });
     check("foresight from card", g.card);
   }
@@ -711,7 +731,7 @@ void UnderhandActivity::render(RenderLock&&) {
     }
     case View::Play: {
       ui::CardModel& model = freshCard();
-      fillCard(*cards, state.game, state.showOutcome, waysFor, waysPage, model);
+      fillCard(*cards, state.game, state.showOutcome, payingFor, picked, model);
       ui::buildCard(screen, model);
       break;
     }

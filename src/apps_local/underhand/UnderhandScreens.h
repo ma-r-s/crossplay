@@ -8,13 +8,14 @@
 // reshuffle, foresight) the options give their place to a panel saying so, and
 // nothing else on the screen moves.
 //
-// Taps: an option that can be paid one way is taken by tapping it. One that
-// can be paid several ways shows them as chips joined by OR, the first filled
-// black: tapping a chip pays that way and tapping the rest of the option pays
-// the black one. When they do not all fit, the last chip is ALL, which lists
-// every way a page at a time. An option that cannot be taken is dithered,
-// still shows what it asks, gives and does, says why, and takes no tap.
-// Tapping the bar of symbols, or the line above it, opens How to Play.
+// Every option shows the card's own cost, the same each time the card comes
+// back. One that can be paid only one way is taken by tapping it. One with a
+// choice of what pays (a cultist or a prisoner, or a relic for the last food)
+// is marked CHOOSE, and a tap opens the paying panel: the player taps the
+// symbols in the bar to put them toward the cost, and PAY lights up when they
+// cover it exactly. An option that cannot be taken is dithered, still shows
+// what it asks, gives and does, says why, and takes no tap. Tapping the bar of
+// symbols, or the line above it, opens How to Play.
 
 #include "../ui/ToyboxScreen.h"
 #include "UnderhandView.h"
@@ -27,40 +28,39 @@ namespace view = underhand::view;
 enum : fui::ActionId {
   ActionMain = 1,       // menu: continue the run, or begin one
   ActionNewRun = 2,     // menu: give up the run and start again; end: play again
-  ActionOption = 3,     // value: stamp(turn, option), paid its first way
+  ActionOption = 3,     // value: stamp(turn, option): pay it, or choose what pays
   ActionContinue = 4,   // outcome and foresight: carry on
   ActionSeen = 5,       // foresight: value is which card to keep or discard
   ActionMenu = 6,       // end: back to the menu
-  ActionPay = 7,        // value: stamp(turn, option * kWayStride + way)
-  ActionMore = 8,       // value: stamp(turn, option), whose ways to list
-  ActionCancel = 9,     // ways list: back to the options; menu: keep the run
+  ActionPay = 7,        // paying: value stamp(turn, option), pay what is picked
+  ActionPick = 8,       // paying: value is a resource, one more of it toward the cost
+  ActionCancel = 9,     // paying: back to the options; menu: keep the run
   ActionGiveUp = 10,    // menu: ask before giving up the run
   ActionHelp = 11,      // card: the bar of symbols; menu: how to play
-  ActionNextWays = 12,  // ways list: value is the page to show
+  ActionUnpick = 12,    // paying: value is a resource, one of it taken back
   ActionHelpPage = 13,  // how to play: value is the page to show
 };
 
-constexpr int kMostWays = view::kMostPayments;
-constexpr int kWayStride = kMostWays;  // so option * stride + way is unique
-constexpr int kChips = 3;              // ways shown on an option before ALL
 constexpr int kHelpPages = 2;
 
 // A tap that pays carries the turn its card was drawn on. Two cards with the
 // same buttons in the same places then still build different tables, so the
 // tap gate (RevealedInteractions) holds a second tap made while the next card
 // is being painted instead of spending it on a card nobody has seen. Six bits
-// of turn and a byte of payload; always positive, which touch needs.
+// of turn and a byte of payload (the option); always positive, which touch
+// needs.
 constexpr int16_t stamp(int turn, int payload) { return static_cast<int16_t>(((turn & 0x3F) << 8) | (payload & 0xFF)); }
 constexpr bool stampedFor(int value, int turn) { return value >= 0 && (value >> 8) == (turn & 0x3F); }
 constexpr int payloadOf(int value) { return value & 0xFF; }
-static_assert((underhand::kMaxOptions - 1) * kWayStride + kMostWays - 1 <= 0xFF, "a payment must fit its byte");
 
 struct OptionRow {
   const char* text = "";
-  int ways = 0;          // how many ways it can be paid (view::choices)
-  bool guarded = false;  // relics would pay for no suspicion lost: a tap opens the list
-  view::Tokens way[kChips];
-  view::Tokens give;  // the cost as asked, shown when it cannot be paid
+  // A tap opens the paying panel rather than paying: there is a choice of
+  // what pays, or relics would pay for no suspicion lost (guarded).
+  bool chooses = false;
+  bool guarded = false;
+  int standIn = 0;    // relics the one way to pay puts in place of what the cost names
+  view::Tokens give;  // the card's own cost
   view::Tokens get;
   // What else it does; when it cannot be taken, then why not. shortNote is
   // only the why, for a closed option whose words need the room.
@@ -69,7 +69,7 @@ struct OptionRow {
   view::OptionState state = view::OptionState::Open;
 };
 
-enum class Panel : uint8_t { Options, Outcome, Foresight, Ways };
+enum class Panel : uint8_t { Options, Outcome, Foresight, Paying };
 
 struct CardModel {
   int turn = 0;         // stamped into every tap that pays
@@ -98,13 +98,13 @@ struct CardModel {
   bool discard[3] = {};
   bool mayDiscard = false;
 
-  // The option whose ways are listed, all of them. The screen pages them by
-  // the room it has; wayPage wraps.
-  int waysFor = -1;
-  int wayCount = 0;
-  int wayPage = 0;
-  bool waysGuarded = false;  // relics would pay for no suspicion lost: say so here too
-  view::Tokens listed[kMostWays];
+  // Paying for an option with a choice of what pays: what has been picked
+  // from the bar so far, which symbols can still go toward it, whether it
+  // pays the cost exactly.
+  int payingFor = -1;
+  int16_t picked[underhand::kResources] = {};
+  bool pickable[underhand::kResources] = {};
+  bool pickedExactly = false;
 };
 
 struct MenuModel {
@@ -132,8 +132,6 @@ struct EndModel {
 int layoutProblems();
 const char* lastLayoutProblem();
 void resetLayoutProblems();
-// How many pages the last list of ways drawn had, so the audit can visit each.
-int lastWaysPages();
 
 void buildCard(toybox::Screen& screen, const CardModel& model);
 void buildMenu(toybox::Screen& screen, const MenuModel& model);

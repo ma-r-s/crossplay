@@ -6,7 +6,7 @@
 //
 // Where Back goes, by screen:
 //   the card                -> the menu (the run is kept)
-//   the list of ways to pay -> the card
+//   the paying panel        -> the card
 //   how to play             -> wherever it was opened from
 //   the menu, asking to give up -> the menu
 //   the menu                -> the shelf
@@ -38,7 +38,8 @@ class UnderhandActivity final : public Activity {
   bool route(int action, int value);
   bool back();
   void newRun();
-  void pay(int option, int way);
+  void take(int option);
+  void pay(int option, const underhand::Counts& offer);
   void afterChoice();
   void load();
   void save();
@@ -54,8 +55,8 @@ class UnderhandActivity final : public Activity {
   underhand::Rng rng;
   underhand::Game ended;  // the run the end screen is about
   View view = View::Menu;
-  int waysFor = -1;            // the option whose ways to pay are listed
-  int waysPage = 0;            // which page of them
+  int payingFor = -1;          // the option whose paying panel is open
+  underhand::Counts picked{};  // what the player has put toward it
   View helpFrom = View::Menu;  // where how to play goes back to
   int helpPage = 0;
   static constexpr int kFastRefreshes = 12;

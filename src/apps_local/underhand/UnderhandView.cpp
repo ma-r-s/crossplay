@@ -140,16 +140,45 @@ int payments(const Game& game, const Cards& cards, int k, Counts* out, int max) 
 
 namespace {
 
-// Keeps the ways in all[0, kept) that spend all the suspicion they can,
-// writing at most `max` of them to `out` (which may be `all`). Returns how
-// many there are.
+// Keeps the ways in all[0, kept) worth offering, writing at most `max` of
+// them to `out` (which may be `all`), and returns how many there are:
+//   - every one spends the suspicion it can, since keeping suspicion is never
+//     better;
+//   - every one uses the fewest relics any payment needs, since a relic spent
+//     where the named resource is held saves nothing (Greed counts both);
+//   - except that when all of those would leave no food, the first way that
+//     keeps one food by paying a relic in its place is offered as well: food
+//     is the one resource whose running out is punished.
 int keepChoices(const Game& game, int k, const Counts* all, int kept, Counts* out, int max) {
-  const int asked = game.cost[k][Suspicion] > 0 ? game.cost[k][Suspicion] : 0;
-  const int spendable = asked < game.held[Suspicion] ? asked : game.held[Suspicion];
-  int n = 0;
+  const Counts& need = game.cost[k];
+  const Counts& held = game.held;
+  const int asked = need[Suspicion] > 0 ? need[Suspicion] : 0;
+  const int spendable = asked < held[Suspicion] ? asked : held[Suspicion];
+  int fewest = -1;
   for (int i = 0; i < kept; ++i) {
     if (all[i][Suspicion] < spendable) continue;
+    if (fewest < 0 || all[i][Relic] < fewest) fewest = all[i][Relic];
+  }
+  if (fewest < 0) return 0;
+  // Found before anything is overwritten, since `out` may be `all`.
+  bool leavesFood = false;
+  int keepsFood = -1;
+  for (int i = 0; i < kept; ++i) {
+    if (all[i][Suspicion] < spendable) continue;
+    const int left = held[Food] - all[i][Food];
+    if (all[i][Relic] == fewest && left >= 1) leavesFood = true;
+    if (keepsFood < 0 && all[i][Relic] > fewest && left == 1) keepsFood = i;
+  }
+  const bool offerFood = need[Food] > 0 && !leavesFood && keepsFood >= 0;
+  const Counts lastFood = offerFood ? all[keepsFood] : Counts{};
+  int n = 0;
+  for (int i = 0; i < kept; ++i) {
+    if (all[i][Suspicion] < spendable || all[i][Relic] != fewest) continue;
     if (n < max) out[n] = all[i];
+    ++n;
+  }
+  if (offerFood) {
+    if (n < max) out[n] = lastFood;
     ++n;
   }
   return n;
@@ -191,6 +220,25 @@ bool buysNothing(const Game& game, const Cards& cards, int k) {
   }
   const Option& o = card->option[k];
   return o.addCount == 0 && o.rollCount == 0 && !o.foresight && o.win < 0 && !o.lose;
+}
+
+bool canAdd(const Game& game, const Cards& cards, int k, const Counts& offer, int resource) {
+  const Card* card = cards.card(game.card);
+  if (!card || k < 0 || k >= card->optionCount || resource < 0 || resource >= kResources) return false;
+  if (offer[resource] >= game.held[resource]) return false;
+  Counts more = offer;
+  ++more[resource];
+  // Only toward one of the ways offered: the offer must fit inside one of
+  // them, so a relic goes in only where the hand needs it or it saves the
+  // last food.
+  Counts all[kMostPayments];
+  const int found = choices(game, cards, k, all, kMostPayments);
+  for (int i = 0; i < found && i < kMostPayments; ++i) {
+    bool fits = true;
+    for (int r = 0; r < kResources && fits; ++r) fits = more[r] <= all[i][r];
+    if (fits) return true;
+  }
+  return false;
 }
 
 void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size, bool relics) {
