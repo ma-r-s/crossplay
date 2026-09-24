@@ -1,0 +1,138 @@
+#pragma once
+
+// The words the screens show for a Game: what an option costs and gives, why
+// one cannot be taken, what the last choice did. Freestanding and ASCII only,
+// since the Jersey cuts carry nothing else.
+
+#include <cstddef>
+
+#include "UnderhandEngine.h"
+
+namespace underhand::view {
+
+// "MONEY", "CULTIST" for one and "CULTISTS" for more.
+const char* resourceName(int resource, int count);
+
+enum class OptionState : uint8_t {
+  Open,    // can be paid
+  Short,   // cannot be paid from what is held
+  Locked,  // ends the run, and another option is open
+};
+OptionState optionState(const Game& game, const Cards& cards, int k);
+
+// What an option takes or gives, as marks to draw rather than words.
+struct Token {
+  enum Kind : uint8_t {
+    Count,   // `amount` of `resource`
+    Either,  // `amount` cultists or prisoners, in any split
+    Random,  // `amount` resources of any kind, chosen at random
+    Symbol,  // the resource alone, no count
+  };
+  Kind kind = Count;
+  uint8_t resource = 0;
+  int16_t amount = 0;
+};
+struct Tokens {
+  uint8_t count = 0;
+  Token token[kResources + 2];
+};
+Tokens giveTokens(const Game& game, const Cards& cards, int k);
+Tokens getTokens(const Game& game, int k);
+// A plain count per resource, for what was paid, gained or lost.
+Tokens tokensOf(const Counts& counts);
+
+// Every exact payment for option k that what is held can make, best first:
+// relics paying for suspicion last (they keep the suspicion), then fewest
+// relics, then prisoners before cultists. The first is suggest()'s. Returns
+// how many there are, writing at most `max` of them; no option of the real
+// cards has more than kMostPayments (a test holds that).
+constexpr int kMostPayments = 64;
+int payments(const Game& game, const Cards& cards, int k, Counts* out, int max);
+
+// The ways worth offering a player, in payments() order, so the first is
+// suggest()'s: those using only the relics the hand needs (where the named
+// resources are held, a relic saves nothing: Greed counts both) and spending
+// all the suspicion they can (keeping it is never better); plus, when those
+// would all leave no food, the ways that keep one food with the fewest relics
+// paying for it, food being the one resource whose running out is punished
+// (never where nothing is rolled after, and never when the choice gives food
+// back). Returns how many there are, writing at most `max`.
+int choices(const Game& game, const Cards& cards, int k, Counts* out, int max);
+
+// What every one of choices() pays, resource by resource: the paying panel
+// opens with it already picked, so only the real choice takes taps.
+Counts common(const Game& game, const Cards& cards, int k);
+
+// The chips option k shows after its cost, one per way in choices() order,
+// each what that way pays that the others do not, and the relics in it
+// wherever relics stand in for what the cost names, so none is ever spent
+// unseen. One way gets a chip, showing the whole payment, exactly when that
+// payment is not literally the card's cost: relics stand in, or a
+// cultist-or-prisoner cost resolves to one of them (Mario: "if it's not going
+// to take exactly what the card says it costs I wish it'd let me know").
+// Where every way is one of something, a chip is the symbol alone. Returns
+// how many ways there are, writing chips only when that is at most `max`; 0
+// when the cost says it all.
+int chips(const Game& game, const Cards& cards, int k, Tokens* out, int max);
+
+// Whether choices() for option k includes a relic paid to keep the last food.
+bool savesLastFood(const Game& game, const Cards& cards, int k);
+
+// Whether option k asks for suspicion that is not held and does nothing else,
+// and paying it would not lower Greed's chance either: relics would pay and
+// change nothing. Such an option is never taken with one tap.
+bool buysNothing(const Game& game, const Cards& cards, int k);
+
+// Whether one more of `resource` can go toward option k's payment on top of
+// `offer`: it is held beyond what the offer already takes, and the offer
+// would still fit inside one of the ways choices() offers.
+bool canAdd(const Game& game, const Cards& cards, int k, const Counts& offer, int resource);
+
+// Why option k cannot be taken, when the screen does not already show it:
+// "ONLY WITH NO" and the resource (a cost of none is not drawn), or "ONLY
+// WHEN NOTHING ELSE IS OPEN" (a choice that ends the run). A cost more than
+// the hand holds needs no words: the bar beside it says so. Empty otherwise.
+struct Why {
+  char words[32] = {};
+  Tokens tokens;
+};
+Why whyNot(const Game& game, const Cards& cards, int k);
+
+// Cards added to the deck, alike titles counted together: the six "Reading
+// the Necronomicon" cards are six ids with one name.
+struct Adds {
+  int count = 0;
+  const char* title[kMaxAdds + kMaxRoll] = {};
+  int copies[kMaxAdds + kMaxRoll] = {};
+};
+// What option k of the card on the table adds, its random cards as they were
+// rolled when the card was drawn.
+Adds optionAdds(const Game& game, const Cards& cards, int k);
+// What the last choice added.
+Adds lastAdds(const Game& game, const Cards& cards);
+
+// What the last choice did to the deck, as one sentence: '3 x "Reading the
+// Necronomicon" join the deck at the next shuffle.', 'The deck was reshuffled
+// and now holds "Harvest".', '"Tips and Tricks" goes on top of the deck.'
+// Empty when it did nothing to the deck.
+void deckSentence(const Game& game, const Cards& cards, char* out, size_t size);
+
+// What else an option does, in a few words: 'Adds "Aeromancy"', 'Adds 3 x
+// "Reading the Necronomicon"', "See the next 3 cards", "Summons Rhybaax",
+// "Ends the run". Empty when it only trades resources.
+void effectLine(const Game& game, const Cards& cards, int k, char* out, size_t size);
+
+// The chance, in percent, of each punishment striking before the next draw
+// if the hand stays as it is. Each is rolled only when the ones before it
+// missed (Greed, then a raid, then hunger), so a certain Greed leaves the
+// other two at nothing. Rounded to the nearest percent.
+Odds chances(const Game& game);
+
+// A card's words as this screen shows them. Five tutorial lines describe the
+// phone's controls (drag from your hand, the middle of the option box, the
+// 'Insert' keyword, "this symbol"); these say the same for a tap and this
+// layout. Every other line is the card data's own.
+const char* flavorText(const Cards& cards, const Card& card);
+const char* optionText(const Cards& cards, const Card& card, int k);
+
+}  // namespace underhand::view
