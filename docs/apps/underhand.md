@@ -164,9 +164,13 @@ invert while they invite a punishment.
   the first filled black. Tapping a chip pays that way; tapping the rest of the
   option pays the black one, so the common case is still one tap. The first is
   `suggest()`'s: fewest relics, prisoners before cultists. A relic paying for
-  suspicion keeps the suspicion and loses the relic, so those ways come last;
+  suspicion keeps the suspicion and loses the relic, so those ways come last,
+  are never chips (only in the MORE list), and when they are the only ways the
+  option says `RELIC PAYS, SUSPICION STAYS` and a tap opens the list rather
+  than paying;
 - each chip answers over the band around it and half of each OR beside it,
-  because a finger is wider than a 36px chip is tall;
+  because a finger is wider than a 36px chip is tall: up to 20px above it
+  (never over the option's own words) and down to the note;
 - when the chips do not all fit, the last one is `MORE`, which lists every way
   a page at a time (`PAY WHICH WAY?`, `NEXT PAGE`, `BACK`). The screen pages by
   the room it has. Up to 64 ways are kept; no option of the real cards has more
@@ -198,12 +202,16 @@ stop play; the status line says what it took and gave instead. The choice that
 opened foresight does not show an outcome after it.
 
 **Foresight** lists the next three cards, top first. With discard, tapping a
-card toggles KEEP and DISCARD; `CONTINUE` applies it.
+card toggles it between `KEPT` (plain text, a state rather than a button) and
+`DISCARD` (black); `CONTINUE` applies it.
 
-**Danger** is on the status line with the chance of each roll before the next
-card (`GREED 35%`, `RAID 50%`, `HUNGER 20%`), from `punishmentOdds()`, the same
-function the roll uses. None during the tutorial and none on a punishment card,
-after which nothing is rolled. The last turn shares the line when there is room.
+**Danger** is on the status line with the chance of each punishment striking
+before the next card if the hand stays as it is (`GREED 35% RAID 23%
+DESPERATE 8%`). `punishmentOdds()` gives each roll's own chance, the same
+numbers the roll uses; `view::chances()` chains them, since a raid is rolled
+only when Greed missed and Desperate Measures only when both did. None during
+the tutorial and none on a punishment card, after which nothing is rolled. The
+last turn shares the line when there is room.
 
 **The tutorial's words.** Five tutorial lines describe the phone's controls
 (drag from your hand, the middle of the option box, the `Insert` keyword, "this
@@ -221,7 +229,8 @@ shows its own text. Everything else on screen is the card data's.
 
 **The menu** opens only when there is no run: a run in progress opens straight
 onto its card. Headline (`TURN 17`, `FIRST RUN`, `NEW RUN`) over the goal, the
-seven gods with the summoned ones filled, `HOW TO PLAY`, `GIVE UP` during a run
+seven gods (a skull by each summoned, a dash by the rest: a record, not
+controls), `HOW TO PLAY`, `GIVE UP` during a run
 (which asks first; `KEEP PLAYING` goes back to the card), and the primary
 button at the bottom (`CONTINUE`, `BEGIN`, `START`).
 
@@ -235,7 +244,12 @@ then the goal, the tap rule, grey choices and `NO`, the warning line and
 where a small question mark says so.
 
 **Refresh.** A screen change is a full refresh, and so is every twelfth frame,
-so a long run of fast refreshes does not leave ghosts of earlier cards.
+so a long run of fast refreshes does not leave ghosts of earlier cards. A tap
+that changes nothing repaints nothing.
+
+**Threads.** The render task reads the game while it draws, so every change
+from a tap or Back is made under the `RenderLock`, and leaving the app happens
+after it is released.
 
 No credit is shown in the app (Mario, 2026-09-24).
 
@@ -289,7 +303,9 @@ simulator then opens on it. Build and usage are in its header, for example:
 alone at launch (power lost between the remove and the rename) is taken as the
 save. Magic `UHND`, version 1, the size of a `Game`, the profile, one byte of
 flags (a run in progress, the outcome panel showing), the `Game` bytes and the
-random state. A save that fails `valid()` keeps the profile and drops the run.
+random state. A save that fails `valid()` keeps the profile and drops the run,
+and so does one written by a build with a different `Game` (the profile sits
+in front of it, where it always was).
 
 ## Memory
 

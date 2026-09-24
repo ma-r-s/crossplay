@@ -34,8 +34,8 @@ class UnderhandActivity final : public Activity {
  private:
   enum class View : uint8_t { Menu, Play, End, Help, Broken };
 
-  void route(int action, int value);
-  void back();
+  bool route(int action, int value);
+  bool back();
   void newRun();
   void pay(int option, int way);
   void afterChoice();

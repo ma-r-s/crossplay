@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <string>
 
+#include "../ui/ToyboxIcons.h"
 #include "UnderhandIcons.h"
 
 namespace underhandui {
@@ -21,8 +22,8 @@ constexpr int16_t kBarIcon = 32;
 constexpr int16_t kButtonHeight = 60;
 constexpr int16_t kRowHeight = 36;  // a row of tokens, and a chip
 constexpr int16_t kBetween = 12;    // between tokens
-constexpr int16_t kChipPad = 8;
-constexpr int16_t kOrPad = 6;
+constexpr int16_t kChipPad = 6;
+constexpr int16_t kOrPad = 4;
 
 const freeink::Icon* const kIcon24[kResources] = {&icon_uh_relic_24, &icon_uh_money_24,    &icon_uh_cultist_24,
                                                   &icon_uh_food_24,  &icon_uh_prisoner_24, &icon_uh_suspicion_24};
@@ -274,7 +275,7 @@ void status(toybox::Screen& screen, const fui::Rect& area, const CardModel& mode
     };
     add("GREED", odds.greed);
     add("RAID", odds.police);
-    add("HUNGER", odds.desperate);
+    add("DESPERATE", odds.desperate);
     icon(screen, rect(x, midY - kTokenIcon / 2, kTokenIcon, kTokenIcon), icon_uh_alert_24, fui::Color::Black);
     x += kTokenIcon + 6;
     const int width = measure(screen, text);
@@ -315,9 +316,11 @@ void status(toybox::Screen& screen, const fui::Rect& area, const CardModel& mode
 // x the chips end at.
 int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui::Rect& row, const fui::Rect& reach,
           int getWidth) {
+  // Only sensible ways become chips; the rest, and any that do not fit, are
+  // behind MORE.
   const int available = row.width - getWidth - kBetween;
   int widths[kChips] = {};
-  for (int i = 0; i < kChips && i < o.ways; ++i) widths[i] = tokensWidth(screen, o.way[i], '-') + kChipPad * 2;
+  for (int i = 0; i < kChips && i < o.sensible; ++i) widths[i] = tokensWidth(screen, o.way[i], '-') + kChipPad * 2;
   const int more = measure(screen, "MORE") + kChipPad * 2;
   const int orWidth = measure(screen, "OR") + kOrPad * 2;
   auto width = [&](int n) {
@@ -326,7 +329,8 @@ int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui
     if (n < o.ways) w += orWidth + more;
     return w;
   };
-  int shown = o.ways > kChips ? kChips - 1 : o.ways;
+  int shown = o.sensible < kChips ? o.sensible : kChips;
+  if (shown < o.ways && shown == kChips) shown = kChips - 1;
   while (shown > 1 && width(shown) > available) --shown;
   if (width(shown) > available) report("payment chips do not fit beside what the option gives");
 
@@ -390,6 +394,7 @@ void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& mod
     }
     const fui::Rect row = rect(inner.x, bottom(inner) - kRowHeight - noteH, inner.width, kRowHeight);
     prose(screen, rect(inner.x, inner.y, inner.width, row.y - inner.y), o.text, 4);
+    const int textBottom = inner.y + linesFor(screen, o.text, inner.width, 4) * lineHeight(screen);
     if (noteH) note(screen, rect(inner.x, bottom(inner) - noteH, inner.width, noteH), said);
 
     const int midY = row.y + row.height / 2;
@@ -403,10 +408,18 @@ void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& mod
       tokens(screen, row.x, midY, o.give, '-', false);
       continue;
     }
-    // The chips answer over the band from the text to the note.
-    const int reachTop = row.y - 8;
+    // The chips answer over the band from the text to the note: up to 20px
+    // above them, never over the option's own words.
+    const int reachTop = row.y - 20 > textBottom + 2 ? row.y - 20 : textBottom + 2;
     const int reachBottom = noteH ? bottom(row) + 4 : bottom(box);
     const fui::Rect reach = rect(row.x, reachTop, row.width, reachBottom - reachTop);
+    if (o.sensible == 0) {
+      // Every way spends a relic on suspicion, which keeps the suspicion: not
+      // something one stray tap should do. The option opens the list.
+      tokens(screen, row.x, midY, o.way[0], '-', false);
+      screen.frame().hit(box, ActionMore, stamp(model.turn, k));
+      continue;
+    }
     int chipsEnd = row.x;
     if (o.ways > 1) {
       chipsEnd = chips(screen, o, k, model.turn, row, reach, getWidth);
@@ -490,13 +503,11 @@ void foresight(toybox::Screen& screen, const fui::Rect& area, const CardModel& m
     const int textRight = model.mayDiscard ? right(row) - tag - 16 : right(row) - 10;
     prose(screen, rect(row.x + 32, row.y + 4, textRight - row.x - 32, row.height - 8), model.seenTitle[i], 2, true);
     if (!model.mayDiscard) continue;
+    // A state, not a button: the whole row is what a tap flips. Kept cards
+    // say so in plain text; a discard is marked in black.
     const fui::Rect pill = rect(right(row) - tag - 8, row.y + 16, tag, row.height - 32);
-    if (marked) {
-      screen.target().fill(pill, fui::Paint::solid(fui::Color::Black));
-    } else {
-      screen.target().stroke(pill, fui::Paint::solid(fui::Color::Black), 2);
-    }
-    small(screen, pill.inset(fui::Insets{0, 8, 0, 8}), marked ? "DISCARD" : "KEEP", fui::TextAlign::Center,
+    if (marked) screen.target().fill(pill, fui::Paint::solid(fui::Color::Black));
+    small(screen, pill.inset(fui::Insets{0, 8, 0, 8}), marked ? "DISCARD" : "KEPT", fui::TextAlign::Center,
           marked ? fui::Color::White : fui::Color::Black);
     screen.frame().hit(row, ActionSeen, static_cast<int16_t>(i));
   }
@@ -668,18 +679,19 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   std::snprintf(gods, sizeof(gods), "GODS SUMMONED  %d OF %d", summoned, model.gods);
   small(screen, rect(x, y, width, 30), gods, fui::TextAlign::Left);
   y += 36;
+  // A record, not a list of controls: a skull by each god already summoned,
+  // a hairline for each still to come.
   constexpr int kRow = 40;
-  constexpr int kMark = 16;
+  constexpr int kMark = 24;
   for (int g = 0; g < model.gods; ++g) {
     const fui::Rect row = rect(x, y + g * kRow, width, kRow);
     if (bottom(row) > secondary - kGap) report("the gods run into the buttons");
-    const fui::Rect mark = rect(row.x + 2, row.y + (kRow - kMark) / 2, kMark, kMark);
     if (model.summoned[g]) {
-      screen.target().fill(mark, fui::Paint::solid(fui::Color::Black));
+      icon(screen, rect(row.x, row.y + (kRow - kMark) / 2, kMark, kMark), icon_underhand_24, fui::Color::Black);
     } else {
-      screen.target().stroke(mark, fui::Paint::solid(fui::Color::Black), 2);
+      rule(screen, row.x + 4, row.y + kRow / 2, kMark - 8, toybox::kRule);
     }
-    small(screen, rect(row.x + kMark + 14, row.y, row.width - kMark - 14, kRow), model.godName[g],
+    small(screen, rect(row.x + kMark + 12, row.y, row.width - kMark - 12, kRow), model.godName[g],
           fui::TextAlign::Left);
   }
 
@@ -763,10 +775,10 @@ void buildHelp(toybox::Screen& screen, int page) {
         {kIcon32[underhand::Relic], "RELIC", "PAYS IN PLACE OF ANYTHING"},
         {kIcon32[underhand::Money], "MONEY", "BUYS AND BRIBES"},
         {kIcon32[underhand::Cultist], "CULTIST", "ONE OF YOUR FOLLOWERS"},
-        {kIcon32[underhand::Food], "FOOD", "NONE LEFT: HUNGER"},
+        {kIcon32[underhand::Food], "FOOD", "NONE LEFT: DESPERATE MEASURES"},
         {kIcon32[underhand::Prisoner], "PRISONER", "ONE OF THEIRS, HELD CAPTIVE"},
         {kIcon32[underhand::Suspicion], "SUSPICION", "AT 5 OR MORE: A POLICE RAID"},
-        {&icon_uh_alert_32, "16 OR MORE IN ALL", "GREED"},
+        {&icon_uh_alert_32, "GREED", "16 OR MORE HELD IN ALL"},
     };
     constexpr int kEntry = 56;
     for (const Entry& e : entries) {
@@ -780,10 +792,11 @@ void buildHelp(toybox::Screen& screen, int page) {
     y += 10;
     paragraph("A cultist and a prisoner joined by a slash means either will do.", 2);
   } else {
-    paragraph("Summon a god to win. Some cards begin a chain that ends with one.", 3);
-    paragraph("Tap a choice to take it, paid the black way. Tap another chip to pay that way, or MORE for all.", 4);
+    paragraph("Summon a god to win. Some chains of cards end in one.", 2);
+    paragraph("Tap a choice to take it, paid the black way; tap another way to pay that way, or MORE for all.", 3);
     paragraph("A grey choice cannot be taken, and says why. NO means only while you hold none.", 3);
-    paragraph("The warning gives the chance of each punishment. DECK counts the cards left before a reshuffle.", 4);
+    paragraph("The warning is each punishment's chance if your hand stays as it is.", 3);
+    paragraph("LAST is what your last choice paid and gained. DECK counts cards before a reshuffle.", 3);
   }
 
   const int buttons = bottom(body) - kMargin - kButtonHeight;

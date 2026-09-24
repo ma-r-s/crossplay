@@ -57,7 +57,8 @@ static_assert((underhand::kMaxOptions - 1) * kWayStride + kMostWays - 1 <= 0xFF,
 
 struct OptionRow {
   const char* text = "";
-  int ways = 0;  // how many exact payments there are
+  int ways = 0;      // how many exact payments there are
+  int sensible = 0;  // of them, the ones not spending a relic on suspicion; they come first
   view::Tokens way[kChips];
   view::Tokens give;  // the cost as asked, shown when it cannot be paid
   view::Tokens get;

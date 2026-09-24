@@ -28,8 +28,9 @@ constexpr size_t kSaveBytes = 4 + 2 + 2 + sizeof(Profile) + 1 + sizeof(Game) + s
 // Writes `save` into `out`, which holds kSaveBytes.
 void encode(const Save& save, uint8_t* out);
 
-// Reads a save back. A run these cards cannot continue is dropped and the
-// profile kept; false only when nothing in the bytes can be trusted.
+// Reads a save back. A run these cards cannot continue, or one written by a
+// build with a different Game, is dropped and the profile kept; false only
+// when nothing in the bytes can be trusted.
 bool decode(const uint8_t* data, size_t len, const Cards& cards, Save& out);
 
 }  // namespace underhand

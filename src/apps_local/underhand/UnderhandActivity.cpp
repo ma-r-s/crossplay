@@ -55,7 +55,7 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
   m.turn = g.turn;
   m.deck = g.draw.size;
   for (int r = 0; r < uh::kResources; ++r) m.held[r] = g.held[r];
-  m.odds = uh::punishmentOdds(g);
+  m.odds = uh::view::chances(g);
   if (!showOutcome) {
     m.lastPaid = uh::view::tokensOf(g.paid);
     m.lastGained = uh::view::tokensOf(g.gained);
@@ -72,8 +72,14 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     row.state = uh::view::optionState(g, cards, k);
     row.get = uh::view::getTokens(g, k);
     row.give = uh::view::giveTokens(g, cards, k);
-    uh::Counts ways[ui::kChips];
-    row.ways = uh::view::payments(g, cards, k, ways, ui::kChips);
+    uh::Counts ways[ui::kMostWays];
+    row.ways = uh::view::payments(g, cards, k, ways, ui::kMostWays);
+    // Ways that spend a relic on suspicion come last; the rest are sensible.
+    const int suspicionCost = g.cost[k][uh::Suspicion] > 0 ? g.cost[k][uh::Suspicion] : 0;
+    while (row.sensible < row.ways && row.sensible < ui::kMostWays &&
+           ways[row.sensible][uh::Suspicion] >= suspicionCost) {
+      ++row.sensible;
+    }
     for (int i = 0; i < row.ways && i < ui::kChips; ++i) {
       row.way[i] = uh::view::tokensOf(ways[i]);
       // The random part is the same whichever way the rest is paid.
@@ -84,7 +90,9 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     // reach is exactly what the player is saving for.
     char effect[112];
     uh::view::effectLine(g, cards, k, effect, sizeof(effect));
-    if (row.state == uh::view::OptionState::Open) {
+    if (row.state == uh::view::OptionState::Open && row.ways > 0 && row.sensible == 0) {
+      std::snprintf(row.note, sizeof(row.note), "Relic pays, suspicion stays%s%s", effect[0] ? ". " : "", effect);
+    } else if (row.state == uh::view::OptionState::Open) {
       std::snprintf(row.note, sizeof(row.note), "%s", effect);
     } else {
       char why[64];
@@ -221,14 +229,19 @@ void UnderhandActivity::load() {
   }
   HalFile f = Storage.open(kSavePath, O_RDONLY);
   if (!f.isOpen()) return;
+  // Whatever length it is: a save from a build with another Game still
+  // carries the profile, and decode() keeps it.
   uint8_t bytes[uh::kSaveBytes];
   const size_t size = f.size();
-  if (size != uh::kSaveBytes || f.read(bytes, sizeof(bytes)) != static_cast<int>(sizeof(bytes)) ||
-      !uh::decode(bytes, sizeof(bytes), *cards, state)) {
+  const size_t want = size < sizeof(bytes) ? size : sizeof(bytes);
+  const int got = f.read(bytes, want);
+  if (got != static_cast<int>(want) || !uh::decode(bytes, want, *cards, state)) {
     LOG_ERR("UNDERHAND", "Save not readable (%d bytes); starting fresh", static_cast<int>(size));
     state = uh::Save{};
     return;
   }
+  if (size != uh::kSaveBytes)
+    LOG_INF("UNDERHAND", "Save from another build (%d bytes): profile kept", static_cast<int>(size));
   rng = uh::Rng(state.rng);
   LOG_INF("UNDERHAND", "Loaded: %s, turn %d, gods 0x%02x", state.inRun ? "in a run" : "no run", state.game.turn,
           state.profile.summoned);
@@ -300,7 +313,10 @@ void UnderhandActivity::afterChoice() {
   requestUpdate();
 }
 
-void UnderhandActivity::route(int action, int value) {
+// Called with the render lock held: every change here is to state the render
+// task reads. Returns true when the app should be left, which the caller does
+// after letting go of the lock.
+bool UnderhandActivity::route(int action, int value) {
   switch (view) {
     case View::Menu:
       if (confirmGiveUp) {
@@ -310,30 +326,35 @@ void UnderhandActivity::route(int action, int value) {
           confirmGiveUp = false;
           view = View::Play;
           flashNext = true;
+          requestUpdate();
         }
       } else if (action == ui::ActionMain) {
         if (state.inRun) {
           view = View::Play;
           flashNext = true;
+          requestUpdate();
         } else {
           newRun();
         }
       } else if (action == ui::ActionGiveUp) {
         confirmGiveUp = true;
+        flashNext = true;
+        requestUpdate();
       } else if (action == ui::ActionHelp) {
         helpFrom = View::Menu;
         helpPage = 0;
         view = View::Help;
+        flashNext = true;
+        requestUpdate();
       }
-      requestUpdate();
-      return;
+      return false;
     case View::Play:
       // A tap that pays is for the card it was drawn on; one made on an
       // earlier card, while this one was being painted, does nothing.
       if ((action == ui::ActionOption || action == ui::ActionPay || action == ui::ActionMore) &&
           !ui::stampedFor(value, state.game.turn)) {
         LOG_DBG("UNDERHAND", "Tap for an earlier card ignored (turn %d)", state.game.turn);
-        return;
+        return false;
       }
       if (action == ui::ActionOption) {
         pay(ui::payloadOf(value), 0);
@@ -350,6 +371,7 @@ void UnderhandActivity::route(int action, int value) {
         helpFrom = View::Play;
         helpPage = 0;
         view = View::Help;
+        flashNext = true;
         requestUpdate();
       } else if (action == ui::ActionCancel) {
         waysFor = -1;
@@ -371,7 +393,7 @@ void UnderhandActivity::route(int action, int value) {
         save();
         requestUpdate();
       }
-      return;
+      return false;
     case View::End:
       if (action == ui::ActionNewRun) {
         newRun();
@@ -380,56 +402,65 @@ void UnderhandActivity::route(int action, int value) {
         flashNext = true;
         requestUpdate();
       }
-      return;
+      return false;
     case View::Help:
       if (action == ui::ActionCancel) {
         view = helpFrom;
+        flashNext = true;
         requestUpdate();
       } else if (action == ui::ActionHelpPage) {
         helpPage = value;
         requestUpdate();
       }
-      return;
+      return false;
     case View::Broken:
       // Its one button leaves: there is nothing to play.
-      if (action == ui::ActionMenu) shelf::leave(renderer, mappedInput);
-      return;
+      return action == ui::ActionMenu;
   }
+  return false;
 }
 
-void UnderhandActivity::back() {
+// Called with the render lock held, like route(); true means leave the app.
+bool UnderhandActivity::back() {
   if (view == View::Play && waysFor >= 0) {
     waysFor = -1;
   } else if (view == View::Menu && confirmGiveUp) {
     confirmGiveUp = false;
+    flashNext = true;
   } else if (view == View::Help) {
     view = helpFrom;
+    flashNext = true;
   } else if (view == View::Play || view == View::End) {
     view = View::Menu;
     flashNext = true;
   } else {
-    shelf::leave(renderer, mappedInput);
-    return;
+    return true;
   }
   requestUpdate();
+  return false;
 }
 
 void UnderhandActivity::loop() {
+  bool leave = false;
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    back();
-    return;
+    RenderLock lock;
+    leave = back();
+  } else {
+    freeink::ui::InputSnapshot input;
+    int tapX = 0;
+    int tapY = 0;
+    if (mappedInput.wasScreenTapped(tapX, tapY)) {
+      input.touchReleased = true;
+      input.touchX = static_cast<int16_t>(tapX);
+      input.touchY = static_cast<int16_t>(tapY);
+    }
+    if (!input.touchReleased || !interactionsReady) return;
+    // The table and the game both belong to the render task while it draws.
+    RenderLock lock;
+    const freeink::ui::ActionEvent event = interactions.route(input);
+    leave = route(static_cast<int>(event.action), static_cast<int>(event.value));
   }
-  freeink::ui::InputSnapshot input;
-  int tapX = 0;
-  int tapY = 0;
-  if (mappedInput.wasScreenTapped(tapX, tapY)) {
-    input.touchReleased = true;
-    input.touchX = static_cast<int16_t>(tapX);
-    input.touchY = static_cast<int16_t>(tapY);
-  }
-  if (!input.touchReleased || !interactionsReady) return;
-  const freeink::ui::ActionEvent event = interactions.route(input);
-  route(static_cast<int>(event.action), static_cast<int>(event.value));
+  if (leave) shelf::leave(renderer, mappedInput);
 }
 
 // Simulator only (UNDERHAND_AUDIT set): every card through every panel, with a

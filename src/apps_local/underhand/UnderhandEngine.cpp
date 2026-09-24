@@ -486,6 +486,13 @@ bool valid(const Game& game, const Cards& cards) {
       if (id && !cards.card(id)) return false;
     }
   }
+  // What the last choice did, which the screen reads back.
+  if (game.played && !cards.card(game.played)) return false;
+  if (game.playedOption < -1 || game.playedOption >= kMaxOptions) return false;
+  if (game.addedCount > sizeof(game.added) / sizeof(game.added[0])) return false;
+  for (int a = 0; a < game.addedCount; ++a) {
+    if (!cards.card(game.added[a].card)) return false;
+  }
   return true;
 }
 

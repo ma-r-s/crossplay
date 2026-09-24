@@ -390,6 +390,15 @@ const char* reworded(const Card& card, int option, const char* original) {
 
 }  // namespace
 
+Odds chances(const Game& game) {
+  const Odds roll = punishmentOdds(game);
+  Odds strike;
+  strike.greed = roll.greed;
+  strike.police = ((100 - roll.greed) * roll.police + 50) / 100;
+  strike.desperate = ((100 - roll.greed) * (100 - roll.police) * roll.desperate + 5000) / 10000;
+  return strike;
+}
+
 const char* flavorText(const Cards& cards, const Card& card) { return reworded(card, -1, cards.text(card.flavor)); }
 
 const char* optionText(const Cards& cards, const Card& card, int k) {

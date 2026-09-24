@@ -90,6 +90,12 @@ void deckSentence(const Game& game, const Cards& cards, char* out, size_t size);
 // "Ends the run". Empty when it only trades resources.
 void effectLine(const Game& game, const Cards& cards, int k, char* out, size_t size);
 
+// The chance, in percent, of each punishment striking before the next draw
+// if the hand stays as it is. Each is rolled only when the ones before it
+// missed (Greed, then a raid, then hunger), so a certain Greed leaves the
+// other two at nothing. Rounded to the nearest percent.
+Odds chances(const Game& game);
+
 // A card's words as this screen shows them. Five tutorial lines describe the
 // phone's controls (drag from your hand, the middle of the option box, the
 // 'Insert' keyword, "this symbol"); these say the same for a tap and this

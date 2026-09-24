@@ -400,6 +400,14 @@ void punishmentOddsAreWhatIsRolled() {
     o = punishmentOdds(g);
     CHECK(o.greed == 0 && o.police == 0 && o.desperate == 0);
   }
+  // What the screen says: each roll happens only if the ones before missed.
+  g.card = 1;
+  g.held = C(0, 5, 5, 0, 1, 5);  // 16 held, suspicion 5, no food
+  o = view::chances(g);
+  CHECK(o.greed == 35 && o.police == 23 && o.desperate == 8);  // 65% x 35%, 65% x 65% x 20%
+  g.held = C(0, 9, 9, 0, 9, 9);                                // Greed certain
+  o = view::chances(g);
+  CHECK(o.greed == 100 && o.police == 0 && o.desperate == 0);
 }
 
 void punishmentsFollowTheOriginalOdds() {
@@ -892,9 +900,27 @@ void savesRoundTripAndRefuseDamage() {
   shown.game.played = 1;
   encode(shown, bytes);
   CHECK(decode(bytes, sizeof(bytes), *cards, back) && back.showOutcome && back.inRun);
+  // A save from a build whose Game differs keeps the gods and the tutorial.
   encode(s, bytes);
-  // The wrong length, or another app's bytes, are refused outright.
-  CHECK(!decode(bytes, sizeof(bytes) - 1, *cards, back));
+  uint8_t older[kSaveBytes];
+  std::memcpy(older, bytes, sizeof(bytes));
+  older[6] ^= 0x10;  // another sizeof(Game)
+  CHECK(decode(older, sizeof(older), *cards, back));
+  CHECK(!back.inRun && back.profile.summoned == 0b101 && back.profile.previous == 2 && back.profile.tutorialDone);
+  CHECK(decode(older, 8 + sizeof(Profile), *cards, back) && back.profile.summoned == 0b101);
+  // What the last choice added is read back only if it fits and exists.
+  Save spilled = s;
+  spilled.game.addedCount = 200;
+  encode(spilled, older);
+  CHECK(decode(older, sizeof(older), *cards, back) && !back.inRun && back.profile.summoned == 0b101);
+  spilled.game.addedCount = 1;
+  spilled.game.added[0] = Game::Added{77, 1};
+  encode(spilled, older);
+  CHECK(decode(older, sizeof(older), *cards, back) && !back.inRun);
+  // The wrong length keeps the profile and drops the run; another app's
+  // bytes, or too few to hold a profile, are refused outright.
+  CHECK(decode(bytes, sizeof(bytes) - 1, *cards, back) && !back.inRun && back.profile.summoned == 0b101);
+  CHECK(!decode(bytes, 8 + sizeof(Profile) - 1, *cards, back));
   uint8_t other[kSaveBytes];
   std::memcpy(other, bytes, sizeof(bytes));
   other[0] = 'X';
