@@ -28,7 +28,10 @@ uint32_t retryDelaySeconds(const int consecutiveFailures) {
 
 std::string batteryHeader(const int percent) {
   if (percent < 0 || percent > 100) return "";
-  char out[4];
+  // Sized for any int, not for the 0..100 the guard above allows: the width
+  // check reads the format, not the guard, and a buffer that is only right
+  // because of a line above it is one edit from truncating.
+  char out[12];
   std::snprintf(out, sizeof(out), "%d", percent);
   return out;
 }
