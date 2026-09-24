@@ -655,7 +655,7 @@ def battery(live_sender: str = Cookie(default=None)) -> JSONResponse:
         return refused("This browser is not connected to a reader.", 401)
     now = int(time.time())
     points = fridge.battery_log(now)
-    outlook = store.battery_outlook(points)
+    outlook = store.battery_outlook(points, now)
     body = {"now": now, "points": [[t, p] for t, p in points]}
     if "charged_at" in outlook:
         body["chargedAt"] = outlook["charged_at"]

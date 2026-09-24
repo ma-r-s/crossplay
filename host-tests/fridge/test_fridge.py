@@ -346,27 +346,57 @@ def hourly(start_pct, per_day, days, t0=T0):
     return [(t0 + h * H, round(start_pct - per_day * h / 24)) for h in range(days * 24 + 1)]
 
 
+def outlook(points, after=0):
+    """The outlook as the page would get it, `after` seconds past the last reading."""
+    return store.battery_outlook(points, (points[-1][0] if points else T0) + after)
+
+
 steady = hourly(80, 2, 10)
-out = store.battery_outlook(steady)
+out = outlook(steady)
 check("two points a day from 60% is about thirty days", 29 <= out.get("days_left", 0) <= 31, out)
 check("and no charge is claimed when there was none", "charged_at" not in out, out)
+check(
+    "and it counts down while the reader is silent, rather than standing still",
+    22 <= outlook(steady, 7 * D).get("days_left", 0) <= 24,
+    outlook(steady, 7 * D),
+)
+check(
+    "down to nothing once the projection has run out, never below",
+    outlook(steady, 60 * D).get("days_left") == 0,
+    outlook(steady, 60 * D),
+)
 
 charged = hourly(60, 2, 5) + [(T0 + 5 * D + H, 95)] + hourly(94, 1, 4, T0 + 5 * D + 2 * H)
-out = store.battery_outlook(charged)
-check("a jump up is a charge, dated by the reading after it", out.get("charged_at") == T0 + 5 * D + H, out)
+out = outlook(charged)
+check("a jump up is a charge, dated by the reading that showed it", out.get("charged_at") == T0 + 5 * D + H, out)
 check(
     "and the estimate is measured since the charge, not across it",
     85 <= out.get("days_left", 0) <= 95,
     out,
 )
 
+# Days on the cable at 100%, then a real discharge. Fitted from the plateau the
+# battery looks like it barely drains, and the page would promise months.
+plateau = [(T0 + d * D, 100) for d in range(5)] + [(T0 + (5 + d) * D, 100 - 4 * d) for d in range(3)]
+out = store.battery_outlook(plateau, plateau[-1][0])
+check("time held at 100% on the cable is not counted as a slow drain", 21 <= out.get("days_left", 0) <= 24, out)
+
+# A charge seen in small steps -- Check now pressed on the cable -- is still one.
+creep = hourly(60, 2, 4) + [(T0 + 4 * D + i * H, 52 + 2 * i) for i in range(1, 25)]
+check("a charge seen two points at a time still counts", "charged_at" in outlook(creep), outlook(creep))
+
 short = hourly(80, 2, 1)
-check("a day of readings says nothing about how long is left", "days_left" not in store.battery_outlook(short))
+check("a day of readings says nothing about how long is left", "days_left" not in outlook(short))
 flat = [(T0 + h * H, 70) for h in range(24 * 5)]
-check("a battery that is not falling says nothing either", "days_left" not in store.battery_outlook(flat))
+check("a battery that is not falling says nothing either", "days_left" not in outlook(flat))
 wobble = [(T0 + h * H, 70 + (h % 2)) for h in range(24 * 5)]
-check("a one-point wobble is not a charge", "charged_at" not in store.battery_outlook(wobble))
-check("no readings, nothing to say", store.battery_outlook([]) == {})
+check("a one-point wobble is not a charge", "charged_at" not in outlook(wobble))
+# The X4 and PaperMono read voltage and report in tens, so a reading sitting on
+# a boundary flips between two of them.
+tens = [(T0 + d * D, p) for d, p in enumerate([80, 80, 70, 70, 60, 70, 60, 60, 50, 50])]
+check("a ten-point wobble on a voltage board is not a charge", "charged_at" not in outlook(tens), outlook(tens))
+check("no readings, nothing to say", store.battery_outlook([], T0) == {})
+check("a superscript digit is not a reading", store.parse_battery("\u00b2") is None)
 
 # --- the browser is allowed to make the calls the page actually makes -------
 #

@@ -194,10 +194,14 @@ BATTERY_KEEP_S = 30 * 86400
 # The log is appended to and only rewritten once it passes this, so a check-in
 # costs one short append rather than a rewrite of a month of readings.
 BATTERY_LOG_TRIM_BYTES = 64 * 1024
-# A reading this much higher than the one before it was a charge. The gauge
-# reports whole percent and wobbles by one with temperature, so a single step
-# up is noise, not somebody plugging it in.
-BATTERY_CHARGE_STEP = 3
+# A CHARGE is a reading this far above the lowest one since the last charge.
+#
+# Against the running low, not the neighbouring reading: a charge seen in small
+# steps (somebody pressing Check now while it sits on the cable) still adds up
+# to one. And fifteen, not three: the X4 and PaperMono estimate charge from
+# voltage in steps of ten, so a reading that wobbles across a boundary (60, 70,
+# 60) is one step of noise, not somebody plugging it in.
+BATTERY_CHARGE_RISE = 15
 # How much discharge it takes before "about how long is left" is worth saying.
 # Two days of readings and three points of drop: fewer and the slope is the
 # gauge's rounding, not the reader's consumption.
@@ -208,36 +212,50 @@ BATTERY_ESTIMATE_MIN_DROP = 3
 def parse_battery(raw: str) -> int | None:
     """The reader's X-Battery header as a whole percent, or None.
 
-    None for anything that is not a plain 0..100: an absent header is a reader
-    that could not read its gauge, and it must stay absent rather than become a
-    0% that sends somebody to find a charger for a full battery.
+    None for anything that is not a plain ASCII 0..100: an absent header is a
+    reader that could not read its gauge, and it must stay absent rather than
+    become a 0% that sends somebody to find a charger for a full battery.
+    ASCII because str.isdigit() also says yes to superscript digits, which
+    int() then refuses.
     """
     raw = (raw or "").strip()
-    if not raw.isdigit() or len(raw) > 3:
+    if not raw.isascii() or not raw.isdigit() or len(raw) > 3:
         return None
     value = int(raw)
     return value if 0 <= value <= 100 else None
 
 
-def battery_outlook(points: list[tuple[int, int]]) -> dict:
+def battery_outlook(points: list[tuple[int, int]], now: int) -> dict:
     """When the reader was last charged and roughly how long it has left.
 
     `points` are (epoch, percent), oldest first. Returns a dict with
-    `charged_at` (the first reading after the most recent charge) and
+    `charged_at` (the reading at which the most recent charge showed) and
     `days_left`, each present only when the readings can support it. An absent
     key is "cannot tell", which the page says nothing about; a guess would be a
     number somebody plans a trip to the fridge around.
+
+    `days_left` IS COUNTED FROM NOW, not from the last reading. A reader that
+    went quiet at 8% with two days left has less than that a week later, and
+    the figure must not stand still while the reader does. It is 0 when the
+    projection has already run out, which the page says as such.
     """
     out: dict = {}
     if not points:
         return out
-    start = 0
+    start, low = 0, points[0][1]
     for i in range(1, len(points)):
-        if points[i][1] - points[i - 1][1] >= BATTERY_CHARGE_STEP:
-            start = i
+        p = points[i][1]
+        if p - low >= BATTERY_CHARGE_RISE:
+            start, low = i, p
+        else:
+            low = min(low, p)
     if start > 0:
         out["charged_at"] = points[start][0]
     run = points[start:]
+    # From the LAST reading at the top, so a day spent at 100% on the cable is
+    # not averaged in as a battery that does not drain.
+    top = max(p for _, p in run)
+    run = run[max(i for i, (_, p) in enumerate(run) if p == top):]
     span = run[-1][0] - run[0][0]
     drop = run[0][1] - run[-1][1]
     if span < BATTERY_ESTIMATE_MIN_S or drop < BATTERY_ESTIMATE_MIN_DROP:
@@ -254,7 +272,9 @@ def battery_outlook(points: list[tuple[int, int]]) -> dict:
     slope = sum((t - mt) * (p - mp) for t, p in run) / var
     if slope >= 0:
         return out
-    out["days_left"] = round(run[-1][1] / -slope / 86400, 1)
+    last_t, last_p = run[-1]
+    left_s = last_p / -slope - max(0, now - last_t)
+    out["days_left"] = round(max(0.0, left_s) / 86400, 1)
     return out
 
 

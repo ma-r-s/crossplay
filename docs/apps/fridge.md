@@ -860,10 +860,19 @@ gone quiet leaves empty paper at the right: the line ends where the knowledge
 ends.
 
 **Only what the readings can support.** The service works out two things and
-sends each only when it can stand behind it: `chargedAt`, the first reading
-after a rise of three points or more (the gauge wobbles by one), and `daysLeft`,
-a least-squares slope over the discharge since that charge, once it spans two
-days and three points of drop. With fewer, the page says nothing about either.
+sends each only when it can stand behind it:
+
+- `chargedAt`, the reading that stood fifteen points above the lowest since the
+  previous charge. Fifteen because the X4 and PaperMono read voltage and report
+  in tens, so a boundary wobble (60, 70, 60) is noise; against the running low,
+  not the neighbour, so a charge seen two points at a time still adds up.
+- `daysLeft`, a least-squares slope over the discharge from the last reading at
+  the top (a day held at 100% on the cable is not a slow drain), once it spans
+  two days and three points of drop, **counted from now**: a reader that went
+  quiet at 8% with two days left has less than that a week later. 0 means the
+  projection has run out, and the page says it as a projection.
+
+With fewer readings the page says nothing about either.
 
 **Stored beside `state.json`**, as `battery.log`, one line per check-in, trimmed
 to thirty days once it passes 64KB. At the fastest schedule that is 2880 lines,

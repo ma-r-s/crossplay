@@ -47,7 +47,12 @@ int readBatteryPercent() {
 #else
   static const BatteryMonitor battery;
   uint16_t percent = 0;
-  return battery.readPercentageChecked(percent) ? static_cast<int>(percent) : -1;
+  if (!battery.readPercentageChecked(percent)) return -1;
+  // The X4 and PaperMono estimate charge from voltage, and their checked read
+  // answers a failed ADC read with 0 mV mapped to 0% -- and success. A cell at
+  // 0 mV is not powering this read, so that is no reading, not an empty one.
+  if (percent == 0 && battery.readMillivolts() == 0) return -1;
+  return static_cast<int>(percent);
 #endif
 }
 

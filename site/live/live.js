@@ -1413,15 +1413,22 @@ function paintBatteryNow() {
   battAge.textContent = state.batteryAt ? ago(state.batteryAt) : "";
 }
 
-// "About 4 weeks left". Rounded to the unit a person plans in: nobody needs
-// "29 days", and a projection from a gauge that reports whole percent is not
-// worth more digits than that.
-function lastsPhrase(days) {
-  if (days < 1) return "Less than a day left";
-  if (days < 1.5) return "About a day left";
-  if (days < 14) return `About ${Math.round(days)} days left`;
-  if (days < 60) return `About ${Math.round(days / 7)} weeks left`;
-  return `About ${Math.round(days / 30)} months left`;
+// "About 4 weeks left at this rate." Rounded to the unit a person plans in:
+// nobody needs "29 days", and a projection from a gauge that reports whole
+// percent is not worth more digits than that. Past three months it stops
+// counting: a slow month extrapolated is how "About 31 months" gets printed.
+//
+// The service counts it from NOW, so a silent reader's figure falls on its
+// own, and 0 is a projection that has run out -- said as that, not as a fact
+// about the battery nobody has read.
+function outlookSentence(days) {
+  if (days <= 0) return "At this rate it would be empty by now.";
+  if (days < 1) return "Less than a day left at this rate.";
+  if (days < 1.5) return "About a day left at this rate.";
+  if (days < 14) return `About ${Math.round(days)} days left at this rate.`;
+  if (days < 60) return `About ${Math.round(days / 7)} weeks left at this rate.`;
+  if (days < 90) return "About 2 months left at this rate.";
+  return "More than 3 months left at this rate.";
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -1515,7 +1522,7 @@ function drawBattery() {
     bits.push(`Charged ${ago(battData.chargedAt)}.`);
   }
   if (battData && typeof battData.daysLeft === "number") {
-    bits.push(`${lastsPhrase(battData.daysLeft)} at this rate.`);
+    bits.push(outlookSentence(battData.daysLeft));
   }
   battFine.textContent = bits.join(" ");
 }
@@ -1533,13 +1540,13 @@ function demoBattery() {
     for (let d = 29; d >= 0; d--) {
       points.push([last - d * 86400, Math.round(98 - (29 - d) * 2.95)]);
     }
-    return { now, points, daysLeft: 4.1 };
+    return { now, points, daysLeft: 3.9 };
   }
   for (let d = 29; d >= 0; d--) {
     const pct = d >= 13 ? Math.round(78 - (29 - d) * 2.4) : Math.round(100 - (12 - d) * 2.4);
     points.push([last - d * 86400, pct]);
   }
-  return { now, points, chargedAt: last - 12 * 86400, daysLeft: 29.5 };
+  return { now, points, chargedAt: last - 12 * 86400, daysLeft: 29.3 };
 }
 
 // --- the history -----------------------------------------------------------
