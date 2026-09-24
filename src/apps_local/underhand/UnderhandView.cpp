@@ -285,80 +285,31 @@ bool canAdd(const Game& game, const Cards& cards, int k, const Counts& offer, in
   return false;
 }
 
-void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size, bool relics) {
-  Line line(out, size);
+Why whyNot(const Game& game, const Cards& cards, int k) {
+  Why why;
+  auto say = [&](const char* words) { std::snprintf(why.words, sizeof(why.words), "%s", words); };
+  auto symbol = [&](Token::Kind kind, int resource, int amount) {
+    if (why.tokens.count < kResources + 2) {
+      why.tokens.token[why.tokens.count++] = Token{kind, static_cast<uint8_t>(resource), static_cast<int16_t>(amount)};
+    }
+  };
   const Card* card = cards.card(game.card);
-  if (!card || k < 0 || k >= card->optionCount) return;
+  if (!card || k < 0 || k >= card->optionCount) return why;
   if (game.lockedMask & (1 << k)) {
-    line.words("LOCKED: ", "ANOTHER CHOICE IS OPEN");
-    return;
+    say("ONLY WHEN NOTHING ELSE IS OPEN");
+    return why;
   }
-  if (affordable(game, cards, k)) return;
-  const Option& o = card->option[k];
-  const Counts& need = game.cost[k];
-  const Counts& held = game.held;
+  if (affordable(game, cards, k)) return why;
+  // Anything else short shows by itself, the cost beside what the bar holds.
+  // A cost of none is not drawn with the cost, so it is said.
   for (int r = 0; r < kResources; ++r) {
-    if (need[r] == kOnlyIfNone) {
-      line.words("ONLY WITH NO ", kPlural[r]);
-      return;
+    if (game.cost[k][r] == kOnlyIfNone) {
+      say("ONLY WITH NO");
+      symbol(Token::Symbol, r, 0);
+      return why;
     }
   }
-  int total = 0;
-  for (int16_t n : held) total += n;
-  if (o.randomCost > total) {
-    line.add("%sNEED %d %s", o.randomCost, "RESOURCES");
-    return;
-  }
-  // Asked only for suspicion, holding none: there is none to lose.
-  bool onlySuspicion = need[Suspicion] > held[Suspicion] && held[Suspicion] == 0;
-  for (int r = 0; r < kResources && onlySuspicion; ++r) {
-    if (r != Suspicion && need[r] > held[r]) onlySuspicion = false;
-  }
-  if (onlySuspicion && !o.swap) {
-    line.words("", "NO SUSPICION TO LOSE");
-    return;
-  }
-  // What is short before any relic, so it reads against the bar.
-  char list[96];
-  Line shortList(list, sizeof(list));
-  for (int r = 0; r < kResources; ++r) {
-    if (o.swap && r == Prisoner) continue;
-    int want = need[r];
-    int have = held[r];
-    if (o.swap && r == Cultist) {
-      want += need[Prisoner];
-      have += held[Prisoner];
-    }
-    if (want > have) {
-      const int n = want - have;
-      if (o.swap && r == Cultist) {
-        shortList.add(n == 1 ? "%s%d %s OR PRISONER" : "%s%d %s OR PRISONERS", n, resourceName(Cultist, n));
-      } else {
-        shortList.add("%s%d %s", n, resourceName(r, n));
-      }
-    }
-  }
-  line.words("SHORT: ", list);
-  // Relics pay for any of it: say how much they would, so the list is not
-  // read as all of it still wanted.
-  int missing = 0;
-  for (int r = 0; r < kResources; ++r) {
-    if (o.swap && r == Prisoner) continue;
-    int want = need[r] > 0 && need[r] != kOnlyIfNone ? need[r] : 0;
-    int have = held[r];
-    if (o.swap && r == Cultist) {
-      want += need[Prisoner] > 0 && need[Prisoner] != kOnlyIfNone ? need[Prisoner] : 0;
-      have += held[Prisoner];
-    }
-    if (r != Relic && want > have) missing += want - have;
-  }
-  const int spare = held[Relic] - (need[Relic] > 0 ? need[Relic] : 0);
-  if (relics && spare > 0 && missing > 0) {
-    const int cover = spare < missing ? spare : missing;
-    char covered[32];
-    std::snprintf(covered, sizeof(covered), cover == 1 ? " (A RELIC COVERS %d)" : " (RELICS COVER %d)", cover);
-    line.raw(covered);
-  }
+  return why;
 }
 
 Tokens getTokens(const Game& game, int k) {

@@ -9,12 +9,17 @@
 // nothing else on the screen moves.
 //
 // Every option shows the card's own cost, the same each time the card comes
-// back (a punishment's "half of what you hold" shows what that is now). One that can be paid only one way is taken by
-// tapping it. One with a choice of what pays (a cultist or a prisoner, or a relic for the last food) is marked CHOOSE,
-// and a tap opens the paying panel on what every way pays: the player taps the symbols in the bar to put the rest
-// toward the cost, and PAY lights up when they cover it exactly. An option that cannot be taken is dithered, still
-// shows what it asks, gives and does, says why, and takes no tap. Tapping the bar of symbols, or the line above it,
-// opens How to Play.
+// back (a punishment's "half of what you hold" shows what that is now). One
+// that can be paid only one way is taken by tapping it. One with a choice of
+// what pays (a cultist or a prisoner, or a relic for the last food) shows a
+// chip per way after the cost, the first black: a tap on a chip pays that
+// way, anywhere else on the option the black one. When the chips do not fit,
+// it is marked CHOOSE and a tap opens the paying panel on what every way
+// pays: the player taps the symbols in the bar for the rest, and PAY lights
+// up when they cover it exactly. An option that cannot be taken is dithered,
+// shows what it asks, gives and does, and takes no tap; a reason is written
+// only where the cost beside the bar does not show it. Tapping the bar of
+// symbols, or the line above it, opens How to Play.
 
 #include "../ui/ToyboxScreen.h"
 #include "UnderhandView.h"
@@ -38,7 +43,11 @@ enum : fui::ActionId {
   ActionHelp = 11,      // card: the bar of symbols; menu: how to play
   ActionUnpick = 12,    // paying: value is a resource, one of it taken back
   ActionHelpPage = 13,  // how to play: value is the page to show
+  ActionWay = 14,       // card: value stamp(turn, option * kWayStride + way), pay that way at once
 };
+
+constexpr int kWayStride = 16;  // ways per option in an ActionWay payload
+constexpr int kShownWays = 4;   // at most this many ways are offered on the option itself
 
 constexpr int kHelpPages = 2;
 
@@ -58,14 +67,15 @@ struct OptionRow {
   // what pays, or relics would pay for no suspicion lost (guarded).
   bool chooses = false;
   bool guarded = false;
-  int standIn = 0;    // relics the one way to pay puts in place of what the cost names
   view::Tokens give;  // the card's own cost
   view::Tokens get;
-  // What else it does; when it cannot be taken, then why not. shortNote is
-  // only the why, for a closed option whose words need the room.
-  char note[112] = {};
-  char shortNote[112] = {};
+  char note[112] = {};  // what else it does
+  view::Why why;        // when it cannot be taken
   view::OptionState state = view::OptionState::Open;
+  // Several ways to pay, few enough to offer on the option itself: what each
+  // pays that the others do not, in choices() order.
+  int ways = 0;
+  view::Tokens wayPart[kShownWays];
 };
 
 enum class Panel : uint8_t { Options, Outcome, Foresight, Paying };

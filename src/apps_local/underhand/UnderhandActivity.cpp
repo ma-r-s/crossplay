@@ -95,34 +95,38 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int p
     row.state = uh::view::optionState(g, cards, k);
     row.get = uh::view::getTokens(g, k);
     row.give = uh::view::giveTokens(g, cards, k);
-    uh::Counts first{};
-    const int ways = uh::view::choices(g, cards, k, &first, 1);
+    const bool open = row.state == uh::view::OptionState::Open;
+    uh::Counts all[uh::view::kMostPayments];
+    const int ways = open ? uh::view::choices(g, cards, k, all, uh::view::kMostPayments) : 0;
     row.guarded = ways > 0 && uh::view::buysNothing(g, cards, k);
     row.chooses = ways > 1 || row.guarded;
-    // What it does, and when it cannot be taken, why not: a summons out of
-    // reach is exactly what the player is saving for.
-    char effect[112];
-    uh::view::effectLine(g, cards, k, effect, sizeof(effect));
-    if (row.state == uh::view::OptionState::Open && row.guarded) {
+    // What it does; when it cannot be taken, why not: a summons out of reach
+    // is exactly what the player is saving for.
+    uh::view::effectLine(g, cards, k, row.note, sizeof(row.note));
+    if (!open) {
+      row.why = uh::view::whyNot(g, cards, k);
+    } else if (row.guarded) {
       std::snprintf(row.note, sizeof(row.note), "No suspicion: relics buy nothing");
-    } else if (row.state == uh::view::OptionState::Open) {
-      // Paid one way, but not with what the cost shows: the cost row says
-      // how many relics stand in, so a tap holds no surprise.
-      const int asked = g.cost[k][uh::Relic] > 0 ? g.cost[k][uh::Relic] : 0;
-      row.standIn = !row.chooses && ways == 1 && first[uh::Relic] > asked ? first[uh::Relic] - asked : 0;
-      std::snprintf(row.note, sizeof(row.note), "%s", effect);
-    } else {
-      char why[112];
-      uh::view::whyNot(g, cards, k, why, sizeof(why));
-      std::snprintf(row.note, sizeof(row.note), "%s%s%s", effect, effect[0] ? ". " : "", why);
-      // Where the option's words need the room: only why, and without the
-      // relics' share.
-      char bare[112];
-      uh::view::whyNot(g, cards, k, bare, sizeof(bare), false);
-      if (effect[0] || std::strcmp(bare, why) != 0) {
-        std::snprintf(row.shortNote, sizeof(row.shortNote), "%s", bare);
-        capitals(row.shortNote);
+    } else if (ways > 1 && ways <= ui::kShownWays) {
+      // Few enough ways to offer on the option itself: each by what it pays
+      // that the others do not.
+      bool differs[uh::kResources] = {};
+      for (int r = 0; r < uh::kResources; ++r) {
+        for (int i = 1; i < ways; ++i) differs[r] = differs[r] || all[i][r] != all[0][r];
       }
+      row.ways = ways;
+      for (int i = 0; i < ways; ++i) {
+        uh::Counts part{};
+        for (int r = 0; r < uh::kResources; ++r) part[r] = differs[r] ? all[i][r] : 0;
+        row.wayPart[i] = uh::view::tokensOf(part);
+      }
+      // Where every way is one of something, the count only repeats the
+      // cost: the symbol alone.
+      bool single = true;
+      for (int i = 0; i < ways; ++i) {
+        single = single && row.wayPart[i].count == 1 && row.wayPart[i].token[0].amount == 1;
+      }
+      for (int i = 0; i < ways && single; ++i) row.wayPart[i].token[0].kind = uh::view::Token::Symbol;
     }
     capitals(row.note);
   }
@@ -360,7 +364,8 @@ void UnderhandActivity::pay(int option, const uh::Counts& offer) {
   }
   payingFor = -1;
   picked = uh::Counts{};
-  LOG_DBG("UNDERHAND", "Card %d option %d paid; next card %d", g.played, option, g.card);
+  LOG_DBG("UNDERHAND", "Card %d option %d paid %d %d %d %d %d %d; next card %d", g.played, option, offer[0], offer[1],
+          offer[2], offer[3], offer[4], offer[5], g.card);
   afterChoice();
 }
 
@@ -421,12 +426,22 @@ bool UnderhandActivity::route(int action, int value) {
     case View::Play:
       // A tap that pays is for the card it was drawn on; one made on an
       // earlier card, while this one was being painted, does nothing.
-      if ((action == ui::ActionOption || action == ui::ActionPay) && !ui::stampedFor(value, state.game.turn)) {
+      if ((action == ui::ActionOption || action == ui::ActionPay || action == ui::ActionWay) &&
+          !ui::stampedFor(value, state.game.turn)) {
         LOG_DBG("UNDERHAND", "Tap for an earlier card ignored (turn %d)", state.game.turn);
         return false;
       }
       if (action == ui::ActionOption) {
         take(ui::payloadOf(value));
+      } else if (action == ui::ActionWay) {
+        // One of the ways offered on the option itself, paid at once.
+        const int k = ui::payloadOf(value) / ui::kWayStride;
+        const int way = ui::payloadOf(value) % ui::kWayStride;
+        if (payingFor < 0 && uh::view::optionState(state.game, *cards, k) == uh::view::OptionState::Open) {
+          uh::Counts all[uh::view::kMostPayments];
+          const int ways = uh::view::choices(state.game, *cards, k, all, uh::view::kMostPayments);
+          if (way < ways && way < ui::kShownWays) pay(k, all[way]);
+        }
       } else if (action == ui::ActionPay) {
         if (ui::payloadOf(value) == payingFor && uh::exact(state.game, *cards, payingFor, picked)) {
           pay(payingFor, picked);

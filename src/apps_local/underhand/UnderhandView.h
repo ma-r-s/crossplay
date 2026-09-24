@@ -26,6 +26,7 @@ struct Token {
     Count,   // `amount` of `resource`
     Either,  // `amount` cultists or prisoners, in any split
     Random,  // `amount` resources of any kind, chosen at random
+    Symbol,  // the resource alone, no count
   };
   Kind kind = Count;
   uint8_t resource = 0;
@@ -75,11 +76,15 @@ bool buysNothing(const Game& game, const Cards& cards, int k);
 // would still fit inside one of the ways choices() offers.
 bool canAdd(const Game& game, const Cards& cards, int k, const Counts& offer, int resource);
 
-// Why option k cannot be taken, in capitals: "SHORT: 2 CULTISTS, 1 FOOD",
-// "ONLY WITH NO CULTISTS", "LOCKED: ANOTHER CHOICE IS OPEN". Empty when it can.
-// With `relics`, a shortfall that relics would partly cover says how much
-// ("SHORT: 1 MONEY, 1 FOOD (A RELIC COVERS 1)").
-void whyNot(const Game& game, const Cards& cards, int k, char* out, size_t size, bool relics = true);
+// Why option k cannot be taken, when the screen does not already show it:
+// "ONLY WITH NO" and the resource (a cost of none is not drawn), or "ONLY
+// WHEN NOTHING ELSE IS OPEN" (a choice that ends the run). A cost more than
+// the hand holds needs no words: the bar beside it says so. Empty otherwise.
+struct Why {
+  char words[32] = {};
+  Tokens tokens;
+};
+Why whyNot(const Game& game, const Cards& cards, int k);
 
 // Cards added to the deck, alike titles counted together: the six "Reading
 // the Necronomicon" cards are six ids with one name.

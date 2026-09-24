@@ -202,6 +202,20 @@ Counts C(int relic, int money, int cultist, int food, int prisoner, int suspicio
 std::vector<int> pile(const Pile& p) { return std::vector<int>(p.card, p.card + p.size); }
 
 // A game with `id` on the table and nothing else, costs resolved.
+// A Why as text: its words, then each symbol as a count and a letter
+// ("MISSING 1M 1F", "ONLY WITH NO C", "MISSING 1C/P").
+std::string said(const view::Why& why) {
+  std::string out = why.words;
+  const char* const letters = "RMCFPS";
+  for (int i = 0; i < why.tokens.count; ++i) {
+    const view::Token& t = why.tokens.token[i];
+    out += ' ';
+    if (t.kind != view::Token::Symbol) out += std::to_string(t.amount);
+    out += t.kind == view::Token::Either ? std::string("C/P") : std::string(1, letters[t.resource]);
+  }
+  return out;
+}
+
 Game table(const Cards& cards, int id, Counts held, std::vector<int> draw = {}) {
   Game g;
   g.held = held;
@@ -557,6 +571,8 @@ void losingOptionsAreLockedWhileAnotherCanBePaid() {
   const Game can = table(*cards, 1, C(0, 1, 0, 0, 0, 0));
   CHECK(affordable(can, *cards, 0) && !affordable(can, *cards, 1));
   CHECK(can.lockedMask == 0b10 && can.cost[1] == C(840, 840, 840, 840, 840, 840));
+  // The screen draws no cost for it, so it says why it is closed.
+  CHECK(said(view::whyNot(can, *cards, 1)) == "ONLY WHEN NOTHING ELSE IS OPEN");
   const Game cannot = table(*cards, 1, C(0, 0, 0, 0, 0, 0));
   CHECK(!affordable(cannot, *cards, 0) && affordable(cannot, *cards, 1));
   CHECK(cannot.lockedMask == 0);
@@ -960,24 +976,16 @@ void waysToPayAreEveryExactPayment() {
   for (int i = 0; i < n && i < 8; ++i) CHECK(exact(r, *cards, 0, ways[i]));
   // One way only when nothing can stand in.
   CHECK(view::payments(table(*cards, 2, C(0, 1, 0, 1, 0, 0)), *cards, 0, ways, 8) == 1);
-  // None when it cannot be paid, and the reason says what is short.
-  char why[96];
+  // None when it cannot be paid. What is short shows by itself (the cost
+  // beside the bar), so nothing is said; a cost of none is not drawn, so it is.
   const Game poor = table(*cards, 2, C(0, 0, 0, 1, 0, 0));
   CHECK(view::payments(poor, *cards, 0, ways, 8) == 0);
-  view::whyNot(poor, *cards, 0, why, sizeof(why));
-  CHECK(std::strcmp(why, "SHORT: 1 MONEY") == 0);
-  // A relic that would pay for part of it says so.
-  view::whyNot(table(*cards, 2, C(1, 0, 0, 0, 0, 0)), *cards, 0, why, sizeof(why));
-  CHECK(std::strcmp(why, "SHORT: 1 MONEY, 1 FOOD (A RELIC COVERS 1)") == 0);
-  view::whyNot(table(*cards, 2, C(1, 0, 0, 0, 0, 0)), *cards, 0, why, sizeof(why), false);
-  CHECK(std::strcmp(why, "SHORT: 1 MONEY, 1 FOOD") == 0);
+  CHECK(view::optionState(poor, *cards, 0) != view::OptionState::Open && said(view::whyNot(poor, *cards, 0)).empty());
+  CHECK(said(view::whyNot(table(*cards, 2, C(1, 0, 0, 0, 0, 0)), *cards, 0)).empty());
   const Game swapPoor = table(*cards, 1, C(0, 0, 1, 1, 0, 0));
-  view::whyNot(swapPoor, *cards, 0, why, sizeof(why));
-  CHECK(std::strcmp(why, "SHORT: 1 CULTIST OR PRISONER") == 0);
-  view::whyNot(table(*cards, 3, C(0, 0, 2, 1, 0, 0)), *cards, 0, why, sizeof(why));
-  CHECK(std::strcmp(why, "ONLY WITH NO CULTISTS") == 0);
-  view::whyNot(g, *cards, 0, why, sizeof(why));
-  CHECK(why[0] == '\0');
+  CHECK(said(view::whyNot(swapPoor, *cards, 0)).empty());
+  CHECK(said(view::whyNot(table(*cards, 3, C(0, 0, 2, 1, 0, 0)), *cards, 0)) == "ONLY WITH NO C");
+  CHECK(said(view::whyNot(g, *cards, 0)).empty());
   // A relic paying for suspicion keeps the suspicion: those ways come last,
   // even after a way spending more relics on something else.
   const Game calmHand = table(*cards, 4, C(2, 1, 0, 1, 0, 1));
@@ -1008,9 +1016,9 @@ void waysToPayAreEveryExactPayment() {
   // But where Greed stays certain after paying, the relics still buy nothing.
   t = table(*cards, 5, C(3, 9, 9, 3, 0, 0));
   CHECK(punishmentOdds(t).greed == 100 && view::buysNothing(t, *cards, 0));
-  // Without the relics to pay, there is simply no suspicion to lose.
-  view::whyNot(table(*cards, 5, C(0, 1, 0, 1, 0, 0)), *cards, 0, why, sizeof(why));
-  CHECK(std::strcmp(why, "NO SUSPICION TO LOSE") == 0);
+  // Without the relics to pay it is closed, and the bar's 0 says why.
+  CHECK(view::optionState(table(*cards, 5, C(0, 1, 0, 1, 0, 0)), *cards, 0) != view::OptionState::Open);
+  CHECK(said(view::whyNot(table(*cards, 5, C(0, 1, 0, 1, 0, 0)), *cards, 0)).empty());
   // Relics are offered only where the hand needs them: 1 money and 1 food
   // asked, both held, a relic spare: one way, the money and the food...
   CHECK(view::choices(table(*cards, 2, C(1, 1, 0, 2, 0, 0)), *cards, 0, ways, 8) == 1);

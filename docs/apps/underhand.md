@@ -132,13 +132,15 @@ will now report as the one latent disagreement.
 One screen carries a run, and nothing on it moves while a card is played:
 
     +--------------------------------------+
-    | UNDERHAND              (h)14 DECK 10 |  header; all held, cards before a reshuffle
+    | UNDERHAND                    DECK 10 |  header: cards before a reshuffle,
+    |                                (h)14 |  and under it everything held
     | ORGAN HARVEST                        |  the card's name
     | The most important organ is the      |  its text, two lines (three when long)
     | organization                         |
     | +----------------------------------+ |
     | | We need the cash                 | |  an option: its text,
-    | | -1 C/P [CHOOSE]           +2$ +1P| |  what it costs (left), gives (right),
+    | | -1 C/P [#P#] [C]         +2$ +1P | |  what it costs, a chip per way (the black
+    | |                                  | |  one is a tap anywhere), what it gives,
     | | ADDS ...                          | |  and what else it does
     | +----------------------------------+ |
     | | ...                              | |  up to three options
@@ -149,10 +151,11 @@ One screen carries a run, and nothing on it moves while a card is played:
 The panel of options gives its place, and only its place, to three others:
 what a choice did, foresight, and paying.
 
-**The header** counts everything held beside a hand symbol, because Greed
-rolls on that total from 16 (Mario asked to see it coming), and `DECK` counts
-the cards before a reshuffle. While Greed can strike, the count sits in a
-white box on the black band, as the bar's counts turn black.
+**The header** shows, at its right, `DECK` (the cards before a reshuffle)
+and under it everything held beside a hand symbol, because Greed rolls on
+that total from 16 (Mario asked to see it coming, and to have it under the
+deck count rather than beside it). While Greed can strike, the count sits in
+a white box on the black band, as the bar's counts turn black.
 
 **Symbols.** One Lucide symbol per resource (gem, coins, user-round, wheat,
 user-lock, eye), a count before it: `-2` takes, `+2` gives, a cultist and a
@@ -162,16 +165,15 @@ the whole bar in one size: the large symbol, the smaller one when a count has
 two digits, and the small face when even that does not fit. Food and suspicion
 invert while they invite a punishment.
 
-**Taking an option.** Mario's design, after playing the first build on the
-device (2026-09-24): an option shows the card's own cost, the same every time
-the card comes back, never the ways the hand could meet it; one that can be
-paid only one way is paid by a tap; one with a real choice has the player pick
-what pays from the bar. (The punishment cards' "half of what you hold" shows
-what that half is now, so it is the one cost that changes.)
+**Taking an option.** Mario's design, over two rounds of playing it
+(2026-09-24): an option shows the card's own cost, the same every time the
+card comes back, never the ways the hand could meet it; and every option is
+one tap, choice or not. (The punishment cards' "half of what you hold" shows
+what that half is now, so it is the one cost that changes.) Nothing is said
+that the screen already shows: no note that a relic stands in, no list of
+what is missing (the cost beside the bar says it), and no parentheses.
 
-- every option draws its cost as the card states it (`-1 C/P`, `-2 $`). When
-  the one way to pay puts relics in place of what the cost names, it says how
-  many: `-2 $ (1 BY RELIC)`;
+- every option draws its cost as the card states it (`-1 C/P`, `-2 $`);
 - the ways that count are `view::choices()`: every exact payment, less those
   that leave held suspicion unspent (paying a relic in its place is never
   better: suspicion invites a raid and counts toward Greed), less those that
@@ -182,42 +184,53 @@ what that half is now, so it is the one cost that changes.)
   the player picks), since starving invites Desperate Measures. Not where
   nothing is rolled after: the tutorial, a punishment card, a choice that
   wins or loses the run; and not when the choice gives food back;
-- one way: a tap anywhere on the option pays it;
-- more than one (a cultist or a prisoner, a split of them, a relic for the
-  last food): the option carries an outlined `CHOOSE`, and a tap opens the
-  paying panel in the options' place, with what every offered way pays
-  already picked (`view::common()`), so only the real choice takes taps: on
-  "Food for the hungry" the suspicion is in, and the player picks the food
-  or the relic. `PAY FOR` and the option, its `COST`, and `PAYING` with one
-  outlined chip per symbol picked (tapping a chip takes it back), and when a
-  relic may keep the last food, `A RELIC CAN PAY INSTEAD OF YOUR LAST FOOD`.
-  The bar counts what would be left; each symbol that can still go toward
-  the cost is outlined and takes a tap (`view::canAdd()`: one more of it
-  still fits inside one of `choices()`), so no pick is a dead end. The rest
-  are dithered, or black when the hand the payment leaves, with what the
-  choice gives, invites a punishment: picking the last food turns it black.
-  `PAY` is black once the picks are exactly one of those ways and does
-  nothing before that; `BACK`, and the device's Back, return to the options.
-  The status line says `TAP A SYMBOL BELOW TO PAY WITH IT`, then `TAP PAY,
-  OR A CHIP TO TAKE IT BACK`;
+- one way: a tap anywhere on the option pays it, relics and all;
+- two to four ways (a cultist or a prisoner, a split of them, a relic for
+  the last food): after the cost, a chip per way showing what it pays that
+  the others do not (`[prisoner] [cultist]`, `[food] [relic]`, `[1 C 2 P]
+  [2 C 1 P]`; the count is left out where every way is one of something).
+  The first, `suggest()`'s, is filled black, and the rest of the option pays
+  it, so the usual choice is a tap anywhere and the other is a tap on its
+  chip. Chosen from three rendered layouts (the others: the cost's own
+  symbols as the buttons, and chips with the rest of the option opening the
+  panel). Each chip answers over its whole column, from under the option's
+  words to its bottom (or its note), out to halfway to its neighbour, and the
+  last one out to what the option gives: a finger aiming at a white chip
+  that lands high or wide still pays that way. Measured over a million
+  simulated turns, 88% of choices are cultist or prisoner and 12% relic or
+  last food; 91% have two or three ways;
+- more ways than fit, or ways differing in two things at once: an outlined
+  `CHOOSE`, and a tap opens the paying panel in the options' place, with what
+  every offered way pays already picked (`view::common()`). `PAY FOR` and the
+  option, its `COST`, and `PAYING` with one outlined chip per symbol picked
+  (tapping a chip takes it back), and when a relic may keep the last food,
+  `A RELIC CAN PAY INSTEAD OF YOUR LAST FOOD`. The bar counts what would be
+  left; each symbol that can still go toward the cost is outlined and takes a
+  tap (`view::canAdd()`: one more of it still fits inside one of
+  `choices()`), so no pick is a dead end. The rest are dithered, or black
+  when the hand the payment leaves, with what the choice gives, invites a
+  punishment. `PAY` is black once the picks are exactly one of those ways;
+  `BACK`, and the device's Back, return to the options. The status line says
+  `TAP A SYMBOL BELOW TO PAY WITH IT`, then `TAP PAY, OR A CHIP TO TAKE IT
+  BACK`;
 - an option that asks for suspicion when none is held, and does nothing else,
   where paying would not lower Greed's chance either (`view::buysNothing()`:
   Greed counts relics and is rolled on the hand after paying, so a payment
   that brings the total down past Greed's threshold, or lowers its chance, is
   worth something; the check compares the chance before and after), would
   spend relics and change nothing. It says `NO SUSPICION: RELICS BUY NOTHING`
-  and a tap opens the paying panel with that line and nothing picked, even
-  when there is only one way, so it is never paid by accident;
+  and a tap opens the paying panel with that line and nothing picked, so it
+  is never paid by accident;
 - an option that cannot be taken is dithered, still shows what it asks, gives
-  and does (a summons out of reach is what the player is saving for), says why
-  in capitals (`SUMMONS UHL'UHT'C. SHORT: 1 RELIC`, `ONLY WITH NO CULTISTS`,
-  `ENDS THE RUN. LOCKED: ANOTHER CHOICE IS OPEN`, and with a spare relic
-  `SHORT: 1 MONEY, 1 FOOD (A RELIC COVERS 1)`) and takes no tap. When the
-  option's own words need the room, only the why is shown, without the
-  relics' share.
+  and does (a summons out of reach is what the player is saving for), and
+  takes no tap. A reason is written only where the screen cannot show it
+  (`view::whyNot()`): `ONLY WITH NO` and the symbol, since a cost of none is
+  not drawn, and `ONLY WHEN NOTHING ELSE IS OPEN` on a choice that ends the
+  run. What it does gives way when the option's own words need the room.
 
-This replaced the first build's chips joined by `OR` and its `ALL n` list of
-every way, which showed the hand's arithmetic rather than the card.
+This replaced, in turn, the first build's chips joined by `OR` with an
+`ALL n` list (the hand's arithmetic in place of the card's cost), and then
+`CHOOSE` on every choice (a second tap Mario found too costly).
 
 **A tap is for the card it was made on.** Every tap that pays, or opens the
 paying panel, carries the

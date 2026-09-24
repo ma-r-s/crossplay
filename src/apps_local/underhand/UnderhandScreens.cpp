@@ -1,5 +1,6 @@
 #include "UnderhandScreens.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 
@@ -23,6 +24,7 @@ constexpr int16_t kButtonHeight = 60;
 constexpr int16_t kRowHeight = 36;  // a row of tokens, and a chip
 constexpr int16_t kBetween = 12;    // between tokens
 constexpr int16_t kChipPad = 6;
+constexpr int16_t kChipGap = 8;  // between two chips
 constexpr int16_t kOrPad = 4;
 
 const freeink::Icon* const kIcon24[kResources] = {&icon_uh_relic_24, &icon_uh_money_24,    &icon_uh_cultist_24,
@@ -149,11 +151,15 @@ void button(toybox::Screen& screen, const fui::Rect& box, const char* text, fui:
 // width. With draw false it only measures.
 int token(toybox::Screen& screen, int x, int midY, const view::Token& t, char sign, bool draw,
           fui::Color colour = fui::Color::Black) {
-  char number[16];
-  std::snprintf(number, sizeof(number), "%c%d", sign, t.amount);
-  const int w = measure(screen, number);
-  if (draw) small(screen, rect(x, midY - 15, w + 2, 30), number, fui::TextAlign::Left, colour);
-  int at = x + w + 3;
+  // A sign of 0 draws the count alone; a Symbol has no count at all.
+  char number[16] = {};
+  if (t.kind != view::Token::Symbol) {
+    const char signs[2] = {sign, '\0'};
+    std::snprintf(number, sizeof(number), "%s%d", signs, t.amount);
+  }
+  const int w = number[0] ? measure(screen, number) : 0;
+  if (draw && w) small(screen, rect(x, midY - 15, w + 2, 30), number, fui::TextAlign::Left, colour);
+  int at = x + (w ? w + 3 : 0);
   auto symbol = [&](int resource) {
     if (draw) icon(screen, rect(at, midY - kTokenIcon / 2, kTokenIcon, kTokenIcon), *kIcon24[resource], colour);
     at += kTokenIcon;
@@ -165,6 +171,7 @@ int token(toybox::Screen& screen, int x, int midY, const view::Token& t, char si
   };
   switch (t.kind) {
     case view::Token::Count:
+    case view::Token::Symbol:
       symbol(t.resource);
       break;
     case view::Token::Either:
@@ -329,6 +336,56 @@ void status(toybox::Screen& screen, const fui::Rect& area, const CardModel& mode
 
 // ---- the panels ----------------------------------------------------------------
 
+// Several ways to pay, each one tap on the option itself: after the card's
+// cost, a chip per way showing what it pays that the others do not, the
+// first filled black. The rest of the option pays the black one, so every
+// option is one tap. Returns false, drawing nothing, when the chips do not
+// fit: CHOOSE and the paying panel instead.
+bool oneTap(toybox::Screen& screen, const CardModel& model, const OptionRow& o, int k, const fui::Rect& row,
+            const fui::Rect& reach, const fui::Rect& box, int giveWidth, int getWidth) {
+  const int midY = row.y + row.height / 2;
+  const int start = row.x + giveWidth + kBetween;
+  int end = start;
+  for (int i = 0; i < o.ways; ++i) end += tokensWidth(screen, o.wayPart[i], 0) + kChipPad * 2 + (i ? kChipGap : 0);
+  const int gains = right(row) - getWidth - (getWidth ? kBetween : 0);
+  if (end > gains) return false;
+  tokens(screen, row.x, midY, o.give, '-', false);
+
+  auto wayTap = [&](int way) { return stamp(model.turn, k * kWayStride + way); };
+  // A finger is wider than a chip: each answers over the band from the
+  // option's words to its bottom, to halfway to its neighbours, and the last
+  // one out to what the option gives. A miss beside the black chip lands on
+  // the rest of the option, which pays the same way.
+  int x = start;
+  int answered = box.x;
+  for (int i = 0; i < o.ways; ++i) {
+    if (i) x += kChipGap;
+    const int w = tokensWidth(screen, o.wayPart[i], 0) + kChipPad * 2;
+    const fui::Rect chip = rect(x, row.y + 2, w, row.height - 4);
+    const bool first = i == 0;
+    if (first) {
+      screen.target().fill(chip, fui::Paint::solid(fui::Color::Black));
+    } else {
+      screen.target().stroke(chip, fui::Paint::solid(fui::Color::Black), 2);
+    }
+    tokens(screen, x + kChipPad, midY, o.wayPart[i], 0, false, first ? fui::Color::White : fui::Color::Black);
+    const int left = first ? box.x : x - kChipGap / 2;
+    const int rightEdge = i + 1 == o.ways ? (gains > x + w ? gains : x + w) : x + w + kChipGap / 2;
+    screen.frame().hit(rect(left, reach.y, rightEdge - left, reach.height), ActionWay, wayTap(i));
+    answered = rightEdge;
+    x += w;
+  }
+  // The rest of the option: above the band, below it, and past the chips.
+  const int16_t pays = wayTap(0);
+  screen.frame().hit(rect(box.x, box.y, box.width, reach.y - box.y), ActionWay, pays);
+  if (bottom(reach) < bottom(box)) {
+    screen.frame().hit(rect(box.x, bottom(reach), box.width, bottom(box) - bottom(reach)), ActionWay, pays);
+  }
+  if (answered < right(box))
+    screen.frame().hit(rect(answered, reach.y, right(box) - answered, reach.height), ActionWay, pays);
+  return true;
+}
+
 void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& model) {
   // Three to a card, or halves when there are fewer: every option text long
   // enough to need a third line is on a card of one or two.
@@ -345,41 +402,45 @@ void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& mod
       screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 1);
     }
     const fui::Rect inner = box.inset(fui::Insets{4, kPad, 3, kPad});
-    // A closed option's note says what it does and why it is closed; where
-    // that leaves too little room for the option's own words, only why.
-    const char* said = o.note;
-    int noteH = said[0] ? noteLines(screen, said, inner.width) * smallLine(screen) : 0;
-    const int textRoom = inner.height - kRowHeight - noteH;
-    if (o.shortNote[0] && linesFor(screen, o.text, inner.width, 4) * lineHeight(screen) > textRoom) {
-      said = o.shortNote;
-      noteH = noteLines(screen, said, inner.width) * smallLine(screen);
-    }
-    const fui::Rect row = rect(inner.x, bottom(inner) - kRowHeight - noteH, inner.width, kRowHeight);
+    // From the bottom: why it cannot be taken (a closed option), what else
+    // it does, the row of what it takes and gives, and its words above. What
+    // it does gives way first when the words need the room.
+    const int whyH = open || !o.why.words[0] ? 0 : smallLine(screen) + 4;
+    int noteH = o.note[0] ? noteLines(screen, o.note, inner.width) * smallLine(screen) : 0;
+    const int textNeeds = linesFor(screen, o.text, inner.width, 4) * lineHeight(screen);
+    if (!open && noteH && textNeeds > inner.height - kRowHeight - noteH - whyH) noteH = 0;
+    const fui::Rect row = rect(inner.x, bottom(inner) - kRowHeight - noteH - whyH, inner.width, kRowHeight);
     prose(screen, rect(inner.x, inner.y, inner.width, row.y - inner.y), o.text, 4);
-    if (noteH) note(screen, rect(inner.x, bottom(inner) - noteH, inner.width, noteH), said);
+    const int textBottom = inner.y + textNeeds;
+    if (noteH) note(screen, rect(inner.x, bottom(row), inner.width, noteH), o.note);
+    if (whyH) {
+      const fui::Rect line = rect(inner.x, bottom(inner) - whyH + 2, inner.width, whyH - 2);
+      const int words = measure(screen, o.why.words);
+      small(screen, rect(line.x, line.y, words + 2, line.height), o.why.words, fui::TextAlign::Left);
+      if (words + 8 + tokensWidth(screen, o.why.tokens, 0) > line.width) report("why an option is closed does not fit");
+      tokens(screen, line.x + words + 8, line.y + line.height / 2, o.why.tokens, 0, false);
+    }
 
     const int midY = row.y + row.height / 2;
     const int getWidth = tokensWidth(screen, o.get, '+');
     tokens(screen, right(row), midY, o.get, '+', true);
+    const int giveWidth = tokensWidth(screen, o.give, '-');
     if (!open) {
-      // What it would take, for planning; the note says what is missing.
-      if (tokensWidth(screen, o.give, '-') + kBetween + getWidth > row.width) {
-        report("what an option asks runs into what it gives");
-      }
+      if (giveWidth + kBetween + getWidth > row.width) report("what an option asks runs into what it gives");
       tokens(screen, row.x, midY, o.give, '-', false);
       continue;
     }
-    // The card's own cost, then CHOOSE when a tap opens the paying panel.
-    const int giveWidth = tokensWidth(screen, o.give, '-');
+    // A tap answers over the band from the option's words to the note: a
+    // finger aiming at a chip lands in its column even when it lands high.
+    const int reachTop = textBottom + 2 < row.y ? textBottom + 2 : row.y;
+    const int reachBottom = noteH ? bottom(row) + 4 : bottom(box);
+    const fui::Rect reach = rect(box.x, reachTop, box.width, reachBottom - reachTop);
+    const int16_t take = stamp(model.turn, k);
+    if (o.ways > 0 && !o.guarded && oneTap(screen, model, o, k, row, reach, box, giveWidth, getWidth)) continue;
+
+    // The card's own cost, and CHOOSE when a tap opens the paying panel.
     tokens(screen, row.x, midY, o.give, '-', false);
     int used = giveWidth;
-    if (o.standIn > 0) {
-      char relics[24];
-      std::snprintf(relics, sizeof(relics), "(%d BY RELIC)", o.standIn);
-      const int w = measure(screen, relics);
-      small(screen, rect(row.x + giveWidth + 6, row.y, w + 2, row.height), relics, fui::TextAlign::Left);
-      used = giveWidth + 6 + w;
-    }
     if (o.chooses) {
       const int w = measure(screen, "CHOOSE") + kChipPad * 2;
       const fui::Rect tag = rect(row.x + giveWidth + (giveWidth ? kBetween : 0), row.y + 4, w, row.height - 8);
@@ -388,7 +449,7 @@ void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& mod
       used = right(tag) - row.x;
     }
     if (used + kBetween + getWidth > row.width) report("what an option takes runs into what it gives");
-    screen.frame().hit(box, ActionOption, stamp(model.turn, k));
+    screen.frame().hit(box, ActionOption, take);
   }
 }
 
@@ -548,37 +609,43 @@ void resetLayoutProblems() {
 }
 
 void buildCard(toybox::Screen& screen, const CardModel& model) {
-  char deck[24];
-  std::snprintf(deck, sizeof(deck), "DECK %d", model.deck);
-  chrome(screen, deck);
-  // Everything held, which Greed counts from 16, beside what is left to draw.
+  chrome(screen, nullptr);
+  // At the right of the band, what is left to draw, and under it everything
+  // held, which Greed counts from 16.
   {
+    char deck[24];
+    std::snprintf(deck, sizeof(deck), "DECK %d", model.deck);
     int total = 0;
     for (int16_t n : model.held) total += n;
     char held[16];
     std::snprintf(held, sizeof(held), "%d", total);
     const fui::Rect ink = toybox::headerInkRect(screen).inset(fui::Insets{0, kMargin, 0, 0});
+    const int line = ink.height / 2;
     const int deckWidth = measure(screen, deck);
     const int heldWidth = measure(screen, held);
-    const int endX = right(ink) - deckWidth - 12;
-    const int startX = endX - heldWidth - kTokenIcon - 3;
-    const fui::TextStyle titleStyle = style(toybox::kDisplayFont, fui::TextAlign::Left);
     // While Greed can strike, the count turns white on the black band, the
     // way the bar's counts turn black when they invite a punishment.
     const bool greed = model.rolls.greed > 0;
-    const int pad = greed ? 4 : 0;
-    if (ink.x + screen.target().measureText(toybox::kDisplayFont, "UNDERHAND", titleStyle).width + 6 > startX - pad) {
-      report("the held count runs into the title");
+    const int pad = greed ? 3 : 0;
+    const int heldX = right(ink) - pad - heldWidth - 2 - 3 - kTokenIcon;
+    const int widest = std::max(deckWidth + 2, right(ink) - heldX + pad);
+    const fui::TextStyle titleStyle = style(toybox::kDisplayFont, fui::TextAlign::Left);
+    if (ink.x + screen.target().measureText(toybox::kDisplayFont, "UNDERHAND", titleStyle).width + 6 >
+        right(ink) - widest) {
+      report("the deck and held counts run into the title");
     }
-    const int midY = ink.y + ink.height / 2;
+    if (kTokenIcon + pad * 2 > line + 2) report("the held count is taller than its line");
+    small(screen, rect(right(ink) - deckWidth - 2, ink.y, deckWidth + 2, line), deck, fui::TextAlign::Right,
+          fui::Color::White);
+    const int midY = ink.y + line + line / 2;
     const fui::Color color = greed ? fui::Color::Black : fui::Color::White;
     if (greed) {
       screen.target().fill(
-          rect(startX - pad, midY - kTokenIcon / 2 - pad, endX - startX + pad * 2, kTokenIcon + pad * 2),
+          rect(heldX - pad, midY - kTokenIcon / 2 - pad, right(ink) - heldX + pad, kTokenIcon + pad * 2),
           fui::Paint::solid(fui::Color::White));
     }
-    icon(screen, rect(startX, midY - kTokenIcon / 2, kTokenIcon, kTokenIcon), icon_uh_hand_24, color);
-    small(screen, rect(startX + kTokenIcon + 3, ink.y, heldWidth + 2, ink.height), held, fui::TextAlign::Left, color);
+    icon(screen, rect(heldX, midY - kTokenIcon / 2, kTokenIcon, kTokenIcon), icon_uh_hand_24, color);
+    small(screen, rect(heldX + kTokenIcon + 3, ink.y + line, heldWidth + 2, line), held, fui::TextAlign::Left, color);
   }
   const fui::Rect body = screen.body();
   const int x = body.x + kMargin;
@@ -788,7 +855,7 @@ void buildHelp(toybox::Screen& screen, int page) {
   } else {
     paragraph("Summon a god to win. Some chains of cards end in one.", 2);
     paragraph("Tap a choice to take it. Where you CHOOSE what pays, tap the symbols below, then PAY.", 3);
-    paragraph("A grey choice cannot be taken, and says why.", 2);
+    paragraph("A grey choice costs more than you hold, or says why not.", 2);
     paragraph("The warning is each punishment's chance if your hand stays as it is. A black count invites one.", 4);
     paragraph("LAST is what your last choice paid, lost and gained. DECK counts cards before a reshuffle.", 3);
   }
