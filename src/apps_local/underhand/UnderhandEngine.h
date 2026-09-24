@@ -90,6 +90,7 @@ enum class LossReason : uint8_t {
   Choice,   // an option that ends the run
   Stuck,    // no option on the table can be paid
   NoCards,  // both piles are empty
+  GaveUp,   // the player ended it from the menu (the original's Forfeit)
 };
 
 struct Game {
@@ -170,6 +171,10 @@ bool choose(Game& game, const Cards& cards, int k, const Counts& offer, Random& 
 void toggleDiscard(Game& game, int i);
 // Leaves foresight and draws the next card.
 void endForesight(Game& game, const Cards& cards, Random& random);
+
+// Ends the run in progress as the player's own choice, a loss like any
+// other: nothing is summoned, and what was summoned before stays.
+void giveUp(Game& game);
 
 // Records a finished run.
 void finish(Profile& profile, const Game& game);

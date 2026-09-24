@@ -46,6 +46,7 @@ enum : fui::ActionId {
   ActionUnpick = 12,    // paying: value is a resource, one of it taken back
   ActionHelpPage = 13,  // how to play: value is the page to show
   ActionWay = 14,       // card: value stamp(turn, option * kWayStride + way), pay that way at once
+  ActionEndRun = 15,    // menu, asked to give up: end the run
 };
 
 constexpr int kWayStride = 16;  // ways per option in an ActionWay payload

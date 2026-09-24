@@ -169,6 +169,12 @@ void fillEnd(const uh::Cards& cards, const uh::Game& g, const uh::Profile& profi
                   a ? cards.text(a->title) : "?", b ? cards.text(b->title) : "?");
     return;
   }
+  if (g.loss == uh::LossReason::GaveUp) {
+    std::snprintf(m.headline, sizeof(m.headline), "THE CULT DISBANDS");
+    std::snprintf(m.detail[0], sizeof(m.detail[0]), "You gave the run up on turn %d.", g.turn);
+    std::snprintf(m.detail[1], sizeof(m.detail[1]), "The gods you have summoned stay summoned.");
+    return;
+  }
   std::snprintf(m.headline, sizeof(m.headline), "THE CULT FALLS");
   const uh::Card* card = cards.card(g.loss == uh::LossReason::Choice ? g.played : g.card);
   const char* title = card ? cards.text(card->title) : "?";
@@ -380,7 +386,14 @@ bool UnderhandActivity::route(int action, int value) {
   switch (view) {
     case View::Menu:
       if (confirmGiveUp) {
-        if (action == ui::ActionNewRun) newRun();
+        // The run ends where every run ends, on the end screen: a new one is
+        // a separate choice there.
+        if (action == ui::ActionEndRun) {
+          confirmGiveUp = false;
+          LOG_INF("UNDERHAND", "Gave up on turn %d", state.game.turn);
+          uh::giveUp(state.game);
+          afterChoice();
+        }
         // KEEP PLAYING means the card, not the menu it was asked from.
         if (action == ui::ActionCancel) {
           confirmGiveUp = false;

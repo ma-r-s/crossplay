@@ -1099,6 +1099,36 @@ void waysToPayAreEveryExactPayment() {
   }
 }
 
+// Mario found GIVE UP "doesn't work": it started a new run at once, so the
+// old one never visibly ended. Now it ends the run as a loss, like the
+// original's Forfeit, and the end screen says so.
+void givingUpEndsTheRunAsALoss() {
+  auto cards = load(world({{1}, {3}}));
+  if (failures) return;
+  Game g = table(*cards, 1, C(1, 2, 3, 4, 5, 6), {3});
+  Profile profile;
+  profile.summoned = 0b101;
+  giveUp(g);
+  CHECK(g.phase == Phase::Lost && g.loss == LossReason::GaveUp && valid(g, *cards));
+  finish(profile, g);
+  CHECK(profile.summoned == 0b101 && profile.previous == -1);
+  // Only a run in progress can be given up.
+  Game done = g;
+  giveUp(done);
+  CHECK(std::memcmp(&done, &g, sizeof(Game)) == 0);
+  // The app saves the ended run as no run at all, so a relaunch opens on the
+  // menu with the gods kept.
+  Save s;
+  s.profile = profile;
+  s.inRun = false;
+  s.game = g;
+  uint8_t bytes[kSaveBytes];
+  encode(s, bytes);
+  Save back;
+  CHECK(decode(bytes, sizeof(bytes), *cards, back) && !back.inRun && back.profile.summoned == 0b101);
+  CHECK(back.game.phase != Phase::Lost);
+}
+
 void savesRoundTripAndRefuseDamage() {
   auto cards = load(world({{1}, {3}}));
   if (failures) return;
@@ -1571,6 +1601,7 @@ int main() {
   RUN(lastFoodIsWorthARelic);
   RUN(relicsAreNeverSpentUnseen);
   RUN(savesRoundTripAndRefuseDamage);
+  RUN(givingUpEndsTheRunAsALoss);
   RUN(rngIsUniformAndRepeatable);
 
   RUN(theScreenSaysWhatHappened);

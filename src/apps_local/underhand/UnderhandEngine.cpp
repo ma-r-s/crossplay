@@ -447,6 +447,12 @@ void endForesight(Game& game, const Cards& cards, Random& random) {
   advance(game, cards, random);
 }
 
+void giveUp(Game& game) {
+  if (game.phase != Phase::Choosing && game.phase != Phase::Foresight) return;
+  game.phase = Phase::Lost;
+  game.loss = LossReason::GaveUp;
+}
+
 void finish(Profile& profile, const Game& game) {
   profile.previous = -1;
   if (game.phase != Phase::Won || game.god < 0) return;
@@ -474,7 +480,7 @@ bool valid(const Game& game, const Cards& cards) {
       if (game.god < 0 || game.god >= cards.godCount()) return false;
       break;
     case Phase::Lost:
-      if (game.loss == LossReason::None || game.loss > LossReason::NoCards) return false;
+      if (game.loss == LossReason::None || game.loss > LossReason::GaveUp) return false;
       break;
     default:
       return false;

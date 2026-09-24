@@ -300,19 +300,33 @@ shows its own text. Everything else on screen is the card data's.
 | 93 option  | This is denoted by the 'Insert' keyword                       | The option says which card it adds                                      |
 | 99 option  | This symbol means a mix of prisoners and cultists can be used | Here prisoners and cultists pay in any mix                              |
 
+**Runs.** As in the original: a run is one deck, from a fresh hand until a
+god is summoned (a win) or the cult falls or is given up (a loss). The gods
+summoned stay summoned across runs, and each one adds its two unlock cards to
+the next run's deck and, at 3 and 5 gods, new quest openers to every later
+one. There is no choice of gods at the start of a run: the original's code
+has none (its gods screen is a gallery of the ones summoned), which Mario
+asked about on 2026-09-24.
+
 **The menu** opens only when there is no run: a run in progress opens straight
-onto its card. Headline (`TURN 17`, `FIRST RUN`, `NEW RUN`) over the goal, the
-seven gods (a skull by each summoned, a dash by the rest: a record, not
-controls), `HOW TO PLAY`, `GIVE UP` during a run
-(which asks first; `KEEP PLAYING` goes back to the card), and the primary
-button at the bottom (`CONTINUE`, `BEGIN`, `START`).
+onto its card, and Back from it opens the menu. Headline (`TURN 17`, `FIRST
+RUN`, `NEW RUN`) over one line of what a run is (`Summon a god to win a run.
+Gods you summon stay.`), the seven gods (a skull by each summoned, a dash by
+the rest: a record, not controls), `HOW TO PLAY`, `GIVE UP` during a run, and
+the primary button at the bottom (`CONTINUE`, `BEGIN`, `START`).
+
+**Giving up** asks first (`KEEP PLAYING` goes back to the card), then ends
+the run as a loss (`LossReason::GaveUp`, the original's Forfeit) on the end
+screen. It used to start a new run at once, which Mario read as the button
+not working: the old run never visibly ended.
 
 **The end of a run** names the god in capitals (on two lines when it needs
-them) and the two cards the next run's deck adds, or the card that ended it and how long it
-lasted, with `PLAY AGAIN` and `MENU`.
+them) and the two cards the next run's deck adds; or the card that ended it
+and how long it lasted; or, given up, `THE CULT DISBANDS` and that the gods
+summoned stay. Then `PLAY AGAIN` and `MENU`.
 
 **How to play** is two pages: the six symbols, the hand count (Greed at 16)
-and the warning sign, then the goal, taking a choice and `CHOOSE`, grey
+and the warning sign, then what a run is, taking a choice by its chips, grey
 choices, the warning line and its black counts, `LAST` and `DECK`. It opens from the menu and from a tap on the bar or the line above it,
 where a small question mark says so.
 

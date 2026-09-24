@@ -719,10 +719,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     label(screen, rect(x, body.y + 20, width, 70), "GIVE UP?", toybox::kDisplayFont, toybox::kDisplayCut,
           fui::TextAlign::Left);
     char sub[96];
-    std::snprintf(sub, sizeof(sub), "The run on turn %d ends, and a new one begins. It cannot be undone.", model.turn);
+    std::snprintf(sub, sizeof(sub), "The run on turn %d ends. It cannot be undone.", model.turn);
     prose(screen, rect(x, body.y + 100, width, lineHeight(screen) * 3), sub, 3);
     button(screen, rect(x, primary, half, kButtonHeight), "KEEP PLAYING", ActionCancel, true);
-    button(screen, rect(x + half + kGap, primary, half, kButtonHeight), "GIVE UP", ActionNewRun, false);
+    button(screen, rect(x + half + kGap, primary, half, kButtonHeight), "GIVE UP", ActionEndRun, false);
     return;
   }
 
@@ -731,7 +731,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const char* go = "START";
   if (model.inRun) {
     std::snprintf(headline, sizeof(headline), "TURN %d", model.turn);
-    sub = "Summon a god to win.";
+    sub = "Summon a god to win this run.";
     go = "CONTINUE";
   } else if (model.tutorial) {
     std::snprintf(headline, sizeof(headline), "FIRST RUN");
@@ -739,7 +739,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     go = "BEGIN";
   } else {
     std::snprintf(headline, sizeof(headline), "NEW RUN");
-    sub = "Summon a god to win.";
+    sub = "Summon a god to win a run. Gods you summon stay.";
   }
   if (model.saveSetAside) sub = "The last save could not be read, and was kept aside.";
   label(screen, rect(x, body.y + 20, width, 70), headline, toybox::kDisplayFont, toybox::kDisplayCut,
@@ -870,9 +870,9 @@ void buildHelp(toybox::Screen& screen, int page) {
     y += 10;
     paragraph("A cultist and a prisoner joined by a slash means either will do.", 2);
   } else {
-    paragraph("Summon a god to win. Some chains of cards end in one.", 2);
-    paragraph("Tap a choice to take it. Where you CHOOSE what pays, tap the symbols below, then PAY.", 3);
-    paragraph("A grey choice costs more than you hold, or says why not.", 2);
+    paragraph("Summon a god to win a run. It also ends if the cult falls or you give up. Gods you summon stay.", 3);
+    paragraph("Tap a choice to pay its black chip, or tap another chip.", 2);
+    paragraph("A grey choice costs more than you hold.", 2);
     paragraph("The warning is each punishment's chance if your hand stays as it is. A black count invites one.", 4);
     paragraph("LAST is what your last choice paid, lost and gained. DECK counts cards before a reshuffle.", 3);
   }
