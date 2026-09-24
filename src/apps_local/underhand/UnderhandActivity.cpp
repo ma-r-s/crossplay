@@ -22,6 +22,7 @@ namespace {
 constexpr char kSavePath[] = "/.crosspoint/underhand.sav";
 constexpr char kSaveTempPath[] = "/.crosspoint/underhand.sav.tmp";
 constexpr char kSaveBadPath[] = "/.crosspoint/underhand.sav.bad";
+constexpr char kSaveBad2Path[] = "/.crosspoint/underhand.sav.bad2";
 
 namespace uh = underhand;
 namespace ui = underhandui;
@@ -57,7 +58,9 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
   m.turn = g.turn;
   m.deck = g.draw.size;
   for (int r = 0; r < uh::kResources; ++r) m.held[r] = g.held[r];
-  m.odds = uh::view::chances(g);
+  // Under an outcome the next card is already drawn, so its odds would
+  // describe the draw after it: the warning waits for the card.
+  if (!showOutcome) m.odds = uh::view::chances(g);
   m.rolls = uh::punishmentOdds(g);
   if (!showOutcome) {
     m.lastPaid = uh::view::tokensOf(g.paid);
@@ -75,6 +78,15 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int w
     row.state = uh::view::optionState(g, cards, k);
     row.get = uh::view::getTokens(g, k);
     row.give = uh::view::giveTokens(g, cards, k);
+    // "Only with none" is said in the note of an option it closes; the mark
+    // would say it twice.
+    if (row.state != uh::view::OptionState::Open) {
+      int kept = 0;
+      for (int t = 0; t < row.give.count; ++t) {
+        if (row.give.token[t].kind != uh::view::Token::OnlyIfNone) row.give.token[kept++] = row.give.token[t];
+      }
+      row.give.count = static_cast<uint8_t>(kept);
+    }
     uh::Counts ways[ui::kMostWays];
     row.ways = uh::view::payments(g, cards, k, ways, ui::kMostWays);
     // Ways that spend a relic on suspicion come last; the rest are sensible.
@@ -165,7 +177,7 @@ void fillEnd(const uh::Cards& cards, const uh::Game& g, const uh::Profile& profi
                     card && g.playedOption >= 0 ? uh::view::optionText(cards, *card, g.playedOption) : "");
       break;
     case uh::LossReason::Stuck:
-      std::snprintf(m.detail[0], sizeof(m.detail[0]), "Nothing %s asked for could be paid.", title);
+      std::snprintf(m.detail[0], sizeof(m.detail[0]), "Nothing \"%s\" asked for could be paid.", title);
       break;
     default:
       std::snprintf(m.detail[0], sizeof(m.detail[0]), "The deck ran out of cards.");
@@ -233,22 +245,31 @@ void UnderhandActivity::load() {
     LOG_INF("UNDERHAND", "Recovering the save from %s", kSaveTempPath);
     Storage.rename(kSaveTempPath, kSavePath);
   }
-  HalFile f = Storage.open(kSavePath, O_RDONLY);
-  if (!f.isOpen()) return;
+  if (!Storage.exists(kSavePath)) return;
   // Whatever length it is: a save from a build with another Game still
-  // carries the profile, and decode() keeps it.
+  // carries the profile, and decode() keeps it. A card read can fail once
+  // and not twice, so a failed read is tried again before anything is given
+  // up on.
   uint8_t bytes[uh::kSaveBytes];
-  const size_t size = f.size();
-  const size_t want = size < sizeof(bytes) ? size : sizeof(bytes);
-  const int got = f.read(bytes, want);
-  if (got != static_cast<int>(want) || !uh::decode(bytes, want, *cards, state)) {
-    // Kept aside rather than overwritten by the next save: the gods summoned
-    // may still be in it.
-    f.close();
-    LOG_ERR("UNDERHAND", "Save not readable (%d bytes); kept as %s, starting fresh", static_cast<int>(size),
-            kSaveBadPath);
-    Storage.remove(kSaveBadPath);
-    Storage.rename(kSavePath, kSaveBadPath);
+  size_t size = 0;
+  size_t want = 0;
+  auto readSave = [&]() {
+    HalFile f = Storage.open(kSavePath, O_RDONLY);
+    if (!f.isOpen()) return false;
+    size = f.size();
+    want = size < sizeof(bytes) ? size : sizeof(bytes);
+    return f.read(bytes, want) == static_cast<int>(want);
+  };
+  const bool read = readSave() || readSave();
+  if (!read || !uh::decode(bytes, want, *cards, state)) {
+    // Set aside rather than overwritten by the next save, since the gods
+    // summoned may still be in it. The first such file is never replaced;
+    // a later one takes the second name.
+    const char* aside = Storage.exists(kSaveBadPath) ? kSaveBad2Path : kSaveBadPath;
+    LOG_ERR("UNDERHAND", "Save not %s (%d bytes); set aside as %s, starting fresh", read ? "valid" : "readable",
+            static_cast<int>(size), aside);
+    if (Storage.exists(aside)) Storage.remove(aside);
+    Storage.rename(kSavePath, aside);
     state = uh::Save{};
     return;
   }
@@ -514,10 +535,12 @@ void UnderhandActivity::audit() {
   const uh::Counts poor = {0, 0, 0, 0, 0, 0};
   // Two digits in every cell, the widest counts a long run reaches.
   const uh::Counts crowded = {12, 25, 18, 10, 22, 15};
+  // Only relics: every cost paid by them, suspicion included.
+  const uh::Counts relics = {9, 0, 0, 0, 0, 0};
   uh::Rng r(7);
   for (int i = 0; i < cards->count(); ++i) {
     const uh::Card& c = cards->at(i);
-    for (const uh::Counts* held : {&rich, &starving, &poor, &crowded}) {
+    for (const uh::Counts* held : {&rich, &starving, &poor, &crowded, &relics}) {
       uh::Game g;
       g.held = *held;
       g.card = c.id;

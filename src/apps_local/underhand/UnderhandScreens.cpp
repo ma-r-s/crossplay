@@ -313,18 +313,18 @@ void status(toybox::Screen& screen, const fui::Rect& area, const CardModel& mode
 // ---- the panels ----------------------------------------------------------------
 
 // The chips for an option paid several ways, joined by OR: as many as fit
-// beside what it gives, the last becoming MORE when some are left out. The
+// beside what it gives, the last becoming ALL when some are left out. The
 // first, the one a tap on the rest of the option pays, is filled. Returns the
 // x the chips end at.
 int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui::Rect& row, const fui::Rect& reach,
           int getWidth) {
   // Only sensible ways become chips; the rest, and any that do not fit, are
-  // behind MORE.
+  // behind ALL.
   const int available = row.width - getWidth - kBetween;
   int widths[kChips] = {};
   for (int i = 0; i < kChips && i < o.sensible; ++i) widths[i] = tokensWidth(screen, o.way[i], '-') + kChipPad * 2;
-  // MORE says how many it hides, sized for the longest it can be.
-  const int more = measure(screen, "64 MORE") + kChipPad * 2;
+  // ALL says how many ways there are, sized for the most there can be.
+  const int more = measure(screen, "ALL 64") + kChipPad * 2;
   const int orWidth = measure(screen, "OR") + kOrPad * 2;
   auto width = [&](int n) {
     int w = 0;
@@ -354,7 +354,7 @@ int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui
     tokens(screen, x + kChipPad, midY, o.way[i], '-', false, i == 0 ? fui::Color::White : fui::Color::Black);
     // A finger is wider than the chip is tall: the chip answers over the band
     // around it and half of each OR beside it.
-    const int left = i ? x - orWidth / 2 : x;
+    const int left = i ? x - orWidth / 2 : reach.x;
     const int rightEdge = x + widths[i] + (i + 1 < shown || shown < o.ways ? orWidth / 2 : 0);
     screen.frame().hit(rect(left, reach.y, rightEdge - left, reach.height), ActionPay, stamp(turn, k * kWayStride + i));
     x += widths[i];
@@ -364,7 +364,7 @@ int chips(toybox::Screen& screen, const OptionRow& o, int k, int turn, const fui
     const fui::Rect chip = rect(x, row.y, more, row.height);
     screen.target().stroke(chip, fui::Paint::solid(fui::Color::Black), 2);
     char label[24];
-    std::snprintf(label, sizeof(label), "%d MORE", o.ways - shown);
+    std::snprintf(label, sizeof(label), "ALL %d", o.ways);
     small(screen, chip, label, fui::TextAlign::Center);
     screen.frame().hit(rect(x - orWidth / 2, reach.y, more + orWidth / 2, reach.height), ActionMore, stamp(turn, k));
     x += more;
@@ -417,7 +417,7 @@ void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& mod
     // above them, never over the option's own words.
     const int reachTop = row.y - 20 > textBottom + 2 ? row.y - 20 : textBottom + 2;
     const int reachBottom = noteH ? bottom(row) + 4 : bottom(box);
-    const fui::Rect reach = rect(row.x, reachTop, row.width, reachBottom - reachTop);
+    const fui::Rect reach = rect(box.x, reachTop, box.width, reachBottom - reachTop);
     if (o.sensible == 0) {
       // Every way spends a relic on suspicion, which keeps the suspicion: not
       // something one stray tap should do. The option opens the list.
@@ -797,7 +797,7 @@ void buildHelp(toybox::Screen& screen, int page) {
         {kIcon32[underhand::Food], "FOOD", "NONE LEFT: DESPERATE MEASURES"},
         {kIcon32[underhand::Prisoner], "PRISONER", "ONE OF THEIRS, HELD CAPTIVE"},
         {kIcon32[underhand::Suspicion], "SUSPICION", "AT 5 OR MORE: A POLICE RAID"},
-        {&icon_uh_alert_32, "A PUNISHMENT MAY COME", "GREED AT 16+ HELD, SUSPICION TOO"},
+        {&icon_uh_alert_32, "A PUNISHMENT MAY COME", "GREED: 16 OR MORE HELD IN ALL"},
     };
     constexpr int kEntry = 56;
     for (const Entry& e : entries) {
@@ -812,9 +812,9 @@ void buildHelp(toybox::Screen& screen, int page) {
     paragraph("A cultist and a prisoner joined by a slash means either will do.", 2);
   } else {
     paragraph("Summon a god to win. Some chains of cards end in one.", 2);
-    paragraph("Tap a choice to take it, paid the black way; tap another way to pay that way, or MORE for all.", 3);
-    paragraph("A grey choice cannot be taken, and says why. NO means only while you hold none.", 3);
-    paragraph("The warning is each punishment's chance if your hand stays as it is.", 3);
+    paragraph("Tap a choice to take it, paid the black way, or tap another way. ALL shows every way.", 3);
+    paragraph("A grey choice cannot be taken, and says why.", 2);
+    paragraph("The warning is each punishment's chance if your hand stays as it is. A black count invites one.", 4);
     paragraph("LAST is what your last choice paid and gained. DECK counts cards before a reshuffle.", 3);
   }
 

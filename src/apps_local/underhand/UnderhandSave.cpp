@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <type_traits>
 
 namespace underhand {
 
@@ -10,6 +11,8 @@ namespace {
 constexpr uint8_t kMagic[4] = {'U', 'H', 'N', 'D'};
 constexpr uint16_t kVersion = 1;
 constexpr uint16_t kGameBytes = sizeof(Game);
+static_assert(std::is_standard_layout<Game>::value && std::is_standard_layout<Profile>::value,
+              "flags are read back by offsetof");
 
 // The profile as saved, checked against these cards. Its bool is read as a
 // byte: a damaged one copied straight into a bool is neither true nor false.
@@ -65,6 +68,13 @@ bool decode(const uint8_t* data, size_t len, const Cards& cards, Save& out) {
   s.inRun = flags <= 3 && (flags & 1) != 0;
   s.showOutcome = flags <= 3 && (flags & 2) != 0;
   std::memcpy(&s.game, data + at, sizeof(Game));
+  // The Game's own flags, read as bytes for the same reason as the profile's.
+  auto flag = [&](size_t offset) { return data[at + offset] != 0; };
+  s.game.tutorial = flag(offsetof(Game, tutorial));
+  s.game.mayDiscard = flag(offsetof(Game, mayDiscard));
+  s.game.reshuffled = flag(offsetof(Game, reshuffled));
+  s.game.draw.overflowed = flag(offsetof(Game, draw) + offsetof(Pile, overflowed));
+  s.game.discard.overflowed = flag(offsetof(Game, discard) + offsetof(Pile, overflowed));
   at += sizeof(Game);
   std::memcpy(&s.rng, data + at, sizeof(uint64_t));
 

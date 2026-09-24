@@ -900,6 +900,11 @@ void savesRoundTripAndRefuseDamage() {
   shown.game.played = 1;
   encode(shown, bytes);
   CHECK(decode(bytes, sizeof(bytes), *cards, back) && back.showOutcome && back.inRun);
+  // A damaged flag inside the Game reads as set, never as a bool that is
+  // neither true nor false.
+  encode(s, bytes);
+  bytes[8 + sizeof(Profile) + 1 + offsetof(Game, reshuffled)] = 0x5A;
+  CHECK(decode(bytes, sizeof(bytes), *cards, back) && back.inRun && back.game.reshuffled == true);
   // A flags byte no build writes drops the run and keeps the profile.
   encode(s, bytes);
   bytes[8 + sizeof(Profile)] = 0x7F;

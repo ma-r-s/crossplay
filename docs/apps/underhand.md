@@ -165,14 +165,14 @@ invert while they invite a punishment.
   option pays the black one, so the common case is still one tap. The first is
   `suggest()`'s: fewest relics, prisoners before cultists. A relic paying for
   suspicion keeps the suspicion and loses the relic, so those ways come last,
-  are never chips (only in the MORE list, where each is tagged with the
+  are never chips (only in the full list, where each is tagged with the
   suspicion symbol and `STAYS`), and when they are the only ways the option
   says `RELIC PAYS, SUSPICION STAYS` and a tap opens the list rather than
   paying;
 - each chip answers over the band around it and half of each OR beside it,
   because a finger is wider than a 36px chip is tall: up to 20px above it
   (never over the option's own words) and down to the note;
-- when the chips do not all fit, the last one is `n MORE`, which lists every way
+- when the chips do not all fit, the last one is `ALL n`, which lists every way
   a page at a time (`PAY WHICH WAY?`, `NEXT PAGE`, `BACK`). The screen pages by
   the room it has. Up to 64 ways are kept; no option of the real cards has more
   than 56 even from a hand of 9 relics and 25 of everything (a test holds it);
@@ -216,7 +216,9 @@ only when Greed missed and Desperate Measures only when both did. The bar's
 inverted cells follow each roll's own chance: a certain Greed hides a raid from
 the warning line, not from the roll after it. None during
 the tutorial and none on a punishment card, after which nothing is rolled. The
-last turn shares the line when there is room.
+last turn shares the line when there is room. Under an outcome panel the
+warning waits: the next card is already drawn, so the odds would describe the
+draw after it.
 
 **The tutorial's words.** Five tutorial lines describe the phone's controls
 (drag from your hand, the middle of the option box, the `Insert` keyword, "this
@@ -276,12 +278,13 @@ Two instruments, both run from the simulator:
 
 - **The audit.** `UNDERHAND_AUDIT=1` makes the activity render, before its
   first real frame, every card with a full hand, a hand that raises all three
-  dangers, an empty one and one with two digits in every cell of the bar;
+  dangers, an empty one, one with two digits in every cell of the bar and one
+  of nothing but relics;
   every page of every list of ways; every option's
   outcome with every card it can add, a reshuffle and five kinds lost at
   random; the last turn of every option on the status line; foresight over
   every card; every win, every losing option, every stuck card; the menu in
-  its four states; both pages of how to play. About 1,640 screens. The builders report any
+  its four states; both pages of how to play. About 1,760 screens. The builders report any
   label wider than its box, prose needing more lines than its box, tokens
   running into each other, a panel running into its buttons. It logs `AUDIT
 <screen> <id>: <problem>` and then `AUDIT: <n> screens, <m> layout
@@ -313,7 +316,10 @@ random state. A save that fails `valid()` keeps the profile and drops the run,
 and so does one written by a build with a different `Game` (the profile sits
 in front of it, where it always was) or with a flags byte no build writes. A
 file that cannot be read at all is renamed `underhand.sav.bad` rather than
-overwritten, since the gods summoned may still be in it.
+overwritten, since the gods summoned may still be in it; the first such file
+is never replaced (a later one is `underhand.sav.bad2`), and a failed read is
+tried twice before anything is set aside. The `Game`'s own flags are read back
+as bytes, so a damaged one cannot be a bool that is neither true nor false.
 
 ## Memory
 
