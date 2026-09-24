@@ -52,10 +52,18 @@ int payments(const Game& game, const Cards& cards, int k, Counts* out, int max);
 // suggest()'s: those using only the relics the hand needs (where the named
 // resources are held, a relic saves nothing: Greed counts both) and spending
 // all the suspicion they can (keeping it is never better); plus, when those
-// would all leave no food, the first way that keeps one food by paying a
-// relic for it, food being the one resource whose running out is punished.
-// Returns how many there are, writing at most `max`.
+// would all leave no food, the ways that keep one food with the fewest relics
+// paying for it, food being the one resource whose running out is punished
+// (never where nothing is rolled after, and never when the choice gives food
+// back). Returns how many there are, writing at most `max`.
 int choices(const Game& game, const Cards& cards, int k, Counts* out, int max);
+
+// What every one of choices() pays, resource by resource: the paying panel
+// opens with it already picked, so only the real choice takes taps.
+Counts common(const Game& game, const Cards& cards, int k);
+
+// Whether choices() for option k includes a relic paid to keep the last food.
+bool savesLastFood(const Game& game, const Cards& cards, int k);
 
 // Whether option k asks for suspicion that is not held and does nothing else,
 // and paying it would not lower Greed's chance either: relics would pay and

@@ -146,12 +146,17 @@ namespace {
 //     better;
 //   - every one uses the fewest relics any payment needs, since a relic spent
 //     where the named resource is held saves nothing (Greed counts both);
-//   - except that when all of those would leave no food, the first way that
-//     keeps one food by paying a relic in its place is offered as well: food
-//     is the one resource whose running out is punished.
-int keepChoices(const Game& game, int k, const Counts* all, int kept, Counts* out, int max) {
+//   - except that when all of those would leave no food, the ways that keep
+//     one food with the fewest relics in its place are offered as well: food
+//     is the one resource whose running out is punished. Not where nothing is
+//     rolled after (the tutorial, a punishment card, a choice that wins or
+//     loses the run) and not when the choice gives food back.
+// The 64 kept by payments() hold every way of the real cards (at most about
+// 36), so none of the food ways is ever cut off.
+int keepChoices(const Game& game, const Cards& cards, int k, const Counts* all, int kept, Counts* out, int max) {
   const Counts& need = game.cost[k];
   const Counts& held = game.held;
+  const Option& option = cards.card(game.card)->option[k];
   const int asked = need[Suspicion] > 0 ? need[Suspicion] : 0;
   const int spendable = asked < held[Suspicion] ? asked : held[Suspicion];
   int fewest = -1;
@@ -160,25 +165,44 @@ int keepChoices(const Game& game, int k, const Counts* all, int kept, Counts* ou
     if (fewest < 0 || all[i][Relic] < fewest) fewest = all[i][Relic];
   }
   if (fewest < 0) return 0;
-  // Found before anything is overwritten, since `out` may be `all`.
-  bool leavesFood = false;
-  int keepsFood = -1;
-  for (int i = 0; i < kept; ++i) {
-    if (all[i][Suspicion] < spendable) continue;
-    const int left = held[Food] - all[i][Food];
-    if (all[i][Relic] == fewest && left >= 1) leavesFood = true;
-    if (keepsFood < 0 && all[i][Relic] > fewest && left == 1) keepsFood = i;
+  // An empty hand invites Desperate Measures wherever anything is rolled at
+  // all, which is neither in the tutorial nor after a punishment card.
+  const bool rolled = punishmentOdds(game, Counts{}).desperate > 0 && option.win < 0 && !option.lose;
+  auto keepsOne = [&](const Counts& way) { return held[Food] - way[Food] + game.gain[k][Food] == 1; };
+  // The food ways: more relics than the fewest, one food left, and of those
+  // the fewest relics. Only when no fewest-relic way leaves any food.
+  int foodRelics = -1;
+  if (rolled && need[Food] > 0) {
+    bool leavesFood = false;
+    for (int i = 0; i < kept && !leavesFood; ++i) {
+      if (all[i][Suspicion] < spendable || all[i][Relic] != fewest) continue;
+      leavesFood = held[Food] - all[i][Food] + game.gain[k][Food] >= 1;
+    }
+    for (int i = 0; i < kept && !leavesFood; ++i) {
+      if (all[i][Suspicion] < spendable || all[i][Relic] <= fewest || !keepsOne(all[i])) continue;
+      if (foodRelics < 0 || all[i][Relic] < foodRelics) foodRelics = all[i][Relic];
+    }
   }
-  const bool offerFood = need[Food] > 0 && !leavesFood && keepsFood >= 0;
-  const Counts lastFood = offerFood ? all[keepsFood] : Counts{};
+  // The food ways are copied aside before anything is written, since `out`
+  // may be `all`; the pass that writes never gets ahead of what it reads.
+  constexpr int kMostFoodWays = 8;
+  Counts food[kMostFoodWays];
+  int foodWays = 0;
+  if (foodRelics >= 0) {
+    for (int i = 0; i < kept; ++i) {
+      if (all[i][Suspicion] < spendable || all[i][Relic] != foodRelics || !keepsOne(all[i])) continue;
+      if (foodWays < kMostFoodWays) food[foodWays] = all[i];
+      ++foodWays;
+    }
+  }
   int n = 0;
   for (int i = 0; i < kept; ++i) {
     if (all[i][Suspicion] < spendable || all[i][Relic] != fewest) continue;
     if (n < max) out[n] = all[i];
     ++n;
   }
-  if (offerFood) {
-    if (n < max) out[n] = lastFood;
+  for (int i = 0; i < foodWays && i < kMostFoodWays; ++i) {
+    if (n < max) out[n] = food[i];
     ++n;
   }
   return n;
@@ -187,7 +211,7 @@ int keepChoices(const Game& game, int k, const Counts* all, int kept, Counts* ou
 int choicesThrough(const Game& game, const Cards& cards, int k, Counts* out, int max) {
   Counts all[kMostPayments];
   const int found = payments(game, cards, k, all, kMostPayments);
-  return keepChoices(game, k, all, found < kMostPayments ? found : kMostPayments, out, max);
+  return keepChoices(game, cards, k, all, found < kMostPayments ? found : kMostPayments, out, max);
 }
 
 }  // namespace
@@ -197,7 +221,27 @@ int choices(const Game& game, const Cards& cards, int k, Counts* out, int max) {
   // second 64-way array off the stack; a smaller one goes through one.
   if (max < kMostPayments) return choicesThrough(game, cards, k, out, max);
   const int found = payments(game, cards, k, out, max);
-  return keepChoices(game, k, out, found < kMostPayments ? found : kMostPayments, out, max);
+  return keepChoices(game, cards, k, out, found < kMostPayments ? found : kMostPayments, out, max);
+}
+
+Counts common(const Game& game, const Cards& cards, int k) {
+  Counts all[kMostPayments];
+  const int found = choices(game, cards, k, all, kMostPayments);
+  if (found <= 0) return Counts{};
+  Counts least = all[0];
+  for (int i = 1; i < found && i < kMostPayments; ++i) {
+    for (int r = 0; r < kResources; ++r) least[r] = all[i][r] < least[r] ? all[i][r] : least[r];
+  }
+  return least;
+}
+
+bool savesLastFood(const Game& game, const Cards& cards, int k) {
+  Counts all[kMostPayments];
+  const int found = choices(game, cards, k, all, kMostPayments);
+  for (int i = 1; i < found && i < kMostPayments; ++i) {
+    if (all[i][Relic] > all[0][Relic]) return true;
+  }
+  return false;
 }
 
 bool buysNothing(const Game& game, const Cards& cards, int k) {
@@ -213,7 +257,7 @@ bool buysNothing(const Game& game, const Cards& cards, int k) {
     if (!suggest(game, cards, k, pay)) return false;
     Counts after = game.held;
     for (int r = 0; r < kResources; ++r) after[r] = static_cast<int16_t>(after[r] - pay[r]);
-    if (handOdds(after).greed < before) return false;
+    if (punishmentOdds(game, after).greed < before) return false;
   }
   for (int16_t n : game.gain[k]) {
     if (n > 0) return false;

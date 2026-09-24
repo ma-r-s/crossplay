@@ -824,6 +824,108 @@ void savesAreCheckedBeforeTheyAreTrusted() {
   CHECK(!full.overflowed && !full.push(1) && full.overflowed && full.size == Pile::kCapacity);
 }
 
+// Mario's one reason to pay a relic where the named resource is held: it
+// keeps the last food, since starving invites Desperate Measures.
+void lastFoodIsWorthARelic() {
+  CardSpec plain{10};
+  plain.opts[0].cost = {0, 1, 0, 1, 0, 0};
+  CardSpec either{11};
+  either.opts[0].cost = {0, 0, 1, 1, 0, 0};
+  either.opts[0].swap = 1;
+  CardSpec wins{12};
+  wins.opts[0].cost = {0, 1, 0, 1, 0, 0};
+  wins.opts[0].win = "Gamma";
+  CardSpec loses{13};
+  loses.opts[0].cost = {0, 1, 0, 1, 0, 0};
+  loses.opts[0].lose = 1;
+  CardSpec feeds{14};
+  feeds.opts[0].cost = {0, 1, 0, 1, 0, 0};
+  feeds.opts[0].gain = {0, 0, 0, 1, 0, 0};
+  CardSpec twice{15};
+  twice.opts[0].cost = {0, 2, 0, 2, 0, 0};
+  auto cards = load(world({plain, either, wins, loses, feeds, twice}));
+  if (failures) return;
+  Counts ways[8];
+  const Counts empty{};
+
+  // The last food: a relic may pay for it, and the panel opens on the money.
+  Game hungry = table(*cards, 10, C(1, 1, 0, 1, 0, 0));
+  CHECK(view::choices(hungry, *cards, 0, ways, 8) == 2);
+  CHECK(ways[0] == C(0, 1, 0, 1, 0, 0) && ways[1] == C(1, 1, 0, 0, 0, 0));
+  CHECK(view::savesLastFood(hungry, *cards, 0) && view::common(hungry, *cards, 0) == C(0, 1, 0, 0, 0, 0));
+  // Not the last food, or no relic: nothing to choose.
+  CHECK(view::choices(table(*cards, 10, C(1, 1, 0, 2, 0, 0)), *cards, 0, ways, 8) == 1);
+  CHECK(ways[0] == C(0, 1, 0, 1, 0, 0));
+  CHECK(!view::savesLastFood(table(*cards, 10, C(1, 1, 0, 2, 0, 0)), *cards, 0));
+  CHECK(view::choices(table(*cards, 10, C(0, 1, 0, 1, 0, 0)), *cards, 0, ways, 8) == 1);
+  // Short of money with the last food: one relic for the money, or two.
+  CHECK(view::choices(table(*cards, 10, C(2, 0, 0, 1, 0, 0)), *cards, 0, ways, 8) == 2);
+  CHECK(ways[0] == C(1, 0, 0, 1, 0, 0) && ways[1] == C(2, 0, 0, 0, 0, 0));
+  // Two asked and two held: the way keeping one food, not the one keeping two.
+  CHECK(view::choices(table(*cards, 15, C(2, 2, 0, 2, 0, 0)), *cards, 0, ways, 8) == 2);
+  CHECK(ways[0] == C(0, 2, 0, 2, 0, 0) && ways[1] == C(1, 2, 0, 1, 0, 0));
+  CHECK(view::common(table(*cards, 15, C(2, 2, 0, 2, 0, 0)), *cards, 0) == C(0, 2, 0, 1, 0, 0));
+
+  // Either a cultist or a prisoner goes with the relic, as with the food.
+  Game both = table(*cards, 11, C(1, 0, 1, 1, 1, 0));
+  CHECK(view::choices(both, *cards, 0, ways, 8) == 4);
+  CHECK(ways[2][Relic] == 1 && ways[3][Relic] == 1 && ways[2][Food] == 0 && ways[3][Food] == 0);
+  CHECK(ways[2][Cultist] + ways[3][Cultist] == 1 && ways[2][Prisoner] + ways[3][Prisoner] == 1);
+  CHECK(view::canAdd(both, *cards, 0, C(0, 0, 0, 0, 1, 0), Relic) &&
+        view::canAdd(both, *cards, 0, C(0, 0, 1, 0, 0, 0), Relic));
+  CHECK(view::common(both, *cards, 0) == empty);
+
+  // Nowhere nothing is rolled after (a win, a loss, the tutorial), nor when
+  // the choice gives the food back.
+  for (int id : {12, 13, 14}) {
+    CHECK(view::choices(table(*cards, id, C(1, 1, 0, 1, 0, 0)), *cards, 0, ways, 8) == 1);
+    CHECK(ways[0] == C(0, 1, 0, 1, 0, 0));
+  }
+  Game learning = hungry;
+  learning.tutorial = true;
+  CHECK(view::choices(learning, *cards, 0, ways, 8) == 1 && !view::savesLastFood(learning, *cards, 0));
+
+  // Choosing from the bar: only what the option asks for, never more.
+  CHECK(view::canAdd(hungry, *cards, 0, empty, Money) && view::canAdd(hungry, *cards, 0, empty, Food));
+  CHECK(view::canAdd(hungry, *cards, 0, empty, Relic) && !view::canAdd(hungry, *cards, 0, empty, Cultist));
+  CHECK(!view::canAdd(hungry, *cards, 0, C(0, 1, 0, 1, 0, 0), Relic));  // already paid in full
+  CHECK(!view::canAdd(hungry, *cards, 0, C(1, 0, 0, 0, 0, 0), Relic));  // the only relic is taken
+  CHECK(view::canAdd(hungry, *cards, 0, C(1, 0, 0, 0, 0, 0), Money));
+  CHECK(exact(hungry, *cards, 0, C(1, 1, 0, 0, 0, 0)) && !exact(hungry, *cards, 0, C(1, 0, 0, 0, 0, 0)));
+
+  // The hand a payment leaves is what the paying panel warns about.
+  CHECK(punishmentOdds(hungry, C(1, 0, 0, 0, 0, 0)).desperate > 0 && punishmentOdds(hungry).desperate == 0);
+  CHECK(punishmentOdds(learning, C(1, 0, 0, 0, 0, 0)).desperate == 0);
+}
+
+// Every pick the bar allows, from nothing or from what the panel opens on,
+// can still be finished, and PAY lights exactly on the ways offered.
+void walkPicks(const Game& g, const Cards& cards, int k, const Counts* ways, int n) {
+  std::set<Counts> seen;
+  std::vector<Counts> todo = {Counts{}, view::common(g, cards, k)};
+  while (!todo.empty()) {
+    const Counts at = todo.back();
+    todo.pop_back();
+    if (!seen.insert(at).second) continue;
+    bool isWay = false;
+    bool fits = false;
+    for (int i = 0; i < n; ++i) {
+      isWay = isWay || ways[i] == at;
+      bool inside = true;
+      for (int r = 0; r < kResources; ++r) inside = inside && at[r] <= ways[i][r];
+      fits = fits || inside;
+    }
+    CHECK(fits);
+    CHECK(exact(g, cards, k, at) == isWay);
+    for (int r = 0; r < kResources; ++r) {
+      if (!view::canAdd(g, cards, k, at, r)) continue;
+      Counts more = at;
+      ++more[r];
+      todo.push_back(more);
+    }
+  }
+}
+
 void waysToPayAreEveryExactPayment() {
   CardSpec swap{1};
   swap.opts[0].cost = {0, 0, 2, 0, 0, 0};
@@ -913,24 +1015,16 @@ void waysToPayAreEveryExactPayment() {
   // asked, both held, a relic spare: one way, the money and the food...
   CHECK(view::choices(table(*cards, 2, C(1, 1, 0, 2, 0, 0)), *cards, 0, ways, 8) == 1);
   CHECK(ways[0] == C(0, 1, 0, 1, 0, 0));
-  // ...unless that food is the last one: then the relic may pay for it.
-  Game hungry = table(*cards, 2, C(1, 1, 0, 1, 0, 0));
-  CHECK(view::choices(hungry, *cards, 0, ways, 8) == 2);
-  CHECK(ways[0] == C(0, 1, 0, 1, 0, 0) && ways[1] == C(1, 1, 0, 0, 0, 0));
-  // No relic, no choice.
-  CHECK(view::choices(table(*cards, 2, C(0, 1, 0, 1, 0, 0)), *cards, 0, ways, 8) == 1);
+  // Card 2 is the Police Raid's id, a punishment, after which nothing is
+  // rolled: even the last food is not worth a relic there (the food rule is
+  // lastFoodIsWorthARelic's).
+  CHECK(view::choices(table(*cards, 2, C(1, 1, 0, 1, 0, 0)), *cards, 0, ways, 8) == 1);
   // Short of money, the relic pays for it and there is nothing to choose.
   CHECK(view::choices(table(*cards, 2, C(1, 0, 0, 2, 0, 0)), *cards, 0, ways, 8) == 1);
   CHECK(ways[0] == C(1, 0, 0, 1, 0, 0));
 
   // Choosing from the bar: only what the option asks for, never more.
   const Counts empty{};
-  CHECK(view::canAdd(hungry, *cards, 0, empty, Money) && view::canAdd(hungry, *cards, 0, empty, Food));
-  CHECK(view::canAdd(hungry, *cards, 0, empty, Relic) && !view::canAdd(hungry, *cards, 0, empty, Cultist));
-  CHECK(!view::canAdd(hungry, *cards, 0, C(0, 1, 0, 1, 0, 0), Relic));  // already paid in full
-  CHECK(!view::canAdd(hungry, *cards, 0, C(1, 0, 0, 0, 0, 0), Relic));  // the only relic is taken
-  CHECK(view::canAdd(hungry, *cards, 0, C(1, 0, 0, 0, 0, 0), Money));
-  CHECK(exact(hungry, *cards, 0, C(1, 1, 0, 0, 0, 0)) && !exact(hungry, *cards, 0, C(1, 0, 0, 0, 0, 0)));
   // A cultist or a prisoner, either, up to what is held.
   Game people = table(*cards, 1, C(0, 0, 3, 1, 1, 0));
   CHECK(view::canAdd(people, *cards, 0, empty, Prisoner) && view::canAdd(people, *cards, 0, empty, Cultist));
@@ -1139,6 +1233,13 @@ Stats campaign(const Cards& cards, bool explore) {
           Counts all[view::kMostPayments];
           CHECK(view::choices(g, cards, k, all, view::kMostPayments) == n);
           for (int i = 0; i < n && i < 8; ++i) CHECK(all[i] == ways[i]);
+          // Every way uses the fewest relics, but for those keeping the
+          // last food; and every pick the bar allows can be finished.
+          for (int i = 0; i < n && i < view::kMostPayments; ++i) {
+            const int food = g.held[Food] - all[i][Food] + g.gain[k][Food];
+            CHECK(all[i][Relic] == all[0][Relic] || (all[i][Relic] > all[0][Relic] && food == 1));
+          }
+          if (n > 1) walkPicks(g, cards, k, all, std::min(n, view::kMostPayments));
         }
         int best[kMaxOptions];
         int n = 0;
@@ -1389,6 +1490,7 @@ int main() {
   RUN(profileRemembersWins);
   RUN(savesAreCheckedBeforeTheyAreTrusted);
   RUN(waysToPayAreEveryExactPayment);
+  RUN(lastFoodIsWorthARelic);
   RUN(savesRoundTripAndRefuseDamage);
   RUN(rngIsUniformAndRepeatable);
 

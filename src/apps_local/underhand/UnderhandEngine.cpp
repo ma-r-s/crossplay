@@ -326,11 +326,11 @@ void start(Game& game, const Cards& cards, Profile& profile, Random& random) {
   detail::nextCard(game, cards, random);
 }
 
-Odds handOdds(const Counts& held) { return oddsFor(held); }
+Odds punishmentOdds(const Game& game) { return punishmentOdds(game, game.held); }
 
-Odds punishmentOdds(const Game& game) {
+Odds punishmentOdds(const Game& game, const Counts& hand) {
   if (game.tutorial || isPunishment(game.card)) return Odds{};
-  return oddsFor(game.held);
+  return oddsFor(hand);
 }
 
 bool affordable(const Game& game, const Cards& cards, int k) {

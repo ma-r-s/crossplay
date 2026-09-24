@@ -152,6 +152,16 @@ void fillCard(const uh::Cards& cards, const uh::Game& g, bool showOutcome, int p
       m.pickable[r] = uh::view::canAdd(g, cards, payingFor, picked, r);
     }
     m.pickedExactly = uh::exact(g, cards, payingFor, picked);
+    m.savesLastFood = uh::view::savesLastFood(g, cards, payingFor);
+    // The black counts follow the hand this payment would leave, with what
+    // the choice gives back: the food a payment eats shows as a warning.
+    if (!lastCard(cards, g)) {
+      uh::Counts after = g.held;
+      for (int r = 0; r < uh::kResources; ++r) {
+        after[r] = static_cast<int16_t>(after[r] - picked[r] + g.gain[payingFor][r]);
+      }
+      m.rolls = uh::punishmentOdds(g, after);
+    }
   }
 }
 
@@ -327,9 +337,13 @@ void UnderhandActivity::take(int option) {
   if (uh::view::optionState(g, *cards, option) != uh::view::OptionState::Open) return;
   uh::Counts first{};
   const int ways = uh::view::choices(g, *cards, option, &first, 1);
-  if (ways > 1 || (ways == 1 && uh::view::buysNothing(g, *cards, option))) {
+  const bool guarded = ways == 1 && uh::view::buysNothing(g, *cards, option);
+  if (ways > 1 || guarded) {
     payingFor = option;
-    picked = uh::Counts{};
+    // What every way pays is picked already, so only the real choice takes
+    // taps; nothing is when relics would buy nothing, so paying stays a
+    // deliberate act.
+    picked = guarded ? uh::Counts{} : uh::view::common(g, *cards, option);
     LOG_DBG("UNDERHAND", "Card %d option %d: choosing from %d ways", g.card, option, ways);
     requestUpdate();
     return;
@@ -581,19 +595,22 @@ void UnderhandActivity::audit() {
       fillCard(*cards, g, false, -1, uh::Counts{}, m);
       draw([&](toybox::Screen& s) { ui::buildCard(s, m); });
       check("card", c.id);
-      // The paying panel of every option that asks for a choice, with
-      // nothing picked and with a whole payment picked.
+      // The paying panel of every option that asks for a choice: with
+      // nothing picked, with what it opens on, and with each way it offers.
       for (int k = 0; k < c.optionCount; ++k) {
         if (uh::view::optionState(g, *cards, k) != uh::view::OptionState::Open) continue;
-        uh::Counts first{};
-        const int ways = uh::view::choices(g, *cards, k, &first, 1);
-        if (ways < 2 && !(ways == 1 && uh::view::buysNothing(g, *cards, k))) continue;
-        for (const uh::Counts& offer : {uh::Counts{}, first}) {
+        uh::Counts ways[uh::view::kMostPayments];
+        const int found = uh::view::choices(g, *cards, k, ways, uh::view::kMostPayments);
+        if (found < 2 && !(found == 1 && uh::view::buysNothing(g, *cards, k))) continue;
+        auto panel = [&](const uh::Counts& offer) {
           ui::CardModel& w = freshCard();
           fillCard(*cards, g, false, k, offer, w);
           draw([&](toybox::Screen& s) { ui::buildCard(s, w); });
           check("paying on card", c.id);
-        }
+        };
+        panel(uh::Counts{});
+        panel(uh::view::common(g, *cards, k));
+        for (int i = 0; i < found && i < uh::view::kMostPayments; ++i) panel(ways[i]);
       }
     }
     // The last turn along the status line, for every option this card has.

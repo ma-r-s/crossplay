@@ -212,7 +212,7 @@ void chrome(toybox::Screen& screen, const char* rightLabel) {
 // smaller one, or the small face when two digits need it. Food and suspicion
 // invert while they invite a punishment. While paying, the counts are what
 // will be left, each symbol that can go toward the cost is a tap target, and
-// the rest are greyed.
+// the rest are greyed, or black when what the payment leaves invites one.
 void bar(toybox::Screen& screen, const fui::Rect& area, const CardModel& model) {
   const bool paying = model.panel == Panel::Paying;
   rule(screen, area.x, area.y, area.width, toybox::kRule);
@@ -237,19 +237,23 @@ void bar(toybox::Screen& screen, const fui::Rect& area, const CardModel& model) 
     const fui::Rect box = rect(area.x + r * cell, area.y + toybox::kRule + 3, cell, area.height - toybox::kRule - 3);
     // By each roll's own chance: a certain Greed hides the others from the
     // warning line, not from the roll after it.
-    const bool alarm = !paying && ((r == underhand::Food && model.rolls.desperate > 0) ||
-                                   (r == underhand::Suspicion && model.rolls.police > 0));
+    // A symbol that can still be picked keeps its outline: picking it is
+    // what lowers the count.
+    const bool pickable = paying && model.pickable[r];
+    const bool alarm = !pickable && ((r == underhand::Food && model.rolls.desperate > 0) ||
+                                     (r == underhand::Suspicion && model.rolls.police > 0));
     const fui::Color ink = alarm ? fui::Color::White : fui::Color::Black;
-    if (alarm) screen.target().fill(box.inset(fui::Insets{0, 1, 0, 1}), fui::Paint::solid(fui::Color::Black));
-    if (paying) {
-      const fui::Rect cellBox = box.inset(fui::Insets{0, 1, 0, 1});
-      if (model.pickable[r]) {
-        screen.target().stroke(cellBox, fui::Paint::solid(fui::Color::Black), 2);
-        screen.frame().hit(rect(box.x, area.y - 6, box.width, bottom(area) - area.y + 6), ActionPick,
-                           static_cast<int16_t>(r));
-      } else {
-        screen.target().fill(cellBox, fui::Paint::dither(fui::Color::LightGray));
-      }
+    const fui::Rect cellBox = box.inset(fui::Insets{0, 1, 0, 1});
+    if (alarm) {
+      screen.target().fill(cellBox, fui::Paint::solid(fui::Color::Black));
+    } else if (pickable) {
+      screen.target().stroke(cellBox, fui::Paint::solid(fui::Color::Black), 2);
+    } else if (paying) {
+      screen.target().fill(cellBox, fui::Paint::dither(fui::Color::LightGray));
+    }
+    if (pickable) {
+      screen.frame().hit(rect(box.x, area.y - 6, box.width, bottom(area) - area.y + 6), ActionPick,
+                         static_cast<int16_t>(r));
     }
     const int numberWidth = big ? screen.target().measureText(toybox::kDisplayFont, count[r], numberStyle).width
                                 : measure(screen, count[r]);
@@ -271,7 +275,9 @@ void bar(toybox::Screen& screen, const fui::Rect& area, const CardModel& model) 
 void status(toybox::Screen& screen, const fui::Rect& area, const CardModel& model) {
   const int midY = area.y + area.height / 2;
   if (model.panel == Panel::Paying) {
-    small(screen, area, "TAP A SYMBOL BELOW TO PAY WITH IT", fui::TextAlign::Left);
+    small(screen, area,
+          model.pickedExactly ? "TAP PAY, OR A CHIP TO TAKE IT BACK" : "TAP A SYMBOL BELOW TO PAY WITH IT",
+          fui::TextAlign::Left);
     return;
   }
   int end = right(area) - kTokenIcon - 10;
@@ -507,8 +513,10 @@ void paying(toybox::Screen& screen, const fui::Rect& area, const CardModel& mode
   }
   if (!any) small(screen, rect(x, y, right(inner) - x, kRowHeight), "NOTHING YET", fui::TextAlign::Left);
   y += kRowHeight + 10;
-  if (o.guarded) {
-    const char* why = "YOU HOLD NO SUSPICION: RELICS WOULD BUY NOTHING";
+  const char* why = o.guarded             ? "YOU HOLD NO SUSPICION: RELICS WOULD BUY NOTHING"
+                    : model.savesLastFood ? "A RELIC CAN PAY INSTEAD OF YOUR LAST FOOD"
+                                          : nullptr;
+  if (why) {
     const int height = noteLines(screen, why, inner.width) * smallLine(screen);
     note(screen, rect(inner.x, y, inner.width, height), why);
     y += height + 8;
@@ -555,13 +563,22 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
     const int endX = right(ink) - deckWidth - 12;
     const int startX = endX - heldWidth - kTokenIcon - 3;
     const fui::TextStyle titleStyle = style(toybox::kDisplayFont, fui::TextAlign::Left);
-    if (ink.x + screen.target().measureText(toybox::kDisplayFont, "UNDERHAND", titleStyle).width + 6 > startX) {
+    // While Greed can strike, the count turns white on the black band, the
+    // way the bar's counts turn black when they invite a punishment.
+    const bool greed = model.rolls.greed > 0;
+    const int pad = greed ? 4 : 0;
+    if (ink.x + screen.target().measureText(toybox::kDisplayFont, "UNDERHAND", titleStyle).width + 6 > startX - pad) {
       report("the held count runs into the title");
     }
     const int midY = ink.y + ink.height / 2;
-    icon(screen, rect(startX, midY - kTokenIcon / 2, kTokenIcon, kTokenIcon), icon_uh_hand_24, fui::Color::White);
-    small(screen, rect(startX + kTokenIcon + 3, ink.y, heldWidth + 2, ink.height), held, fui::TextAlign::Left,
-          fui::Color::White);
+    const fui::Color color = greed ? fui::Color::Black : fui::Color::White;
+    if (greed) {
+      screen.target().fill(
+          rect(startX - pad, midY - kTokenIcon / 2 - pad, endX - startX + pad * 2, kTokenIcon + pad * 2),
+          fui::Paint::solid(fui::Color::White));
+    }
+    icon(screen, rect(startX, midY - kTokenIcon / 2, kTokenIcon, kTokenIcon), icon_uh_hand_24, color);
+    small(screen, rect(startX + kTokenIcon + 3, ink.y, heldWidth + 2, ink.height), held, fui::TextAlign::Left, color);
   }
   const fui::Rect body = screen.body();
   const int x = body.x + kMargin;

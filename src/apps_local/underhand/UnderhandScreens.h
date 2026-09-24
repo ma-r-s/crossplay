@@ -9,13 +9,12 @@
 // nothing else on the screen moves.
 //
 // Every option shows the card's own cost, the same each time the card comes
-// back. One that can be paid only one way is taken by tapping it. One with a
-// choice of what pays (a cultist or a prisoner, or a relic for the last food)
-// is marked CHOOSE, and a tap opens the paying panel: the player taps the
-// symbols in the bar to put them toward the cost, and PAY lights up when they
-// cover it exactly. An option that cannot be taken is dithered, still shows
-// what it asks, gives and does, says why, and takes no tap. Tapping the bar of
-// symbols, or the line above it, opens How to Play.
+// back (a punishment's "half of what you hold" shows what that is now). One that can be paid only one way is taken by
+// tapping it. One with a choice of what pays (a cultist or a prisoner, or a relic for the last food) is marked CHOOSE,
+// and a tap opens the paying panel on what every way pays: the player taps the symbols in the bar to put the rest
+// toward the cost, and PAY lights up when they cover it exactly. An option that cannot be taken is dithered, still
+// shows what it asks, gives and does, says why, and takes no tap. Tapping the bar of symbols, or the line above it,
+// opens How to Play.
 
 #include "../ui/ToyboxScreen.h"
 #include "UnderhandView.h"
@@ -105,6 +104,7 @@ struct CardModel {
   int16_t picked[underhand::kResources] = {};
   bool pickable[underhand::kResources] = {};
   bool pickedExactly = false;
+  bool savesLastFood = false;  // one of the ways pays a relic to keep the last food
 };
 
 struct MenuModel {
