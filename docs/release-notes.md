@@ -21,6 +21,12 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.19
+
+- Size the battery header's buffer for any int, which is what the width check reads
+- Battery days-left counts down from now, and a charge is not a wobble
+- The reader's battery on the website, and thirty days of it behind a tap
+
 ### 1.13.18
 
 - Live: the board fits a phone, the history is shared, and a schedule can be a time of day
