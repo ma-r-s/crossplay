@@ -119,6 +119,37 @@ void cellCentre(const Layout& layout, int cell, int16_t& cx, int16_t& cy);
 bool cellAt(const Layout& layout, int x, int y, int& cell);
 int16_t stoneRadius(const Layout& layout);
 
+// One edge of the band drawn OUTSIDE the board to say whose border it is.
+// `from` and `to` lie on the hexagon edge; `outFrom` and `outTo` are the band's
+// outer corners, MITRED with the strips on either side, so the band is one
+// shape round the board and not a run of bars with a notch at every joint.
+// Exported so host-tests/ui can hold it to exactly that: every outer corner is
+// shared with the next strip, all the way round.
+struct BorderStrip {
+  fui::Point from;
+  fui::Point to;
+  fui::Point outFrom;
+  fui::Point outTo;
+  uint8_t owner;
+};
+// An 11x11 rhombus has 86 border edges: eleven cells a side, two edges each,
+// less the two corner edges both sides share. host-tests/ui counts them.
+constexpr int kMaxBorderStrips = 96;
+int borderStrips(const Layout& layout, BorderStrip out[kMaxBorderStrips]);
+
+// Where a seat card's stone and two lines go: centred as ONE group in the card,
+// both ways, from the measured widths of the words. Exported so the drawing
+// and host-tests/ui ask the same function.
+constexpr int16_t kCardStoneRadius = 17;
+struct SeatCardLayout {
+  int16_t stoneX = 0;
+  int16_t stoneY = 0;
+  fui::Rect name{};
+  fui::Rect edges{};
+};
+SeatCardLayout seatCardLayout(const fui::DrawTarget& target, const fui::Rect& box, const char* who,
+                              const char* edgesText);
+
 // The four controls the rhombus's two notches hold: a seat card in each on the
 // board screen, and on the result screen your card plus the two doors.
 //

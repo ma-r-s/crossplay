@@ -94,49 +94,25 @@ uint8_t borderOwner(const int cell, const int dir) {
   return hex::kWhite;
 }
 
-// The strip outside one border edge: the edge itself, pushed outward by `depth`
-// along the line to the neighbour that is not there. Black's strips are solid
-// ink and White's are paper with a rail along the outside, which is the same
-// filled-versus-outlined pair the stones use -- so a player reads which edges
-// are theirs from the same language as the piece in their hand.
-void borderStrip(toybox::Screen& screen, const Layout& layout, const int cell, const int dir, const int16_t depth) {
-  int16_t cx = 0;
-  int16_t cy = 0;
-  cellCentre(layout, cell, cx, cy);
-  fui::Point v[kVertexCount];
-  hexagonVertices(layout, cx, cy, v);
-
-  const fui::Point from = v[dir];
-  const fui::Point to = v[(dir + 1) % kVertexCount];
-  // The outward direction IS the vector to the missing neighbour's centre, so
-  // the strip cannot drift away from the edge it belongs to.
-  const double dx = 3.0 * layout.a * hex::kNeighbourCol[dir];
-  const double dy = 2.0 * layout.h * hex::kNeighbourRow[dir] + static_cast<double>(layout.h) * hex::kNeighbourCol[dir];
-  const double length = std::sqrt(dx * dx + dy * dy);
-  const int16_t ox = static_cast<int16_t>(dx * depth / length);
-  const int16_t oy = static_cast<int16_t>(dy * depth / length);
-  const fui::Point outFrom{static_cast<int16_t>(from.x + ox), static_cast<int16_t>(from.y + oy)};
-  const fui::Point outTo{static_cast<int16_t>(to.x + ox), static_cast<int16_t>(to.y + oy)};
-
-  const bool black = borderOwner(cell, dir) == hex::kBlack;
-  const fui::Paint paint = fui::Paint::solid(black ? fui::Color::Black : fui::Color::White);
-  screen.target().triangle(from, to, outTo, paint);
-  screen.target().triangle(from, outTo, outFrom, paint);
-  if (black) return;
-  // Only the OUTER rail. The inner one is the hexagon's own outline, drawn
-  // after every strip, so two adjacent white border cells join into one
-  // continuous band instead of a ladder with a rung between them.
-  screen.target().line(outFrom, outTo, static_cast<uint8_t>(toybox::kHairline), fui::Paint::solid(fui::Color::Black));
-}
-
 void drawBoard(toybox::Screen& screen, const Layout& layout, const hex::Game& game, const uint8_t* chain,
                const bool markLast) {
-  const int16_t depth = borderDepth(layout.h);
-  for (int cell = 0; cell < hex::kCells; ++cell) {
-    for (int dir = 0; dir < 6; ++dir) {
-      if (hex::neighbour(cell, dir) != hex::kNoCell) continue;
-      borderStrip(screen, layout, cell, dir, depth);
-    }
+  // The band that says whose edge is whose. Black's strips are solid ink and
+  // White's are paper with a rail along the outside, which is the same
+  // filled-versus-outlined pair the stones use -- so a player reads which edges
+  // are theirs from the same language as the piece in their hand.
+  //
+  // The strips come back MITRED (see borderStrips), so the band is one shape
+  // round the board. Drawn as independent bars it had a notch at every joint of
+  // the staircase, which is every other pixel of the two slanted sides.
+  BorderStrip strips[kMaxBorderStrips];
+  const int stripCount = borderStrips(layout, strips);
+  const fui::Paint paper = fui::Paint::solid(fui::Color::White);
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  for (int i = 0; i < stripCount; ++i) {
+    const BorderStrip& strip = strips[i];
+    if (strip.owner != hex::kWhite) continue;
+    screen.target().triangle(strip.from, strip.to, strip.outTo, paper);
+    screen.target().triangle(strip.from, strip.outTo, strip.outFrom, paper);
   }
 
   const int16_t radius = stoneRadius(layout);
@@ -154,6 +130,25 @@ void drawBoard(toybox::Screen& screen, const Layout& layout, const hex::Game& ga
     outlineHexagon(screen, v, toybox::kHairline);
     const uint8_t here = game.at(cell);
     if (hex::isStone(here)) stone(screen, cx, cy, radius, here);
+  }
+
+  // Black's band goes on AFTER the cells. Every cell is knocked out in paper,
+  // and a band drawn first had its inner edge nibbled by each hexagon's fill,
+  // which is the ragged inside of the slanted strips. The band starts exactly on
+  // the board's outline, so covering that hairline is covering its own edge.
+  for (int i = 0; i < stripCount; ++i) {
+    const BorderStrip& strip = strips[i];
+    if (strip.owner != hex::kBlack) continue;
+    screen.target().triangle(strip.from, strip.to, strip.outTo, ink);
+    screen.target().triangle(strip.from, strip.outTo, strip.outFrom, ink);
+  }
+  // White's rail, along the mitred outer edge, so it reads as one line round
+  // the side rather than a zigzag of separate strokes. The inner rail is the
+  // hexagons' own outline.
+  for (int i = 0; i < stripCount; ++i) {
+    const BorderStrip& strip = strips[i];
+    if (strip.owner != hex::kWhite) continue;
+    screen.target().line(strip.outFrom, strip.outTo, static_cast<uint8_t>(toybox::kHairline), ink);
   }
 
   // Drawn in a pass of their own, after every cell: a mark sits proud of its
@@ -186,33 +181,25 @@ void seatCard(toybox::Screen& screen, const fui::Rect& box, const uint8_t colour
   } else {
     screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kRule);
   }
-  const int16_t cy = static_cast<int16_t>(box.y + box.height / 2);
+  const char* edgesText = colour == hex::kBlack ? "TOP TO BOTTOM" : "LEFT TO RIGHT";
+  const SeatCardLayout at = seatCardLayout(screen.target(), box, who, edgesText);
   // On the inverted card the stone is drawn the other way round: black ink on
   // black paper is nothing at all. Whenever a drawn element moves, re-check
   // what is behind it.
-  const int16_t stoneX = static_cast<int16_t>(box.x + 30);
-  toybox::disc(screen, stoneX, cy, 17, toMove ? fui::Color::White : fui::Color::Black);
-  toybox::disc(screen, stoneX, cy, 14,
+  toybox::disc(screen, at.stoneX, at.stoneY, kCardStoneRadius, toMove ? fui::Color::White : fui::Color::Black);
+  toybox::disc(screen, at.stoneX, at.stoneY, static_cast<int16_t>(kCardStoneRadius - 3),
                colour == hex::kBlack ? (toMove ? fui::Color::White : fui::Color::Black)
                                      : (toMove ? fui::Color::Black : fui::Color::White));
 
-  const int16_t textLeft = static_cast<int16_t>(box.x + 56);
-  const int16_t textWidth = static_cast<int16_t>(box.width - 56 - 10);
   fui::TextStyle name;
   name.font = toybox::kUiFont;
   name.align = fui::TextAlign::Left;
   name.color = toMove ? fui::Color::White : fui::Color::Black;
-  screen.target().text(
-      toybox::inkCentred(fui::makeRect(textLeft, box.y, textWidth, static_cast<int16_t>(box.height / 2)),
-                         toybox::kUiCut),
-      who, name);
+  screen.target().text(at.name, who, name);
 
   fui::TextStyle edges = name;
   edges.font = toybox::kTileFont;
-  screen.target().text(toybox::inkCentred(fui::makeRect(textLeft, static_cast<int16_t>(box.y + box.height / 2),
-                                                        textWidth, static_cast<int16_t>(box.height / 2)),
-                                          toybox::kTileCut),
-                       colour == hex::kBlack ? "TOP TO BOTTOM" : "LEFT TO RIGHT", edges);
+  screen.target().text(at.edges, edgesText, edges);
 }
 
 void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
@@ -234,26 +221,137 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
 
 }  // namespace
 
+SeatCardLayout seatCardLayout(const fui::DrawTarget& target, const fui::Rect& box, const char* who,
+                              const char* edgesText) {
+  fui::TextStyle nameStyle;
+  nameStyle.font = toybox::kUiFont;
+  fui::TextStyle edgesStyle;
+  edgesStyle.font = toybox::kTileFont;
+  const int16_t nameWidth = target.measureText(nameStyle.font, who, nameStyle).width;
+  const int16_t edgesWidth = target.measureText(edgesStyle.font, edgesText, edgesStyle).width;
+
+  // The stone, a gap, and the wider of the two lines: one group, centred in the
+  // card both ways. Pinned to fixed offsets from the left it sat hard against
+  // one side with a strip of empty card on the other, and the two lines, each
+  // centred in its own half, left the name riding high over the stone.
+  constexpr int16_t kGap = 12;
+  constexpr int16_t kInset = 8;
+  int16_t textWidth = nameWidth > edgesWidth ? nameWidth : edgesWidth;
+  const int16_t room = static_cast<int16_t>(box.width - 2 * kInset - 2 * kCardStoneRadius - kGap);
+  if (textWidth > room) textWidth = room;
+  const int16_t groupWidth = static_cast<int16_t>(2 * kCardStoneRadius + kGap + textWidth);
+  const int16_t left = static_cast<int16_t>(box.x + (box.width - groupWidth) / 2);
+
+  SeatCardLayout at;
+  at.stoneX = static_cast<int16_t>(left + kCardStoneRadius);
+  at.stoneY = static_cast<int16_t>(box.y + box.height / 2);
+  const int16_t textLeft = static_cast<int16_t>(left + 2 * kCardStoneRadius + kGap);
+  // Wider than the text so a rounding difference between measuring and drawing
+  // cannot elide it; left-aligned, so the slack falls to the right of the ink.
+  const int16_t textBox = static_cast<int16_t>(box.right() - kInset - textLeft);
+
+  // The two cap bands and the space between them, centred as a block on the
+  // stone's middle, which is the card's.
+  constexpr int16_t kLineGap = 8;
+  const int16_t block = static_cast<int16_t>(toybox::kUiCut.inkHeight + kLineGap + toybox::kTileCut.inkHeight);
+  const int16_t top = static_cast<int16_t>(box.y + (box.height - block) / 2);
+  at.name = toybox::inkCentred(fui::makeRect(textLeft, top, textBox, toybox::kUiCut.inkHeight), toybox::kUiCut);
+  at.edges = toybox::inkCentred(fui::makeRect(textLeft, static_cast<int16_t>(top + toybox::kUiCut.inkHeight + kLineGap),
+                                              textBox, toybox::kTileCut.inkHeight),
+                                toybox::kTileCut);
+  return at;
+}
+
+int borderStrips(const Layout& layout, BorderStrip out[kMaxBorderStrips]) {
+  const int16_t depth = borderDepth(layout.h);
+  // Each strip's outer edge as a line in doubles: the mitre is an intersection,
+  // and rounding the offsets first is what let neighbouring bars miss each other.
+  double ax[kMaxBorderStrips];
+  double ay[kMaxBorderStrips];
+  double bx[kMaxBorderStrips];
+  double by[kMaxBorderStrips];
+  int count = 0;
+  for (int cell = 0; cell < hex::kCells && count < kMaxBorderStrips; ++cell) {
+    for (int dir = 0; dir < 6 && count < kMaxBorderStrips; ++dir) {
+      if (hex::neighbour(cell, dir) != hex::kNoCell) continue;
+      int16_t cx = 0;
+      int16_t cy = 0;
+      cellCentre(layout, cell, cx, cy);
+      fui::Point v[kVertexCount];
+      hexagonVertices(layout, cx, cy, v);
+      // The outward direction IS the vector to the missing neighbour's centre,
+      // so the strip cannot drift away from the edge it belongs to.
+      const double dx = 3.0 * layout.a * hex::kNeighbourCol[dir];
+      const double dy =
+          2.0 * layout.h * hex::kNeighbourRow[dir] + static_cast<double>(layout.h) * hex::kNeighbourCol[dir];
+      const double length = std::sqrt(dx * dx + dy * dy);
+      const double ox = dx * depth / length;
+      const double oy = dy * depth / length;
+      BorderStrip& strip = out[count];
+      strip.from = v[dir];
+      strip.to = v[(dir + 1) % kVertexCount];
+      strip.owner = borderOwner(cell, dir);
+      ax[count] = strip.from.x + ox;
+      ay[count] = strip.from.y + oy;
+      bx[count] = strip.to.x + ox;
+      by[count] = strip.to.y + oy;
+      ++count;
+    }
+  }
+
+  // Every border edge runs from one vertex to the next in the same turning
+  // order, so the strip that continues strip i is the one that STARTS where i
+  // ends. Both outer edges are cut back, or run on, to the point where they
+  // cross: a convex joint gains the corner a pair of bars left empty and a
+  // concave one loses the overlap. The vertices are integers computed the same
+  // way on both sides, so the comparison is exact.
+  double endX[kMaxBorderStrips];
+  double endY[kMaxBorderStrips];
+  double startX[kMaxBorderStrips];
+  double startY[kMaxBorderStrips];
+  for (int i = 0; i < count; ++i) {
+    startX[i] = ax[i];
+    startY[i] = ay[i];
+    endX[i] = bx[i];
+    endY[i] = by[i];
+  }
+  for (int i = 0; i < count; ++i) {
+    for (int j = 0; j < count; ++j) {
+      if (j == i || out[j].from.x != out[i].to.x || out[j].from.y != out[i].to.y) continue;
+      const double d1x = bx[i] - ax[i];
+      const double d1y = by[i] - ay[i];
+      const double d2x = bx[j] - ax[j];
+      const double d2y = by[j] - ay[j];
+      const double denom = d1x * d2y - d1y * d2x;
+      double px = 0.5 * (bx[i] + ax[j]);
+      double py = 0.5 * (by[i] + ay[j]);
+      if (std::fabs(denom) > 1e-9) {
+        const double t = ((ax[j] - ax[i]) * d2y - (ay[j] - ay[i]) * d2x) / denom;
+        px = ax[i] + t * d1x;
+        py = ay[i] + t * d1y;
+      }
+      endX[i] = px;
+      endY[i] = py;
+      startX[j] = px;
+      startY[j] = py;
+      break;
+    }
+  }
+  for (int i = 0; i < count; ++i) {
+    out[i].outFrom =
+        fui::Point{static_cast<int16_t>(std::lround(startX[i])), static_cast<int16_t>(std::lround(startY[i]))};
+    out[i].outTo = fui::Point{static_cast<int16_t>(std::lround(endX[i])), static_cast<int16_t>(std::lround(endY[i]))};
+  }
+  return count;
+}
+
 // The two cards, in the notches the board leaves. Returned rather than drawn
 // here so the board and the result screen place them identically.
 //
 // The notch is a TRIANGLE, so how far left a rect may start depends on how TALL
 // it is: row 0's cell `c` has ink from `21c - strip` downward at the shipped
-// size, so a card 4h high clears everything left of column five and the taller
-// button stack below does not. That is why the buttons get a rect of their own
-// rather than borrowing this one.
+// size, so a card 4h high clears everything left of column five.
 constexpr int16_t kCardColumns = 17;
-// The result screen's two doors are stacked, and each row is as wide as its own
-// height allows rather than both taking the narrower of the two. Row 0's cell
-// `c` has ink from `21c - strip` downward, so a band 52 pixels tall clears
-// everything left of column three while a band reaching 112 clears only column
-// six: PLAY AGAIN gets the wide top row and DONE the short one under it.
-//
-// Both rows the narrow width elided the label to "PLAY AG...", which a
-// screenshot caught and no assertion would have -- the button drew, it was
-// tappable, and it said the wrong thing.
-constexpr int16_t kWideButtonColumns = 23;
-constexpr int16_t kButtonColumns = 15;
 
 fui::Rect theirCardRect(const Layout& layout) {
   const int16_t width = static_cast<int16_t>(layout.a * kCardColumns);
@@ -267,16 +365,23 @@ fui::Rect yourCardRect(const Layout& layout) {
   return fui::makeRect(layout.left, static_cast<int16_t>(layout.top + layout.h * 32 - height), width, height);
 }
 
+// The result screen's two doors take the two cards' places: PLAY AGAIN where
+// their card was, top edge on the board's top, and DONE where yours was, bottom
+// edge on the board's bottom. A finished game has no turn to show, so the cards
+// have nothing left to say, and each door is a pill in the widest part of its
+// notch -- the part furthest from the board.
+//
+// Stacked together in the top notch, as they first were, the lower door ran
+// within a few pixels of the staircase: the notch narrows as it gets taller.
 fui::Rect againButtonRect(const Layout& layout) {
-  const int16_t width = static_cast<int16_t>(layout.a * kWideButtonColumns);
-  return fui::makeRect(static_cast<int16_t>(layout.left + layout.a * 34 - width), layout.top, width,
-                       toybox::kPillHeight);
+  const fui::Rect card = theirCardRect(layout);
+  return fui::makeRect(card.x, card.y, card.width, toybox::kPillHeight);
 }
 
 fui::Rect doneButtonRect(const Layout& layout) {
-  const int16_t width = static_cast<int16_t>(layout.a * kButtonColumns);
-  return fui::makeRect(static_cast<int16_t>(layout.left + layout.a * 34 - width),
-                       static_cast<int16_t>(layout.top + toybox::kPillHeight + 8), width, toybox::kPillHeight);
+  const fui::Rect card = yourCardRect(layout);
+  return fui::makeRect(card.x, static_cast<int16_t>(card.bottom() - toybox::kPillHeight), card.width,
+                       toybox::kPillHeight);
 }
 
 Layout boardLayout(const fui::DeviceContext& device) {
@@ -414,19 +519,24 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     for (int i = 0; i < hex::kCellBytes; ++i) picture.cell[i] = model.boardCells[i];
   }
 
-  // The caption is part of the block, not something squeezed in after it: a
-  // miniature sized to the space and THEN given a line underneath is a line
-  // drawn over the first row of the list.
-  constexpr int16_t kCaptionHeight = 28;
+  // The miniature and the line under it are ONE group, centred in the space
+  // between the record's rule and the list, with the line a clear two gutters
+  // below the board. The line used to sit four pixels under the miniature's box
+  // and read as squeezed against the board's bottom corner; the miniature steps
+  // down a size rather than take that space back.
   const int16_t areaTop = static_cast<int16_t>(line.bottom() + 6 + toybox::kRule + toybox::kGutter);
-  const int16_t room = static_cast<int16_t>(listBand.y - areaTop - toybox::kGutter - kCaptionHeight);
+  const int16_t areaBottom = static_cast<int16_t>(listBand.y - toybox::kGutter);
+  const int16_t captionGap = static_cast<int16_t>(toybox::kGutter * 2);
+  const int16_t captionInk = toybox::kTileCut.inkHeight;
+  const int16_t room = static_cast<int16_t>(areaBottom - areaTop - captionGap - captionInk - toybox::kGutter * 2);
 
   Layout mini;
   mini.a = 7;
   while (mini.a > 2 && static_cast<int>((mini.a * 1732 + 500) / 1000) * 32 > room) --mini.a;
   mini.h = static_cast<int16_t>((mini.a * 1732 + 500) / 1000);
   mini.left = static_cast<int16_t>((screen.device().width - mini.a * 34) / 2);
-  mini.top = static_cast<int16_t>(areaTop + (room - mini.h * 32) / 2);
+  const int16_t group = static_cast<int16_t>(mini.h * 32 + captionGap + captionInk);
+  mini.top = static_cast<int16_t>(areaTop + (areaBottom - areaTop - group) / 2);
   drawBoard(screen, mini, picture, nullptr, false);
 
   char caption[64];
@@ -443,7 +553,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   cap.font = toybox::kTileFont;
   cap.align = fui::TextAlign::Center;
   screen.target().text(
-      fui::makeRect(content.x, static_cast<int16_t>(mini.top + mini.h * 32 + 4), content.width, kCaptionHeight),
+      toybox::inkCentred(fui::makeRect(content.x, static_cast<int16_t>(mini.top + mini.h * 32 + captionGap),
+                                       content.width, captionInk),
+                         toybox::kTileCut),
       caption, cap);
 }
 
@@ -480,37 +592,12 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   const int count = static_cast<int>(SettingsRow::Count);
   const int16_t listHeight =
       static_cast<int16_t>(count * toybox::kRowHeight + (count - 1) * toybox::kGutter / 2 + toybox::kGutter);
-  const fui::Rect content = screen.contentRect();
-  const fui::Rect listBand = fui::makeRect(content.x, content.y, content.width, listHeight);
   screen.list(list, listHeight, fui::LayoutAnchor::Top);
 
-  // What the rows mean, said once, below them rather than inside them: a
-  // subtitle on a value row is set at the title cut and about twenty characters
-  // is all there is, which is not enough to say anything true.
-  const char* explain =
-      model.opponent != hex::Opponent::Computer
-          ? "TWO PLAYERS, ONE DEVICE. THE BOARD IS DRAWN THE SAME WAY UP FOR BOTH OF YOU, SO PASS IT ACROSS."
-      : model.level == hex::Level::Easy
-          ? "IT PLAYS QUICKLY AND WILL NOT SEE A CONNECTION COMING, THOUGH IT NEVER MISSES A WINNING STONE."
-      : model.level == hex::Level::Normal
-          ? "IT KNOWS THE BRIDGE, SO IT DEFENDS A LINK YOU HAVE NOT FINISHED BUILDING YET."
-          : "IT THINKS FOR AS LONG AS IT IS ALLOWED, WHICH IS UNDER FIVE SECONDS A MOVE.";
-  fui::TextStyle body;
-  body.font = toybox::kTileFont;
-  body.align = fui::TextAlign::Left;
-  body.maxLines = 4;
-  screen.target().text(
-      fui::makeRect(content.x, static_cast<int16_t>(listBand.bottom() + toybox::kGutter * 2), content.width, 120),
-      explain, body);
-
-  // Black moves first and there is no swap, so which colour you take is the one
-  // setting on this screen that changes the game rather than the opponent.
-  if (model.opponent != hex::Opponent::Computer) return;
-  fui::TextStyle note = body;
-  note.maxLines = 2;
-  screen.target().text(
-      fui::makeRect(content.x, static_cast<int16_t>(listBand.bottom() + toybox::kGutter * 2 + 130), content.width, 60),
-      "BLACK PLAYS FIRST AND KEEPS THE ADVANTAGE THAT COMES WITH IT: THERE IS NO SWAP RULE HERE.", note);
+  // Nothing under the rows. Two paragraphs used to explain each level and the
+  // first-move advantage; they read as a wall of capitals under three rows that
+  // already say what they are, and the board says the rest the moment a game
+  // starts: the cards name each colour's edges and the one to move is inverted.
 }
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
@@ -547,17 +634,10 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   const Layout layout = boardLayout(screen.device());
   drawBoard(screen, layout, model.game, model.chain, false);
 
-  const uint8_t yours = model.seat;
-  const char* yourName = model.sharedDevice ? (yours == hex::kBlack ? "BLACK" : "WHITE") : "YOU";
-  // Inverted when this seat WON. There is no turn left to say anything about,
-  // and the header has already named the winner, so the card carries the one
-  // thing a finished Hex board still has to explain: which pair of edges the
-  // connection on the panel was joining.
-  seatCard(screen, yourCardRect(layout), yours, yourName, won == yours);
-
-  // The two doors go in the notch the opponent's card had. The board is the
-  // whole panel by design, so a band reserved for buttons would cost every cell
-  // a pixel -- and the rhombus leaves this corner empty either way.
+  // No seat card: the game is over, the band has named the winner and the
+  // marked chain shows the connection. The notches hold the two doors instead
+  // (see againButtonRect). The board is the whole panel by design, so a band
+  // reserved for buttons would cost every cell a pixel.
   fui::ButtonProps again;
   again.label = "PLAY AGAIN";
   again.action = ActionAgain;

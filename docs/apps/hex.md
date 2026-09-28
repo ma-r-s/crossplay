@@ -94,20 +94,27 @@ nothing but edges.
 **The rhombus leaves two big notches**, at the top right and the bottom left of
 its box, and those are where the two seat cards go -- a stone, a name, and the
 pair of edges that colour is joining. That space would otherwise be the price of
-this layout; it is the thing that pays for it.
+this layout; it is the thing that pays for it. Each card centres its stone and
+its two lines as one group, from the measured width of the words, so a long
+three-word name and a short YOU sit the same way in the same box.
 
 The notch is a TRIANGLE, so how far left a control may start depends on how tall
 it is: row 0's cell `c` has ink from `21c - strip` downward, so an 84-pixel card
-clears everything left of column five and a 52-pixel button band clears column
-three. The result screen's two doors are stacked for that reason and each takes
-the width its own row allows -- PLAY AGAIN the wide one, DONE the short one
-underneath. Both at the narrow width and the component elides the label to
-"PLAY AG...": drawn, tappable, and saying the wrong thing, which is what a
-screenshot catches and no assertion did.
+clears everything left of column five. The result screen has no seat cards --
+the game is over, the band names the winner and the chain is marked -- so its
+two doors take the cards' places: PLAY AGAIN top right where their card was,
+DONE bottom left where yours was, each a pill at the wide end of its notch.
+They first sat stacked in the top notch, where the lower one ran within a few
+pixels of the staircase; `host-tests/ui` now holds both doors 16 pixels clear of
+the band (they measure 32).
 
-The four borders are drawn as strips outside the board: Black's are solid ink
-and White's are paper with a rail along the outside, which is the same
-filled-versus-outlined pair the stones themselves use.
+The four borders are drawn as one band outside the board: Black's is solid ink
+and White's is paper with a rail along the outside, which is the same
+filled-versus-outlined pair the stones themselves use. Each border edge is a
+strip pushed out from its own hexagon edge, and the strips are MITRED -- every
+strip's outer corner is the next strip's -- because drawn as separate bars they
+left a notch at every joint of the staircase. Black's band is drawn after the
+cells, which are knocked out in paper and would otherwise nibble its inner edge.
 
 **A stone goes down in one tap.** Go aims first and commits second because its
 intersections are a 49px pitch with dead gutters between them. Hex's cells tile
