@@ -81,9 +81,13 @@ class CrossPointWebServer {
   // The one file the NotesOnly surface reads and writes, and the name to show
   // on the page. Set before begin(); the client never names either, which
   // deletes the traversal question rather than answering it.
-  void setNotesFile(const std::string& path, const std::string& displayName) {
+  // `isList` is the KIND, from the reader, which is the only side that knows it
+  // for an empty note: a note made with + NOTE and a list made with + LIST are
+  // both an empty file until their first line.
+  void setNotesFile(const std::string& path, const std::string& displayName, const bool isList) {
     notesPath = path;
     notesName = displayName;
+    notesIsList = isList;
   }
   // True once a client has saved, so the app knows to re-read the file rather
   // than polling the card. Cleared by the reader of it.
@@ -118,6 +122,7 @@ class CrossPointWebServer {
   const Surface surface = Surface::Full;
   std::string notesPath;
   std::string notesName;
+  bool notesIsList = true;
   bool notesChanged = false;
   bool isFull() const { return surface == Surface::Full; }
   bool isDev() const { return surface == Surface::DeveloperOnly; }

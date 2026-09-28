@@ -236,6 +236,18 @@ and all, and made the marker something they had to type. The empty row at the
 foot grows a fresh one as soon as you type in it, so a list is written without
 reaching for a button between items.
 
+**Each row's box grows with what it holds, and a note has no tick boxes.** The
+field was a one-line input, so a long item showed as its first thirty
+characters and a paragraph as a sliver. And the page wrote a marker in front of
+every line it saved, so editing a NOTE from a phone turned its paragraphs into a
+list; the server's own coercion read an empty note (an empty file) as a list for
+the same reason. The reader now tells the page the kind (`X-Note-Kind`), which is
+the only side that knows it for an empty note, and the server coerces only a
+list. The page's task rule is the reader's exactly: `- [x]tra` is a line of text
+on both, where the page used to read it as a ticked item called "tra". Enter
+moves to the next row rather than breaking a line, so a line break in a box can
+only have been pasted, and each pasted line is saved as its own item.
+
 **It is built from `site/styles.css`, not from memory of it.** Warm paper
 `#f5f2ea` and ink `#111110`; the display stack at weight 400 in sentence case,
 never bold; ALL CAPS only for the mono eyebrow; square corners; 1/2/3px borders;

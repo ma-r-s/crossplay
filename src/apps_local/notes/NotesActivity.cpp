@@ -512,7 +512,7 @@ void NotesActivity::startPhone() {
     showNotice("There was not enough memory to start.");
     return;
   }
-  server_->setNotesFile(std::string("/notes/") + openName_ + ".md", openName_);
+  server_->setNotesFile(std::string("/notes/") + openName_ + ".md", openName_, !openIsPage());
   server_->begin();
   // The simulator has no networking shim, so begin() never leaves the server
   // running there. The SCREEN is still drawn, because its layout is the half

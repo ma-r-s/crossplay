@@ -429,20 +429,36 @@ if [ "$DRY" = 1 ]; then
   say "   would: gh pr merge $PR_NUMBER --squash"
   say "   would: compare the new trunk tree against $(git rev-parse --short HEAD)'s"
 else
-  BRANCH_TREE="$(git rev-parse 'HEAD^{tree}')"
+  BRANCH_HEAD="$(git rev-parse HEAD)"
   run "gh pr merge '$PR_NUMBER' --repo ma-r-s/crossplay --squash --delete-branch=false"
   run "git fetch -q origin xteink"
   TRUNK_NEW="$(git rev-parse origin/xteink)"
-  TRUNK_TREE="$(git rev-parse "$TRUNK_NEW^{tree}")"
-  if [ "$BRANCH_TREE" != "$TRUNK_TREE" ]; then
+  # SAME FIRMWARE, NOT SAME TREE. crossplay-emulator.yml commits
+  # site/emulator-manifest.json to xteink by itself, about fifteen minutes
+  # after any push that touches the emulator's sources -- which is every merge
+  # of app code, and lands squarely inside this script's own gate. The first
+  # version compared whole trees, so on 2026-09-28 three releases in a row
+  # landed their squash and then refused to publish over that one file, twice
+  # leaving a merged change nobody could release (this script's "Re-run"
+  # needs an open pull request, and the one it just merged is not). The
+  # manifest and site/emulator/ are the website's; nothing under them is
+  # compiled into an image, so they are the one difference that cannot make
+  # the images wrong. Anything else still stops the release.
+  DIFFERS="$(git diff --name-only "$BRANCH_HEAD" "$TRUNK_NEW" -- . ':(exclude)site/emulator-manifest.json' ':(exclude)site/emulator')"
+  if [ -n "$DIFFERS" ]; then
     die "the squash landed a different tree than the one the gate built.
-    branch $BRANCH_TREE
-    trunk  $TRUNK_TREE
+    branch $(git rev-parse "$BRANCH_HEAD^{tree}")
+    trunk  $(git rev-parse "$TRUNK_NEW^{tree}")
+    differing: $(printf '%s' "$DIFFERS" | head -5 | tr '\n' ' ')
     Something else landed between the gate and the merge, so the images in
     the handover are not what is on xteink. Nothing tagged, nothing
     published. Re-run: the gate will rebuild against the new trunk."
   fi
-  say "  xteink is now $(git rev-parse --short "$TRUNK_NEW"), same tree the gate built"
+  if [ "$(git rev-parse "$BRANCH_HEAD^{tree}")" = "$(git rev-parse "$TRUNK_NEW^{tree}")" ]; then
+    say "  xteink is now $(git rev-parse --short "$TRUNK_NEW"), same tree the gate built"
+  else
+    say "  xteink is now $(git rev-parse --short "$TRUNK_NEW"); it differs from the gate's tree only in the site's emulator manifest, which no image contains"
+  fi
   run "git checkout -q --detach '$TRUNK_NEW'"
 fi
 
