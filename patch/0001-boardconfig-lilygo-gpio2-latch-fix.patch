@@ -1,0 +1,24 @@
+diff --git a/libs/hardware/BoardConfig/include/BoardConfig.h b/libs/hardware/BoardConfig/include/BoardConfig.h
+index 45ff51c..d1d8a84 100644
+--- a/libs/hardware/BoardConfig/include/BoardConfig.h
++++ b/libs/hardware/BoardConfig/include/BoardConfig.h
+@@ -1234,9 +1234,16 @@ constexpr BoardProfile LILYGO_T5S3 = {
+     // it whenever power was actually cut rather than merely deep-slept.
+     {39, 40, 400000, 0x51, 0, 0, 0, RtcType::Pcf8563, ImuType::None},
+     1.2f,  // uiScale: 4.7" 960x540 touch (~234 PPI) — finger-sized chrome, like Sticky
+-    // Power latch: main-power MOSFET on GPIO2, driven HIGH first thing in boot
+-    // via holdPowerRails() or the board powers off when USB is unplugged.
+-    {2},
++    // No power latch on this board: power runs straight through the BQ25896
++    // charger to system rails, with nothing to self-latch. GPIO2 here is the
++    // PCF8563 RTC interrupt line (BOARD_RTC_IRQ in the vendor's own
++    // utilities.h; also consistent across pin.hpp, BoardT5S3.cpp and
++    // LilyGoT5S3LgfxConfig.cpp) -- an open-drain input, never an output. This
++    // field previously carried {2} copy-pasted verbatim (comment included)
++    // from M5PAPER_V11's real latch pin below; left in place, holdPowerRails()
++    // would drive GPIO2 OUTPUT HIGH every boot and fight the RTC's interrupt
++    // line whenever it pulls low, permanently breaking RTC interrupts.
++    {},
+     0,  // displayControllerVariant: not probed on this panel
+     // Bezel: this case sits closer over the glass at the sides than the X4's, so
+     // the default 3px leaves the first and last characters of a line hard to
