@@ -193,10 +193,13 @@ void fillEnd(const uh::Cards& cards, const uh::Game& g, const uh::Profile& profi
   std::snprintf(m.detail[1], sizeof(m.detail[1]), "It lasted %d turns.", g.turn);
 }
 
-void fillMenu(const uh::Cards& cards, const uh::Save& state, bool confirm, bool setAside, ui::MenuModel& m) {
+void fillMenu(const uh::Cards& cards, const uh::Save& state, bool confirm, bool startOver, bool setAside,
+              ui::MenuModel& m) {
   m.inRun = state.inRun;
   m.saveSetAside = setAside && !state.inRun;
   m.confirmGiveUp = confirm && state.inRun;
+  m.mayStartOver = !state.inRun && (state.profile.tutorialDone || state.profile.summoned != 0);
+  m.confirmStartOver = startOver && m.mayStartOver;
   m.tutorial = !state.profile.tutorialDone;
   m.turn = state.game.turn;
   m.gods = cards.godCount();
@@ -318,6 +321,7 @@ void UnderhandActivity::newRun() {
   payingFor = -1;
   picked = uh::Counts{};
   confirmGiveUp = false;
+  confirmStartOver = false;
   view = View::Play;
   flashNext = true;
   LOG_INF("UNDERHAND", "New run: %s, %d gods summoned, first card %d", state.game.tutorial ? "tutorial" : "normal",
@@ -409,6 +413,27 @@ bool UnderhandActivity::route(int action, int value) {
         } else {
           newRun();
         }
+      } else if (confirmStartOver) {
+        // The original's Reset Tutorial and Reset Game, saved at once; BACK
+        // keeps everything.
+        if (action == ui::ActionReplayTutorial || action == ui::ActionForgetAll) {
+          if (action == ui::ActionReplayTutorial) {
+            uh::replayTutorial(state.profile);
+          } else {
+            uh::startOver(state.profile);
+          }
+          LOG_INF("UNDERHAND", "%s", action == ui::ActionReplayTutorial ? "Tutorial reset" : "Progress reset");
+          save();
+        }
+        if (action == ui::ActionReplayTutorial || action == ui::ActionForgetAll || action == ui::ActionCancel) {
+          confirmStartOver = false;
+          flashNext = true;
+          requestUpdate();
+        }
+      } else if (action == ui::ActionStartOver && !state.inRun) {
+        confirmStartOver = true;
+        flashNext = true;
+        requestUpdate();
       } else if (action == ui::ActionGiveUp) {
         confirmGiveUp = true;
         flashNext = true;
@@ -513,8 +538,9 @@ bool UnderhandActivity::back() {
   if (view == View::Play && payingFor >= 0) {
     payingFor = -1;
     picked = uh::Counts{};
-  } else if (view == View::Menu && confirmGiveUp) {
+  } else if (view == View::Menu && (confirmGiveUp || confirmStartOver)) {
     confirmGiveUp = false;
+    confirmStartOver = false;
     flashNext = true;
   } else if (view == View::Help) {
     view = helpFrom;
@@ -720,15 +746,16 @@ void UnderhandActivity::audit() {
     check("stuck on card", c.id);
   }
   // The menu in each of its states: between runs, in one, asking to give it
-  // up, and before the tutorial.
-  for (int form = 0; form < 5; ++form) {
+  // up, before the tutorial, a save set aside, and asking which reset, with
+  // the tutorial done and not.
+  for (int form = 0; form < 7; ++form) {
     uh::Save s;
     s.inRun = form == 1 || form == 2;
     s.game.turn = 999;
     s.profile.summoned = 0x55;
-    s.profile.tutorialDone = form != 3;
+    s.profile.tutorialDone = form != 3 && form != 6;
     ui::MenuModel m;
-    fillMenu(*cards, s, form == 2, form == 4, m);
+    fillMenu(*cards, s, form == 2, form >= 5, form == 4, m);
     draw([&](toybox::Screen& sc) { ui::buildMenu(sc, m); });
     check("menu form", form);
   }
@@ -755,7 +782,7 @@ void UnderhandActivity::render(RenderLock&&) {
   switch (view) {
     case View::Menu: {
       ui::MenuModel model;
-      fillMenu(*cards, state, confirmGiveUp, saveSetAside, model);
+      fillMenu(*cards, state, confirmGiveUp, confirmStartOver, saveSetAside, model);
       ui::buildMenu(screen, model);
       break;
     }

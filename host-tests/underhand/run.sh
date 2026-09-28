@@ -17,4 +17,7 @@ JSON=../../lib/JsonParser
   test_underhand.cpp $SRC/UnderhandCards.cpp $SRC/UnderhandEngine.cpp $SRC/UnderhandSave.cpp $SRC/UnderhandView.cpp \
   $JSON/StreamingJsonParser.cpp \
   -o "$BUILD_DIR/test_underhand"
+# The seed tool links the same view and engine: a change to either that
+# breaks it fails here rather than the next time someone needs a screenshot.
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -fsyntax-only -I$SRC -I$JSON ../../tools_local/underhand/seed.cpp
 "$BUILD_DIR/test_underhand"

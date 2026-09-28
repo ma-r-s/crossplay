@@ -1129,6 +1129,26 @@ void givingUpEndsTheRunAsALoss() {
   CHECK(back.game.phase != Phase::Lost);
 }
 
+// The original's Reset Tutorial and Reset Game, missing until Mario asked
+// whether the whole game was there.
+void theTwoResetsKeepWhatTheySay() {
+  Profile p;
+  p.summoned = 0b1011;
+  p.previous = 3;
+  p.tutorialDone = true;
+  replayTutorial(p);
+  CHECK(!p.tutorialDone && p.summoned == 0b1011 && p.previous == 3);
+  startOver(p);
+  CHECK(!p.tutorialDone && p.summoned == 0 && p.previous == -1 && p.summonedCount() == 0);
+  // The next run after either is the tutorial.
+  auto cards = load(world({{1}, {3}, {71}}));
+  if (failures) return;
+  Game g;
+  Rng rng(7);
+  start(g, *cards, p, rng);
+  CHECK(g.tutorial);
+}
+
 void savesRoundTripAndRefuseDamage() {
   auto cards = load(world({{1}, {3}}));
   if (failures) return;
@@ -1602,6 +1622,7 @@ int main() {
   RUN(relicsAreNeverSpentUnseen);
   RUN(savesRoundTripAndRefuseDamage);
   RUN(givingUpEndsTheRunAsALoss);
+  RUN(theTwoResetsKeepWhatTheySay);
   RUN(rngIsUniformAndRepeatable);
 
   RUN(theScreenSaysWhatHappened);

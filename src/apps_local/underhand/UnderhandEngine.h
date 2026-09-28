@@ -179,6 +179,12 @@ void giveUp(Game& game);
 // Records a finished run.
 void finish(Profile& profile, const Game& game);
 
+// The original's two settings. Replaying the tutorial keeps the gods
+// summoned; starting over forgets everything, the tutorial with it (Reset
+// Tutorial and Reset Game).
+void replayTutorial(Profile& profile);
+void startOver(Profile& profile);
+
 // Whether a Game read back from storage is one these cards can continue.
 bool valid(const Game& game, const Cards& cards);
 

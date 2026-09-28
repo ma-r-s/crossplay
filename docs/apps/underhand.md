@@ -312,8 +312,23 @@ asked about on 2026-09-24.
 onto its card, and Back from it opens the menu. Headline (`TURN 17`, `FIRST
 RUN`, `NEW RUN`) over one line of what a run is (`Summon a god to win a run.
 Gods you summon stay.`), the seven gods (a skull by each summoned, a dash by
-the rest: a record, not controls), `HOW TO PLAY`, `GIVE UP` during a run, and
-the primary button at the bottom (`CONTINUE`, `BEGIN`, `START`).
+the rest: a record, not controls), `HOW TO PLAY`, `GIVE UP` during a run or
+`START OVER` between runs, and the primary button at the bottom (`CONTINUE`,
+`BEGIN`, `START`).
+
+**Starting over** is the original's two settings, Reset Tutorial and Reset
+Game, the only features of the original that were missing when Mario asked on
+2026-09-28 whether the whole game was there. `START OVER` shows between runs
+when there is something to reset, and asks: `REPLAY TUTORIAL` (the next run
+is the tutorial, the gods kept; `replayTutorial()`), `FORGET ALL` (a fresh
+profile, the tutorial with it; `startOver()`), or `BACK`. Either is saved at
+once.
+
+**What the original has that the port does not, on purpose:** its art and
+sound (the text is used by permission, nothing else), the credits (Mario's
+call), the volume and voice settings (there is no sound), and the gallery of
+god pictures. Its start-of-run overlay of gods is informational (its save
+holds no chosen god); the menu's list of gods carries the same.
 
 **Giving up** asks first (`KEEP PLAYING` goes back to the card), then ends
 the run as a loss (`LossReason::GaveUp`, the original's Forfeit) on the end

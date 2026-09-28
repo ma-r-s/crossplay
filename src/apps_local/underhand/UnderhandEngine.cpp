@@ -453,6 +453,10 @@ void giveUp(Game& game) {
   game.loss = LossReason::GaveUp;
 }
 
+void replayTutorial(Profile& profile) { profile.tutorialDone = false; }
+
+void startOver(Profile& profile) { profile = Profile{}; }
+
 void finish(Profile& profile, const Game& game) {
   profile.previous = -1;
   if (game.phase != Phase::Won || game.god < 0) return;

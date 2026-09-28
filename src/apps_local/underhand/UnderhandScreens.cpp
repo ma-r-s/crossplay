@@ -726,6 +726,23 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     return;
   }
 
+  if (model.confirmStartOver) {
+    label(screen, rect(x, body.y + 20, width, 70), "START OVER?", toybox::kDisplayFont, toybox::kDisplayCut,
+          fui::TextAlign::Left);
+    const char* sub = model.tutorial ? "Forget every god you have summoned and begin again. It cannot be undone."
+                                     : "Replay the tutorial and keep your gods, or forget everything and begin again. "
+                                       "It cannot be undone.";
+    prose(screen, rect(x, body.y + 100, width, lineHeight(screen) * 4), sub, 4);
+    if (model.tutorial) {
+      button(screen, rect(x, secondary, width, kButtonHeight), "FORGET ALL", ActionForgetAll, false);
+    } else {
+      button(screen, rect(x, secondary, half, kButtonHeight), "REPLAY TUTORIAL", ActionReplayTutorial, false);
+      button(screen, rect(x + half + kGap, secondary, half, kButtonHeight), "FORGET ALL", ActionForgetAll, false);
+    }
+    button(screen, rect(x, primary, width, kButtonHeight), "BACK", ActionCancel, true);
+    return;
+  }
+
   char headline[24];
   const char* sub = "";
   const char* go = "START";
@@ -775,6 +792,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   if (model.inRun) {
     button(screen, rect(x, secondary, half, kButtonHeight), "HOW TO PLAY", ActionHelp, false);
     button(screen, rect(x + half + kGap, secondary, half, kButtonHeight), "GIVE UP", ActionGiveUp, false);
+  } else if (model.mayStartOver) {
+    button(screen, rect(x, secondary, half, kButtonHeight), "HOW TO PLAY", ActionHelp, false);
+    button(screen, rect(x + half + kGap, secondary, half, kButtonHeight), "START OVER", ActionStartOver, false);
   } else {
     button(screen, rect(x, secondary, width, kButtonHeight), "HOW TO PLAY", ActionHelp, false);
   }

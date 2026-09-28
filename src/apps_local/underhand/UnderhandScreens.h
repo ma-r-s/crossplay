@@ -32,21 +32,24 @@ namespace fui = freeink::ui;
 namespace view = underhand::view;
 
 enum : fui::ActionId {
-  ActionMain = 1,       // menu: continue the run, or begin one
-  ActionNewRun = 2,     // menu: give up the run and start again; end: play again
-  ActionOption = 3,     // value: stamp(turn, option): pay it, or choose what pays
-  ActionContinue = 4,   // outcome and foresight: carry on
-  ActionSeen = 5,       // foresight: value is which card to keep or discard
-  ActionMenu = 6,       // end: back to the menu
-  ActionPay = 7,        // paying: value stamp(turn, option), pay what is picked
-  ActionPick = 8,       // paying: value is a resource, one more of it toward the cost
-  ActionCancel = 9,     // paying: back to the options; menu: keep the run
-  ActionGiveUp = 10,    // menu: ask before giving up the run
-  ActionHelp = 11,      // card: the bar of symbols; menu: how to play
-  ActionUnpick = 12,    // paying: value is a resource, one of it taken back
-  ActionHelpPage = 13,  // how to play: value is the page to show
-  ActionWay = 14,       // card: value stamp(turn, option * kWayStride + way), pay that way at once
-  ActionEndRun = 15,    // menu, asked to give up: end the run
+  ActionMain = 1,             // menu: continue the run, or begin one
+  ActionNewRun = 2,           // menu: give up the run and start again; end: play again
+  ActionOption = 3,           // value: stamp(turn, option): pay it, or choose what pays
+  ActionContinue = 4,         // outcome and foresight: carry on
+  ActionSeen = 5,             // foresight: value is which card to keep or discard
+  ActionMenu = 6,             // end: back to the menu
+  ActionPay = 7,              // paying: value stamp(turn, option), pay what is picked
+  ActionPick = 8,             // paying: value is a resource, one more of it toward the cost
+  ActionCancel = 9,           // paying: back to the options; menu: keep the run
+  ActionGiveUp = 10,          // menu: ask before giving up the run
+  ActionHelp = 11,            // card: the bar of symbols; menu: how to play
+  ActionUnpick = 12,          // paying: value is a resource, one of it taken back
+  ActionHelpPage = 13,        // how to play: value is the page to show
+  ActionWay = 14,             // card: value stamp(turn, option * kWayStride + way), pay that way at once
+  ActionEndRun = 15,          // menu, asked to give up: end the run
+  ActionStartOver = 16,       // menu between runs: ask which reset
+  ActionReplayTutorial = 17,  // menu, asked: the next run is the tutorial, the gods kept
+  ActionForgetAll = 18,       // menu, asked: forget every god and the tutorial
 };
 
 constexpr int kWayStride = 16;  // ways per option in an ActionWay payload
@@ -122,9 +125,11 @@ struct CardModel {
 
 struct MenuModel {
   bool inRun = false;
-  bool confirmGiveUp = false;  // asking before the run is thrown away
-  bool tutorial = false;       // the next run is the tutorial
-  bool saveSetAside = false;   // the save on the card could not be read
+  bool confirmGiveUp = false;     // asking before the run is thrown away
+  bool confirmStartOver = false;  // asking which reset, between runs
+  bool mayStartOver = false;      // something to reset: a god summoned or the tutorial done
+  bool tutorial = false;          // the next run is the tutorial
+  bool saveSetAside = false;      // the save on the card could not be read
   int turn = 0;
   int gods = 0;
   const char* godName[underhand::kMaxGods] = {};

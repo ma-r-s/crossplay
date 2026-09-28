@@ -37,9 +37,10 @@ int list(const Cards& cards, Save& s, Rng& rng) {
     for (int k = 0; k < c.optionCount; ++k) {
       Counts ways[32];
       const int n = view::payments(g, cards, k, ways, 32);
-      char why[112] = {};
-      if (view::optionState(g, cards, k) != view::OptionState::Open) view::whyNot(g, cards, k, why, sizeof(why));
-      std::printf("    %d ways=%-2d %s%s%s\n", k, n, cards.text(c.option[k].text), why[0] ? "  -- " : "", why);
+      const view::OptionState state = view::optionState(g, cards, k);
+      const view::Why why = view::whyNot(g, cards, k);
+      const char* closed = state == view::OptionState::Open ? "" : why.words[0] ? why.words : "SHORT";
+      std::printf("    %d ways=%-2d %s%s%s\n", k, n, cards.text(c.option[k].text), closed[0] ? "  -- " : "", closed);
     }
   }
   return 0;
