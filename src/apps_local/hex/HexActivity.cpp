@@ -96,7 +96,7 @@ void HexActivity::onEnter() {
   searchEnding = false;
   TaskHandle_t handle = nullptr;
   // Core 1 where there is one, for the same reason the render task is pinned
-  // there: a four second compute-bound task starves whichever core's idle task
+  // there: a compute-bound task of seconds starves whichever core's idle task
   // it shares, and core 0's is the one the system watches.
 #if defined(configNUM_CORES) && configNUM_CORES > 1
   constexpr BaseType_t searchCore = 1;

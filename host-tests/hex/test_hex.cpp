@@ -14,6 +14,7 @@
 // source: a test that asks the implementation whether the implementation is
 // right is a test that cannot fail.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -654,7 +655,7 @@ void testTheClockStopsTheSearchWhateverTheSimulationCountSays() {
 
   hexbrain::Settings settings = hexbrain::settingsFor(hex::Level::Hard);
   CHECK(settings.budgetMs > 0);
-  CHECK(settings.budgetMs <= 4500);
+  CHECK(settings.budgetMs <= 2000);
   settings.earlyStop = false;
   settings.simulations = 4000;
 
@@ -702,10 +703,11 @@ void testEveryLevelIsADifferentPlayer() {
   CHECK(normal.softmaxZ == 0.0f);
   CHECK(hard.softmaxZ == 0.0f);
   // EASY and NORMAL are small enough to need no clock: nothing is spent that
-  // does not change the move. HARD has one, under the five-second ceiling.
+  // does not change the move. HARD has one, and a player waits two seconds at
+  // most for it.
   CHECK(easy.budgetMs == 0 && easy.simulations <= 1000);
   CHECK(normal.budgetMs == 0 && normal.simulations <= 1000);
-  CHECK(hard.budgetMs > 0 && hard.budgetMs <= 4500);
+  CHECK(hard.budgetMs > 0 && hard.budgetMs <= 2000);
   // The parts that carry the strength are on at every level.
   for (const hexbrain::Settings& s : {easy, normal, hard}) {
     CHECK(s.bridge);
@@ -717,7 +719,7 @@ void testEveryLevelIsADifferentPlayer() {
   // An out-of-range level is somebody else's bug and must still be playable.
   const hexbrain::Settings fallback = hexbrain::settingsFor(hex::Level::Count_);
   CHECK(fallback.simulations > 0);
-  CHECK(fallback.budgetMs <= 4500);
+  CHECK(fallback.budgetMs <= 2000);
 }
 
 void testEveryMoveTheBrainOffersIsLegal() {
@@ -937,6 +939,53 @@ void testAPlayoutAlwaysFillsTheBoardAndNamesAWinner() {
   }
 }
 
+void testTheSelectionIsTheRaveBlendWithoutADivision() {
+  // The search picks a child by comparing fractions, cross-multiplied, because
+  // a division on the S3 is a soft-float call. The fraction is the RAVE blend
+  // multiplied out by hand, which is exactly the kind of algebra that goes
+  // wrong quietly: every move would still be legal. So the child it picks must
+  // be the one the blend written the plain way, in doubles, ranks first.
+  const float rf = hexbrain::settingsFor(hex::Level::Hard).raveFactor;
+  std::vector<hexbrain::Node> pool(1 + hex::kCells);
+  int checked = 0;
+  for (int trial = 0; trial < 20000; ++trial) {
+    hexbrain::Node& parent = pool[0];
+    parent = hexbrain::Node{};
+    parent.firstChild = 1;
+    parent.childCount = static_cast<uint8_t>(1 + nextRandom() % hex::kCells);
+    // Small counts on some trials, where the RAVE side dominates; large ones on
+    // others, where ties between near-equal fractions are the hazard.
+    const uint32_t scale = (trial % 3 == 0) ? 12u : (trial % 3 == 1) ? 400u : 20000u;
+    for (uint32_t i = 0; i < parent.childCount; ++i) {
+      hexbrain::Node& c = pool[1 + i];
+      c = hexbrain::Node{};
+      c.firstChild = hexbrain::kLeaf;
+      const uint32_t kind = nextRandom() % 4u;
+      if (kind == 0) continue;  // never seen, either way: first-play urgency
+      c.raveVisits = 1 + nextRandom() % scale;
+      c.raveWins = nextRandom() % (c.raveVisits + 1);
+      if (kind == 1) continue;  // seen only through RAVE
+      c.visits = 1 + nextRandom() % scale;
+      c.wins = nextRandom() % (c.visits + 1);
+    }
+    auto plain = [&](const hexbrain::Node& c) {
+      if (c.visits == 0 && c.raveVisits == 0) return 1.0;
+      const double alpha = rf / (rf + static_cast<double>(c.visits));
+      double value = 0.0;
+      if (c.raveVisits > 0) value += alpha * c.raveWins / static_cast<double>(c.raveVisits);
+      if (c.visits > 0) value += (1.0 - alpha) * c.wins / static_cast<double>(c.visits);
+      return value;
+    };
+    double top = -1.0;
+    for (uint32_t i = 0; i < parent.childCount; ++i) top = std::max(top, plain(pool[1 + i]));
+    const uint32_t picked = hexbrain::selectForTest(pool.data(), parent, rf);
+    CHECK(picked >= 1 && picked < 1u + parent.childCount);
+    CHECK(plain(pool[picked]) >= top * (1.0 - 1e-6));
+    ++checked;
+  }
+  CHECK(checked == 20000);
+}
+
 // --- the flow --------------------------------------------------------------
 
 void testBackLeavesTheAppOnlyFromTheFrontDoor() {
@@ -989,6 +1038,7 @@ int main() {
   testTheEarlyStopNeverChangesTheMove();
   testEveryLevelTakesTheWinAndBlocksTheLoss();
   testAPlayoutAlwaysFillsTheBoardAndNamesAWinner();
+  testTheSelectionIsTheRaveBlendWithoutADivision();
   testTheLevelsBeatEachOtherInOrder();
 
   testBackLeavesTheAppOnlyFromTheFrontDoor();

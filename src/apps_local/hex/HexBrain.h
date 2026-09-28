@@ -141,6 +141,10 @@ class Search {
 // filling every empty cell; returns the colour that owns the finished board.
 uint8_t playoutForTest(uint8_t board[hex::kCells], uint8_t toMove, uint32_t& seed, bool bridge);
 
+// Exposed for the suite: the child of `parent` (whose children live in `pool`)
+// that the search would descend into.
+uint32_t selectForTest(const Node* pool, const Node& parent, float raveFactor);
+
 // Exposed for the suite: who owns a finished board. The Hex theorem says this
 // is never "nobody", and the suite asserts it over random fills.
 uint8_t winnerOfFilledForTest(const uint8_t board[hex::kCells]);

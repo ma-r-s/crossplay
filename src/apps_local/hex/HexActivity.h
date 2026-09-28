@@ -34,7 +34,7 @@ class HexActivity final : public linkplay::LinkActivity {
   // the search task's notification, so nothing polls this while it runs. The
   // flag is true across the repaint that announces THINKING, which is the pass
   // before the search starts and the pass the sleep timer can still see -- so
-  // this stops the device sleeping INTO a search, not during one. A four-second
+  // this stops the device sleeping INTO a search, not during one. A two-second
   // think is short enough that the timer cannot expire inside it anyway.
   bool preventAutoSleep() override { return thinking || linkplay::LinkActivity::preventAutoSleep(); }
 

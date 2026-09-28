@@ -227,7 +227,7 @@ itself, 40 games a link (100 simulations = 0; about +/-65 Elo a link):
 | ------ | ---------------------------------------- | ------------- |
 | EASY   | 100 simulations, softmax z = 1           | a little above the first version's EASY |
 | NORMAL | 200 simulations, best move               | a little below the first version's HARD |
-| HARD   | up to 20,000 simulations in 4.5 s, best move | about +920: the X4 Pro reaches about 10,000 |
+| HARD   | up to 10,000 simulations in 2 s, best move | about +920 when the chip reaches 10,000 in time |
 
 About 650 Elo apart. EASY and NORMAL take a fraction of a second: they are
 weaker because they see less and choose more loosely, not because they burn the
@@ -242,7 +242,31 @@ sooner, most between 2.4 and 3 s. The tree peaked at 41,086 nodes, about 1 MB
 of the 2 MB pool. At that speed EASY's 100 simulations take about 45 ms and
 NORMAL's 200 about 90.
 
-The search runs on a **task of its own, pinned to core 1**, so a four-second
+**Then HARD was cut to two seconds, by making a simulation cheaper rather than
+by running fewer.** Fewer costs real strength. Against HARD at 10,000
+simulations, 100 games each on the laptop: 6,000 won 40, 4,000 won 24, 2,500
+won 16. The self-play ladder above flattens that end of the scale (4,000 and
+8,000 sit 55 Elo apart on it), and a direct match is what answers "is HARD
+still as hard".
+
+The cost was in the selection loop. The S3's FPU has no divide, so a float
+division compiles to a call into the ROM's soft-float `__divsf3`, and the RAVE
+blend written with divisions made three of those calls for every child of every
+node a simulation passes through: up to 121 children a node, several nodes
+deep. The blend multiplied out is `(rf * raveWins / raveVisits + wins) / (rf +
+visits)`; each child now keeps that as a fraction and the loop compares
+fractions by cross-multiplying, with no division left in the file (checked in
+the device compiler's output). Same moves: at 10,000 simulations the new loop
+won 57 of 100 against the old one. `testTheSelectionIsTheRaveBlendWithoutADivision`
+checks the fraction against the blend written the plain way over 20,000 random
+nodes.
+
+HARD is now 10,000 simulations under a 2 s clock. **The new loop's speed on the
+chip is not measured yet**; the clock caps the wait whatever it turns out to be,
+and if the chip falls short of 10,000 in two seconds the per-move log line says
+by how much.
+
+The search runs on a **task of its own, pinned to core 1**, so a two-second
 think cannot starve the core the system watchdog looks at. `thinking` is
 returned from `preventAutoSleep()`, and what that covers is narrower than it
 sounds: the loop task is blocked on the search task's notification while the

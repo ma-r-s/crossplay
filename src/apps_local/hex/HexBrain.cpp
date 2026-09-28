@@ -110,6 +110,43 @@ int centreMost(const hex::Game& game) {
   return best;
 }
 
+// RAVE-guided, no exploration term: alpha = rf / (rf + visits) moves a child
+// from its all-moves-as-first score to its own as it gains visits. A child with
+// neither is tried first (first-play urgency of 1).
+//
+// Multiplied out, the blend is (rf * raveWins / raveVisits + wins) / (rf +
+// visits), and each child's value is kept as that fraction and compared by
+// cross-multiplying. The S3's FPU has no divide: a float division compiles to
+// a call into the ROM's soft-float __divsf3, and the blend written with
+// divisions made three of those calls per child, for every child of every node
+// a simulation passes through.
+uint32_t bestChild(const Node* pool, const Node& parent, const float raveFactor) {
+  uint32_t best = parent.firstChild;
+  float bestNum = -1.0f;
+  float bestDen = 1.0f;
+  const Node* child = &pool[parent.firstChild];
+  for (uint32_t i = 0; i < parent.childCount; ++i, ++child) {
+    float num = 1.0f;
+    float den = 1.0f;
+    const float visits = static_cast<float>(child->visits);
+    const float wins = static_cast<float>(child->wins);
+    if (child->raveVisits > 0) {
+      const float raveVisits = static_cast<float>(child->raveVisits);
+      num = raveFactor * static_cast<float>(child->raveWins) + wins * raveVisits;
+      den = raveVisits * (raveFactor + visits);
+    } else if (child->visits > 0) {
+      num = wins;
+      den = raveFactor + visits;
+    }
+    if (num * bestDen > bestNum * den) {
+      bestNum = num;
+      bestDen = den;
+      best = parent.firstChild + i;
+    }
+  }
+  return best;
+}
+
 }  // namespace
 
 uint32_t Search::allocate(const uint32_t count) {
@@ -137,28 +174,8 @@ void Search::expand(const uint32_t node, const uint8_t board[hex::kCells]) {
   pool_[node].childCount = static_cast<uint8_t>(empties);
 }
 
-// RAVE-guided, no exploration term: alpha = rf / (rf + visits) moves a child
-// from its all-moves-as-first score to its own as it gains visits. A child with
-// neither is tried first (first-play urgency of 1).
 uint32_t Search::select(const Node& parent, const float raveFactor) const {
-  uint32_t best = parent.firstChild;
-  float bestValue = -1.0f;
-  for (uint32_t i = 0; i < parent.childCount; ++i) {
-    const Node& child = pool_[parent.firstChild + i];
-    float value = 1.0f;
-    if (child.visits > 0 || child.raveVisits > 0) {
-      const float alpha = raveFactor / (raveFactor + static_cast<float>(child.visits));
-      value = 0.0f;
-      if (child.raveVisits > 0)
-        value += alpha * static_cast<float>(child.raveWins) / static_cast<float>(child.raveVisits);
-      if (child.visits > 0) value += (1.0f - alpha) * static_cast<float>(child.wins) / static_cast<float>(child.visits);
-    }
-    if (value > bestValue) {
-      bestValue = value;
-      best = parent.firstChild + i;
-    }
-  }
-  return best;
+  return bestChild(pool_, parent, raveFactor);
 }
 
 // Carry the subtree for the position two plies on -- our last move and the
@@ -219,15 +236,14 @@ bool Search::reroot(const hex::Game& game) {
   return true;
 }
 
-// The three levels, placed on one scale by matches of this engine against
-// itself (docs/apps/hex.md has the ladder). Evenly spaced, about 650 Elo apart:
-// EASY a little above the first version's EASY, NORMAL a little below its
-// HARD, and HARD whatever the chip can search in four and a half seconds --
-// about 10,000 simulations on the X4 Pro, which runs 2,250 a second (measured
-// on a device, 2026-09-28), and the early stop usually ends it sooner.
-// EASY and NORMAL cost a fraction of a second: they are weaker because they
-// see less and choose more loosely, not because they burn the same time on a
-// worse algorithm.
+// The three levels (docs/apps/hex.md has the ladder and the matches). EASY a
+// little above the first version's EASY, NORMAL a little below its HARD: both
+// cost a fraction of a second, and they are weaker because they see less and
+// choose more loosely, not because they burn the same time on a worse
+// algorithm. HARD is the strength the X4 Pro reached in four and a half
+// seconds before the selection loop lost its divisions (10,000 simulations;
+// 4,000 won 24 of 100 against it, 6,000 won 40), under a clock of two seconds
+// so the wait has a ceiling whatever the chip manages.
 Settings settingsFor(const hex::Level level) {
   Settings s;
   switch (level) {
@@ -242,8 +258,8 @@ Settings settingsFor(const hex::Level level) {
     case hex::Level::Count_:
       break;
   }
-  s.simulations = 20000;
-  s.budgetMs = 4500;
+  s.simulations = 10000;
+  s.budgetMs = 2000;
   return s;
 }
 
@@ -281,13 +297,14 @@ int Search::choose(const hex::Game& game, const Settings& settings, uint32_t& se
   if (pool_[root_].firstChild == kLeaf) expand(root_, rootCells_);
   if (pool_[root_].firstChild == kLeaf) return centreMost(game);
 
+  const uint32_t target = settings.simulations;
   const uint32_t began = clock != nullptr ? clock() : 0;
   uint8_t board[hex::kCells];
   uint32_t path[hex::kCells + 2];
   uint32_t sims = 0;
-  for (; sims < settings.simulations; ++sims) {
+  for (; sims < target; ++sims) {
     if ((sims & 31) == 0 && sims > 0) {
-      uint32_t remaining = settings.simulations - sims;
+      uint32_t remaining = target - sims;
       if (clock != nullptr && settings.budgetMs > 0) {
         const uint32_t elapsed = clock() - began;
         if (elapsed >= settings.budgetMs) break;
@@ -395,6 +412,10 @@ namespace hexbrain {
 
 uint8_t playoutForTest(uint8_t board[hex::kCells], const uint8_t toMove, uint32_t& seed, const bool bridge) {
   return playout(board, toMove, seed, bridge);
+}
+
+uint32_t selectForTest(const Node* pool, const Node& parent, const float raveFactor) {
+  return bestChild(pool, parent, raveFactor);
 }
 
 uint8_t winnerOfFilledForTest(const uint8_t board[hex::kCells]) {
