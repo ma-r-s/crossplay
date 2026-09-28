@@ -95,18 +95,18 @@ uint8_t borderOwner(const int cell, const int dir) {
   return hex::kWhite;
 }
 
-void drawBoard(toybox::Screen& screen, const Layout& layout, const hex::Game& game, const uint8_t* chain,
-               const bool markLast) {
+void drawBoard(toybox::Screen& screen, const Layout& layout, const BorderStrip* strips, const int stripCount,
+               const hex::Game& game, const uint8_t* chain, const bool markLast) {
   // The band that says whose edge is whose. Black's strips are solid ink and
   // White's are paper with a rail along the outside, which is the same
   // filled-versus-outlined pair the stones use -- so a player reads which edges
   // are theirs from the same language as the piece in their hand.
   //
-  // The strips come back MITRED (see borderStrips), so the band is one shape
-  // round the board. Drawn as independent bars it had a notch at every joint of
-  // the staircase, which is every other pixel of the two slanted sides.
-  BorderStrip strips[kMaxBorderStrips];
-  const int stripCount = borderStrips(layout, strips);
+  // The strips are MITRED (see borderStrips), so the band is one shape round
+  // the board. Drawn as independent bars it had a notch at every joint of the
+  // staircase, which is every other pixel of the two slanted sides. The caller
+  // builds them, once a screen: the front door needs them again for its words,
+  // and two copies of ninety strips is stack the render task does not have.
   const fui::Paint paper = fui::Paint::solid(fui::Color::White);
   const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
   for (int i = 0; i < stripCount; ++i) {
@@ -336,12 +336,12 @@ SeatCardLayout seatCardLayout(const fui::DrawTarget& target, const fui::Rect& bo
 
 int borderStrips(const Layout& layout, BorderStrip out[kMaxBorderStrips]) {
   const int16_t depth = borderDepth(layout.h);
-  // Each strip's outer edge as a line in doubles: the mitre is an intersection,
-  // and rounding the offsets first is what let neighbouring bars miss each other.
-  double ax[kMaxBorderStrips];
-  double ay[kMaxBorderStrips];
-  double bx[kMaxBorderStrips];
-  double by[kMaxBorderStrips];
+  // Each strip's outward offset, kept unrounded: the mitre is an intersection
+  // of two offset edges, and rounding the offsets first is what let
+  // neighbouring bars miss each other. Floats, because this runs on the render
+  // task's stack and a pixel does not need a double.
+  float offX[kMaxBorderStrips];
+  float offY[kMaxBorderStrips];
   int count = 0;
   for (int cell = 0; cell < hex::kCells && count < kMaxBorderStrips; ++cell) {
     for (int dir = 0; dir < 6 && count < kMaxBorderStrips; ++dir) {
@@ -353,20 +353,20 @@ int borderStrips(const Layout& layout, BorderStrip out[kMaxBorderStrips]) {
       hexagonVertices(layout, cx, cy, v);
       // The outward direction IS the vector to the missing neighbour's centre,
       // so the strip cannot drift away from the edge it belongs to.
-      const double dx = 3.0 * layout.a * hex::kNeighbourCol[dir];
-      const double dy =
-          2.0 * layout.h * hex::kNeighbourRow[dir] + static_cast<double>(layout.h) * hex::kNeighbourCol[dir];
-      const double length = std::sqrt(dx * dx + dy * dy);
-      const double ox = dx * depth / length;
-      const double oy = dy * depth / length;
+      const float dx = 3.0f * layout.a * hex::kNeighbourCol[dir];
+      const float dy =
+          2.0f * layout.h * hex::kNeighbourRow[dir] + static_cast<float>(layout.h) * hex::kNeighbourCol[dir];
+      const float length = std::sqrt(dx * dx + dy * dy);
       BorderStrip& strip = out[count];
       strip.from = v[dir];
       strip.to = v[(dir + 1) % kVertexCount];
       strip.owner = borderOwner(cell, dir);
-      ax[count] = strip.from.x + ox;
-      ay[count] = strip.from.y + oy;
-      bx[count] = strip.to.x + ox;
-      by[count] = strip.to.y + oy;
+      offX[count] = dx * depth / length;
+      offY[count] = dy * depth / length;
+      strip.outFrom = fui::Point{static_cast<int16_t>(std::lround(strip.from.x + offX[count])),
+                                 static_cast<int16_t>(std::lround(strip.from.y + offY[count]))};
+      strip.outTo = fui::Point{static_cast<int16_t>(std::lround(strip.to.x + offX[count])),
+                               static_cast<int16_t>(std::lround(strip.to.y + offY[count]))};
       ++count;
     }
   }
@@ -377,42 +377,30 @@ int borderStrips(const Layout& layout, BorderStrip out[kMaxBorderStrips]) {
   // cross: a convex joint gains the corner a pair of bars left empty and a
   // concave one loses the overlap. The vertices are integers computed the same
   // way on both sides, so the comparison is exact.
-  double endX[kMaxBorderStrips];
-  double endY[kMaxBorderStrips];
-  double startX[kMaxBorderStrips];
-  double startY[kMaxBorderStrips];
-  for (int i = 0; i < count; ++i) {
-    startX[i] = ax[i];
-    startY[i] = ay[i];
-    endX[i] = bx[i];
-    endY[i] = by[i];
-  }
   for (int i = 0; i < count; ++i) {
     for (int j = 0; j < count; ++j) {
       if (j == i || out[j].from.x != out[i].to.x || out[j].from.y != out[i].to.y) continue;
-      const double d1x = bx[i] - ax[i];
-      const double d1y = by[i] - ay[i];
-      const double d2x = bx[j] - ax[j];
-      const double d2y = by[j] - ay[j];
-      const double denom = d1x * d2y - d1y * d2x;
-      double px = 0.5 * (bx[i] + ax[j]);
-      double py = 0.5 * (by[i] + ay[j]);
-      if (std::fabs(denom) > 1e-9) {
-        const double t = ((ax[j] - ax[i]) * d2y - (ay[j] - ay[i]) * d2x) / denom;
-        px = ax[i] + t * d1x;
-        py = ay[i] + t * d1y;
+      const float ax = out[i].from.x + offX[i];
+      const float ay = out[i].from.y + offY[i];
+      const float d1x = static_cast<float>(out[i].to.x - out[i].from.x);
+      const float d1y = static_cast<float>(out[i].to.y - out[i].from.y);
+      const float cx = out[j].from.x + offX[j];
+      const float cy = out[j].from.y + offY[j];
+      const float d2x = static_cast<float>(out[j].to.x - out[j].from.x);
+      const float d2y = static_cast<float>(out[j].to.y - out[j].from.y);
+      const float denom = d1x * d2y - d1y * d2x;
+      float px = 0.5f * (ax + d1x + cx);
+      float py = 0.5f * (ay + d1y + cy);
+      if (std::fabs(denom) > 1e-6f) {
+        const float t = ((cx - ax) * d2y - (cy - ay) * d2x) / denom;
+        px = ax + t * d1x;
+        py = ay + t * d1y;
       }
-      endX[i] = px;
-      endY[i] = py;
-      startX[j] = px;
-      startY[j] = py;
+      const fui::Point mitre{static_cast<int16_t>(std::lround(px)), static_cast<int16_t>(std::lround(py))};
+      out[i].outTo = mitre;
+      out[j].outFrom = mitre;
       break;
     }
-  }
-  for (int i = 0; i < count; ++i) {
-    out[i].outFrom =
-        fui::Point{static_cast<int16_t>(std::lround(startX[i])), static_cast<int16_t>(std::lround(startY[i]))};
-    out[i].outTo = fui::Point{static_cast<int16_t>(std::lround(endX[i])), static_cast<int16_t>(std::lround(endY[i]))};
   }
   return count;
 }
@@ -598,10 +586,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   mini.h = static_cast<int16_t>((mini.a * 1732 + 500) / 1000);
   mini.left = static_cast<int16_t>((screen.device().width - mini.a * 34) / 2);
   mini.top = static_cast<int16_t>(areaTop + (areaBottom - areaTop - mini.h * 32) / 2);
-  drawBoard(screen, mini, picture, nullptr, false);
-
   BorderStrip strips[kMaxBorderStrips];
   const int stripCount = borderStrips(mini, strips);
+  drawBoard(screen, mini, strips, stripCount, picture, nullptr, false);
   const NotchLine uiLine{nullptr, toybox::kUiFont, &toybox::kUiCut};
   const NotchLine tileLine{nullptr, toybox::kTileFont, &toybox::kTileCut};
 
@@ -692,7 +679,9 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   toyboxChrome(screen, "HEX", right);
 
   const Layout layout = boardLayout(screen.device());
-  drawBoard(screen, layout, model.game, nullptr, true);
+  BorderStrip strips[kMaxBorderStrips];
+  const int stripCount = borderStrips(layout, strips);
+  drawBoard(screen, layout, strips, stripCount, model.game, nullptr, true);
 
   const uint8_t yours = model.seat;
   const uint8_t theirs = hex::other(yours);
@@ -714,7 +703,9 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   toyboxChrome(screen, headline, moves);
 
   const Layout layout = boardLayout(screen.device());
-  drawBoard(screen, layout, model.game, model.chain, false);
+  BorderStrip strips[kMaxBorderStrips];
+  const int stripCount = borderStrips(layout, strips);
+  drawBoard(screen, layout, strips, stripCount, model.game, model.chain, false);
 
   // No seat card: the game is over, the band has named the winner and the
   // marked chain shows the connection. The notches hold the two doors instead
