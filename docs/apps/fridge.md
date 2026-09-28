@@ -835,6 +835,51 @@ attempt starts from here rather than from the idea:
    drifts about a percent and the reader only fetches on its way into sleep.
    `roughSpan` bands both sides already.
 
+## The reader's battery (card #591)
+
+Mario, 2026-09-24: _"Wouldn't it be nice to also have the latest battery status
+to know if it might need charging too?"_ The page shows the reader's battery as a
+chip beside the schedule chip, and tapping it opens thirty days of it as a line.
+
+**It costs the reader nothing.** The figure rides the pull the reader already
+makes, as one more header (`X-Battery`, a whole percent), so there is no extra
+wake, request or radio time. The gauge is read BEFORE the radio comes up,
+because a Wi-Fi join sags the cell and a board that estimates charge from
+voltage would report the sag. It is the checked read, not
+`getBatteryPercentage()`, which answers a failed read with its cache -- and on a
+wake the cache is the 0 it was born with.
+
+**Absent is never 0.** A gauge that did not answer sends no header; the service
+stores nothing for it and keeps the last real reading standing; the page shows
+no chip at all until a reader has reported once. A 0% nobody measured sends
+somebody across town with a charger.
+
+**Everything is as of the last check.** The age sits beside the figure, and the
+graph's axis runs to NOW rather than to the last reading, so a reader that has
+gone quiet leaves empty paper at the right: the line ends where the knowledge
+ends.
+
+**Only what the readings can support.** The service works out two things and
+sends each only when it can stand behind it:
+
+- `chargedAt`, the reading that stood fifteen points above the lowest since the
+  previous charge. Fifteen because the X4 and PaperMono read voltage and report
+  in tens, so a boundary wobble (60, 70, 60) is noise; against the running low,
+  not the neighbour, so a charge seen two points at a time still adds up.
+- `daysLeft`, a least-squares slope over the discharge from the last reading at
+  the top (a day held at 100% on the cable is not a slow drain), once it spans
+  two days and three points of drop, **counted from now**: a reader that went
+  quiet at 8% with two days left has less than that a week later. 0 means the
+  projection has run out, and the page says it as a projection.
+
+With fewer readings the page says nothing about either.
+
+**Stored beside `state.json`**, as `battery.log`, one line per check-in, trimmed
+to thirty days once it passes 64KB. At the fastest schedule that is 2880 lines,
+which state.json would rewrite and re-parse on every request the page makes.
+The checkin event carries it too, so the fleet board has the same curve for
+every fridge -- which is also the long-run answer to Phase 0's sleep floor.
+
 ## Still to build
 
 1. Arming the timer on every sleep, and the boot path for a timer wake.

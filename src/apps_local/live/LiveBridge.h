@@ -124,6 +124,11 @@ bool reportOff(const std::string& deviceToken, std::string& message);
 // is (it is the interval in its own reply), but not whether somebody has
 // switched Live off since the last one.
 //
+// `batteryPercent` goes out as X-Battery for the same reason: nobody can ask a
+// sleeping reader, and a call of its own would double what a wake costs. The
+// caller reads it BEFORE the radio comes up. -1 is a gauge that could not be
+// read, and sends no header rather than a 0%.
+//
 // The reader deliberately does NOT report its own alarm. It cannot: the
 // headers are composed before the reply is read, and a pull the reader gets an
 // answer to clears its failures and makes it adopt the interval in that reply,
@@ -137,8 +142,8 @@ bool reportOff(const std::string& deviceToken, std::string& message);
 // valid size. On 304 and 204 NOTHING is written and nothing is repainted: that
 // is the wake this whole design is built around, and a card write on it would
 // be the cost the 304 exists to avoid.
-bool pull(const std::string& deviceToken, const std::string& knownEtag, bool liveOn, const char* destPath,
-          PullResult& out);
+bool pull(const std::string& deviceToken, const std::string& knownEtag, bool liveOn, int batteryPercent,
+          const char* destPath, PullResult& out);
 
 // The CEILING on what a pull may write to the card, not an expected size.
 //

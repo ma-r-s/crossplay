@@ -106,7 +106,10 @@ file refused before the confirmation prompt counts). `ok` is inferred from
 the version having moved, never from what the install screen said, so an
 install that "succeeded" into the same version reads as not ok with no
 error; the 6.25MB slots of a device flashed before v1.5.3 come back as
-`too_large`.
+`too_large`, the other board's file as `wrong_device`, and a file that is
+not an application image by what failed: `bad_magic` (an `.elf`, or not an
+ESP image at all), `bad_segments`, `bad_checksum`, `bad_sha` (bytes lost on
+the way), `bad_size`. Until 2026-09-28 those five were one word, `invalid`.
 
 A request that carries none of this (a browser, a curl, an older firmware)
 is served exactly as before and counted under whatever the service already

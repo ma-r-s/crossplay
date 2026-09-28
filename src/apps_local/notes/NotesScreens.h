@@ -12,21 +12,21 @@
 //
 // **NOTHING IS EVER ELIDED.** Not by us and not by the list component either,
 // which will happily truncate a label to "Packing for Lisbon an..." if it is
-// handed one too long. So every variable string is measured here first and the
-// row is given a cut it fits in, or two lines of one. `notes::pickCut` returns
-// 0 when even the smallest cut cannot hold a string in the lines available,
-// and the only caller that can happen to breaks the line instead.
+// handed one too long. Every variable string is broken into lines HERE, by one
+// rule, and each line is handed to the renderer on its own, so nothing it draws
+// was wrapped or cut by anything else. The two exceptions are said where they
+// are: a deck card's preview, and an item longer than a whole page.
 //
-// **PEERS SHARE A CUT.** The rows of a deck, and the lines of a list, mean
-// "compare these with each other". Sized one by one, a long row comes out
-// smaller than the rows beside it and reads as a different kind of thing. So
-// the cut is chosen once, from the widest member, and every row is set in it.
-// The Connections board paid for this on 58% of its archive.
+// **PEERS SHARE A CUT -- THE BODY CUT -- AND NOTHING SHRINKS IT.** The rows of
+// a list and the names on the deck are compared with each other, so they are
+// set in one face. That face used to be chosen from the LONGEST member, which
+// meant one pasted sentence set a whole shopping list in small print. A long
+// item takes more lines instead: rows share a cut, not a height.
 //
 // **ROWS FILL THE PAGE.** A screen that holds its image for hours cannot have a
-// slab of nothing above its footer. The row height is derived from the band and
-// the number of rows on the page, within a finger-sized floor and a ceiling, so
-// a full page is full rather than top-aligned with 280px of air under it.
+// slab of nothing above its footer. When a whole list fits on one page its rows
+// share the spare height, up to a cap, so three items are not three lines at
+// the top of an empty page.
 //
 // There is no OFTEN row and no add screen. Both existed to make re-adding a
 // frequent item one tap; Mario cut them, and the whole add screen went with
@@ -35,6 +35,7 @@
 // choice among four rather than a second way of looking at the note.
 
 #include <cstdint>
+#include <vector>
 
 #include "../ui/ToyboxScreen.h"
 
@@ -58,20 +59,6 @@ enum : fui::ActionId {
   ActionSwitchKind = 352,
   ActionDismiss = 349,
 };
-
-// --- Shared measuring ----------------------------------------------------
-
-// The largest cut in which every one of `strings` fits `width` in at most
-// `maxLines` lines, with nothing dropped. Returns 0 when even the smallest
-// cannot, which is the caller's signal to break rather than to shrink.
-// `onlyProbeCut` asks for the probe's own cut or nothing, for a caller that
-// wants to try a wrapping arrangement at this size before dropping a size.
-fui::FontId pickCut(const fui::DrawTarget& target, const char* const* strings, int count, int16_t width, int maxLines,
-                    const fui::TextStyle& probe, bool onlyProbeCut = false);
-
-// How many lines `text` needs at `style`'s cut, or 0 if more than `maxLines`.
-int linesNeeded(const fui::DrawTarget& target, const char* text, int16_t width, int maxLines,
-                const fui::TextStyle& style);
 
 // --- The deck ------------------------------------------------------------
 
@@ -101,7 +88,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model);
 // How many rows a page of this deck holds. Asked of the same layout the drawing
 // uses, so the page label, the physical keys and the drawn rows cannot
 // disagree; two functions that must agree are two functions that can differ.
-int deckCapacity(const fui::DrawTarget& target, const fui::DeviceContext& device, const DeckModel& model);
+int deckCapacity(const fui::DeviceContext& device);
 
 // --- A note, open --------------------------------------------------------
 
@@ -140,7 +127,16 @@ struct NoteModel {
 };
 
 void buildNote(toybox::Screen& screen, const NoteModel& model);
-int noteCapacity(const fui::DrawTarget& target, const fui::DeviceContext& device, const NoteModel& model);
+// Where each page of the note begins: an ITEM index on a list, a LINE index on a
+// note, whose paragraphs flow across pages. Page one always begins at 0. The
+// Activity steps through these and hands one back as firstVisible, so the page
+// it counts is the page that is drawn -- both come from one layout pass.
+std::vector<int> notePageStarts(const fui::DrawTarget& target, const fui::DeviceContext& device,
+                                const NoteModel& model);
+// The page on which `item` BEGINS. Not simply the last page: a note's
+// paragraphs flow across pages, so a paragraph added at the end can start on
+// the page before the last and continue onto it.
+int notePageOfItem(const fui::DrawTarget& target, const fui::DeviceContext& device, const NoteModel& model, int item);
 
 // --- The menu ------------------------------------------------------------
 

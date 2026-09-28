@@ -26,6 +26,16 @@ uint32_t retryDelaySeconds(const int consecutiveFailures) {
   return delay > kMaxRetrySeconds ? kMaxRetrySeconds : delay;
 }
 
+std::string batteryHeader(const int percent) {
+  if (percent < 0 || percent > 100) return "";
+  // Sized for any int, not for the 0..100 the guard above allows: the width
+  // check reads the format, not the guard, and a buffer that is only right
+  // because of a line above it is one edit from truncating.
+  char out[12];
+  std::snprintf(out, sizeof(out), "%d", percent);
+  return out;
+}
+
 std::string unquoteEtag(const std::string& raw) {
   std::string out = raw;
   // A weak validator is still a validator. This service does not send W/, but

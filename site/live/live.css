@@ -298,10 +298,21 @@
 /* The schedule, closed: one button that says what the schedule IS. It is the
    smallest target on the board because it is the one control set once and left
    alone, and it opens the panel below rather than being a control itself. */
-.lv-btn.lv-every {
+/* The chips' place in the card. The grid rules that used to sit on the
+   schedule chip sit here now, so a second chip lands beside it at every width
+   rather than needing a column of its own in four layouts. */
+.lv-chips {
   grid-column: 2;
   grid-row: 2;
   align-self: center;
+  justify-self: end;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.lv-btn.lv-every {
   display: flex;
   align-items: baseline;
   gap: 0.35rem;
@@ -394,6 +405,91 @@
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.25;
+}
+
+/* --- the battery -----------------------------------------------------------
+ * A chip that says the figure and a panel that says where it has been. Ink on
+ * paper like everything else here: the graph is a line and a tint under it, and
+ * the only emphasis is the chip going solid when the battery is low.
+ */
+.lv-btn.lv-batt {
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}
+.lv-batt-icon {
+  width: 1.45em;
+  height: 0.8em;
+  flex: none;
+  overflow: visible;
+}
+.lv-batt-case,
+.lv-batt-tip {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.lv-batt-tip {
+  stroke-linecap: round;
+}
+.lv-batt-level {
+  fill: currentColor;
+}
+/* LOW is the one state worth noticing from across the page, so it is the one
+   state that changes the chip's weight rather than its words. */
+.lv-btn.lv-batt.is-low {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.lv-batt-now {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.lv-batt-figure {
+  font-family: var(--display);
+  font-size: 2rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.lv-batt-age {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.lv-batt-graph {
+  min-height: 7.5rem;
+}
+.lv-batt-graph svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.lv-batt-grid {
+  stroke: var(--lv-line);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.lv-batt-area {
+  fill: var(--ink);
+  opacity: 0.08;
+}
+.lv-batt-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.lv-batt-dot {
+  fill: var(--ink);
+}
+.lv-batt-label {
+  fill: var(--muted);
+  font-family: var(--display);
+  font-size: 11px;
+  letter-spacing: 0.03em;
 }
 
 /* --- the way in, and the surface it opens --------------------------------
@@ -1359,9 +1455,11 @@
   .lv-tick {
     grid-column: 1 / -1;
   }
-  .lv-btn.lv-every {
+  .lv-chips {
     grid-row: auto;
     align-self: center;
+  }
+  .lv-btn.lv-every {
     font-size: 0.8rem;
   }
   .lv-when-sub {
@@ -1469,7 +1567,7 @@
     grid-column: 2;
     margin-top: 0;
   }
-  body.lv-connected .lv-btn.lv-every {
+  body.lv-connected .lv-chips {
     grid-column: 3;
     grid-row: 1;
   }
@@ -1596,14 +1694,23 @@
     font-size: 0.9rem;
     margin-top: 0.3rem;
   }
+  /* STACKED, and spanning the headline and the count. Side by side the two
+     chips took the width the headline had, and "They will see this in about"
+     broke onto two lines for a battery figure. */
+  .lv-chips {
+    grid-row: 1 / span 2;
+    flex-direction: column;
+    align-items: stretch;
+  }
   .lv-btn.lv-every {
-    grid-row: 1;
     font-size: 1rem;
     padding: 0.4rem 0.8rem;
   }
+  /* THE COLUMN'S WIDTH, like the card above it and the tabs below. Capped at
+     34rem it stopped short of the countdown card's edge by a few centimetres,
+     which read as a mistake the moment the battery graph opened there. */
   .lv-sched {
     grid-area: sched;
-    max-width: 34rem;
   }
   .lv-sched-row {
     gap: 0.7rem;
