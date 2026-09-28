@@ -11,7 +11,7 @@
 #
 # None of those four builds was new work. `check.sh --committed` already clones
 # the committed tree detached into TMPDIR, inits submodules, and builds
-# `gh_release_x4pro` and `gh_release_sticky` against the shared object cache --
+# `gh_release_x4pro`, `gh_release_sticky` and `gh_release_papermono` against the shared object cache --
 # the exact two envs crossplay-release.yml recompiled forty minutes later. The
 # binary a user installs already existed on this disk and was thrown away.
 #
@@ -429,20 +429,36 @@ if [ "$DRY" = 1 ]; then
   say "   would: gh pr merge $PR_NUMBER --squash"
   say "   would: compare the new trunk tree against $(git rev-parse --short HEAD)'s"
 else
-  BRANCH_TREE="$(git rev-parse 'HEAD^{tree}')"
+  BRANCH_HEAD="$(git rev-parse HEAD)"
   run "gh pr merge '$PR_NUMBER' --repo ma-r-s/crossplay --squash --delete-branch=false"
   run "git fetch -q origin xteink"
   TRUNK_NEW="$(git rev-parse origin/xteink)"
-  TRUNK_TREE="$(git rev-parse "$TRUNK_NEW^{tree}")"
-  if [ "$BRANCH_TREE" != "$TRUNK_TREE" ]; then
+  # SAME FIRMWARE, NOT SAME TREE. crossplay-emulator.yml commits
+  # site/emulator-manifest.json to xteink by itself, about fifteen minutes
+  # after any push that touches the emulator's sources -- which is every merge
+  # of app code, and lands squarely inside this script's own gate. The first
+  # version compared whole trees, so on 2026-09-28 three releases in a row
+  # landed their squash and then refused to publish over that one file, twice
+  # leaving a merged change nobody could release (this script's "Re-run"
+  # needs an open pull request, and the one it just merged is not). The
+  # manifest and site/emulator/ are the website's; nothing under them is
+  # compiled into an image, so they are the one difference that cannot make
+  # the images wrong. Anything else still stops the release.
+  DIFFERS="$(git diff --name-only "$BRANCH_HEAD" "$TRUNK_NEW" -- . ':(exclude)site/emulator-manifest.json' ':(exclude)site/emulator')"
+  if [ -n "$DIFFERS" ]; then
     die "the squash landed a different tree than the one the gate built.
-    branch $BRANCH_TREE
-    trunk  $TRUNK_TREE
+    branch $(git rev-parse "$BRANCH_HEAD^{tree}")
+    trunk  $(git rev-parse "$TRUNK_NEW^{tree}")
+    differing: $(printf '%s' "$DIFFERS" | head -5 | tr '\n' ' ')
     Something else landed between the gate and the merge, so the images in
     the handover are not what is on xteink. Nothing tagged, nothing
     published. Re-run: the gate will rebuild against the new trunk."
   fi
-  say "  xteink is now $(git rev-parse --short "$TRUNK_NEW"), same tree the gate built"
+  if [ "$(git rev-parse "$BRANCH_HEAD^{tree}")" = "$(git rev-parse "$TRUNK_NEW^{tree}")" ]; then
+    say "  xteink is now $(git rev-parse --short "$TRUNK_NEW"), same tree the gate built"
+  else
+    say "  xteink is now $(git rev-parse --short "$TRUNK_NEW"); it differs from the gate's tree only in the site's emulator manifest, which no image contains"
+  fi
   run "git checkout -q --detach '$TRUNK_NEW'"
 fi
 
@@ -530,7 +546,7 @@ step "package"
 DIST="$REPO/dist"
 run "rm -rf '$DIST' && mkdir -p '$DIST'"
 
-for env_name in gh_release_x4pro gh_release_sticky; do
+for env_name in gh_release_x4pro gh_release_sticky gh_release_papermono; do
   for f in firmware.bin firmware.elf partitions.bin bootloader.bin; do
     if [ "$DRY" = 0 ] && [ ! -f "$IMAGES/$env_name/$f" ]; then
       die "$IMAGES/$env_name/$f is missing. The gate reported success and handed over an incomplete set, which is how v1.12.14 and v1.12.15 shipped without a bootloader."
@@ -539,8 +555,8 @@ for env_name in gh_release_x4pro gh_release_sticky; do
 done
 
 
-# BOTH BOARDS SPELLED OUT, and that is deliberate rather than lazy. A loop
-# over the two envs reads better and hides the two things worth reading: the
+# EVERY BOARD SPELLED OUT, and that is deliberate rather than lazy. A loop
+# over the envs reads better and hides the two things worth reading: the
 # offsets the S3 boot ROM expects, and which env each artefact came from.
 # crossplay-release.yml spelled them out for the same reason, and a comment in
 # it records why -- gh_release_x4pro and gh_release_sticky were appended to
@@ -568,12 +584,25 @@ run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
 run "cp $IMAGES/gh_release_sticky/firmware.bin '$DIST/firmware-sticky.bin'"
 run "cp $IMAGES/gh_release_sticky/firmware.elf '$DIST/crossplay-$TAG-sticky.elf'"
 
+# M5Stack PaperMono and PaperMono-Lite share one image (card #617, carried from
+# Santiago Gutierrez's #208, which flashed it on a PaperMono-Lite). Its update
+# asset is firmware-papermono.bin: CROSSPOINT_RELEASE_ASSET in
+# FirmwareBoardTag.h gives every board after the x4pro the suffixed name.
+run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
+    -o '$DIST/crossplay-$TAG-papermono-full.bin' \
+    -fm keep -fs keep -ff keep \
+    0x0     $IMAGES/gh_release_papermono/bootloader.bin \
+    0x8000  $IMAGES/gh_release_papermono/partitions.bin \
+    0x10000 $IMAGES/gh_release_papermono/firmware.bin"
+run "cp $IMAGES/gh_release_papermono/firmware.bin '$DIST/firmware-papermono.bin'"
+run "cp $IMAGES/gh_release_papermono/firmware.elf '$DIST/crossplay-$TAG-papermono.elf'"
+
 # A merged image that is not actually merged is indistinguishable from the app
 # image it replaces until somebody bricks a device with it. Check the three
 # magic numbers rather than trust an exit code.
 if [ "$DRY" = 0 ]; then
   fail=0
-  for full in "$DIST/crossplay-$TAG-x4pro-full.bin" "$DIST/crossplay-$TAG-sticky-full.bin"; do
+  for full in "$DIST/crossplay-$TAG-x4pro-full.bin" "$DIST/crossplay-$TAG-sticky-full.bin" "$DIST/crossplay-$TAG-papermono-full.bin"; do
     for probe in "0:e903:bootloader" "32768:aa50:partition table" "65536:e907:app"; do
       off="${probe%%:*}"; rest="${probe#*:}"; want="${rest%%:*}"; what="${rest#*:}"
       got="$(dd if="$full" bs=1 skip="$off" count=2 2>/dev/null | xxd -p)"
@@ -603,7 +632,7 @@ if [ "$DRY" = 0 ]; then
   # The string is the User-Agent that BridgeHttp.cpp and StudySync.cpp build
   # from CROSSPOINT_VERSION, so it is in every release image by construction
   # and is not a debug line a LOG_LEVEL could compile out.
-  for _img in "$DIST/firmware.bin" "$DIST/firmware-sticky.bin"; do
+  for _img in "$DIST/firmware.bin" "$DIST/firmware-sticky.bin" "$DIST/firmware-papermono.bin"; do
     # READ THE WHOLE STREAM, and do not reach for `grep -q` here.
     #
     # `strings -a "$_img" | grep -qxF ...` is the obvious spelling and it is

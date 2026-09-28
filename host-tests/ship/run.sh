@@ -180,7 +180,7 @@ fi
 #
 # Offset-then-file pairs rather than one literal line, so reformatting does
 # not fail a correct script and reordering does not pass a broken one.
-for board in x4pro sticky; do
+for board in x4pro sticky papermono; do
   merge="$(printf '%s' "$CODE" | tr '\n' ' ' | grep -o "merge-bin[^;]*gh_release_$board/firmware\.bin" || true)"
   if [ -z "$merge" ]; then
     bad "ship.sh never calls esptool merge-bin for $board"
@@ -563,8 +563,9 @@ fi
 checks=$((checks + 1))
 # The COMPARISON, not the variables: both names appear in the die message
 # that reports a mismatch, so grepping for them passed with the comparison
-# deleted.
-if printf '%s' "$CODE" | grep -qE '\[ "\$BRANCH_TREE" != "\$TRUNK_TREE" \]'; then
+# deleted. It is a diff of everything but the site's emulator files now (check
+# 6 runs it); this asserts the diff is what decides.
+if printf '%s' "$CODE" | grep -qE '\[ -n "\$DIFFERS" \]'; then
   ok
 else
   failed=$((failed + 1))
@@ -664,6 +665,43 @@ if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
 else
   skip "not a git checkout; the live refusal checks need one"
 fi
+
+# 6. THE EMULATOR BOT'S COMMIT IS NOT A DIFFERENT FIRMWARE. crossplay-emulator.yml
+#    commits site/emulator-manifest.json to xteink about fifteen minutes after a
+#    merge of app code, inside the next release's gate. On 2026-09-28 three
+#    releases in a row landed their squash and then refused over that one file.
+#    Run the land step's OWN comparison, extracted from ship.sh, in a scratch
+#    repository: a trunk that differs only in the manifest must pass, and one
+#    that differs anywhere else must still stop the release.
+DIFF_LINE="$(grep -E '^[[:space:]]*DIFFERS="\$\(git diff' "$SHIP" | head -1)"
+if [ -z "$DIFF_LINE" ]; then
+  bad "ship.sh's land step no longer computes DIFFERS with git diff, so the emulator-manifest check below has nothing to run"
+else
+  EMU="$(mktemp -d "${TMPDIR:-/tmp}/ship-emu.XXXXXX")"
+  (
+    cd "$EMU" && git init -q && git config user.email t@t && git config user.name t
+    mkdir -p src site/emulator && echo a > src/app.cpp && echo '{}' > site/emulator-manifest.json
+    git add -A && git commit -qm base
+  )
+  BRANCH_HEAD="$(git -C "$EMU" rev-parse HEAD)"
+  ( cd "$EMU" && echo '{"v":2}' > site/emulator-manifest.json && echo x > site/emulator/app.wasm && git add -A && git commit -qm emu )
+  EMU_ONLY="$(git -C "$EMU" rev-parse HEAD)"
+  ( cd "$EMU" && echo b > src/app.cpp && git commit -qam code )
+  CODE_TOO="$(git -C "$EMU" rev-parse HEAD)"
+  run_diff() { ( cd "$EMU" && BRANCH_HEAD="$1" TRUNK_NEW="$2" && eval "$DIFF_LINE" && printf '%s' "$DIFFERS" ); }
+  if [ -z "$(run_diff "$BRANCH_HEAD" "$EMU_ONLY")" ]; then
+    ok
+  else
+    bad "a trunk that differs from the gated branch ONLY in site/emulator-manifest.json still stops the release"
+  fi
+  if [ -n "$(run_diff "$BRANCH_HEAD" "$CODE_TOO")" ]; then
+    ok
+  else
+    bad "a trunk that differs from the gated branch in src/ no longer stops the release: the emulator exclusion swallowed real code"
+  fi
+  rm -rf "$EMU"
+fi
+guard_refuses "different-tree" "the squash landed a different tree"
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
