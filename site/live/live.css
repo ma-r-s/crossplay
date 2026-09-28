@@ -1706,9 +1706,11 @@
     font-size: 1rem;
     padding: 0.4rem 0.8rem;
   }
+  /* THE COLUMN'S WIDTH, like the card above it and the tabs below. Capped at
+     34rem it stopped short of the countdown card's edge by a few centimetres,
+     which read as a mistake the moment the battery graph opened there. */
   .lv-sched {
     grid-area: sched;
-    max-width: 34rem;
   }
   .lv-sched-row {
     gap: 0.7rem;
