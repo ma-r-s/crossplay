@@ -46,3 +46,43 @@ PY
   ../../src/apps_local/live/LiveCore.cpp \
   test_live.cpp -o "$BUILD_DIR/test_live"
 "$BUILD_DIR/test_live"
+
+# EVERY WAY INTO DEEP SLEEP CARRIES LIVE'S ALARM (card #620).
+#
+# The arithmetic above is worth nothing if a sleep path does not call it, and
+# that is exactly how Mario's fridge missed its 02:00: two re-sleep paths in
+# main.cpp armed kTimerWakeMicros, which is 0 on every release env, and one
+# bump disarmed Live. main.cpp cannot link on a laptop, so it is read. Every
+# startDeepSleepArmed() call must pass Live's number: enterDeepSleep's
+# timerMicros, the timer wake's nextWake, or resleepTimerMicros(). A bare
+# kTimerWakeMicros is the bug.
+python3 - ../../src/main.cpp <<'PY'
+import re
+import sys
+
+# Comments stripped first, so a sentence naming the call is not read as one;
+# braces excluded, so the definition is not read as a call.
+src = re.sub(r"//[^\n]*", "", open(sys.argv[1]).read())
+calls = re.findall(r"startDeepSleepArmed\(([^;{}]*)\);", src)
+bad = [c for c in calls if c.strip() == "kTimerWakeMicros"]
+fails = 0
+if len(calls) != 4:
+    print("FAIL live  found %d startDeepSleepArmed calls in main.cpp, expected 4 (enterDeepSleep, the timer wake, and the two re-sleeps); read the new one and add it here" % len(calls))
+    fails += 1
+for c in bad:
+    print("FAIL live  main.cpp sleeps with startDeepSleepArmed(%s): 0 on a release build, so Live's alarm is dropped (card #620)" % c.strip())
+    fails += 1
+allowed = ("timerMicros", "resleepTimerMicros()", "nextWake")
+for c in calls:
+    if c.strip() in bad:
+        continue
+    if not any(a in c for a in allowed):
+        print("FAIL live  main.cpp sleeps with startDeepSleepArmed(%s), which is not Live's number" % c.strip())
+        fails += 1
+m = re.search(r"resleepTimerMicros\(\)\s*\{(.*?)\n\}", src, re.S)
+if not m or "live::engine::resleepSeconds()" not in m.group(1):
+    print("FAIL live  resleepTimerMicros() no longer asks live::engine::resleepSeconds()")
+    fails += 1
+print("live-sleep-paths: %d calls, %d failed" % (len(calls), fails))
+sys.exit(1 if fails else 0)
+PY

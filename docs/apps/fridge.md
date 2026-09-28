@@ -880,6 +880,36 @@ which state.json would rewrite and re-parse on every request the page makes.
 The checkin event carries it too, so the fleet board has the same curve for
 every fridge -- which is also the long-run answer to Phase 0's sleep floor.
 
+## A bump must not disarm the alarm (card #620)
+
+Mario's own fridge (a Sticky on 1.13.18) missed its 02:00 check on
+2026-09-28. The server's journal ruled out the house: the box, its disk and
+the router were up all night. The reader's own `/.crosspoint/powerprobe.log`,
+read over File Transfer, did not: one unbroken sleep of 103,424 seconds,
+starting at 12:06 on Sunday, 54 minutes after its 11:12 check armed 02:00.
+
+Something woke it for a moment at 12:06 without holding the button, and
+`main.cpp` sent it straight back down through the ghost-wake path, which armed
+`kTimerWakeMicros`. That constant is the build's own probe timer, and it is 0
+on every release env. So one bump disarmed Live, and the reader slept until a
+person woke it. The USB-power cold boot path on boards outside the X4 Pro list
+did the same. The Sticky counts every wake as a power-button wake.
+
+Both paths now arm `resleepTimerMicros()`, which is `live::resleepSeconds`:
+
+- the rest of the alarm, to the second;
+- the retry it was waiting for, while in backoff;
+- a one-minute timer wake when a check is already due, because these paths
+  have no display and must not fetch.
+
+`host-tests/live` walks that arithmetic, and reads `main.cpp` so that every
+`startDeepSleepArmed` call passes Live's number. A bare `kTimerWakeMicros`
+is the bug.
+
+**The reader's sleep log is the instrument for "did it wake?"**
+`powerprobe.log` records every sleep's length. A scheduled wake splits a sleep
+in two; a missed one leaves a single long line.
+
 ## Still to build
 
 1. Arming the timer on every sleep, and the boot path for a timer wake.
