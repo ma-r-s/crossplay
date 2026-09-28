@@ -100,6 +100,17 @@ bool clockIsUsable(int64_t nowEpoch);
 std::string unquoteEtag(const std::string& raw);
 
 // ---------------------------------------------------------------------------
+// The battery, as a pull reports it.
+//
+// X-Battery carries a whole percent and ONLY a real one. A gauge that could not
+// be read is -1 here and no header at all on the wire: sent as "0" it would
+// reach the website as a flat battery, a confident number that sends somebody
+// across town with a charger for a reader that is fine.
+//
+// Empty means "send no header".
+std::string batteryHeader(int percent);
+
+// ---------------------------------------------------------------------------
 // Did the whole picture arrive?
 //
 // Live's images are BMPs the website makes, and their SIZE IS NOT FIXED: the

@@ -1690,3 +1690,29 @@ body::before {
 .by-hand > .steps {
   margin-top: 1rem;
 }
+/* A locked X4 Pro is an edge case. Mario, 2026-09-28: nobody without the
+ * problem should even see it, so it is one quiet line that opens; no marker,
+ * no uppercase, nothing that reads as a step. */
+.locked {
+  margin: -0.6rem 0 1.6rem;
+  max-width: 62ch;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.locked summary {
+  display: inline;
+  cursor: pointer;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.locked summary::-webkit-details-marker {
+  display: none;
+}
+.locked summary:hover {
+  color: var(--ink);
+}
+.locked p {
+  margin: 0.6rem 0 0;
+}

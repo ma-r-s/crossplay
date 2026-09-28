@@ -66,6 +66,49 @@ says so and stops before erasing anything. The remedy is one USB flash using
 the steps above, which rewrites the table and moves the device to the larger
 slots permanently.
 
+## A USB-locked X4 Pro
+
+Some X4 Pros sold through third-party stores (AliExpress among them) ship
+with USB flashing locked. The browser installer and `esptool` cannot reach
+one: the serial device picker never shows it. Units bought from xteink.com
+are not locked.
+
+The route that works, reported by a user on
+[issue #206](https://github.com/ma-r-s/crossplay/issues/206) (2026-09-23):
+
+1. Install stock CrossPoint with the
+   [Xteink Unlocker](https://crosspointreader.com/unlocker), which delivers
+   it through the device's own update mechanism over Wi-Fi. Use CrossPoint's
+   stable release.
+2. Download CrossPlay's **`firmware.bin`** from the
+   [releases page](https://github.com/ma-r-s/crossplay/releases). The
+   app-only file, exactly that name: not the `-full.bin`, not the `.elf`.
+3. Copy it to the root of the SD card, then on the device:
+   **Settings > System > SD Card Firmware Update**, and pick it.
+
+From then on **Settings > Check for updates** works over Wi-Fi like on any
+other unit, and the same SD Card Firmware Update screen takes CrossPoint's
+own `firmware.bin` if you ever want to go back.
+
+What the updater's refusals mean, on CrossPoint and on CrossPlay alike:
+
+- **Invalid firmware file**: the file is not an application image. The
+  `.elf` from the releases page, a download that stopped early, or a file
+  that was renamed from something else. Download `firmware.bin` again.
+- **Firmware is for a different device**: the Sticky's `firmware-sticky.bin`
+  on an X4 Pro, or the other way round.
+- **Firmware too large for partition**: the device's partition table has
+  smaller application slots than the image needs (CrossPlay's `firmware.bin`
+  passed 6.25MB at v1.12.51). A USB flash would rewrite the table, and on a
+  USB-locked unit that is the one thing nobody can do, so that release does
+  not fit that device.
+
+Read CrossPoint's own warning before you start: the unlock tool officially
+supports only CrossPoint and CrossInk, and a USB-locked device has no way
+back except over the air or from the card. CrossPlay keeps both doors open
+(the update check and the SD updater are CrossPoint's), but a firmware that
+loses them would be the end of the road on that unit.
+
 ## Reflashing without a cable
 
 **Settings > System > Developer Mode** turns any device into one you can flash

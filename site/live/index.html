@@ -136,13 +136,29 @@
            second wording is how the panel and the page come to tell one person
            two stories. -->
       <p class="lv-pending" id="pendingLine" role="status" aria-live="polite" hidden></p>
-      <!-- The schedule, closed. One button saying what the schedule IS, which
-           opens the two shapes it can take. -->
-      <button class="lv-btn lv-every" id="schedChip" type="button"
-              aria-expanded="false" aria-controls="sched">
-        <span class="lv-every-label">Looks</span>
-        <span id="schedChipText">once a day</span>
-      </button>
+      <!-- The two chips share one place in the card and one look: each says a
+           fact about the reader and opens a panel about it. -->
+      <div class="lv-chips">
+        <!-- THE READER'S BATTERY, as it said at its last check. Hidden until a
+             reader has reported one: an absent reading is not 0%. It opens the
+             last thirty days rather than restating the figure. -->
+        <button class="lv-btn lv-every lv-batt" id="battChip" type="button"
+                aria-expanded="false" aria-controls="batt" hidden>
+          <svg class="lv-batt-icon" viewBox="0 0 26 14" aria-hidden="true" focusable="false">
+            <rect class="lv-batt-case" x="1" y="1" width="21" height="12" rx="2"/>
+            <rect class="lv-batt-level" id="battLevel" x="3" y="3" width="17" height="8"/>
+            <path class="lv-batt-tip" d="M24.5 5v4"/>
+          </svg>
+          <span id="battChipText"></span>
+        </button>
+        <!-- The schedule, closed. One button saying what the schedule IS, which
+             opens the two shapes it can take. -->
+        <button class="lv-btn lv-every" id="schedChip" type="button"
+                aria-expanded="false" aria-controls="sched">
+          <span class="lv-every-label">Looks</span>
+          <span id="schedChipText">once a day</span>
+        </button>
+      </div>
     </div>
 
     <!-- The schedule, open. It takes the board's room while it is open and
@@ -190,6 +206,25 @@
         check, not now.</p>
       <div class="lv-sched-row is-end">
         <button class="lv-btn is-primary" id="schedDone" type="button">Done</button>
+      </div>
+    </div>
+
+    <!-- The battery, open. Same room and same manners as the schedule: it takes
+         the board's space while it is open and only one of the two is ever open.
+
+         EVERY FIGURE HERE IS AS OF THE LAST CHECK. The reader reports its
+         battery on the check it already makes, so nothing here is live, and the
+         age sits beside the figure rather than in small print. -->
+    <div class="lv-sched lv-batt-panel" id="batt" hidden>
+      <p class="lv-sched-title">Battery</p>
+      <p class="lv-batt-now">
+        <span class="lv-batt-figure" id="battFigure"></span>
+        <span class="lv-batt-age" id="battAge"></span>
+      </p>
+      <div class="lv-batt-graph" id="battGraph" role="img"></div>
+      <p class="lv-sched-fine lv-batt-fine" id="battFine"></p>
+      <div class="lv-sched-row is-end">
+        <button class="lv-btn is-primary" id="battDone" type="button">Done</button>
       </div>
     </div>
 

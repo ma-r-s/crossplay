@@ -141,8 +141,9 @@ are left alone, and installing stock CrossPoint over the top puts the device
 back where it was.
 
 [**docs/install.md**](docs/install.md) covers the rest: installing by hand with
-esptool, updating a device you already flashed, and Developer Mode, which
-reflashes over Wi-Fi with no cable. If a flash goes wrong,
+esptool, updating a device you already flashed, a **USB-locked X4 Pro** (the
+Xteink Unlocker to CrossPoint, then our `firmware.bin` from the SD card), and
+Developer Mode, which reflashes over Wi-Fi with no cable. If a flash goes wrong,
 [docs/fix-bricked-xteink.md](docs/fix-bricked-xteink.md) is the way back.
 
 Once it is running, [USER_GUIDE.md](USER_GUIDE.md) is the guide to the device

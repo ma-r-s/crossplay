@@ -79,7 +79,10 @@ class NotesActivity final : public Activity {
   void relabelNote();
   // How many rows fit one page, asked of the same layout that draws them, so
   // the label, the physical keys and the rows on the glass cannot disagree.
-  int notePageSize();
+  // Where each page of the open note begins (see notesui::notePageStarts),
+  // and which of them noteTop_ falls on.
+  std::vector<int> notePageStarts();
+  int notePageOf(const std::vector<int>& starts) const;
   int deckPageSize();
 
   notes::Library library_;
