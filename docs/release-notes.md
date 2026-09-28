@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.23
+
+- Live: a brief wake re-sleeps with Live's alarm, not with none
+
 ### 1.13.22
 
 - Underhand, the 2017 cult card game: summon a god before the cult falls. On the Games shelf, with a nine-page How to Play.
