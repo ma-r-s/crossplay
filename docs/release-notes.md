@@ -23,9 +23,8 @@ Everything above the marker is written by hand.
 
 ### 1.13.19
 
-- Size the battery header's buffer for any int, which is what the width check reads
-- Battery days-left counts down from now, and a charge is not a wobble
-- The reader's battery on the website, and thirty days of it behind a tap
+- Live: the reader's battery on the website, and thirty days of it behind a tap
+- Install: the route onto a USB-locked X4 Pro, and each SD refusal by its own name
 
 ### 1.13.18
 
