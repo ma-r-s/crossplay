@@ -1,7 +1,8 @@
 [Install it](https://crossplay.ma-r-s.com/#get) · [which file, and by hand](https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md) · [earlier releases](https://github.com/ma-r-s/crossplay/blob/xteink/docs/release-notes.md)
 
-### What is new in 1.13.20
+### What is new in 1.13.21
 
-- Notes: the phone page shows long items whole, and keeps a note a note
-- Notes: strike every line of a wrapped item, and never shrink a list
+- M5Stack PaperMono / Lite support (carries #208)
+- Notes: strike every line of a wrapped item, and never shrink a list (#265)
+- Add CrossPlay support for PaperMono
 
