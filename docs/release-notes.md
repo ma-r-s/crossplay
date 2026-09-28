@@ -21,6 +21,14 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.24
+
+- Notes: put a note on the sleep screen (#198)
+- Say when a note is the sleep screen
+- Menu rows say PUT ON / TAKE OFF SLEEP SCREEN
+- The sleep screen file includes what it uses
+- Show a note on the sleep screen
+
 ### 1.13.23
 
 - Live: a brief wake re-sleeps with Live's alarm, not with none
