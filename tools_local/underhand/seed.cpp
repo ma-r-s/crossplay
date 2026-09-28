@@ -2,8 +2,10 @@
 // Screenshots of a state nobody can reach by tapping from a fresh run (a
 // card with four ways to pay, a danger, foresight) start here.
 //
-//   c++ -std=c++17 -Isrc/apps_local/underhand -Ilib/JsonParser tools_local/underhand/seed.cpp \
-//     src/apps_local/underhand/Underhand{Cards,Engine,Save,View}.cpp lib/JsonParser/StreamingJsonParser.cpp \
+// Built with one command (no line continuations: a backslash ending a //
+// comment continues the comment, which gcc's -Wcomment rightly refuses):
+//   c++ -std=c++17 -Isrc/apps_local/underhand -Ilib/JsonParser tools_local/underhand/seed.cpp
+//     src/apps_local/underhand/Underhand{Cards,Engine,Save,View}.cpp lib/JsonParser/StreamingJsonParser.cpp
 //     -o /tmp/underhand-seed
 //   /tmp/underhand-seed fs_agent/.crosspoint/underhand.sav card=12 held=1,3,2,4,0,2 turn=9
 //   /tmp/underhand-seed - list held=1,3,2,4,2,2      # every card: its options, states and ways to pay
