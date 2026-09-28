@@ -204,8 +204,25 @@ std::vector<size_t> drawnLines(const std::string& doc, const std::vector<Line>& 
 }
 
 std::string formatAsleep(const AsleepChoice& choice) {
-  return choice.name + "\n" + std::to_string(choice.previousMode) + "\n";
+  return choice.name + "\n" + std::to_string(choice.previousMode) + "\n" + std::to_string(choice.previousQuickResume) +
+         "\n";
 }
+
+namespace {
+// A line of digits up to `max`, else -1. Trailing CR and spaces are allowed;
+// anything else, a sign included, reads as unknown.
+int smallNumber(std::string line, const int max) {
+  while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+  if (line.empty()) return -1;
+  int value = 0;
+  for (const char c : line) {
+    if (c < '0' || c > '9') return -1;
+    value = value * 10 + (c - '0');
+    if (value > max) return -1;
+  }
+  return value;
+}
+}  // namespace
 
 bool parseAsleep(const std::string& text, AsleepChoice& out) {
   out = AsleepChoice{};
@@ -215,16 +232,12 @@ bool parseAsleep(const std::string& text, AsleepChoice& out) {
   if (name.empty()) return false;
   out.name = name;
   if (nl == std::string::npos) return true;
-  const std::string rest = text.substr(nl + 1);
-  int value = 0;
-  bool any = false;
-  for (const char c : rest) {
-    if (c < '0' || c > '9') break;
-    value = value * 10 + (c - '0');
-    any = true;
-    if (value > 255) return true;  // not a mode; keep the name, forget the mode
-  }
-  if (any) out.previousMode = value;
+  const size_t nl2 = text.find('\n', nl + 1);
+  out.previousMode = smallNumber(text.substr(nl + 1, nl2 == std::string::npos ? std::string::npos : nl2 - nl - 1), 255);
+  if (nl2 == std::string::npos) return true;
+  const size_t nl3 = text.find('\n', nl2 + 1);
+  out.previousQuickResume =
+      smallNumber(text.substr(nl2 + 1, nl3 == std::string::npos ? std::string::npos : nl3 - nl2 - 1), 1);
   return true;
 }
 

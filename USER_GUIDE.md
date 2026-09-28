@@ -641,7 +641,7 @@ The **Sleep Screen** setting controls what is displayed when the device goes to 
 
 #### A note on the sleep screen
 
-Open a note or list in **Notes**, open its menu and tap **Put on sleep screen**. The sleep screen becomes that note, read-only, with ticked items struck through, and it is redrawn every time the device sleeps, so it is never stale. **Take off sleep screen** in the same menu puts back the sleep screen you had before. Choosing it also turns off **Quick Resume on Timeout**, because that setting skips the sleep screen on an idle sleep.
+Open a note or list in **Notes**, open its menu and tap **Put on sleep screen**. The sleep screen becomes that note, read-only, with ticked items struck through, and it is redrawn every time the device sleeps, so it is never stale. **Take off sleep screen** in the same menu puts back the sleep screen you had before. Choosing it also turns off **Quick Resume on Timeout**, because that setting skips the sleep screen on an idle sleep, and **Take off sleep screen** turns it back on if it was on. If Live is on, choosing a note turns it off; the phone stays paired.
 
 #### Cover settings
 

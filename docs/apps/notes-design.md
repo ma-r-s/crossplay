@@ -303,6 +303,10 @@ replaced in `/.crosspoint/notes-asleep.txt` and sets the mode to **Note**.
   page with `1 / N` in the band.
 - **Quick Resume on Timeout comes off**, for the same reason Wallpapers turns it
   off: it skips the sleep screen on an idle sleep, which is the ordinary one.
+  The choice file records it, so **TAKE OFF SLEEP SCREEN** turns it back on.
+- **Live comes off**, as it does when a wallpaper is picked: left on it would
+  wake the device for pictures the note hides. The pairing is kept, and the
+  phone's page is told when a radio can be had.
 - **One note at a time.** Choosing a second note moves the choice and keeps the
   mode the first one replaced. Renaming follows the note; deleting it puts the
   old mode back. A note deleted from the phone falls back to **Dark** at sleep.

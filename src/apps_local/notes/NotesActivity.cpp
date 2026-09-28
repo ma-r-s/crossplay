@@ -15,6 +15,9 @@
 #include "../../util/DeviceHostname.h"
 #include "../../util/QrUtils.h"
 #include "../Shelf.h"
+#include "../live/LiveBridge.h"
+#include "../live/LiveEngine.h"
+#include "../live/LiveStore.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxTheme.h"
@@ -181,6 +184,18 @@ uint8_t modeToRestore(const int previousMode) {
   }
   return static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::DARK);
 }
+
+// Put back both settings a note replaced. Quick Resume on Timeout is touched
+// only when the choice recorded it.
+void restoreSleepSettings(const notes::AsleepChoice& choice) {
+  SETTINGS.sleepScreen = modeToRestore(choice.previousMode);
+  if (choice.previousQuickResume == 1) {
+    SETTINGS.quickResumeSleepScreen = CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT;
+  } else if (choice.previousQuickResume == 0) {
+    SETTINGS.quickResumeSleepScreen = CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_NEVER;
+  }
+  SETTINGS.saveToFile();
+}
 }  // namespace
 
 bool NotesActivity::isShownAsleep() const {
@@ -190,25 +205,27 @@ bool NotesActivity::isShownAsleep() const {
 }
 
 void NotesActivity::toggleAsleep() {
+  bool reportLiveOff = false;
+  std::string liveToken;
   notes::AsleepChoice current;
   const bool hadChoice = notes::readAsleep(current);
   if (isShownAsleep()) {
     // Put back what was there. A choice with nothing recorded, or one that
     // recorded Note itself, falls back to the setting's own default.
     notes::clearAsleep();
-    const int back = current.previousMode;
-    SETTINGS.sleepScreen = modeToRestore(back);
-    SETTINGS.saveToFile();
-    LOG_INF("NOTES", "'%s' no longer shown while asleep; sleep screen mode back to %d", openName_.c_str(),
-            SETTINGS.sleepScreen);
+    restoreSleepSettings(current);
+    LOG_INF("NOTES", "'%s' no longer shown while asleep; sleep screen mode back to %d, quick resume on timeout %d",
+            openName_.c_str(), SETTINGS.sleepScreen, SETTINGS.quickResumeSleepScreen);
   } else {
     notes::AsleepChoice choice;
     choice.name = openName_;
     // Switching from one note to another keeps the mode the FIRST note
     // replaced, so stopping later still puts back the person's own screen.
-    choice.previousMode = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::NOTE
-                              ? (hadChoice ? current.previousMode : -1)
-                              : static_cast<int>(SETTINGS.sleepScreen);
+    const bool alreadyNote = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::NOTE;
+    choice.previousMode =
+        alreadyNote ? (hadChoice ? current.previousMode : -1) : static_cast<int>(SETTINGS.sleepScreen);
+    choice.previousQuickResume = alreadyNote ? (hadChoice ? current.previousQuickResume : -1)
+                                             : static_cast<int>(SETTINGS.quickResumeSleepScreen);
     if (!notes::writeAsleep(choice)) {
       showNotice("The card would not take the change. Nothing was changed.");
       return;
@@ -219,11 +236,37 @@ void NotesActivity::toggleAsleep() {
     // sleep. The same trade the Wallpapers app makes, for the same reason.
     SETTINGS.quickResumeSleepScreen = CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_NEVER;
     SETTINGS.saveToFile();
-    LOG_INF("NOTES", "'%s' shown while asleep (replaced sleep screen mode %d)", openName_.c_str(), choice.previousMode);
+    LOG_INF("NOTES", "'%s' shown while asleep (replaced sleep screen mode %d, quick resume on timeout %d)",
+            openName_.c_str(), choice.previousMode, choice.previousQuickResume);
+    // Live and a note are mutually exclusive, as Live and a wallpaper are: left
+    // on, Live would go on waking the device for pictures the note hides, and
+    // the phone's page would go on saying they arrived. The pairing is kept.
+    live::State liveState;
+    if (live::load(liveState) && liveState.on) {
+      liveState.on = false;
+      live::save(liveState);
+      reportLiveOff = liveState.paired();
+      liveToken = liveState.deviceToken;
+      LOG_INF("NOTES", "a note is on the sleep screen, so Live is off; its pairing is kept");
+    }
   }
   view_ = View::Note;
   interactionsReady_ = false;
-  requestUpdate();
+  if (!reportLiveOff) {
+    requestUpdate();
+    return;
+  }
+  // Tell the phone's page, the way Wallpapers does, after the note is on the
+  // glass. A courtesy: the card already says off, so a failure here costs the
+  // page its "off on the reader" line and nothing else.
+  requestUpdateAndWait();
+  std::string message;
+  live::engine::RadioLease radio(message);
+  if (!radio.held()) {
+    LOG_INF("NOTES", "no radio to tell Live this reader is off; the website will work it out");
+    return;
+  }
+  live::reportOff(liveToken, message);
 }
 
 void NotesActivity::asleepRenamed(const std::string& from, const std::string& to) {
@@ -237,11 +280,7 @@ void NotesActivity::asleepDeleted(const std::string& name) {
   notes::AsleepChoice choice;
   if (!notes::readAsleep(choice) || choice.name != name) return;
   notes::clearAsleep();
-  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::NOTE) {
-    const int back = choice.previousMode;
-    SETTINGS.sleepScreen = modeToRestore(back);
-    SETTINGS.saveToFile();
-  }
+  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::NOTE) restoreSleepSettings(choice);
 }
 
 // --- Navigation ----------------------------------------------------------

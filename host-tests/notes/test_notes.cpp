@@ -282,6 +282,22 @@ void testAsleepChoice() {
   CHECK(!parseAsleep("\n3\n", out));
   CHECK(parseAsleep("Todo\n9999\n", out) && out.name == "Todo" && out.previousMode == -1);
   CHECK(parseAsleep("Todo\nabc\n", out) && out.previousMode == -1);
+
+  // Quick Resume on Timeout, which putting a note up turns off: recorded so
+  // taking it down turns it back on. Unknown is -1, "leave it alone".
+  in.name = "Groceries";
+  in.previousMode = 2;
+  in.previousQuickResume = 1;
+  CHECK(parseAsleep(formatAsleep(in), out));
+  CHECK(out.previousMode == 2 && out.previousQuickResume == 1);
+  in.previousQuickResume = 0;
+  CHECK(parseAsleep(formatAsleep(in), out) && out.previousQuickResume == 0);
+  // A file written before the field existed, or a value that is not 0 or 1.
+  CHECK(parseAsleep("Todo\n3\n", out) && out.previousMode == 3 && out.previousQuickResume == -1);
+  CHECK(parseAsleep("Todo\n3\n7\n", out) && out.previousQuickResume == -1);
+  CHECK(parseAsleep("Todo\r\n3\r\n1\r\n", out) && out.previousMode == 3 && out.previousQuickResume == 1);
+  // A bad mode does not lose a good quick-resume value beside it.
+  CHECK(parseAsleep("Todo\nabc\n1\n", out) && out.previousMode == -1 && out.previousQuickResume == 1);
 }
 
 }  // namespace

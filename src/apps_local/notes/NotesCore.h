@@ -121,9 +121,14 @@ std::vector<size_t> drawnLines(const std::string& doc, const std::vector<Line>& 
 // as a number, so turning it off puts back what the person had rather than a
 // default they never chose. A name is required; a missing or unreadable mode
 // is -1, "nothing to put back".
+//
+// Quick Resume on Timeout is recorded the same way (0 off, 1 on, -1 unknown),
+// because putting a note up turns it off and taking the note down turns it
+// back on.
 struct AsleepChoice {
   std::string name;
   int previousMode = -1;
+  int previousQuickResume = -1;
 };
 std::string formatAsleep(const AsleepChoice& choice);
 bool parseAsleep(const std::string& text, AsleepChoice& out);
