@@ -26,6 +26,7 @@
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/hearts/HeartsBrain.h"
 #include "../../src/apps_local/hearts/HeartsScreens.h"
+#include "../../src/apps_local/hex/HexScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/instapaper/InstapaperScreens.h"
 #include "../../src/apps_local/jaipur/JaipurScreens.h"
@@ -6421,6 +6422,291 @@ void testTheFrontDoorIsThreeDoors() {
   buildGo<goui::MenuModel, goui::buildMenu>(over, after);
   CHECK(over.target.drew("LAST GAME: WON BY 5.5"));
   CHECK(!over.has(goui::ActionDiscard));
+}
+
+// --- hex --------------------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildHex(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The load-bearing one. A hundred and twenty one cells do not fit the
+// interaction table, so the board is hit-tested arithmetically from the
+// geometry that drew it, and the two have to be exact inverses or a tap places
+// a stone somewhere else.
+//
+// Hex's version is harder than a squared board's and harder than go's, because
+// a hexagonal lattice is not a grid: the inverse is a fractional axial
+// coordinate put through cube rounding, and rounding the row and the column
+// independently instead claims the RHOMBUS of four centres rather than the
+// hexagon. That is wrong by up to a third of a cell along every slanted edge,
+// which is most of the board.
+void testTheHexCellYouTapIsTheCellTheRulesGet() {
+  const hexui::Layout layout = hexui::boardLayout(device());
+  for (int cell = 0; cell < hex::kCells; ++cell) {
+    int16_t cx = 0;
+    int16_t cy = 0;
+    hexui::cellCentre(layout, cell, cx, cy);
+    int got = -1;
+    CHECK(hexui::cellAt(layout, cx, cy, got));
+    CHECK(got == cell);
+
+    // And the rest of the hexagon with it. These six probes sit inside every
+    // edge -- the four slanted ones at (a, h/2) and the two points at (2a, 0)
+    // -- so between them they cover the directions a finger misses in.
+    const int probes[6][2] = {{cx - layout.a, cy - layout.h / 2}, {cx + layout.a, cy - layout.h / 2},
+                              {cx - layout.a, cy + layout.h / 2}, {cx + layout.a, cy + layout.h / 2},
+                              {cx - 2 * layout.a + 2, cy},        {cx + 2 * layout.a - 2, cy}};
+    for (const auto& probe : probes) {
+      int near = -1;
+      CHECK(hexui::cellAt(layout, probe[0], probe[1], near));
+      CHECK(near == cell);
+    }
+  }
+
+  // Every cell is reachable and no two share a centre, which is the other half
+  // of "exact inverse": a mapping that sent two cells to one pixel would pass
+  // the walk above in one direction and be useless in the other.
+  bool seen[hex::kCells] = {};
+  for (int cell = 0; cell < hex::kCells; ++cell) {
+    int16_t cx = 0;
+    int16_t cy = 0;
+    hexui::cellCentre(layout, cell, cx, cy);
+    int got = -1;
+    hexui::cellAt(layout, cx, cy, got);
+    CHECK(!seen[got]);
+    seen[got] = true;
+  }
+}
+
+void testTheHexBoardRunsCornerToCornerAndClearsTheChrome() {
+  const hexui::Layout layout = hexui::boardLayout(device());
+  const int16_t radius = hexui::stoneRadius(layout);
+  CHECK(radius > 12);
+
+  // Corner to corner: cell (0,0) is at the top left of the box and (10,10) at
+  // the bottom right, which is what makes the rhombus fill a PORTRAIT panel
+  // rather than a band across the middle of it.
+  int16_t topLeftX = 0;
+  int16_t topLeftY = 0;
+  int16_t bottomRightX = 0;
+  int16_t bottomRightY = 0;
+  hexui::cellCentre(layout, hex::cellAt(0, 0), topLeftX, topLeftY);
+  hexui::cellCentre(layout, hex::cellAt(10, 10), bottomRightX, bottomRightY);
+  CHECK(bottomRightX > topLeftX);
+  CHECK(bottomRightY > topLeftY);
+  // And it is TALLER than it is wide, which is the whole argument for drawing
+  // the hexagons flat-top: the conventional pointy-top layout is width-bound
+  // and would leave most of this panel empty.
+  CHECK(bottomRightY - topLeftY > bottomRightX - topLeftX);
+
+  // Every one of the 121 cells sits clear of the chrome and inside the panel,
+  // stone and all.
+  for (int cell = 0; cell < hex::kCells; ++cell) {
+    int16_t cx = 0;
+    int16_t cy = 0;
+    hexui::cellCentre(layout, cell, cx, cy);
+    CHECK(cy - layout.h >= toybox::kChromeHeight);
+    CHECK(cy + layout.h <= device().height);
+    CHECK(cx - 2 * layout.a >= 0);
+    CHECK(cx + 2 * layout.a <= device().width);
+  }
+
+  // The chrome is not the board, and neither is the paper below it. A tap that
+  // lands on the header must not place a stone. The mid-line comes from the
+  // device, not from 240: this file's own rule, and the board it is testing
+  // takes both extents the same way.
+  const int16_t midX = static_cast<int16_t>(device().width / 2);
+  int got = -1;
+  CHECK(!hexui::cellAt(layout, midX, toybox::kHeaderHeight / 2, got));
+  CHECK(!hexui::cellAt(layout, midX, device().height - 4, got));
+
+  // And every pixel of every control the notches hold. This is the assertion
+  // that was missing when "PLAY AG..." shipped: the board is hit-tested from
+  // geometry BEFORE the interaction table is routed, so a control the rhombus
+  // overlaps is a control whose taps place a stone instead -- drawn, listed in
+  // the table, and unreachable. A screenshot caught the elision; nothing at all
+  // would have caught the overlap.
+  //
+  // Walked point by point rather than corner by corner, because the boundary
+  // this clears is a ZIGZAG of hexagon edges: four corners miss the tooth
+  // between them, which is exactly the shape that would creep back.
+  const fui::Rect notches[] = {hexui::theirCardRect(layout), hexui::yourCardRect(layout),
+                               hexui::againButtonRect(layout), hexui::doneButtonRect(layout)};
+  int probed = 0;
+  int overlapped = 0;
+  for (const fui::Rect& box : notches) {
+    CHECK(box.width > 0 && box.height > 0);
+    for (int16_t y = box.y; y < box.bottom(); ++y) {
+      for (int16_t x = box.x; x < box.right(); ++x) {
+        ++probed;
+        int cell = -1;
+        if (!hexui::cellAt(layout, x, y, cell)) continue;
+        // Reported once, with the point, because "a control overlaps the board"
+        // is unactionable and "(264,103) is cell 5" is a number to move.
+        if (overlapped == 0) {
+          std::printf("      hex notch: (%d,%d) inside a control is cell %d\n", static_cast<int>(x),
+                      static_cast<int>(y), cell);
+        }
+        ++overlapped;
+      }
+    }
+  }
+  // Before believing the probe said no, prove the probe can say yes: a loop
+  // over four empty rects is silent in exactly the same way as a clean one.
+  CHECK(probed > 20000);
+  CHECK(overlapped == 0);
+}
+
+void testTheHexBoardNamesBothSeatsAndTheirEdges() {
+  hexui::BoardModel model;
+  hex::reset(model.game);
+  model.seat = hex::kBlack;
+  model.opponentName = "MARIO";
+
+  Rendered out;
+  buildHex<hexui::BoardModel, hexui::buildBoard>(out, model);
+  CHECK(out.target.drew("YOU"));
+  CHECK(out.target.drew("MARIO"));
+  // The edges are named in WORDS, not left to the border strips. A player who
+  // has to work out which pair is theirs from two shades of bar is a player who
+  // plays a move for the wrong goal, and there is no taking it back.
+  CHECK(out.target.drew("TOP TO BOTTOM"));
+  CHECK(out.target.drew("LEFT TO RIGHT"));
+  CHECK(!out.interactions.overflowed());
+
+  // Thinking is said in the band, because the board is the whole panel and
+  // there is no status line under it to put it in.
+  model.thinking = true;
+  Rendered busy;
+  buildHex<hexui::BoardModel, hexui::buildBoard>(busy, model);
+  CHECK(busy.target.drew("THINKING"));
+
+  // Two people sharing one device have no "you": the cards name the colours.
+  model.thinking = false;
+  model.sharedDevice = true;
+  model.opponentName = nullptr;
+  Rendered shared;
+  buildHex<hexui::BoardModel, hexui::buildBoard>(shared, model);
+  CHECK(shared.target.drew("BLACK"));
+  CHECK(shared.target.drew("WHITE"));
+  CHECK(!shared.target.drew("YOU"));
+}
+
+void testTheHexResultNamesTheWinnerFromYourSeat() {
+  hexui::ResultModel model;
+  hex::reset(model.game);
+  for (int row = 0; row < hex::kSize; ++row) {
+    model.game.toMove = hex::kBlack;
+    hex::play(model.game, hex::cellAt(row, 5));
+  }
+  CHECK(model.game.winner == hex::kBlack);
+  CHECK(hex::winningChain(model.game, model.chain));
+
+  model.seat = hex::kBlack;
+  Rendered won;
+  buildHex<hexui::ResultModel, hexui::buildResult>(won, model);
+  CHECK(won.target.drew("YOU WIN"));
+  // Both doors, and both of them tappable: PLAY AGAIN sitting where the
+  // opponent's card was is the one place on this screen with room for them.
+  CHECK(won.has(hexui::ActionAgain));
+  CHECK(won.has(hexui::ActionDone));
+  CHECK(won.target.drew("PLAY AGAIN"));
+  CHECK(won.target.drew("DONE"));
+  CHECK(!won.interactions.overflowed());
+
+  model.seat = hex::kWhite;
+  Rendered lost;
+  buildHex<hexui::ResultModel, hexui::buildResult>(lost, model);
+  CHECK(lost.target.drew("THEY WIN"));
+  CHECK(!lost.target.drew("YOU WIN"));
+
+  // Two people sharing one device have no "you", so the headline names the
+  // colour instead. Saying YOU WIN to a pair of players names the wrong one.
+  model.sharedDevice = true;
+  Rendered shared;
+  buildHex<hexui::ResultModel, hexui::buildResult>(shared, model);
+  CHECK(shared.target.drew("BLACK WINS"));
+  CHECK(!shared.target.drew("YOU WIN"));
+  CHECK(!shared.target.drew("THEY WIN"));
+}
+
+void testTheHexSettingsRowsSayWhatTheyAre() {
+  hexui::SettingsModel model;
+  model.opponent = hex::Opponent::Computer;
+  model.level = hex::Level::Normal;
+  Rendered computer;
+  buildHex<hexui::SettingsModel, hexui::buildSettings>(computer, model);
+  CHECK(computer.target.drew("OPPONENT"));
+  CHECK(computer.target.drew("COMPUTER"));
+  CHECK(computer.target.drew("LEVEL"));
+  CHECK(computer.target.drew("NORMAL"));
+  CHECK(computer.target.drew("YOU PLAY"));
+  CHECK(computer.target.drew("BLACK"));
+
+  model.playAs = hex::kWhite;
+  model.level = hex::Level::Hard;
+  Rendered white;
+  buildHex<hexui::SettingsModel, hexui::buildSettings>(white, model);
+  CHECK(white.target.drew("WHITE"));
+  CHECK(white.target.drew("HARD"));
+
+  // There is no BOARD row and there must not be one: eleven is the only size
+  // this game is played at here. And there is no SWAP row either -- the pie
+  // rule is a decided trade, not a setting somebody can turn on.
+  CHECK(!computer.target.drew("BOARD"));
+  CHECK(!computer.target.drew("SWAP"));
+
+  // Two people sharing the device: the machine's rows dim rather than vanish,
+  // so the list does not jump under the finger and the row still says what it
+  // would do.
+  model.opponent = hex::Opponent::Human;
+  Rendered humans;
+  buildHex<hexui::SettingsModel, hexui::buildSettings>(humans, model);
+  CHECK(humans.target.drew("2 PLAYERS"));
+  CHECK(humans.target.drew("LEVEL"));
+  CHECK(humans.target.drew("YOU PLAY"));
+}
+
+void testTheHexFrontDoorIsThreeDoors() {
+  hexui::MenuModel model;
+  Rendered fresh;
+  buildHex<hexui::MenuModel, hexui::buildMenu>(fresh, model);
+  CHECK(fresh.target.drew("PLAY"));
+  CHECK(fresh.target.drew("PLAY NEARBY"));
+  CHECK(fresh.target.drew("SETTINGS"));
+  CHECK(fresh.target.drew("NO GAMES YET"));
+  CHECK(!fresh.interactions.overflowed());
+
+  // A part-played game is RESUMED, not thrown away, and the front door draws
+  // the game you are IN rather than a blank space until the first one is over.
+  hex::Game live;
+  hex::reset(live);
+  CHECK(hex::play(live, hex::cellAt(5, 5)));
+  CHECK(hex::play(live, hex::cellAt(4, 6)));
+  model.inProgress = true;
+  model.boardCells = live.cell;
+  model.moveNumber = live.moveNumber;
+  Rendered resumed;
+  buildHex<hexui::MenuModel, hexui::buildMenu>(resumed, model);
+  CHECK(resumed.target.drew("RESUME GAME"));
+  CHECK(resumed.target.drew("IN PROGRESS   MOVE 2"));
+
+  // With no game running it falls back to the last one finished.
+  hexui::MenuModel after;
+  hex::Game finished;
+  hex::reset(finished);
+  after.boardCells = finished.cell;
+  after.lastWon = true;
+  after.wins = 1;
+  Rendered over;
+  buildHex<hexui::MenuModel, hexui::buildMenu>(over, after);
+  CHECK(over.target.drew("LAST GAME: WON"));
+  CHECK(over.target.drew("1 PLAYED   1 WON"));
 }
 
 // --- checkers --------------------------------------------------------------
@@ -13586,6 +13872,12 @@ int main() {
   testTheResultNamesTheWinnerFromYourSeat();
   testTheSettingsRowsSayWhatTheyAre();
   testTheFrontDoorIsThreeDoors();
+  testTheHexCellYouTapIsTheCellTheRulesGet();
+  testTheHexBoardRunsCornerToCornerAndClearsTheChrome();
+  testTheHexBoardNamesBothSeatsAndTheirEdges();
+  testTheHexResultNamesTheWinnerFromYourSeat();
+  testTheHexSettingsRowsSayWhatTheyAre();
+  testTheHexFrontDoorIsThreeDoors();
   testTheSquareYouTapIsTheSquareTheRulesGet();
   testTheBoardKeepsOffTheChrome();
   testTheBoardSaysWhoseMoveAndWho();

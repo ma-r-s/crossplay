@@ -71,6 +71,16 @@ SRC=../../src/apps_local/link
   test_golink.cpp -o "$BUILD_DIR/test_golink"
 "$BUILD_DIR/test_golink"
 
+# Hex, whose shared state carries a DERIVED structure -- the union-find that
+# says who is joined to which edge travels with the stones rather than being
+# rebuilt on arrival. Two devices agreeing about every stone and disagreeing
+# about whether the game is over is a silent failure no divergence check on the
+# board alone would see.
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+  $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp ../../src/apps_local/hex/HexCore.cpp \
+  test_hexlink.cpp -o "$BUILD_DIR/test_hexlink"
+"$BUILD_DIR/test_hexlink"
+
 # The end of a match: the record that was never written and the final board the
 # loser was never shown. Real link, real Connect Four rules, real Endgame; see
 # test_endgame.cpp for what it does and does not cover.
