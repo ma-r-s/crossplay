@@ -648,10 +648,8 @@ void HexActivity::gameRender() {
       hexui::MenuModel model;
       model.selected = menuSelected;
       model.inProgress = inProgress && !hex::over(game);
-      model.lastWon = lastWon;
       model.wins = wins;
       model.losses = losses;
-      model.moveNumber = game.moveNumber;
       if (model.inProgress) {
         model.boardCells = game.cell;
       } else if (hasHistory) {

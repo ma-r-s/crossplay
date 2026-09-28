@@ -35,12 +35,6 @@ struct MenuModel {
   // backwards -- the thing a player most wants to see from here is the game
   // they are in the middle of.
   const uint8_t* boardCells = nullptr;
-  int moveNumber = 0;
-
-  // Whether the last finished game was won, for the caption under the
-  // ornament. Only read when `boardCells` is the last game rather than the one
-  // in progress, which `inProgress` already says.
-  bool lastWon = false;
   int wins = 0;
   int losses = 0;
 };

@@ -193,10 +193,11 @@ It holds the record, the settings, the last finished board for the front door's
 ornament, and the game in progress.
 
 The front door draws whichever of those two boards it has, and an EMPTY one when
-it has neither. Its words sit in the miniature's two notches, the way the seat
-cards do on the board: the record top right, the state of the game (or, on a
-new device, the one-sentence rule) bottom left, each line measured against the
-band so it never touches the board. Empty rather than nothing: a fresh device showed a four hundred
+it has neither. The only words on it are the record, two lines in the UI cut in
+the notch the miniature leaves at its top right (NO GAMES / PLAYED YET, then
+8 PLAYED / 3 WON), measured against the band so they never touch the board.
+A caption under the miniature (the rule, the move number, the last result) was
+tried and cut as filler: RESUME GAME already says a game is running. Empty rather than nothing: a fresh device showed a four hundred
 pixel hole in the middle of its own front door, which reads as a screen that
 failed to load -- and the shape of the board is the one thing about Hex a
 stranger has to see before the rules mean anything.

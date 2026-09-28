@@ -6681,7 +6681,8 @@ void testTheHexFrontDoorIsThreeDoors() {
   CHECK(fresh.target.drew("PLAY"));
   CHECK(fresh.target.drew("PLAY NEARBY"));
   CHECK(fresh.target.drew("SETTINGS"));
-  CHECK(fresh.target.drew("NO GAMES YET"));
+  CHECK(fresh.target.drew("NO GAMES"));
+  CHECK(fresh.target.drew("PLAYED YET"));
   CHECK(!fresh.interactions.overflowed());
 
   // A part-played game is RESUMED, not thrown away, and the front door draws
@@ -6692,24 +6693,18 @@ void testTheHexFrontDoorIsThreeDoors() {
   CHECK(hex::play(live, hex::cellAt(4, 6)));
   model.inProgress = true;
   model.boardCells = live.cell;
-  model.moveNumber = live.moveNumber;
   Rendered resumed;
   buildHex<hexui::MenuModel, hexui::buildMenu>(resumed, model);
   CHECK(resumed.target.drew("RESUME GAME"));
-  CHECK(resumed.target.drew("IN PROGRESS"));
-  CHECK(resumed.target.drew("MOVE 2"));
 
   // With no game running it falls back to the last one finished.
   hexui::MenuModel after;
   hex::Game finished;
   hex::reset(finished);
   after.boardCells = finished.cell;
-  after.lastWon = true;
   after.wins = 1;
   Rendered over;
   buildHex<hexui::MenuModel, hexui::buildMenu>(over, after);
-  CHECK(over.target.drew("LAST GAME"));
-  CHECK(over.target.drew("WON"));
   CHECK(over.target.drew("1 PLAYED"));
   CHECK(over.target.drew("1 WON"));
 }
@@ -6927,12 +6922,12 @@ void testTheHexSettingsSayOnlyTheirRows() {
   }
 }
 
-// "Text needs more space... use the available space in the best way possible."
-// The words sat in a line across the top and a line under the miniature,
-// pressed against its bottom corner, with empty paper either side. They now go
-// in the miniature's two notches, clear of its band, and the miniature grows
-// into the height the top line gave back.
-void testTheHexFrontDoorWordsSitInTheNotches() {
+// "Text needs more space... use the available space in the best way possible",
+// and then: the small font was hard to read and the words under the board were
+// filler. The front door now carries its record in the miniature's top-right
+// notch, two lines in the UI cut, clear of the band -- and no other words than
+// the title, the record and the list's own rows.
+void testTheHexFrontDoorIsTheBoardAndTheRecord() {
   hex::Game live;
   hex::reset(live);
   CHECK(hex::play(live, hex::cellAt(5, 5)));
@@ -6942,26 +6937,15 @@ void testTheHexFrontDoorWordsSitInTheNotches() {
   hexui::MenuModel inProgress;
   inProgress.inProgress = true;
   inProgress.boardCells = live.cell;
-  inProgress.moveNumber = live.moveNumber;
   inProgress.wins = 3;
   inProgress.losses = 5;
   hexui::MenuModel finished;
   finished.boardCells = live.cell;
-  finished.lastWon = true;
   finished.wins = 12;
   finished.losses = 30;
 
-  const char* notchWords[] = {"NO GAMES YET",
-                              "JOIN YOUR TWO EDGES",
-                              "BEFORE THEY JOIN THEIRS",
-                              "8 PLAYED",
-                              "3 WON",
-                              "IN PROGRESS",
-                              "MOVE 2",
-                              "42 PLAYED",
-                              "12 WON",
-                              "LAST GAME",
-                              "WON"};
+  const char* record[] = {"NO GAMES", "PLAYED YET", "8 PLAYED", "3 WON", "42 PLAYED", "12 WON"};
+  const char* chrome[] = {"HEX", "PLAY", "RESUME GAME", "PLAY NEARBY", "SETTINGS"};
   for (const hexui::MenuModel* model : {&fresh, &inProgress, &finished}) {
     Rendered out;
     buildHex<hexui::MenuModel, hexui::buildMenu>(out, *model);
@@ -6986,23 +6970,23 @@ void testTheHexFrontDoorWordsSitInTheNotches() {
     // Bigger than the 204 pixels it was when a line of words sat above it.
     CHECK(right - left >= 34 * 7);
 
-    int listTop = 32767;
-    for (size_t i = 0; i < out.interactions.count(); ++i) {
-      const fui::Interaction& entry = out.interactions.data()[i];
-      if (entry.action == hexui::ActionMenuRow && entry.rect.y < listTop) listTop = entry.rect.y;
-    }
-
-    int words = 0;
+    int recordLines = 0;
     for (const auto& run : out.target.texts) {
-      bool notch = false;
-      for (const char* word : notchWords) notch = notch || run.text == word;
-      if (!notch) continue;
-      ++words;
-      const toybox::CutMetrics& cut = run.style.font == toybox::kUiFont ? toybox::kUiCut : toybox::kTileCut;
+      bool isRecord = false;
+      for (const char* word : record) isRecord = isRecord || run.text == word;
+      bool isChrome = false;
+      for (const char* word : chrome) isChrome = isChrome || run.text == word;
+      if (!isRecord && !isChrome) std::printf("      hex front door: filler \"%s\"\n", run.text.c_str());
+      CHECK(isRecord || isChrome);
+      if (!isRecord) continue;
+      ++recordLines;
+      // The big cut, not the small one.
+      CHECK(run.style.font == toybox::kUiFont);
       const int16_t width = out.target.measureText(run.style.font, run.text.c_str(), run.style).width;
-      const fui::Rect inkBox = fui::makeRect(
-          run.style.align == fui::TextAlign::Right ? static_cast<int16_t>(run.rect.right() - width) : run.rect.x,
-          static_cast<int16_t>(run.rect.y + cut.ascender - cut.inkHeight), width, cut.inkHeight);
+      const fui::Rect inkBox =
+          fui::makeRect(static_cast<int16_t>(run.rect.right() - width),
+                        static_cast<int16_t>(run.rect.y + toybox::kUiCut.ascender - toybox::kUiCut.inkHeight), width,
+                        toybox::kUiCut.inkHeight);
       double nearest = 1e9;
       for (const fui::Point p : ink) {
         const double d = hexDistanceToRect(p.x, p.y, inkBox);
@@ -7012,10 +6996,9 @@ void testTheHexFrontDoorWordsSitInTheNotches() {
         std::printf("      hex front door: \"%s\" is %.1f px from the miniature\n", run.text.c_str(), nearest);
       }
       CHECK(nearest >= 12.0);
-      CHECK(inkBox.bottom() + toybox::kGutter <= listTop);
       CHECK(inkBox.x >= 0 && inkBox.right() <= device().width);
     }
-    CHECK(words == 2 || words == 3 || words == 4);
+    CHECK(recordLines == 2);
   }
 }
 
@@ -14192,7 +14175,7 @@ int main() {
   testTheHexSeatCardIsCentredAsOneGroup();
   testTheHexResultDoorsKeepClearOfTheBoard();
   testTheHexSettingsSayOnlyTheirRows();
-  testTheHexFrontDoorWordsSitInTheNotches();
+  testTheHexFrontDoorIsTheBoardAndTheRecord();
   testTheSquareYouTapIsTheSquareTheRulesGet();
   testTheBoardKeepsOffTheChrome();
   testTheBoardSaysWhoseMoveAndWho();

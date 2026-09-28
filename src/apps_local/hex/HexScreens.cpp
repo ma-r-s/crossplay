@@ -210,13 +210,12 @@ struct NotchLine {
   const toybox::CutMetrics* cut;
 };
 
-// How far the board's band reaches, left or right, within a run of rows: the
-// edge a line of words beside the miniature has to keep clear of. Sampled along
-// every strip's four sides, because the band's outline between two rows is a
-// slanted edge, not a vertex.
-int16_t bandReach(const BorderStrip* strips, const int count, const int16_t y0, const int16_t y1,
-                  const bool rightmost) {
-  int16_t reach = rightmost ? INT16_MIN : INT16_MAX;
+// How far right the board's band reaches within a run of rows: the edge a line
+// of words in the top-right notch has to keep clear of. Sampled along every
+// strip's four sides, because the band's outline between two rows is a slanted
+// edge, not a vertex. INT16_MIN when the band has nothing in those rows.
+int16_t bandReach(const BorderStrip* strips, const int count, const int16_t y0, const int16_t y1) {
+  int16_t reach = INT16_MIN;
   for (int i = 0; i < count; ++i) {
     const fui::Point corners[4] = {strips[i].from, strips[i].to, strips[i].outTo, strips[i].outFrom};
     for (int k = 0; k < 4; ++k) {
@@ -225,49 +224,38 @@ int16_t bandReach(const BorderStrip* strips, const int count, const int16_t y0, 
       for (int step = 0; step <= 16; ++step) {
         const int16_t x = static_cast<int16_t>(a.x + (b.x - a.x) * step / 16);
         const int16_t y = static_cast<int16_t>(a.y + (b.y - a.y) * step / 16);
-        if (y < y0 || y > y1) continue;
-        if (rightmost ? x > reach : x < reach) reach = x;
+        if (y >= y0 && y <= y1 && x > reach) reach = x;
       }
     }
   }
   return reach;
 }
 
-// Words stacked in one of the miniature's notches, flush against `edge` --
-// right-aligned to it, or left-aligned from it -- with the block's first cap
-// line at `y` (anchorTop) or its last baseline at `y`. Each line keeps
-// kNotchClear from the band; a line in the UI cut that will not fit its row
-// steps down to the tile cut rather than run into the board.
+// Words stacked in the miniature's top-right notch, right-aligned to `edge`,
+// the first cap line at `top`. Each line keeps kNotchClear from the band; a
+// line that will not fit its row steps down to the tile cut rather than run
+// into the board (host-tests/ui holds the X4 Pro to the UI cut).
 constexpr int16_t kNotchClear = 12;
 constexpr int16_t kNotchLineGap = 8;
 void notchWords(toybox::Screen& screen, const BorderStrip* strips, const int count, const NotchLine* lines, const int n,
-                const int16_t edge, const bool right, const int16_t y, const bool anchorTop) {
-  int16_t block = static_cast<int16_t>((n - 1) * kNotchLineGap);
-  for (int i = 0; i < n; ++i) block = static_cast<int16_t>(block + lines[i].cut->inkHeight);
-  int16_t capTop = anchorTop ? y : static_cast<int16_t>(y - block);
+                const int16_t edge, const int16_t top) {
+  int16_t capTop = top;
   for (int i = 0; i < n; ++i) {
     NotchLine line = lines[i];
     fui::TextStyle style;
     style.font = line.font;
-    style.align = right ? fui::TextAlign::Right : fui::TextAlign::Left;
+    style.align = fui::TextAlign::Right;
     const int16_t ink = line.cut->inkHeight;
     const int16_t reach = bandReach(strips, count, static_cast<int16_t>(capTop - kNotchClear),
-                                    static_cast<int16_t>(capTop + ink + kNotchClear), right);
-    int16_t room = 0;
-    if (right) {
-      room = reach == INT16_MIN ? static_cast<int16_t>(edge) : static_cast<int16_t>(edge - reach - kNotchClear);
-    } else {
-      room = reach == INT16_MAX ? static_cast<int16_t>(screen.device().width - edge)
-                                : static_cast<int16_t>(reach - kNotchClear - edge);
-    }
+                                    static_cast<int16_t>(capTop + ink + kNotchClear));
+    const int16_t room = reach == INT16_MIN ? edge : static_cast<int16_t>(edge - reach - kNotchClear);
     if (screen.target().measureText(line.font, line.text, style).width > room && line.cut != &toybox::kTileCut) {
       line.font = toybox::kTileFont;
       line.cut = &toybox::kTileCut;
       style.font = line.font;
     }
     if (room > 0) {
-      const fui::Rect box =
-          fui::makeRect(right ? static_cast<int16_t>(edge - room) : edge, capTop, room, line.cut->inkHeight);
+      const fui::Rect box = fui::makeRect(static_cast<int16_t>(edge - room), capTop, room, line.cut->inkHeight);
       screen.target().text(toybox::inkCentred(box, *line.cut), line.text, style);
     }
     capTop = static_cast<int16_t>(capTop + ink + kNotchLineGap);
@@ -569,12 +557,13 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     for (int i = 0; i < hex::kCellBytes; ++i) picture.cell[i] = model.boardCells[i];
   }
 
-  // The miniature takes the whole space above the list, and its words go in the
-  // two notches the rhombus leaves -- the record top right, where their card
-  // sits during play, and the state of the game bottom left, where yours does.
-  // The words first sat in a line across the top and a line under the
-  // miniature, pressed against its bottom corner, while the paper either side
-  // of it stood empty: the notches ARE the room this screen has.
+  // The miniature takes the whole space above the list, and the record sits
+  // in the notch the rhombus leaves at its top right, where their card sits
+  // during play: two lines in the UI cut, and nothing else. A line across the
+  // top and a caption under the board came first. The small cut was hard to
+  // read and the caption (the rule, IN PROGRESS / MOVE n, LAST GAME / WON) was
+  // filler: RESUME GAME already says a game is running, and the board says the
+  // rest once it starts.
   const int16_t areaTop = content.y;
   const int16_t areaBottom = static_cast<int16_t>(listBand.y - toybox::kGutter);
   Layout mini;
@@ -590,42 +579,20 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const int stripCount = borderStrips(mini, strips);
   drawBoard(screen, mini, strips, stripCount, picture, nullptr, false);
   const NotchLine uiLine{nullptr, toybox::kUiFont, &toybox::kUiCut};
-  const NotchLine tileLine{nullptr, toybox::kTileFont, &toybox::kTileCut};
 
   char played[24];
   char won[24];
-  NotchLine record[2] = {tileLine, uiLine};
-  int recordLines = 1;
+  NotchLine record[2] = {uiLine, uiLine};
   if (model.wins + model.losses > 0) {
     std::snprintf(played, sizeof(played), "%d PLAYED", model.wins + model.losses);
     std::snprintf(won, sizeof(won), "%d WON", model.wins);
-    record[0] = uiLine;
     record[0].text = played;
     record[1].text = won;
-    recordLines = 2;
   } else {
-    record[0].text = "NO GAMES YET";
+    record[0].text = "NO GAMES";
+    record[1].text = "PLAYED YET";
   }
-  notchWords(screen, strips, stripCount, record, recordLines, content.right(), true, mini.top, true);
-
-  char move[24];
-  NotchLine state[2] = {tileLine, uiLine};
-  if (model.inProgress) {
-    std::snprintf(move, sizeof(move), "MOVE %d", model.moveNumber);
-    state[0].text = "IN PROGRESS";
-    state[1].text = move;
-  } else if (model.boardCells != nullptr) {
-    state[0].text = "LAST GAME";
-    state[1].text = model.lastWon ? "WON" : "LOST";
-  } else {
-    // The rules, for a device that has never played. They are one sentence,
-    // which is the whole reason this game is on the shelf.
-    state[0].text = "JOIN YOUR TWO EDGES";
-    state[1] = tileLine;
-    state[1].text = "BEFORE THEY JOIN THEIRS";
-  }
-  notchWords(screen, strips, stripCount, state, 2, content.x, false, static_cast<int16_t>(mini.top + mini.h * 32),
-             false);
+  notchWords(screen, strips, stripCount, record, 2, content.right(), mini.top);
 }
 
 void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
