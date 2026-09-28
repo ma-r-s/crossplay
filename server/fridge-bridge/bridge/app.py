@@ -391,6 +391,7 @@ def pull(
     authorization: str = Header(default=""),
     if_none_match: str = Header(default="", alias="If-None-Match"),
     x_live_on: str = Header(default="", alias="X-Live-On"),
+    x_battery: str = Header(default="", alias="X-Battery"),
 ) -> Response:
     """The only request a sleeping reader ever makes.
 
@@ -402,6 +403,11 @@ def pull(
     learned the last time the reader spoke. When the NEXT check is does not
     need asking: it is the interval in this reply, stamped at the check-in and
     never recomputed. See store.next_expected.
+
+    AND ITS BATTERY, in X-Battery, a whole percent read before the radio came
+    up. The same reason as X-Live-On: nobody can ask a sleeping reader, and a
+    call of its own would double what a wake costs. Absent or unreadable is
+    stored as nothing, never as 0.
     """
     token = authorization.removeprefix("Bearer ").strip()
     fridge = store.fridge_for_device(token) if token else None
@@ -450,7 +456,8 @@ def pull(
     # What matters is that it is stamped ONCE, at the check-in, and never
     # recomputed: that is what stops a schedule change from moving a countdown
     # while the reader is still asleep on its old alarm. See next_expected.
-    nth = fridge.touch_checkin(wake_in, live_on)
+    battery = store.parse_battery(x_battery)
+    nth = fridge.touch_checkin(wake_in, live_on, battery)
     entry = fridge.selected_entry()
     # THE NUMBER THAT MEANS SOMETHING. props.n is which check-in this was, so
     # the board can separate a reader that pulled once while somebody was
@@ -470,6 +477,8 @@ def pull(
             "n": nth,
             "live_on": bool(live_on),
             "wake_in_s": int(wake_in),
+            # Only when the reader sent one: an absent reading is not 0%.
+            **({"battery": battery} if battery is not None else {}),
         },
     )
 
@@ -626,7 +635,33 @@ def state(live_sender: str = Cookie(default=None)) -> JSONResponse:
     pending = pending_sentence(fridge)
     if pending:
         body["pending"] = pending
+    # THE READER'S BATTERY AND WHEN IT SAID SO. Absent until a reader has
+    # reported one, so the page shows nothing rather than a 0% nobody measured.
+    if isinstance(s.get("battery"), int):
+        body["battery"] = s["battery"]
+        body["batteryAt"] = int(s.get("battery_at", 0))
     return JSONResponse(body)
+
+
+@app.get("/api/battery")
+def battery(live_sender: str = Cookie(default=None)) -> JSONResponse:
+    """Thirty days of the reader's battery, for the graph behind the chip.
+
+    Its own call rather than part of /api/state: the page polls the state, and
+    a month of readings is only wanted when somebody opens the graph.
+    """
+    fridge = _sender_fridge(live_sender)
+    if fridge is None or not fridge.exists():
+        return refused("This browser is not connected to a reader.", 401)
+    now = int(time.time())
+    points = fridge.battery_log(now)
+    outlook = store.battery_outlook(points, now)
+    body = {"now": now, "points": [[t, p] for t, p in points]}
+    if "charged_at" in outlook:
+        body["chargedAt"] = outlook["charged_at"]
+    if "days_left" in outlook:
+        body["daysLeft"] = outlook["days_left"]
+    return JSONResponse(body, headers={"Cache-Control": "no-store"})
 
 
 # ---------------------------------------------------------------- history

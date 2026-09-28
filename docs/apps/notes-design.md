@@ -97,11 +97,15 @@ thing that takes something away (CLEAR DONE, DELETE IT). DELETE NOTE sits alone
 on that bar on the menu, a page below the rows, so it is never under a thumb
 that came for something else.
 
-**Rows and cards share the page when they already fit on one** (`fittedPitch`,
-capped at a card rather than a slab). A three-note deck was three text lines at
-the top of an empty page, which is not minimal, it is unfinished. They never
-grow while anything is paged: a row that changes size because the note got
-longer is a row that moves under the finger.
+**Rows and cards share the page when they already fit on one**, capped at a card
+rather than a slab. A three-note deck was three text lines at the top of an
+empty page, which is not minimal, it is unfinished. They never grow while
+anything is paged: a row that changes size because the note got longer is a row
+that moves under the finger.
+
+**A wrapped item sets its tick box on its FIRST line**, the way every checklist
+does. Centred on a three-line row it reads as belonging to the middle of the
+sentence; for a one-line row the two are the same place anyway.
 
 **ADD keeps the keyboard up.** Type, done, type, done, Back. One visit per item
 cost two activity transitions and two full-screen repaints EACH -- six repaints
@@ -122,40 +126,51 @@ is a per-note action that must never become a mode.
 
 ## The layout rules, each paid for by a render
 
-- **Nothing is ever elided, with exactly one exception.** Not by us and not by
-  the list component, which truncated three of six deck titles the first time it
-  was handed them. The exception is a deck card's preview of a note's first
-  words, which is a glimpse by definition; it is set at `toybox_10`, the only
-  cut in the family carrying an ellipsis glyph, and it is cut on a word
-  boundary with three real periods rather than stopping wherever the width ran
-  out.
-  `pickCut` returns the largest cut in which EVERY string fits in the lines
-  available, and 0 when none does.
-- **Peers share a cut.** The rows of a deck and the lines of a list are compared
-  with each other, so the cut is chosen once from the widest member. Sized one
-  by one, a long row comes out smaller than its neighbours and reads as a
-  different kind of thing.
-- **Wrapping beats shrinking, and the ladder used to have it backwards.** The
-  order is body at one line, body at two, and the small cut only for a single
-  word too wide to break. It ran TITLE -> BODY -> SMALL before, so ONE long item
-  halved every row on the screen -- and bought nothing, because `typeRowHeight`
-  floors at a finger: small-on-one-line and body-on-two-lines produce the
-  identical 72px row and the same eight rows per page.
+- **Nothing is ever elided, with two exceptions, both said where they are.** Not
+  by us and not by the list component, which truncated three of six deck titles
+  the first time it was handed them. The exceptions: a deck card's preview of a
+  note's first words, which is a glimpse by definition, cut on a word boundary
+  with three real periods; and a single list item longer than a whole page,
+  which ends in `...` on the device and is whole on the phone page.
+- **ONE LINE-BREAK RULE, AND THE RENDERER NEVER WRAPS ANYTHING.** Mario,
+  2026-09-28: a ticked item that took two lines was struck on the first only.
+  There were three wraps: the row was sized by summing word widths, the
+  renderer re-wrapped the text by its own algorithm, and the strike split the
+  string on `\n`, which wrapped text never contains -- so it drew ONE bar, as
+  wide as the whole sentence, on line one. Now `breakWords` chooses every line,
+  measuring whole candidate lines, and `drawLines` hands each to the renderer
+  as a single-line run and strikes that same run. Sizing, drawing and striking
+  cannot disagree because there is only one of them.
+- **Peers share a cut -- the BODY cut -- and nothing shrinks it.** The rows of a
+  list and the names on a deck are compared with each other, so they are set in
+  one face. That face used to be picked from the LONGEST member: one pasted
+  sentence set a whole shopping list in small print, a note with one long
+  paragraph was entirely in the smallest face, and one long note name shrank
+  every name on the deck. A long item takes more LINES instead. Rows share a
+  cut, not a height; a long name wraps to a second line, set tighter than
+  reading leading so it and its preview still fit the card.
+- **A link is split, not shrunk.** A run of letters wider than the row -- a
+  pasted URL -- is broken at a character boundary (never inside a UTF-8
+  sequence) at the body cut. Shrinking the whole list to fit one link was the
+  old answer.
 - **THE BAND IS CHROME AND A FILENAME MUST NEVER RESIZE IT.** It ran through
   `fittedTitle`, so a list called "Packing for Lisbon" dropped the app's own
   title bar a whole cut and a longer name dropped it two. It is fixed now, and a
   name that will not fit is refused at the keyboard rather than silently
   shrinking the chrome later.
-- **Row height comes from the type, and from the count only between a floor and
-  a CAP.** Dividing the band by the number of rows fills a short page, but taken
-  literally it redraws the same note with a different rhythm every time a line
-  is added, and a two-item list becomes two slabs. `fittedPitch` divides only
-  down to a cap (108 for a list row, 132 for a deck card) and only while nothing
-  is paged, which pins the size flat across the counts people actually have: on
-  a 601px band a list is 108 from one item to five, and a deck card is 132 from
-  one note to four. Past that it steps down twice and paging takes over. The
-  rule it replaced left three notes as three text lines at the top of an empty
-  page, which is not minimal, it is unfinished.
+- **A row is as tall as its own text, floored at a finger.** A one-line item is
+  72px; a three-line item is three lines plus its padding. When the whole list
+  fits one page every row shares the spare height, up to 36px, so a short list
+  is not three lines over a hole. Pages are cut by HEIGHT, greedily, and an
+  item never splits across pages -- it moves whole to the next one.
+- **A note flows.** A page of words is laid out line by line, so a long
+  paragraph continues on the next page at the body cut instead of being shrunk
+  to fit. A paragraph never leaves ONE line behind at a break, at either end:
+  a lone first line at the foot of a page reads as a sentence that stops, a
+  lone last line at the top of the next as a stray. The page an Activity counts
+  and the page it draws come from one layout pass (`notePageStarts`), so they
+  cannot disagree -- the version before measured a fixed rows-per-page while
+  drawing variable ones.
 - **A PRECONDITION IS WORTH ONLY WHAT ITS FAILURE COSTS.** Saving a note asked
   `Storage.freeBytes()` first, to refuse politely on a full card. Measured on
   device 1: that walk is **5317ms**, and it landed between OK and the next
@@ -220,6 +235,18 @@ textarea.** A textarea showed a person their own list as source, `- [x] Milk`
 and all, and made the marker something they had to type. The empty row at the
 foot grows a fresh one as soon as you type in it, so a list is written without
 reaching for a button between items.
+
+**Each row's box grows with what it holds, and a note has no tick boxes.** The
+field was a one-line input, so a long item showed as its first thirty
+characters and a paragraph as a sliver. And the page wrote a marker in front of
+every line it saved, so editing a NOTE from a phone turned its paragraphs into a
+list; the server's own coercion read an empty note (an empty file) as a list for
+the same reason. The reader now tells the page the kind (`X-Note-Kind`), which is
+the only side that knows it for an empty note, and the server coerces only a
+list. The page's task rule is the reader's exactly: `- [x]tra` is a line of text
+on both, where the page used to read it as a ticked item called "tra". Enter
+moves to the next row rather than breaking a line, so a line break in a box can
+only have been pasted, and each pasted line is saved as its own item.
 
 **It is built from `site/styles.css`, not from memory of it.** Warm paper
 `#f5f2ea` and ink `#111110`; the display stack at weight 400 in sentence case,

@@ -63,7 +63,7 @@ The reader, bearer token:
 | ---------------------- | --------------------------------------------------------------------------------------------------------- |
 | `POST /api/pair/start` | makes a fridge and a device token, returns a six-digit code                                               |
 | `GET /api/pair/poll`   | hands the reader its token once a browser has claimed the code                                            |
-| `GET /api/pull`        | `304` unchanged, `204` nothing picked, `200` + the BMP. `X-Next-Wake` (how long to sleep), `X-Cadence` (how often it repeats, which is a different number under a clock-time schedule) and `X-Server-Time` back on all three; the reader sends `X-Live-On` |
+| `GET /api/pull`        | `304` unchanged, `204` nothing picked, `200` + the BMP. `X-Next-Wake` (how long to sleep), `X-Cadence` (how often it repeats, which is a different number under a clock-time schedule) and `X-Server-Time` back on all three; the reader sends `X-Live-On` and `X-Battery` (whole percent; absent when its gauge did not answer) |
 | `GET /api/senders`     | who may send, the cap, and `pending` when the schedule has moved and this reader has not picked it up yet. ABSENT when nothing is pending |
 | `POST /api/off`        | Live was switched off on the reader. Fire and forget: its failure costs nothing, the fridge just goes quiet |
 
@@ -72,7 +72,8 @@ The browser, cookie:
 |                                    |                                                                   |
 | ---------------------------------- | ----------------------------------------------------------------- |
 | `POST /api/claim`                  | six digits in, a sender cookie out                                |
-| `GET /api/state`                   | last check-in, schedule, next expected, `liveOn`, and the same `pending` sentence the reader gets |
+| `GET /api/state`                   | last check-in, schedule, next expected, `liveOn`, the same `pending` sentence the reader gets, and `battery` / `batteryAt` once the reader has reported one |
+| `GET /api/battery`                 | thirty days of `[epoch, percent]` readings for the graph, plus `chargedAt` and `daysLeft` only when the readings support them |
 | `GET /api/history`                 | everything ever sent to this reader, newest first, and which is picked |
 | `POST /api/history`                | exactly 48062 or 96070 bytes; `X-Kind` says drawing, message or photo. Appends and picks |
 | `GET /api/history/{id}/thumb`      | a 60x100 greyscale PNG of that entry, about a kilobyte, immutable |

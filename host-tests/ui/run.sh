@@ -61,6 +61,7 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/toybattle/ToyBattleCore.cpp \
   ../../src/apps_local/toybattle/ToyBattleFlow.cpp \
   ../../src/apps_local/trivia/TriviaScreens.cpp \
+  ../../src/apps_local/notes/NotesScreens.cpp \
   ../../src/apps_local/murdle/MurdleCast.cpp \
   ../../src/apps_local/murdle/MurdleCore.cpp \
   ../../src/apps_local/murdle/MurdleScreens.cpp \

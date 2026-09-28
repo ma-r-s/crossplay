@@ -7,10 +7,12 @@ reader is still asleep on the schedule it last picked up.
   host-tests/fridge/run.sh
 """
 
+import json
 import pathlib
 import re
 import struct
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "server" / "fridge-bridge"))
 
@@ -289,6 +291,112 @@ words.append(store.cadence_words({"mode": "daily", "daily_time": "00:00"}))
 longest = max((PENDING_TEMPLATE.format(w) for w in words), key=len)
 check("the pending corpus is finite", len(words) == 7, words)
 check("and its longest sentence is short", len(longest) <= 52, (len(longest), longest))
+
+# --- the reader's battery ----------------------------------------------------
+#
+# It rides the pull as X-Battery. The failure that matters is not a crash: it is
+# an absent or garbled reading turning into a CONFIDENT number -- a 0% that sends
+# somebody across town with a charger for a full battery, or a stale figure
+# replaced by nothing. So absent stays absent, and garbage leaves the last real
+# reading standing.
+st = c.get("/api/state").json()
+check("no battery until the reader has reported one", "battery" not in st, st)
+before = int(time.time())
+c.get("/api/pull", headers={**dev, "X-Battery": "87"})
+st = c.get("/api/state").json()
+check("the reader's battery reaches the page", st.get("battery") == 87, st)
+check("with when it said so", st.get("batteryAt", 0) >= before, st)
+for junk in ("", "abc", "101", "-5", "8.5", "1000"):
+    c.get("/api/pull", headers={**dev, "X-Battery": junk})
+st = c.get("/api/state").json()
+check("a missing or garbled reading leaves the last real one", st.get("battery") == 87, st)
+b = c.get("/api/battery")
+check("the graph's readings are served", b.status_code == 200, b.status_code)
+pts = b.json().get("points")
+check("one reading per check-in that carried one", [p[1] for p in pts] == [87], pts)
+check("and nothing claimed from one reading", "daysLeft" not in b.json(), b.json())
+anon = TestClient(app).get("/api/battery")
+check("a browser with no reader gets none", anon.status_code == 401, anon.status_code)
+
+for raw, want in (("0", 0), ("100", 100), ("42", 42), (" 7 ", 7), ("", None), ("x", None), ("101", None)):
+    check(f"X-Battery {raw!r} reads as {want}", store.parse_battery(raw) == want, store.parse_battery(raw))
+
+# The log keeps thirty days and trims itself, rather than growing for as long
+# as the fridge lives.
+fridge_id = next(iter(json.loads(store._index_path().read_text()).values()))
+fr = store.Fridge(fridge_id)
+now = int(time.time())
+fr.battery_path.write_text(f"{now - store.BATTERY_KEEP_S - 60} 99\n{now - 60} 50\n")
+check("readings older than thirty days are not drawn", fr.battery_log(now) == [(now - 60, 50)], fr.battery_log(now))
+old_line = f"{now - store.BATTERY_KEEP_S - 60} 99\n"
+fr.battery_path.write_text(old_line * (store.BATTERY_LOG_TRIM_BYTES // len(old_line) + 1))
+fr._record_battery(now, 49)
+check(
+    "and the log is cut back to its window once it outgrows it",
+    fr.battery_path.read_text() == f"{now} 49\n",
+    fr.battery_path.stat().st_size,
+)
+
+# --- what the graph says about the readings ----------------------------------
+H, D = 3600, 86400
+T0 = 1_700_000_000
+
+
+def hourly(start_pct, per_day, days, t0=T0):
+    return [(t0 + h * H, round(start_pct - per_day * h / 24)) for h in range(days * 24 + 1)]
+
+
+def outlook(points, after=0):
+    """The outlook as the page would get it, `after` seconds past the last reading."""
+    return store.battery_outlook(points, (points[-1][0] if points else T0) + after)
+
+
+steady = hourly(80, 2, 10)
+out = outlook(steady)
+check("two points a day from 60% is about thirty days", 29 <= out.get("days_left", 0) <= 31, out)
+check("and no charge is claimed when there was none", "charged_at" not in out, out)
+check(
+    "and it counts down while the reader is silent, rather than standing still",
+    22 <= outlook(steady, 7 * D).get("days_left", 0) <= 24,
+    outlook(steady, 7 * D),
+)
+check(
+    "down to nothing once the projection has run out, never below",
+    outlook(steady, 60 * D).get("days_left") == 0,
+    outlook(steady, 60 * D),
+)
+
+charged = hourly(60, 2, 5) + [(T0 + 5 * D + H, 95)] + hourly(94, 1, 4, T0 + 5 * D + 2 * H)
+out = outlook(charged)
+check("a jump up is a charge, dated by the reading that showed it", out.get("charged_at") == T0 + 5 * D + H, out)
+check(
+    "and the estimate is measured since the charge, not across it",
+    85 <= out.get("days_left", 0) <= 95,
+    out,
+)
+
+# Days on the cable at 100%, then a real discharge. Fitted from the plateau the
+# battery looks like it barely drains, and the page would promise months.
+plateau = [(T0 + d * D, 100) for d in range(5)] + [(T0 + (5 + d) * D, 100 - 4 * d) for d in range(3)]
+out = store.battery_outlook(plateau, plateau[-1][0])
+check("time held at 100% on the cable is not counted as a slow drain", 21 <= out.get("days_left", 0) <= 24, out)
+
+# A charge seen in small steps -- Check now pressed on the cable -- is still one.
+creep = hourly(60, 2, 4) + [(T0 + 4 * D + i * H, 52 + 2 * i) for i in range(1, 25)]
+check("a charge seen two points at a time still counts", "charged_at" in outlook(creep), outlook(creep))
+
+short = hourly(80, 2, 1)
+check("a day of readings says nothing about how long is left", "days_left" not in outlook(short))
+flat = [(T0 + h * H, 70) for h in range(24 * 5)]
+check("a battery that is not falling says nothing either", "days_left" not in outlook(flat))
+wobble = [(T0 + h * H, 70 + (h % 2)) for h in range(24 * 5)]
+check("a one-point wobble is not a charge", "charged_at" not in outlook(wobble))
+# The X4 and PaperMono read voltage and report in tens, so a reading sitting on
+# a boundary flips between two of them.
+tens = [(T0 + d * D, p) for d, p in enumerate([80, 80, 70, 70, 60, 70, 60, 60, 50, 50])]
+check("a ten-point wobble on a voltage board is not a charge", "charged_at" not in outlook(tens), outlook(tens))
+check("no readings, nothing to say", store.battery_outlook([], T0) == {})
+check("a superscript digit is not a reading", store.parse_battery("\u00b2") is None)
 
 # --- the browser is allowed to make the calls the page actually makes -------
 #

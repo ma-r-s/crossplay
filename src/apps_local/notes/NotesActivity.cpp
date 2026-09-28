@@ -123,10 +123,7 @@ bool NotesActivity::anyDone() const {
 
 int NotesActivity::deckPageSize() {
   fui::GfxRendererTarget target = toybox::makeTarget(renderer);
-  notesui::DeckModel probe;
-  probe.items = deckRows_.data();
-  probe.count = static_cast<int>(deckRows_.size());
-  return notesui::deckCapacity(target, target.deviceContext(), probe);
+  return notesui::deckCapacity(target.deviceContext());
 }
 
 notesui::NoteModel NotesActivity::noteModel() const {
@@ -144,14 +141,24 @@ notesui::NoteModel NotesActivity::noteModel() const {
   return model;
 }
 
-int NotesActivity::notePageSize() {
+std::vector<int> NotesActivity::notePageStarts() {
   fui::GfxRendererTarget target = toybox::makeTarget(renderer);
   // The model as it will be DRAWN. A probe missing the kind measured a list's
   // tick boxes against a page's text width, and a probe missing the tally
   // measured against a band the progress strip was not standing in -- which
   // fits one row more than the screen draws, so the last item of a page went
   // missing while the page label counted it.
-  return notesui::noteCapacity(target, target.deviceContext(), noteModel());
+  return notesui::notePageStarts(target, target.deviceContext(), noteModel());
+}
+
+// Which page noteTop_ is on: the last page that starts at or before it. After
+// an edit the pages move, and noteTop_ may point into the middle of one.
+int NotesActivity::notePageOf(const std::vector<int>& starts) const {
+  int page = 0;
+  for (size_t p = 0; p < starts.size(); p++) {
+    if (starts[p] <= noteTop_) page = static_cast<int>(p);
+  }
+  return page;
 }
 
 void NotesActivity::relabelDeck() {
@@ -165,12 +172,15 @@ void NotesActivity::relabelDeck() {
 }
 
 void NotesActivity::relabelNote() {
-  const int page = notePageSize();
-  const int count = static_cast<int>(taskRows_.size());
+  const std::vector<int> starts = notePageStarts();
+  const int page = notePageOf(starts);
+  // Snapped to the start of its page, so the page drawn is a page the count
+  // agrees exists rather than one that begins halfway down another.
+  noteTop_ = starts[static_cast<size_t>(page)];
   notePage_.clear();
-  if (page <= 0 || count <= page) return;
+  if (starts.size() <= 1) return;
   char label[32];
-  std::snprintf(label, sizeof(label), "%d / %d", noteTop_ / page + 1, (count + page - 1) / page);
+  std::snprintf(label, sizeof(label), "%d / %d", page + 1, static_cast<int>(starts.size()));
   notePage_ = label;
 }
 
@@ -201,8 +211,9 @@ void NotesActivity::reloadNote() {
 void NotesActivity::refreshFromDoc() {
   lines_ = notes::parse(doc_);
   rebuildRows();
-  const int count = static_cast<int>(taskRows_.size());
-  if (noteTop_ >= count) noteTop_ = 0;
+  // relabelNote snaps noteTop_ onto a real page start. It is NOT compared with
+  // the item count: on a note it counts LINES, and a note on its third page has
+  // a noteTop_ past its number of paragraphs that is still perfectly valid.
   relabelNote();
 }
 
@@ -442,11 +453,16 @@ void NotesActivity::askLine() {
     // NOT reloadNote(): doc_ is what was just written, byte for byte. Reading
     // it back turned every OK into a second trip to the card.
     refreshFromDoc();
-    // Onto the page the new line landed on, so a line added to a long list is
-    // visibly there rather than two pages away.
-    const int page = notePageSize();
-    const int count = static_cast<int>(taskRows_.size());
-    if (page > 0 && count > 0) noteTop_ = ((count - 1) / page) * page;
+    // Onto the page the new line BEGINS on, so it is visibly there rather than
+    // pages away. Not the last page: on a note a long paragraph flows, and one
+    // added at the end can start on the page before the last.
+    {
+      fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+      const int item = static_cast<int>(taskRows_.size()) - 1;
+      const std::vector<int> starts = notePageStarts();
+      const int page = notesui::notePageOfItem(target, target.deviceContext(), noteModel(), item < 0 ? 0 : item);
+      noteTop_ = starts[static_cast<size_t>(page)];
+    }
     relabelNote();
     LOG_DBG("NOTES", "add: save %ums, rows %ums, %d items", savedAt - startedAt, millis() - savedAt,
             static_cast<int>(taskRows_.size()));
@@ -496,7 +512,7 @@ void NotesActivity::startPhone() {
     showNotice("There was not enough memory to start.");
     return;
   }
-  server_->setNotesFile(std::string("/notes/") + openName_ + ".md", openName_);
+  server_->setNotesFile(std::string("/notes/") + openName_ + ".md", openName_, !openIsPage());
   server_->begin();
   // The simulator has no networking shim, so begin() never leaves the server
   // running there. The SCREEN is still drawn, because its layout is the half
@@ -612,11 +628,11 @@ void NotesActivity::loop() {
       return;
     }
     if (view_ == View::Note) {
-      const int page = notePageSize();
-      const int count = static_cast<int>(taskRows_.size());
-      const int next = down ? noteTop_ + page : noteTop_ - page;
-      if (page > 0 && count > page && next >= 0 && next < count) {
-        noteTop_ = next;
+      const std::vector<int> starts = notePageStarts();
+      const int page = notePageOf(starts);
+      const int next = down ? page + 1 : page - 1;
+      if (next >= 0 && next < static_cast<int>(starts.size())) {
+        noteTop_ = starts[static_cast<size_t>(next)];
         relabelNote();
         interactionsReady_ = false;
         requestUpdate();

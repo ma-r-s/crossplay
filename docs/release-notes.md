@@ -21,6 +21,20 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.21
+
+- M5Stack PaperMono / Lite support (carries #208)
+
+### 1.13.20
+
+- Notes: the phone page shows long items whole, and keeps a note a note
+- Notes: strike every line of a wrapped item, and never shrink a list
+
+### 1.13.19
+
+- Live: the reader's battery on the website, and thirty days of it behind a tap
+- Install: the route onto a USB-locked X4 Pro, and each SD refusal by its own name
+
 ### 1.13.18
 
 - Live: the board fits a phone, the history is shared, and a schedule can be a time of day
