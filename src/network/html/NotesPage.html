@@ -44,17 +44,18 @@ main{max-width:34rem;margin:0 auto;padding:1.6rem var(--gutter) 3rem}
 /* One row per item: a real checkbox and a real text field. There is nothing to
    type wrong because there is no syntax to type. */
 ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--edge)}
-li{display:flex;align-items:center;gap:.75rem;border-bottom:1px solid var(--edge);padding:.2rem 0}
-li input[type=checkbox]{appearance:none;flex:0 0 auto;width:1.5rem;height:1.5rem;margin:0;
+li{display:flex;align-items:flex-start;gap:.75rem;border-bottom:1px solid var(--edge);padding:.2rem 0}
+li input[type=checkbox]{appearance:none;flex:0 0 auto;width:1.5rem;height:1.5rem;margin:.72rem 0 0;
   border:3px solid var(--ink);background:var(--paper);cursor:pointer}
 li input[type=checkbox]:checked{background:var(--ink);box-shadow:inset 0 0 0 4px var(--paper)}
-li input[type=text]{flex:1 1 auto;min-width:0;font:inherit;color:var(--ink);background:transparent;
-  border:0;border-radius:0;padding:.65rem .2rem;outline-offset:2px}
-li.done input[type=text]{text-decoration:line-through}
+li textarea{flex:1 1 auto;min-width:0;font:inherit;line-height:1.45;color:var(--ink);background:transparent;
+  border:0;border-radius:0;padding:.65rem .2rem;outline-offset:2px;resize:none;overflow:hidden;
+  display:block;height:auto}
+li.done textarea{text-decoration:line-through}
 li input:focus-visible{outline:3px solid var(--ink)}
 li .drop{flex:0 0 auto;font-family:var(--mono);font-size:.8rem;letter-spacing:.1em;color:var(--muted);
-  background:transparent;border:0;padding:.5rem;cursor:pointer}
-.new input[type=text]{background:var(--paper-2);padding-left:.75rem}
+  background:transparent;border:0;padding:.5rem;margin-top:.35rem;cursor:pointer}
+.new textarea{background:var(--paper-2);padding-left:.75rem}
 
 .btn{display:block;width:100%;margin-top:1.4rem;font-family:var(--display);font-weight:400;font-size:1.3rem;
   letter-spacing:.03em;padding:.5em 1.15em .38em;border:3px solid var(--ink);
@@ -68,7 +69,7 @@ li .drop{flex:0 0 auto;font-family:var(--mono);font-size:.8rem;letter-spacing:.1
 <div class="band"><span id="name">Notes</span><span class="band-note" id="state">Loading</span></div>
 <div class="band-rule"></div>
 <main>
-<p class="eyebrow">One line per thing</p>
+<p class="eyebrow" id="eyebrow">One line per thing</p>
 <ul id="rows"></ul>
 <button class="btn" id="save" disabled>Save to the reader</button>
 <p class="foot" id="foot">Served by the reader itself. Nothing leaves your network.</p>
@@ -83,15 +84,23 @@ var saveEl = document.getElementById('save');
 var stateEl = document.getElementById('state');
 var nameEl = document.getElementById('name');
 var footEl = document.getElementById('foot');
+var eyebrowEl = document.getElementById('eyebrow');
 var loaded = null;
+// A NOTE is paragraphs: no tick boxes drawn, and none written back. The reader
+// says which it is, because an empty note and an empty list are the same empty
+// file.
+var isNote = false;
 
 function say(msg) { stateEl.textContent = msg; }
 
 // A line of the file, split into the two things a person can see: whether it is
 // done, and what it says. The "- [ ] " marker never reaches the screen.
 function parseLine(line) {
-  var m = /^(\s*)([-*+]) \[([ xX])\] ?(.*)$/.exec(line);
-  if (m) return { done: m[3] !== ' ', text: m[4] };
+  // The reader's rule exactly (NotesCore classify): the marker is followed by a
+  // space or ends the line, so "- [x]tra" is a line of text, not a ticked task
+  // called "tra" -- which is what this page used to read it as.
+  var m = /^([ \t]*)([-*+]) \[([ xX])\](?: (.*))?$/.exec(line);
+  if (m) return { done: m[3] !== ' ', text: m[4] || '' };
   return { done: false, text: line };
 }
 
@@ -104,11 +113,17 @@ function addRow(item, isNew) {
   box.checked = !!item.done;
   box.setAttribute('aria-label', 'Done');
 
-  var text = document.createElement('input');
-  text.type = 'text';
+  // A box that GROWS with what it holds. It was a one-line field, which showed
+  // a long item as its first thirty characters and a paragraph as one sliver.
+  var text = document.createElement('textarea');
+  text.rows = 1;
   text.value = item.text || '';
-  text.placeholder = isNew ? 'Add a line' : '';
+  text.placeholder = isNew ? (isNote ? 'Add a paragraph' : 'Add a line') : '';
   text.setAttribute('aria-label', 'What it says');
+  function fit() {
+    text.style.height = 'auto';
+    text.style.height = text.scrollHeight + 'px';
+  }
 
   var drop = document.createElement('button');
   drop.type = 'button';
@@ -124,6 +139,7 @@ function addRow(item, isNew) {
   // fresh empty one under it, so a list is written without ever reaching for a
   // button between items.
   text.addEventListener('input', function () {
+    fit();
     if (!li.classList.contains('new') || text.value === '') return;
     li.classList.remove('new');
     text.placeholder = '';
@@ -134,17 +150,18 @@ function addRow(item, isNew) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     var next = li.nextElementSibling;
-    if (next) next.querySelector('input[type=text]').focus();
+    if (next) next.querySelector('textarea').focus();
   });
   drop.addEventListener('click', function () {
     if (li.classList.contains('new')) { text.value = ''; return; }
     li.parentNode.removeChild(li);
   });
 
-  li.appendChild(box);
+  if (!isNote) li.appendChild(box);
   li.appendChild(text);
   li.appendChild(drop);
   rowsEl.appendChild(li);
+  fit();
   return li;
 }
 
@@ -155,17 +172,35 @@ function serialise() {
   var items = rowsEl.querySelectorAll('li');
   for (var i = 0; i < items.length; i++) {
     var box = items[i].querySelector('input[type=checkbox]');
-    var text = items[i].querySelector('input[type=text]');
-    if (text.value.trim() === '') continue;
-    out += '- [' + (box.checked ? 'x' : ' ') + '] ' + text.value + '\n';
+    var text = items[i].querySelector('textarea');
+    // Enter never reaches a box (it moves to the next row), so a line break in
+    // one can only have been PASTED -- and a pasted list is several things, so
+    // each of its lines becomes a line of the file, not one long item.
+    var said = text.value.split(/\r?\n/);
+    for (var j = 0; j < said.length; j++) {
+      if (said[j].trim() === '') continue;
+      out += (isNote ? '' : '- [' + (box && box.checked ? 'x' : ' ') + '] ') + said[j] + '\n';
+    }
   }
   return out;
 }
+
+// A box's height is measured from its width, so a phone turned on its side
+// leaves every box the wrong height until it is measured again.
+window.addEventListener('resize', function () {
+  var boxes = rowsEl.querySelectorAll('textarea');
+  for (var i = 0; i < boxes.length; i++) {
+    boxes[i].style.height = 'auto';
+    boxes[i].style.height = boxes[i].scrollHeight + 'px';
+  }
+});
 
 function load() {
   fetch('/n/text', { cache: 'no-store' }).then(function (r) {
     if (!r.ok) throw new Error(r.status);
     nameEl.textContent = decodeURIComponent(r.headers.get('X-Note-Name') || 'Notes');
+    isNote = r.headers.get('X-Note-Kind') === 'note';
+    eyebrowEl.textContent = isNote ? 'One paragraph per box' : 'One line per thing';
     return r.text();
   }).then(function (body) {
     // Only when nothing has been typed yet. Reloading over what somebody is

@@ -2390,6 +2390,10 @@ void CrossPointWebServer::handleNotesText() {
     }
   }
   server->sendHeader("X-Note-Name", encoded);
+  // The page draws tick boxes, and writes them back, only for a list. It used
+  // to do both for everything, so saving a NOTE from a phone turned its
+  // paragraphs into a list.
+  server->sendHeader("X-Note-Kind", notesIsList ? "list" : "note");
   server->sendHeader("Cache-Control", "no-store");
   server->send(200, "text/plain; charset=utf-8", Storage.readFile(notesPath.c_str()));
 }
@@ -2417,9 +2421,9 @@ void CrossPointWebServer::handleNotesSave() {
   std::string body(raw.c_str(), raw.length());
   // Only a LIST gets markers written for it. A note is words somebody kept, and
   // turning every line of it into a tick box would be the old two-kinds mistake
-  // wearing the opposite face.
-  const std::string existing(Storage.readFile(notesPath.c_str()).c_str());
-  if (notes::kindOf(notes::parse(existing)) == notes::Kind::List) notes::coerceToList(body);
+  // wearing the opposite face. The kind is the reader's, not read off the file:
+  // an empty note is an empty file, which reads as a list.
+  if (notesIsList) notes::coerceToList(body);
 
   // Beside itself, then renamed. Opening the real path truncates it first, so a
   // connection dropped mid-write would leave a note that parses as empty --
