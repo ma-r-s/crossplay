@@ -6941,13 +6941,17 @@ void testTheHexFrontDoorIsTheBoardAndTheRecord() {
   inProgress.losses = 5;
   hexui::MenuModel finished;
   finished.boardCells = live.cell;
-  finished.wins = 12;
-  finished.losses = 30;
+  finished.wins = 99;
+  finished.losses = 900;
 
-  const char* record[] = {"NO GAMES", "PLAYED YET", "8 PLAYED", "3 WON", "42 PLAYED", "12 WON"};
+  const char* record[] = {"NO GAMES", "PLAYED YET", "8 PLAYED", "3 WON", "999 PLAYED", "99 WON"};
   const char* chrome[] = {"HEX", "PLAY", "RESUME GAME", "PLAY NEARBY", "SETTINGS"};
   for (const hexui::MenuModel* model : {&fresh, &inProgress, &finished}) {
     Rendered out;
+    // The UI cut's real letters, not the fake target's ten pixels: Jersey at
+    // 20 averages 19 to 21 per capital (toybox_20.h's advances). At ten, PLAYED
+    // YET fitted here and fell to the small cut on the device.
+    out.target.fontWidths.push_back({toybox::kUiFont, 21});
     buildHex<hexui::MenuModel, hexui::buildMenu>(out, *model);
 
     // Every triangle on this screen is the miniature: its cells and its band.

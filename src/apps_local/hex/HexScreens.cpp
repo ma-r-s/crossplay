@@ -592,7 +592,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     record[0].text = "NO GAMES";
     record[1].text = "PLAYED YET";
   }
-  notchWords(screen, strips, stripCount, record, 2, content.right(), mini.top);
+  // From the top of the content, not the top of the board: the notch is a
+  // triangle that narrows downward, and PLAYED YET in the UI cut (191 px) did
+  // not fit the second row when the block started level with the board.
+  notchWords(screen, strips, stripCount, record, 2, content.right(), content.y);
 }
 
 void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
