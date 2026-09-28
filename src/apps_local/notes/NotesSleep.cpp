@@ -7,11 +7,14 @@
 #include <cstdio>
 #include <vector>
 
+#include "../../components/themes/BaseTheme.h"  // Rect, which ToyboxTheme.h uses and does not include
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxScreen.h"
 #include "../ui/ToyboxTheme.h"
 #include "NotesLibrary.h"
 #include "NotesScreens.h"
+
+namespace fui = freeink::ui;
 
 namespace notes {
 
