@@ -11,7 +11,7 @@
 #
 # None of those four builds was new work. `check.sh --committed` already clones
 # the committed tree detached into TMPDIR, inits submodules, and builds
-# `gh_release_x4pro` and `gh_release_sticky` against the shared object cache --
+# `gh_release_x4pro`, `gh_release_sticky` and `gh_release_papermono` against the shared object cache --
 # the exact two envs crossplay-release.yml recompiled forty minutes later. The
 # binary a user installs already existed on this disk and was thrown away.
 #
@@ -530,7 +530,7 @@ step "package"
 DIST="$REPO/dist"
 run "rm -rf '$DIST' && mkdir -p '$DIST'"
 
-for env_name in gh_release_x4pro gh_release_sticky; do
+for env_name in gh_release_x4pro gh_release_sticky gh_release_papermono; do
   for f in firmware.bin firmware.elf partitions.bin bootloader.bin; do
     if [ "$DRY" = 0 ] && [ ! -f "$IMAGES/$env_name/$f" ]; then
       die "$IMAGES/$env_name/$f is missing. The gate reported success and handed over an incomplete set, which is how v1.12.14 and v1.12.15 shipped without a bootloader."
@@ -539,8 +539,8 @@ for env_name in gh_release_x4pro gh_release_sticky; do
 done
 
 
-# BOTH BOARDS SPELLED OUT, and that is deliberate rather than lazy. A loop
-# over the two envs reads better and hides the two things worth reading: the
+# EVERY BOARD SPELLED OUT, and that is deliberate rather than lazy. A loop
+# over the envs reads better and hides the two things worth reading: the
 # offsets the S3 boot ROM expects, and which env each artefact came from.
 # crossplay-release.yml spelled them out for the same reason, and a comment in
 # it records why -- gh_release_x4pro and gh_release_sticky were appended to
@@ -568,12 +568,25 @@ run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
 run "cp $IMAGES/gh_release_sticky/firmware.bin '$DIST/firmware-sticky.bin'"
 run "cp $IMAGES/gh_release_sticky/firmware.elf '$DIST/crossplay-$TAG-sticky.elf'"
 
+# M5Stack PaperMono and PaperMono-Lite share one image (card #617, carried from
+# Santiago Gutierrez's #208, which flashed it on a PaperMono-Lite). Its update
+# asset is firmware-papermono.bin: CROSSPOINT_RELEASE_ASSET in
+# FirmwareBoardTag.h gives every board after the x4pro the suffixed name.
+run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
+    -o '$DIST/crossplay-$TAG-papermono-full.bin' \
+    -fm keep -fs keep -ff keep \
+    0x0     $IMAGES/gh_release_papermono/bootloader.bin \
+    0x8000  $IMAGES/gh_release_papermono/partitions.bin \
+    0x10000 $IMAGES/gh_release_papermono/firmware.bin"
+run "cp $IMAGES/gh_release_papermono/firmware.bin '$DIST/firmware-papermono.bin'"
+run "cp $IMAGES/gh_release_papermono/firmware.elf '$DIST/crossplay-$TAG-papermono.elf'"
+
 # A merged image that is not actually merged is indistinguishable from the app
 # image it replaces until somebody bricks a device with it. Check the three
 # magic numbers rather than trust an exit code.
 if [ "$DRY" = 0 ]; then
   fail=0
-  for full in "$DIST/crossplay-$TAG-x4pro-full.bin" "$DIST/crossplay-$TAG-sticky-full.bin"; do
+  for full in "$DIST/crossplay-$TAG-x4pro-full.bin" "$DIST/crossplay-$TAG-sticky-full.bin" "$DIST/crossplay-$TAG-papermono-full.bin"; do
     for probe in "0:e903:bootloader" "32768:aa50:partition table" "65536:e907:app"; do
       off="${probe%%:*}"; rest="${probe#*:}"; want="${rest%%:*}"; what="${rest#*:}"
       got="$(dd if="$full" bs=1 skip="$off" count=2 2>/dev/null | xxd -p)"
@@ -603,7 +616,7 @@ if [ "$DRY" = 0 ]; then
   # The string is the User-Agent that BridgeHttp.cpp and StudySync.cpp build
   # from CROSSPOINT_VERSION, so it is in every release image by construction
   # and is not a debug line a LOG_LEVEL could compile out.
-  for _img in "$DIST/firmware.bin" "$DIST/firmware-sticky.bin"; do
+  for _img in "$DIST/firmware.bin" "$DIST/firmware-sticky.bin" "$DIST/firmware-papermono.bin"; do
     # READ THE WHOLE STREAM, and do not reach for `grep -q` here.
     #
     # `strings -a "$_img" | grep -qxF ...` is the obvious spelling and it is

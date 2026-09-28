@@ -180,7 +180,7 @@ fi
 #
 # Offset-then-file pairs rather than one literal line, so reformatting does
 # not fail a correct script and reordering does not pass a broken one.
-for board in x4pro sticky; do
+for board in x4pro sticky papermono; do
   merge="$(printf '%s' "$CODE" | tr '\n' ' ' | grep -o "merge-bin[^;]*gh_release_$board/firmware\.bin" || true)"
   if [ -z "$merge" ]; then
     bad "ship.sh never calls esptool merge-bin for $board"

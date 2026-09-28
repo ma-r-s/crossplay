@@ -47,11 +47,18 @@ class PaperMonoConfig(unittest.TestCase):
         ci = (ROOT / ".github/workflows/crossplay-ci.yml").read_text()
         self.assertRegex(ci, r"pio run[^\n]*-e gh_release_papermono(?: |$)")
         self.assertIn("--build-dir .pio/build/gh_release_papermono", ci)
-        release = (ROOT / ".github/workflows/crossplay-release.yml").read_text()
-        self.assertRegex(release, r"run: pio run[^\n]*-e gh_release_papermono(?:\n| )")
-        self.assertIn("dist/firmware-papermono.bin", release)
-        self.assertIn("crossplay-${GITHUB_REF_NAME}-papermono-full.bin", release)
-        self.assertIn("crossplay-${GITHUB_REF_NAME}-papermono.elf", release)
+        # Since #232 the release is not built on GitHub: the gate builds the
+        # release envs and keeps their images, and ship.sh packages exactly
+        # those. So the gate must build this env, keep it, and ship.sh must
+        # package, verify and publish it.
+        gate = (ROOT / "scripts_local/check.sh").read_text()
+        self.assertRegex(gate, r'BUILD_ENVS="[^"]*gh_release_papermono')
+        self.assertRegex(gate, r"for _env in [^\n]*gh_release_papermono")
+        ship = (ROOT / "scripts_local/ship.sh").read_text()
+        self.assertRegex(ship, r"for env_name in [^\n]*gh_release_papermono")
+        self.assertIn("$DIST/firmware-papermono.bin", ship)
+        self.assertIn("$DIST/crossplay-$TAG-papermono-full.bin", ship)
+        self.assertIn("$DIST/crossplay-$TAG-papermono.elf", ship)
 
     def test_both_download_servers_serve_the_published_image(self):
         for file in ("site/api/firmware.js", "site/serve.py"):

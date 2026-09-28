@@ -420,7 +420,7 @@ if [ "$_committed" = "1" ]; then
     rm -rf "$REPO/.pio/ship"
     mkdir -p "$_out"
     _kept=0
-    for _env in gh_release_x4pro gh_release_sticky; do
+    for _env in gh_release_x4pro gh_release_sticky gh_release_papermono; do
       if [ -d "$TRIAL/.pio/build/$_env" ]; then
         mkdir -p "$_out/$_env"
         for _f in firmware.bin firmware.elf partitions.bin bootloader.bin; do
@@ -430,12 +430,13 @@ if [ "$_committed" = "1" ]; then
     done
     # Named against the COMMIT, so a consumer can prove the images it found
     # belong to the commit it means to publish rather than to whatever ran
-    # here last. Eight files or the directory is not a release.
-    if [ "$_kept" = 8 ]; then
+    # here last. Four files per release board, twelve for the three, or the
+    # directory is not a release.
+    if [ "$_kept" = 12 ]; then
       echo "CHECKSH-IMAGES: $_out"
     else
       rm -rf "$REPO/.pio/ship"
-      echo "CHECKSH-IMAGES: none ($_kept of 8 files; the device builds were skipped or an env is missing)"
+      echo "CHECKSH-IMAGES: none ($_kept of 12 files; the device builds were skipped or an env is missing)"
     fi
   fi
   exit $_committed_rc
