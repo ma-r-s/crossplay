@@ -26,7 +26,7 @@ devices with an 800x480 panel, capacitive touch and two physical buttons
 (three on the Sticky; the design uses the two shared buttons), and
 [CrossPoint](https://crosspointreader.com/) already makes them good at reading.
 CrossPlay is firmware that keeps all of that and adds the other things a screen
-that holds still is good at: **23 games and 9 apps**,
+that holds still is good at: **24 games and 9 apps**,
 spaced-repetition flashcards, comics, a read-later queue, and two devices that
 play together with nothing to set up.
 
@@ -73,6 +73,7 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Wavelength**   | A hidden point on a spectrum, one clue, and the whole table arguing.         |
 | **Go**           | 9x9 or 13x13, against the device or someone next to you. It counts for you.  |
 | **Hex**          | Join your two edges before they join theirs. No captures, and no draws.      |
+| **Underhand**    | The 2017 cult card game: bribe, sacrifice, dodge the police, summon a god.   |
 
 ### Apps
 
@@ -221,6 +222,8 @@ you ask it to, from the community mirror at
 [Eyefyre/NYT-Connections-Answers](https://github.com/Eyefyre/NYT-Connections-Answers).
 Trivia's questions are built from the community
 [Jeopardy! clue dataset](https://github.com/jwolle1/jeopardy_clue_dataset).
+Underhand's cards are the text of Underhand (Spoopy Squad, Cornell GDIAC, 2017),
+used with its authors' permission; none of its art or sound is.
 Type is Jersey 25 and Instrument Serif, both SIL OFL. The Calculator's
 arithmetic is IBM's [decNumber](https://speleotrove.com/decimal/decnumber.html),
 under the ICU License (ICU 1.8.1 and later), vendored at `lib/decNumber` with

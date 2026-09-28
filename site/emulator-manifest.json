@@ -1,13 +1,13 @@
 {
   "_comment": "Written by tools_local/site/publish_emulator.py; read by site/fetch-emulator.mjs during Vercel's build. The bytes live on the GitHub release below rather than in git. Do not hand-edit.",
   "base": "https://github.com/ma-r-s/crossplay/releases/download/emulator/",
-  "built_from": "bb56ebc5b6dc3ccbec31fae697a0265076375307",
+  "built_from": "8fafb74a1e6657d4a9c7ef28293db71dd2edbf86",
   "files": [
     {
       "name": "BUILT_FROM",
-      "asset": "06ad3c6ff4853d15-BUILT_FROM",
-      "sha256": "06ad3c6ff4853d1558d58d15c4456f33175012df5d710e2885df775bd13dc744",
-      "sha256_raw": "0b59bfb9706e56f4a74604b2db8915b342f5ad44344b6b5eff6cb8e3617b7782",
+      "asset": "ead5d9976b449f6c-BUILT_FROM",
+      "sha256": "ead5d9976b449f6c08962f9e6c2d1e17052431b800f7972482f5af76c8b54d63",
+      "sha256_raw": "6767703b6c5b81363d5682e36bc49f92a1dc53625daabed828363d1520a2bb4e",
       "bytes": 37,
       "bytes_raw": 41
     },
@@ -21,19 +21,19 @@
     },
     {
       "name": "crossplay.js",
-      "asset": "394b283754d7f0b4-crossplay.js",
-      "sha256": "394b283754d7f0b455f7e97df9de36b89356da14608dfef0cd93f673ac0fbb5d",
-      "sha256_raw": "78696ab2d130e3d8f6c94af44e1f8a7c8218c578be99e5a429a8a3fa0248b709",
-      "bytes": 28835,
+      "asset": "724cd1cbd6bf0695-crossplay.js",
+      "sha256": "724cd1cbd6bf0695ccab11e7f7815e514a92a9e78e4a0485956d5ab6c91241c1",
+      "sha256_raw": "d24d170fef924ed4002b524706b9b876236423419a35c427e6ada647a2024b0c",
+      "bytes": 28833,
       "bytes_raw": 113573
     },
     {
       "name": "crossplay.wasm",
-      "asset": "df96bf2619e5612d-crossplay.wasm",
-      "sha256": "df96bf2619e5612d91f46a95bcca51199e70051bc6ceabcdb9877070619b9658",
-      "sha256_raw": "7a98b1352da1dbea0665b42c13031034c84f3199fe7ddfbdd006a5bf9d18667d",
-      "bytes": 3115662,
-      "bytes_raw": 6020468
+      "asset": "303de46cb7a2acfb-crossplay.wasm",
+      "sha256": "303de46cb7a2acfba4eee179be6f536d178d68af0143bfd57aa0c63a8b063cc1",
+      "sha256_raw": "8da66458ded2f9b6264dd9f5932d94ef8e043c332ce7797a5fd20759375a084d",
+      "bytes": 3154029,
+      "bytes_raw": 6363981
     }
   ]
 }

@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.22
+
+- Underhand, the 2017 cult card game: summon a god before the cult falls. On the Games shelf, with a nine-page How to Play.
+
 ### 1.13.21
 
 - M5Stack PaperMono / Lite support (carries #208)

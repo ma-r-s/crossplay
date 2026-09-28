@@ -41,6 +41,7 @@
 #include "toybattle/ToyBattleActivity.h"
 #include "trivia/TriviaActivity.h"
 #include "ui/ToyboxIcons.h"
+#include "underhand/UnderhandActivity.h"
 #include "wallpapers/WallpapersActivity.h"
 #include "wavelength/WavelengthActivity.h"
 #include "wikipedia/WikipediaActivity.h"
@@ -76,6 +77,7 @@ constexpr shelf::Item kGames[] = {
     {"WAVELENGTH", &icon_wavelength_32, &WavelengthActivity::create},
     {"GO", &icon_go_32, &GoActivity::create},
     {"HEX", &icon_hex_32, &HexActivity::create},
+    {"UNDERHAND", &icon_underhand_32, &UnderhandActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},

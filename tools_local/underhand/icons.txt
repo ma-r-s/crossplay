@@ -1,0 +1,19 @@
+# Underhand's symbols, generated into src/apps_local/underhand/UnderhandIcons.h:
+#
+#   uv run --with pillow python freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
+#     --manifest tools_local/underhand/icons.txt \
+#     --svgdir freeink-sdk/libs/assets/Icons/lucide/icons \
+#     --sizes 24,32 --out src/apps_local/underhand/UnderhandIcons.h
+#
+# One per resource, in the engine's order, plus two marks.
+
+uh_relic     = gem         # precious and rare
+uh_money     = coins
+uh_cultist   = user-round  # one of yours
+uh_food      = wheat
+uh_prisoner  = lock        # held captive: never read as another person
+uh_suspicion = eye         # being watched
+uh_alert     = triangle-alert
+uh_deck      = layers
+uh_help      = circle-question-mark  # what the symbols mean
+uh_hand      = hand         # everything held, the count Greed watches
