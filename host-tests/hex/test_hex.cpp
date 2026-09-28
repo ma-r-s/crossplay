@@ -20,6 +20,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <memory>
+#include <vector>
 
 #include "HexBrain.h"
 #include "HexCore.h"
@@ -580,7 +581,20 @@ void testAnImpossiblePositionCostsTheResumeAndNotTheRecord() {
 
 // --- the brain -------------------------------------------------------------
 
-std::unique_ptr<hexbrain::Pool> makePool() { return std::unique_ptr<hexbrain::Pool>(new hexbrain::Pool()); }
+// A search with its own pool. The device's pool is two megabytes of PSRAM; the
+// suite's is a vector, and a smaller one where a test is about the limit.
+struct Brain {
+  explicit Brain(const uint32_t nodes = 200000) : pool(nodes), search(pool.data(), nodes) {}
+  std::vector<hexbrain::Node> pool;
+  hexbrain::Search search;
+};
+
+// The settings a level has, at a budget a suite can afford.
+hexbrain::Settings quick(const uint32_t simulations) {
+  hexbrain::Settings s;
+  s.simulations = simulations;
+  return s;
+}
 
 void testTheStateFitsAPacket() {
   // Play<> static_asserts this already; the margin is what makes sending the
@@ -591,36 +605,28 @@ void testTheStateFitsAPacket() {
 }
 
 void testTheSameSeedReturnsTheSameMove() {
-  auto pool = makePool();
   hex::Game game;
   hex::reset(game);
   hex::play(game, hex::cellAt(5, 5));
   hex::play(game, hex::cellAt(4, 6));
 
+  // Every level, EASY's softmax choice included: it draws from the seed too, and
+  // a choice that drew from anything else would make a game impossible to
+  // replay from its first number.
   for (const hex::Level level : {hex::Level::Easy, hex::Level::Normal}) {
+    Brain one;
+    Brain two;
     uint32_t first = 777u;
     uint32_t second = 777u;
-    const int a = hexbrain::chooseMove(game, level, first, *pool);
-    const int b = hexbrain::chooseMove(game, level, second, *pool);
+    const hexbrain::Settings settings = hexbrain::settingsFor(level);
+    const int a = one.search.choose(game, settings, first);
+    const int b = two.search.choose(game, settings, second);
     CHECK(a == b);
+    CHECK(hex::legal(game, a));
     // And the seed itself advanced the same way, so a SERIES of moves is
     // reproducible rather than only the first one.
     CHECK(first == second);
   }
-
-  // HARD's branch, which the two levels above never reach: RAVE reads the
-  // finished board and UCT exploration is off, so the whole selection is a
-  // different expression and repeating it is a different claim. Through
-  // chooseMoveWith at a budget a suite can afford -- HARD's own thirty thousand
-  // simulations are seconds a test should not spend to ask this.
-  const hexbrain::Settings amaf{400, 0, true, true};
-  uint32_t first = 31337u;
-  uint32_t second = 31337u;
-  const int a = hexbrain::chooseMoveWith(game, amaf, first, *pool);
-  const int b = hexbrain::chooseMoveWith(game, amaf, second, *pool);
-  CHECK(a == b);
-  CHECK(first == second);
-  CHECK(hex::legal(game, a));
 }
 
 // A clock the test controls, so "it stopped when it was told" is a fact rather
@@ -629,110 +635,84 @@ uint32_t gFakeMs = 0;
 uint32_t gFakeReadings = 0;
 uint32_t gFakeStep = 400;
 uint32_t fakeClock() {
-  // The step is set to just over half the level's budget, so the budget
-  // genuinely runs out on the second chunk. A one millisecond step does not:
-  // the search finishes its whole simulation count in a handful of readings and
-  // the branch this test exists to exercise is never taken -- the test then
-  // passes with the budget check deleted.
+  // Just over half the budget a reading, so the budget genuinely runs out on
+  // the second one. A one millisecond step does not: the search finishes its
+  // whole count first and the branch this test exists for is never taken.
   ++gFakeReadings;
   gFakeMs += gFakeStep;
   return gFakeMs;
 }
 
 void testTheClockStopsTheSearchWhateverTheSimulationCountSays() {
-  // The count alone is not a budget. The same simulations are a fraction of a
-  // second on a laptop and seconds on the device, and which one you get is a
-  // property of the machine -- so the search runs against a clock the caller
-  // lends, and this proves the clock is actually consulted.
-  //
-  // Every other brain test in this file passes no clock at all, which is what
-  // keeps them deterministic and is also why deleting the budget break left the
-  // whole suite green.
-  auto pool = makePool();
+  // HARD is the level with a clock: its count is what a laptop does in a blink
+  // and the chip in seconds, so the clock is what keeps a move under five.
+  // The early stop is off here, because it ends a search for a different
+  // reason and this test is about the clock.
   hex::Game game;
   hex::reset(game);
   CHECK(hex::play(game, hex::cellAt(5, 5)));
 
-  for (int i = 0; i < 3; ++i) {
-    const hex::Level level = static_cast<hex::Level>(i);
-    const hexbrain::Settings settings = hexbrain::settingsFor(level);
-    CHECK(settings.budgetMs > 0);
-    // The ceiling the budgets exist for. Held below it with room, because the
-    // chunk that is running when the clock expires still has to finish.
-    CHECK(settings.budgetMs <= 4500);
+  hexbrain::Settings settings = hexbrain::settingsFor(hex::Level::Hard);
+  CHECK(settings.budgetMs > 0);
+  CHECK(settings.budgetMs <= 4500);
+  settings.earlyStop = false;
+  settings.simulations = 4000;
 
-    // The same position twice: once with all the time in the world, once with
-    // this clock. The comparison is what makes the assertion able to fail --
-    // "fewer than the count" is also true of a search that simply ran out of
-    // board, and that is not what is being measured.
-    uint32_t seed = 9090u + static_cast<uint32_t>(i);
-    const int unhurried = hexbrain::chooseMove(game, level, seed, *pool, nullptr);
-    const int unhurriedSims = hexbrain::lastSimulations();
-    CHECK(hex::legal(game, unhurried));
-    CHECK(unhurriedSims > 64);
+  Brain unhurried;
+  uint32_t seed = 9090u;
+  CHECK(hex::legal(game, unhurried.search.choose(game, settings, seed, nullptr)));
+  CHECK(unhurried.search.stats().simulations == settings.simulations);
 
-    gFakeMs = 0;
-    gFakeReadings = 0;
-    gFakeStep = settings.budgetMs / 2 + 1;
-    seed = 9090u + static_cast<uint32_t>(i);
-    const int move = hexbrain::chooseMove(game, level, seed, *pool, fakeClock);
-    // Still a legal cell. A search stopped mid-thought that answered with
-    // nothing, or with a cell already holding a stone, is worse than a slow one.
-    CHECK(hex::legal(game, move));
-    // The clock was read, the budget ran out on it, and the search that was
-    // stopped did strictly less work than the one that was not.
-    CHECK(gFakeReadings > 1);
-    CHECK(gFakeMs >= settings.budgetMs);
-    CHECK(hexbrain::lastSimulations() < unhurriedSims);
-    CHECK(hexbrain::lastSimulations() < static_cast<int>(settings.simulations));
-    // And it says how long it believed it spent, which is what the device log
-    // prints beside the count.
-    CHECK(hexbrain::lastMs() >= settings.budgetMs);
-  }
-
-  // With no clock at all it is bounded by the count alone, and nothing is read.
+  Brain clocked;
   gFakeMs = 0;
   gFakeReadings = 0;
-  uint32_t seed = 4242u;
-  const int move = hexbrain::chooseMove(game, hex::Level::Easy, seed, *pool);
+  gFakeStep = settings.budgetMs / 2 + 1;
+  seed = 9090u;
+  const int move = clocked.search.choose(game, settings, seed, fakeClock);
+  // Still a legal cell: a search stopped mid-thought that answered with nothing
+  // is worse than a slow one.
   CHECK(hex::legal(game, move));
+  CHECK(gFakeReadings > 1);
+  CHECK(clocked.search.stats().simulations < settings.simulations);
+  CHECK(clocked.search.stats().ms >= settings.budgetMs);
+
+  // With no clock, nothing is read and nothing is claimed.
+  gFakeReadings = 0;
+  Brain none;
+  seed = 4242u;
+  CHECK(hex::legal(game, none.search.choose(game, quick(64), seed)));
   CHECK(gFakeReadings == 0);
-  CHECK(hexbrain::lastMs() == 0);
+  CHECK(none.search.stats().ms == 0);
 }
 
 void testEveryLevelIsADifferentPlayer() {
-  // Three levels made of THREE knobs, which is the claim HexBrain.h makes and
-  // the reason the Elo numbers in it are quoted: the budget rises, the playout
-  // policy gains the bridge, and the selection gains RAVE. Asserted here
-  // because all three could collapse into one value with every other test in
-  // this file still green -- a level ladder nothing compares is three names for
-  // one player.
+  // One search at three budgets and two ways of choosing. Asserted because all
+  // of it could collapse into one value with every other test in this file
+  // still green -- a level ladder nothing compares is three names for one
+  // player.
   const hexbrain::Settings easy = hexbrain::settingsFor(hex::Level::Easy);
   const hexbrain::Settings normal = hexbrain::settingsFor(hex::Level::Normal);
   const hexbrain::Settings hard = hexbrain::settingsFor(hex::Level::Hard);
 
   CHECK(easy.simulations < normal.simulations);
   CHECK(normal.simulations < hard.simulations);
-  // The clock ladder rises with it, or a level meant to think harder is cut off
-  // before it can.
-  CHECK(easy.budgetMs < normal.budgetMs);
-  CHECK(normal.budgetMs < hard.budgetMs);
-  // Every one of them under the ceiling, HARD included -- it is the only one
-  // that can reach it.
-  CHECK(easy.budgetMs <= 4500);
-  CHECK(normal.budgetMs <= 4500);
-  CHECK(hard.budgetMs <= 4500);
-
-  // And the policies, where the Elo actually came from. EASY is plain UCT with
-  // plain playouts; the bridge arrives at NORMAL; RAVE arrives at HARD and
-  // never without the bridge under it, which is the pairing the measurement was
-  // made with.
-  CHECK(!easy.bridge);
-  CHECK(!easy.amaf);
-  CHECK(normal.bridge);
-  CHECK(!normal.amaf);
-  CHECK(hard.bridge);
-  CHECK(hard.amaf);
+  // EASY chooses loosely among its good moves; the others play their best.
+  CHECK(easy.softmaxZ > 0.0f);
+  CHECK(easy.ratio > 0.0f);
+  CHECK(normal.softmaxZ == 0.0f);
+  CHECK(hard.softmaxZ == 0.0f);
+  // EASY and NORMAL are small enough to need no clock: nothing is spent that
+  // does not change the move. HARD has one, under the five-second ceiling.
+  CHECK(easy.budgetMs == 0 && easy.simulations <= 1000);
+  CHECK(normal.budgetMs == 0 && normal.simulations <= 1000);
+  CHECK(hard.budgetMs > 0 && hard.budgetMs <= 4500);
+  // The parts that carry the strength are on at every level.
+  for (const hexbrain::Settings& s : {easy, normal, hard}) {
+    CHECK(s.bridge);
+    CHECK(s.raveFactor > 0.0f);
+    CHECK(s.earlyStop);
+    CHECK(s.reuseTree);
+  }
 
   // An out-of-range level is somebody else's bug and must still be playable.
   const hexbrain::Settings fallback = hexbrain::settingsFor(hex::Level::Count_);
@@ -740,43 +720,21 @@ void testEveryLevelIsADifferentPlayer() {
   CHECK(fallback.budgetMs <= 4500);
 }
 
-void testTheHandRolledLogarithmIsTheRealOne() {
-  // std::log carries no correctly-rounded guarantee, so UCT's logarithm is
-  // computed in integer fixed point -- which means the one thing standing
-  // between the search and a broken exploration term is this comparison. Return
-  // 0.0 from naturalLog and every other assertion in this suite stays green:
-  // the search still returns legal moves, still repeats on a seed, and still
-  // beats the level below it, because the exploration term merely stops
-  // exploring.
-  CHECK(hexbrain::naturalLogForTest(0) == 0.0);
-  CHECK(hexbrain::naturalLogForTest(1) == 0.0);
-
-  // Across the visit counts a real search reaches: a node's parent has between
-  // two and the whole simulation count.
-  double worst = 0.0;
-  for (uint32_t n = 2; n <= 40000; n = n < 200 ? n + 1 : n + 137) {
-    const double got = hexbrain::naturalLogForTest(n);
-    const double want = std::log(static_cast<double>(n));
-    const double error = got > want ? got - want : want - got;
-    if (error > worst) worst = error;
-    CHECK(error < 1e-4);
-    // Monotone, or the exploration term would prefer a parent it had visited
-    // less. The fixed-point squaring loop is exactly where that could go wrong.
-    CHECK(got > hexbrain::naturalLogForTest(n - 1) - 1e-9);
-  }
-  std::printf("  naturalLog: worst error against std::log %.3g\n", worst);
-}
-
 void testEveryMoveTheBrainOffersIsLegal() {
-  auto pool = makePool();
+  // Whole games with the tree carried from move to move, which is the path a
+  // stale subtree would break: every reroot is exercised here.
   uint32_t seed = 4242u;
-  const hexbrain::Settings quick{40, 0, true, true};
-  for (int trial = 0; trial < 40; ++trial) {
+  for (int trial = 0; trial < 20; ++trial) {
+    Brain black;
+    Brain white;
+    hexbrain::Settings settings = quick(60);
+    settings.softmaxZ = trial % 2 == 0 ? 0.0f : 1.0f;
     hex::Game game;
     hex::reset(game);
     int guard = 0;
     while (!hex::over(game) && guard++ <= hex::kCells) {
-      const int move = hexbrain::chooseMoveWith(game, quick, seed, *pool);
+      Brain& side = game.toMove == hex::kBlack ? black : white;
+      const int move = side.search.choose(game, settings, seed);
       CHECK(move != hex::kNoCell);
       CHECK(hex::legal(game, move));
       CHECK(hex::play(game, move));
@@ -786,22 +744,100 @@ void testEveryMoveTheBrainOffersIsLegal() {
 }
 
 void testABudgetOfNothingStillAnswersWithALegalCell() {
-  // The I/O matrix's "brain out of time": no playout ever ran, and what comes
-  // back still has to be a cell somebody can play. Never an illegal one, and
-  // never a corner picked by index order.
-  auto pool = makePool();
+  // No playout ever ran, and what comes back still has to be a cell somebody
+  // can play: never an illegal one, and never a corner picked by index order.
   uint32_t seed = 5u;
   hex::Game game;
   hex::reset(game);
-  const hexbrain::Settings none{0, 0, false, false};
-  const int move = hexbrain::chooseMoveWith(game, none, seed, *pool);
-  CHECK(hex::legal(game, move));
-  CHECK(hexbrain::lastSimulations() == 0);
+  Brain brain;
+  const int move = brain.search.choose(game, quick(0), seed);
+  CHECK(brain.search.stats().simulations == 0);
   CHECK(move == hex::cellAt(hex::kSize / 2, hex::kSize / 2));
+
+  // And with no pool at all.
+  hexbrain::Search none;
+  CHECK(none.choose(game, quick(1000), seed) == hex::cellAt(hex::kSize / 2, hex::kSize / 2));
+}
+
+void testTheSearchStaysInsideItsPool() {
+  // A pool far too small for the budget: the tree stops growing where the pool
+  // ends and the search goes on with the tree it has.
+  hex::Game game;
+  hex::reset(game);
+  hex::play(game, hex::cellAt(5, 5));
+  Brain small(400);
+  uint32_t seed = 11u;
+  const int move = small.search.choose(game, quick(3000), seed);
+  CHECK(hex::legal(game, move));
+  CHECK(small.search.stats().nodes <= 400);
+  CHECK(small.search.stats().simulations == 3000 || small.search.stats().stoppedEarly);
+}
+
+void testTheTreeIsCarriedOverTheReply() {
+  // After our move and their reply, the subtree for the position that arose is
+  // kept. Whether anything is there depends on whether the tree looked at their
+  // actual reply, so this plays whole games between two searches: in self-play
+  // on the laptop some of the tree came over on three moves in four.
+  for (const bool reuse : {true, false}) {
+    int moves = 0;
+    int carried = 0;
+    for (int g = 0; g < 2; ++g) {
+      Brain black;
+      Brain white;
+      hexbrain::Settings settings = quick(2000);
+      settings.reuseTree = reuse;
+      hex::Game game;
+      hex::reset(game);
+      uint32_t seed = 100u + static_cast<uint32_t>(g) * 7919u;
+      while (!hex::over(game)) {
+        Brain& side = game.toMove == hex::kBlack ? black : white;
+        CHECK(hex::play(game, side.search.choose(game, settings, seed)));
+        ++moves;
+        if (side.search.stats().reused > 1) ++carried;
+      }
+    }
+    if (reuse) {
+      CHECK(carried * 2 > moves);
+      std::printf("  tree carried over on %d of %d moves\n", carried, moves);
+    } else {
+      CHECK(carried == 0);
+    }
+  }
+}
+
+void testTheEarlyStopNeverChangesTheMove() {
+  // The early stop ends a search once the second-best move cannot catch the
+  // best in the simulations left. It must save time and nothing else: the move
+  // is the one the whole search would have chosen.
+  int stopped = 0;
+  for (int trial = 0; trial < 12; ++trial) {
+    hex::Game game;
+    hex::reset(game);
+    uint32_t walk = 100u + static_cast<uint32_t>(trial);
+    for (int i = 0; i < 6 + trial; ++i) {
+      const int cell = static_cast<int>((walk = walk * 1103515245u + 12345u) >> 16) % hex::kCells;
+      hex::play(game, cell);
+    }
+    if (hex::over(game)) continue;
+    hexbrain::Settings withStop = quick(6000);
+    hexbrain::Settings without = withStop;
+    without.earlyStop = false;
+    Brain a;
+    Brain b;
+    uint32_t seedA = 7u + static_cast<uint32_t>(trial);
+    uint32_t seedB = seedA;
+    const int early = a.search.choose(game, withStop, seedA);
+    const int full = b.search.choose(game, without, seedB);
+    CHECK(early == full);
+    CHECK(a.search.stats().simulations <= b.search.stats().simulations);
+    if (a.search.stats().stoppedEarly) ++stopped;
+  }
+  // Proven able to fire, or the assertions above compare two full searches.
+  CHECK(stopped > 0);
+  std::printf("  early stop fired in %d of 12 positions\n", stopped);
 }
 
 void testEveryLevelTakesTheWinAndBlocksTheLoss() {
-  auto pool = makePool();
   // A column of Black with one hole, and it is White to move: the hole is
   // White's only move that matters and Black's only move that wins. A level
   // that walks past either does not read as easy, it reads as broken.
@@ -814,45 +850,46 @@ void testEveryLevelTakesTheWinAndBlocksTheLoss() {
   }
 
   for (const hex::Level level : {hex::Level::Easy, hex::Level::Normal, hex::Level::Hard}) {
+    Brain brain;
     uint32_t seed = 31337u;
     hex::Game taking = position;
     taking.toMove = hex::kBlack;
-    CHECK(hexbrain::chooseMove(taking, level, seed, *pool) == hex::cellAt(4, 5));
+    CHECK(brain.search.choose(taking, hexbrain::settingsFor(level), seed) == hex::cellAt(4, 5));
     // The root check answers before a single playout, so this costs nothing
     // even at HARD's budget.
-    CHECK(hexbrain::lastSimulations() == 0);
+    CHECK(brain.search.stats().simulations == 0);
 
     hex::Game blocking = position;
     blocking.toMove = hex::kWhite;
-    CHECK(hexbrain::chooseMove(blocking, level, seed, *pool) == hex::cellAt(4, 5));
+    CHECK(brain.search.choose(blocking, hexbrain::settingsFor(level), seed) == hex::cellAt(4, 5));
   }
 }
 
-// One whole game between two settings, both sides drawing from the same seed as
-// it advances, so a series is reproducible move for move from its first number.
-uint8_t playOneGame(const hexbrain::Settings& black, const hexbrain::Settings& white, uint32_t seed,
-                    hexbrain::Pool& pool) {
+// One whole game between two settings, each side with its own tree.
+uint8_t playOneGame(const hexbrain::Settings& black, const hexbrain::Settings& white, uint32_t seed) {
+  Brain blackBrain;
+  Brain whiteBrain;
   hex::Game game;
   hex::reset(game);
   int guard = 0;
   while (!hex::over(game) && guard++ <= hex::kCells) {
-    const hexbrain::Settings& settings = game.toMove == hex::kBlack ? black : white;
-    const int move = hexbrain::chooseMoveWith(game, settings, seed, pool);
-    if (move == hex::kNoCell) break;
-    if (!hex::play(game, move)) break;
+    const bool blackToMove = game.toMove == hex::kBlack;
+    Brain& brain = blackToMove ? blackBrain : whiteBrain;
+    const int move = brain.search.choose(game, blackToMove ? black : white, seed);
+    if (move == hex::kNoCell || !hex::play(game, move)) break;
   }
   return game.winner;
 }
 
 void testTheLevelsBeatEachOtherInOrder() {
-  // The shipped budgets are 1.5k, 8k and 30k simulations, which is minutes of
-  // laptop time a suite cannot spend. These keep the RATIO and the policies --
-  // which is what the levels actually differ by, per the Elo measurement in
-  // HexBrain.h -- at a fortieth of the compute.
-  auto pool = makePool();
-  const hexbrain::Settings easy{50, 0, false, false};
-  const hexbrain::Settings normal{200, 0, true, false};
-  const hexbrain::Settings hard{800, 0, true, true};
+  // The shipped EASY and NORMAL, and HARD at 2,000 simulations with no clock --
+  // what a laptop suite can afford, and still far above NORMAL (the ladder in
+  // docs/apps/hex.md puts 2,000 about 400 Elo above 200).
+  const hexbrain::Settings easy = hexbrain::settingsFor(hex::Level::Easy);
+  const hexbrain::Settings normal = hexbrain::settingsFor(hex::Level::Normal);
+  hexbrain::Settings hard = hexbrain::settingsFor(hex::Level::Hard);
+  hard.simulations = 2000;
+  hard.budgetMs = 0;
 
   struct Pairing {
     const char* name;
@@ -862,21 +899,19 @@ void testTheLevelsBeatEachOtherInOrder() {
   const Pairing pairings[] = {
       {"hard beats normal", hard, normal},
       {"normal beats easy", normal, easy},
-      {"hard beats easy", hard, easy},
   };
   for (const Pairing& pairing : pairings) {
     int strongWins = 0;
-    // Colours alternate. Black moves first and there is no swap rule, so a
-    // series played from one seat would measure the first-player advantage
-    // rather than the difference between the two players.
+    // Colours alternate: Black moves first and there is no swap rule, so a
+    // series from one seat would measure the first-player advantage.
     for (int i = 0; i < 8; ++i) {
       const bool strongIsBlack = (i % 2) == 0;
       const uint8_t won =
           playOneGame(strongIsBlack ? pairing.strong : pairing.weak, strongIsBlack ? pairing.weak : pairing.strong,
-                      1000u + static_cast<uint32_t>(i) * 7919u, *pool);
+                      1000u + static_cast<uint32_t>(i) * 7919u);
       if (won == (strongIsBlack ? hex::kBlack : hex::kWhite)) ++strongWins;
     }
-    check(strongWins > 4, pairing.name, __LINE__);
+    check(strongWins > 5, pairing.name, __LINE__);
     std::printf("  %s: %d of 8\n", pairing.name, strongWins);
   }
 }
@@ -945,11 +980,13 @@ int main() {
 
   testTheStateFitsAPacket();
   testTheSameSeedReturnsTheSameMove();
-  testTheHandRolledLogarithmIsTheRealOne();
   testEveryLevelIsADifferentPlayer();
   testTheClockStopsTheSearchWhateverTheSimulationCountSays();
   testEveryMoveTheBrainOffersIsLegal();
   testABudgetOfNothingStillAnswersWithALegalCell();
+  testTheSearchStaysInsideItsPool();
+  testTheTreeIsCarriedOverTheReply();
+  testTheEarlyStopNeverChangesTheMove();
   testEveryLevelTakesTheWinAndBlocksTheLoss();
   testAPlayoutAlwaysFillsTheBoardAndNamesAWinner();
   testTheLevelsBeatEachOtherInOrder();

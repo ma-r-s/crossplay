@@ -4,7 +4,10 @@
 #include <Logging.h>
 #include <Memory.h>
 
+#include <cstdlib>
+
 #if defined(ARDUINO_ARCH_ESP32)
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #endif
@@ -32,6 +35,34 @@
 // overflow there is a reboot with no log line to say why.
 #define HEX_SEARCH_TASK_STACK 16384
 
+namespace {
+
+// The search tree lives in PSRAM: megabytes the internal heap does not have,
+// and the least cache-sensitive thing this app touches (Go's engine does the
+// same). If PSRAM is short, a pool small enough for the internal heap, which
+// still plays a real game at the lower levels; if that fails too, none, and the
+// computer plays the empty cell nearest the centre rather than crashing.
+// malloc and free rather than makeUniqueNoThrow because the PSRAM capability
+// is an allocator argument, not a type.
+constexpr uint32_t kFallbackNodes = 8192;
+
+hexbrain::Node* allocatePool(uint32_t& capacity) {
+  capacity = hexbrain::kPoolNodes;
+#if defined(ARDUINO_ARCH_ESP32)
+  void* memory = heap_caps_malloc(capacity * sizeof(hexbrain::Node), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+  void* memory = std::malloc(capacity * sizeof(hexbrain::Node));
+#endif
+  if (memory == nullptr) {
+    capacity = kFallbackNodes;
+    memory = std::malloc(capacity * sizeof(hexbrain::Node));
+  }
+  if (memory == nullptr) capacity = 0;
+  return static_cast<hexbrain::Node*>(memory);
+}
+
+}  // namespace
+
 std::unique_ptr<Activity> HexActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   return makeUniqueNoThrow<HexActivity>(renderer, mappedInput);
 }
@@ -51,12 +82,15 @@ void HexActivity::onEnter() {
   hex::reset(game);
   loadSave();
 
-  // Null-checked rather than assumed: under -fno-exceptions a bare `new` calls
-  // abort() on OOM, and makeUniqueNoThrow hands back nothing instead. With no
-  // pool the app still plays -- the brain answers with a centre-weighted legal
-  // move -- which is a worse opponent and not a crash.
-  pool = makeUniqueNoThrow<hexbrain::Pool>();
-  if (!pool) LOG_ERR("HEX", "No search pool (%d bytes); the computer will play at random", (int)sizeof(hexbrain::Pool));
+  uint32_t capacity = 0;
+  pool = allocatePool(capacity);
+  search = hexbrain::Search(pool, capacity);
+  if (pool == nullptr) {
+    LOG_ERR("HEX", "No search pool; the computer will play the centre-most empty cell");
+  } else {
+    LOG_INF("HEX", "Search pool: %u nodes, %u bytes", static_cast<unsigned>(capacity),
+            static_cast<unsigned>(capacity * sizeof(hexbrain::Node)));
+  }
 
 #if defined(ARDUINO_ARCH_ESP32)
   searchEnding = false;
@@ -105,7 +139,9 @@ void HexActivity::onExit() {
 #endif
   // Freed here and not in the destructor, because the task above is what reads
   // it and this is the line that has just proved the task is gone.
-  pool.reset();
+  search = hexbrain::Search();
+  std::free(pool);
+  pool = nullptr;
   Activity::onExit();
 }
 
@@ -117,8 +153,7 @@ void HexActivity::searchLoop() {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     if (searchEnding) break;
     searchResult =
-        pool ? hexbrain::chooseMove(searchBoard, searchLevel, seed, *pool, []() -> uint32_t { return millis(); })
-             : hex::kNoCell;
+        search.choose(searchBoard, hexbrain::settingsFor(searchLevel), seed, []() -> uint32_t { return millis(); });
     xTaskNotifyGive(static_cast<TaskHandle_t>(searchWaiter));
   }
   // Nothing below this line may touch the activity: the waiter is free to
@@ -130,23 +165,6 @@ void HexActivity::searchLoop() {
 #endif
 
 int HexActivity::chooseComputerMove(const hex::Game& snapshot) {
-  if (!pool) {
-    // No pool, no tree. A legal move is still owed: the first empty cell
-    // nearest the middle, which is what the brain itself falls back to.
-    int best = hex::kNoCell;
-    int bestDistance = 0;
-    for (int cell = 0; cell < hex::kCells; ++cell) {
-      if (snapshot.at(cell) != hex::kEmpty) continue;
-      const int dr = hex::rowOf(cell) - hex::kSize / 2;
-      const int dc = hex::colOf(cell) - hex::kSize / 2;
-      const int distance = dr * dr + dc * dc;
-      if (best == hex::kNoCell || distance < bestDistance) {
-        best = cell;
-        bestDistance = distance;
-      }
-    }
-    return best;
-  }
 #if defined(ARDUINO_ARCH_ESP32)
   if (searchTask != nullptr) {
     searchBoard = snapshot;
@@ -164,10 +182,12 @@ int HexActivity::chooseComputerMove(const hex::Game& snapshot) {
   // because HexBrain is freestanding and must stay that way: the host tests
   // pass none and get a search bounded by simulations alone, which is what
   // makes them deterministic.
-  return hexbrain::chooseMove(snapshot, level, seed, *pool, []() -> uint32_t { return millis(); });
+  return search.choose(snapshot, hexbrain::settingsFor(level), seed, []() -> uint32_t { return millis(); });
 }
 
 void HexActivity::loadSave() {
+  // A game off the card is not a position this search reached by playing.
+  search.reset();
 #if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
   if (!Storage.exists(kSavePath)) return;
   char buffer[hexsave::kMaxLineBytes] = {};
@@ -268,6 +288,7 @@ bool HexActivity::computerToMove() const {
 
 void HexActivity::beginSoloGame() {
   hex::reset(game);
+  search.reset();
   for (int i = 0; i < hex::kMaskBytes; ++i) chain[i] = 0;
   // Black moves first and there is no swap rule, so the colour the player chose
   // is exactly the advantage they chose with it.
@@ -296,19 +317,22 @@ void HexActivity::takeComputerTurn() {
   const uint32_t took = millis() - began;
   thinking = false;
 
-  // Both of the brain's own numbers, beside the wall clock this task measured.
-  // They are not the same measurement and the difference is the point: `took`
-  // is what the player waited, `lastMs()` is what the search believed it spent
-  // on the clock it was lent, and a gap between them is a search that was
-  // stopped by something other than its own budget.
+  // The search's own numbers beside the wall clock this task measured. `took`
+  // is what the player waited; the rest says what the budget bought: how many
+  // simulations, how big the tree grew, how much of it came over from the last
+  // move, and whether the early stop ended it. This line is how a level's
+  // budget is checked against the chip.
   const hexbrain::Settings settings = hexbrain::settingsFor(level);
-  LOG_INF("HEX", "search: level %d, %u ms (%u on its own clock) of %u, %d of %u sims (move %u)",
-          static_cast<int>(level), static_cast<unsigned>(took), static_cast<unsigned>(hexbrain::lastMs()),
-          static_cast<unsigned>(settings.budgetMs), hexbrain::lastSimulations(),
-          static_cast<unsigned>(settings.simulations), static_cast<unsigned>(game.moveNumber));
+  const hexbrain::Stats& stats = search.stats();
+  LOG_INF("HEX", "search: level %d, %u ms (%u on its own clock) of %u, %u of %u sims, %u nodes, %u reused%s (move %u)",
+          static_cast<int>(level), static_cast<unsigned>(took), static_cast<unsigned>(stats.ms),
+          static_cast<unsigned>(settings.budgetMs), static_cast<unsigned>(stats.simulations),
+          static_cast<unsigned>(settings.simulations), static_cast<unsigned>(stats.nodes),
+          static_cast<unsigned>(stats.reused), stats.stoppedEarly ? ", stopped early" : "",
+          static_cast<unsigned>(game.moveNumber));
 
   if (!hex::play(game, move)) {
-    // Belt and braces: chooseMove promises a legal cell, and if it ever breaks
+    // Belt and braces: the search promises a legal cell, and if it ever breaks
     // that promise the first empty one is played rather than freezing on a turn
     // nobody can take.
     LOG_ERR("HEX", "Brain offered an unplayable cell %d; taking the first empty one", move);
@@ -392,6 +416,7 @@ const char* HexActivity::linkHeadline() const {
 }
 
 void HexActivity::onMatchStart(const bool goesFirst) {
+  search.reset();
   // reset() puts Black to move, so whoever goes first IS Black. Both sides
   // deal: there is no randomness in an opening Hex position, so reset() is
   // identical on both devices and there is nothing to wait for. A follower that

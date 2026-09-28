@@ -47,7 +47,7 @@ host-tested; only the activity needs hardware.
 | -------------------- | ----------------------------------------------------------- |
 | `HexCore.h/.cpp`     | the rules, the position, the win detection. No heap.        |
 | `HexFlow.h`          | the screens, the settings, what a tap means                 |
-| `HexBrain.h/.cpp`    | UCT/MCTS, the playout policies, the level ladder            |
+| `HexBrain.h/.cpp`    | the search (RAVE, tree reuse, early stop) and the levels    |
 | `HexSave.h/.cpp`     | what is written to the card, and what a bad file costs      |
 | `HexScreens.h/.cpp`  | every screen, as free functions over plain models           |
 | `HexActivity.h/.cpp` | renderer, input, shelf, link, storage                       |
@@ -128,43 +128,112 @@ rounding the row and the column independently instead claims the rhombus of four
 centres rather than the hexagon, which is wrong by up to a third of a cell along
 every slanted edge.
 
-## The brain
+## The opponent
 
-UCT/MCTS. It exploits the property that makes Hex cheap to search: a full board
-has exactly one winner, always, so a playout needs no legality check, no
-mid-playout terminal test and no scoring pass. Fill every empty cell in a random
-order, then read the winner off one flood fill.
+Monte Carlo tree search. It exploits the property that makes Hex cheap to search:
+a full board has exactly one winner, always, so a playout needs no legality
+check, no mid-playout terminal test and no scoring pass. Fill every empty cell,
+then read the winner off one flood fill.
 
-**Difficulty scales the policy, not just the budget.** Cazenave and Saffidine
-measured the bridge pattern in the playout policy at about +105 Elo over naive
-UCT, and AMAF/RAVE on top of it (with UCT exploration off) at a further +181 --
-together roughly what a 250-fold increase in compute buys. The gain is
-affordable on this chip and the compute is not.
+**It was rebuilt on 2026-09-28, from measurements rather than from the
+literature alone.** The first version (UCT, bridge playouts, RAVE at HARD, a
+2,048-node pool) lost 40 games of 40 to [morat](https://github.com/tewalds/morat),
+Timo Ewalds' MIT-licensed Hex engine, at equal simulations. Switching morat's
+features off one at a time, 40 games each against the full engine, showed where
+its strength lives:
 
-| Level  | Policy                                   | Budget                 |
-| ------ | ---------------------------------------- | ---------------------- |
-| EASY   | plain UCT, plain playouts                | 1,500 sims / 0.8s      |
-| NORMAL | bridge-aware playouts                    | 8,000 sims / 2.5s      |
-| HARD   | bridge + RAVE, exploration off           | 30,000 sims / 4.5s     |
+| morat without...                     | full morat's score |
+| ------------------------------------ | ------------------ |
+| RAVE                                 | 100%               |
+| the bridge reply in playouts         | 95%                |
+| tree reuse between moves             | 62%                |
+| a solver in the tree                 | 55%                |
+| knowledge priors (locality, edges)   | 52%                |
+| (nothing: the harness itself)        | 50%                |
 
-Whichever bound binds first wins. The simulation count is what keeps the host
-tests deterministic -- they lend no clock at all -- and the clock is what keeps
-the device under five seconds a move.
+This engine already had the first two. What it lacked was how the tree chooses:
+it created one child per visit, in random order, so every move of a node was
+played once before RAVE had any say -- with 121 moves at the root, the search
+spent its budget measuring bad moves and rarely got two plies deep. It now
+creates all of a node's children together once the node has been visited ten
+times, and RAVE picks among them from the first visit. That change, with tree
+reuse and the rest below, took it from 0 of 40 against morat to 16 of 40 at
+equal simulations -- within noise of even -- and it beat the first version 40 of
+40 while running a quarter of its simulations.
 
-**Every level takes an immediate win and blocks an immediate loss before it
-searches.** A machine that walks past a winning stone is not an easy opponent,
-it is a broken one, and at EASY's budget the search genuinely can miss both.
+Porting morat instead was the alternative, and the measurement is why not: its
+strength is in three ideas, and it brings about 9,000 lines of threads, a custom
+allocator and a GTP front end to get them.
 
-**The bridge response is reactive**, which is the consequence worth planning
-for: from NORMAL up a playout cannot be one shuffle-and-fill pass. The shuffled
-order is walked instead, and when a stone lands in one carrier of an opponent's
-bridge the other carrier goes on that opponent's queue and is played before they
-take anything else from the shuffle. It is O(1) a move against a bridge table
-built at compile time from the neighbour cycle.
+**What the search is:**
 
-Virtual connections and H-search are the next tier up -- MoHex territory -- and
-are deliberately out of scope: they need a solver and a pattern database, and
-what they buy is invisible to anybody who is not already a Hex player.
+- RAVE with no exploration term: a child's value is
+  `alpha * rave + (1 - alpha) * own`, `alpha = 500 / (500 + visits)`. No log and
+  no square root in the hot loop -- the X4 Pro's ESP32-S3 has a single-precision
+  FPU and nothing for doubles, and the first version's `double` log and sqrt per
+  child per descent ran in software emulation.
+- A node grows all its children after 10 visits. After 1, as morat does, the
+  tree is 45 nodes a simulation; after 10 it is 4, twice as fast, and it
+  measured the same against morat (16 of 40 both ways).
+- Bridge-aware playouts: a stone played into one carrier of an opponent's bridge
+  is answered in the other before the shuffle continues.
+- Tree reuse: after our move and their reply, the subtree for the position that
+  arose moves to the front of the pool. In self-play some of it comes over on
+  three moves in four, about a seventh of the tree.
+- The early stop (Baier and Winands' STOP, the strongest time-management
+  strategy in all five games they tested): the search ends once the
+  second-most-visited root move cannot catch the first in what is left of the
+  budget. For the argmax levels the move is exactly the one the full search
+  would have played; the time is not spent.
+- A win on the board is taken and a win for them blocked before any search.
+
+Tried and left out, each for a measured or stated reason: knowledge priors and
+a solver (no measurable gain above), several playouts per simulation (worse:
+65% for one), thinking during the player's turn (keeps the device awake on a
+battery), and the second core (MoHex measured about 36 Elo a doubling of
+simulations, which does not pay for two pools and the synchronisation).
+
+**The node pool is two megabytes of PSRAM**, 87,381 nodes of 24 bytes, taken in
+`onEnter()` and freed in `onExit()`. If PSRAM is short, an 8,192-node pool from
+the internal heap; if that fails, none, and the computer plays the empty cell
+nearest the centre. When the pool fills mid-search the tree stops growing and
+the search carries on with the tree it has.
+
+## The three levels
+
+Every level runs the same search. They differ in how much they search and in
+how they choose (Wu et al., "On Strength Adjustment for MCTS-Based Programs",
+AAAI 2019: a softmax over the root's visit counts, among moves with at least a
+tenth of the best one's visits, moves strength almost linearly and never plays
+a move the search barely looked at).
+
+They were placed on one scale by a chain of matches of this engine against
+itself, 40 games a link (100 simulations = 0; about +/-65 Elo a link):
+
+| Setting                      | Elo      |
+| ---------------------------- | -------- |
+| first version's EASY         | about -490 |
+| **100 sims, softmax z = 1**  | **-380** |
+| 100 sims                     | 0        |
+| **200 sims**                 | **+270** |
+| first version's NORMAL       | about +360 |
+| 500 sims (= first version's HARD) | +460 |
+| 1,000 sims                   | +590     |
+| 2,000 sims                   | +675     |
+| **4,000 sims**               | **+865** |
+| 8,000 sims                   | +920     |
+
+| Level  | Search                                   | Where it sits |
+| ------ | ---------------------------------------- | ------------- |
+| EASY   | 100 simulations, softmax z = 1           | a little above the first version's EASY |
+| NORMAL | 200 simulations, best move               | a little below the first version's HARD |
+| HARD   | up to 20,000 simulations in 4.5 s, best move | about +865 if the chip reaches 4,000 |
+
+About 620 Elo apart. EASY and NORMAL take a fraction of a second: they are
+weaker because they see less and choose more loosely, not because they burn the
+same time on a worse algorithm. HARD is the only level the chip's speed moves;
+the log line after every move (`search: level L, N ms ... S of T sims, nodes,
+reused, stopped early`) says what it reached.
 
 The search runs on a **task of its own, pinned to core 1**, so a four-second
 think cannot starve the core the system watchdog looks at. `thinking` is
@@ -173,10 +242,7 @@ sounds: the loop task is blocked on the search task's notification while the
 search runs, so nothing polls the sleep guard during it. The flag is true across
 the repaint that announces THINKING -- the pass before the search starts, and
 the last pass the sleep timer can see -- so it stops the device sleeping INTO a
-search rather than during one. A four-second think is short enough that the
-timer cannot expire inside it anyway. Its node pool is 49KB, taken in `onEnter()` and
-freed in `onExit()`; with no pool the app still plays, with a centre-weighted
-legal move and a line in the log.
+search rather than during one.
 
 ## What is written down
 

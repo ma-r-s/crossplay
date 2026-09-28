@@ -1,42 +1,48 @@
 #pragma once
 
-// The opponent. UCT/MCTS over `hex::Game`, freestanding and deterministic: no
-// heap, no clock of its own, no Arduino, and randomness only through the
-// `uint32_t& seed` the caller lends. The same position, level and seed returns
-// the same move on the device, in the simulator and in the host suite.
+// The opponent. Monte Carlo tree search over `hex::Game`, freestanding and
+// deterministic: no heap inside a search, no clock of its own, no Arduino, and
+// randomness only through the `uint32_t& seed` the caller lends. The same
+// position, settings, seed and tree return the same move on the device, in the
+// simulator and in the host suite.
 //
-// **Why Monte Carlo and not a hand-written evaluation.** Hex has no material,
-// no mobility and no king safety -- the only thing a position is worth is
-// whether the connection can be completed, and every attempt to spell that out
-// as a heuristic ends up re-deriving the search. It also has a property no
-// other game on this shelf has: a FULL board always has exactly one winner, so
-// a playout needs no legality check, no terminal test and no scoring pass. Fill
-// every empty cell in a random order, then ask who owns the board. That is the
-// whole evaluation, and it is why this fits a microcontroller at all.
+// **Why Monte Carlo.** A full Hex board always has exactly one winner, so a
+// playout needs no legality check and no scoring pass: fill every empty cell,
+// then ask who connected. That is the whole evaluation.
 //
-// **Difficulty scales the POLICY, not just the budget.** Cazenave and Saffidine
-// measured the bridge pattern in the playout policy at about +105 Elo over
-// naive UCT, and AMAF/RAVE on top of it (with UCT exploration switched off) at
-// a further +181 Elo -- together roughly what a 250-fold increase in compute
-// buys. The gain is affordable here and the compute is not, so:
+// **What the search is, and why each part is there** (docs/apps/hex.md has the
+// measurements; each was played against morat, an open-source Hex engine, at
+// equal simulations):
 //
-//   EASY    plain UCT, plain playouts, a small budget. Still takes an immediate
-//           win and blocks an immediate loss at the root, so it never looks
-//           broken -- a machine that walks past a winning move is not "easy",
-//           it is wrong.
-//   NORMAL  bridge-aware playouts.
-//   HARD    bridge playouts plus RAVE, exploration off, the whole budget.
+//   - RAVE-guided selection among ALL of a node's children. A node grows its
+//     children together, once it has been visited `expandVisits` times, and
+//     its all-moves-as-first statistics pick among them from the first visit:
+//     a bad move is never played just so it can be measured. The first version
+//     of this engine tried every child once, in random order, before the
+//     statistics had any say; the same engine with this change won 40 of 40
+//     against it at a quarter of its simulations.
+//   - No exploration term. alpha = rf / (rf + visits) moves a child from its
+//     all-moves-as-first score to its own; with exploration off (MoHex's own
+//     finding) there is no log and no square root in the hot loop, which
+//     matters on a chip with a single-precision FPU and no double hardware.
+//   - Bridge-aware playouts: a stone played into one carrier of an opponent's
+//     bridge is answered in the other. Worth more than anything but RAVE.
+//   - Tree reuse. After our move and their reply, the subtree for the position
+//     that arose is kept rather than grown again.
+//   - An early stop: the search ends as soon as the second-best move at the
+//     root cannot catch the best in what is left of the budget. The move is the
+//     one the full search would have played; the time is not spent.
 //
-// Virtual connections and H-search are the next tier (MoHex territory) and are
-// deliberately out of scope: they need a solver and a pattern database, and
-// what they buy over this is invisible to anybody who is not already a Hex
-// player.
+// **Difficulty is the budget and the final choice, not a weaker algorithm.**
+// Every level runs the same search. EASY and NORMAL spend fewer simulations
+// and choose among the root's good moves by visits^z (Wu et al., AAAI 2019),
+// never among moves the search barely looked at, so a weaker level makes the
+// mistakes of a player who saw less rather than random ones.
 //
-// **The node pool belongs to the caller.** Forty-nine kilobytes is not a stack
-// object and not something to allocate per move: the Activity takes one in
-// onEnter() and frees it in onExit(), and the host tests put one on the heap of
-// their own. That also makes the search re-entrant by construction -- it holds
-// no state between calls except the two counters below, which are reporting.
+// **The node pool belongs to the caller.** It is megabytes on the device and
+// lives in PSRAM; the activity takes it in onEnter() and frees it in onExit().
+// When it fills, the tree stops growing and the search continues on the tree it
+// has.
 
 #include <cstdint>
 
@@ -45,93 +51,98 @@
 
 namespace hexbrain {
 
-// A millisecond clock, lent by the caller. The brain cannot call millis() and
-// must not: a null clock means "bounded by simulations alone", which is what
-// the host tests pass so their results do not depend on how fast the machine
-// running them happens to be.
+// A millisecond clock, lent by the caller. Null means "bounded by simulations
+// alone", which is what the host tests pass so their results do not depend on
+// the machine running them.
 using Clock = uint32_t (*)();
 
-// What one level asks of the search.
-struct Settings {
-  // Tree descents, each ending in one playout to a full board.
-  uint16_t simulations;
-  // The wall clock it may spend, whatever the count says. Whichever binds
-  // first wins: the count keeps the tests deterministic (they lend no clock),
-  // the clock keeps the device under five seconds a move.
-  uint16_t budgetMs;
-  // Bridge-aware playouts: when the opponent plays into one of your bridges,
-  // answer in the other carrier rather than wherever the shuffle pointed next.
-  bool bridge;
-  // RAVE/AMAF at selection, with UCT exploration off -- the pairing the Elo
-  // measurement was made with. One without the other is not this level.
-  bool amaf;
-};
-
-Settings settingsFor(hex::Level level);
-
-// One node of the search tree. Children are a linked list rather than an array
-// of 121 slots: a node's children are created one per simulation, so a list
-// costs two bytes a node against 242 for a dense table that is almost entirely
-// empty at these budgets.
 struct Node {
   uint32_t visits;
-  // Wins for the player who MOVED INTO this node, which is the only frame in
-  // which a child's score is comparable with its siblings'.
+  // Wins for the player who moved INTO this node, which is the frame in which
+  // siblings compare.
   uint32_t wins;
   uint32_t raveVisits;
   uint32_t raveWins;
-  uint16_t firstChild;
-  uint16_t nextSibling;
+  // The first of `childCount` contiguous children, or kLeaf.
+  uint32_t firstChild;
   uint8_t move;
   uint8_t childCount;
   uint16_t reserved;
 };
+constexpr uint32_t kLeaf = 0xFFFFFFFFu;
 
-// Two thousand nodes is a real tree rather than a root table: one node is
-// created per simulation, so the search deepens along whatever line it keeps
-// coming back to, and once the pool is full the remaining simulations sharpen
-// the statistics it already has. Raising it costs 24 bytes a node of the
-// activity's allocation and buys very little at these budgets.
-constexpr int kPoolNodes = 2048;
-constexpr uint16_t kNoNode = 0xFFFFu;
+// About four nodes a simulation at expandVisits 10, measured on the laptop, so
+// two megabytes holds a twenty-thousand-simulation tree.
+constexpr uint32_t kPoolNodes = 2u * 1024u * 1024u / sizeof(Node);
 
-struct Pool {
-  Node node[kPoolNodes];
-  int used;
+struct Settings {
+  uint32_t simulations = 8000;
+  // The wall clock a move may take, whichever binds first. 0: no clock.
+  uint32_t budgetMs = 0;
+  uint16_t expandVisits = 10;
+  float raveFactor = 500.0f;
+  bool bridge = true;
+  bool reuseTree = true;
+  bool earlyStop = true;
+  // The final choice. 0: the most visited child. Above 0: child i with
+  // probability visits_i^z, among children with at least `ratio` of the most
+  // visited one's visits.
+  float softmaxZ = 0.0f;
+  float ratio = 0.1f;
 };
 
-// The move this seat wants, as a cell index, or `hex::kNoCell` when there is no
-// legal move at all. Always legal in `game`.
-int chooseMove(const hex::Game& game, hex::Level level, uint32_t& seed, Pool& pool, Clock clock = nullptr);
+Settings settingsFor(hex::Level level);
 
-// The same search with the settings spelled out, which is how the suite plays
-// three strengths against each other at budgets a laptop can afford without
-// pretending they are the shipped ones.
-int chooseMoveWith(const hex::Game& game, const Settings& settings, uint32_t& seed, Pool& pool, Clock clock = nullptr);
+// What the last search actually did. The device log prints it after every
+// move, so a level's budget is answerable to a measurement.
+struct Stats {
+  uint32_t simulations = 0;
+  uint32_t ms = 0;
+  uint32_t nodes = 0;
+  uint32_t reused = 0;
+  bool stoppedEarly = false;
+};
 
-// What the last search actually cost: simulations run, and milliseconds spent.
-// The budget is a promise; these two are what happened, and the device log
-// prints them after every move so the promise is answerable to a measurement.
-int lastSimulations();
-uint32_t lastMs();
+class Search {
+ public:
+  Search() = default;
+  Search(Node* pool, uint32_t capacity) : pool_(pool), capacity_(capacity) {}
+
+  // The move for `game.toMove`: always legal, kNoCell only when there is none.
+  // A win on the board is taken and a win for them blocked before any search.
+  // With no pool, the empty cell nearest the centre.
+  int choose(const hex::Game& game, const Settings& settings, uint32_t& seed, Clock clock = nullptr);
+
+  // Forget the tree: a new game, a loaded one, a match, a different level.
+  void reset() {
+    used_ = 0;
+    haveRoot_ = false;
+  }
+
+  const Stats& stats() const { return stats_; }
+
+ private:
+  bool reroot(const hex::Game& game);
+  uint32_t allocate(uint32_t count);
+  void expand(uint32_t node, const uint8_t board[hex::kCells]);
+  uint32_t select(const Node& parent, float raveFactor) const;
+
+  Node* pool_ = nullptr;
+  uint32_t capacity_ = 0;
+  uint32_t used_ = 0;
+  uint32_t root_ = 0;
+  bool haveRoot_ = false;
+  uint8_t rootCells_[hex::kCells] = {};
+  uint8_t rootToMove_ = hex::kBlack;
+  Stats stats_;
+};
 
 // Exposed for the suite. One playout from `board` with `toMove` to play,
 // filling every empty cell; returns the colour that owns the finished board.
-// `board` is one byte a cell and is left holding the completed position, which
-// is also what the RAVE update reads.
 uint8_t playoutForTest(uint8_t board[hex::kCells], uint8_t toMove, uint32_t& seed, bool bridge);
 
 // Exposed for the suite: who owns a finished board. The Hex theorem says this
 // is never "nobody", and the suite asserts it over random fills.
 uint8_t winnerOfFilledForTest(const uint8_t board[hex::kCells]);
-
-// Exposed for the suite: the hand-rolled natural logarithm the UCT term is
-// built on, checked against std::log across the visit counts a real search
-// reaches. It exists because std::log carries no correctly-rounded guarantee
-// and two libms disagreeing in the last bit would make one seed pick different
-// moves on a laptop and on the chip -- and a replacement for a library function
-// that nothing compares against is a replacement that can quietly return zero
-// and leave every assertion in the suite green.
-double naturalLogForTest(uint32_t value);
 
 }  // namespace hexbrain

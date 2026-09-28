@@ -123,10 +123,13 @@ class HexActivity final : public linkplay::LinkActivity {
   // A game that is part-played and can be resumed from the front door.
   bool inProgress = false;
 
-  // Forty-nine kilobytes, held only while the app is open. On the heap rather
-  // than in .bss because a shelf of twenty-two games each holding its search
-  // out of the static pool is a firmware that does not boot.
-  std::unique_ptr<hexbrain::Pool> pool;
+  // The search tree: two megabytes of PSRAM, held only while the app is open
+  // and released in onExit. Null when neither PSRAM nor the fallback could be
+  // had, and the computer then plays the empty cell nearest the centre.
+  hexbrain::Node* pool = nullptr;
+  // Kept across moves so the subtree for the position that arose is reused;
+  // reset whenever the position did not come from this search's own game.
+  hexbrain::Search search;
 
 #if defined(ARDUINO_ARCH_ESP32)
   // Created in onEnter and ended in onExit, so its stack is only spent while
