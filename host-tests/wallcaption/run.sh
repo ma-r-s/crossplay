@@ -194,6 +194,7 @@ SRC=../../src/apps_local/wallpapers
   "$SDK/src/FreeInkUI.cpp" \
   $SRC/WallpapersCore.cpp $SRC/WallpapersScreens.cpp \
   ../../src/apps_local/live/LiveCore.cpp \
+  ../../src/apps_local/notes/NotesScreens.cpp \
   ../../lib/EpdFont/EpdFont.cpp ../../lib/EpdFont/EpdFontFamily.cpp ../../lib/Utf8/Utf8.cpp \
   test_wallcaption.cpp -o "$BUILD_DIR/test_wallcaption"
 "$BUILD_DIR/test_wallcaption"

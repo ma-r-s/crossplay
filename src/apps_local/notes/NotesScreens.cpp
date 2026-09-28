@@ -959,7 +959,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
       // The sleep screen. Asking for it here also switches Settings > Sleep
       // screen to Note, so one tap is the whole job; the setting alone, with
       // no note chosen, would show the default screen and explain nothing.
-      {model.shownAsleep ? "STOP SHOWING WHILE ASLEEP" : "SHOW WHILE ASLEEP", nullptr, ActionShowAsleep},
+      {model.shownAsleep ? "TAKE OFF SLEEP SCREEN" : "PUT ON SLEEP SCREEN", nullptr, ActionShowAsleep},
   };
   const int count = static_cast<int>(sizeof(rows) / sizeof(rows[0]));
 

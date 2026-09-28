@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "../../src/apps_local/live/LiveCore.h"
+#include "../../src/apps_local/notes/NotesScreens.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/fonts/reading_serif_14.h"
 #include "../../src/apps_local/ui/fonts/toybox_10.h"
@@ -326,8 +327,77 @@ std::string drawnCaption(const FontTarget& t, const wallpapers::DisplayName& nam
 }
 }  // namespace
 
+// THE NOTES MENU, in the faces it really draws. A row label too wide for the
+// sheet does not truncate: fittedTitle steps it DOWN a cut, so it arrives
+// whole and a size smaller than every row around it. "STOP SHOWING WHILE
+// ASLEEP" did exactly that, and the ui suite's fixed-width target could not
+// see it. So every label box (one BODY line tall, under the header) must be
+// drawn in BODY, for every state the menu has.
+class NotesMenuTarget final : public fui::DrawTarget {
+ public:
+  struct Run {
+    fui::Rect box;
+    std::string text;
+    fui::TextStyle style;
+  };
+  std::vector<Run> runs;
+  const EpdFontFamily* familyFor(const fui::FontId font) const {
+    if (font == fui::FONT_SLOT_SMALL) return &smallFamily;
+    if (font == fui::FONT_SLOT_BODY) return &uiFamily;
+    return &displayFamily;
+  }
+  fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle) const override {
+    int w = 0;
+    int h = 0;
+    if (text != nullptr && *text != '\0') familyFor(font)->getTextDimensions(text, &w, &h);
+    return fui::Size{static_cast<int16_t>(w), lineHeight(font)};
+  }
+  int16_t lineHeight(const fui::FontId font) const override {
+    return static_cast<int16_t>(familyFor(font)->getData(EpdFontFamily::REGULAR)->advanceY);
+  }
+  void fill(fui::Rect, fui::Paint, uint8_t = 0, uint8_t = 0xFF) override {}
+  void stroke(fui::Rect, fui::Paint, uint8_t, uint8_t = 0, uint8_t = 0xFF) override {}
+  void line(fui::Point, fui::Point, uint8_t, fui::Paint) override {}
+  void triangle(fui::Point, fui::Point, fui::Point, fui::Paint) override {}
+  void text(fui::Rect box, const char* text, const fui::TextStyle style) override {
+    runs.push_back(Run{box, text == nullptr ? "" : text, style});
+  }
+  void bitmap(fui::Rect, fui::BitmapRef, fui::BitmapMode, fui::Paint = {},
+              fui::Rotation = fui::Rotation::None) override {}
+};
+
+void notesMenuLabelsKeepTheirSize() {
+  const fui::InputSnapshot noInput{};
+  int labels = 0;
+  for (int list = 0; list < 2; ++list) {
+    for (int asleep = 0; asleep < 2; ++asleep) {
+      notesui::MenuModel model;
+      model.title = "Groceries";
+      model.isList = list != 0;
+      model.shownAsleep = asleep != 0;
+      NotesMenuTarget target;
+      const fui::DeviceContext ctx = device();
+      toybox::Interactions interactions;
+      toybox::Frame frame(target, ctx, noInput, interactions);
+      toybox::Screen screen(frame);
+      notesui::buildMenu(screen, model);
+      const int16_t bodyLine = target.lineHeight(fui::FONT_SLOT_BODY);
+      for (const NotesMenuTarget::Run& run : target.runs) {
+        if (run.box.y < toybox::kHeaderHeight || run.box.height != bodyLine) continue;
+        ++labels;
+        check(run.style.font == fui::FONT_SLOT_BODY,
+              "Notes menu row \"" + run.text + "\" is too wide for the sheet and shrank a size (list " +
+                  std::to_string(list) + ", asleep " + std::to_string(asleep) + ")");
+      }
+    }
+  }
+  // Four states of four rows: a filter that matched nothing would pass.
+  check(labels >= 16, "the Notes menu check saw " + std::to_string(labels) + " labels, not 16");
+}
+
 int main() {
   const FontTarget target;
+  notesMenuLabelsKeepTheirSize();
   const wallpapersui::GridGeom g = wallpapersui::gridGeom(device());
   const fui::Rect panel = fui::makeRect(0, 0, 480, 800);
 

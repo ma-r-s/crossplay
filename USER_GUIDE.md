@@ -248,7 +248,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
   - "Cover + Custom" - The book cover image while actively reading, falls back to "Custom" behavior otherwise
   - "Quick resume" - The text of the last page read will be displayed on the sleep screen and a moon icon is shown on the edge of the screen. Waking up the device will return to the same page of the opened book. This is useful for quickly resuming reading without waiting for the device to fully wake up and load the book.
   - "Transparent" - A transparent overlay image drawn over the current screen; see [Sleep Screen](#37-sleep-screen) below for more information
-  - "Note" - A note or list from the Notes app, chosen there with **Show while asleep**; see [Sleep Screen](#37-sleep-screen) below
+  - "Note" - A note or list from the Notes app, chosen there with **Put on sleep screen**; see [Sleep Screen](#37-sleep-screen) below
 - **Sleep Screen Cover Mode**: How to display the book cover when "Cover" sleep screen is selected:
   
   - "Fit" (default) - Scale the image down to fit centered on the screen, padding with white borders as necessary
@@ -641,7 +641,7 @@ The **Sleep Screen** setting controls what is displayed when the device goes to 
 
 #### A note on the sleep screen
 
-Open a note or list in **Notes**, open its menu and tap **Show while asleep**. The sleep screen becomes that note, read-only, with ticked items struck through, and it is redrawn every time the device sleeps, so it is never stale. **Stop showing while asleep** in the same menu puts back the sleep screen you had before. Choosing it also turns off **Quick Resume on Timeout**, because that setting skips the sleep screen on an idle sleep.
+Open a note or list in **Notes**, open its menu and tap **Put on sleep screen**. The sleep screen becomes that note, read-only, with ticked items struck through, and it is redrawn every time the device sleeps, so it is never stale. **Take off sleep screen** in the same menu puts back the sleep screen you had before. Choosing it also turns off **Quick Resume on Timeout**, because that setting skips the sleep screen on an idle sleep.
 
 #### Cover settings
 

@@ -290,9 +290,9 @@ called `name`.
 ## On the sleep screen
 
 Mina asked for a to-do list on the sleep screen (#198). A note's menu carries
-**SHOW WHILE ASLEEP**; it records the note's name and the sleep screen mode it
+**PUT ON SLEEP SCREEN**; it records the note's name and the sleep screen mode it
 replaced in `/.crosspoint/notes-asleep.txt` and sets the mode to **Note**.
-**STOP SHOWING WHILE ASLEEP** clears the file and puts that mode back.
+**TAKE OFF SLEEP SCREEN** clears the file and puts that mode back.
 
 - **Drawn live at sleep, never a saved picture.** `SleepActivity` calls
   `notes::drawAsleep`, which loads the note and builds the same screen the app
@@ -307,7 +307,7 @@ replaced in `/.crosspoint/notes-asleep.txt` and sets the mode to **Note**.
   mode the first one replaced. Renaming follows the note; deleting it puts the
   old mode back. A note deleted from the phone falls back to **Dark** at sleep.
 - **Picking a wallpaper ends it.** Wallpapers sets the mode to Custom and says
-  so ("Was Note, now Custom."); Notes then shows **SHOW WHILE ASLEEP** again,
+  so ("Was Note, now Custom."); Notes then shows **PUT ON SLEEP SCREEN** again,
   because it asks the mode as well as the file.
 
 ## Not built

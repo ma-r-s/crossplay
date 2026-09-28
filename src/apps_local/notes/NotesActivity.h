@@ -52,7 +52,7 @@ class NotesActivity final : public Activity {
   void clearDone();
   // Rewrites the note as the other kind: a tick box on every line, or none.
   void switchKind();
-  // The Notes menu's SHOW WHILE ASLEEP row: choose this note for the sleep
+  // The Notes menu's PUT ON SLEEP SCREEN row: choose this note for the sleep
   // screen and switch Settings > Sleep screen to Note, or undo both.
   void toggleAsleep();
   // After a rename or a delete, so the sleep screen never names a note that is
