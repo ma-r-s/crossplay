@@ -59,6 +59,8 @@ class UnderhandActivity final : public Activity {
   underhand::Counts picked{};  // what the player has put toward it
   View helpFrom = View::Menu;  // where how to play goes back to
   int helpPage = 0;
+  bool guideThenRun = false;  // the guide is the first run's introduction: finishing it begins the run
+  underhand::Game guideGame;  // the lesson on screen, off the render task's stack
   static constexpr int kFastRefreshes = 12;
   int fastRefreshes = 0;
   bool confirmGiveUp = false;     // the menu is asking before the run is thrown away

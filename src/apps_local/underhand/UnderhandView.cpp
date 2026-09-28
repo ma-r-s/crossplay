@@ -510,4 +510,50 @@ const char* optionText(const Cards& cards, const Card& card, int k) {
   return reworded(card, k, cards.text(card.option[k].text));
 }
 
+const GuideLesson kGuide[kLessons] = {
+    {Lesson::Turn, "A TURN", "EACH TURN, ONE CARD. TAP ONE OF ITS CHOICES.", 1, -1, {1, 3, 2, 3, 1, 1}},
+    {Lesson::Symbols, "WHAT YOU HOLD", "", 1, -1, {1, 3, 2, 3, 1, 1}},
+    {Lesson::Choice, "A CHOICE", "PAY WHAT IS ON THE LEFT. GET WHAT IS ON THE RIGHT.", 1, 0, {0, 3, 1, 2, 1, 1}},
+    {Lesson::TwoWays,
+     "TWO WAYS TO PAY",
+     "EITHER WILL DO. A TAP PAYS THE BLACK ONE, OR TAP THE OTHER.",
+     23,
+     0,
+     {1, 3, 2, 4, 2, 2}},
+    {Lesson::Relic,
+     "RELICS",
+     "A RELIC PAYS FOR ANYTHING YOU LACK. THE BLACK CHIP SHOWS WHAT A TAP TAKES.",
+     24,
+     0,
+     {1, 1, 1, 4, 1, 1}},
+    {Lesson::Grey, "NOT ENOUGH", "A GREY CHOICE COSTS MORE THAN YOU HOLD.", 37, 0, {0, 2, 1, 2, 1, 1}},
+    {Lesson::Danger,
+     "DANGER",
+     "BLACK MEANS DANGER: 16 OR MORE HELD, 5 SUSPICION, OR NO FOOD.",
+     1,
+     -1,
+     {3, 4, 4, 0, 4, 5}},
+    {Lesson::Chain,
+     "CHAINS",
+     "SOME CHOICES ADD CARDS TO THE DECK. FOLLOW A CHAIN TO A GOD.",
+     79,
+     0,
+     {0, 4, 2, 2, 1, 1}},
+    {Lesson::Win,
+     "WINNING",
+     "SUMMON A GOD TO WIN THE RUN. GODS YOU SUMMON STAY, AND BRING NEW CARDS.",
+     90,
+     0,
+     {2, 1, 1, 2, 1, 1}},
+};
+
+void lessonGame(const GuideLesson& lesson, const Cards& cards, Game& out) {
+  out = Game{};
+  out.held = lesson.held;
+  out.card = lesson.card;
+  for (int i = 0; i < 10; ++i) out.draw.push(lesson.card);
+  Rng fixed(7);
+  detail::resolve(out, cards, fixed);
+}
+
 }  // namespace underhand::view

@@ -410,6 +410,14 @@ bool UnderhandActivity::route(int action, int value) {
           view = View::Play;
           flashNext = true;
           requestUpdate();
+        } else if (!state.profile.tutorialDone) {
+          // The first run opens with the guide; its last page begins the run.
+          guideThenRun = true;
+          helpFrom = View::Menu;
+          helpPage = 0;
+          view = View::Help;
+          flashNext = true;
+          requestUpdate();
         } else {
           newRun();
         }
@@ -439,6 +447,7 @@ bool UnderhandActivity::route(int action, int value) {
         flashNext = true;
         requestUpdate();
       } else if (action == ui::ActionHelp) {
+        guideThenRun = false;
         helpFrom = View::Menu;
         helpPage = 0;
         view = View::Help;
@@ -480,6 +489,7 @@ bool UnderhandActivity::route(int action, int value) {
           requestUpdate();
         }
       } else if (action == ui::ActionHelp) {
+        guideThenRun = false;
         helpFrom = View::Play;
         helpPage = 0;
         view = View::Help;
@@ -517,13 +527,20 @@ bool UnderhandActivity::route(int action, int value) {
       }
       return false;
     case View::Help:
-      if (action == ui::ActionCancel) {
-        view = helpFrom;
-        flashNext = true;
-        requestUpdate();
-      } else if (action == ui::ActionHelpPage) {
+      if (action == ui::ActionHelpPage && value >= 0 && value < uh::view::kLessons) {
         helpPage = value;
         requestUpdate();
+      } else if (action == ui::ActionHelpPage) {
+        // Past the last lesson: the first run begins if the guide was its
+        // introduction, else back to where the guide was opened.
+        if (guideThenRun) {
+          guideThenRun = false;
+          newRun();
+        } else {
+          view = helpFrom;
+          flashNext = true;
+          requestUpdate();
+        }
       }
       return false;
     case View::Broken:
@@ -543,6 +560,8 @@ bool UnderhandActivity::back() {
     confirmStartOver = false;
     flashNext = true;
   } else if (view == View::Help) {
+    // Back leaves the guide, and does not begin a run it was introducing.
+    guideThenRun = false;
     view = helpFrom;
     flashNext = true;
   } else if (view == View::Play || view == View::End) {
@@ -759,9 +778,24 @@ void UnderhandActivity::audit() {
     draw([&](toybox::Screen& sc) { ui::buildMenu(sc, m); });
     check("menu form", form);
   }
-  for (int page = 0; page < ui::kHelpPages; ++page) {
-    draw([&](toybox::Screen& sc) { ui::buildHelp(sc, page); });
-    check("how to play page", page);
+  // Every lesson of the guide.
+  for (int page = 0; page < uh::view::kLessons; ++page) {
+    const uh::view::GuideLesson& lesson = uh::view::kGuide[page];
+    uh::Game g;
+    uh::view::lessonGame(lesson, *cards, g);
+    ui::CardModel& m = freshCard();
+    fillCard(*cards, g, false, -1, uh::Counts{}, m);
+    m.guide = true;
+    ui::GuideModel guide;
+    guide.page = page;
+    guide.pages = uh::view::kLessons;
+    guide.title = lesson.title;
+    guide.caption = lesson.caption;
+    guide.lesson = lesson.lesson;
+    guide.option = lesson.option;
+    guide.card = &m;
+    draw([&](toybox::Screen& sc) { ui::buildGuide(sc, guide); });
+    check("how to play lesson", page);
   }
   LOG_INF("UNDERHAND", "AUDIT: %d screens, %d layout problems", screens, ui::layoutProblems());
 }
@@ -798,9 +832,25 @@ void UnderhandActivity::render(RenderLock&&) {
       ui::buildEnd(screen, model);
       break;
     }
-    case View::Help:
-      ui::buildHelp(screen, helpPage);
+    case View::Help: {
+      // A lesson of the guide, drawn from its real card and hand. The game
+      // is a member, off the render task's stack.
+      const uh::view::GuideLesson& lesson = uh::view::kGuide[helpPage];
+      uh::view::lessonGame(lesson, *cards, guideGame);
+      ui::CardModel& card = freshCard();
+      fillCard(*cards, guideGame, false, -1, uh::Counts{}, card);
+      card.guide = true;
+      ui::GuideModel guide;
+      guide.page = helpPage;
+      guide.pages = uh::view::kLessons;
+      guide.title = lesson.title;
+      guide.caption = lesson.caption;
+      guide.lesson = lesson.lesson;
+      guide.option = lesson.option;
+      guide.card = &card;
+      ui::buildGuide(screen, guide);
       break;
+    }
     case View::Broken: {
       ui::EndModel model;
       model.leaveOnly = true;

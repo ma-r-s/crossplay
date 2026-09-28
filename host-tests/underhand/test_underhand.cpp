@@ -1149,6 +1149,67 @@ void theTwoResetsKeepWhatTheySay() {
   CHECK(g.tutorial);
 }
 
+// Each lesson of the guide is a real card and hand; the screen it draws
+// must show the lesson's point, or the page teaches something that is not
+// there (the real cards are the embedded ones).
+void everyLessonShowsItsPoint() {
+  auto cards = std::make_unique<Cards>();
+  const char* why = nullptr;
+  CHECK(CardsReader::read(*cards, CardsReader::File::Gods, kGodsJson, sizeof(kGodsJson) - 1, &why));
+  CHECK(CardsReader::read(*cards, CardsReader::File::Cards, kCardsJson, sizeof(kCardsJson) - 1, &why));
+  if (failures) return;
+  view::Tokens chip[4];
+  for (const view::GuideLesson& l : view::kGuide) {
+    Game g;
+    view::lessonGame(l, *cards, g);
+    const Card* card = cards->card(g.card);
+    CHECK(card != nullptr && g.phase == Phase::Choosing);
+    if (!card) continue;
+    CHECK(l.option < card->optionCount);
+    const int k = l.option;
+    char effect[112];
+    switch (l.lesson) {
+      case view::Lesson::Turn:
+      case view::Lesson::Symbols:
+        // The first page shows a plain card: no chips before they are taught.
+        CHECK(card->optionCount >= 2);
+        for (int o = 0; o < card->optionCount; ++o) CHECK(view::chips(g, *cards, o, chip, 4) == 0);
+        break;
+      case view::Lesson::Choice:
+        CHECK(view::optionState(g, *cards, k) == view::OptionState::Open);
+        CHECK(view::chips(g, *cards, k, chip, 4) == 0);
+        CHECK(view::giveTokens(g, *cards, k).count > 0 && view::getTokens(g, k).count > 0);
+        break;
+      case view::Lesson::TwoWays:
+        CHECK(view::chips(g, *cards, k, chip, 4) == 2);
+        break;
+      case view::Lesson::Relic: {
+        CHECK(view::chips(g, *cards, k, chip, 4) == 1);
+        bool relic = false;
+        for (int t = 0; t < chip[0].count; ++t) relic = relic || chip[0].token[t].resource == Relic;
+        CHECK(relic);
+        break;
+      }
+      case view::Lesson::Grey:
+        CHECK(view::optionState(g, *cards, k) == view::OptionState::Short);
+        break;
+      case view::Lesson::Danger: {
+        const Odds odds = punishmentOdds(g);
+        CHECK(odds.greed > 0 && odds.police > 0 && odds.desperate > 0);
+        break;
+      }
+      case view::Lesson::Chain:
+        view::effectLine(g, *cards, k, effect, sizeof(effect));
+        CHECK(std::strncmp(effect, "Adds", 4) == 0);
+        CHECK(view::optionState(g, *cards, k) == view::OptionState::Open);
+        break;
+      case view::Lesson::Win:
+        CHECK(card->option[k].win >= 0 && view::optionState(g, *cards, k) == view::OptionState::Open);
+        break;
+    }
+  }
+}
+
 void savesRoundTripAndRefuseDamage() {
   auto cards = load(world({{1}, {3}}));
   if (failures) return;
@@ -1623,6 +1684,7 @@ int main() {
   RUN(savesRoundTripAndRefuseDamage);
   RUN(givingUpEndsTheRunAsALoss);
   RUN(theTwoResetsKeepWhatTheySay);
+  RUN(everyLessonShowsItsPoint);
   RUN(rngIsUniformAndRepeatable);
 
   RUN(theScreenSaysWhatHappened);

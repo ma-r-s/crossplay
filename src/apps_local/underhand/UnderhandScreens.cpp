@@ -24,7 +24,9 @@ constexpr int16_t kButtonHeight = 60;
 constexpr int16_t kRowHeight = 36;  // a row of tokens, and a chip
 constexpr int16_t kBetween = 12;    // between tokens
 constexpr int16_t kChipPad = 6;
-constexpr int16_t kChipGap = 8;  // between two chips
+constexpr int16_t kChipGap = 8;      // between two chips
+constexpr int16_t kNoteGap = 8;      // the guide's room between an option's row and its note
+constexpr int16_t kInkOverhang = 4;  // how far a line's last glyph inks past its measured advance
 constexpr int16_t kOrPad = 4;
 
 const freeink::Icon* const kIcon24[kResources] = {&icon_uh_relic_24, &icon_uh_money_24,    &icon_uh_cultist_24,
@@ -68,6 +70,58 @@ void small(toybox::Screen& screen, const fui::Rect& box, const char* text, fui::
 
 int lineHeight(toybox::Screen& screen) { return screen.target().lineHeight(toybox::kBodyFont); }
 
+int measure(toybox::Screen& screen, const char* text);
+// The widest line of `text` wrapped between words at `width`, the way the
+// small face breaks it, so a bracket round a note hugs its words.
+int measureNote(toybox::Screen& screen, const char* text, int width) {
+  std::string line;
+  std::string word;
+  int widest = 0;
+  auto finish = [&]() {
+    if (line.empty()) return;
+    const int w = measure(screen, line.c_str());
+    widest = w > widest ? w : widest;
+  };
+  for (const char* c = text;; ++c) {
+    if (*c && *c != ' ') {
+      word += *c;
+      continue;
+    }
+    if (!word.empty()) {
+      const std::string candidate = line.empty() ? word : line + " " + word;
+      if (line.empty() || measure(screen, candidate.c_str()) <= width) {
+        line = candidate;
+      } else {
+        finish();
+        line = word;
+      }
+      word.clear();
+    }
+    if (!*c) break;
+  }
+  finish();
+  // Measured by advances, and the last glyph's ink runs a few pixels past
+  // its advance: without this a bracket sits closer on the right than the left.
+  widest += kInkOverhang;
+  return widest < width ? widest : width;
+}
+
+// Where the last card screen put its pieces, so a guide page points at the
+// real ones rather than keeping a second copy of the layout.
+struct Drawn {
+  fui::Rect card = {};
+  fui::Rect status = {};
+  fui::Rect warning = {};  // the danger icon and its odds, within the status line
+  fui::Rect bar = {};
+  fui::Rect box[underhand::kMaxOptions] = {};
+  fui::Rect row[underhand::kMaxOptions] = {};
+  fui::Rect cost[underhand::kMaxOptions] = {};
+  fui::Rect gains[underhand::kMaxOptions] = {};
+  fui::Rect chips[underhand::kMaxOptions] = {};
+  fui::Rect note[underhand::kMaxOptions] = {};
+};
+Drawn drawn;
+
 int smallLine(toybox::Screen& screen) { return screen.target().lineHeight(toybox::kSmallFont); }
 
 // How many lines of the small face `text` needs at `width`, up to three.
@@ -79,6 +133,10 @@ int noteLines(toybox::Screen& screen, const char* text, int width) {
   }
   return 3;
 }
+
+// How wide a note is drawn at `width`: the text's own width when it fits on
+// one line, else the whole width.
+int measureNote(toybox::Screen& screen, const char* text, int width);
 
 // A note in the small face on as many lines as its box holds, broken between
 // words. Needing more is a problem.
@@ -202,9 +260,9 @@ void tokens(toybox::Screen& screen, int x, int midY, const view::Tokens& list, c
 
 // ---- chrome, bar, status ----------------------------------------------------
 
-void chrome(toybox::Screen& screen, const char* rightLabel) {
+void chrome(toybox::Screen& screen, const char* rightLabel, const char* title = "UNDERHAND") {
   fui::HeaderProps header;
-  header.title = "UNDERHAND";
+  header.title = title;
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
   toybox::headerBand(screen, header);
@@ -305,6 +363,7 @@ void status(toybox::Screen& screen, const fui::Rect& area, const CardModel& mode
     icon(screen, rect(x, midY - kTokenIcon / 2, kTokenIcon, kTokenIcon), icon_uh_alert_24, fui::Color::Black);
     x += kTokenIcon + 6;
     const int width = measure(screen, text);
+    drawn.warning = rect(area.x, area.y, kTokenIcon + 6 + width + kInkOverhang, area.height);
     // The warning outranks the mark that says the bar can be tapped.
     if (x + width > end) end = right(area);
     small(screen, rect(x, area.y, end - x, area.height), text, fui::TextAlign::Left);
@@ -345,7 +404,7 @@ void status(toybox::Screen& screen, const fui::Rect& area, const CardModel& mode
 bool oneTap(toybox::Screen& screen, const CardModel& model, const OptionRow& o, int k, const fui::Rect& row,
             const fui::Rect& reach, const fui::Rect& box, int giveWidth, int getWidth) {
   const int midY = row.y + row.height / 2;
-  const int start = row.x + giveWidth + kBetween;
+  const int start = row.x + giveWidth + kBetween + (model.guide ? 10 : 0);
   const int gains = right(row) - getWidth - (getWidth ? kBetween : 0);
   view::Tokens part[kShownWays];
   auto fits = [&]() {
@@ -386,6 +445,7 @@ bool oneTap(toybox::Screen& screen, const CardModel& model, const OptionRow& o, 
       screen.target().stroke(chip, fui::Paint::solid(fui::Color::Black), 2);
     }
     tokens(screen, x + kChipPad, midY, part[i], 0, false, first ? fui::Color::White : fui::Color::Black);
+    drawn.chips[k] = rect(start, row.y, x + w - start, row.height);
     const int left = first ? box.x : x - kChipGap / 2;
     const int rightEdge = i + 1 == o.ways ? (gains > x + w ? gains : x + w) : x + w + kChipGap / 2;
     screen.frame().hit(rect(left, reach.y, rightEdge - left, reach.height), ActionWay, wayTap(i));
@@ -403,14 +463,16 @@ bool oneTap(toybox::Screen& screen, const CardModel& model, const OptionRow& o, 
   return true;
 }
 
-void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& model) {
+// All of a card's options, or with `only` just that one, in the first slot.
+void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& model, int only = -1) {
   // Three to a card, or halves when there are fewer: every option text long
   // enough to need a third line is on a card of one or two.
-  const int rows = model.optionCount == 3 ? 3 : 2;
+  const int rows = model.optionCount == 3 && only < 0 ? 3 : 2;
   const int slot = (area.height - (rows - 1) * kGap) / rows;
-  for (int k = 0; k < model.optionCount; ++k) {
+  for (int k = only < 0 ? 0 : only; k < (only < 0 ? model.optionCount : only + 1); ++k) {
     const OptionRow& o = model.option[k];
-    const fui::Rect box = rect(area.x, area.y + k * (slot + kGap), area.width, slot);
+    const int at = only < 0 ? k : 0;
+    const fui::Rect box = rect(area.x, area.y + at * (slot + kGap), area.width, slot);
     const bool open = o.state == view::OptionState::Open;
     if (open) {
       screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 2);
@@ -418,7 +480,10 @@ void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& mod
       screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray));
       screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 1);
     }
-    const fui::Rect inner = box.inset(fui::Insets{4, kPad, 3, kPad});
+    // For the guide, room round the row for a bracket: 12px under it and 6px
+    // more at each side, so a bracket clears both the border and the tokens.
+    const int side = model.guide ? kPad + 6 : kPad;
+    const fui::Rect inner = box.inset(fui::Insets{4, side, 3, side});
     // From the bottom: why it cannot be taken (a closed option), what else
     // it does, the row of what it takes and gives, and its words above. What
     // it does gives way first when the words need the room.
@@ -426,10 +491,20 @@ void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& mod
     int noteH = o.note[0] ? noteLines(screen, o.note, inner.width) * smallLine(screen) : 0;
     const int textNeeds = linesFor(screen, o.text, inner.width, 4) * lineHeight(screen);
     if (!open && noteH && textNeeds > inner.height - kRowHeight - noteH - whyH) noteH = 0;
-    const fui::Rect row = rect(inner.x, bottom(inner) - kRowHeight - noteH - whyH, inner.width, kRowHeight);
+    const fui::Rect row =
+        rect(inner.x, bottom(inner) - kRowHeight - noteH - whyH - (model.guide ? 12 + (noteH ? kNoteGap : 0) : 0),
+             inner.width, kRowHeight);
+    drawn.box[k] = box;
+    drawn.row[k] = row;
     prose(screen, rect(inner.x, inner.y, inner.width, row.y - inner.y), o.text, 4);
     const int textBottom = inner.y + textNeeds;
-    if (noteH) note(screen, rect(inner.x, bottom(row), inner.width, noteH), o.note);
+    if (noteH) {
+      // For the guide, a gap between the row and the note, so a bracket
+      // round the note stays clear of the tokens above it.
+      const int noteY = bottom(row) + (model.guide ? kNoteGap : 0);
+      note(screen, rect(inner.x, noteY, inner.width, noteH), o.note);
+      drawn.note[k] = rect(inner.x, noteY, measureNote(screen, o.note, inner.width), noteH);
+    }
     if (whyH) {
       const fui::Rect line = rect(inner.x, bottom(inner) - whyH + 2, inner.width, whyH - 2);
       const int words = measure(screen, o.why.words);
@@ -442,6 +517,8 @@ void options(toybox::Screen& screen, const fui::Rect& area, const CardModel& mod
     const int getWidth = tokensWidth(screen, o.get, '+');
     tokens(screen, right(row), midY, o.get, '+', true);
     const int giveWidth = tokensWidth(screen, o.give, '-');
+    drawn.cost[k] = rect(row.x, row.y, giveWidth, row.height);
+    drawn.gains[k] = rect(right(row) - getWidth, row.y, getWidth, row.height);
     if (!open) {
       if (giveWidth + kBetween + getWidth > row.width) report("what an option asks runs into what it gives");
       tokens(screen, row.x, midY, o.give, '-', false);
@@ -681,6 +758,9 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
   const int flavor = linesFor(screen, model.flavor, width, 3) < 3 ? 2 : 3;
   prose(screen, rect(x, y, width, line * flavor), model.flavor, 3);
   y += line * flavor + 8;
+  drawn.card = rect(x, body.y + 4, width, y - 8 - body.y - 4);
+  drawn.status = statusArea;
+  drawn.bar = barArea;
 
   const fui::Rect panel = rect(x, y, width, statusArea.y - kGap - y);
   switch (model.panel) {
@@ -840,72 +920,216 @@ void buildEnd(toybox::Screen& screen, const EndModel& model) {
   button(screen, rect(x + half + kGap, buttons, half, kButtonHeight), "MENU", ActionMenu, false);
 }
 
-void buildHelp(toybox::Screen& screen, int page) {
-  fui::HeaderProps header;
-  header.title = "HOW TO PLAY";
-  header.borderEdges = fui::EdgesNone;
-  toybox::absoluteChrome(screen);
-  toybox::headerBand(screen, header);
-  const fui::Rect ink = toybox::headerInkRect(screen).inset(fui::Insets{0, kMargin, 0, 0});
-  char of[32];
-  std::snprintf(of, sizeof(of), "%d OF %d", page + 1, kHelpPages);
-  small(screen, ink, of, fui::TextAlign::Right, fui::Color::White);
+namespace {
 
+// Four corner marks round a rect and nothing between, as the fork's other
+// guides point (D&Diagrams).
+void brackets(toybox::Screen& screen, const fui::Rect& box, int arm = 14, int weight = 3) {
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  const int r = right(box) - arm;
+  const int b = bottom(box) - arm;
+  const int ex = right(box) - weight;
+  const int ey = bottom(box) - weight;
+  screen.target().fill(rect(box.x, box.y, arm, weight), ink);
+  screen.target().fill(rect(box.x, box.y, weight, arm), ink);
+  screen.target().fill(rect(r, box.y, arm, weight), ink);
+  screen.target().fill(rect(ex, box.y, weight, arm), ink);
+  screen.target().fill(rect(box.x, ey, arm, weight), ink);
+  screen.target().fill(rect(box.x, b, weight, arm), ink);
+  screen.target().fill(rect(r, ey, arm, weight), ink);
+  screen.target().fill(rect(ex, b, weight, arm), ink);
+}
+
+// How many lines of the small face a centred caption needs at `width`.
+int captionLines(toybox::Screen& screen, const char* text, int width) {
+  if (!text || !*text) return 0;
+  int lines = 1;
+  while (lines < 6) {
+    const fui::TextStyle s =
+        style(toybox::kSmallFont, fui::TextAlign::Center, fui::Color::Black, static_cast<uint8_t>(lines));
+    if (toybox::fitLines(screen.target(), text, static_cast<int16_t>(width), lines, s) == text) break;
+    ++lines;
+  }
+  return lines;
+}
+
+// The words of a page in the small face, centred.
+void caption(toybox::Screen& screen, const fui::Rect& box, const char* text) {
+  const int lines = captionLines(screen, text, box.width);
+  if (lines == 0) return;
+  if (lines * smallLine(screen) > box.height) report("a guide caption needs more lines than its box holds", text);
+  const fui::TextStyle s =
+      style(toybox::kSmallFont, fui::TextAlign::Center, fui::Color::Black, static_cast<uint8_t>(lines));
+  screen.target().text(box, toybox::fitLines(screen.target(), text, box.width, lines, s).c_str(), s);
+}
+
+constexpr int kDot = 14;
+constexpr int kDotGap = 10;
+constexpr int kFooter = 14 + 12 + 26 + kMargin;  // dots, a gap, the tap line, the margin
+
+void pageDots(toybox::Screen& screen, const fui::Rect& body, int page, int pages) {
+  const int row = pages * kDot + (pages - 1) * kDotGap;
+  const int x = body.x + (body.width - row) / 2;
+  const int y = bottom(body) - kMargin - kDot;
+  for (int i = 0; i < pages; ++i) {
+    const fui::Rect at = rect(x + i * (kDot + kDotGap), y, kDot, kDot);
+    if (i == page) {
+      screen.target().fill(at, fui::Paint::solid(fui::Color::Black), 7);
+    } else {
+      screen.target().stroke(at, fui::Paint::solid(fui::Color::Black), 1, 7);
+    }
+  }
+  small(screen, rect(body.x, y - 12 - 26, body.width, 26), page + 1 == pages ? "TAP TO FINISH" : "TAP TO CONTINUE",
+        fui::TextAlign::Center);
+}
+
+// A bracket round one piece of an option's row: the full height of the row
+// and a little either side. It must stay inside the option's border, clear of
+// it, or it reads as part of the box.
+void bracketIn(toybox::Screen& screen, const fui::Rect& piece, int k, int height, int above = 5) {
+  const fui::Rect mark = rect(piece.x - 10, piece.y - above, piece.width + 20, height + above * 2);
+  const fui::Rect inside = drawn.box[k].inset(fui::Insets{5, 5, 5, 5});
+  if (mark.x < inside.x || mark.y < inside.y || right(mark) > right(inside) || bottom(mark) > bottom(inside)) {
+    report("a guide bracket crosses its option's border");
+  }
+  brackets(screen, mark);
+}
+
+// The symbols with their names, and the two marks the screen adds.
+constexpr int kEntry = 56;
+constexpr int kEntries = 8;
+void symbolList(toybox::Screen& screen, int x, int y, int width) {
+  struct Entry {
+    const freeink::Icon* icon;
+    const char* name;
+    const char* note;
+  };
+  const Entry entries[kEntries] = {
+      {kIcon32[underhand::Relic], "RELIC", "PAYS IN PLACE OF ANYTHING"},
+      {kIcon32[underhand::Money], "MONEY", "BUYS AND BRIBES"},
+      {kIcon32[underhand::Cultist], "CULTIST", "ONE OF YOUR FOLLOWERS"},
+      {kIcon32[underhand::Food], "FOOD", "NONE LEFT: DESPERATE MEASURES"},
+      {kIcon32[underhand::Prisoner], "PRISONER", "ONE OF THEIRS, HELD CAPTIVE"},
+      {kIcon32[underhand::Suspicion], "SUSPICION", "AT 5 OR MORE: A POLICE RAID"},
+      {&icon_uh_hand_32, "ALL YOU HOLD, UP TOP", "AT 16 OR MORE: GREED"},
+      {&icon_uh_alert_32, "A PUNISHMENT MAY COME", "WITH ITS CHANCE BESIDE IT"},
+  };
+  // Centred as a block: the widest line decides where every row starts.
+  int widest = 0;
+  for (const Entry& e : entries) {
+    const int w = measure(screen, e.name) > measure(screen, e.note) ? measure(screen, e.name) : measure(screen, e.note);
+    widest = w > widest ? w : widest;
+  }
+  const int blockWidth = kBarIcon + 16 + widest;
+  if (blockWidth > width) report("the symbol list is wider than the page");
+  const int left = x + (width - blockWidth) / 2;
+  for (const Entry& e : entries) {
+    icon(screen, rect(left, y + (kEntry - kBarIcon) / 2, kBarIcon, kBarIcon), *e.icon, fui::Color::Black);
+    const int textX = left + kBarIcon + 16;
+    small(screen, rect(textX, y + 4, widest + 2, 22), e.name, fui::TextAlign::Left);
+    small(screen, rect(textX, y + 29, widest + 2, 22), e.note, fui::TextAlign::Left);
+    y += kEntry;
+  }
+}
+
+}  // namespace
+
+void buildGuide(toybox::Screen& screen, const GuideModel& g) {
+  const CardModel& m = *g.card;
+  char count[32];
+  std::snprintf(count, sizeof(count), "%d OF %d", g.page + 1, g.pages);
+  drawn = Drawn{};
+  chrome(screen, count, "HOW TO PLAY");
   const fui::Rect body = screen.body();
   const int x = body.x + kMargin;
   const int width = body.width - kMargin * 2;
-  const int line = lineHeight(screen);
-  int y = body.y + 8;
-  auto paragraph = [&](const char* text, int most) {
-    const int lines = linesFor(screen, text, width, most);
-    prose(screen, rect(x, y, width, lines * line), text, most);
-    y += lines * line + 10;
-  };
+  constexpr int kTitle = 56;
+  label(screen, rect(x, body.y + 16, width, kTitle), g.title, toybox::kDisplayFont, toybox::kDisplayCut,
+        fui::TextAlign::Center);
 
-  if (page == 0) {
-    struct Entry {
-      const freeink::Icon* icon;
-      const char* name;
-      const char* note;
-    };
-    const Entry entries[] = {
-        {kIcon32[underhand::Relic], "RELIC", "PAYS IN PLACE OF ANYTHING"},
-        {kIcon32[underhand::Money], "MONEY", "BUYS AND BRIBES"},
-        {kIcon32[underhand::Cultist], "CULTIST", "ONE OF YOUR FOLLOWERS"},
-        {kIcon32[underhand::Food], "FOOD", "NONE LEFT: DESPERATE MEASURES"},
-        {kIcon32[underhand::Prisoner], "PRISONER", "ONE OF THEIRS, HELD CAPTIVE"},
-        {kIcon32[underhand::Suspicion], "SUSPICION", "AT 5 OR MORE: A POLICE RAID"},
-        {&icon_uh_hand_32, "ALL YOU HOLD, UP TOP", "AT 16 OR MORE: GREED"},
-        {&icon_uh_alert_32, "A PUNISHMENT MAY COME", "WITH ITS CHANCE BESIDE IT"},
-    };
-    constexpr int kEntry = 56;
-    for (const Entry& e : entries) {
-      icon(screen, rect(x, y + (kEntry - kBarIcon) / 2, kBarIcon, kBarIcon), *e.icon, fui::Color::Black);
-      const int textX = x + kBarIcon + 16;
-      const int textWidth = width - (textX - x);
-      small(screen, rect(textX, y + 4, textWidth, 22), e.name, fui::TextAlign::Left);
-      small(screen, rect(textX, y + 29, textWidth, 22), e.note, fui::TextAlign::Left);
-      y += kEntry;
-    }
-    y += 10;
-    paragraph("A cultist and a prisoner joined by a slash means either will do.", 2);
-  } else {
-    paragraph("Summon a god to win a run. It also ends if the cult falls or you give up. Gods you summon stay.", 3);
-    paragraph("Tap a choice to pay its black chip, or tap another chip.", 2);
-    paragraph("A grey choice costs more than you hold.", 2);
-    paragraph("The warning is each punishment's chance if your hand stays as it is. A black count invites one.", 4);
-    paragraph("LAST is what your last choice paid, lost and gained. DECK counts cards before a reshuffle.", 3);
+  // The piece and its words as one block, centred between the title and the
+  // footer, so no page has a heavy end.
+  constexpr int kBox = 150;    // one option on its own
+  constexpr int kSpace = 32;   // between the piece and its words
+  constexpr int kCardGap = 8;  // between a card's words and its options
+  const int line = lineHeight(screen);
+  const int cardWords = 32 + line * 2;
+  const int optionsH = 3 * 100 + 2 * kGap;
+  constexpr int kBoxWithNote = 196;  // an option with its note under the row
+  int pieceH = kBox;
+  switch (g.lesson) {
+    case view::Lesson::Chain:
+    case view::Lesson::Win:
+      pieceH = kBoxWithNote;
+      break;
+    case view::Lesson::Turn:
+      pieceH = cardWords + kCardGap + optionsH;
+      break;
+    case view::Lesson::Symbols:
+      pieceH = kEntries * kEntry;
+      break;
+    case view::Lesson::Danger:
+      pieceH = kStatusHeight + 8 + kBarHeight;
+      break;
+    default:
+      break;
+  }
+  const int words = captionLines(screen, g.caption, width) * smallLine(screen);
+  const int top = body.y + 16 + kTitle;
+  const int foot = bottom(body) - kFooter;
+  const int block = pieceH + (words ? kSpace + words : 0);
+  if (block > foot - top - 16) report("a guide page's piece and words do not fit between its title and footer");
+  int y = top + (foot - top - block) / 2;
+
+  switch (g.lesson) {
+    case view::Lesson::Turn:
+      small(screen, rect(x, y, width, 30), m.title, fui::TextAlign::Left);
+      prose(screen, rect(x, y + 32, width, line * 2), m.flavor, 2);
+      options(screen, rect(x, y + cardWords + kCardGap, width, optionsH), m);
+      break;
+    case view::Lesson::Symbols:
+      symbolList(screen, x, y, width);
+      break;
+    case view::Lesson::Danger:
+      status(screen, rect(x, y, width, kStatusHeight), m);
+      bar(screen, rect(body.x + 4, y + kStatusHeight + 8, body.width - 8, kBarHeight), m);
+      break;
+    default:
+      options(screen, rect(x, y, width, pieceH * 2 + kGap), m, g.option);
+      break;
   }
 
-  const int buttons = bottom(body) - kMargin - kButtonHeight;
-  if (y - 10 + kGap > buttons) report("how to play runs into its buttons");
-  const int half = (width - kGap) / 2;
-  button(screen, rect(x, buttons, half, kButtonHeight), "BACK", ActionCancel, false);
-  const bool last = page + 1 >= kHelpPages;
-  const fui::Rect turn = rect(x + half + kGap, buttons, half, kButtonHeight);
-  screen.target().stroke(turn, fui::Paint::solid(fui::Color::Black), 2);
-  small(screen, turn, last ? "SYMBOLS" : "RULES", fui::TextAlign::Center);
-  screen.frame().hit(turn, ActionHelpPage, static_cast<int16_t>(last ? 0 : page + 1));
+  // The part the page is about.
+  const int k = g.option < 0 ? 0 : g.option;
+  switch (g.lesson) {
+    case view::Lesson::Choice:
+      bracketIn(screen, drawn.cost[k], k, drawn.row[k].height);
+      bracketIn(screen, drawn.gains[k], k, drawn.row[k].height);
+      break;
+    case view::Lesson::TwoWays:
+    case view::Lesson::Relic:
+      bracketIn(screen, drawn.chips[k], k, drawn.row[k].height);
+      break;
+    case view::Lesson::Grey:
+      bracketIn(screen, drawn.cost[k], k, drawn.row[k].height);
+      break;
+    case view::Lesson::Chain:
+    case view::Lesson::Win:
+      bracketIn(screen, drawn.note[k], k, drawn.note[k].height, 4);
+      break;
+    case view::Lesson::Danger: {
+      // The warning alone and the line's own height: above it is space and
+      // below it the bar's rule, and a bracket must touch neither.
+      const fui::Rect w = drawn.warning;
+      brackets(screen, rect(w.x - 8, w.y, w.width + 16, w.height), 10, 3);
+      break;
+    }
+    default:
+      break;
+  }
+  if (words) caption(screen, rect(x, y + pieceH + kSpace, width, words), g.caption);
+  pageDots(screen, body, g.page, g.pages);
+  screen.frame().hit(body, ActionHelpPage, static_cast<int16_t>(g.page + 1));
 }
 
 }  // namespace underhandui

@@ -55,8 +55,6 @@ enum : fui::ActionId {
 constexpr int kWayStride = 16;  // ways per option in an ActionWay payload
 constexpr int kShownWays = 4;   // at most this many ways are offered on the option itself
 
-constexpr int kHelpPages = 2;
-
 // A tap that pays carries the turn its card was drawn on. Two cards with the
 // same buttons in the same places then still build different tables, so the
 // tap gate (RevealedInteractions) holds a second tap made while the next card
@@ -87,6 +85,7 @@ struct OptionRow {
 enum class Panel : uint8_t { Options, Outcome, Foresight, Paying };
 
 struct CardModel {
+  bool guide = false;   // drawn for the guide: each option's row gets room round it for brackets
   int turn = 0;         // stamped into every tap that pays
   char title[64] = {};  // in capitals
   const char* flavor = "";
@@ -154,7 +153,19 @@ void resetLayoutProblems();
 void buildCard(toybox::Screen& screen, const CardModel& model);
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
 void buildEnd(toybox::Screen& screen, const EndModel& model);
-// The symbols, then the rules, a page each. Static.
-void buildHelp(toybox::Screen& screen, int page);
+
+// How to play, a lesson a page (view::kGuide): a title, one real piece of
+// the card screen with brackets round the part the page is about, a short
+// caption, and a tap anywhere to turn the page.
+struct GuideModel {
+  int page = 0;
+  int pages = 1;
+  const char* title = "";
+  const char* caption = "";
+  view::Lesson lesson = view::Lesson::Turn;
+  int option = -1;                  // the option the page shows, -1 for the whole card
+  const CardModel* card = nullptr;  // the pieces, filled as for a real card
+};
+void buildGuide(toybox::Screen& screen, const GuideModel& model);
 
 }  // namespace underhandui

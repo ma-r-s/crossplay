@@ -135,4 +135,22 @@ Odds chances(const Game& game);
 const char* flavorText(const Cards& cards, const Card& card);
 const char* optionText(const Cards& cards, const Card& card, int k);
 
+// How to play, a lesson a page: each drawn from a real card and hand whose
+// screen shows the lesson's point, which a test holds it to. `option` is the
+// option the page shows, -1 for the whole card.
+enum class Lesson : uint8_t { Turn, Symbols, Choice, TwoWays, Relic, Grey, Danger, Chain, Win };
+struct GuideLesson {
+  Lesson lesson;
+  const char* title;
+  const char* caption;
+  uint8_t card;
+  int8_t option;
+  Counts held;
+};
+constexpr int kLessons = 9;
+extern const GuideLesson kGuide[kLessons];
+
+// The game a lesson is drawn from: its card on the table, its hand held.
+void lessonGame(const GuideLesson& lesson, const Cards& cards, Game& out);
+
 }  // namespace underhand::view

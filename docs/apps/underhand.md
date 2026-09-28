@@ -340,10 +340,38 @@ them) and the two cards the next run's deck adds; or the card that ended it
 and how long it lasted; or, given up, `THE CULT DISBANDS` and that the gods
 summoned stay. Then `PLAY AGAIN` and `MENU`.
 
-**How to play** is two pages: the six symbols, the hand count (Greed at 16)
-and the warning sign, then what a run is, taking a choice by its chips, grey
-choices, the warning line and its black counts, `LAST` and `DECK`. It opens from the menu and from a tap on the bar or the line above it,
-where a small question mark says so.
+**How to play** is a guide of nine lessons, a page each (`view::kGuide`):
+A TURN, WHAT YOU HOLD, A CHOICE, TWO WAYS TO PAY, RELICS, NOT ENOUGH,
+DANGER, CHAINS, WINNING. Mario found the old one (two pages of prose, then
+the original's tutorial cards) "just text that makes no sense" and pointed at
+Insider's and D&Diagrams' guides; of three layouts rendered side by side he
+picked this one. Every page is a title, one real piece of the card screen
+(the whole card, one option, the status line and bar, or the symbol list),
+drawn by the same code as the game from a real card and hand, with corner
+brackets round the part the page is about, a short caption, page dots, and a
+tap anywhere to turn the page. The piece and caption are centred as a block
+between the title and the footer.
+
+- **Real material, held to its point.** Each lesson names a card, an option
+  and a hand (`view::lessonGame`), and `everyLessonShowsItsPoint` checks the
+  screen shows what the page says: the choice has a plain cost and gains,
+  TWO WAYS has two chips, RELICS a relic in its one chip, NOT ENOUGH is
+  closed, DANGER has all three odds, CHAINS adds a card, WINNING summons,
+  and page one shows no chip before chips are taught.
+- **Room for the brackets.** Drawn for the guide (`CardModel::guide`), an
+  option gains 6px of side margin, its row rises 12px, the chips sit 10px
+  further from the cost and a note 8px under the row, so a bracket clears
+  the border and the tokens. The screen records where it drew each piece
+  (`Drawn`), so a bracket points at the real one; one that crosses its
+  option's border, a caption that does not fit, or a block that does not
+  fit between title and footer is a layout problem the audit reports. A
+  line of text is measured by advances, and its last glyph inks about 4px
+  past that (`kInkOverhang`), which is added so a bracket sits as far from
+  the text on the right as on the left.
+- **When it shows.** From HOW TO PLAY in the menu and a tap on the bar (it
+  returns there), and before the first run: BEGIN opens it and its last page
+  starts the tutorial run, which stays as practice and is still the one way
+  to the God of Beginnings. Back leaves it without starting anything.
 
 **Refresh.** A screen change is a full refresh, and so is every twelfth frame,
 so a long run of fast refreshes does not leave ghosts of earlier cards. A tap
@@ -380,8 +408,8 @@ Two instruments, both run from the simulator:
   outcome with every card it can add, a reshuffle and five kinds lost at
   random; the last turn of every option on the status line; foresight over
   every card; every win, every losing option, every stuck card; the menu in
-  its five states (the fifth after a save was set aside); both pages of how to
-  play. About 1,890 screens. The builders report any
+  its seven states (a save set aside, and asking which reset, with the
+  tutorial done and not); every lesson of the guide. About 1,900 screens. The builders report any
   label wider than its box, prose needing more lines than its box, tokens
   running into each other, a panel running into its buttons. It logs `AUDIT
 <screen> <id>: <problem>` and then `AUDIT: <n> screens, <m> layout
