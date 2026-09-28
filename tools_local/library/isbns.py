@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""The best ISBN for every ranked book, with fallbacks.
+
+    isbns.py --goodreads DIR --amazon meta_Books.jsonl.gz --merged merged.jsonl --out isbns.jsonl
+
+An ISBN names an edition, not a work, so "the book's ISBN" is a choice.
+Goodreads lists every edition of a work with its ISBN, format, language
+and how many readers rated that edition; Amazon carries ISBN-10 and
+ISBN-13 for most books, with the review count shared across formats. The
+choice, per work: editions in the work's language first (unknown counts
+as a match), audiobooks never, then the edition most readers rated; the
+next two by the same rule are the fallbacks, and Amazon's ISBN-13 joins
+the list when it is not already there. Writes one line per merged rank:
+{"rank": 8, "isbn": "9780141439518", "isbns": [...], "editions": 213}.
+
+"Most downloaded version" is not measurable from open data; the
+most-rated edition is the same idea from the readers' side. --lang en
+prefers English editions over the book's own language, and records the
+chosen edition's language as isbnLang so a page can mark the ones that
+had no English edition.
+"""
+
+import argparse
+import collections
+import gzip
+import json
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from universe2 import title_key, surname, AMAZON_DRESSING  # noqa: E402
+
+AMAZON_LANG = {"english": "en", "spanish": "es", "french": "fr", "german": "de", "italian": "it",
+               "portuguese": "pt", "dutch": "nl", "finnish": "fi", "japanese": "ja", "chinese": "zh"}
+EBOOK = re.compile(r"ebook|e-book|epub|kindle|nook|kobo|digital", re.I)
+AUDIO = re.compile(r"audio|audible|cd\b|cassette|mp3", re.I)
+LANG = {"eng": "en", "en-US": "en", "en-GB": "en", "en-CA": "en", "spa": "es", "fre": "fr", "ger": "de",
+        "ita": "it", "por": "pt", "dut": "nl", "fin": "fi", "": ""}
+
+
+def isbn13(isbn10):
+    d = re.sub(r"[^0-9Xx]", "", isbn10 or "")
+    if len(d) != 10 or not d[:9].isdigit():
+        return None  # an X is legal only as the check digit; anything else is a placeholder
+    core = "978" + d[:9]
+    s = sum((1 if i % 2 == 0 else 3) * int(c) for i, c in enumerate(core))
+    return core + str((10 - s % 10) % 10)
+
+
+def clean13(s):
+    d = re.sub(r"[^0-9]", "", s or "")
+    return d if len(d) == 13 and d.startswith(("978", "979")) else None
+
+
+OL_LANG = {"eng": "en", "spa": "es", "fre": "fr", "ger": "de", "ita": "it", "por": "pt", "dut": "nl", "fin": "fi"}
+
+
+def load_ol_editions(d, want, cands):
+    """Open Library's editions, for the merged works its own catalog names.
+
+    Two passes: the works dump gives each work's title and first author, so a
+    work key maps to a merged rank the way universe2.py joined them; then the
+    editions dump, 9 GB of one JSON line per edition, yields each edition's
+    ISBNs, language and physical format. Open Library has no per-edition
+    readership, so its editions carry a rating of 0 and sort after Goodreads'
+    and Amazon's for the same work; for a work only Open Library knows they
+    are the whole list, in dump order.
+    """
+    wanted_keys = {}
+    n = 0
+    with gzip.open(os.path.join(d, "ol_dump_works_latest.txt.gz"), "rt") as f:
+        for line in f:
+            n += 1
+            if n % 10_000_000 == 0:
+                print(f"  ol works {n}", file=sys.stderr, flush=True)
+            cols = line.rstrip("\n").split("\t")
+            if len(cols) < 5:
+                continue
+            try:
+                data = json.loads(cols[4])
+            except ValueError:
+                continue
+            akeys = []
+            for a in data.get("authors", []) or []:
+                k = a.get("author", {}).get("key") if isinstance(a.get("author"), dict) else a.get("key")
+                if k:
+                    akeys.append(k)
+            wanted_keys[cols[1]] = (data.get("title") or "", akeys[0] if akeys else None)
+    need = {a for _, a in wanted_keys.values() if a}
+    names = {}
+    with gzip.open(os.path.join(d, "ol_dump_authors_latest.txt.gz"), "rt") as f:
+        for line in f:
+            cols = line.split("\t", 2)
+            if len(cols) < 2 or cols[1] not in need:
+                continue
+            m = re.search(r'"name":\s*"((?:[^"\\]|\\.)*)"', line)
+            if m:
+                try:
+                    names[cols[1]] = json.loads('"' + m.group(1) + '"')
+                except ValueError:
+                    pass
+    work_rank = {}
+    for wkey, (title, akey) in wanted_keys.items():
+        r = want.get((title_key(title), surname(names.get(akey) if akey else None)))
+        if r is not None:
+            work_rank[wkey] = r
+    del wanted_keys, names
+    print(f"  {len(work_rank)} open library works map to a ranked book", file=sys.stderr, flush=True)
+
+    gained = set()
+    n = 0
+    with gzip.open(os.path.join(d, "ol_dump_editions_latest.txt.gz"), "rt") as f:
+        for line in f:
+            n += 1
+            if n % 10_000_000 == 0:
+                print(f"  ol editions {n}", file=sys.stderr, flush=True)
+            if '"isbn_' not in line:
+                continue
+            cols = line.rstrip("\n").split("\t")
+            if len(cols) < 5:
+                continue
+            try:
+                data = json.loads(cols[4])
+            except ValueError:
+                continue
+            r = None
+            for w in data.get("works", []) or []:
+                r = work_rank.get(w.get("key"))
+                if r is not None:
+                    break
+            if r is None:
+                continue
+            fmt = data.get("physical_format") or ""
+            langs = [l.get("key", "").rsplit("/", 1)[-1] for l in data.get("languages", []) or []]
+            lang = OL_LANG.get(langs[0], langs[0]) if langs else ""
+            isbns = [clean13(x) for x in data.get("isbn_13", []) or []] + [isbn13(x) for x in data.get("isbn_10", []) or []]
+            for i13 in isbns:
+                if i13:
+                    if r not in cands:
+                        gained.add(r)
+                    cands[r].append((i13, 0, lang, fmt, False, str(data.get("publish_date") or ""), "openlibrary"))
+    return len(gained)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--goodreads", required=True)
+    ap.add_argument("--amazon", required=True)
+    ap.add_argument("--merged", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--lang", default="", help="prefer editions in this language (e.g. en) over the book's own; empty = the book's own")
+    ap.add_argument("--ol", help="Open Library dump directory: its editions supply ISBNs for the books only its reading log knows")
+    args = ap.parse_args()
+
+    want = {}
+    for line in open(args.merged):
+        d = json.loads(line)
+        want[tuple(d["key"])] = d["rank"]
+    print(f"{len(want)} merged works", file=sys.stderr, flush=True)
+
+    names = {}
+    with gzip.open(os.path.join(args.goodreads, "goodreads_book_authors.json.gz"), "rt") as f:
+        for line in f:
+            a = json.loads(line)
+            names[a["author_id"]] = a.get("name")
+    works = {}
+    with gzip.open(os.path.join(args.goodreads, "goodreads_book_works.json.gz"), "rt") as f:
+        for line in f:
+            w = json.loads(line)
+            works[w["work_id"]] = {"title": w.get("original_title") or "", "best": w.get("best_book_id"), "author": None, "eds": []}
+    n = 0
+    with gzip.open(os.path.join(args.goodreads, "goodreads_books.json.gz"), "rt") as f:
+        for line in f:
+            n += 1
+            if n % 500000 == 0:
+                print(f"  goodreads books {n}", file=sys.stderr, flush=True)
+            b = json.loads(line)
+            w = works.get(b.get("work_id"))
+            if w is None:
+                continue
+            if not w["title"] or b.get("book_id") == w["best"]:
+                w["title"] = b.get("title_without_series") or b.get("title") or w["title"]
+            if w["author"] is None and b.get("authors"):
+                w["author"] = names.get(b["authors"][0].get("author_id"))
+            i13 = clean13(b.get("isbn13")) or isbn13(b.get("isbn"))
+            if not i13:
+                continue
+            fmt = b.get("format") or ""
+            w["eds"].append((i13, int(b.get("ratings_count") or 0), LANG.get(b.get("language_code") or "", b.get("language_code") or ""),
+                             fmt, b.get("is_ebook") == "true" or bool(EBOOK.search(fmt)), b.get("publication_year") or ""))
+    del names
+    cands = collections.defaultdict(list)  # rank -> [(isbn13, ratings, lang, format, ebook, year, source)]
+    for w in works.values():
+        if not w["eds"]:
+            continue
+        r = want.get((title_key(w["title"]), surname(w["author"])))
+        if r is None:
+            continue
+        for e in w["eds"]:
+            cands[r].append(e + ("goodreads",))
+    del works
+    print(f"goodreads editions for {len(cands)} works", file=sys.stderr, flush=True)
+
+    n = 0
+    with gzip.open(args.amazon, "rt") as f:
+        for line in f:
+            n += 1
+            if n % 500000 == 0:
+                print(f"  amazon {n}", file=sys.stderr, flush=True)
+            try:
+                b = json.loads(line)
+            except ValueError:
+                continue
+            det = b.get("details") or {}
+            i13 = clean13(det.get("ISBN 13")) or isbn13(det.get("ISBN 10")) or isbn13(b.get("parent_asin"))
+            if not i13:
+                continue
+            title = AMAZON_DRESSING.sub("", b.get("title") or "")
+            a = b.get("author")
+            author = a.get("name") if isinstance(a, dict) else None
+            if not author:
+                m = re.match(r"(.+?)\s*\((Author|Editor|Translator)", b.get("store") or "")
+                author = m.group(1) if m else None
+            r = want.get((title_key(title), surname(author)))
+            if r is None:
+                continue
+            fmt = re.split(r"\s[–-]\s", b.get("subtitle") or "", maxsplit=1)[0].strip()
+            lang = AMAZON_LANG.get((det.get("Language") or "").strip().lower(), "")
+            cands[r].append((i13, int(b.get("rating_number") or 0), lang, fmt, "kindle" in fmt.lower(), "", "amazon"))
+    print(f"editions for {len(cands)} works after amazon", file=sys.stderr, flush=True)
+
+    if args.ol:
+        n_ol = load_ol_editions(args.ol, want, cands)
+        print(f"editions for {len(cands)} works after open library ({n_ol} works gained editions there)", file=sys.stderr, flush=True)
+
+    out_n = 0
+    dropped_lang = 0
+    with open(args.out, "w") as out:
+        for r, eds in cands.items():
+            langs = collections.Counter(e[2] for e in eds if e[2] and e[6] == "goodreads")
+            if not langs:
+                langs = collections.Counter(e[2] for e in eds if e[2])
+            own = langs.most_common(1)[0][0] if langs else ""
+            lang = args.lang or own
+            # Every edition in the wanted language (an edition with no language
+            # recorded counts), audiobooks out, most-rated first: all of them,
+            # not a top three. A book with no such edition gets an empty list.
+            keep = [e for e in eds if ((not e[2]) or (not lang) or (e[2] == lang)) and not AUDIO.search(e[3])]
+            keep.sort(key=lambda e: (e[6] == "goodreads", e[1]), reverse=True)
+            seen, ordered = set(), []
+            for e in keep:
+                if e[0] not in seen:
+                    seen.add(e[0])
+                    ordered.append(e[0])
+            if not ordered:
+                # Editions exist and none is in the wanted language: say which
+                # language the book lives in, so the cleaning pass can drop it.
+                dropped_lang += 1
+                out.write(json.dumps({"rank": r, "isbn": "", "isbns": [], "editions": len({e[0] for e in eds}),
+                                      "only": own or (langs.most_common(1)[0][0] if langs else "")}) + "\n")
+                continue
+            out.write(json.dumps({"rank": r, "isbn": ordered[0], "isbns": ordered, "editions": len({e[0] for e in eds})}) + "\n")
+            out_n += 1
+    print(f"{dropped_lang} works had editions but none in {lang or 'their language'}", file=sys.stderr)
+    print(f"wrote {out_n} works with an ISBN of {len(want)}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
