@@ -306,6 +306,8 @@ replaced in `/.crosspoint/notes-asleep.txt` and sets the mode to **Note**.
 - **One note at a time.** Choosing a second note moves the choice and keeps the
   mode the first one replaced. Renaming follows the note; deleting it puts the
   old mode back. A note deleted from the phone falls back to **Dark** at sleep.
+- **Wallpapers says so.** While a note is the sleep screen its strip reads "A
+  note is your sleep screen." instead of "Tap one to set your sleep screen."
 - **Picking a wallpaper ends it.** Wallpapers sets the mode to Custom and says
   so ("Was Note, now Custom."); Notes then shows **PUT ON SLEEP SCREEN** again,
   because it asks the mode as well as the file.

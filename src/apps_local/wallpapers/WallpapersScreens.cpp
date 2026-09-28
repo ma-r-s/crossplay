@@ -351,6 +351,9 @@ const char* liveTileCaption() { return "Your phone"; }
 // rest of the strip's sentences.
 const char* liveStripLine() { return "Your phone is your sleep screen."; }
 
+// Shorter than the Live line; host-tests/wallcaption measures it with the rest.
+const char* noteStripLine() { return "A note is your sleep screen."; }
+
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
   // The title says which mode this is, in the biggest type on the screen. The
   // chip alone could not, and carries even less of that load now that it is a
@@ -378,6 +381,10 @@ void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model) {
     line = model.note;
   } else if (model.warning != nullptr && model.warning[0] != '\0') {
     line = model.warning;
+  } else if (model.noteOn) {
+    // Ahead of Live: with Sleep Screen on Note the sleep path draws the note
+    // and never reads /sleep.bmp, so the Live line would be false.
+    line = noteStripLine();
   } else if (model.liveOn) {
     // THIRD, and the position is the whole decision.
     //

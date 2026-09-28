@@ -364,6 +364,9 @@ const char* WallpapersActivity::currentSleepNote() {
   // wallpaper is blocked would be noise.
   if (activeIndex_ < 0) return nullptr;
   if (selectedThisSession_) return wallpapers::stripLineAfterSelection(lastChoice_, reach).text;
+  // "Sleep Screen is not set to Custom." is true and says nothing about why;
+  // the strip's own note line does.
+  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::NOTE) return nullptr;
   return wallpapers::reachHint(reach);
 }
 
@@ -3142,6 +3145,7 @@ void WallpapersActivity::render(RenderLock&&) {
     // and the marker are two readings of one fact, and reading it twice from
     // two places is how they came to disagree in the first place.
     model.liveOn = liveRunning_;
+    model.noteOn = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::NOTE;
     model.choosing = choosing_;
     // Rebuilt from SETTINGS and the card every paint rather than cached at
     // selection time: the reach half is only knowable from the live settings,

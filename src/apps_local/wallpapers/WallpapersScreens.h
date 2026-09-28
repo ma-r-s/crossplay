@@ -263,6 +263,10 @@ struct GridChromeModel {
   // tile wore the selection marker while the strip went on saying nothing was
   // set. Live needs a line of its own, so it is a fact of its own.
   bool liveOn = false;
+  // A note from the Notes app is the sleep screen (Sleep Screen = Note). Its
+  // own fact for the same reason as liveOn: without it the strip says "Tap one
+  // to set your sleep screen." about a sleep screen somebody already chose.
+  bool noteOn = false;
   // The sleep-screen line (#354). Carries every fact that applies at once: what
   // the last selection changed behind the user's back, AND any standing caveat
   // about the wallpaper not reaching the glass. Built by
@@ -310,6 +314,7 @@ const char* chooseHint();
 // test can link this file and cannot link the Activity.
 const char* liveTileCaption();
 const char* liveStripLine();
+const char* noteStripLine();
 
 void buildGridChrome(toybox::Screen& screen, const GridChromeModel& model);
 

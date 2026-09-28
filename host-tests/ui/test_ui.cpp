@@ -12525,6 +12525,39 @@ void testWallpapersChromeSaysWhenLiveIsTheSleepScreen() {
   CHECK(!drewText(out, "Tap one to set"));
 }
 
+// A note on the sleep screen is a standing state like Live, and it outranks
+// Live: with Sleep Screen on Note the sleep path never reads /sleep.bmp.
+void testWallpapersChromeSaysWhenANoteIsTheSleepScreen() {
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.hasActive = false;
+    model.noteOn = true;
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, wallpapersui::noteStripLine()));
+    CHECK(!drewText(out, "Tap one to set"));
+  }
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.noteOn = true;
+    model.liveOn = true;
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, wallpapersui::noteStripLine()));
+    CHECK(!drewText(out, wallpapersui::liveStripLine()));
+  }
+  {
+    // News still wins, as it does over Live.
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.noteOn = true;
+    model.note = "Was Note, now Custom.";
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, "Was Note, now Custom."));
+    CHECK(!drewText(out, wallpapersui::noteStripLine()));
+  }
+}
+
 // ...but it does not silence the two lines above it. Both are NEWS -- something
 // changed behind the user's back, or the card is filling -- and Live being on
 // is a standing state that would suppress either for the whole session. That
@@ -13945,6 +13978,7 @@ int main() {
   testWallpapersChromeShowsThePage();
   testWallpapersChromeWarningVerbatim();
   testWallpapersChromeSaysWhenLiveIsTheSleepScreen();
+  testWallpapersChromeSaysWhenANoteIsTheSleepScreen();
   testWallpapersChromeLiveDoesNotDisplaceTheNoteOrTheWarning();
   testWallpapersEmptyStateSaysSomething();
   testWallpapersCaptionNeverCollidesWithArtwork();

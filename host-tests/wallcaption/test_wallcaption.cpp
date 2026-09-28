@@ -674,6 +674,7 @@ int main() {
     lines.emplace_back("Could not check card space.");
     lines.emplace_back(wallpapersui::chooseHint());
     lines.emplace_back(wallpapersui::liveStripLine());
+    lines.emplace_back(wallpapersui::noteStripLine());
 
     int widestHint = 0;
     std::string widestHintText;
