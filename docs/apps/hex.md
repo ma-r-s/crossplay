@@ -193,7 +193,10 @@ It holds the record, the settings, the last finished board for the front door's
 ornament, and the game in progress.
 
 The front door draws whichever of those two boards it has, and an EMPTY one when
-it has neither. Empty rather than nothing: a fresh device showed a four hundred
+it has neither. Its words sit in the miniature's two notches, the way the seat
+cards do on the board: the record top right, the state of the game (or, on a
+new device, the one-sentence rule) bottom left, each line measured against the
+band so it never touches the board. Empty rather than nothing: a fresh device showed a four hundred
 pixel hole in the middle of its own front door, which reads as a screen that
 failed to load -- and the shape of the board is the one thing about Hex a
 stranger has to see before the rules mean anything.

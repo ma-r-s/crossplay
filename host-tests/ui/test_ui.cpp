@@ -6696,7 +6696,8 @@ void testTheHexFrontDoorIsThreeDoors() {
   Rendered resumed;
   buildHex<hexui::MenuModel, hexui::buildMenu>(resumed, model);
   CHECK(resumed.target.drew("RESUME GAME"));
-  CHECK(resumed.target.drew("IN PROGRESS   MOVE 2"));
+  CHECK(resumed.target.drew("IN PROGRESS"));
+  CHECK(resumed.target.drew("MOVE 2"));
 
   // With no game running it falls back to the last one finished.
   hexui::MenuModel after;
@@ -6707,8 +6708,10 @@ void testTheHexFrontDoorIsThreeDoors() {
   after.wins = 1;
   Rendered over;
   buildHex<hexui::MenuModel, hexui::buildMenu>(over, after);
-  CHECK(over.target.drew("LAST GAME: WON"));
-  CHECK(over.target.drew("1 PLAYED   1 WON"));
+  CHECK(over.target.drew("LAST GAME"));
+  CHECK(over.target.drew("WON"));
+  CHECK(over.target.drew("1 PLAYED"));
+  CHECK(over.target.drew("1 WON"));
 }
 
 // Mario's notes on the Hex screens, 2026-09-28, one test each. Every one of
@@ -6924,36 +6927,96 @@ void testTheHexSettingsSayOnlyTheirRows() {
   }
 }
 
-// "Text needs more space." The line under the front door's miniature sat four
-// pixels below the miniature's box, pressed against the board's bottom corner.
-void testTheHexFrontDoorLineHasRoom() {
-  hexui::MenuModel model;
-  Rendered out;
-  buildHex<hexui::MenuModel, hexui::buildMenu>(out, model);
+// "Text needs more space... use the available space in the best way possible."
+// The words sat in a line across the top and a line under the miniature,
+// pressed against its bottom corner, with empty paper either side. They now go
+// in the miniature's two notches, clear of its band, and the miniature grows
+// into the height the top line gave back.
+void testTheHexFrontDoorWordsSitInTheNotches() {
+  hex::Game live;
+  hex::reset(live);
+  CHECK(hex::play(live, hex::cellAt(5, 5)));
+  CHECK(hex::play(live, hex::cellAt(4, 6)));
 
-  int boardBottom = -1;
-  for (const auto& t : out.target.triangles) {
-    for (const fui::Point p : {t.a, t.b, t.c}) boardBottom = p.y > boardBottom ? p.y : boardBottom;
+  hexui::MenuModel fresh;
+  hexui::MenuModel inProgress;
+  inProgress.inProgress = true;
+  inProgress.boardCells = live.cell;
+  inProgress.moveNumber = live.moveNumber;
+  inProgress.wins = 3;
+  inProgress.losses = 5;
+  hexui::MenuModel finished;
+  finished.boardCells = live.cell;
+  finished.lastWon = true;
+  finished.wins = 12;
+  finished.losses = 30;
+
+  const char* notchWords[] = {"NO GAMES YET",
+                              "JOIN YOUR TWO EDGES",
+                              "BEFORE THEY JOIN THEIRS",
+                              "8 PLAYED",
+                              "3 WON",
+                              "IN PROGRESS",
+                              "MOVE 2",
+                              "42 PLAYED",
+                              "12 WON",
+                              "LAST GAME",
+                              "WON"};
+  for (const hexui::MenuModel* model : {&fresh, &inProgress, &finished}) {
+    Rendered out;
+    buildHex<hexui::MenuModel, hexui::buildMenu>(out, *model);
+
+    // Every triangle on this screen is the miniature: its cells and its band.
+    int left = 32767;
+    int right = -1;
+    std::vector<fui::Point> ink;
+    for (const auto& t : out.target.triangles) {
+      const fui::Point corners[3] = {t.a, t.b, t.c};
+      for (int k = 0; k < 3; ++k) {
+        const fui::Point a = corners[k];
+        const fui::Point b = corners[(k + 1) % 3];
+        left = a.x < left ? a.x : left;
+        right = a.x > right ? a.x : right;
+        for (int step = 0; step <= 8; ++step) {
+          ink.push_back(fui::Point{static_cast<int16_t>(a.x + (b.x - a.x) * step / 8),
+                                   static_cast<int16_t>(a.y + (b.y - a.y) * step / 8)});
+        }
+      }
+    }
+    // Bigger than the 204 pixels it was when a line of words sat above it.
+    CHECK(right - left >= 34 * 7);
+
+    int listTop = 32767;
+    for (size_t i = 0; i < out.interactions.count(); ++i) {
+      const fui::Interaction& entry = out.interactions.data()[i];
+      if (entry.action == hexui::ActionMenuRow && entry.rect.y < listTop) listTop = entry.rect.y;
+    }
+
+    int words = 0;
+    for (const auto& run : out.target.texts) {
+      bool notch = false;
+      for (const char* word : notchWords) notch = notch || run.text == word;
+      if (!notch) continue;
+      ++words;
+      const toybox::CutMetrics& cut = run.style.font == toybox::kUiFont ? toybox::kUiCut : toybox::kTileCut;
+      const int16_t width = out.target.measureText(run.style.font, run.text.c_str(), run.style).width;
+      const fui::Rect inkBox = fui::makeRect(
+          run.style.align == fui::TextAlign::Right ? static_cast<int16_t>(run.rect.right() - width) : run.rect.x,
+          static_cast<int16_t>(run.rect.y + cut.ascender - cut.inkHeight), width, cut.inkHeight);
+      double nearest = 1e9;
+      for (const fui::Point p : ink) {
+        const double d = hexDistanceToRect(p.x, p.y, inkBox);
+        nearest = d < nearest ? d : nearest;
+      }
+      if (nearest < 12.0) {
+        std::printf("      hex front door: \"%s\" is %.1f px from the miniature\n", run.text.c_str(), nearest);
+      }
+      CHECK(nearest >= 12.0);
+      CHECK(inkBox.bottom() + toybox::kGutter <= listTop);
+      CHECK(inkBox.x >= 0 && inkBox.right() <= device().width);
+    }
+    CHECK(words == 2 || words == 3 || words == 4);
   }
-  int listTop = 32767;
-  for (size_t i = 0; i < out.interactions.count(); ++i) {
-    const fui::Interaction& entry = out.interactions.data()[i];
-    if (entry.action == hexui::ActionMenuRow && entry.rect.y < listTop) listTop = entry.rect.y;
-  }
-  const FakeTarget::TextRun* caption = nullptr;
-  for (const auto& run : out.target.texts) {
-    if (run.text == "JOIN YOUR TWO EDGES BEFORE THEY JOIN THEIRS") caption = &run;
-  }
-  CHECK(caption != nullptr);
-  CHECK(boardBottom > 0);
-  CHECK(listTop < 32767);
-  if (caption == nullptr) return;
-  const int capTop = caption->rect.y + (toybox::kTileCut.ascender - toybox::kTileCut.inkHeight);
-  const int capBottom = caption->rect.y + toybox::kTileCut.ascender;
-  std::printf("  hex front door: the line is %d px under the board and %d px over the list\n", capTop - boardBottom,
-              listTop - capBottom);
-  CHECK(capTop - boardBottom >= 16);
-  CHECK(listTop - capBottom >= 16);
 }
 
 // --- checkers --------------------------------------------------------------
@@ -14129,7 +14192,7 @@ int main() {
   testTheHexSeatCardIsCentredAsOneGroup();
   testTheHexResultDoorsKeepClearOfTheBoard();
   testTheHexSettingsSayOnlyTheirRows();
-  testTheHexFrontDoorLineHasRoom();
+  testTheHexFrontDoorWordsSitInTheNotches();
   testTheSquareYouTapIsTheSquareTheRulesGet();
   testTheBoardKeepsOffTheChrome();
   testTheBoardSaysWhoseMoveAndWho();
