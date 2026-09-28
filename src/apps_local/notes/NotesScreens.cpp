@@ -12,13 +12,12 @@ namespace {
 constexpr int kBodyTop = toybox::kBodyTop;
 constexpr int kFooterHeight = toybox::kPillHeight;
 constexpr int kBoxSide = 40;
-constexpr int kRowPad = toybox::kGutter;
+constexpr int16_t kStrike = 2;  // a done line's bar: one crisp rule, not a grey dither
 // One height for every row of a sheet, so the menu, the confirm and the notice
 // agree about where a row starts.
 constexpr int16_t kSheetRow = 96;
 constexpr int16_t kSheetRowMax = 140;
-constexpr int kMinRow = 72;       // a finger, with room to miss
-constexpr int16_t kRowMax = 108;  // and no more than a finger and a half
+constexpr int kMinRow = 72;  // a finger, with room to miss
 
 int16_t pageWidth(const fui::DeviceContext& device) { return static_cast<int16_t>(device.width - 2 * toybox::kMargin); }
 
@@ -115,33 +114,100 @@ void tickBox(toybox::Screen& screen, const fui::Rect& box, const bool checked) {
       fui::Paint::solid(fui::Color::Black), 2);
 }
 
-// Text drawn from the top of its box rather than centred, so a one-line row and
-// a two-line row start their first line at the same height. Screen::text
-// centres the LINE BOX, which would put a one-liner's baseline somewhere a
-// two-liner's is not, and a column of rows that disagree about that reads as
-// bad spacing even when every row is correct on its own.
-void topText(toybox::Screen& screen, const fui::Rect& box, const std::string& text, const fui::TextStyle& style,
-             const int lines) {
-  const int16_t lineHeight = screen.target().lineHeight(style.font);
-  const fui::Rect drawn = fui::makeRect(box.x, box.y, box.width, static_cast<int16_t>(lineHeight * lines));
-  screen.target().text(drawn, text.c_str(), style);
-}
-
 // The strike is measured against the LONGEST DRAWN LINE, not the source string,
 // so a line that wrapped gets a rule the width of what is really on the glass.
-void strikeLines(toybox::Screen& screen, const fui::Rect& box, const std::string& drawn, const fui::TextStyle& style,
-                 const int lines) {
+// THE ONE LINE-BREAK RULE IN THIS FILE. A row is sized from it, drawn from it
+// one line at a time, and struck through from it, so the three cannot disagree.
+//
+// They used to be three rules. The row was sized by adding word
+// widths; the renderer wrapped the text again by its own algorithm when handed
+// a multi-line run; and the strike split the string on '\n', which wrapped text
+// does not contain -- so a ticked item that ran to two lines was struck on the
+// first only, with a bar as wide as the whole sentence. Nothing here hands the
+// renderer a multi-line run any more: every line it draws is a line this
+// function chose.
+//
+// Measured as whole candidate lines, never as a sum of words, because a sum is
+// not what the panel draws: spacing and pairs are only right when the run is
+// measured as the run.
+struct Broken {
+  std::vector<std::string> lines;
+  bool fits = true;  // false: a word wider than `width`, or more than maxLines
+};
+
+Broken breakWords(const fui::DrawTarget& target, const std::string& text, const int16_t width, const int maxLines,
+                  const fui::TextStyle& style, const bool splitLongWords) {
+  Broken out;
+  if (width <= 0 || maxLines <= 0) {
+    out.fits = false;
+    return out;
+  }
+  const auto fits = [&target, &style, width](const std::string& run) {
+    return target.measureText(style.font, run.c_str(), style).width <= width;
+  };
+  std::string line;
+  size_t i = 0;
+  while (i <= text.size()) {
+    size_t end = text.find(' ', i);
+    if (end == std::string::npos) end = text.size();
+    std::string word = text.substr(i, end - i);
+    i = end + 1;
+    if (!word.empty()) {
+      const std::string candidate = line.empty() ? word : line + " " + word;
+      if (fits(candidate)) {
+        line = candidate;
+      } else {
+        if (!line.empty()) out.lines.push_back(line);
+        line.clear();
+        if (!fits(word)) {
+          if (!splitLongWords) out.fits = false;
+          // Only reachable at the last-resort cut, with one run of letters
+          // wider than the row. Cut at a CHARACTER boundary, never inside a
+          // UTF-8 sequence, which would draw as a box.
+          const auto continuation = [&word](const size_t at) {
+            return at < word.size() && (static_cast<unsigned char>(word[at]) & 0xC0) == 0x80;
+          };
+          while (!word.empty() && !fits(word)) {
+            size_t n = word.size() - 1;
+            while (n > 1 && (!fits(word.substr(0, n)) || continuation(n))) n--;
+            // Always take at least one whole character, even one wider than the
+            // row on its own: a cut that takes nothing never ends.
+            if (n == 0) n = 1;
+            while (continuation(n)) n++;
+            out.lines.push_back(word.substr(0, n));
+            word = word.substr(n);
+          }
+        }
+        line = word;
+      }
+    }
+    if (end >= text.size()) break;
+  }
+  if (!line.empty()) out.lines.push_back(line);
+  if (out.lines.empty()) out.lines.push_back(std::string());
+  if (static_cast<int>(out.lines.size()) > maxLines) {
+    out.fits = false;
+    out.lines.resize(static_cast<size_t>(maxLines));
+  }
+  return out;
+}
+
+// Each line its own single-line run, at its own height, and -- when `struck` --
+// its own bar, exactly as wide as that line's ink. A strike is part of the line
+// it crosses, so it is drawn by the same loop that draws the line.
+void drawLines(toybox::Screen& screen, const fui::Rect& box, const std::vector<std::string>& lines,
+               const fui::TextStyle& style, const bool struck, const int16_t advance = 0) {
   const int16_t lineHeight = screen.target().lineHeight(style.font);
-  size_t start = 0;
-  for (int i = 0; i < lines; i++) {
-    size_t stop = drawn.find('\n', start);
-    if (stop == std::string::npos) stop = drawn.size();
-    const std::string run = drawn.substr(start, stop - start);
-    const int16_t width = screen.target().measureText(style.font, run.c_str(), style).width;
-    const int16_t y = static_cast<int16_t>(box.y + i * lineHeight + lineHeight / 2);
-    screen.target().fill(fui::makeRect(box.x, y, width, 2), fui::Paint::solid(fui::Color::Black));
-    if (stop >= drawn.size()) break;
-    start = stop + 1;
+  const int16_t step = advance > 0 ? advance : lineHeight;
+  fui::TextStyle one = style;
+  one.maxLines = 1;
+  for (size_t i = 0; i < lines.size(); i++) {
+    const int16_t top = static_cast<int16_t>(box.y + static_cast<int>(i) * step);
+    screen.target().text(fui::makeRect(box.x, top, box.width, lineHeight), lines[i].c_str(), one);
+    if (!struck || lines[i].empty()) continue;
+    const int16_t width = screen.target().measureText(one.font, lines[i].c_str(), one).width;
+    screen.target().fill(fui::makeRect(box.x, static_cast<int16_t>(top + lineHeight / 2), width, kStrike),
+                         fui::Paint::solid(fui::Color::Black));
   }
 }
 
@@ -159,12 +225,6 @@ int16_t fittedPitch(const int16_t base, const int16_t cap, const int16_t bandHei
   const int16_t share = static_cast<int16_t>(bandHeight / count);
   if (share <= base) return base;
   return share > cap ? cap : share;
-}
-
-// cut needs plus air, floored at a finger.
-int16_t typeRowHeight(const int16_t lineHeight, const int lines) {
-  const int height = lineHeight * lines + kRowPad * 2;
-  return static_cast<int16_t>(height < kMinRow ? kMinRow : height);
 }
 
 // The bar every screen's actions live on: one y, one height, on the deck, the
@@ -225,69 +285,6 @@ void centredNotice(toybox::Screen& screen, const fui::Rect& band, const char* te
 
 }  // namespace
 
-// --- Shared measuring ----------------------------------------------------
-
-int linesNeeded(const fui::DrawTarget& target, const char* text, const int16_t width, const int maxLines,
-                const fui::TextStyle& style) {
-  if (text == nullptr || *text == '\0') return 1;
-  if (width <= 0) return 0;
-  int lines = 1;
-  int16_t used = 0;
-  const std::string whole(text);
-  size_t i = 0;
-  while (i < whole.size()) {
-    size_t end = whole.find(' ', i);
-    if (end == std::string::npos) end = whole.size();
-    const std::string word = whole.substr(i, end - i);
-    const int16_t wordWidth = target.measureText(style.font, word.c_str(), style).width;
-    const int16_t spaceWidth = used == 0 ? 0 : target.measureText(style.font, " ", style).width;
-    // A single word wider than the whole line can never be placed: the rule is
-    // shrink, never hyphenate, so this cut is simply not available.
-    if (wordWidth > width) return 0;
-    if (used + spaceWidth + wordWidth > width) {
-      lines++;
-      if (lines > maxLines) return 0;
-      used = wordWidth;
-    } else {
-      used = static_cast<int16_t>(used + spaceWidth + wordWidth);
-    }
-    i = end + 1;
-  }
-  return lines;
-}
-
-fui::FontId pickCut(const fui::DrawTarget& target, const char* const* strings, const int count, const int16_t width,
-                    const int maxLines, const fui::TextStyle& probe, const bool onlyProbeCut) {
-  // The three slots a target binds, largest first. There is no fourth: the fui
-  // components resolve only these and fall back to BODY for anything else.
-  const fui::FontId all[3] = {fui::FONT_SLOT_TITLE, fui::FONT_SLOT_BODY, fui::FONT_SLOT_SMALL};
-  const fui::FontId one[1] = {probe.font};
-  const fui::FontId* rungs = onlyProbeCut ? one : all;
-  const int rungCount = onlyProbeCut ? 1 : 3;
-  fui::FontId best = 0;
-  int16_t bestHeight = 0;
-  for (int r = 0; r < rungCount; r++) {
-    const fui::FontId rung = rungs[r];
-    const int16_t height = target.lineHeight(rung);
-    if (height > target.lineHeight(probe.font)) continue;  // fitting only goes down
-    fui::TextStyle trial = probe;
-    trial.font = rung;
-    bool all = true;
-    for (int i = 0; i < count; i++) {
-      if (linesNeeded(target, strings[i], width, maxLines, trial) == 0) {
-        all = false;
-        break;
-      }
-    }
-    if (!all) continue;
-    if (best == 0 || height > bestHeight) {
-      best = rung;
-      bestHeight = height;
-    }
-  }
-  return best;
-}
-
 // --- The deck ------------------------------------------------------------
 
 namespace {
@@ -302,14 +299,15 @@ namespace {
 // apart by shape at arm's length rather than by reading a tally, and the badge
 // column gives the page the black mass this face is drawn for.
 
-constexpr int16_t kCardHeight = 96;
+constexpr int16_t kCardHeight = 104;  // holds a two-line name AND its preview; still five a page
 constexpr int16_t kCardGap = 12;
 constexpr int16_t kCardMax = 132;  // a card, not a slab
 constexpr int16_t kCardPitch = kCardHeight + kCardGap;
 constexpr int16_t kBadgeWidth = 76;
 constexpr int16_t kBarHeight = 14;
-
-int16_t titleColumn(const fui::Rect& band) { return static_cast<int16_t>(band.width - kBadgeWidth - toybox::kGutter); }
+constexpr int kTitleLines = 2;        // a deck name wraps once rather than shrinking the deck
+constexpr int16_t kTitleWrapGap = 6;  // name to its bar or preview, when the name took two lines
+constexpr int kTitleLeading = 80;     // percent of the line box between a wrapped name's two lines
 
 // Cuts at the last word that fits and says so with three periods. The one place
 // the app elides, deliberately: a preview is a glimpse by definition, and the
@@ -374,20 +372,13 @@ struct DeckLayout {
   int visible = 0;
 };
 
-DeckLayout deckLayoutFor(const fui::DrawTarget& target, const DeckModel& model, const fui::Rect& band) {
+DeckLayout deckLayoutFor(const fui::Rect& band) {
   DeckLayout layout;
-  layout.title = plain(toybox::kBodyFont, fui::TextAlign::Left, 1);
-  const int16_t width = titleColumn(band);
-  std::vector<const char*> titles;
-  titles.reserve(static_cast<size_t>(model.count));
-  for (int i = 0; i < model.count; i++) titles.push_back(model.items[i].title);
-
-  // ONE cut for every card on the page. Peers share a cut, so a long name pulls
-  // the whole column down a size rather than singling itself out, and no card
-  // is ever a different size from the card under it.
-  fui::FontId cut = model.count > 0 ? pickCut(target, titles.data(), model.count, width, 1, layout.title) : 0;
-  if (cut == 0) cut = fui::FONT_SLOT_SMALL;  // the only cut with an ellipsis to admit the cut
-  layout.title.font = cut;
+  // The BODY cut for every card, and a long name takes a second line. It used
+  // to drop the whole column a size instead, so one note called "Groceries for
+  // the lake" set every other name on the deck in small print. Peers share a
+  // cut; a name that needs more room takes it downward, where the card has it.
+  layout.title = plain(toybox::kBodyFont, fui::TextAlign::Left, kTitleLines);
 
   layout.visible = (band.height + kCardGap) / kCardPitch;
   if (layout.visible < 1) layout.visible = 1;
@@ -426,18 +417,30 @@ void deckRows(toybox::Screen& screen, const DeckModel& model, const fui::Rect& b
 
     const int16_t textX = static_cast<int16_t>(card.x + kBadgeWidth + toybox::kGutter);
     const int16_t textWidth = static_cast<int16_t>(card.x + card.width - textX);
-    const int16_t titleHeight = screen.target().lineHeight(layout.title.font);
+    Broken title = breakWords(screen.target(), item.title, textWidth, kTitleLines, layout.title, true);
+    if (!title.fits) {
+      const std::string cut = toybox::fitLines(screen.target(), item.title, textWidth, kTitleLines, layout.title);
+      title = breakWords(screen.target(), cut, textWidth, kTitleLines, layout.title, true);
+    }
+    // A wrapped name is set TIGHTER than body text: the cut's line box carries
+    // reading leading, and a two-line name at that leading is taller than the
+    // card, crowding its preview into the buttons below.
+    const int16_t titleLine = screen.target().lineHeight(layout.title.font);
+    const int16_t titleStep = static_cast<int16_t>(titleLine * kTitleLeading / 100);
+    const int16_t titleHeight =
+        static_cast<int16_t>(titleLine + (static_cast<int>(title.lines.size()) - 1) * titleStep);
     const bool hasSecond = list || (item.preview != nullptr && *item.preview != '\0');
     const int16_t secondHeight = list ? kBarHeight : screen.target().lineHeight(small.font);
-    const int16_t block = static_cast<int16_t>(titleHeight + (hasSecond ? toybox::kGutter + secondHeight : 0));
+    // A two-line name closes the gap to its second line, so the block still
+    // sits inside the smallest card with air above and below it.
+    const int16_t gap = title.lines.size() > 1 ? kTitleWrapGap : toybox::kGutter;
+    const int16_t block = static_cast<int16_t>(titleHeight + (hasSecond ? gap + secondHeight : 0));
     const int16_t top = static_cast<int16_t>(card.y + (card.height - block) / 2);
 
-    const fui::Rect titleBox = fui::makeRect(textX, top, textWidth, titleHeight);
-    const std::string drawn = toybox::fitLines(screen.target(), item.title, textWidth, 1, layout.title);
-    topText(screen, titleBox, drawn, layout.title, 1);
+    drawLines(screen, fui::makeRect(textX, top, textWidth, titleHeight), title.lines, layout.title, false, titleStep);
     if (hasSecond) {
       const fui::Rect secondBox =
-          fui::makeRect(textX, static_cast<int16_t>(top + titleHeight + toybox::kGutter), textWidth, secondHeight);
+          fui::makeRect(textX, static_cast<int16_t>(top + titleHeight + gap), textWidth, secondHeight);
       if (list) {
         progressBar(screen, secondBox, item.done, item.total);
       } else {
@@ -462,9 +465,9 @@ fui::Rect deckBand(const fui::DeviceContext& device) {
 }
 }  // namespace
 
-int deckCapacity(const fui::DrawTarget& target, const fui::DeviceContext& device, const DeckModel& model) {
+int deckCapacity(const fui::DeviceContext& device) {
   const fui::Rect band = deckBand(device);
-  const DeckLayout layout = deckLayoutFor(target, model, band);
+  const DeckLayout layout = deckLayoutFor(band);
   return layout.visible;
 }
 
@@ -489,7 +492,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
     centredNotice(screen, band, "Nothing here yet. A list is things to tick off. A note is words to keep.");
     return;
   }
-  const DeckLayout layout = deckLayoutFor(screen.target(), model, band);
+  const DeckLayout layout = deckLayoutFor(band);
   int16_t y = band.y;
   deckRows(screen, model, band, layout, y);
   pageLabel(screen, band, model.pageLabel);
@@ -499,113 +502,199 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
 
 namespace {
 
-struct NoteLayout {
-  fui::TextStyle body{};
-  int16_t textWidth = 0;
-  int16_t rowHeight = 0;
+// --- The note: every row the body cut, every row as tall as its own words ---
+//
+// ONE CUT FOR EVERY ROW, AND IT IS THE BODY CUT. Each row is as tall as its own
+// text. The first two versions chose one geometry for the whole list from its
+// LONGEST item: every row was sized for the tallest, and when any item would
+// not fit two body lines the whole list dropped to toybox_10. One pasted
+// sentence turned a shopping list into small print with three-line gaps, a
+// four-item list paged because every row was the height of its longest, and a
+// note with one long paragraph was set entirely in the smallest face. Peers
+// still share a cut. They no longer share a height.
+
+constexpr int16_t kItemPad = 16;  // above and below an item's text block
+constexpr int16_t kParaGap = 12;  // between two paragraphs of a note
+constexpr int16_t kGrowCap = 36;  // the most a row grows when the whole list fits one page
+
+// A list: one block per item. A note: one block per LINE, so a long paragraph
+// continues on the next page rather than being shrunk or cut.
+struct Block {
+  int item = 0;
+  std::vector<std::string> lines;  // exactly what is drawn, already broken
+  int16_t height = 0;              // before any growth
+  bool paragraphStart = false;     // a note: the first line of a paragraph
 };
 
-NoteLayout noteLayoutFor(const fui::DrawTarget& target, const NoteModel& model, const fui::Rect& band) {
-  NoteLayout layout;
-  // The page label owns the last line of the band when there is one, so the
-  // rows are laid out against what is left rather than drawn over it.
-  layout.textWidth = static_cast<int16_t>(band.width - kBoxSide - toybox::kGutter);
+struct NoteFlow {
+  fui::TextStyle body{};
+  int16_t lineHeight = 0;
+  int16_t textWidth = 0;
+  std::vector<Block> blocks;
+};
 
-  std::vector<const char*> texts;
-  texts.reserve(static_cast<size_t>(model.count));
-  for (int i = 0; i < model.count; i++) texts.push_back(model.tasks[i].text);
-
-  // BODY on one line, then BODY on two, and only then the small cut. The order
-  // matters and it used to be the other way round: a single long item would
-  // drop the WHOLE list to toybox_10, halving every row to fit one of them.
-  // That trade buys nothing -- typeRowHeight floors at a finger, so
-  // small-on-one-line and body-on-two-lines produce the identical 72px row and
-  // the same eight rows per page. The small cut survives only for a single word
-  // too wide for the body cut, which cannot be broken and must not be elided.
-  layout.body = plain(toybox::kBodyFont, fui::TextAlign::Left, 2);
-  fui::TextStyle bodyOnly = layout.body;
-  bodyOnly.font = toybox::kBodyFont;
-
-  // NOTHING IS EVER ELIDED, and this is where that promise is actually kept.
-  // The rungs are walked in the order a reader would want -- as big as
-  // possible, as few lines as possible -- and the FIRST one that holds every
-  // item wins. Falling off the end used to mean handing the job to fitLines,
-  // which appends an ellipsis: Mario's own note drew "Hola esto es una..." on
-  // the real panel, which is precisely the defect this ladder exists to
-  // prevent. Four lines at the small cut is a deep enough last rung that a
-  // line reaching it is a paragraph somebody pasted, not a list item.
-  struct Rung {
-    bool bodyCut;
-    int lines;
-  };
-  static constexpr Rung kRungs[] = {{true, 1}, {true, 2}, {false, 2}, {true, 3}, {false, 3}, {false, 4}};
-  fui::FontId cut = 0;
-  int lines = 1;
-  if (model.count == 0) {
-    cut = toybox::kBodyFont;
-  } else {
-    for (const Rung& rung : kRungs) {
-      const fui::TextStyle& probe = rung.bodyCut ? bodyOnly : layout.body;
-      cut = pickCut(target, texts.data(), model.count, layout.textWidth, rung.lines, probe, rung.bodyCut);
-      if (cut != 0) {
-        lines = rung.lines;
-        break;
-      }
-    }
-  }
-  if (cut == 0) {
-    cut = fui::FONT_SLOT_SMALL;
-    lines = 4;
-  }
-  layout.body.font = cut;
-  layout.body.maxLines = static_cast<uint8_t>(lines);
-
-  layout.rowHeight = typeRowHeight(target.lineHeight(cut), lines);
-  return layout;
+// Room the page label takes at the foot of a paged band.
+int16_t pageLabelReserve(const fui::DrawTarget& target) {
+  return static_cast<int16_t>(target.lineHeight(toybox::kTileFont) + toybox::kGutter);
 }
 
-void noteRows(toybox::Screen& screen, const NoteModel& model, const fui::Rect& band, const NoteLayout& layout,
-              int16_t& y) {
-  const int visible = layout.rowHeight > 0 ? band.height / layout.rowHeight : 1;
-  const int16_t pitch = fittedPitch(layout.rowHeight, kRowMax, band.height, model.count, visible);
-  for (int i = model.firstVisible; i < model.count; i++) {
-    if (y + pitch > band.y + band.height) break;
-    const fui::Rect row = fui::makeRect(band.x, y, band.width, pitch);
-    const Task& task = model.tasks[i];
+NoteFlow flowNote(const fui::DrawTarget& target, const NoteModel& model, const fui::Rect& band) {
+  NoteFlow flow;
+  flow.body = plain(toybox::kBodyFont);
+  flow.lineHeight = target.lineHeight(flow.body.font);
+  if (flow.lineHeight <= 0) flow.lineHeight = 1;
+  flow.textWidth = model.page ? band.width : static_cast<int16_t>(band.width - kBoxSide - toybox::kGutter);
 
-    // EVERY row is an item, with a box, at the same cut. There used to be a
-    // second class -- a line the parser did not recognise as a task was drawn
-    // with no box at toybox_10, which is 13px of ink beside 25px. Two lines of
-    // one list, which a person reads as the same kind of thing, differed by
-    // half; and the way to get one was to type a line on the phone, which is
-    // exactly what the phone is for.
-    if (!model.page) {
-      tickBox(screen,
-              fui::makeRect(row.x, static_cast<int16_t>(row.y + (row.height - kBoxSide) / 2), kBoxSide, kBoxSide),
-              task.checked);
+  // An item never outgrows a page, measured against the band a PAGED list has
+  // (the label takes its foot). Past that it is cut with three periods, which
+  // every cut carries, and the whole item is still on the phone page.
+  const int usable = band.height - pageLabelReserve(target) - 2 * kItemPad;
+  const int itemCap = usable / flow.lineHeight < 1 ? 1 : usable / flow.lineHeight;
+
+  flow.blocks.reserve(static_cast<size_t>(model.count));
+  for (int i = 0; i < model.count; i++) {
+    const std::string text = model.tasks[i].text != nullptr ? model.tasks[i].text : "";
+    if (model.page) {
+      const Broken broken = breakWords(target, text, flow.textWidth, 1000, flow.body, true);
+      for (size_t l = 0; l < broken.lines.size(); l++) {
+        Block line;
+        line.item = i;
+        line.lines.push_back(broken.lines[l]);
+        line.height = flow.lineHeight;
+        line.paragraphStart = (l == 0);
+        flow.blocks.push_back(std::move(line));
+      }
+      continue;
     }
-    const int16_t textX = model.page ? row.x : static_cast<int16_t>(row.x + kBoxSide + toybox::kGutter);
-
-    fui::TextStyle style = layout.body;
-    const int16_t boxWidth = static_cast<int16_t>(row.x + row.width - textX);
-    const int lines = linesNeeded(screen.target(), task.text, boxWidth, style.maxLines, style);
-    const std::string drawn = toybox::fitLines(screen.target(), task.text, boxWidth, style.maxLines, style);
-    const int16_t lineHeight = screen.target().lineHeight(style.font);
-    const int drawnLines = lines < 1 ? 1 : lines;
-    // Vertically centred as a BLOCK, so a two-line row and a one-line row share
-    // a centre line and the tick boxes beside them stay on one axis.
-    const fui::Rect textBox =
-        fui::makeRect(textX, static_cast<int16_t>(row.y + (row.height - lineHeight * drawnLines) / 2), boxWidth,
-                      static_cast<int16_t>(lineHeight * drawnLines));
-    topText(screen, textBox, drawn, style, drawnLines);
-    if (task.checked) strikeLines(screen, textBox, drawn, style, drawnLines);
-    // A page has nothing to tick, so its rows take no tap at all rather than
-    // taking one that does nothing.
-    if (!model.page) rowHit(screen, row, ActionToggleTask, i);
-    y = static_cast<int16_t>(y + pitch);
+    // A run of letters wider than the row (a pasted link) is split at the
+    // body cut. Shrinking the whole list to fit one link was the old answer.
+    Broken broken = breakWords(target, text, flow.textWidth, itemCap, flow.body, true);
+    if (!broken.fits) {
+      const std::string cut = toybox::fitLines(target, text.c_str(), flow.textWidth, itemCap, flow.body);
+      broken = breakWords(target, cut, flow.textWidth, itemCap, flow.body, true);
+    }
+    Block row;
+    row.item = i;
+    row.lines = std::move(broken.lines);
+    const int textHeight = static_cast<int>(row.lines.size()) * flow.lineHeight + 2 * kItemPad;
+    row.height = static_cast<int16_t>(textHeight < kMinRow ? kMinRow : textHeight);
+    flow.blocks.push_back(std::move(row));
   }
+  return flow;
+}
+
+// Greedy: a block starts a new page when it would not fit what is left. A
+// paragraph's gap is dropped at the top of a page, where it would only push the
+// first line down.
+//
+// And a paragraph never leaves ONE line behind at a break, at either end. A
+// lone first line at the foot of a page reads as a sentence that stops; a lone
+// last line at the top of the next reads as a stray. So the break moves back:
+// to the paragraph's start when only its first line would remain, or one line
+// earlier when only its last would carry over -- provided the page it is
+// moving off keeps something of its own.
+std::vector<int> pageStartsIn(const NoteFlow& flow, const int height) {
+  const int count = static_cast<int>(flow.blocks.size());
+  const auto paragraphOf = [&flow, count](const int i, int& begin, int& end) {
+    begin = i;
+    while (begin > 0 && !flow.blocks[static_cast<size_t>(begin)].paragraphStart) begin--;
+    end = i + 1;
+    while (end < count && !flow.blocks[static_cast<size_t>(end)].paragraphStart) end++;
+  };
+  std::vector<int> starts{0};
+  int y = 0;
+  int i = 0;
+  while (i < count) {
+    const Block& block = flow.blocks[static_cast<size_t>(i)];
+    const int gap = (block.paragraphStart && y > 0) ? kParaGap : 0;
+    if (y > 0 && y + gap + block.height > height) {
+      int at = i;
+      if (!block.paragraphStart) {
+        int begin = 0;
+        int end = 0;
+        paragraphOf(i, begin, end);
+        if (i - begin == 1) {
+          at = begin;  // only the first line would stay behind
+        } else if (end - i == 1 && i - begin >= 3) {
+          at = i - 1;  // only the last line would carry over
+        }
+        if (at <= starts.back()) at = i;  // never empty the page it leaves
+      }
+      starts.push_back(at);
+      y = 0;
+      i = at;
+      continue;
+    }
+    y += gap + block.height;
+    i++;
+  }
+  return starts;
+}
+
+struct NotePlan {
+  NoteFlow flow;
+  std::vector<int> starts;
+  int16_t usable = 0;  // the band height the pages were cut against
+};
+
+NotePlan planNote(const fui::DrawTarget& target, const NoteModel& model, const fui::Rect& band) {
+  NotePlan plan;
+  plan.flow = flowNote(target, model, band);
+  plan.usable = band.height;
+  plan.starts = pageStartsIn(plan.flow, plan.usable);
+  if (plan.starts.size() > 1) {
+    plan.usable = static_cast<int16_t>(band.height - pageLabelReserve(target));
+    plan.starts = pageStartsIn(plan.flow, plan.usable);
+  }
+  return plan;
+}
+
+void noteRows(toybox::Screen& screen, const NoteModel& model, const fui::Rect& band, const NotePlan& plan) {
   if (model.count == 0) {
     centredNotice(screen, band, model.page ? "This note is empty. Tap ADD." : "Nothing on this list. Tap ADD.");
+    return;
+  }
+  const NoteFlow& flow = plan.flow;
+  size_t page = 0;
+  for (size_t p = 0; p < plan.starts.size(); p++) {
+    if (plan.starts[p] <= model.firstVisible) page = p;
+  }
+  const int begin = plan.starts[page];
+  const int end = page + 1 < plan.starts.size() ? plan.starts[page + 1] : static_cast<int>(flow.blocks.size());
+
+  // Rows share the page when the whole list already fits on one, so three items
+  // are not three lines over a hole. Capped, and never while paging, so a row
+  // does not change size under the finger because the list grew past the fold.
+  int16_t grow = 0;
+  if (!model.page && plan.starts.size() == 1 && end > begin) {
+    int total = 0;
+    for (int i = begin; i < end; i++) total += flow.blocks[i].height;
+    const int share = (plan.usable - total) / (end - begin);
+    if (share > 0) grow = static_cast<int16_t>(share < kGrowCap ? share : kGrowCap);
+  }
+
+  int16_t y = band.y;
+  for (int i = begin; i < end; i++) {
+    const Block& block = flow.blocks[i];
+    if (model.page) {
+      if (block.paragraphStart && y > band.y) y = static_cast<int16_t>(y + kParaGap);
+      drawLines(screen, fui::makeRect(band.x, y, flow.textWidth, flow.lineHeight), block.lines, flow.body, false);
+      y = static_cast<int16_t>(y + block.height);
+      continue;
+    }
+    const Task& task = model.tasks[block.item];
+    const fui::Rect row = fui::makeRect(band.x, y, band.width, static_cast<int16_t>(block.height + grow));
+    const int16_t textHeight = static_cast<int16_t>(static_cast<int>(block.lines.size()) * flow.lineHeight);
+    const int16_t textTop = static_cast<int16_t>(row.y + (row.height - textHeight) / 2);
+    // The box sits on the FIRST line, the way every checklist sets a wrapped
+    // item: centred on the row it reads as belonging to the middle of the
+    // sentence, and for a one-line row the two are the same place anyway.
+    const int16_t boxTop = static_cast<int16_t>(textTop + flow.lineHeight / 2 - kBoxSide / 2);
+    tickBox(screen, fui::makeRect(row.x, boxTop, kBoxSide, kBoxSide), task.checked);
+    const int16_t textX = static_cast<int16_t>(row.x + kBoxSide + toybox::kGutter);
+    drawLines(screen, fui::makeRect(textX, textTop, flow.textWidth, textHeight), block.lines, flow.body, task.checked);
+    rowHit(screen, row, ActionToggleTask, block.item);
+    y = static_cast<int16_t>(y + row.height);
   }
 }
 
@@ -673,12 +762,9 @@ void progressStrip(toybox::Screen& screen, const fui::Rect& band, const NoteMode
 }
 }  // namespace
 
-int noteCapacity(const fui::DrawTarget& target, const fui::DeviceContext& device, const NoteModel& model) {
-  const fui::Rect band = noteBandFor(device, model);
-  const NoteLayout layout = noteLayoutFor(target, model, band);
-  if (layout.rowHeight <= 0) return 1;
-  const int rows = band.height / layout.rowHeight;
-  return rows < 1 ? 1 : rows;
+std::vector<int> notePageStarts(const fui::DrawTarget& target, const fui::DeviceContext& device,
+                                const NoteModel& model) {
+  return planNote(target, model, noteBandFor(device, model)).starts;
 }
 
 void buildNote(toybox::Screen& screen, const NoteModel& model) {
@@ -689,9 +775,7 @@ void buildNote(toybox::Screen& screen, const NoteModel& model) {
   const fui::Rect band = noteBandFor(device, model);
   if (stripSpace(model) > 0) progressStrip(screen, band, model);
 
-  const NoteLayout layout = noteLayoutFor(screen.target(), model, band);
-  int16_t y = band.y;
-  noteRows(screen, model, band, layout, y);
+  noteRows(screen, model, band, planNote(screen.target(), model, band));
   pageLabel(screen, band, model.pageLabel);
 
   // ADD keeps the left edge, the fork-wide home for a primary action and the

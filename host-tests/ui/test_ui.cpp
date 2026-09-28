@@ -34,6 +34,7 @@
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
+#include "../../src/apps_local/notes/NotesScreens.h"
 #include "../../src/apps_local/picross/PicrossScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
@@ -13423,7 +13424,344 @@ void testWikipediaInstallSaysTheAddressFirst() {
   CHECK(retry != nullptr && tapRun(failed, retry).action == wikiui::ActionRetry);
 }
 
+// --- Notes: every line of a long item is drawn, fits, and is struck --------
+//
+// Mario, 2026-09-28: "a done task that takes two lines doesnt cross both lines,
+// think about all cases, long notes, long todos". The strike split the string
+// on '\n', which wrapped text never contains, so a two-line item got ONE bar,
+// as wide as the whole sentence, on its first line. These pin the rule that
+// replaced it: the screen chooses every line itself, draws each as its own
+// single-line run, and strikes each run it drew.
+
+namespace notestest {
+
+void buildNote(Rendered& out, const notesui::NoteModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  notesui::buildNote(screen, model);
+}
+
+void buildDeck(Rendered& out, const notesui::DeckModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  notesui::buildDeck(screen, model);
+}
+
+// A drawn line with any trailing ellipsis taken off, so the last line of an
+// item that had to be cut still matches the sentence it came from.
+std::string withoutEllipsis(const std::string& line) {
+  for (const char* mark : {"...", "\xE2\x80\xA6"}) {
+    const size_t n = std::strlen(mark);
+    if (line.size() >= n && line.compare(line.size() - n, n, mark) == 0) return line.substr(0, line.size() - n);
+  }
+  return line;
+}
+
+// The runs that belong to `text`: every drawn run that is a word-for-word piece
+// of it. Title and footer runs are never pieces of an item's sentence, and the
+// row's invisible tap target draws an EMPTY label, which is a piece of every
+// sentence and of none.
+bool isPieceOf(const FakeTarget::TextRun& run, const std::string& text) {
+  const std::string piece = withoutEllipsis(run.text);
+  return piece.size() > 2 && text.find(piece) != std::string::npos;
+}
+
+std::vector<const FakeTarget::TextRun*> runsOf(const Rendered& out, const std::string& text) {
+  std::vector<const FakeTarget::TextRun*> found;
+  for (const auto& run : out.target.texts) {
+    if (isPieceOf(run, text)) found.push_back(&run);
+  }
+  return found;
+}
+
+// A strike is a 2px black fill. Nothing else on the note screen is 2px tall:
+// separators are 1px, the tick-box mark and the bars are taller.
+std::vector<fui::Rect> strikes(const Rendered& out) {
+  std::vector<fui::Rect> found;
+  for (const auto& rect : out.target.fills) {
+    if (rect.height == 2) found.push_back(rect);
+  }
+  return found;
+}
+
+std::string joined(const std::vector<const FakeTarget::TextRun*>& runs) {
+  std::string whole;
+  for (const auto* run : runs) whole += (whole.empty() ? "" : " ") + run->text;
+  return whole;
+}
+
+void aWrappedDoneItemIsStruckOnEveryLine() {
+  const std::string text = "Pick up the dry cleaning before the shop closes at six on Friday";
+  notesui::Task tasks[] = {{text.c_str(), true}};
+  notesui::NoteModel model;
+  model.title = "Errands";
+  model.tasks = tasks;
+  model.count = 1;
+  model.done = 1;
+  model.total = 1;
+  Rendered out;
+  buildNote(out, model);
+
+  const auto runs = runsOf(out, text);
+  check(runs.size() == 2, "a two-line item is drawn as two single-line runs", __LINE__);
+  check(joined(runs) == text, "and between them they say the whole item, word for word", __LINE__);
+  const auto bars = strikes(out);
+  // 64 characters at ten pixels against a 396px column is two lines, counted
+  // here from the metrics rather than from the code under test.
+  check(bars.size() == 2, "a done two-line item carries TWO strikes", __LINE__);
+  check(bars.size() == runs.size(), "one strike per line it runs to, whatever that number is", __LINE__);
+  for (size_t i = 0; i < runs.size() && i < bars.size(); i++) {
+    const auto& run = *runs[i];
+    const int16_t ink = out.target.measureText(run.style.font, run.text.c_str(), run.style).width;
+    check(run.style.maxLines == 1, "each line is handed to the renderer as ONE line, so it cannot re-wrap it",
+          __LINE__);
+    check(ink <= run.rect.width, "each line fits the width it was given", __LINE__);
+    check(bars[i].x == run.rect.x && bars[i].width == ink, "each bar is exactly as wide as its own line", __LINE__);
+    check(bars[i].y > run.rect.y && bars[i].y < run.rect.y + run.rect.height,
+          "each bar crosses its own line, not the one above it", __LINE__);
+  }
+}
+
+void anUndoneWrappedItemIsNotStruck() {
+  const std::string text = "Pick up the dry cleaning before the shop closes at six on Friday";
+  notesui::Task tasks[] = {{text.c_str(), false}};
+  notesui::NoteModel model;
+  model.title = "Errands";
+  model.tasks = tasks;
+  model.count = 1;
+  model.total = 1;
+  Rendered out;
+  buildNote(out, model);
+  check(runsOf(out, text).size() == 2, "the undone twin wraps the same way", __LINE__);
+  check(strikes(out).empty(), "and carries no strike at all", __LINE__);
+}
+
+// Every run the note screen draws for an item stays inside the row it belongs
+// to and inside the width it was handed, at every length a person might type.
+void longItemsNeverLeaveTheirRow(const bool page) {
+  const std::string lengths[] = {
+      "Milk",
+      "Book for the plane and a charger that works with the old phone",
+      "Call the landlord about the heating, the window in the back bedroom that will not close, and the key",
+      "https://example.com/a/very/long/link/that/somebody/pasted/from/their/phone/without/any/spaces",
+      "Ask whether the second batch of hinges arrives before June, because if it does not we have to "
+      "rethink the whole order and tell the three people who are waiting on it, which is going to be "
+      "awkward, and write it down this time so nobody has to ask again",
+  };
+  for (const auto& text : lengths) {
+    notesui::Task tasks[] = {{text.c_str(), !page}, {"Next item", false}};
+    notesui::NoteModel model;
+    model.title = "Long";
+    model.page = page;
+    model.tasks = tasks;
+    model.count = 2;
+    model.done = page ? 0 : 1;
+    model.total = page ? 0 : 2;
+    Rendered out;
+    buildNote(out, model);
+    const fui::DeviceContext ctx = device();
+    const FakeTarget::TextRun* next = nullptr;
+    for (const auto& run : out.target.texts) {
+      if (run.text == "Next item") next = &run;
+    }
+    check(next != nullptr, "the item after a long one is still drawn", __LINE__);
+    for (const auto& run : out.target.texts) {
+      if (&run == next || run.text == "Long") continue;
+      const int16_t ink = out.target.measureText(run.style.font, run.text.c_str(), run.style).width;
+      check(ink <= run.rect.width, "no line of a long item is wider than its box", __LINE__);
+      check(run.rect.x >= 0 && run.rect.x + run.rect.width <= ctx.width, "and no box leaves the panel", __LINE__);
+      if (next != nullptr && isPieceOf(run, text)) {
+        check(run.rect.y + run.rect.height <= next->rect.y, "a long item never runs into the item under it", __LINE__);
+      }
+    }
+    if (!page) {
+      check(strikes(out).size() == runsOf(out, text).size(),
+            "a done long item is struck on every line it shows, whatever its length", __LINE__);
+    }
+  }
+}
+
+void longItemsNeverLeaveTheirRowOnAList() { longItemsNeverLeaveTheirRow(false); }
+void longLinesNeverLeaveTheirRowOnANote() { longItemsNeverLeaveTheirRow(true); }
+
+// The deck: a long name and a long first line both stay inside their card.
+void longDeckCardsStayInsideTheirCard() {
+  const std::string preview =
+      "The hinge is the part that fails first, and the second batch needs checking before anything ships";
+  notesui::DeckItem items[] = {
+      {"Groceries for the long weekend at the lake", nullptr, preview.c_str(), 0, 0},
+      {"Packing", "3/12", nullptr, 3, 12},
+  };
+  notesui::DeckModel model;
+  model.items = items;
+  model.count = 2;
+  Rendered out;
+  buildDeck(out, model);
+  const fui::DeviceContext ctx = device();
+  bool sawPreview = false;
+  for (const auto& run : out.target.texts) {
+    const int16_t ink = out.target.measureText(run.style.font, run.text.c_str(), run.style).width;
+    check(ink <= run.rect.width, "nothing on a deck card is wider than its box", __LINE__);
+    check(run.rect.x + run.rect.width <= ctx.width, "and no box leaves the panel", __LINE__);
+    if (run.text.size() > 3 && run.text.compare(run.text.size() - 3, 3, "...") == 0) sawPreview = true;
+  }
+  check(sawPreview, "a preview longer than its card says it was cut, with three periods", __LINE__);
+}
+
+// One long item used to set the geometry of the WHOLE list: when it would not
+// fit two body lines, every row dropped to the small cut. The cut is the body
+// cut for every row now, whatever the longest one needs.
+void aLongItemDoesNotShrinkTheOthers() {
+  std::string words;
+  for (int i = 0; i < 40; i++) words += "longword ";
+  notesui::Task tasks[] = {{"Eggs", false}, {words.c_str(), true}, {"Bread", false}};
+  notesui::NoteModel model;
+  model.title = "Pasted";
+  model.tasks = tasks;
+  model.count = 3;
+  model.done = 1;
+  model.total = 3;
+  Rendered out;
+  buildNote(out, model);
+  int items = 0;
+  for (const auto& run : out.target.texts) {
+    if (run.text == "Eggs" || isPieceOf(run, words)) {
+      items++;
+      check(run.style.font == toybox::kBodyFont, "every row keeps the body cut beside a long item", __LINE__);
+    }
+  }
+  check(items >= 2, "the short item and the long one were both drawn", __LINE__);
+}
+
+// Draws page `start` of `model` into `out`.
+void notePage(Rendered& out, notesui::NoteModel model, const int start) {
+  model.firstVisible = start;
+  buildNote(out, model);
+}
+
+// Every item is on exactly one page, whole, and no page draws past its band.
+void everyItemLandsOnExactlyOnePage() {
+  std::vector<std::string> texts;
+  for (int i = 0; i < 30; i++) {
+    std::string text = "Item " + std::to_string(i);
+    for (int w = 0; w < i % 7; w++) text += " with some more words";
+    texts.push_back(text);
+  }
+  std::vector<notesui::Task> tasks;
+  for (const auto& text : texts) tasks.push_back({text.c_str(), false});
+  notesui::NoteModel model;
+  model.title = "Many";
+  model.tasks = tasks.data();
+  model.count = static_cast<int>(tasks.size());
+  model.total = model.count;
+  model.pageLabel = "1 / 9";
+  FakeTarget measure;
+  const std::vector<int> starts = notesui::notePageStarts(measure, device(), model);
+  check(starts.size() > 1 && starts.front() == 0, "thirty items page, and page one starts at the top", __LINE__);
+  const int16_t footerTop = static_cast<int16_t>(device().height - toybox::kMargin - toybox::kPillHeight);
+  std::vector<int> seen(texts.size(), 0);
+  for (const int start : starts) {
+    Rendered out;
+    notePage(out, model, start);
+    for (const auto& run : out.target.texts) {
+      for (size_t i = 0; i < texts.size(); i++) {
+        if (run.text.rfind("Item " + std::to_string(i), 0) == 0 &&
+            (run.text.size() == ("Item " + std::to_string(i)).size() ||
+             run.text[("Item " + std::to_string(i)).size()] == ' ')) {
+          seen[i]++;
+          check(run.rect.y + run.rect.height <= footerTop, "no item line is drawn over the footer", __LINE__);
+        }
+      }
+    }
+  }
+  for (size_t i = 0; i < seen.size(); i++) {
+    check(seen[i] == 1, "every item starts on exactly one page -- none skipped, none twice", __LINE__);
+  }
+}
+
+// A note's paragraphs flow across pages: every word is drawn once, in order,
+// and nothing is drawn past the band.
+void aLongNoteFlowsWithoutLosingAWord() {
+  std::string para;
+  // Long enough at the fake ten-pixel cell that three of them cannot share a
+  // page, so the note must page and the flow across pages is exercised.
+  for (int i = 0; i < 200; i++) para += "w" + std::to_string(i) + " ";
+  para.pop_back();
+  const std::string texts[] = {para, "short one", para, para};
+  notesui::Task tasks[4];
+  for (int i = 0; i < 4; i++) tasks[i] = {texts[i].c_str(), false};
+  notesui::NoteModel model;
+  model.title = "Long";
+  model.page = true;
+  model.tasks = tasks;
+  model.count = 4;
+  model.pageLabel = "1 / 9";
+  FakeTarget measure;
+  const std::vector<int> starts = notesui::notePageStarts(measure, device(), model);
+  check(starts.size() > 1, "a note longer than a page pages", __LINE__);
+  const int16_t footerTop = static_cast<int16_t>(device().height - toybox::kMargin - toybox::kPillHeight);
+  std::string drawn;
+  for (const int start : starts) {
+    Rendered out;
+    notePage(out, model, start);
+    for (const auto& run : out.target.texts) {
+      if (run.text.empty() || run.text == "Long" || run.text == "ADD" || run.text == "1 / 9") continue;
+      check(run.rect.y + run.rect.height <= footerTop, "no line of a note is drawn over the footer", __LINE__);
+      check(out.target.measureText(run.style.font, run.text.c_str(), run.style).width <= run.rect.width,
+            "no line of a note is wider than the page", __LINE__);
+      drawn += (drawn.empty() ? "" : " ") + run.text;
+    }
+  }
+  const std::string whole = texts[0] + " " + texts[1] + " " + texts[2] + " " + texts[3];
+  check(drawn == whole, "across every page the note says exactly what the file says, once, in order", __LINE__);
+}
+
+// A deck name that needs two lines takes them at the body cut, inside its card.
+void aLongDeckNameWrapsInsideItsCard() {
+  notesui::DeckItem items[] = {
+      {"Groceries for the long weekend at the lake", nullptr, "Milk and eggs", 0, 0},
+      {"Packing", "3/12", nullptr, 3, 12},
+  };
+  notesui::DeckModel model;
+  model.items = items;
+  model.count = 2;
+  Rendered out;
+  buildDeck(out, model);
+  int nameLines = 0;
+  int16_t nameBottom = 0;
+  int16_t previewTop = 0;
+  int16_t packingTop = 0;
+  for (const auto& run : out.target.texts) {
+    if (std::string("Groceries for the long weekend at the lake").find(run.text) != std::string::npos &&
+        run.text.size() > 3) {
+      nameLines++;
+      check(run.style.font == toybox::kBodyFont, "a long name keeps the body cut", __LINE__);
+      nameBottom = static_cast<int16_t>(run.rect.y + run.rect.height);
+    }
+    if (run.text == "Milk and eggs") previewTop = run.rect.y;
+    if (run.text == "Packing") packingTop = run.rect.y;
+  }
+  check(nameLines == 2, "a name too long for one line wraps to two instead of shrinking", __LINE__);
+  check(previewTop > 0 && previewTop >= nameBottom - 12, "its preview sits under the name, not on it", __LINE__);
+  check(packingTop > previewTop, "and the card under it starts below the preview", __LINE__);
+}
+
+}  // namespace notestest
+
 int main() {
+  notestest::aWrappedDoneItemIsStruckOnEveryLine();
+  notestest::anUndoneWrappedItemIsNotStruck();
+  notestest::longItemsNeverLeaveTheirRowOnAList();
+  notestest::longLinesNeverLeaveTheirRowOnANote();
+  notestest::longDeckCardsStayInsideTheirCard();
+  notestest::aLongItemDoesNotShrinkTheOthers();
+  notestest::everyItemLandsOnExactlyOnePage();
+  notestest::aLongNoteFlowsWithoutLosingAWord();
+  notestest::aLongDeckNameWrapsInsideItsCard();
   heartsDrawsNothingOnTopOfAnythingElse();
   heartsPassOwnsTheTable();
   heartsScoreSaysWhatHappened();
