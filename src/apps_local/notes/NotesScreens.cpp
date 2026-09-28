@@ -142,8 +142,16 @@ Broken breakWords(const fui::DrawTarget& target, const std::string& text, const 
     out.fits = false;
     return out;
   }
+  // Nothing this long can fit a 480px row, and the byte cap is what keeps the
+  // measure honest: widths come back as int16_t, so a run wider than 32767px
+  // wraps NEGATIVE, reads as fitting, and is then silently cut by the
+  // renderer -- a 4000-byte word used to vanish that way. A glyph narrower
+  // than three pixels would be needed to put this many bytes on one row.
+  constexpr size_t kLongestLineBytes = 160;
   const auto fits = [&target, &style, width](const std::string& run) {
-    return target.measureText(style.font, run.c_str(), style).width <= width;
+    if (run.size() > kLongestLineBytes) return false;
+    const int16_t measured = target.measureText(style.font, run.c_str(), style).width;
+    return measured >= 0 && measured <= width;
   };
   std::string line;
   size_t i = 0;
@@ -164,16 +172,31 @@ Broken breakWords(const fui::DrawTarget& target, const std::string& text, const 
           // Only reachable at the last-resort cut, with one run of letters
           // wider than the row. Cut at a CHARACTER boundary, never inside a
           // UTF-8 sequence, which would draw as a box.
-          const auto continuation = [&word](const size_t at) {
-            return at < word.size() && (static_cast<unsigned char>(word[at]) & 0xC0) == 0x80;
-          };
+          //
+          // BINARY SEARCH over the character boundaries, not a walk down from
+          // the end: that measured every prefix of every remaining tail, which
+          // is cubic in bytes -- 53K measures and 37MB scanned for one pasted
+          // 2000-byte run, on every relayout.
           while (!word.empty() && !fits(word)) {
-            size_t n = word.size() - 1;
-            while (n > 1 && (!fits(word.substr(0, n)) || continuation(n))) n--;
-            // Always take at least one whole character, even one wider than the
-            // row on its own: a cut that takes nothing never ends.
-            if (n == 0) n = 1;
-            while (continuation(n)) n++;
+            std::vector<size_t> ends;  // byte offsets that end a whole character
+            ends.reserve(word.size());
+            for (size_t at = 1; at <= word.size(); at++) {
+              if (at == word.size() || (static_cast<unsigned char>(word[at]) & 0xC0) != 0x80) ends.push_back(at);
+            }
+            // The longest prefix that fits. Always at least one whole character,
+            // even one wider than the row on its own: a cut that takes nothing
+            // never ends.
+            size_t lo = 0;
+            size_t hi = ends.size() - 1;
+            while (lo < hi) {
+              const size_t mid = (lo + hi + 1) / 2;
+              if (fits(word.substr(0, ends[mid]))) {
+                lo = mid;
+              } else {
+                hi = mid - 1;
+              }
+            }
+            const size_t n = ends[lo];
             out.lines.push_back(word.substr(0, n));
             word = word.substr(n);
           }
@@ -190,6 +213,31 @@ Broken breakWords(const fui::DrawTarget& target, const std::string& text, const 
     out.lines.resize(static_cast<size_t>(maxLines));
   }
   return out;
+}
+
+// The last line of an item that was cut at its cap, shortened until "..." fits
+// beside it. It is done HERE, on the lines that will be drawn, and not by
+// shortening the text and breaking it again: a second break splits a long run
+// of letters into more lines than the first counted, and the ellipsis was then
+// the part that fell off the end.
+void endWithEllipsis(const fui::DrawTarget& target, std::string& line, const int16_t width,
+                     const fui::TextStyle& style) {
+  static constexpr const char* kEllipsis = "...";
+  const auto fits = [&](const std::string& run) {
+    const int16_t measured = target.measureText(style.font, run.c_str(), style).width;
+    return measured >= 0 && measured <= width;
+  };
+  while (!line.empty() && !fits(line + kEllipsis)) {
+    const size_t space = line.find_last_of(' ');
+    if (space != std::string::npos && space > 0) {
+      line.erase(space);  // a whole word first, so the cut lands between words
+    } else {
+      size_t at = line.size() - 1;  // then a whole character, never half of one
+      while (at > 0 && (static_cast<unsigned char>(line[at]) & 0xC0) == 0x80) at--;
+      line.erase(at);
+    }
+  }
+  line += kEllipsis;
 }
 
 // Each line its own single-line run, at its own height, and -- when `struck` --
@@ -418,10 +466,7 @@ void deckRows(toybox::Screen& screen, const DeckModel& model, const fui::Rect& b
     const int16_t textX = static_cast<int16_t>(card.x + kBadgeWidth + toybox::kGutter);
     const int16_t textWidth = static_cast<int16_t>(card.x + card.width - textX);
     Broken title = breakWords(screen.target(), item.title, textWidth, kTitleLines, layout.title, true);
-    if (!title.fits) {
-      const std::string cut = toybox::fitLines(screen.target(), item.title, textWidth, kTitleLines, layout.title);
-      title = breakWords(screen.target(), cut, textWidth, kTitleLines, layout.title, true);
-    }
+    if (!title.fits) endWithEllipsis(screen.target(), title.lines.back(), textWidth, layout.title);
     // A wrapped name is set TIGHTER than body text: the cut's line box carries
     // reading leading, and a two-line name at that leading is taller than the
     // card, crowding its preview into the buttons below.
@@ -527,6 +572,7 @@ struct Block {
 };
 
 struct NoteFlow {
+  bool prose = false;  // a note's lines rather than a list's items
   fui::TextStyle body{};
   int16_t lineHeight = 0;
   int16_t textWidth = 0;
@@ -540,6 +586,7 @@ int16_t pageLabelReserve(const fui::DrawTarget& target) {
 
 NoteFlow flowNote(const fui::DrawTarget& target, const NoteModel& model, const fui::Rect& band) {
   NoteFlow flow;
+  flow.prose = model.page;
   flow.body = plain(toybox::kBodyFont);
   flow.lineHeight = target.lineHeight(flow.body.font);
   if (flow.lineHeight <= 0) flow.lineHeight = 1;
@@ -569,10 +616,7 @@ NoteFlow flowNote(const fui::DrawTarget& target, const NoteModel& model, const f
     // A run of letters wider than the row (a pasted link) is split at the
     // body cut. Shrinking the whole list to fit one link was the old answer.
     Broken broken = breakWords(target, text, flow.textWidth, itemCap, flow.body, true);
-    if (!broken.fits) {
-      const std::string cut = toybox::fitLines(target, text.c_str(), flow.textWidth, itemCap, flow.body);
-      broken = breakWords(target, cut, flow.textWidth, itemCap, flow.body, true);
-    }
+    if (!broken.fits) endWithEllipsis(target, broken.lines.back(), flow.textWidth, flow.body);
     Block row;
     row.item = i;
     row.lines = std::move(broken.lines);
@@ -609,7 +653,10 @@ std::vector<int> pageStartsIn(const NoteFlow& flow, const int height) {
     const int gap = (block.paragraphStart && y > 0) ? kParaGap : 0;
     if (y > 0 && y + gap + block.height > height) {
       int at = i;
-      if (!block.paragraphStart) {
+      // Notes only. A list's items are blocks with no paragraphs, so the whole
+      // list read as ONE paragraph and the rule moved a page's last row onto
+      // the next page although it had room.
+      if (flow.prose && !block.paragraphStart) {
         int begin = 0;
         int end = 0;
         paragraphOf(i, begin, end);
@@ -765,6 +812,23 @@ void progressStrip(toybox::Screen& screen, const fui::Rect& band, const NoteMode
 std::vector<int> notePageStarts(const fui::DrawTarget& target, const fui::DeviceContext& device,
                                 const NoteModel& model) {
   return planNote(target, model, noteBandFor(device, model)).starts;
+}
+
+int notePageOfItem(const fui::DrawTarget& target, const fui::DeviceContext& device, const NoteModel& model,
+                   const int item) {
+  const NotePlan plan = planNote(target, model, noteBandFor(device, model));
+  int first = 0;
+  for (size_t b = 0; b < plan.flow.blocks.size(); b++) {
+    if (plan.flow.blocks[b].item == item) {
+      first = static_cast<int>(b);
+      break;
+    }
+  }
+  int page = 0;
+  for (size_t p = 0; p < plan.starts.size(); p++) {
+    if (plan.starts[p] <= first) page = static_cast<int>(p);
+  }
+  return page;
 }
 
 void buildNote(toybox::Screen& screen, const NoteModel& model) {

@@ -13750,6 +13750,129 @@ void aLongDeckNameWrapsInsideItsCard() {
   check(packingTop > previewTop, "and the card under it starts below the preview", __LINE__);
 }
 
+// Review finding 1: the note's lone-line rule ran on LISTS too. A list's items
+// carry no paragraphs, so the whole list read as one paragraph and the rule
+// moved a page's last row to the next page although it had room.
+void aListPageHoldsEveryRowItHasRoomFor() {
+  FakeTarget measure;
+  std::vector<std::string> texts;
+  std::vector<notesui::Task> tasks;
+  auto modelOf = [&](const int n) {
+    texts.assign(static_cast<size_t>(n), "Milk");
+    tasks.clear();
+    for (const auto& text : texts) tasks.push_back({text.c_str(), false});
+    notesui::NoteModel model;
+    model.title = "Shopping";
+    model.tasks = tasks.data();
+    model.count = n;
+    model.total = n;
+    return model;
+  };
+  int fit = 1;
+  while (notesui::notePageStarts(measure, device(), modelOf(fit + 1)).size() == 1) fit++;
+  const std::vector<int> starts = notesui::notePageStarts(measure, device(), modelOf(fit + 1));
+  check(starts.size() == 2 && starts[1] == fit,
+        "when N rows fit one page, N+1 rows put exactly N on the first page, not one fewer", __LINE__);
+}
+
+// Review finding 2: an item cut at its cap lost its ellipsis when a long run of
+// letters inside it split into more lines than the cut had counted.
+void anItemCutAtItsCapStillSaysSo() {
+  std::string text = "Note " + std::string(150, 'x');
+  for (int i = 0; i < 400; i++) text += " word" + std::to_string(i);
+  text += " THEEND";
+  notesui::Task tasks[] = {{text.c_str(), false}};
+  notesui::NoteModel model;
+  model.title = "Pasted";
+  model.tasks = tasks;
+  model.count = 1;
+  model.total = 1;
+  Rendered out;
+  buildNote(out, model);
+  const FakeTarget::TextRun* last = nullptr;
+  for (const auto& run : out.target.texts) {
+    if (isPieceOf(run, text)) {
+      last = &run;
+      check(out.target.measureText(run.style.font, run.text.c_str(), run.style).width <= run.rect.width,
+            "every line of a capped item fits its row", __LINE__);
+    }
+  }
+  check(last != nullptr && last->text.size() >= 3 && last->text.compare(last->text.size() - 3, 3, "...") == 0,
+        "an item longer than a page ends in three periods, so it reads as cut", __LINE__);
+}
+
+// Review finding 3: adding a paragraph jumped to the LAST page, but a note's
+// paragraphs flow, so one added at the end can begin on the page before it.
+void everyItemIsOnThePageItsSaidToBeginOn() {
+  std::vector<std::string> texts;
+  for (int i = 0; i < 14; i++) {
+    std::string text = "Para" + std::to_string(i);
+    for (int w = 0; w < (i * 7) % 23; w++) text += " filler words here";
+    texts.push_back(text);
+  }
+  std::vector<notesui::Task> tasks;
+  for (const auto& text : texts) tasks.push_back({text.c_str(), false});
+  for (const bool page : {true, false}) {
+    notesui::NoteModel model;
+    model.title = "Flow";
+    model.page = page;
+    model.tasks = tasks.data();
+    model.count = static_cast<int>(tasks.size());
+    model.total = page ? 0 : model.count;
+    FakeTarget measure;
+    const std::vector<int> starts = notesui::notePageStarts(measure, device(), model);
+    check(starts.size() > 1, "the flow test pages", __LINE__);
+    for (int i = 0; i < model.count; i++) {
+      const int onPage = notesui::notePageOfItem(measure, device(), model, i);
+      check(onPage >= 0 && onPage < static_cast<int>(starts.size()), "the page an item begins on exists", __LINE__);
+      Rendered out;
+      notePage(out, model, starts[static_cast<size_t>(onPage)]);
+      const std::string head = "Para" + std::to_string(i);
+      bool begins = false;
+      for (const auto& run : out.target.texts) {
+        if (run.text.rfind(head, 0) == 0 && (run.text.size() == head.size() || run.text[head.size()] == ' ')) {
+          begins = true;
+        }
+      }
+      check(begins, "an item's first line is on the page notePageOfItem names", __LINE__);
+    }
+  }
+}
+
+// Review finding 4: splitting a long unbroken run measured every prefix of
+// every tail -- cubic -- and a run wider than 32767px wrapped negative in the
+// int16 width, read as fitting, and was silently cut by the renderer.
+void aHugeUnbrokenRunIsCheapAndLosesNothing() {
+  const std::string blob(4000, 'q');
+  notesui::Task tasks[] = {{blob.c_str(), false}};
+  notesui::NoteModel model;
+  model.title = "Blob";
+  model.page = true;
+  model.tasks = tasks;
+  model.count = 1;
+  FakeTarget measure;
+  measure.measureCalls = 0;
+  const std::vector<int> starts = notesui::notePageStarts(measure, device(), model);
+  check(measure.measureCalls < 3000, "laying out a 4000-byte run takes a few measures per line, not millions",
+        __LINE__);
+  std::string drawn;
+  for (const int start : starts) {
+    Rendered out;
+    notePage(out, model, start);
+    for (const auto& run : out.target.texts) {
+      if (!run.text.empty() && run.text.find_first_not_of('q') == std::string::npos) {
+        // Computed in int from the fake cell, NOT through measureText: that
+        // returns int16_t, which is the very width that overflows, so asking it
+        // would pass a 40000px line as a negative one.
+        check(static_cast<int>(run.text.size()) * out.target.charW <= run.rect.width,
+              "each piece of the run fits the page", __LINE__);
+        drawn += run.text;
+      }
+    }
+  }
+  check(drawn == blob, "every byte of a 4000-byte run is drawn exactly once across the pages", __LINE__);
+}
+
 }  // namespace notestest
 
 int main() {
@@ -13762,6 +13885,10 @@ int main() {
   notestest::everyItemLandsOnExactlyOnePage();
   notestest::aLongNoteFlowsWithoutLosingAWord();
   notestest::aLongDeckNameWrapsInsideItsCard();
+  notestest::aListPageHoldsEveryRowItHasRoomFor();
+  notestest::anItemCutAtItsCapStillSaysSo();
+  notestest::everyItemIsOnThePageItsSaidToBeginOn();
+  notestest::aHugeUnbrokenRunIsCheapAndLosesNothing();
   heartsDrawsNothingOnTopOfAnythingElse();
   heartsPassOwnsTheTable();
   heartsScoreSaysWhatHappened();

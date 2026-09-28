@@ -453,9 +453,16 @@ void NotesActivity::askLine() {
     // NOT reloadNote(): doc_ is what was just written, byte for byte. Reading
     // it back turned every OK into a second trip to the card.
     refreshFromDoc();
-    // Onto the page the new line landed on -- the LAST page, since a line is
-    // always added at the end -- so it is visibly there rather than pages away.
-    noteTop_ = notePageStarts().back();
+    // Onto the page the new line BEGINS on, so it is visibly there rather than
+    // pages away. Not the last page: on a note a long paragraph flows, and one
+    // added at the end can start on the page before the last.
+    {
+      fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+      const int item = static_cast<int>(taskRows_.size()) - 1;
+      const std::vector<int> starts = notePageStarts();
+      const int page = notesui::notePageOfItem(target, target.deviceContext(), noteModel(), item < 0 ? 0 : item);
+      noteTop_ = starts[static_cast<size_t>(page)];
+    }
     relabelNote();
     LOG_DBG("NOTES", "add: save %ums, rows %ums, %d items", savedAt - startedAt, millis() - savedAt,
             static_cast<int>(taskRows_.size()));

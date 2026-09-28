@@ -133,6 +133,10 @@ void buildNote(toybox::Screen& screen, const NoteModel& model);
 // it counts is the page that is drawn -- both come from one layout pass.
 std::vector<int> notePageStarts(const fui::DrawTarget& target, const fui::DeviceContext& device,
                                 const NoteModel& model);
+// The page on which `item` BEGINS. Not simply the last page: a note's
+// paragraphs flow across pages, so a paragraph added at the end can start on
+// the page before the last and continue onto it.
+int notePageOfItem(const fui::DrawTarget& target, const fui::DeviceContext& device, const NoteModel& model, int item);
 
 // --- The menu ------------------------------------------------------------
 
