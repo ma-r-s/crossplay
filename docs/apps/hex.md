@@ -227,13 +227,20 @@ itself, 40 games a link (100 simulations = 0; about +/-65 Elo a link):
 | ------ | ---------------------------------------- | ------------- |
 | EASY   | 100 simulations, softmax z = 1           | a little above the first version's EASY |
 | NORMAL | 200 simulations, best move               | a little below the first version's HARD |
-| HARD   | up to 20,000 simulations in 4.5 s, best move | about +865 if the chip reaches 4,000 |
+| HARD   | up to 20,000 simulations in 4.5 s, best move | about +920: the X4 Pro reaches about 10,000 |
 
-About 620 Elo apart. EASY and NORMAL take a fraction of a second: they are
+About 650 Elo apart. EASY and NORMAL take a fraction of a second: they are
 weaker because they see less and choose more loosely, not because they burn the
 same time on a worse algorithm. HARD is the only level the chip's speed moves;
 the log line after every move (`search: level L, N ms ... S of T sims, nodes,
 reused, stopped early`) says what it reached.
+
+**Measured on an X4 Pro** (DEVICE 2, 2026-09-28, six HARD moves from an empty
+board): 2,250 simulations a second, so about 10,000 in the 4.5 s budget -- the
+first move searched 9,952 in 4.37 s. The early stop ended every one of the six
+sooner, most between 2.4 and 3 s. The tree peaked at 41,086 nodes, about 1 MB
+of the 2 MB pool. At that speed EASY's 100 simulations take about 45 ms and
+NORMAL's 200 about 90.
 
 The search runs on a **task of its own, pinned to core 1**, so a four-second
 think cannot starve the core the system watchdog looks at. `thinking` is

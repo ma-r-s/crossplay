@@ -220,9 +220,11 @@ bool Search::reroot(const hex::Game& game) {
 }
 
 // The three levels, placed on one scale by matches of this engine against
-// itself (docs/apps/hex.md has the ladder). Evenly spaced, about 620 Elo apart:
+// itself (docs/apps/hex.md has the ladder). Evenly spaced, about 650 Elo apart:
 // EASY a little above the first version's EASY, NORMAL a little below its
-// HARD, and HARD whatever the chip can search in four and a half seconds.
+// HARD, and HARD whatever the chip can search in four and a half seconds --
+// about 10,000 simulations on the X4 Pro, which runs 2,250 a second (measured
+// on a device, 2026-09-28), and the early stop usually ends it sooner.
 // EASY and NORMAL cost a fraction of a second: they are weaker because they
 // see less and choose more loosely, not because they burn the same time on a
 // worse algorithm.
