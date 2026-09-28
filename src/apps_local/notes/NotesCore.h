@@ -109,4 +109,23 @@ enum class Kind : uint8_t { List, Page };
 bool stripMarkers(std::string& doc);
 Kind kindOf(const std::vector<Line>& lines, bool emptyIsList = true);
 
+// The lines a note DRAWS, as indices into `lines`: every one except a blank
+// line and a marker with nothing after it. Both are spacing in the file, not
+// things to do, and an empty tick box is a hole in the list. One function,
+// because the open note and the sleep screen draw the same rows and two
+// copies of this rule are two rules that can differ.
+std::vector<size_t> drawnLines(const std::string& doc, const std::vector<Line>& lines);
+
+// The note shown while the device sleeps (Settings > Sleep screen > Note).
+// Stored as two lines: the note's name, and the sleep-screen mode it replaced
+// as a number, so turning it off puts back what the person had rather than a
+// default they never chose. A name is required; a missing or unreadable mode
+// is -1, "nothing to put back".
+struct AsleepChoice {
+  std::string name;
+  int previousMode = -1;
+};
+std::string formatAsleep(const AsleepChoice& choice);
+bool parseAsleep(const std::string& text, AsleepChoice& out);
+
 }  // namespace notes

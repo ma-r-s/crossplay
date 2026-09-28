@@ -287,6 +287,29 @@ property of Window, so the element is coerced to `"[object HTMLElement]"` and
 every write is silently dropped. The script is an IIFE and nothing in it is
 called `name`.
 
+## On the sleep screen
+
+Mina asked for a to-do list on the sleep screen (#198). A note's menu carries
+**SHOW WHILE ASLEEP**; it records the note's name and the sleep screen mode it
+replaced in `/.crosspoint/notes-asleep.txt` and sets the mode to **Note**.
+**STOP SHOWING WHILE ASLEEP** clears the file and puts that mode back.
+
+- **Drawn live at sleep, never a saved picture.** `SleepActivity` calls
+  `notes::drawAsleep`, which loads the note and builds the same screen the app
+  draws, so the sleep screen is whatever the list says when the device sleeps.
+  A picture would be stale the first time an item was ticked.
+- **Read-only and taller.** No footer buttons and no touch targets: the note
+  uses the height the buttons had. A list too long for one page shows its first
+  page with `1 / N` in the band.
+- **Quick Resume on Timeout comes off**, for the same reason Wallpapers turns it
+  off: it skips the sleep screen on an idle sleep, which is the ordinary one.
+- **One note at a time.** Choosing a second note moves the choice and keeps the
+  mode the first one replaced. Renaming follows the note; deleting it puts the
+  old mode back. A note deleted from the phone falls back to **Dark** at sleep.
+- **Picking a wallpaper ends it.** Wallpapers sets the mode to Custom and says
+  so ("Was Note, now Custom."); Notes then shows **SHOW WHILE ASLEEP** again,
+  because it asks the mode as well as the file.
+
 ## Not built
 
 - **OFTEN.** A row of one-tap pills of what this list has held before. Cut by

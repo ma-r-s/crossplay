@@ -184,4 +184,48 @@ bool stripMarkers(std::string& doc) {
   return changed;
 }
 
+std::vector<size_t> drawnLines(const std::string& doc, const std::vector<Line>& lines) {
+  std::vector<size_t> out;
+  out.reserve(lines.size());
+  for (size_t i = 0; i < lines.size(); i++) {
+    const Line& line = lines[i];
+    if (line.begin >= line.end) continue;
+    const std::string text = textOf(doc, line);
+    bool blank = true;
+    for (const char c : text) {
+      if (c != ' ' && c != '\t') {
+        blank = false;
+        break;
+      }
+    }
+    if (!blank) out.push_back(i);
+  }
+  return out;
+}
+
+std::string formatAsleep(const AsleepChoice& choice) {
+  return choice.name + "\n" + std::to_string(choice.previousMode) + "\n";
+}
+
+bool parseAsleep(const std::string& text, AsleepChoice& out) {
+  out = AsleepChoice{};
+  const size_t nl = text.find('\n');
+  std::string name = text.substr(0, nl);
+  while (!name.empty() && (name.back() == '\r' || name.back() == ' ')) name.pop_back();
+  if (name.empty()) return false;
+  out.name = name;
+  if (nl == std::string::npos) return true;
+  const std::string rest = text.substr(nl + 1);
+  int value = 0;
+  bool any = false;
+  for (const char c : rest) {
+    if (c < '0' || c > '9') break;
+    value = value * 10 + (c - '0');
+    any = true;
+    if (value > 255) return true;  // not a mode; keep the name, forget the mode
+  }
+  if (any) out.previousMode = value;
+  return true;
+}
+
 }  // namespace notes
