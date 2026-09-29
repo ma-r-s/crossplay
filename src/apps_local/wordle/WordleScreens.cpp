@@ -15,10 +15,7 @@ const fui::Paint kInk = fui::Paint::solid(fui::Color::Black);
 // One dot in four: the lighter of the renderer's two greys.
 const fui::Paint kGrey = fui::Paint::dither(fui::Color::LightGray);
 
-// Below the band by the same clearance every screen keeps under it.
-constexpr int16_t kMessageTop = toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule + toybox::kGutter;
 constexpr int16_t kMessageH = 22;
-constexpr int16_t kGridTop = kMessageTop + kMessageH + 4;
 constexpr int16_t kTile = 60;
 constexpr int16_t kTileGap = 8;
 constexpr int16_t kKeyGap = 6;
@@ -167,7 +164,7 @@ KeyboardLayout buildGame(toybox::Screen& screen, const GameModel& model) {
   // A finished game puts the answer in the header and says how it went; any
   // tap then goes back to the menu.
   char answer[wordle::kLetters + 1] = {};
-  char result[8] = {};
+  char result[28] = {};
   if (game.over()) {
     for (int i = 0; i < wordle::kLetters; ++i) answer[i] = game.answer()[i];
     if (game.status() == wordle::Game::Status::Won) {
@@ -180,8 +177,12 @@ KeyboardLayout buildGame(toybox::Screen& screen, const GameModel& model) {
     chrome(screen, "WORDLE", model.date);
   }
 
+  // The first row this screen owns is the body's top, which the header band
+  // reserves; the message line sits a gutter below it and the grid under that.
+  const int16_t messageTop = static_cast<int16_t>(screen.body().y + toybox::kGutter);
+  const int16_t gridTop = static_cast<int16_t>(messageTop + kMessageH + 4);
   if (model.message != nullptr) {
-    centredText(target, fui::makeRect(safe.x, kMessageTop, safe.width, kMessageH), model.message, toybox::kTileFont,
+    centredText(target, fui::makeRect(safe.x, messageTop, safe.width, kMessageH), model.message, toybox::kTileFont,
                 fui::Color::Black);
   }
 
@@ -199,12 +200,12 @@ KeyboardLayout buildGame(toybox::Screen& screen, const GameModel& model) {
         mark = Mark::Typed;
       }
       const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + c * (kTile + kTileGap)),
-                                          static_cast<int16_t>(kGridTop + r * (kTile + kTileGap)), kTile, kTile);
+                                          static_cast<int16_t>(gridTop + r * (kTile + kTileGap)), kTile, kTile);
       cell(target, box, letter, mark, toybox::kDisplayFont);
     }
   }
 
-  const int16_t gridBottom = static_cast<int16_t>(kGridTop + wordle::kRows * kTile + (wordle::kRows - 1) * kTileGap);
+  const int16_t gridBottom = static_cast<int16_t>(gridTop + wordle::kRows * kTile + (wordle::kRows - 1) * kTileGap);
   const KeyboardLayout keys = keyboardLayout(safe, static_cast<int16_t>(gridBottom + kKeysBelowGrid));
   for (int row = 0; row < 3; ++row) {
     for (int i = 0; i < rowLength(row); ++i) {
@@ -271,7 +272,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const int16_t barMax = static_cast<int16_t>(body.width - labelW - countW - 16);
   for (int i = 0; i < wordle::kRows; ++i) {
     const int16_t y = static_cast<int16_t>(chartTop + i * (rowH + 8));
-    char label[4];
+    char label[12];
     std::snprintf(label, sizeof(label), "%d", i + 1);
     centredText(target, fui::makeRect(body.x, y, labelW, rowH), label, toybox::kBodyFont, fui::Color::Black);
     const int n = model.stats.wins[i];
@@ -279,7 +280,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     const fui::Rect track = fui::makeRect(static_cast<int16_t>(body.x + labelW + 8), y, barMax, rowH);
     target.stroke(track, kInk, 1);
     if (w > 0) target.fill(fui::makeRect(track.x, track.y, w, rowH), kInk);
-    char count[8];
+    char count[12];
     std::snprintf(count, sizeof(count), "%d", n);
     centredText(target, fui::makeRect(static_cast<int16_t>(track.x + barMax + 8), y, countW, rowH), count,
                 toybox::kBodyFont, fui::Color::Black);

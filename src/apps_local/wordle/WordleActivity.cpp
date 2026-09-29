@@ -185,7 +185,7 @@ void WordleActivity::openDay(const int day) {
   game_.start(day, answer);
   std::string games;
   readAll(kGamesPath, games);
-  char key[12];
+  char key[16];
   const int keyLen = std::snprintf(key, sizeof(key), "%d ", day);
   size_t at = 0;
   while (at < games.size()) {
@@ -211,7 +211,7 @@ void WordleActivity::saveGame() {
   if (game_.day() < 0) return;
   std::string games;
   readAll(kGamesPath, games);
-  char key[12];
+  char key[16];
   const int keyLen = std::snprintf(key, sizeof(key), "%d ", game_.day());
   std::string out;
   out.reserve(games.size() + 48);
@@ -653,7 +653,7 @@ void WordleActivity::render(RenderLock&&) {
       ui::MenuModel model;
       const int day = newestDay();
       char date[20];
-      char state[20];
+      char state[24];
       if (day >= 0) {
         formatDay(day, true, date, sizeof(date));
         model.date = date;
