@@ -11,9 +11,11 @@ test cannot drift from the script it is testing.
     python3 host-tests/gatepath/test_build_lock.py
 """
 
+import ntpath
 import os
 import sys
 import tempfile
+import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "..", "..", "scripts_local", "require_build_lock.py")
@@ -92,6 +94,47 @@ def case(label, expect_allowed, project, environ):
                                        "builds" if expect_allowed else "refused"))
 
 
+def windows_walk_case(label, marker, want):
+    """The marker walk on Windows paths, where the root is "C:\\" and never "/".
+
+    A walk that stops only at "/" loops forever there, and every Windows build
+    hangs before it compiles anything (from Kpez16's #270). The walk is capped
+    so that regression reads as a failure rather than a hung suite.
+    """
+    g = {"Import": lambda _name: None, "env": FakeEnv(tempfile.mkdtemp()), "__name__": "guard"}
+    saved = dict(os.environ)
+    os.environ["XTEINK_ALLOW_UNLOCKED_BUILD"] = "1"  # load the functions, skip the check
+    try:
+        with open(SCRIPT) as f:
+            exec(compile(f.read(), SCRIPT, "exec"), g)  # noqa: S102
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+    steps = [0]
+
+    def dirname(p):
+        steps[0] += 1
+        if steps[0] > 100:
+            raise RuntimeError("the walk never ended")
+        return ntpath.dirname(p)
+
+    real = os.path
+    os.path = types.SimpleNamespace(
+        abspath=ntpath.abspath, join=ntpath.join, dirname=dirname, exists=lambda p: p == marker
+    )
+    try:
+        got = g["_workspace"](r"C:\ws\wt\mine")
+    except RuntimeError:
+        got = "a walk that never ends"
+    finally:
+        os.path = real
+    if got == want:
+        ok("%s -> %s" % (label, got))
+    else:
+        bad("%s -> %s, expected %s" % (label, got, want))
+
+
 def main():
     work = tempfile.mkdtemp()
     ws = os.path.join(work, "workspace")
@@ -154,6 +197,9 @@ def main():
     assert _workspace_above(trial) is None, "fixture is wrong: marker found above the trial dir"
     case("--committed trial worktree, no marker above it", False, trial,
          {"PLATFORMIO_BUILD_CACHE_DIR": alt})
+
+    windows_walk_case("Windows, no workspace", None, None)
+    windows_walk_case("Windows, workspace at C:\\ws", r"C:\ws\.xteink-workspace", "C:\\ws")
 
     print("%d checks, %d failed" % (PASS + FAIL, FAIL))
     return 1 if FAIL else 0
