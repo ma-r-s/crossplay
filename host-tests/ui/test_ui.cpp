@@ -1989,9 +1989,12 @@ void testCalendarMarksClearTheirDate() {
   toybox::Screen screen(frame, toybox::themeTokens());
   const connectionsui::CalendarLayout layout = connectionsui::buildCalendar(screen, model);
 
+  // Not merely clear: a mark two pixels under its number was clear and still
+  // read as touching it (Mario, the second time). Six is the least gap asked.
+  constexpr int kClearance = 6;
   const auto numberBottom = [&out](const char* label) {
     for (const auto& run : out.target.texts) {
-      if (run.text == label) return run.rect.y + run.rect.height;
+      if (run.text == label) return run.rect.y + run.rect.height + kClearance;
     }
     return -1;
   };

@@ -1055,10 +1055,11 @@ CalendarLayout buildCalendar(toybox::Screen& screen, const CalendarModel& model)
     screen.target().text(numberBox, label, number);
 
     if (day.played) {
-      // Below the number, in whatever the cell has left: a mark sized to half
-      // the cell started inside the number's own line and drew over it.
-      const int top = numberBox.y + numberBox.height + 2;
-      const int room = box.y + cell - 4 - top;
+      // Below the number with air between, in whatever the cell has left: a
+      // mark sized to half the cell started inside the number's own line, and
+      // one two pixels under it still read as touching.
+      const int top = numberBox.y + numberBox.height + 8;
+      const int room = box.y + cell - 5 - top;
       const int markSize = room < cell / 2 ? room : cell / 2;
       drawDayMark(screen, fui::makeRect(box.x + (cell - markSize) / 2, top + (room - markSize) / 2, markSize, markSize),
                   day, ink);
