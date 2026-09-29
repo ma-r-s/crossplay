@@ -207,6 +207,16 @@ void WordleActivity::openDay(const int day) {
   LOG_INF("WRDL", "day %d opened, %d guess(es) in", day, game_.guesses());
 }
 
+int WordleActivity::nextUnfinished() const {
+  for (int day = newestDay(); day >= 0; --day) {
+    const uint8_t r = wordle::resultOf(results_, day) & 0x7F;
+    const bool finished = (r >= 1 && r <= wordle::kRows) || r == wordle::kLost;
+    char w[wordle::kLetters];
+    if (!finished && wordle::answerFor(answers_, day, w)) return day;
+  }
+  return -1;
+}
+
 void WordleActivity::saveGame() {
   if (game_.day() < 0) return;
   std::string games;
@@ -538,10 +548,18 @@ void WordleActivity::routeAction(const fui::ActionEvent& event, const int tapX, 
       requestUpdate();
       return;
     }
-    case ui::ActionAnywhere:
-      view_ = View::Menu;
+    case ui::ActionArchive:
+      showMonthOf(game_.day());
+      view_ = View::Archive;
       requestUpdate();
       return;
+    case ui::ActionNext: {
+      const int next = nextUnfinished();
+      if (next < 0) return;
+      openDay(next);
+      requestUpdate();
+      return;
+    }
     case ui::ActionMenu:
       switch (event.value) {
         case 0:
@@ -612,6 +630,7 @@ void WordleActivity::render(RenderLock&&) {
       model.game = &game_;
       model.date = date;
       model.message = message_;
+      model.canNext = game_.over() && nextUnfinished() >= 0;
       keys_ = ui::buildGame(screen, model);
       break;
     }

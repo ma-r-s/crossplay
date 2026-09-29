@@ -31,6 +31,8 @@ class WordleActivity final : public Activity {
   int today() const;
   int newestDay() const;
   void openDay(int day);
+  // The newest day with an answer on the card that is not yet finished, or -1.
+  int nextUnfinished() const;
   void saveGame();
   void submit();
   void routeAction(const freeink::ui::ActionEvent& event, int tapX, int tapY);

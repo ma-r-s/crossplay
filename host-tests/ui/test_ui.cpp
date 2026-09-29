@@ -14684,8 +14684,8 @@ void everyKeyIsWhereItIsDrawn() {
   }
   check(enters == 1 && erases == 1, "the tick is ENTER and the backspace is delete", __LINE__);
   check(wordleui::keyAt(keys, 2, keys.top + 2) == 0, "the margin beside the keys is not a key", __LINE__);
-  check(out.has(wordleui::ActionKeyboard) && !out.has(wordleui::ActionAnywhere),
-        "playing, the keyboard takes taps and the screen as a whole does not", __LINE__);
+  check(out.has(wordleui::ActionKeyboard) && !out.has(wordleui::ActionArchive) && !out.has(wordleui::ActionNext),
+        "playing, the keyboard takes taps and the end-of-game buttons are not there", __LINE__);
   check(out.interactions.count() <= 24, "the game fits the interaction table", __LINE__);
 }
 
@@ -14705,10 +14705,33 @@ void aFinishedGameShowsTheAnswerAndLetsGo() {
   check(drewText(out, "PLANT") && drewText(out, "2 / 6"), "won: the header says the answer and the guess count",
         __LINE__);
   check(!drewText(out, "SEP 28"), "won: the date gives way to the result", __LINE__);
-  check(out.has(wordleui::ActionAnywhere) && !out.has(wordleui::ActionKeyboard),
-        "won: any tap leaves, and no key takes a letter", __LINE__);
-  check(out.tap(240, 400).action == wordleui::ActionAnywhere && out.tap(240, 700).action == wordleui::ActionAnywhere,
-        "won: a tap on the grid or on the keys both leave", __LINE__);
+  // The keyboard gives way to the result and where to go next.
+  check(drewText(out, "SOLVED IN 2") && drewText(out, "ARCHIVE") && drewText(out, "NEXT"),
+        "won: the result, ARCHIVE and NEXT replace the keyboard", __LINE__);
+  check(keys.keyW == 0 && !out.has(wordleui::ActionKeyboard), "won: no key is drawn or takes a letter", __LINE__);
+  bool keyLetters = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text == "Q" || run.text == "Z") keyLetters = true;
+  }
+  check(!keyLetters, "won: the keyboard is gone", __LINE__);
+  check(!out.has(wordleui::ActionNext) && out.has(wordleui::ActionArchive),
+        "won with nothing left to play: NEXT is greyed and takes no tap, ARCHIVE does", __LINE__);
+  check(out.tap(240, 300).action == fui::NO_ACTION, "won: a tap on the grid does nothing", __LINE__);
+
+  model.canNext = true;
+  Rendered withNext;
+  buildGame(withNext, model, keys);
+  check(withNext.has(wordleui::ActionNext) && withNext.has(wordleui::ActionArchive),
+        "won with a day left: both buttons take a tap", __LINE__);
+  bool nextRoutes = false;
+  for (size_t i = 0; i < withNext.interactions.count(); ++i) {
+    const auto& entry = withNext.interactions.data()[i];
+    if (entry.action != wordleui::ActionNext) continue;
+    const fui::Rect r = entry.rect;
+    nextRoutes = withNext.tap(r.x + r.width / 2, r.y + r.height / 2).action == wordleui::ActionNext;
+  }
+  check(nextRoutes, "won: a tap on NEXT routes to NEXT", __LINE__);
+  model.canNext = false;
 
   wordle::Game lost;
   lost.start(0, "PLANT");
@@ -14716,7 +14739,8 @@ void aFinishedGameShowsTheAnswerAndLetsGo() {
   Rendered lostOut;
   model.game = &lost;
   buildGame(lostOut, model, keys);
-  check(drewText(lostOut, "PLANT") && drewText(lostOut, "X / 6"), "lost: the header still says the answer", __LINE__);
+  check(drewText(lostOut, "PLANT") && drewText(lostOut, "X / 6") && drewText(lostOut, "NOT SOLVED"),
+        "lost: the header still says the answer, and the result says so", __LINE__);
 }
 
 void theNotAWordLineIsDrawn() {

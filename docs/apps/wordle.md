@@ -42,7 +42,12 @@ exactly like W and Y. Grey is what the original uses for the same reason.
 - A guess that is not in the list stays in its row, and the line under the
   header says "Not in the word list."
 - **The end.** The answer replaces WORDLE in the header and the right label
-  says how it went ("4 / 6", "X / 6"). Any tap then goes back to the menu.
+  says how it went ("4 / 6", "X / 6"). The keyboard gives way to the result in
+  the biggest type ("SOLVED IN 4", "NOT SOLVED") and two buttons: ARCHIVE, the
+  calendar on that day's month, and NEXT, the newest day on the card not yet
+  finished, greyed when there is none. The rest of the screen takes no taps.
+  The first version sent any tap straight back to the menu; Mario, trying it,
+  found the still screen read as nothing left to do.
 - **The keyboard is one hit region.** Twenty-eight keys are more than the
   24-slot interaction table holds, so the tap is resolved by `keyAt()` against
   the same `KeyboardLayout` the keys were drawn from. host-tests/ui taps the

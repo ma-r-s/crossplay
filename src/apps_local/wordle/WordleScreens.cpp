@@ -21,6 +21,7 @@ constexpr int16_t kTileGap = 8;
 constexpr int16_t kKeyGap = 6;
 constexpr int16_t kKeyH = 74;
 constexpr int16_t kKeysBelowGrid = 16;
+constexpr int16_t kFooterH = 56;
 const char* const kKeyRows[3] = {"QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"};
 
 void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
@@ -161,8 +162,7 @@ KeyboardLayout buildGame(toybox::Screen& screen, const GameModel& model) {
   fui::DrawTarget& target = screen.target();
   const fui::Rect safe = screen.frame().safeRect();
 
-  // A finished game puts the answer in the header and says how it went; any
-  // tap then goes back to the menu.
+  // A finished game puts the answer in the header and says how it went.
   char answer[wordle::kLetters + 1] = {};
   char result[28] = {};
   if (game.over()) {
@@ -206,6 +206,38 @@ KeyboardLayout buildGame(toybox::Screen& screen, const GameModel& model) {
   }
 
   const int16_t gridBottom = static_cast<int16_t>(gridTop + wordle::kRows * kTile + (wordle::kRows - 1) * kTileGap);
+
+  if (game.over()) {
+    // The keyboard gives way to how it went and where to go from here. The
+    // rest of the screen takes no taps: the answer is there to be read.
+    const int16_t barW = static_cast<int16_t>(safe.width - 2 * toybox::kMargin);
+    const fui::Rect bar =
+        fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin),
+                      static_cast<int16_t>(safe.y + safe.height - toybox::kMargin - kFooterH), barW, kFooterH);
+    char verdict[24];
+    if (game.status() == wordle::Game::Status::Won) {
+      std::snprintf(verdict, sizeof(verdict), "SOLVED IN %d", game.guesses());
+    } else {
+      std::snprintf(verdict, sizeof(verdict), "NOT SOLVED");
+    }
+    const int16_t areaTop = static_cast<int16_t>(gridBottom + kKeysBelowGrid);
+    centredText(target, fui::makeRect(safe.x, areaTop, safe.width, static_cast<int16_t>(bar.y - areaTop)), verdict,
+                toybox::kDisplayFont, fui::Color::Black);
+
+    const int16_t half = static_cast<int16_t>((barW - toybox::kGutter) / 2);
+    fui::ButtonProps archive;
+    archive.label = "ARCHIVE";
+    archive.action = ActionArchive;
+    archive.styles = toybox::rowStyles();
+    screen.button(archive, fui::makeRect(bar.x, bar.y, half, bar.height));
+    fui::ButtonProps next;
+    next.label = "NEXT";
+    next.action = model.canNext ? static_cast<fui::ActionId>(ActionNext) : fui::NO_ACTION;
+    if (!model.canNext) next.styles = toybox::disabledButtonStyles();
+    screen.button(next, fui::makeRect(static_cast<int16_t>(bar.x + barW - half), bar.y, half, bar.height));
+    return KeyboardLayout{};
+  }
+
   const KeyboardLayout keys = keyboardLayout(safe, static_cast<int16_t>(gridBottom + kKeysBelowGrid));
   for (int row = 0; row < 3; ++row) {
     for (int i = 0; i < rowLength(row); ++i) {
@@ -221,16 +253,12 @@ KeyboardLayout buildGame(toybox::Screen& screen, const GameModel& model) {
       }
     }
   }
-  iconKey(target, enterRect(keys), icon_tick_24, true, !game.over() && game.typed() == wordle::kLetters);
+  iconKey(target, enterRect(keys), icon_tick_24, true, game.typed() == wordle::kLetters);
   iconKey(target, eraseRect(keys), icon_wordle_delete_24, false, true);
 
-  if (game.over()) {
-    screen.frame().hit(safe, ActionAnywhere, 0);
-  } else {
-    const fui::Rect block =
-        fui::makeRect(safe.x, keys.top, safe.width, static_cast<int16_t>(3 * keys.keyH + 2 * keys.gap));
-    screen.frame().hit(block, ActionKeyboard, 0);
-  }
+  const fui::Rect block =
+      fui::makeRect(safe.x, keys.top, safe.width, static_cast<int16_t>(3 * keys.keyH + 2 * keys.gap));
+  screen.frame().hit(block, ActionKeyboard, 0);
   return keys;
 }
 
