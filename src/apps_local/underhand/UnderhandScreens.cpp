@@ -834,7 +834,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     // The tutorial is next until it is won, which is not only the first run:
     // after giving it up, and after REPLAY TUTORIAL, it is next again.
     std::snprintf(headline, sizeof(headline), "TUTORIAL");
-    sub = "It teaches the game. Summon a god to win.";
+    sub = "It teaches the game, and comes back until you win it.";
     go = "BEGIN";
   } else {
     std::snprintf(headline, sizeof(headline), "NEW RUN");
