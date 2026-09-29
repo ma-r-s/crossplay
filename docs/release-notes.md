@@ -21,6 +21,12 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.26
+
+- Underhand's menu says TUTORIAL while the tutorial is next, and that it comes back until you win it.
+- Say on the menu that the tutorial returns until won
+- The menu says TUTORIAL, not FIRST RUN
+
 ### 1.13.25
 
 - Hex, the connection game: join your two edges before your opponent joins theirs. Against the device at three levels, across the table, or over PLAY NEARBY. On the Games shelf.
