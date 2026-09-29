@@ -43,19 +43,38 @@ def flat(text):
     return " " + re.sub(r"[^a-z0-9]+", " ", text.lower()) + " "
 
 
-pages = {
-    "the site": flat((root / "site/index.html").read_text()),
-    "the README": flat((root / "README.md").read_text()),
-}
+# THE SITE NEEDS A CARD, NOT A MENTION. This asked whether the title appeared
+# anywhere in index.html, and on 2026-09-29 NOTES passed that while having no
+# card, no image and no prose: the only "Notes" on the page was inside the
+# Instapaper card's alt text, describing a made-up saved article called "Notes
+# on building a compiler". A check a screenshot's own caption can satisfy is
+# not a check, and the thing it was written to catch -- an app shipping with
+# nowhere on the site to see it -- is exactly what it let through.
+#
+# So the site is asked for the shape it actually promises: an <article> whose
+# <h3> IS the title and which carries a shot. The README is prose in a table
+# and is still asked only to name the thing.
+page = (root / "site/index.html").read_text()
+cards = {}
+for m in re.finditer(r"<article[^>]*>(.*?)</article>", page, re.S):
+    body = m.group(1)
+    h3 = re.search(r"<h3[^>]*>(.*?)</h3>", body, re.S)
+    if h3:
+        cards[flat(re.sub(r"<[^>]+>", "", h3.group(1))).strip()] = (
+            "assets/shots/" in body
+        )
+
+readme = flat((root / "README.md").read_text())
 
 for table, kind in (("kGames", "game"), ("kApps", "app")):
     for title in titles(table):
-        needle = " " + flat(title).strip() + " "
-        for where, text in pages.items():
-            if needle not in text:
-                print(
-                    f"the {kind} {title} is on the shelf and named nowhere in {where}"
-                )
+        key = flat(title).strip()
+        if key not in cards:
+            print(f"the {kind} {title} is on the shelf and has no card on the site")
+        elif not cards[key]:
+            print(f"the {kind} {title} has a card on the site with no screenshot")
+        if " " + key + " " not in readme:
+            print(f"the {kind} {title} is on the shelf and named nowhere in the README")
 
 
 # ---------------------------------------------------------------------------
