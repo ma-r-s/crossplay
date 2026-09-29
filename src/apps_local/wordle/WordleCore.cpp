@@ -158,4 +158,113 @@ bool isWord(const char* list, const size_t count, const char* guess) {
   return false;
 }
 
+void Game::start(const int day, const char* answer) {
+  *this = Game{};
+  day_ = day;
+  std::memcpy(answer_, answer, kLetters);
+}
+
+bool Game::type(const char letter) {
+  if (over() || typed_ >= kLetters || letter < 'A' || letter > 'Z') return false;
+  typing_[typed_++] = letter;
+  return true;
+}
+
+bool Game::erase() {
+  if (over() || typed_ == 0) return false;
+  typing_[--typed_] = '\0';
+  return true;
+}
+
+void Game::apply(const char* guess) {
+  std::memcpy(rows_[count_], guess, kLetters);
+  score(guess, answer_, marks_[count_]);
+  for (int i = 0; i < kLetters; ++i) mergeKey(keys_[guess[i] - 'A'], marks_[count_][i]);
+  ++count_;
+  if (std::memcmp(guess, answer_, kLetters) == 0) {
+    status_ = Status::Won;
+  } else if (count_ == kRows) {
+    status_ = Status::Lost;
+  }
+}
+
+Game::Submit Game::submit(bool (*isWordFn)(void* ctx, const char* word), void* ctx) {
+  if (over()) return Submit::Over;
+  if (typed_ < kLetters) return Submit::Short;
+  if (!isWordFn(ctx, typing_)) return Submit::NotAWord;
+  apply(typing_);
+  std::memset(typing_, 0, sizeof(typing_));
+  typed_ = 0;
+  if (status_ == Status::Won) return Submit::Won;
+  if (status_ == Status::Lost) return Submit::Lost;
+  return Submit::Scored;
+}
+
+std::string Game::save() const {
+  std::string out(answer_, kLetters);
+  for (int r = 0; r < count_; ++r) {
+    out += ' ';
+    out.append(rows_[r], kLetters);
+  }
+  return out;
+}
+
+bool Game::load(const int day, const std::string& text) {
+  if (text.size() < kLetters) return false;
+  char answer[kLetters];
+  if (!word(text.data(), answer)) return false;
+  start(day, answer);
+  size_t at = kLetters;
+  while (at < text.size() && !over()) {
+    if (text[at] != ' ' || at + 1 + kLetters > text.size()) return false;
+    char guess[kLetters];
+    if (!word(text.data() + at + 1, guess)) return false;
+    apply(guess);
+    at += 1 + kLetters;
+  }
+  return at == text.size();
+}
+
+uint8_t resultOf(const std::string& results, const int day) {
+  if (day < 0 || static_cast<size_t>(day) >= results.size()) return 0;
+  return static_cast<uint8_t>(results[static_cast<size_t>(day)]);
+}
+
+void putResult(std::string& results, const int day, const uint8_t value) {
+  if (day < 0) return;
+  if (results.size() <= static_cast<size_t>(day)) results.resize(static_cast<size_t>(day) + 1, '\0');
+  results[static_cast<size_t>(day)] = static_cast<char>(value);
+}
+
+Stats statsFor(const std::string& results, const int today) {
+  Stats stats;
+  for (size_t day = 0; day < results.size(); ++day) {
+    const uint8_t r = static_cast<uint8_t>(results[day]);
+    if ((r & kOnTheDay) == 0) continue;
+    const uint8_t v = r & 0x7F;
+    if (v >= 1 && v <= kRows) {
+      ++stats.played;
+      ++stats.won;
+      ++stats.wins[v - 1];
+    } else if (v == kLost) {
+      ++stats.played;
+    }
+  }
+  const auto wonOnTheDay = [&results](const int day) {
+    const uint8_t r = resultOf(results, day);
+    return (r & kOnTheDay) != 0 && (r & 0x7F) >= 1 && (r & 0x7F) <= kRows;
+  };
+  int day = today;
+  if (!wonOnTheDay(day)) {
+    const uint8_t v = resultOf(results, day) & 0x7F;
+    if (v == kLost) return stats;  // lost today: the streak is over
+    --day;                         // today still open: count from yesterday
+  }
+  while (day >= 0 && wonOnTheDay(day)) {
+    ++stats.streak;
+    --day;
+  }
+  return stats;
+}
+
 }  // namespace wordle
