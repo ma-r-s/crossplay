@@ -1,6 +1,6 @@
 [Install it](https://crossplay.ma-r-s.com/#get) · [which file, and by hand](https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md) · [earlier releases](https://github.com/ma-r-s/crossplay/blob/xteink/docs/release-notes.md)
 
-### What is new in 1.13.26
+### What is new in 1.13.27
 
-- Underhand's menu says TUTORIAL while the tutorial is next, and that it comes back until you win it.
+- Wordle: the daily word, in Connections' shape (#202)
 

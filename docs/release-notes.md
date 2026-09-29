@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.27
+
+- Wordle: the daily word, in Connections' shape (#202)
+
 ### 1.13.26
 
 - Underhand's menu says TUTORIAL while the tutorial is next, and that it comes back until you win it.
