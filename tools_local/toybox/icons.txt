@@ -422,6 +422,14 @@ wiki_contents = list
 # manifests have ever shared.
 tick = check
 
+# HEX. The board is a rhombus of hexagons and a stone sits in one of them, so
+# the icon is the cell itself: the only game here whose mark can be its own
+# material rather than a metaphor for it. Rejected: `grid-2x2` and `hash` (taken,
+# and both read as squares, which is the one thing this board is not), `spline`
+# and `git-merge` (a CONNECTION, which is what the game is about -- and which at
+# 32px in one bit is three strokes that read as a wiring diagram).
+hex = hexagon
+
 # The calculator's shelf row. Lucide's own `calculator`: a slab with a display
 # band and a four-by-something key field, which is the silhouette of the thing
 # and shares no shape with any other row in Apps.

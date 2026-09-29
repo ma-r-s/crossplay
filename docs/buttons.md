@@ -106,12 +106,12 @@ grep -rl "Button::Up\|Button::Down" src/apps_local/*/ | cut -d/ -f3 | sort -u
 
 | Button       | Apps that read it | Exists on X4 Pro |
 | ------------ | ----------------- | ---------------- |
-| Back         | 31                | as a swipe       |
+| Back         | 32                | as a swipe       |
 | Confirm      | 2                 | **no**           |
 | Left / Right | 1                 | **no**           |
 | Up / Down    | 14                | **yes**          |
 
-Nineteen of the thirty-nine directories use Back and nothing else.
+Seventeen of the thirty-five directories use Back and nothing else.
 
 > **The finding below was true when it was written, in August 2026, and it is
 > not true any more.** It said the two real keys were unused by every game we

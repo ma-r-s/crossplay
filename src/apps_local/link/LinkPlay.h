@@ -75,6 +75,7 @@ enum class GameId : uint16_t {
   // Nothing had shipped with 0x0902, so this costs nobody a match.
   ToyBattle = 0x0902,
   Go = 0x0A01,
+  Hex = 0x0B01,
   // Reserved for host tests, which need an id no real game will ever use.
   Test = 0xFF01,
 };
@@ -91,7 +92,7 @@ enum class GameId : uint16_t {
 // alternative is nothing.
 constexpr GameId kAllGameIds[] = {
     GameId::Chess,        GameId::ConnectFour, GameId::Battleship, GameId::Jaipur, GameId::Checkers, GameId::Yahtzee,
-    GameId::Knucklebones, GameId::SeaSalt,     GameId::ToyBattle,  GameId::Go,     GameId::Test,
+    GameId::Knucklebones, GameId::SeaSalt,     GameId::ToyBattle,  GameId::Go,     GameId::Hex,      GameId::Test,
 };
 
 constexpr bool gameIdsAreDistinct() {
