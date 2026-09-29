@@ -1967,6 +1967,87 @@ void testConnectionsTilesShareOneSize() {
 //
 // A 31-day month starting on a Saturday is the worst case: six week rows and
 // the most days that can be live at once.
+// A day's mark sits below its number, never on it. The sparkle used to start
+// inside the number's own line, so a solved 22 read as a star over "22" (Mario,
+// in Wordle's archive, which draws this same calendar). Checked for the three
+// marks a day can carry: sparkle (solved), cross (lost), ring (started).
+void testCalendarMarksClearTheirDate() {
+  connectionsui::CalendarDay cells[42] = {};
+  for (int d = 1; d <= 30; ++d) {
+    cells[d - 1].day = static_cast<uint8_t>(d);
+    cells[d - 1].inArchive = true;
+  }
+  cells[21].played = cells[21].finished = true;                // 22: solved, sparkle
+  cells[9].played = cells[9].finished = cells[9].lost = true;  // 10: lost, cross
+  cells[4].played = true;                                      // 5: started, ring
+  connectionsui::CalendarModel model;
+  model.cells = cells;
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  const connectionsui::CalendarLayout layout = connectionsui::buildCalendar(screen, model);
+
+  const auto numberBottom = [&out](const char* label) {
+    for (const auto& run : out.target.texts) {
+      if (run.text == label) return run.rect.y + run.rect.height;
+    }
+    return -1;
+  };
+  const auto cellOf = [&layout](const int index) {
+    const int step = layout.cell + layout.gap;
+    return fui::makeRect(layout.originX + (index % layout.cols) * step, layout.originY + (index / layout.cols) * step,
+                         layout.cell, layout.cell);
+  };
+  const auto inside = [](const fui::Rect& r, const int x, const int y) {
+    return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
+  };
+
+  // Sparkle: every triangle point inside cell 22 is below its number.
+  const fui::Rect c22 = cellOf(21);
+  const int b22 = numberBottom("22");
+  int sparklePoints = 0;
+  bool sparkleClear = true;
+  for (const auto& t : out.target.triangles) {
+    for (const fui::Point p : {t.a, t.b, t.c}) {
+      if (!inside(c22, p.x, p.y)) continue;
+      ++sparklePoints;
+      if (p.y < b22) sparkleClear = false;
+    }
+  }
+  CHECK(b22 > 0 && sparklePoints > 0);
+  check(sparkleClear, "a solved day's sparkle starts below its number", __LINE__);
+
+  // Cross: both strokes of day 10's cross are below its number.
+  const fui::Rect c10 = cellOf(9);
+  const int b10 = numberBottom("10");
+  int crossEnds = 0;
+  bool crossClear = true;
+  for (const auto& l : out.target.lines) {
+    for (const fui::Point p : {l.a, l.b}) {
+      if (!inside(c10, p.x, p.y)) continue;
+      ++crossEnds;
+      if (p.y < b10) crossClear = false;
+    }
+  }
+  CHECK(b10 > 0 && crossEnds > 0);
+  check(crossClear, "a lost day's cross starts below its number", __LINE__);
+
+  // Ring: the started day's outline is below its number.
+  const fui::Rect c5 = cellOf(4);
+  const int b5 = numberBottom("5");
+  bool ringFound = false;
+  bool ringClear = true;
+  for (const auto& st : out.target.strokes) {
+    if (!inside(c5, st.rect.x, st.rect.y) || (st.rect.width == c5.width && st.rect.height == c5.height)) continue;
+    ringFound = true;
+    if (st.rect.y < b5) ringClear = false;
+  }
+  CHECK(b5 > 0 && ringFound);
+  check(ringClear, "a started day's ring starts below its number", __LINE__);
+}
+
 void testConnectionsCalendarEveryDayIsReachable() {
   connectionsui::CalendarDay cells[42] = {};
   constexpr int kLead = 6;   // 1st falls on a Saturday
@@ -14821,6 +14902,7 @@ int main() {
   testConnectionsWonBoard();
   testConnectionsTilesShareOneSize();
   testConnectionsCalendarEveryDayIsReachable();
+  testCalendarMarksClearTheirDate();
   testConnectionsMenuOrnamentOpensArchive();
   testConnectionsHowToFitsOnePage();
   testConnectionsImportSaysSomethingIsHappening();

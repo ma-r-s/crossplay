@@ -1051,11 +1051,16 @@ CalendarLayout buildCalendar(toybox::Screen& screen, const CalendarModel& model)
     // A date with no puzzle is dithered rather than hidden, so the month keeps
     // its shape and the gaps read as "nothing here" instead of as a bug.
     if (!day.inArchive) number.color = fui::Color::DarkGray;
-    screen.target().text(fui::makeRect(box.x, box.y + 6, box.width, 22), label, number);
+    const fui::Rect numberBox = fui::makeRect(box.x, box.y + 6, box.width, 22);
+    screen.target().text(numberBox, label, number);
 
     if (day.played) {
-      const int markSize = cell / 2;
-      drawDayMark(screen, fui::makeRect(box.x + (cell - markSize) / 2, box.y + cell - markSize - 5, markSize, markSize),
+      // Below the number, in whatever the cell has left: a mark sized to half
+      // the cell started inside the number's own line and drew over it.
+      const int top = numberBox.y + numberBox.height + 2;
+      const int room = box.y + cell - 4 - top;
+      const int markSize = room < cell / 2 ? room : cell / 2;
+      drawDayMark(screen, fui::makeRect(box.x + (cell - markSize) / 2, top + (room - markSize) / 2, markSize, markSize),
                   day, ink);
     }
   }
