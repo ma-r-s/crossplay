@@ -317,6 +317,10 @@ if [ -n "$NEXT" ]; then
     # than looked up: release_notes.py maps by mergeCommit.oid and there is
     # no merge commit until the squash. Pointing it at this branch's tip is
     # what makes the mapping land on the pull request that is being shipped.
+    # --squash-onto makes the branch ONE landing, as the squash will: walked
+    # as it stands, every commit on it was a bullet and every trunk merge was
+    # named after work that shipped releases ago (v1.13.25 drafted fourteen
+    # lines for one pull request and failed the gate on length).
     # These notes are provisional -- the `release notes` step regenerates
     # them after the squash, when GitHub has set the real oid -- and only
     # docs differ between the two, which nothing compiles.
@@ -324,7 +328,7 @@ if [ -n "$NEXT" ]; then
     run "gh pr view '$PR_NUMBER' --repo ma-r-s/crossplay --json number,title,body,labels \
         | python3 -c 'import json,sys; d=json.load(sys.stdin); d[\"mergeCommit\"]={\"oid\": sys.argv[1]}; print(json.dumps([d]))' \
           \"\$(git rev-parse HEAD)\" > '$PRJSON'"
-    run "python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --version '$NEXT' --pr-json '$PRJSON' --write"
+    run "python3 scripts_local/release_notes.py --repo ma-r-s/crossplay --version '$NEXT' --pr-json '$PRJSON' --squash-onto origin/xteink --write"
     run "git add platformio.ini docs/release-notes.md docs/release-body.md"
     run "git commit -q -m 'chore: crossplay $NEXT'"
     run "git push -q origin '$BRANCH'"

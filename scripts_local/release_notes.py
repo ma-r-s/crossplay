@@ -127,9 +127,9 @@ def last_tag(repo, override=None):
     return max(tags, key=lambda t: tuple(int(x) for x in TAG.match(t).groups()))
 
 
-def merges_since(repo, tag):
+def merges_since(repo, tag, tip="HEAD"):
     out = run(
-        ["git", "log", "--first-parent", "--format=%H%x00%s", f"{tag}..HEAD"], repo
+        ["git", "log", "--first-parent", "--format=%H%x00%s", f"{tag}..{tip}"], repo
     )
     rows = []
     for line in out.splitlines():
@@ -194,7 +194,7 @@ def what_is_new(pr):
     return found or None
 
 
-def reaches_a_user(repo, sha):
+def reaches_a_user(repo, sha, base=None):
     """How does this landing reach a person: "yes", "quiet", or "no"?
 
     v1.12.17 announced seven changes. Four of them -- a board watcher, a
@@ -240,19 +240,24 @@ def reaches_a_user(repo, sha):
     crash. All of them print the bullet, and the refusal prints why. A bullet
     shown needlessly is noise; a bullet hidden wrongly is the bug this function
     exists to fix.
+
+    `base` is for a branch not yet squashed (--squash-onto): its landing is
+    everything from the merge base to the tip, not its last commit alone.
     """
     if not RULE.exists():
         return "yes"
-    parent = subprocess.run(
-        ["git", "rev-parse", "-q", "--verify", f"{sha}^1"],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-    )
-    if parent.returncode != 0:
-        return "yes"
+    if base is None:
+        parent = subprocess.run(
+            ["git", "rev-parse", "-q", "--verify", f"{sha}^1"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+        if parent.returncode != 0:
+            return "yes"
+        base = f"{sha}^1"
     r = subprocess.run(
-        ["bash", str(RULE), "--range", f"{sha}^1..{sha}", "--ships", "--quiet"],
+        ["bash", str(RULE), "--range", f"{base}..{sha}", "--ships", "--quiet"],
         cwd=repo,
         capture_output=True,
         text=True,
@@ -447,6 +452,15 @@ def main():
     # files for a release that will never exist -- after the pull request has
     # already been squash-merged, so it is not recoverable by re-running.
     ap.add_argument("--version")
+    # THE BRANCH AS THE ONE LANDING IT WILL BECOME. scripts_local/ship.sh
+    # writes the notes before the squash, and walking the unmerged branch's own
+    # first-parent line made every commit on it a bullet and every "Merge
+    # origin/xteink" commit a bullet named after trunk work that had shipped
+    # releases earlier: one pull request drafted fourteen lines and failed
+    # v1.13.25's gate on length. With this, the landings are the ones on REF
+    # since the tag plus HEAD as a single landing, which is what the walk sees
+    # after the squash.
+    ap.add_argument("--squash-onto", metavar="REF")
     a = ap.parse_args()
     repo = pathlib.Path(a.repo_dir).resolve()
     ini = repo / "platformio.ini"
@@ -454,7 +468,16 @@ def main():
     history = repo / "docs" / "release-notes.md"
 
     tag = last_tag(repo, a.last_tag)
-    merges = merges_since(repo, tag)
+    pending, pending_base = None, None
+    if a.squash_onto:
+        merges = merges_since(repo, tag, a.squash_onto)
+        pending = run(["git", "rev-parse", "HEAD"], repo).strip()
+        pending_base = run(["git", "merge-base", a.squash_onto, "HEAD"], repo).strip()
+        if pending_base != pending:
+            subject = run(["git", "log", "-1", "--format=%s", "HEAD"], repo).strip()
+            merges.append((pending, subject))
+    else:
+        merges = merges_since(repo, tag)
     if not merges:
         print(f"nothing merged since {tag}")
         print("NEXT_VERSION=")
@@ -480,7 +503,7 @@ def main():
             title = branch_subject(repo, sha) or subject
             written = None
             lines = [humanize(title)]
-        verdict = reaches_a_user(repo, sha)
+        verdict = reaches_a_user(repo, sha, pending_base if sha == pending else None)
         if verdict == "no":
             dropped.append((humanize(title), lines))
         elif verdict == "quiet" and not written:

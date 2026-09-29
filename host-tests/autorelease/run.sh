@@ -708,5 +708,51 @@ else
   skip "v1.12.20/v1.12.21 not in this clone; the real-range checks did not run"
 fi
 
+# --- ship.sh's notes, written BEFORE the squash (--squash-onto) -------------
+# The branch is walked while it is still a branch. Shaped like app/hex on
+# v1.13.25: commits of its own, and merges of trunk that bring in work which
+# shipped under an EARLIER tag. Walked as it stands, each commit became a
+# bullet and each trunk merge a bullet named after that earlier work -- one
+# pull request drafted fourteen lines and failed the gate on length. With
+# --squash-onto the branch is the one landing it will be after the squash, and
+# trunk's own landings since the tag are still listed.
+R4="$WORK/pending"; mkdir -p "$R4"; cd "$R4" || exit 1
+q git init -q -b xteink
+q git config user.email t@t; q git config user.name t
+printf '[crossplay]\nversion = 1.12.9\n' > platformio.ini
+lay_out_docs "$R4" 1.12.9 "The old note"
+echo base > a.txt; q git add -A; q git commit -qm "base"
+q git checkout -qb app/big; echo 1 > game.txt; q git add -A; q git commit -qm "feat(game): first step"
+q git checkout -q xteink; q git checkout -qb app/old; echo old > old.txt; q git add -A; q git commit -qm "Old: shipped a release ago"
+q git checkout -q xteink; q git merge -q --no-ff app/old -m "Merge branch 'app/old' into xteink"; q git tag v1.12.9
+q git checkout -q app/big; q git merge -q --no-ff xteink -m "Merge branch 'xteink' into app/big"
+echo 2 >> game.txt; q git commit -qam "fix(game): second step"
+q git checkout -q xteink; q git checkout -qb app/new; echo new > new.txt; q git add -A; q git commit -qm "New: on trunk since the tag"
+q git checkout -q xteink; q git merge -q --no-ff app/new -m "Merge branch 'app/new' into xteink"
+q git checkout -q app/big; q git merge -q --no-ff xteink -m "Merge branch 'xteink' into app/big"
+echo 3 >> game.txt; q git commit -qam "docs(game): third step"
+cat > "$WORK/pending.json" <<JSON
+[{"number": 9, "title": "Game: the whole game", "body": "What is new: The new game.", "labels": [], "mergeCommit": {"oid": "$(git rev-parse HEAD)"}}]
+JSON
+cd "$HERE" || exit 1
+walked="$(python3 "$TOOL" --repo-dir "$R4" --pr-json "$WORK/pending.json" --dry-run 2>&1)"
+pending="$(python3 "$TOOL" --repo-dir "$R4" --pr-json "$WORK/pending.json" --squash-onto xteink --dry-run 2>&1)"
+# The fixture has to reproduce the bug, or the checks below prove nothing.
+if printf '%s\n' "$walked" | grep -qx '  - Old: shipped a release ago'; then
+  ok "walked as a branch, the notes name work from an earlier release (the bug, reproduced)"
+else
+  bad "the fixture no longer reproduces the pre-squash walk; the checks below prove nothing"
+fi
+bullets="$(printf '%s\n' "$pending" | grep '^  - ' | sort)"
+want="$(printf '  - New: on trunk since the tag\n  - The new game.\n' | sort)"
+if [ "$bullets" = "$want" ]; then
+  ok "--squash-onto: the pull request's line and trunk's landing since the tag, nothing else"
+else
+  bad "--squash-onto listed:
+$bullets
+expected:
+$want"
+fi
+
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
