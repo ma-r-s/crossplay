@@ -261,10 +261,15 @@ won 57 of 100 against the old one. `testTheSelectionIsTheRaveBlendWithoutADivisi
 checks the fraction against the blend written the plain way over 20,000 random
 nodes.
 
-HARD is now 10,000 simulations under a 2 s clock. **The new loop's speed on the
-chip is not measured yet**; the clock caps the wait whatever it turns out to be,
-and if the chip falls short of 10,000 in two seconds the per-move log line says
-by how much.
+HARD is now 10,000 simulations under a 2 s clock. **Measured on an X4 Pro**
+(DEVICE 2, 2026-09-28, the computer opening on an empty board and five replies):
+3,500 to 4,200 simulations a second, against 2,250 before, and every move ended
+early, between 1.1 and 1.9 s (the opening move 1.8 s, 6,304 simulations). Two
+seconds therefore buys about 7,500 simulations rather than the full 10,000, and
+7,500 against 10,000 won 91 of 200 on the laptop: about 30 Elo, against levels
+650 apart. That is the price of the shorter wait, and it was taken on purpose.
+The next lever, if HARD ever needs it back, is playouts on core 0 (the search
+task is pinned to core 1), not fewer simulations.
 
 The search runs on a **task of its own, pinned to core 1**, so a two-second
 think cannot starve the core the system watchdog looks at. `thinking` is

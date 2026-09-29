@@ -243,7 +243,9 @@ bool Search::reroot(const hex::Game& game) {
 // algorithm. HARD is the strength the X4 Pro reached in four and a half
 // seconds before the selection loop lost its divisions (10,000 simulations;
 // 4,000 won 24 of 100 against it, 6,000 won 40), under a clock of two seconds
-// so the wait has a ceiling whatever the chip manages.
+// so the wait has a ceiling whatever the chip manages. On the X4 Pro the
+// division-free loop runs about 3,800 a second, so the clock usually binds
+// near 7,500 and the early stop ends most moves sooner.
 Settings settingsFor(const hex::Level level) {
   Settings s;
   switch (level) {
