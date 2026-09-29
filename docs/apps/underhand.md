@@ -309,12 +309,13 @@ has none (its gods screen is a gallery of the ones summoned), which Mario
 asked about on 2026-09-24.
 
 **The menu** opens only when there is no run: a run in progress opens straight
-onto its card, and Back from it opens the menu. Headline (`TURN 17`, `FIRST
-RUN`, `NEW RUN`) over one line of what a run is (`Summon a god to win a run.
-Gods you summon stay.`), the seven gods (a skull by each summoned, a dash by
-the rest: a record, not controls), `HOW TO PLAY`, `GIVE UP` during a run or
-`START OVER` between runs, and the primary button at the bottom (`CONTINUE`,
-`BEGIN`, `START`).
+onto its card, and Back from it opens the menu. Headline (`TURN 17`,
+`TUTORIAL` while the tutorial is next, which is until it is won, `NEW RUN`)
+over one line of what a run is (`Summon a god to win a run. Gods you summon
+stay.`), the seven gods (a skull by each summoned, a dash by the rest: a
+record, not controls), `HOW TO PLAY`, `GIVE UP` during a run or `START OVER`
+between runs, and the primary button at the bottom (`CONTINUE`, `BEGIN`,
+`START`).
 
 **Starting over** is the original's two settings, Reset Tutorial and Reset
 Game, the only features of the original that were missing when Mario asked on

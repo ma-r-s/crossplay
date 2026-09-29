@@ -831,7 +831,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     sub = "Summon a god to win this run.";
     go = "CONTINUE";
   } else if (model.tutorial) {
-    std::snprintf(headline, sizeof(headline), "FIRST RUN");
+    // The tutorial is next until it is won, which is not only the first run:
+    // after giving it up, and after REPLAY TUTORIAL, it is next again.
+    std::snprintf(headline, sizeof(headline), "TUTORIAL");
     sub = "It teaches the game. Summon a god to win.";
     go = "BEGIN";
   } else {
