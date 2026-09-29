@@ -148,7 +148,7 @@ bool drawsPinnedSleep(const uint8_t sleepScreenMode, const bool quickResumeAfter
   // 3. and 4.
   if (sleepScreenMode == kSleepCustom) return true;
   if (sleepScreenMode == kSleepCoverCustom) return !fromReader;
-  // 5. DARK, LIGHT, COVER, BLANK.
+  // 5. DARK, LIGHT, COVER, BLANK, and NOTE, which draws a note, not this file.
   return false;
 }
 
@@ -206,6 +206,8 @@ const char* sleepScreenModeName(const uint8_t sleepScreenMode) {
       return "Quick Resume";
     case kSleepTransparentCustom:
       return "Transparent";
+    case kSleepNote:
+      return "Note";
     default:
       return "Unknown";
   }
@@ -258,6 +260,8 @@ const char* modeTakeoverNote(const uint8_t previousMode) {
       return "Was Quick Resume, now Custom.";
     case kSleepTransparentCustom:
       return "Was Transparent, now Custom.";
+    case kSleepNote:
+      return "Was Note, now Custom.";
     default:
       return nullptr;
   }

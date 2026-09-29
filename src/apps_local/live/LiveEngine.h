@@ -88,5 +88,10 @@ class RadioLease {
 // what lets a device with no wall clock keep a schedule: see LiveCore's decide.
 uint32_t onSleep(bool& repaintNeeded, bool timerFired = false);
 
+// The alarm for a sleep that does not go through onSleep: LiveCore's
+// resleepSeconds against the stored state. No radio, no fetch, no write.
+// 0 when there is no state or nothing to schedule.
+uint32_t resleepSeconds();
+
 }  // namespace engine
 }  // namespace live

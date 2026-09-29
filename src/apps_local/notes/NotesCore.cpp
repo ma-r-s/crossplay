@@ -184,4 +184,61 @@ bool stripMarkers(std::string& doc) {
   return changed;
 }
 
+std::vector<size_t> drawnLines(const std::string& doc, const std::vector<Line>& lines) {
+  std::vector<size_t> out;
+  out.reserve(lines.size());
+  for (size_t i = 0; i < lines.size(); i++) {
+    const Line& line = lines[i];
+    if (line.begin >= line.end) continue;
+    const std::string text = textOf(doc, line);
+    bool blank = true;
+    for (const char c : text) {
+      if (c != ' ' && c != '\t') {
+        blank = false;
+        break;
+      }
+    }
+    if (!blank) out.push_back(i);
+  }
+  return out;
+}
+
+std::string formatAsleep(const AsleepChoice& choice) {
+  return choice.name + "\n" + std::to_string(choice.previousMode) + "\n" + std::to_string(choice.previousQuickResume) +
+         "\n";
+}
+
+namespace {
+// A line of digits up to `max`, else -1. Trailing CR and spaces are allowed;
+// anything else, a sign included, reads as unknown.
+int smallNumber(std::string line, const int max) {
+  while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+  if (line.empty()) return -1;
+  int value = 0;
+  for (const char c : line) {
+    if (c < '0' || c > '9') return -1;
+    value = value * 10 + (c - '0');
+    if (value > max) return -1;
+  }
+  return value;
+}
+}  // namespace
+
+bool parseAsleep(const std::string& text, AsleepChoice& out) {
+  out = AsleepChoice{};
+  const size_t nl = text.find('\n');
+  std::string name = text.substr(0, nl);
+  while (!name.empty() && (name.back() == '\r' || name.back() == ' ')) name.pop_back();
+  if (name.empty()) return false;
+  out.name = name;
+  if (nl == std::string::npos) return true;
+  const size_t nl2 = text.find('\n', nl + 1);
+  out.previousMode = smallNumber(text.substr(nl + 1, nl2 == std::string::npos ? std::string::npos : nl2 - nl - 1), 255);
+  if (nl2 == std::string::npos) return true;
+  const size_t nl3 = text.find('\n', nl2 + 1);
+  out.previousQuickResume =
+      smallNumber(text.substr(nl2 + 1, nl3 == std::string::npos ? std::string::npos : nl3 - nl2 - 1), 1);
+  return true;
+}
+
 }  // namespace notes

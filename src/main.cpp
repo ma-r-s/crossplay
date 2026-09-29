@@ -365,6 +365,17 @@ CROSSPLAY_SLEEP_NORETURN static void startDeepSleepArmed(const uint64_t timerMic
 #endif
 }
 
+// THE ALARM FOR A SLEEP THAT SKIPS enterDeepSleep. A bump that did not hold the
+// power button, and a USB-power cold boot, both go straight back down from
+// setup() -- and both used to arm kTimerWakeMicros, which is 0 on every release
+// env, so one bump disarmed Live and a fridge slept until a person woke it
+// (card #620). Live's own number when it has one, the build's otherwise: the
+// same choice enterDeepSleep makes.
+[[maybe_unused]] static uint64_t resleepTimerMicros() {
+  const uint32_t liveSeconds = live::engine::resleepSeconds();
+  return liveSeconds > 0 ? static_cast<uint64_t>(liveSeconds) * 1000000ULL : kTimerWakeMicros;
+}
+
 // Enter deep sleep mode
 // `unattended` says the device woke itself and nobody ever saw a UI: it
 // repaints the sleep screen and re-arms, and touches no state that belongs
@@ -702,7 +713,7 @@ void setup() {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
         powerprobe::beforeSleep();
         Storage.prepareForDeepSleep();
-        startDeepSleepArmed(kTimerWakeMicros);
+        startDeepSleepArmed(resleepTimerMicros());
       }
       wakePowerReleasePending = true;
       break;
@@ -753,7 +764,7 @@ void setup() {
 #else
       powerprobe::beforeSleep();
       Storage.prepareForDeepSleep();
-      startDeepSleepArmed(kTimerWakeMicros);
+      startDeepSleepArmed(resleepTimerMicros());
       break;
 #endif
     case HalGPIO::WakeupReason::AfterFlash:

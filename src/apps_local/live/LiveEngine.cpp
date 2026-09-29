@@ -347,5 +347,11 @@ uint32_t onSleep(bool& repaintNeeded, const bool timerFired) {
   return after.timerSeconds;
 }
 
+uint32_t resleepSeconds() {
+  State state;
+  if (!load(state)) return 0;
+  return live::resleepSeconds(state.schedule(), nowEpoch());
+}
+
 }  // namespace engine
 }  // namespace live

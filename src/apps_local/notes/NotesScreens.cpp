@@ -740,7 +740,7 @@ void noteRows(toybox::Screen& screen, const NoteModel& model, const fui::Rect& b
     tickBox(screen, fui::makeRect(row.x, boxTop, kBoxSide, kBoxSide), task.checked);
     const int16_t textX = static_cast<int16_t>(row.x + kBoxSide + toybox::kGutter);
     drawLines(screen, fui::makeRect(textX, textTop, flow.textWidth, textHeight), block.lines, flow.body, task.checked);
-    rowHit(screen, row, ActionToggleTask, block.item);
+    if (!model.asleep) rowHit(screen, row, ActionToggleTask, block.item);
     y = static_cast<int16_t>(y + row.height);
   }
 }
@@ -774,7 +774,11 @@ int16_t stripSpace(const NoteModel& model) {
 
 fui::Rect noteBandFor(const fui::DeviceContext& device, const NoteModel& model) {
   const int16_t width = static_cast<int16_t>(device.width - 2 * toybox::kMargin);
-  const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
+  // Asleep there is no footer, so the band runs to where the footer's top
+  // edge would have been at the page's foot: rows plus the gutter that
+  // separated them from it.
+  const int16_t footerY = model.asleep ? static_cast<int16_t>(device.height - toybox::kMargin + toybox::kGutter * 2)
+                                       : static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
   const int16_t top = static_cast<int16_t>(kBodyTop + stripSpace(model));
   return fui::makeRect(toybox::kMargin, top, width, static_cast<int16_t>(footerY - toybox::kGutter * 2 - top));
 }
@@ -841,6 +845,7 @@ void buildNote(toybox::Screen& screen, const NoteModel& model) {
 
   noteRows(screen, model, band, planNote(screen.target(), model, band));
   pageLabel(screen, band, model.pageLabel);
+  if (model.asleep) return;
 
   // ADD keeps the left edge, the fork-wide home for a primary action and the
   // pixel a thumb learns. CLEAR DONE appears only when there is something to
@@ -951,6 +956,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
       {model.isList ? "MAKE IT A NOTE" : "MAKE IT A LIST", model.isList ? "the ticks are lost" : nullptr,
        ActionSwitchKind},
       {"RENAME", nullptr, ActionRename},
+      // The sleep screen. Asking for it here also switches Settings > Sleep
+      // screen to Note, so one tap is the whole job; the setting alone, with
+      // no note chosen, would show the default screen and explain nothing.
+      {model.shownAsleep ? "TAKE OFF SLEEP SCREEN" : "PUT ON SLEEP SCREEN", nullptr, ActionShowAsleep},
   };
   const int count = static_cast<int>(sizeof(rows) / sizeof(rows[0]));
 

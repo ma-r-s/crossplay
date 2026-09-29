@@ -13108,6 +13108,39 @@ void testWallpapersChromeSaysWhenLiveIsTheSleepScreen() {
   CHECK(!drewText(out, "Tap one to set"));
 }
 
+// A note on the sleep screen is a standing state like Live, and it outranks
+// Live: with Sleep Screen on Note the sleep path never reads /sleep.bmp.
+void testWallpapersChromeSaysWhenANoteIsTheSleepScreen() {
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.hasActive = false;
+    model.noteOn = true;
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, wallpapersui::noteStripLine()));
+    CHECK(!drewText(out, "Tap one to set"));
+  }
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.noteOn = true;
+    model.liveOn = true;
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, wallpapersui::noteStripLine()));
+    CHECK(!drewText(out, wallpapersui::liveStripLine()));
+  }
+  {
+    // News still wins, as it does over Live.
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.noteOn = true;
+    model.note = "Was Note, now Custom.";
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, "Was Note, now Custom."));
+    CHECK(!drewText(out, wallpapersui::noteStripLine()));
+  }
+}
+
 // ...but it does not silence the two lines above it. Both are NEWS -- something
 // changed behind the user's back, or the card is filling -- and Live being on
 // is a standing state that would suppress either for the whole session. That
@@ -14456,9 +14489,52 @@ void aHugeUnbrokenRunIsCheapAndLosesNothing() {
   check(drawn == blob, "every byte of a 4000-byte run is drawn exactly once across the pages", __LINE__);
 }
 
+// The sleep screen draws a note read-only: nobody can press anything on a
+// sleeping device, so nothing is registered and no footer is drawn, and the
+// rows take the footer's height. The awake twin is asserted beside it, so the
+// checks are shown able to fail on this same model.
+void aNoteAsleepIsReadOnlyAndTaller() {
+  std::vector<std::string> texts;
+  for (int i = 0; i < 40; i++) texts.push_back("Item " + std::to_string(i));
+  std::vector<notesui::Task> tasks;
+  for (const auto& text : texts) tasks.push_back({text.c_str(), (tasks.size() % 3) == 0});
+  notesui::NoteModel model;
+  model.title = "Groceries";
+  model.tasks = tasks.data();
+  model.count = static_cast<int>(tasks.size());
+  model.anyDone = true;
+  model.done = 14;
+  model.total = model.count;
+
+  Rendered awake;
+  buildNote(awake, model);
+  check(awake.has(notesui::ActionToggleTask) && awake.has(notesui::ActionAddLine),
+        "awake, the rows and ADD are tappable (the control for the checks below)", __LINE__);
+
+  model.asleep = true;
+  Rendered asleep;
+  buildNote(asleep, model);
+  check(asleep.interactions.count() == 0, "asleep, NOTHING is registered: no row, no footer, no menu", __LINE__);
+  bool footerWords = false;
+  for (const auto& run : asleep.target.texts) {
+    if (run.text == "ADD" || run.text == "CLEAR DONE") footerWords = true;
+  }
+  check(!footerWords, "asleep, the footer's buttons are not drawn", __LINE__);
+
+  FakeTarget measure;
+  model.asleep = false;
+  const std::vector<int> awakeStarts = notesui::notePageStarts(measure, device(), model);
+  model.asleep = true;
+  const std::vector<int> asleepStarts = notesui::notePageStarts(measure, device(), model);
+  check(awakeStarts.size() > 1 && asleepStarts.size() > 1, "forty items do not fit one page either way", __LINE__);
+  check(asleepStarts.size() > 1 && awakeStarts.size() > 1 && asleepStarts[1] > awakeStarts[1],
+        "asleep, the first page holds MORE rows: the footer's height went to the list", __LINE__);
+}
+
 }  // namespace notestest
 
 int main() {
+  notestest::aNoteAsleepIsReadOnlyAndTaller();
   notestest::aWrappedDoneItemIsStruckOnEveryLine();
   notestest::anUndoneWrappedItemIsNotStruck();
   notestest::longItemsNeverLeaveTheirRowOnAList();
@@ -14485,6 +14561,7 @@ int main() {
   testWallpapersChromeShowsThePage();
   testWallpapersChromeWarningVerbatim();
   testWallpapersChromeSaysWhenLiveIsTheSleepScreen();
+  testWallpapersChromeSaysWhenANoteIsTheSleepScreen();
   testWallpapersChromeLiveDoesNotDisplaceTheNoteOrTheWarning();
   testWallpapersEmptyStateSaysSomething();
   testWallpapersCaptionNeverCollidesWithArtwork();

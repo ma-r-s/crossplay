@@ -57,6 +57,7 @@ enum : fui::ActionId {
   ActionDelete = 347,
   ActionUsePhone = 348,
   ActionSwitchKind = 352,
+  ActionShowAsleep = 353,
   ActionDismiss = 349,
 };
 
@@ -124,6 +125,12 @@ struct NoteModel {
   // glyphs; a square icon button sits centred on the band where a text label
   // sits on the component's own baseline, low against the title.
   const freeink::Icon* menuIcon = nullptr;
+  // The sleep screen (Settings > Sleep screen > Note): the same note, read
+  // only. No footer and no tappable rows, because nobody can press anything
+  // on a sleeping device, and the rows take the footer's height instead.
+  // What does not fit says so with the page label, since the sleep screen
+  // cannot turn a page.
+  bool asleep = false;
 };
 
 void buildNote(toybox::Screen& screen, const NoteModel& model);
@@ -151,6 +158,9 @@ struct MenuModel {
   // What the note is NOW. The kind row offers the other one, so this picks its
   // wording rather than adding a second action.
   bool isList = false;
+  // This note is the one the sleep screen shows. Picks the row's wording, the
+  // same way isList does.
+  bool shownAsleep = false;
 };
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);

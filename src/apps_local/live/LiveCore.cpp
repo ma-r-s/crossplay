@@ -145,6 +145,12 @@ Decision decide(const Schedule& schedule, const int64_t nowEpoch, const bool tim
   return out;
 }
 
+uint32_t resleepSeconds(const Schedule& schedule, const int64_t nowEpoch) {
+  const Decision decision = decide(schedule, nowEpoch);
+  if (decision.fetchNow) return kDueResleepSeconds;
+  return decision.timerSeconds;
+}
+
 namespace {
 
 // "45 minutes", "an hour", "5 hours", "a day", "2 days": the coarsest unit the

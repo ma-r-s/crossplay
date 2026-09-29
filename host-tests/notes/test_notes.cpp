@@ -240,9 +240,71 @@ void testClearing() {
   CHECK(crlf == "- [ ] stays\r\n");
 }
 
+// The rows a note draws, shared by the open note and the sleep screen. A blank
+// line and a marker with nothing after it are spacing, not items.
+void testDrawnLines() {
+  const std::string doc = "- [ ] milk\n\n- [x] \n   \n- [x] eggs\nbread\n";
+  const std::vector<Line> lines = parse(doc);
+  const std::vector<size_t> drawn = drawnLines(doc, lines);
+  CHECK(drawn.size() == 3);
+  if (drawn.size() == 3) {
+    CHECK(textOf(doc, lines[drawn[0]]) == "milk");
+    CHECK(textOf(doc, lines[drawn[1]]) == "eggs");
+    CHECK(lines[drawn[1]].checked);
+    CHECK(textOf(doc, lines[drawn[2]]) == "bread");
+  }
+  CHECK(drawnLines("", parse("")).empty());
+}
+
+// The sleep screen's choice: the note's name and the mode it replaced, so
+// turning it off puts back the person's own screen.
+void testAsleepChoice() {
+  AsleepChoice in;
+  in.name = "Groceries";
+  in.previousMode = 2;
+  AsleepChoice out;
+  CHECK(parseAsleep(formatAsleep(in), out));
+  CHECK(out.name == "Groceries");
+  CHECK(out.previousMode == 2);
+
+  // Nothing recorded to put back survives the round trip as "nothing".
+  in.previousMode = -1;
+  CHECK(parseAsleep(formatAsleep(in), out));
+  CHECK(out.previousMode == -1);
+
+  // A name alone, a Windows line ending, and trailing spaces all read.
+  CHECK(parseAsleep("Packing list\r\n", out) && out.name == "Packing list" && out.previousMode == -1);
+  CHECK(parseAsleep("Packing list", out) && out.name == "Packing list");
+
+  // No name is no choice, whatever follows; a mode that is not a mode is
+  // forgotten rather than trusted.
+  CHECK(!parseAsleep("", out));
+  CHECK(!parseAsleep("\n3\n", out));
+  CHECK(parseAsleep("Todo\n9999\n", out) && out.name == "Todo" && out.previousMode == -1);
+  CHECK(parseAsleep("Todo\nabc\n", out) && out.previousMode == -1);
+
+  // Quick Resume on Timeout, which putting a note up turns off: recorded so
+  // taking it down turns it back on. Unknown is -1, "leave it alone".
+  in.name = "Groceries";
+  in.previousMode = 2;
+  in.previousQuickResume = 1;
+  CHECK(parseAsleep(formatAsleep(in), out));
+  CHECK(out.previousMode == 2 && out.previousQuickResume == 1);
+  in.previousQuickResume = 0;
+  CHECK(parseAsleep(formatAsleep(in), out) && out.previousQuickResume == 0);
+  // A file written before the field existed, or a value that is not 0 or 1.
+  CHECK(parseAsleep("Todo\n3\n", out) && out.previousMode == 3 && out.previousQuickResume == -1);
+  CHECK(parseAsleep("Todo\n3\n7\n", out) && out.previousQuickResume == -1);
+  CHECK(parseAsleep("Todo\r\n3\r\n1\r\n", out) && out.previousMode == 3 && out.previousQuickResume == 1);
+  // A bad mode does not lose a good quick-resume value beside it.
+  CHECK(parseAsleep("Todo\nabc\n1\n", out) && out.previousMode == -1 && out.previousQuickResume == 1);
+}
+
 }  // namespace
 
 int main() {
+  testDrawnLines();
+  testAsleepChoice();
   testWhatIsATask();
   testATickIsOneByte();
   testKind();
