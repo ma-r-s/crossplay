@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.25
+
+- Hex, the connection game: join your two edges before your opponent joins theirs. Against the device at three levels, across the table, or over PLAY NEARBY. On the Games shelf.
+
 ### 1.13.24
 
 - Notes: put a note on the sleep screen (#198)

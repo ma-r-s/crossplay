@@ -38,6 +38,7 @@ them. These are the ones worth a stranger's time.
 | [`seasalt.md`](seasalt.md) | Sea Salt & Paper, and the rulebook contradiction Mario settled. |
 | [`hearts.md`](hearts.md) | The shelf's first trick-taking game, and the shared deck it created. |
 | [`toybattle.md`](toybattle.md) | The fork's first graph board. |
+| [`hex.md`](hex.md) | A connection game with no captures and no draws, and the geometry that fills the panel. |
 | [`murdle.md`](murdle.md) | A logic grid built through the solver, so a case is never a guess. |
 | [`wavelength.md`](wavelength.md) | The dial, and why the board is public. |
 | [`forehead.md`](forehead.md) | The first game to make both physical buttons load-bearing. |
