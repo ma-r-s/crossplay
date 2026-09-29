@@ -430,6 +430,26 @@ if [ "$DRY" = 1 ]; then
   say "   would: compare the new trunk tree against $(git rev-parse --short HEAD)'s"
 else
   BRANCH_HEAD="$(git rev-parse HEAD)"
+  # LOOK BEFORE MERGING. The gate takes fifteen minutes and trunk can move in
+  # it. Checked only after the squash (below), a moved trunk left a MERGED
+  # pull request this script cannot finish, because a re-run needs an OPEN
+  # one: three stuck merges on 2026-09-28 (notices n30, n31), and the hand
+  # publishing that followed one of them collided with the next. Stopping
+  # here merges nothing, so the re-run the message asks for works. The
+  # emulator's own files are the one change allowed, as below, since CI
+  # commits them by itself and no image contains them.
+  run "git fetch -q origin xteink"
+  TRUNK_NOW="$(git rev-parse origin/xteink)"
+  if [ "$TRUNK_NOW" != "$TRUNK" ]; then
+    MOVED="$(git diff --name-only "$TRUNK" "$TRUNK_NOW" -- . ':(exclude)site/emulator-manifest.json' ':(exclude)site/emulator')"
+    if [ -n "$MOVED" ]; then
+      die "xteink moved during the gate ($(git rev-list --count "$TRUNK".."$TRUNK_NOW") commits), so its tree is not the one the gate built.
+    changed: $(printf '%s' "$MOVED" | head -5 | tr '\n' ' ')
+    Nothing merged, nothing tagged, nothing published; the pull request is still open.
+    Bring the branch up to date and re-run:
+        git merge origin/xteink && git push && ./scripts_local/ship.sh"
+    fi
+  fi
   run "gh pr merge '$PR_NUMBER' --repo ma-r-s/crossplay --squash --delete-branch=false"
   run "git fetch -q origin xteink"
   TRUNK_NEW="$(git rev-parse origin/xteink)"

@@ -702,6 +702,23 @@ else
   rm -rf "$EMU"
 fi
 guard_refuses "different-tree" "the squash landed a different tree"
+guard_refuses "moved-before-merge" "xteink moved during the gate"
+
+# -- the moved-trunk stop comes BEFORE the merge --------------------------------
+#
+# Notices n30 and n31: checked only after `gh pr merge`, a trunk that moved
+# during the gate left a MERGED pull request that no re-run could finish (a
+# re-run needs an open one), three times on 2026-09-28. The guard existing is
+# not enough: after the merge it fires too late. So its line must come first.
+checks=$((checks + 1))
+MOVED_AT="$(printf '%s\n' "$CODE" | grep -n 'xteink moved during the gate' | head -1 | cut -d: -f1)"
+MERGE_AT="$(printf '%s\n' "$CODE" | grep -n 'gh pr merge' | grep -v 'would:' | head -1 | cut -d: -f1)"
+if [ -n "$MOVED_AT" ] && [ -n "$MERGE_AT" ] && [ "$MOVED_AT" -lt "$MERGE_AT" ]; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  the moved-trunk stop (line ${MOVED_AT:-none}) does not come before the merge (line ${MERGE_AT:-none}): after the squash it can only leave a merged pull request nothing can release"
+fi
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
