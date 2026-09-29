@@ -55,9 +55,6 @@ namespace {
 // rather than literalness: a crown, a hull, a grid and a card suit share no
 // shape, so a row is scannable before the label is read.
 constexpr shelf::Item kGames[] = {
-    // TEMPORARY first row so the layout renders one tap from Home; moves to the
-    // end of the shelf, with its own icon, when the real app is built.
-    {"WORDLE", &icon_picross_32, &WordleActivity::create},
     {"CHESS", &icon_chess_32, &ChessActivity::create},
     {"BATTLESHIP", &icon_battleship_32, &BattleshipActivity::create},
     {"CONNECTIONS", &icon_connections_32, &ConnectionsActivity::create},
@@ -82,6 +79,7 @@ constexpr shelf::Item kGames[] = {
     {"GO", &icon_go_32, &GoActivity::create},
     {"HEX", &icon_hex_32, &HexActivity::create},
     {"UNDERHAND", &icon_underhand_32, &UnderhandActivity::create},
+    {"WORDLE", &icon_wordle_32, &WordleActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},

@@ -461,3 +461,11 @@ live_remove = x           # the end of a sender row. `trash-2` is a drawn object
                           # confirm behind it NAMES who is going, which is the
                           # sentence that matters and the one place it can be
                           # read without shrinking four rows to fit it.
+# WORDLE is five letter tiles, and no Lucide icon is a row of tiles that does not
+# read as a text field. `spell-check` is letters with a tick under them: a word
+# checked, which is what every guess is. Spliced in by hand (see the warning at
+# the top of this file).
+wordle        = spell-check
+# The keyboard's delete key: Lucide's `delete` is a backspace key, which is the
+# thing on every phone keyboard, where an arrow alone read as "go back".
+wordle_delete = delete

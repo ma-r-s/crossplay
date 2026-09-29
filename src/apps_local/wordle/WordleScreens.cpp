@@ -2,33 +2,38 @@
 
 #include <FreeInkUIIcon.h>
 
+#include <cstdio>
+
 #include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxMetrics.h"
 #include "../ui/ToyboxTokens.h"
-
-// TEMPORARY: which of the three proposed layouts builds. The two that lose are
-// deleted with this macro in the commit that builds the winner.
-//   1  classic: big tiles, QWERTY with ENTER and delete on the bottom row
-//   2  big keys: smaller tiles, taller QWERTY, ENTER and delete as a footer bar,
-//      absent letters dithered
-//   3  alphabet: A-Z in four rows of seven, absent letters dithered
-#ifndef WORDLE_VARIANT
-#define WORDLE_VARIANT 1
-#endif
 
 namespace wordleui {
 namespace {
 
 const fui::Paint kInk = fui::Paint::solid(fui::Color::Black);
+// One dot in four: the lighter of the renderer's two greys.
+const fui::Paint kGrey = fui::Paint::dither(fui::Color::LightGray);
 
-void chrome(toybox::Screen& screen, const GameModel& model) {
+// Below the band by the same clearance every screen keeps under it.
+constexpr int16_t kMessageTop = toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule + toybox::kGutter;
+constexpr int16_t kMessageH = 22;
+constexpr int16_t kGridTop = kMessageTop + kMessageH + 4;
+constexpr int16_t kTile = 60;
+constexpr int16_t kTileGap = 8;
+constexpr int16_t kKeyGap = 6;
+constexpr int16_t kKeyH = 74;
+constexpr int16_t kKeysBelowGrid = 16;
+const char* const kKeyRows[3] = {"QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"};
+
+void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
   fui::HeaderProps header;
-  header.title = model.title;
+  header.title = title;
   header.titleText = screen.theme().titleText;
   header.titleText.font = toybox::kDisplayFont;
-  header.rightLabel = model.rightLabel;
+  header.rightLabel = rightLabel;
   header.borderEdges = fui::EdgesNone;
-  if (model.rightLabel != nullptr) {
+  if (rightLabel != nullptr) {
     header.subtitleText = screen.theme().smallText;
     header.subtitleText.font = toybox::kTileFont;
     header.subtitleText.color = fui::Color::White;
@@ -48,26 +53,21 @@ void centredText(fui::DrawTarget& target, const fui::Rect& box, const char* text
               style);
 }
 
-// One tile or key. The marks are the agreed ones: right place is solid black,
-// in the word is a heavy border with a dot, not in the word is a thin border
-// (or, in variant 3, a dithered ground).
-void cell(fui::DrawTarget& target, const fui::Rect& box, const char letter, const Mark mark, const fui::FontId font,
-          const bool absentDither) {
+// One tile or key. Right place: solid black. In the word: a heavy border and a
+// dot. Not in the word: grey. Empty: a thin border; typed: a firmer one.
+void cell(fui::DrawTarget& target, const fui::Rect& box, const char letter, const Mark mark, const fui::FontId font) {
   const char text[2] = {letter, '\0'};
   switch (mark) {
     case Mark::Empty:
       target.stroke(box, kInk, 1);
+      if (letter != '\0') centredText(target, box, text, font, fui::Color::Black);
       return;
     case Mark::Typed:
       target.stroke(box, kInk, 2);
       centredText(target, box, text, font, fui::Color::Black);
       return;
     case Mark::Absent:
-      if (absentDither) {
-        target.fill(box, fui::Paint::dither(fui::Color::LightGray));
-      } else {
-        target.stroke(box, kInk, 1);
-      }
+      target.fill(box, kGrey);
       centredText(target, box, text, font, fui::Color::Black);
       return;
     case Mark::Present: {
@@ -86,25 +86,12 @@ void cell(fui::DrawTarget& target, const fui::Rect& box, const char letter, cons
   }
 }
 
-// The six guesses, centred in the body, tiles of `tile` pixels.
-int16_t grid(toybox::Screen& screen, const GameModel& model, const int16_t top, const int16_t tile, const int16_t gap,
-             const bool absentDither) {
-  fui::DrawTarget& target = screen.target();
-  const fui::Rect safe = screen.frame().safeRect();
-  const int16_t width = static_cast<int16_t>(kLetters * tile + (kLetters - 1) * gap);
-  const int16_t left = static_cast<int16_t>(safe.x + (safe.width - width) / 2);
-  for (int r = 0; r < kRows; ++r) {
-    for (int c = 0; c < kLetters; ++c) {
-      const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + c * (tile + gap)),
-                                          static_cast<int16_t>(top + r * (tile + gap)), tile, tile);
-      cell(target, box, model.tiles[r][c].letter, model.tiles[r][c].mark, toybox::kDisplayFont, absentDither);
-    }
-  }
-  return static_cast<int16_t>(top + kRows * tile + (kRows - 1) * gap);
-}
-
-void iconKey(fui::DrawTarget& target, const fui::Rect& box, const freeink::Icon& icon, const bool filled) {
-  if (filled) {
+void iconKey(fui::DrawTarget& target, const fui::Rect& box, const freeink::Icon& icon, const bool filled,
+             const bool enabled) {
+  if (!enabled) {
+    target.fill(box, kGrey, 8);
+    target.stroke(box, kInk, 1, 8);
+  } else if (filled) {
     target.fill(box, kInk, 8);
   } else {
     target.stroke(box, kInk, 2, 8);
@@ -113,100 +100,261 @@ void iconKey(fui::DrawTarget& target, const fui::Rect& box, const freeink::Icon&
   const fui::Rect where = fui::makeRect(static_cast<int16_t>(box.x + (box.width - size) / 2),
                                         static_cast<int16_t>(box.y + (box.height - size) / 2), size, size);
   target.bitmap(where, fui::bitmapFromIcon(icon), fui::BitmapMode::Contain,
-                fui::Paint::solid(filled ? fui::Color::White : fui::Color::Black));
+                fui::Paint::solid(filled && enabled ? fui::Color::White : fui::Color::Black));
 }
 
-// A row of letter keys of one width, centred, optionally flanked by two wide
-// keys (ENTER on the left, delete on the right, as the original has them).
-void keyRow(toybox::Screen& screen, const GameModel& model, const char* letters, const int16_t y, const int16_t keyW,
-            const int16_t keyH, const int16_t gap, const bool flanked, const bool absentDither,
-            const int16_t startX = -1) {
-  fui::DrawTarget& target = screen.target();
-  const fui::Rect safe = screen.frame().safeRect();
-  int count = 0;
-  while (letters[count] != '\0') ++count;
-  const int16_t wide = static_cast<int16_t>(keyW * 3 / 2 + gap / 2);
-  const int16_t width = static_cast<int16_t>(count * keyW + (count - 1) * gap + (flanked ? 2 * (wide + gap) : 0));
-  int16_t x = startX >= 0 ? startX : static_cast<int16_t>(safe.x + (safe.width - width) / 2);
-  if (flanked) {
-    iconKey(target, fui::makeRect(x, y, wide, keyH), icon_tick_24, true);
-    x = static_cast<int16_t>(x + wide + gap);
-  }
-  for (int i = 0; i < count; ++i) {
-    const char letter = letters[i];
-    const Mark mark = model.keys[letter - 'A'];
-    const fui::Rect box = fui::makeRect(x, y, keyW, keyH);
-    if (mark == Mark::Empty) {
-      target.stroke(box, kInk, 1);
-      const char text[2] = {letter, '\0'};
-      centredText(target, box, text, toybox::kBodyFont, fui::Color::Black);
-    } else {
-      cell(target, box, letter, mark, toybox::kBodyFont, absentDither);
-    }
-    x = static_cast<int16_t>(x + keyW + gap);
-  }
-  if (flanked) iconKey(target, fui::makeRect(x, y, wide, keyH), icon_wiki_back_24, false);
+int rowLength(const int row) {
+  int n = 0;
+  while (kKeyRows[row][n] != '\0') ++n;
+  return n;
+}
+
+fui::Rect keyRect(const KeyboardLayout& k, const int row, const int index) {
+  // Row 3 opens with ENTER, so its letters start one wide key in.
+  const int16_t start = static_cast<int16_t>(k.rowLeft[row] + (row == 2 ? k.wide + k.gap : 0));
+  return fui::makeRect(static_cast<int16_t>(start + index * (k.keyW + k.gap)),
+                       static_cast<int16_t>(k.top + row * (k.keyH + k.gap)), k.keyW, k.keyH);
+}
+
+fui::Rect enterRect(const KeyboardLayout& k) {
+  return fui::makeRect(k.rowLeft[2], static_cast<int16_t>(k.top + 2 * (k.keyH + k.gap)), k.wide, k.keyH);
+}
+
+fui::Rect eraseRect(const KeyboardLayout& k) {
+  const fui::Rect last = keyRect(k, 2, rowLength(2) - 1);
+  return fui::makeRect(static_cast<int16_t>(last.x + last.width + k.gap), last.y, k.wide, k.keyH);
+}
+
+bool inside(const fui::Rect& r, const int x, const int y) {
+  return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
 }
 
 }  // namespace
 
-void buildGame(toybox::Screen& screen, const GameModel& model) {
-  chrome(screen, model);
-  const fui::Rect safe = screen.frame().safeRect();
-  const int16_t top = static_cast<int16_t>(toybox::kHeaderHeight + toybox::kMargin);
+KeyboardLayout keyboardLayout(const fui::Rect& safe, const int16_t top) {
+  KeyboardLayout k;
+  k.top = top;
+  k.gap = kKeyGap;
+  k.keyH = kKeyH;
   const int16_t inner = static_cast<int16_t>(safe.width - 2 * toybox::kMargin);
+  k.keyW = static_cast<int16_t>((inner - 9 * kKeyGap) / 10);
+  k.wide = static_cast<int16_t>(k.keyW * 3 / 2 + kKeyGap / 2);
+  for (int row = 0; row < 3; ++row) {
+    const int n = rowLength(row);
+    const int width = n * k.keyW + (n - 1) * k.gap + (row == 2 ? 2 * (k.wide + k.gap) : 0);
+    k.rowLeft[row] = static_cast<int16_t>(safe.x + (safe.width - width) / 2);
+  }
+  return k;
+}
 
-#if WORDLE_VARIANT == 1
-  const int16_t below = grid(screen, model, top, 62, 8, false);
-  const int16_t gap = 6;
-  const int16_t keyW = static_cast<int16_t>((inner - 9 * gap) / 10);
-  const int16_t keyH = 78;
-  int16_t y = static_cast<int16_t>(below + 24);
-  keyRow(screen, model, "QWERTYUIOP", y, keyW, keyH, gap, false, false);
-  y = static_cast<int16_t>(y + keyH + gap);
-  keyRow(screen, model, "ASDFGHJKL", y, keyW, keyH, gap, false, false);
-  y = static_cast<int16_t>(y + keyH + gap);
-  keyRow(screen, model, "ZXCVBNM", y, keyW, keyH, gap, true, false);
-#elif WORDLE_VARIANT == 2
-  const int16_t below = grid(screen, model, top, 54, 6, true);
-  const int16_t gap = 6;
-  const int16_t keyW = static_cast<int16_t>((inner - 9 * gap) / 10);
-  const int16_t keyH = 76;
-  int16_t y = static_cast<int16_t>(below + 20);
-  keyRow(screen, model, "QWERTYUIOP", y, keyW, keyH, gap, false, true);
-  y = static_cast<int16_t>(y + keyH + gap);
-  keyRow(screen, model, "ASDFGHJKL", y, keyW, keyH, gap, false, true);
-  y = static_cast<int16_t>(y + keyH + gap);
-  keyRow(screen, model, "ZXCVBNM", y, keyW, keyH, gap, false, true);
-  // ENTER and delete as the fork's footer pair, the way Notes has ADD and
-  // CLEAR DONE: the two actions that are not letters, apart from the letters.
-  const int16_t barH = 52;
-  const int16_t barY = static_cast<int16_t>(safe.y + safe.height - toybox::kMargin - barH);
-  const int16_t half = static_cast<int16_t>((inner - 12) / 2);
-  const int16_t barX = static_cast<int16_t>(safe.x + toybox::kMargin);
-  iconKey(screen.target(), fui::makeRect(barX, barY, half, barH), icon_wiki_back_24, false);
-  iconKey(screen.target(), fui::makeRect(static_cast<int16_t>(barX + half + 12), barY, half, barH), icon_tick_24, true);
-#else
-  const int16_t below = grid(screen, model, top, 58, 6, true);
-  const int16_t gap = 6;
-  const int16_t keyW = static_cast<int16_t>((inner - 6 * gap) / 7);
-  const int16_t keyH = 58;
-  int16_t y = static_cast<int16_t>(below + 20);
-  keyRow(screen, model, "ABCDEFG", y, keyW, keyH, gap, false, true);
-  y = static_cast<int16_t>(y + keyH + gap);
-  keyRow(screen, model, "HIJKLMN", y, keyW, keyH, gap, false, true);
-  y = static_cast<int16_t>(y + keyH + gap);
-  keyRow(screen, model, "OPQRSTU", y, keyW, keyH, gap, false, true);
-  y = static_cast<int16_t>(y + keyH + gap);
-  // The last row holds five letters and the two actions in the same seven
-  // columns, so the grid of keys stays square.
-  const int16_t left = static_cast<int16_t>(safe.x + (safe.width - (7 * keyW + 6 * gap)) / 2);
-  keyRow(screen, model, "VWXYZ", y, keyW, keyH, gap, false, true, left);
-  iconKey(screen.target(), fui::makeRect(static_cast<int16_t>(left + 5 * (keyW + gap)), y, keyW, keyH),
-          icon_wiki_back_24, false);
-  iconKey(screen.target(), fui::makeRect(static_cast<int16_t>(left + 6 * (keyW + gap)), y, keyW, keyH), icon_tick_24,
-          true);
-#endif
+char keyAt(const KeyboardLayout& k, const int x, const int y) {
+  if (k.keyW <= 0) return 0;
+  if (inside(enterRect(k), x, y)) return kEnter;
+  if (inside(eraseRect(k), x, y)) return kErase;
+  for (int row = 0; row < 3; ++row) {
+    for (int i = 0; i < rowLength(row); ++i) {
+      if (inside(keyRect(k, row, i), x, y)) return kKeyRows[row][i];
+    }
+  }
+  return 0;
+}
+
+KeyboardLayout buildGame(toybox::Screen& screen, const GameModel& model) {
+  const wordle::Game& game = *model.game;
+  fui::DrawTarget& target = screen.target();
+  const fui::Rect safe = screen.frame().safeRect();
+
+  // A finished game puts the answer in the header and says how it went; any
+  // tap then goes back to the menu.
+  char answer[wordle::kLetters + 1] = {};
+  char result[8] = {};
+  if (game.over()) {
+    for (int i = 0; i < wordle::kLetters; ++i) answer[i] = game.answer()[i];
+    if (game.status() == wordle::Game::Status::Won) {
+      std::snprintf(result, sizeof(result), "%d / %d", game.guesses(), wordle::kRows);
+    } else {
+      std::snprintf(result, sizeof(result), "X / %d", wordle::kRows);
+    }
+    chrome(screen, answer, result);
+  } else {
+    chrome(screen, "WORDLE", model.date);
+  }
+
+  if (model.message != nullptr) {
+    centredText(target, fui::makeRect(safe.x, kMessageTop, safe.width, kMessageH), model.message, toybox::kTileFont,
+                fui::Color::Black);
+  }
+
+  const int16_t gridW = static_cast<int16_t>(wordle::kLetters * kTile + (wordle::kLetters - 1) * kTileGap);
+  const int16_t left = static_cast<int16_t>(safe.x + (safe.width - gridW) / 2);
+  for (int r = 0; r < wordle::kRows; ++r) {
+    for (int c = 0; c < wordle::kLetters; ++c) {
+      char letter = '\0';
+      Mark mark = Mark::Empty;
+      if (r < game.guesses()) {
+        letter = game.guess(r)[c];
+        mark = game.marks(r)[c];
+      } else if (r == game.guesses() && !game.over() && c < game.typed()) {
+        letter = game.typing()[c];
+        mark = Mark::Typed;
+      }
+      const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + c * (kTile + kTileGap)),
+                                          static_cast<int16_t>(kGridTop + r * (kTile + kTileGap)), kTile, kTile);
+      cell(target, box, letter, mark, toybox::kDisplayFont);
+    }
+  }
+
+  const int16_t gridBottom = static_cast<int16_t>(kGridTop + wordle::kRows * kTile + (wordle::kRows - 1) * kTileGap);
+  const KeyboardLayout keys = keyboardLayout(safe, static_cast<int16_t>(gridBottom + kKeysBelowGrid));
+  for (int row = 0; row < 3; ++row) {
+    for (int i = 0; i < rowLength(row); ++i) {
+      const char letter = kKeyRows[row][i];
+      const Mark mark = game.key(letter);
+      const fui::Rect box = keyRect(keys, row, i);
+      if (mark == Mark::Empty) {
+        target.stroke(box, kInk, 1);
+        const char text[2] = {letter, '\0'};
+        centredText(target, box, text, toybox::kBodyFont, fui::Color::Black);
+      } else {
+        cell(target, box, letter, mark, toybox::kBodyFont);
+      }
+    }
+  }
+  iconKey(target, enterRect(keys), icon_tick_24, true, !game.over() && game.typed() == wordle::kLetters);
+  iconKey(target, eraseRect(keys), icon_wordle_delete_24, false, true);
+
+  if (game.over()) {
+    screen.frame().hit(safe, ActionAnywhere, 0);
+  } else {
+    const fui::Rect block =
+        fui::makeRect(safe.x, keys.top, safe.width, static_cast<int16_t>(3 * keys.keyH + 2 * keys.gap));
+    screen.frame().hit(block, ActionKeyboard, 0);
+  }
+  return keys;
+}
+
+void buildMenu(toybox::Screen& screen, const MenuModel& model) {
+  chrome(screen, "WORDLE", nullptr);
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  fui::DrawTarget& target = screen.target();
+  const fui::Rect body = screen.body();
+
+  // Today, in the biggest type, is also the way into today's game.
+  fui::TextStyle hero;
+  hero.font = toybox::kDisplayFont;
+  hero.align = fui::TextAlign::Left;
+  target.text(fui::makeRect(body.x, body.y, body.width, 60), model.date != nullptr ? model.date : "NONE YET", hero);
+  fui::TextStyle sub;
+  sub.font = toybox::kBodyFont;
+  sub.align = fui::TextAlign::Left;
+  target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + 60), body.width, 30), model.state, sub);
+  if (model.date != nullptr) screen.frame().hit(fui::makeRect(body.x, body.y, body.width, 96), ActionMenu, 0);
+
+  target.fill(fui::makeRect(body.x, static_cast<int16_t>(body.y + 104), body.width, toybox::kRule), kInk);
+
+  char stats[64];
+  std::snprintf(stats, sizeof(stats), "%d PLAYED   %d WON   STREAK %d", model.stats.played, model.stats.won,
+                model.stats.streak);
+  fui::TextStyle small;
+  small.font = toybox::kTileFont;
+  small.align = fui::TextAlign::Left;
+  target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + 118), body.width, 24), stats, small);
+
+  // The one piece of decor is the player's own record: how many guesses each
+  // win took, 1 to 6, as bars.
+  int most = 1;
+  for (const int n : model.stats.wins) most = n > most ? n : most;
+  const int16_t rowH = 30;
+  const int16_t chartTop = static_cast<int16_t>(body.y + 166);
+  const int16_t labelW = 28;
+  const int16_t countW = 44;
+  const int16_t barMax = static_cast<int16_t>(body.width - labelW - countW - 16);
+  for (int i = 0; i < wordle::kRows; ++i) {
+    const int16_t y = static_cast<int16_t>(chartTop + i * (rowH + 8));
+    char label[4];
+    std::snprintf(label, sizeof(label), "%d", i + 1);
+    centredText(target, fui::makeRect(body.x, y, labelW, rowH), label, toybox::kBodyFont, fui::Color::Black);
+    const int n = model.stats.wins[i];
+    const int16_t w = static_cast<int16_t>(n == 0 ? 0 : (barMax * n + most - 1) / most);
+    const fui::Rect track = fui::makeRect(static_cast<int16_t>(body.x + labelW + 8), y, barMax, rowH);
+    target.stroke(track, kInk, 1);
+    if (w > 0) target.fill(fui::makeRect(track.x, track.y, w, rowH), kInk);
+    char count[8];
+    std::snprintf(count, sizeof(count), "%d", n);
+    centredText(target, fui::makeRect(static_cast<int16_t>(track.x + barMax + 8), y, countW, rowH), count,
+                toybox::kBodyFont, fui::Color::Black);
+  }
+  fui::TextStyle caption = small;
+  caption.align = fui::TextAlign::Center;
+  target.text(fui::makeRect(body.x, static_cast<int16_t>(chartTop + 6 * (rowH + 8) + 4), body.width, 24),
+              "GUESSES PER WIN", caption);
+
+  fui::ListItem rows[3];
+  for (auto& r : rows) r = fui::ListItem{};
+  char total[16] = "";
+  std::snprintf(total, sizeof(total), "%d", model.puzzles);
+  rows[0].label = "HOW TO PLAY";
+  rows[0].actionValue = 1;
+  rows[1].label = "ARCHIVE";
+  rows[1].value = total;
+  rows[1].actionValue = 2;
+  rows[2].label = model.upToDate ? "ALL CAUGHT UP" : "GET PUZZLES";
+  rows[2].value = model.upToDate ? "" : "WI-FI";
+  rows[2].enabled = !model.upToDate;
+  rows[2].actionValue = 3;
+  fui::ListProps list;
+  list.items = rows;
+  list.count = 3;
+  list.selectedIndex = -1;
+  list.action = ActionMenu;
+  screen.list(list, 3 * (toybox::kRowHeight + 4), fui::LayoutAnchor::Bottom);
+}
+
+void buildHowTo(toybox::Screen& screen) {
+  chrome(screen, "HOW TO PLAY", nullptr);
+  screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  fui::DrawTarget& target = screen.target();
+  const fui::Rect body = screen.body();
+
+  fui::TextStyle heading;
+  heading.font = toybox::kBodyFont;
+  heading.align = fui::TextAlign::Left;
+  fui::TextStyle prose;
+  prose.font = toybox::kTileFont;
+  prose.align = fui::TextAlign::Left;
+  prose.maxLines = 2;
+  const int16_t headH = target.lineHeight(toybox::kBodyFont);
+  const int16_t proseH = target.lineHeight(toybox::kTileFont);
+
+  int16_t y = body.y;
+  target.text(fui::makeRect(body.x, y, body.width, headH), "SIX GUESSES FOR ONE WORD", heading);
+  y = static_cast<int16_t>(y + headH + 6);
+  target.text(fui::makeRect(body.x, y, body.width, static_cast<int16_t>(proseH * 2)),
+              "Type a five-letter word and tap the tick. Each letter is then marked.", prose);
+  y = static_cast<int16_t>(y + proseH * 2 + 24);
+
+  struct Example {
+    char letter;
+    Mark mark;
+    const char* meaning;
+  };
+  const Example examples[] = {
+      {'P', Mark::Correct, "In the word, in this spot"},
+      {'L', Mark::Present, "In the word, somewhere else"},
+      {'C', Mark::Absent, "Not in the word"},
+  };
+  for (const Example& example : examples) {
+    cell(target, fui::makeRect(body.x, y, kTile, kTile), example.letter, example.mark, toybox::kDisplayFont);
+    fui::TextStyle meaning = prose;
+    meaning.maxLines = 1;
+    target.text(fui::makeRect(static_cast<int16_t>(body.x + kTile + 16), static_cast<int16_t>(y + (kTile - proseH) / 2),
+                              static_cast<int16_t>(body.width - kTile - 16), proseH),
+                example.meaning, meaning);
+    y = static_cast<int16_t>(y + kTile + 16);
+  }
+  y = static_cast<int16_t>(y + 8);
+  target.text(fui::makeRect(body.x, y, body.width, static_cast<int16_t>(proseH * 2)),
+              "A new word every day. Past days are in the archive.", prose);
 }
 
 }  // namespace wordleui

@@ -74,6 +74,7 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Go**           | 9x9 or 13x13, against the device or someone next to you. It counts for you.  |
 | **Hex**          | Join your two edges before they join theirs. No captures, and no draws.      |
 | **Underhand**    | The 2017 cult card game: bribe, sacrifice, dodge the police, summon a god.   |
+| **Wordle**       | Six guesses for the day's word, with every past day in an archive.           |
 
 ### Apps
 
@@ -167,11 +168,13 @@ Most of the shelf never touches the network. Of the parts that do:
   upstream's infrastructure rather than this fork's, inherited so that flashing
   CrossPlay over CrossPoint does not orphan an existing sync. The address is a
   setting and can be pointed at any KOSync server.
-- **Connections, xkcd, Hacker News, Trivia, Get Books and Instapaper** fetch
-  what you ask them for, when you ask. Connections downloads the published
-  puzzle archive in one go when you press the button for it, from a GitHub
-  mirror rather than from the New York Times, and CrossPlay ships none of the
-  puzzles; Trivia's question pack and xkcd's comics are downloaded once onto
+- **Connections, Wordle, xkcd, Hacker News, Trivia, Get Books and Instapaper**
+  fetch what you ask them for, when you ask. Connections downloads the
+  published puzzle archive in one go when you press the button for it, from a
+  GitHub mirror rather than from the New York Times, and CrossPlay ships none
+  of the puzzles. Wordle does the same from another mirror, and asks the New
+  York Times itself only for the day or two that mirror has not caught up with,
+  never for a day after today; Trivia's question pack and xkcd's comics are downloaded once onto
   the card.
 - **Opening a Hacker News article sends its URL to a third party.** The story
   list comes from the public [Algolia API](https://hn.algolia.com/api), and
@@ -220,6 +223,10 @@ fetched by the device from [xkcd.com](https://xkcd.com). Connections puzzles are
 the New York Times'; CrossPlay ships none of them and fetches the archive, when
 you ask it to, from the community mirror at
 [Eyefyre/NYT-Connections-Answers](https://github.com/Eyefyre/NYT-Connections-Answers).
+Wordle's answers and its list of accepted guesses are the New York Times' too;
+CrossPlay ships none of them and fetches them, when you ask, from
+[mfilej/wrdl](https://github.com/mfilej/wrdl) and, for the newest days, from
+the Times' own daily answer.
 Trivia's questions are built from the community
 [Jeopardy! clue dataset](https://github.com/jwolle1/jeopardy_clue_dataset).
 Underhand's cards are the text of Underhand (Spoopy Squad, Cornell GDIAC, 2017),

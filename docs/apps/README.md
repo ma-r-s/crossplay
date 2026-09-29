@@ -43,6 +43,7 @@ them. These are the ones worth a stranger's time.
 | [`wavelength.md`](wavelength.md) | The dial, and why the board is public. |
 | [`forehead.md`](forehead.md) | The first game to make both physical buttons load-bearing. |
 | [`underhand.md`](underhand.md) | The cult card game, its rules read from the original's compiled code, and a screen that never moves. |
+| [`wordle.md`](wordle.md) | The daily word in Connections' shape: one download, an archive, and the marks a black-and-white panel can tell apart. |
 | [`trivia.md`](trivia.md) | Also the app doc, above. |
 
 ## Where the content came from
