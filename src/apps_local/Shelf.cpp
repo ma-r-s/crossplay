@@ -45,6 +45,7 @@
 #include "wallpapers/WallpapersActivity.h"
 #include "wavelength/WavelengthActivity.h"
 #include "wikipedia/WikipediaActivity.h"
+#include "wordle/WordleActivity.h"
 #include "xkcd/XkcdActivity.h"
 #include "yahtzee/YahtzeeActivity.h"
 
@@ -54,6 +55,9 @@ namespace {
 // rather than literalness: a crown, a hull, a grid and a card suit share no
 // shape, so a row is scannable before the label is read.
 constexpr shelf::Item kGames[] = {
+    // TEMPORARY first row so the layout renders one tap from Home; moves to the
+    // end of the shelf, with its own icon, when the real app is built.
+    {"WORDLE", &icon_picross_32, &WordleActivity::create},
     {"CHESS", &icon_chess_32, &ChessActivity::create},
     {"BATTLESHIP", &icon_battleship_32, &BattleshipActivity::create},
     {"CONNECTIONS", &icon_connections_32, &ConnectionsActivity::create},
