@@ -373,6 +373,22 @@ else
   echo "FAIL ship  ship.sh writes the release notes at line $NOTES_LINE and squashes at line $LAND_LINE. Before the squash the pull request is not merged, release_notes.py maps nothing to it, every note line becomes a raw commit subject and the release:minor label is never seen -- so every release silently becomes a patch bump."
 fi
 
+# -- 3g2. the provisional notes treat the branch as ONE landing -------------
+#
+# The call handed --pr-json runs on the unmerged branch. Without --squash-onto
+# release_notes.py walks that branch's own first-parent line: every commit a
+# bullet, every trunk merge a bullet named after work an earlier release
+# shipped. v1.13.25's first run drafted fourteen lines for one pull request
+# and failed its own gate on length. host-tests/autorelease proves what the
+# flag does; this proves ship.sh still passes it.
+checks=$((checks + 1))
+if printf '%s' "$CODE" | grep -E 'release_notes\.py[^|]*--pr-json' | grep -q -- '--squash-onto origin/xteink'; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL ship  the provisional notes call no longer passes --squash-onto origin/xteink, so a branch that merged trunk drafts a bullet per commit and names already-released work"
+fi
+
 # -- 3h. the notes must name THIS release -----------------------------------
 #
 # release_notes.py returns early without writing when every commit since the
