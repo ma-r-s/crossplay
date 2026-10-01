@@ -1,18 +1,25 @@
 #include "QrUtils.h"
 
+#include <Memory.h>
 #include <Utf8.h>
 #include <qrcode.h>
 
 #include <algorithm>
-#include <memory>
 
 #include "Logging.h"
 
+namespace {
+constexpr uint8_t versionForBytes(const size_t len) {
+  return len <= 78 ? 4 : len <= 271 ? 10 : len <= 858 ? 20 : len <= 1732 ? 30 : 40;
+}
+static_assert(versionForBytes(78) == 4 && versionForBytes(79) == 10);
+static_assert(versionForBytes(271) == 10 && versionForBytes(272) == 20);
+static_assert(versionForBytes(858) == 20 && versionForBytes(859) == 30);
+static_assert(versionForBytes(1732) == 30 && versionForBytes(1733) == 40);
+}  // namespace
+
 void QrUtils::drawQrCode(const GfxRenderer& renderer, const Rect& bounds, const std::string& textPayload) {
-  // Dynamically calculate the QR code version based on text length
-  // Version 4 holds ~114 bytes, Version 10 ~395, Version 20 ~1066, up to 40
-  // qrcode.h max version is 40.
-  // Formula: approx version = size / 26 + 1 (very rough estimate, better to find best fit)
+  // Choose by byte-mode capacity: payloads may contain lowercase or UTF-8.
   size_t len = textPayload.length();
 
   // Truncate to max QR capacity at a UTF-8 safe boundary to avoid splitting multi-byte sequences
@@ -25,19 +32,20 @@ void QrUtils::drawQrCode(const GfxRenderer& renderer, const Rect& bounds, const 
     payload = truncated.c_str();
   }
 
-  int version = 4;
-  if (len > 114) version = 10;
-  if (len > 395) version = 20;
-  if (len > 1066) version = 30;
-  if (len > 2110) version = 40;
+  const uint8_t version = versionForBytes(len);
 
   // Make sure we have a large enough buffer on the heap to avoid blowing the stack
   uint32_t bufferSize = qrcode_getBufferSize(version);
-  auto qrcodeBytes = std::make_unique<uint8_t[]>(bufferSize);
+  auto qrcodeBytes = makeUniqueNoThrow<uint8_t[]>(bufferSize);
+  if (!qrcodeBytes) {
+    LOG_ERR("QR", "OOM: %u bytes", static_cast<unsigned>(bufferSize));
+    return;
+  }
 
   QRCode qrcode;
   // Initialize the QR code. We use ECC_LOW for max capacity.
-  int8_t res = qrcode_initText(&qrcode, qrcodeBytes.get(), version, ECC_LOW, payload);
+  int8_t res = qrcode_initBytes(&qrcode, qrcodeBytes.get(), version, ECC_LOW,
+                                reinterpret_cast<uint8_t*>(const_cast<char*>(payload)), static_cast<uint16_t>(len));
 
   if (res == 0) {
     // Determine the optimal pixel size.
