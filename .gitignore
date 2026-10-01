@@ -1,4 +1,6 @@
 .pio
+/.pio-cache/
+/boot.bin
 .idea
 .DS_Store
 .vscode
