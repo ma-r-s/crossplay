@@ -548,6 +548,12 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
   bookX = rect.x + (rect.width - bookWidth) / 2;
   const int bookY = rect.y;
   const int bookHeight = baseHeight;
+  // fork-local seam: the cover art stops above the "Continue Reading" band
+  // instead of running under it. Laid over the art, the band cut through
+  // whatever the cover printed there (a Gutenberg caption's letter tops showed
+  // above it); the art is cropped 1:1 by that much at its foot instead.
+  constexpr int continuePadding = 6;
+  const int continueBandHeight = hasContinueReading ? renderer.getLineHeight(UI_10_FONT_ID) + continuePadding : 0;
 
   // Bookmark dimensions (used in multiple places)
   const int bookmarkWidth = bookWidth / 8;
@@ -573,7 +579,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
           // The card matches the cover aspect except when width-capped; fill
           // the card 1:1 and crop the overflow rather than rescale the dither.
-          drawCoverThumbFill(renderer, bitmap, Rect{bookX, bookY, bookWidth, bookHeight});
+          drawCoverThumbFill(renderer, bitmap, Rect{bookX, bookY, bookWidth, bookHeight - continueBandHeight});
 
           // Draw border around the card
           renderer.drawRect(bookX, bookY, bookWidth, bookHeight);
@@ -704,12 +710,11 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     if (coverRendered) {
       // Draw box behind "Continue Reading" text (inverted when selected: black box instead of white)
       const char* continueText = tr(STR_CONTINUE_READING);
-      constexpr int continuePadding = 6;
       // fork-local seam: a band across the whole cover rather than a box the
       // width of the words. Sized to the text, the cover's own printing showed
       // either side of it (a Gutenberg imprint read as "...Reading iberg").
       const int continueBoxWidth = bookWidth;
-      const int continueBoxHeight = renderer.getLineHeight(UI_10_FONT_ID) + continuePadding;
+      const int continueBoxHeight = continueBandHeight;
       const int continueBoxX = bookX;
       // On the cover's bottom edge: floated above it, a strip of art showed
       // underneath and the band cut the cover's frame in two.
