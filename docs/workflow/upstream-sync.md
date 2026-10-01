@@ -32,6 +32,13 @@ intent" --from tooling --body "<both sides, in prose>"`, leave the
    and the simulator build. A red suite that is red on `crosspoint/develop`
    too is upstream's and is noted in the pull request, not fixed here.
 
+   **Then look at every Home theme.** Upstream reviews its themes without
+   GAMES and APPS appended to them, so a sync can break a theme upstream's own
+   screenshots passed: 1.13.28 shipped with Apps cut off or paged out of sight
+   in three of five themes once a catalog was configured. Run
+   `tools_local/themesweep/` (its README is the procedure) and hand the PNGs to
+   a fresh-context reviewer with its `review-brief.md`.
+
    **Before that, look for the seam the merge took without saying so.** A
    conflict marker is the easy case; the dangerous one is upstream refactoring
    the lines a fork seam hangs on, which deletes the seam cleanly and reports
