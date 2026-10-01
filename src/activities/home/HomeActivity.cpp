@@ -222,6 +222,10 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             book.coverBmpPath = "";
           }
           coverRendered = false;
+          // fork-local seam: the stored snapshot is the placeholder this
+          // thumbnail replaces. Restored under the new cover, its frame showed
+          // through around it (RoundedRaff drew a ghost second outline).
+          coverBufferStored = false;
           requestUpdate();
         } else if (FsHelpers::hasXtcExtension(book.path)) {
           // Handle XTC file
@@ -239,6 +243,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
               book.coverBmpPath = "";
             }
             coverRendered = false;
+            coverBufferStored = false;  // fork-local seam: as for EPUB above
             requestUpdate();
           }
         }

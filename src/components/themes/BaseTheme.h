@@ -173,7 +173,9 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .listWithSubtitleRowHeight = 50,
                                  .listRowGap = 0,
                                  .listRowRadius = 0,
-                                 .listInset = 0,
+                                 // fork-local: 12, not 0. Full-bleed, the inverted bar ran to
+                                 // 3px of the left edge and 9px of the right (the scroll track).
+                                 .listInset = 12,
                                  .listSidePadding = 20,
                                  .listSelectionStyle = 0,  // invert fill
                                  .listScrollWidth = 4,

@@ -48,10 +48,9 @@ int coverWidth = 0;
 
 void RoundedRaffTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
                                   const bool backButton) const {
-  // Home screen header is custom-rendered in drawRecentBookCover.
-  if (title == nullptr) {
-    return;
-  }
+  // fork-local seam: an untitled band (Home with no book open) still carries
+  // the battery, as every other theme's does. Returning early left the top of
+  // Home blank.
   BaseTheme::drawHeader(renderer, rect, title, subtitle, backButton);
 }
 

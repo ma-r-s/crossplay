@@ -433,6 +433,17 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   props.borderEdges = fui::EdgeBottom;
   props.titleText = tokens.titleText;
   props.titleText.align = tokens.headerTitleAlign;
+  // fork-local seam: a centred title shares its line with the right-hand label
+  // (Wi-Fi's "2 networks found"), and centred it is truncated to make room
+  // ("Wi-Fi Netw..."). When the two would meet, the title moves to the start
+  // of the band, where it fits; Lyra and RoundedRaff place it there anyway.
+  if (title != nullptr && subtitle != nullptr && props.titleText.align == fui::TextAlign::Center) {
+    const int titleWidth = renderer.getTextWidth(spec.titleFontId, title, EpdFontFamily::BOLD);
+    const int labelWidth = renderer.getTextWidth(SMALL_FONT_ID, subtitle);
+    const int centreRight = band.x + band.width / 2 + titleWidth / 2;
+    const int labelLeft = band.x + band.width - tokens.headerSidePadding - labelWidth;
+    if (centreRight + tokens.headerSidePadding > labelLeft) props.titleText.align = fui::TextAlign::Left;
+  }
   props.subtitleText = tokens.smallText;
   props.styles = tokens.popup;
   props.sidePadding = tokens.headerSidePadding;
@@ -675,11 +686,13 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     if (coverRendered) {
       // Draw box behind "Continue Reading" text (inverted when selected: black box instead of white)
       const char* continueText = tr(STR_CONTINUE_READING);
-      const int continueTextWidth = renderer.getTextWidth(UI_10_FONT_ID, continueText);
       constexpr int continuePadding = 6;
-      const int continueBoxWidth = continueTextWidth + continuePadding * 2;
+      // fork-local seam: a band across the whole cover rather than a box the
+      // width of the words. Sized to the text, the cover's own printing showed
+      // either side of it (a Gutenberg imprint read as "...Reading iberg").
+      const int continueBoxWidth = bookWidth;
       const int continueBoxHeight = renderer.getLineHeight(UI_10_FONT_ID) + continuePadding;
-      const int continueBoxX = rect.x + (rect.width - continueBoxWidth) / 2;
+      const int continueBoxX = bookX;
       const int continueBoxY = continueY - continuePadding / 2;
       renderer.fillRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, bookSelected);
       renderer.drawRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, !bookSelected);

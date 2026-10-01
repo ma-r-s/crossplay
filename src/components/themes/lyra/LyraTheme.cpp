@@ -311,7 +311,9 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 }
 
 void LyraTheme::drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) const {
-  constexpr int padding = 48;
+  // fork-local seam: on the menu's icon column (drawButtonMenu starts its
+  // icons 16px into a row inset by the side padding), not 12px right of it.
+  const int padding = LyraMetrics::values.contentSidePadding + 16;
   renderer.drawText(UI_12_FONT_ID, rect.x + padding,
                     rect.y + rect.height / 2 - renderer.getLineHeight(UI_12_FONT_ID) - 2, tr(STR_NO_OPEN_BOOK), true,
                     EpdFontFamily::BOLD);
