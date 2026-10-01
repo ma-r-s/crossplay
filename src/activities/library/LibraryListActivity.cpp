@@ -30,11 +30,13 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr int SIDE_PADDING = 12;
-// fork-local seam: on touch boards no button hints are drawn, so the band they
-// leave is zero and the position readout sat on the glass's bottom edge. It
-// keeps the same clearance from the bottom as from the side.
+// fork-local seam: the position readout sits on the list rows' right edge
+// (the theme's list inset), not on a margin of its own; and on touch boards,
+// where no button hints are drawn and the band they leave is zero, the same
+// distance above the glass's bottom edge it used to sit on.
+int readoutEdgeMargin(const ThemeMetrics& metrics) { return metrics.listInset > 0 ? metrics.listInset : SIDE_PADDING; }
 int readoutBottomMargin(const ThemeMetrics& metrics) {
-  return metrics.buttonHintsHeight > 0 ? metrics.buttonHintsHeight : SIDE_PADDING;
+  return metrics.buttonHintsHeight > 0 ? metrics.buttonHintsHeight : readoutEdgeMargin(metrics);
 }
 constexpr unsigned long LONG_PRESS_MS = 1000;
 
@@ -1003,7 +1005,7 @@ void LibraryListActivity::drawPositionReadout() const {
   snprintf(buf, sizeof(buf), positionFormat, selectedEntry() + 1, count);
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int width = renderer.getTextWidth(SMALL_FONT_ID, buf);
-  const int x = renderer.getScreenWidth() - width - SIDE_PADDING;
+  const int x = renderer.getScreenWidth() - width - readoutEdgeMargin(metrics);
   const int y = renderer.getScreenHeight() - readoutBottomMargin(metrics) - renderer.getLineHeight(SMALL_FONT_ID);
   renderer.drawText(SMALL_FONT_ID, x, y, buf, true);
 }

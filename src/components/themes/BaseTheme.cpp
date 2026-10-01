@@ -410,10 +410,28 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   // Battery + clock chrome and their title reserves live in the FreeInkUI
   // header component; this only fills the values from settings and metrics.
   applyHeaderStatus(renderer, props);
+  // Outlives the fui::header() call below that reads props.title.
+  std::string fittedTitle;
   if (rect.height < UITheme::getInstance().getMetrics().headerHeight) {
     // Short bands (home) are not split into strip + content row: the title
     // centers on the band, clear of the band's bottom edge.
     props.titleOffsetY = 0;
+    // fork-local seam: centred on the band, the title shares its row with the
+    // battery, and the header only reserved the battery's own width: RoundedRaff
+    // ran a book title to 9px of "100%". It stops a full side padding short.
+    if (title != nullptr) {
+      const auto& status = props.status;
+      int batteryWidth = status.battery.glyphWidth + status.edgeInset;
+      if (status.battery.label != nullptr) {
+        batteryWidth += renderer.getTextWidth(SMALL_FONT_ID, status.battery.label) + status.battery.gap;
+      }
+      const int headerPadding = UITheme::getInstance().getMetrics().headerSidePadding;
+      const int available = rect.width - headerPadding - batteryWidth - headerPadding;
+      if (available > 0 && renderer.getTextWidth(spec.titleFontId, title, EpdFontFamily::BOLD) > available) {
+        fittedTitle = renderer.truncatedText(spec.titleFontId, title, available, EpdFontFamily::BOLD);
+        props.title = fittedTitle.c_str();
+      }
+    }
   }
   // Tappable back button leading the band on touch boards, so every pushed
   // screen offers a visible way out beside the edge-swipe gesture. This frame
@@ -693,10 +711,12 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       const int continueBoxWidth = bookWidth;
       const int continueBoxHeight = renderer.getLineHeight(UI_10_FONT_ID) + continuePadding;
       const int continueBoxX = bookX;
-      const int continueBoxY = continueY - continuePadding / 2;
+      // On the cover's bottom edge: floated above it, a strip of art showed
+      // underneath and the band cut the cover's frame in two.
+      const int continueBoxY = bookY + bookHeight - continueBoxHeight;
       renderer.fillRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, bookSelected);
       renderer.drawRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, !bookSelected);
-      renderer.drawCenteredText(UI_10_FONT_ID, continueY, continueText, !bookSelected);
+      renderer.drawCenteredText(UI_10_FONT_ID, continueBoxY + continuePadding / 2, continueText, !bookSelected);
     } else {
       renderer.drawCenteredText(UI_10_FONT_ID, continueY, tr(STR_CONTINUE_READING), !bookSelected);
     }
