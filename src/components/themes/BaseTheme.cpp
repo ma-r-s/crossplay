@@ -700,22 +700,23 @@ int BaseTheme::getMenuRowHeight(const GfxRenderer&) const { return UITheme::getI
 
 void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
-                               const std::function<UIIcon(int index)>& rowIcon, const int rowSpacing) const {
-  // -1 means "use this theme's own spacing"; HomeActivity passes a tighter
-  // value when seven rows would otherwise not fit.
+                               const std::function<UIIcon(int index)>& rowIcon, const int rowSpacing,
+                               const int rowHeight) const {
+  // -1 means "use this theme's own"; HomeActivity passes tighter values when
+  // its rows would otherwise run off the panel (fork-local seam).
   const int spacing = rowSpacing >= 0 ? rowSpacing : BaseMetrics::values.menuSpacing;
+  const int height = rowHeight > 0 ? rowHeight : BaseMetrics::values.menuRowHeight;
   for (int i = 0; i < buttonCount; ++i) {
-    const int tileY = BaseMetrics::values.verticalSpacing + rect.y +
-                      static_cast<int>(i) * (BaseMetrics::values.menuRowHeight + spacing);
+    const int tileY = BaseMetrics::values.verticalSpacing + rect.y + static_cast<int>(i) * (height + spacing);
 
     const bool selected = selectedIndex == i;
 
     if (selected) {
       renderer.fillRect(rect.x + BaseMetrics::values.contentSidePadding, tileY,
-                        rect.width - BaseMetrics::values.contentSidePadding * 2, BaseMetrics::values.menuRowHeight);
+                        rect.width - BaseMetrics::values.contentSidePadding * 2, height);
     } else {
       renderer.drawRect(rect.x + BaseMetrics::values.contentSidePadding, tileY,
-                        rect.width - BaseMetrics::values.contentSidePadding * 2, BaseMetrics::values.menuRowHeight);
+                        rect.width - BaseMetrics::values.contentSidePadding * 2, height);
     }
 
     std::string labelStr = buttonLabel(i);
@@ -723,8 +724,7 @@ void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label);
     const int textX = rect.x + (rect.width - textWidth) / 2;
     const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-    const int textY =
-        tileY + (BaseMetrics::values.menuRowHeight - lineHeight) / 2;  // vertically centered assuming y is top of text
+    const int textY = tileY + (height - lineHeight) / 2;  // vertically centered assuming y is top of text
     // Invert text when the tile is selected, to contrast with the filled background
     renderer.drawText(UI_10_FONT_ID, textX, textY, label, selectedIndex != i);
   }

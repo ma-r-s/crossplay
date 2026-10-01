@@ -20,6 +20,7 @@
 #include "../../apps_local/Shelf.h"  // fork-local seam
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "HomeMenuFit.h"  // fork-local seam
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
@@ -471,14 +472,15 @@ void HomeActivity::loop() {
   }
 
   const int menuTop = menuTopRendered > 0
-                          ? menuTopRendered
+                          ? menuTopRendered + menuLeadInRendered
                           : metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
   const int renderedMenuCount =
       menuCount - (metrics.homeContinueReadingInMenu ? 0 : static_cast<int>(recentBooks.size()));
   int menuRow = -1;
-  // Row height from the theme, not the metrics table: RoundedRaff draws
-  // font-derived rows and the touch grid must match the visuals exactly.
-  const int menuRowHeight = GUI.getMenuRowHeight(renderer);
+  // Row height as drawn, not the metrics table: RoundedRaff draws font-derived
+  // rows, render() may have fitted shorter ones, and the touch grid must match
+  // the visuals exactly.
+  const int menuRowHeight = menuRowHeightRendered > 0 ? menuRowHeightRendered : GUI.getMenuRowHeight(renderer);
   const int rowSpacing = menuSpacingRendered > 0 ? menuSpacingRendered : metrics.menuSpacing;
   const auto menuTouch = mappedInput.rowTouch(menuRow, menuTop, menuRowHeight + rowSpacing, renderedMenuCount, 0,
                                               INT32_MAX, menuRowHeight);
@@ -579,27 +581,38 @@ void HomeActivity::render(RenderLock&&) {
   // there -- and the home menu does not scroll, so it cannot be reached at all.
   // APPS is the last row, which is how an app inside it would vanish.
   //
-  // Only the row GAPS give. The cover tile keeps its full height: its art is
-  // the point of it, and the gaps are generous enough to lose a few pixels
-  // each and read the same.
+  // Fit the menu under the cover tile: gaps give first, then rows, then the
+  // bottom margin. The rule and why are in HomeMenuFit.h (host-tests/homefit).
+  const int coverTileHeight = metrics.homeCoverTileHeight;
+  const int tileGap = coverTileHeight > 0 ? metrics.verticalSpacing : 0;
+  const int menuRectTop = metrics.homeTopPadding + coverTileHeight + tileGap + metrics.homeMenuTopOffset;
+  // BaseTheme::drawButtonMenu (Classic) draws its first row one verticalSpacing
+  // below the rect it is given; the other themes draw at the rect's top.
+  const int menuLeadIn = SETTINGS.uiTheme == CrossPointSettings::CLASSIC ? metrics.verticalSpacing : 0;
+  homefit::Input fitIn{};
+  fitIn.rows = static_cast<int>(menuItems.size());
   // getMenuRowHeight() rather than metrics.menuRowHeight: RoundedRaff marks its
   // metric as non-authoritative and derives the drawn height from the renderer.
-  const int menuRowHeight = GUI.getMenuRowHeight(renderer);
-  const int rows = static_cast<int>(menuItems.size());
-  const int coverTileHeight = metrics.homeCoverTileHeight;
-  const int spaceForMenu = pageHeight - metrics.homeTopPadding - metrics.homeMenuTopOffset - metrics.buttonHintsHeight -
-                           coverTileHeight - metrics.verticalSpacing;
-  int menuSpacing = metrics.menuSpacing;
-  if (rows > 0 && rows * (menuRowHeight + menuSpacing) > spaceForMenu) {
-    // Row height is fixed by the theme, so only the gaps can give. Floored at
-    // 1px: rows flush against each other read as one block, not a list.
-    menuSpacing = std::max(1, spaceForMenu / rows - menuRowHeight);
+  fitIn.rowHeight = GUI.getMenuRowHeight(renderer);
+  fitIn.rowGap = metrics.menuSpacing;
+  fitIn.menuTop = menuRectTop;
+  fitIn.leadIn = menuLeadIn;
+  fitIn.pageHeight = pageHeight;
+  fitIn.hintsHeight = metrics.buttonHintsHeight;
+  fitIn.sidePadding = metrics.contentSidePadding;
+  const homefit::Fit fit = homefit::fit(fitIn);
+  if (!fit.fits) {
+    LOG_ERR("HOME", "%d menu rows need %dpx; they do not fit", fitIn.rows,
+            homefit::need(fitIn.rows, fit.rowHeight, fit.rowGap));
   }
-  // Drawn spacing and hit-test spacing must be the same number, or taps drift
-  // further off with every row down the list.
+  const int menuRowHeight = fit.rowHeight;
+  const int menuSpacing = fit.rowGap;
+  const int menuRectBottom = fit.menuBottom;
+  // Drawn and hit-tested with the same numbers, or taps drift further off with
+  // every row down the list.
   menuSpacingRendered = menuSpacing;
-  const int gapBelowTile = metrics.verticalSpacing;
-  const int tileBlock = coverTileHeight > 0 ? coverTileHeight + gapBelowTile : 0;
+  menuRowHeightRendered = menuRowHeight;
+  menuLeadInRendered = menuLeadIn;
 
   // Recorded so storeCoverBuffer (called from the theme) knows which
   // sub-region of the framebuffer to snapshot, rather than all 48 KB.
@@ -607,9 +620,9 @@ void HomeActivity::render(RenderLock&&) {
   coverRectY = metrics.homeTopPadding;
   coverRectW = pageWidth;
   coverRectH = coverTileHeight;
-  // The menu top the touch grid in loop() must use; drawButtonMenu below draws
-  // at exactly this y.
-  menuTopRendered = metrics.homeTopPadding + tileBlock + metrics.homeMenuTopOffset;
+  // The menu rect's top; the touch grid in loop() adds menuLeadInRendered to
+  // reach the first row, exactly as drawButtonMenu below does.
+  menuTopRendered = menuRectTop;
 
   if (coverTileHeight > 0) {
     GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, coverTileHeight}, recentBooks,
@@ -618,14 +631,10 @@ void HomeActivity::render(RenderLock&&) {
   }
 
   GUI.drawButtonMenu(
-      renderer,
-      Rect{0, menuTopRendered, pageWidth,
-           pageHeight -
-               (metrics.homeTopPadding + coverTileHeight + metrics.homeMenuTopOffset + metrics.buttonHintsHeight)},
-      static_cast<int>(menuItems.size()),
+      renderer, Rect{0, menuRectTop, pageWidth, menuRectBottom - menuRectTop}, static_cast<int>(menuItems.size()),
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },
-      [&menuIcons](int index) { return menuIcons[index]; }, menuSpacing);
+      [&menuIcons](int index) { return menuIcons[index]; }, menuSpacing, menuRowHeight);
 
   const auto labels = mappedInput.mapLabels(recentBooks.empty() ? "" : tr(STR_RESUME), tr(STR_SELECT), tr(STR_DIR_UP),
                                             tr(STR_DIR_DOWN));

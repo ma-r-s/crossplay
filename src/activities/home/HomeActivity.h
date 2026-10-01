@@ -25,6 +25,12 @@ class HomeActivity final : public Activity {
   // fork-local seam: drawn row spacing, so the touch grid hit-tests the same
   // pitch it drew.
   int menuSpacingRendered = 0;
+  // fork-local seam: drawn row height (0 until the first render, then the
+  // theme's own or the tighter one render() fitted), for the same reason.
+  int menuRowHeightRendered = 0;
+  // Pixels between the menu rect's top and its first row: Classic's
+  // drawButtonMenu starts one verticalSpacing down, the others at the top.
+  int menuLeadInRendered = 0;
   bool hasPlugins = false;
   // The home "library" slot (index 2) shows Plugins when any plugin is
   // installed, otherwise OPDS. The index converters gate on its presence.
