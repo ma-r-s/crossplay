@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111110">
+<title>Add a ticket</title>
+<style>
+/* The site's tokens, copied from site/styles.css:35-51, the same borrowing
+   NotesPage makes: the device serves this with no internet, so the display
+   face falls back to the stack the site itself declares. */
+:root{
+  --ink:#111110; --paper:#f5f2ea; --paper-2:#ebe7db; --edge:#a9a494; --muted:#46443c;
+  --display:"Arial Narrow",Helvetica,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --gutter:clamp(1.25rem,4vw,2rem);
+}
+@media (prefers-color-scheme:dark){
+  :root{--ink:#f2f1ec; --paper:#100f0e; --paper-2:#1a1917; --edge:#5a564c; --muted:#b8b5aa}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 var(--body);-webkit-text-size-adjust:100%}
+.band{background:#111110;color:#faf9f6;font-family:var(--display);font-weight:400;
+  font-size:clamp(1.6rem,7vw,2.2rem);letter-spacing:.02em;
+  padding:.45em var(--gutter) .3em;display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
+.band-note{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
+.band-rule{height:3px;background:var(--ink)}
+main{max-width:34rem;margin:0 auto;padding:1.6rem var(--gutter) 3rem}
+.eyebrow{font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 1rem;display:flex;align-items:center}
+.eyebrow::before{content:"";width:2rem;height:1px;background:currentColor;margin-right:.7rem}
+p.hint{margin:0 0 1.2rem}
+code{font-family:var(--mono);font-size:.85em;background:var(--paper-2);padding:.1em .3em}
+.field-group{margin-bottom:1.5rem}
+.field-group label{display:block;margin-bottom:.4rem;font-family:var(--mono);font-size:.85rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.field-group input,.field-group textarea{width:100%;font-family:var(--mono);font-size:.85rem;color:var(--ink);background:var(--paper-2);border:1px solid var(--edge);padding:.75rem;resize:vertical;box-sizing:border-box}
+.field-group textarea{min-height:7rem}
+.btn{display:block;width:100%;margin-top:1.4rem;font-family:var(--display);font-weight:400;font-size:1.3rem;
+  letter-spacing:.03em;padding:.5em 1.15em .38em;border:3px solid #111110;
+  background:#111110;color:#faf9f6;cursor:pointer;text-align:center}
+.btn[disabled]{opacity:.4;cursor:default}
+.result{font-family:var(--mono);font-size:.85rem;letter-spacing:.06em;margin-top:1rem;min-height:1.4em}
+</style>
+</head>
+<body>
+<div class="band">Add a ticket<span class="band-note">tickets</span></div>
+<div class="band-rule"></div>
+<main>
+  <p class="eyebrow">from this browser</p>
+  <p class="hint">One ticket per file: <code>name</code> (required), <code>subtitle</code> (optional), <code>qr</code> (required).</p>
+
+  <div class="field-group">
+    <label for="name">Name</label>
+    <input type="text" id="name" required placeholder="e.g. Ryanair FR1234">
+  </div>
+
+  <div class="field-group">
+    <label for="subtitle">Subtitle (optional)</label>
+    <input type="text" id="subtitle" placeholder="e.g. MXP &rarr; CTA  24 SEP  SEAT 12A">
+  </div>
+
+  <div class="field-group">
+    <label for="qr">QR Payload</label>
+    <textarea id="qr" required placeholder="e.g. RYANAIR|FR1234|MXPCTA|2026-09-24|SEAT12A|SEQ0042"></textarea>
+  </div>
+
+  <button class="btn" id="send">Save to the reader</button>
+  <div class="result" id="result"></div>
+</main>
+<script>
+var nameEl = document.getElementById('name');
+var subtitleEl = document.getElementById('subtitle');
+var qrEl = document.getElementById('qr');
+var send = document.getElementById('send');
+var result = document.getElementById('result');
+
+send.addEventListener('click', function () {
+  var name = nameEl.value.trim();
+  var subtitle = subtitleEl.value.trim();
+  var qr = qrEl.value;
+
+  if (!name) { result.textContent = 'Name is required.'; return; }
+  if (!qr.trim()) { result.textContent = 'QR payload is required.'; return; }
+
+  var payload = { name: name, qr: qr };
+  if (subtitle) payload.subtitle = subtitle;
+
+  var body = JSON.stringify(payload);
+  if (new Blob([body]).size > 8192) {
+    result.textContent = 'Ticket is too large (8 KB maximum).';
+    return;
+  }
+  send.disabled = true;
+  result.textContent = 'Saving...';
+
+  fetch('/t/upload', { method: 'PUT', body: body })
+    .then(function (res) {
+      return res.text().then(function (msg) {
+        result.textContent = msg;
+        send.disabled = false;
+      });
+    })
+    .catch(function () {
+      result.textContent = 'The reader did not answer. Is this screen still open on it?';
+      send.disabled = false;
+    });
+});
+</script>
+</body>
+</html>

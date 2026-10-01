@@ -18,6 +18,8 @@
 #include <cstring>
 
 #include "../apps_local/notes/NotesCore.h"
+#include "../apps_local/tickets/TicketsCore.h"
+#include "../apps_local/tickets/TicketsLibrary.h"
 #include "CrossPointSettings.h"
 #include "DevInputCommands.h"
 #include "DevMode.h"
@@ -35,6 +37,7 @@
 #include "html/HomePageHtml.generated.h"
 #include "html/NotesPageHtml.generated.h"
 #include "html/SettingsPageHtml.generated.h"
+#include "html/TicketPageHtml.generated.h"
 #include "html/WallpaperPageHtml.generated.h"
 #include "html/js/jszip_minJs.generated.h"
 #include "html/js/wallconvertJs.generated.h"
@@ -235,11 +238,20 @@ void CrossPointWebServer::begin() {
     server->on("/n/text", HTTP_PUT, [this] { handleNotesSave(); });
   }
 
+  if (isTickets()) {
+    server->on("/t", HTTP_GET, [this] { handleTicketsPage(); });
+    // PUT rather than POST for the same reason /w/upload is: this core hands
+    // one callback to both the multipart and the raw paths with nothing to tell
+    // them apart. A ticket is small enough to arrive as a plain body, so there
+    // is no raw handler at all here -- server->arg("plain") is the whole read.
+    server->on("/t/upload", HTTP_PUT, [this] { handleTicketsSave(); });
+  }
+
   // The developer surface. Present for Full and DeveloperOnly and DELIBERATELY
-  // NOT for WallpapersOnly or NotesOnly: these routes flash firmware, and the whole point of
+  // NOT for WallpapersOnly, NotesOnly or TicketsOnly: these routes flash firmware, and the whole point of
   // that surface is that its address is printed in a QR code for anyone in the
   // room to scan. "Always present" was true when there were two surfaces; a
-  // third one that quietly inherited a flashing API would be the worst kind of
+  // separate one that quietly inherited a flashing API would be the worst kind of
   // default. /api/status carries no secrets and is how a script finds a device
   // before it has a token, so it rides along with them.
   if (isFull() || isDev()) {
@@ -2458,7 +2470,32 @@ void CrossPointWebServer::handleWallpaperScript() const {
   server->send_P(200, "application/javascript", wallconvertJs, sizeof(wallconvertJs));
 }
 
+void CrossPointWebServer::handleTicketsPage() const {
+  sendStaticContent(server.get(), TicketPageHtml, sizeof(TicketPageHtml), TicketPageHtmlETag, "text/html");
+}
+
+void CrossPointWebServer::handleTicketsSave() {
+  String raw = server->arg("plain");
+  if (raw.length() > tickets::kMaxTicketBytes) {
+    server->send(413, "text/plain", "That is too long for a ticket.");
+    return;
+  }
+  std::string body(raw.c_str(), raw.length());
+  std::string savedName;
+  std::string refusal;
+  if (!tickets::saveUploaded(body, savedName, refusal)) {
+    ticketsResult_ = "Not saved: " + refusal;
+    ticketsChanged = true;
+    server->send(400, "text/plain", refusal.c_str());
+    return;
+  }
+  ticketsResult_ = "Saved: " + savedName;
+  ticketsChanged = true;
+  server->send(200, "text/plain", ("Saved: " + savedName).c_str());
+}
+
 namespace {
+
 // The device names the file, never the client. That is not tidiness: it deletes
 // the traversal question and the collision question outright rather than
 // answering them. handleUpload thirty lines away takes upload.filename into a

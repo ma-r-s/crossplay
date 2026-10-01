@@ -74,6 +74,10 @@ class CrossPointWebServer {
     // app sets before begin() and the client can never name. There is nothing
     // to validate because nothing is accepted.
     NotesOnly,
+    // TicketsOnly is the same door for the wallet: one page (GET /t) and one
+    // upload (PUT /t/upload), whose body is one ticket JSON document. The
+    // device names the file from the content; the client never names a path.
+    TicketsOnly,
   };
 
   explicit CrossPointWebServer(Surface surface = Surface::Full);
@@ -92,6 +96,16 @@ class CrossPointWebServer {
     notesChanged = false;
     return changed;
   }
+  // The TicketsOnly surface's one fact for its screen: an upload attempt
+  // landed, with what it did in one line ("Saved: X" or the refusal). Cleared
+  // by the reader of it, the way takeNotesChanged is.
+  bool takeTicketsChanged() {
+    const bool changed = ticketsChanged;
+    ticketsChanged = false;
+    return changed;
+  }
+  const std::string& getTicketsResult() const { return ticketsResult_; }
+
   ~CrossPointWebServer();
 
   // Start the web server (call after WiFi is connected)
@@ -119,10 +133,13 @@ class CrossPointWebServer {
   std::string notesPath;
   std::string notesName;
   bool notesChanged = false;
+  std::string ticketsResult_;
+  bool ticketsChanged = false;
   bool isFull() const { return surface == Surface::Full; }
   bool isDev() const { return surface == Surface::DeveloperOnly; }
   bool isWallpapers() const { return surface == Surface::WallpapersOnly; }
   bool isNotes() const { return surface == Surface::NotesOnly; }
+  bool isTickets() const { return surface == Surface::TicketsOnly; }
 
   // The wallpaper upload, streamed straight to the card. Separate from
   // UploadState because it shares nothing with the multipart path: no
@@ -211,6 +228,8 @@ class CrossPointWebServer {
   void handleWallpaperScript() const;
   void handleWallpaperUpload();      // the reply, after the body
   void handleWallpaperUploadData();  // the raw body, streamed
+  void handleTicketsPage() const;
+  void handleTicketsSave();
   void handleDevFlash();
   void handleDevUpload();      // POST completion
   void handleDevUploadData();  // streaming body

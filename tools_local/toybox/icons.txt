@@ -452,3 +452,12 @@ live_remove = x           # the end of a sender row. `trash-2` is a drawn object
                           # confirm behind it NAMES who is going, which is the
                           # sentence that matters and the one place it can be
                           # read without shrinking four rows to fit it.
+
+# Tickets, in APPS. `qr-code` -- the thing the app exists to show, and a mark
+# nothing else on the shelf shares: three finder squares and a scatter of
+# modules, all straight strokes, the exact opposite of the interior detail that
+# turned gamepad-2 to mush at 32px. Rejected: `ticket` (a perforated stub reads
+# as a tag, and its notch is one stroke from a bookmark at this size --
+# Instapaper owns the ribbon), `scan` (four corner brackets say the camera,
+# and this app does not scan anything).
+tickets = qr-code
