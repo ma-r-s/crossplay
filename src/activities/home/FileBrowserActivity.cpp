@@ -606,7 +606,11 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
   {
     const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
     const fui::Rect band = screen.takeBottom(static_cast<int16_t>(pathLineHeight + metrics.verticalSpacing));
-    screen.target().fill(fui::Rect{band.x, band.y, band.width, 3}, fui::Paint::solid(fui::Color::Black));
+    // fork-local seam: edge to edge, as the header's rule is. Clipped to the
+    // bezel's safe area it stopped 3px short of both sides and read as an inset
+    // that went wrong.
+    screen.target().fill(fui::Rect{0, band.y, static_cast<int16_t>(renderer.getScreenWidth()), 3},
+                         fui::Paint::solid(fui::Color::Black));
     const int pathY =
         band.y + metrics.verticalSpacing / 2 + (band.height - metrics.verticalSpacing / 2 - pathLineHeight) / 2;
     const int pathMaxWidth = band.width - metrics.contentSidePadding * 2;
