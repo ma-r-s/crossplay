@@ -106,10 +106,10 @@ grep -rl "Button::Up\|Button::Down" src/apps_local/*/ | cut -d/ -f3 | sort -u
 
 | Button       | Apps that read it | Exists on X4 Pro |
 | ------------ | ----------------- | ---------------- |
-| Back         | 30                | as a swipe       |
+| Back         | 31                | as a swipe       |
 | Confirm      | 2                 | **no**           |
 | Left / Right | 1                 | **no**           |
-| Up / Down    | 14                | **yes**          |
+| Up / Down    | 15                | **yes**          |
 
 Eighteen of the thirty-six directories use Back and nothing else.
 
