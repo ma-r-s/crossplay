@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.29
+
+- Every Home theme fits, keeps its margins and was reviewed blind
+
 ### 1.13.28
 
 - Sync CrossPoint develop (50 commits), retire Get Books
