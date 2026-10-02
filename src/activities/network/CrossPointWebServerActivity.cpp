@@ -123,6 +123,9 @@ void CrossPointWebServerActivity::onExit() {
   LOG_DBG("WEBACT", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
 
   state = WebServerActivityState::SHUTTING_DOWN;
+  // Closes the listening socket and any queued client connections; they must go
+  // before the radio teardown below frees the netif they hang off.
+  webServer.reset();
   stopDnsServer();
   MDNS.end();
 
