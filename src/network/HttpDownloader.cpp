@@ -21,6 +21,8 @@ constexpr int HTTP_TIMEOUT_MS = 60000;
 
 // Written after every request, and read by the UI right after a failure.
 int g_lastStatus = 0;
+// Whether the last answer came from another origin than the request started at.
+bool g_lastRedirected = false;
 
 // How often the abort poll is allowed to pump input. SecureHttpClient calls the
 // abort callback in a tight loop, so pumping on every call would spend the wait
@@ -39,6 +41,7 @@ HttpDownloader::DownloadError runGetSecure(const std::string& url, const std::st
   // Cleared per request: a transport failure returns before it is set, and a
   // stale 200 from the previous fetch would read as success.
   g_lastStatus = 0;
+  g_lastRedirected = false;
   // No radio, no request. Entering the TLS stack with WiFi never started does
   // not fail, it PANICS: the socket layer takes a mutex that has not been
   // created and FreeRTOS asserts on the null handle (xQueueSemaphoreTake,
@@ -111,6 +114,7 @@ HttpDownloader::DownloadError runGetSecure(const std::string& url, const std::st
       tracked, shouldAbort);
   if (bytesOut) *bytesOut = result.bytes;
   g_lastStatus = result.status < 0 ? 0 : result.status;
+  g_lastRedirected = !answeredBySameOrigin;
   if (answeredBySameOrigin) devreport::delivered(url.c_str(), result.status);
 
   if (result.aborted) return HttpDownloader::ABORTED;
@@ -133,6 +137,8 @@ HttpDownloader::DownloadError runGetSecure(const std::string& url, const std::st
 }  // namespace
 
 int HttpDownloader::lastStatus() { return g_lastStatus; }
+
+bool HttpDownloader::lastAnswerRedirected() { return g_lastRedirected; }
 
 bool HttpDownloader::fetchUrl(const std::string& url, std::string& outContent, const std::string& username,
                               const std::string& password) {

@@ -42,6 +42,10 @@ class HttpDownloader {
   // a catalog that simply wants a password, so callers need to tell them
   // apart. Not thread-safe by design: one fetch runs at a time.
   static int lastStatus();
+  // True when the last answer came from a different origin (scheme, host or
+  // port) than the URL asked for, after a redirect. Credentials are withheld
+  // from such a hop, so a 401 there is not a wrong password.
+  static bool lastAnswerRedirected();
 
   static bool fetchUrl(const std::string& url, std::string& outContent, const std::string& username = "",
                        const std::string& password = "");
