@@ -546,8 +546,24 @@ entire board: the playouts were right and the fixture was wrong.
   46KB, because upstream copies a whole position into `fix_atari()`'s frame
   under the recursion; that copy and `expand()`'s board-sized arrays now live
   in PSRAM scratch blocks. That applies to every board size, since N is
-  compile-time. The timing of a 19x19 move on the chip is the laptop's times
-  twenty-six, an estimate. The counting screen's dead-stone guess runs
+  compile-time. Measured on DEVICE 2 (2026-10-04, the per-move `search:` log
+  line carries the stack left): 25.5KB used by move 99 of a 13x13 game the
+  machine was losing at Hard.
+- **Where the search task's stack lives.** Internal RAM when a contiguous
+  32KB block exists, otherwise PSRAM (`xTaskCreatePinnedToCoreWithCaps`). On
+  DEVICE 2 after the reader and Wi-Fi there was never such a block, and the
+  search used to fall back to the 24KB loop task, which the 25.5KB above does
+  not fit: that was GitHub #279, a crash only when the player was winning,
+  because a losing machine runs every simulation and reads the most ladders.
+  The loop task is now the last resort, logged as an error. The PSRAM stack
+  costs no measurable speed (about 170 simulations a move at 13x13 Hard
+  either way).
+- **Hard on the chip is far below its count.** 1,500 simulations is the
+  ladder's number; on DEVICE 2 a 13x13 Hard move gets about 170 in its four
+  seconds, and 76 late in a game. The laptop-times-twenty-six estimate the
+  budgets were set from is off by several times, so every level plays weaker
+  on the device than the ladder above says.
+- The timing of a 19x19 move on the chip is unmeasured. The counting screen's dead-stone guess runs
   unclocked on the loop task: 29ms on the laptop at nineteen, so roughly three
   quarters of a second on the chip.
 - **A match between two devices set to different boards** settles on the first

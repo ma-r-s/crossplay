@@ -5,7 +5,9 @@
 #include <Memory.h>
 
 #if defined(ARDUINO_ARCH_ESP32)
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/idf_additions.h>
 #include <freertos/task.h>
 #endif
 
@@ -75,15 +77,29 @@ void GoActivity::onEnter() {
 #else
   constexpr BaseType_t searchCore = 0;
 #endif
+  searchStackExternal = false;
   if (xTaskCreatePinnedToCore(&GoActivity::searchTrampoline, "go_search", GO_SEARCH_TASK_STACK, this, 1, &handle,
                               searchCore) == pdPASS) {
     searchTask = handle;
+  } else if (xTaskCreatePinnedToCoreWithCaps(&GoActivity::searchTrampoline, "go_search", GO_SEARCH_TASK_STACK, this, 1,
+                                             &handle, searchCore, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS) {
+    // Internal RAM had no contiguous 32KB, which on an X4 Pro after the reader
+    // and Wi-Fi is the ordinary case, not the rare one: seen on DEVICE 2 on the
+    // first move asked of it (GitHub #279). The stack goes to PSRAM instead
+    // (CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY is on in this core). Nothing
+    // the search does needs to run with the flash cache disabled, which is the
+    // one thing a PSRAM stack cannot do.
+    searchTask = handle;
+    searchStackExternal = true;
+    LOG_INF("GO", "Search task stack in PSRAM (%d bytes; no internal block that large)", GO_SEARCH_TASK_STACK);
   } else {
-    // Not fatal: the search then runs on the loop task, which is where it used
-    // to run and where it may overflow. Saying so is the point -- a fallback
-    // nobody can see is a crash nobody can explain.
+    // The last resort, and a bad one: the loop task has 24KB and michi's worst
+    // case is about 27KB (see MICHI_LADDER_MAX), so a deep enough ladder read
+    // overflows it -- and a LOSING machine runs every simulation and reads the
+    // most ladders, which is how "it crashes when I am winning" (GitHub #279)
+    // reads to a player. Reaching this line now means PSRAM is out as well.
     searchTask = nullptr;
-    LOG_ERR("GO", "No search task (%d bytes); searching on the loop task", GO_SEARCH_TASK_STACK);
+    LOG_ERR("GO", "No search task (%d bytes, internal or PSRAM); searching on the loop task", GO_SEARCH_TASK_STACK);
   }
 #endif
   // The seed has to differ between boots or the computer plays the same game
@@ -99,13 +115,29 @@ void GoActivity::onExit() {
 #if defined(ARDUINO_ARCH_ESP32)
   // The task has to be GONE before this object is, because its loop reads this
   // object's members. It is parked on a notification, so waking it with
-  // `searchEnding` set is what ends it, and it acknowledges before it deletes
-  // itself.
+  // `searchEnding` set is what ends it: it acknowledges, suspends itself, and
+  // is deleted from HERE. A task whose stack came from heap_caps must not
+  // delete itself (vTaskDeleteWithCaps, idf_additions.h), and must not be
+  // deleted while it still runs on the other core, hence the wait for the
+  // suspend. Both kinds of stack take the same path.
   if (searchTask != nullptr) {
+    const TaskHandle_t task = static_cast<TaskHandle_t>(searchTask);
     searchEnding = true;
     searchWaiter = xTaskGetCurrentTaskHandle();
-    xTaskNotifyGive(static_cast<TaskHandle_t>(searchTask));
+    xTaskNotifyGive(task);
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));
+    for (int i = 0; i < 100 && eTaskGetState(task) != eSuspended; ++i) vTaskDelay(1);
+    if (eTaskGetState(task) == eSuspended) {
+      if (searchStackExternal) {
+        vTaskDeleteWithCaps(task);
+      } else {
+        vTaskDelete(task);
+      }
+    } else {
+      // Never seen. Deleting a task that is still running on the other core
+      // is the crash; leaking one is a few kilobytes until the next reboot.
+      LOG_ERR("GO", "Search task did not park; leaking it rather than deleting it mid-run");
+    }
     searchTask = nullptr;
   }
 #endif
@@ -128,7 +160,8 @@ void GoActivity::searchLoop() {
   // delete it the moment it is notified.
   TaskHandle_t waiter = static_cast<TaskHandle_t>(searchWaiter);
   xTaskNotifyGive(waiter);
-  vTaskDelete(nullptr);
+  // Parked rather than self-deleted; onExit deletes it. See there for why.
+  for (;;) vTaskSuspend(nullptr);
 }
 #endif
 
