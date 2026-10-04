@@ -106,16 +106,16 @@ bool unpack(const char* text, Save& save) {
   // different ceiling cannot be read as a short one. This is the ARRAY length,
   // not the board: the board is the three numbers just above it.
   if (points != go::kMaxPoints) return false;
-  if (parsed.boardSize != go::kSmallSize && parsed.boardSize != go::kLargeSize) return false;
-  if (parsed.lastSize != go::kSmallSize && parsed.lastSize != go::kLargeSize) return false;
+  if (!go::isBoardSize(parsed.boardSize)) return false;
+  if (!go::isBoardSize(parsed.lastSize)) return false;
 
   for (int i = 0; i < go::kMaxPoints; ++i) parsed.lastPoints[i] = static_cast<uint8_t>(take(ok));
   for (int i = 0; i < go::kCellBytes; ++i) parsed.game.cell[i] = static_cast<uint8_t>(take(ok));
   for (int i = 0; i < go::kMaskBytes; ++i) parsed.game.dead[i] = static_cast<uint8_t>(take(ok));
   parsed.game.toMove = static_cast<uint8_t>(take(ok));
-  parsed.game.ko = static_cast<uint8_t>(take(ok));
+  parsed.game.ko = static_cast<go::Point>(take(ok));
   parsed.game.passes = static_cast<uint8_t>(take(ok));
-  parsed.game.lastMove = static_cast<uint8_t>(take(ok));
+  parsed.game.lastMove = static_cast<go::Point>(take(ok));
   parsed.game.stage = static_cast<uint8_t>(take(ok));
   parsed.handicap = static_cast<int>(take(ok));
   parsed.game.komiHalves = static_cast<int16_t>(take(ok));
@@ -147,7 +147,7 @@ bool unpack(const char* text, Save& save) {
     // A resumed screen is only meaningful with the state behind it. A game whose
     // side to move is not a colour, or whose stage is not one of the three, is a
     // file this build cannot play, so the record survives and the game does not.
-    if (parsed.game.size != go::kSmallSize && parsed.game.size != go::kLargeSize) return false;
+    if (!go::isBoardSize(parsed.game.size)) return false;
     if (parsed.game.toMove != go::kBlack && parsed.game.toMove != go::kWhite) return false;
     if (parsed.game.stage > static_cast<uint8_t>(go::Stage::Over)) return false;
     if (parsed.game.recentCount > go::kHistory) return false;

@@ -28,6 +28,8 @@ namespace gosave {
 //
 // The GAME is validated only when `inProgress` says there is one; see unpack().
 //
+// 5 widened the ko and the last move to two bytes for nineteen by nineteen,
+// which also moved kPass and kNoPoint, and grew every array to 361 points.
 // 4 added the board size, in three places: the setting, the size of the game in
 // progress, and the size of the last finished position the front door draws.
 // 3 added the handicap, which became a setting of its own.
@@ -35,7 +37,13 @@ namespace gosave {
 // one fewer number on the line and is refused rather than misread: the record
 // in it is a handful of integers and the game is one position, and neither is
 // worth a migration nobody will ever test again.
-constexpr int kVersion = 4;
+constexpr int kVersion = 5;
+
+// The longest line pack() can write, worst case, with room to spare: 361
+// last-game points at two characters, 91 board bytes and 46 dead-mask bytes at
+// up to four, and the rest. The suite packs the worst case against it, and the
+// activity sizes its read and write buffers by it.
+constexpr int kMaxLine = 2048;
 
 struct Save {
   int wins = 0;

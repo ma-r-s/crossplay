@@ -1,18 +1,29 @@
 # Go
 
-Nine by nine or thirteen by thirteen, area scoring, komi 7.5, situational
-superko. Two people on one device, two devices in a room, or one person against
+Nine by nine, thirteen by thirteen or nineteen by nineteen, area scoring, komi
+7.5, situational superko. Two people on one device, two devices in a room, or one person against
 michi-c2 at three levels.
 
-**Two board sizes and not three.** Nineteen lines on a 480px panel is a 24px
-pitch with a 20px stone, which is below the fingertip this device is driven
-with. Nine gives 49px and a game that finishes on one train journey; thirteen
-gives 33px, and is playable at that pitch because a stone goes down in two taps
-and the first one can be moved. Nine is the default.
+**Three board sizes.** Nine gives a 49px pitch and a game that finishes on one
+train journey; thirteen gives 33px; nineteen gives 23px with an 18px stone,
+which is below the fingertip this device is driven with. The larger two are
+playable at those pitches because a stone goes down in two taps and the first
+one can be moved. Nine is the default. Nineteen was left out at first for that
+pitch, and offered from 2026-10-03 because it is the board real Go is played on
+(GitHub #282; Mario: "we should allow 19x19, at least allow it"). Twenty-three
+is the widest pitch nineteen allows: at 24 the pad inside the square drops to
+eight pixels, under the stone's radius, and the edge row touches the frame.
 
-Both boards occupy the **same 448px square**, and that is what keeps the seat
-bands, the buttons and the frame in one place across the two: only the pitch and
-the pad inside the square change.
+All three boards occupy the **same 448px square**, and that is what keeps the
+seat bands, the buttons and the frame in one place across them: only the pitch
+and the pad inside the square change.
+
+**A point is two bytes (`go::Point`).** Nineteen by nineteen has 361 points
+and a byte numbers 256, so the ko, the last move, every flood fill's stack and
+every neighbour list hold a `Point`, never a `uint8_t`. The suite plays past
+the 256th point on purpose (`testKoPastTheByteIsTheRightPoint`: in a byte the
+ko at 325 was 69, which forbade an empty point at the top of the board and
+allowed the immediate recapture).
 
 ## The files
 
@@ -61,7 +72,7 @@ at full width.
 | LEVEL | EASY / MEDIUM / HARD | how hard the machine thinks, and nothing else |
 | HANDICAP | NONE / 2..5 STONES | stones spotted to the player, komi 0.5 |
 | YOU PLAY | BLACK / WHITE | dim while a handicap is set: a handicap is Black's |
-| BOARD | 9x9 / 13x13 | applies to the next NEW game |
+| BOARD | 9x9 / 13x13 / 19x19 | applies to the next NEW game |
 
 **The level is strength alone.** It used to carry the opening as well, so EASY
 meant "a weaker opponent AND two free stones" and neither half could be had
@@ -100,8 +111,8 @@ no draw and needs no draw screen**, and `settlesEveryGame()` holds every komi
 the level ladder can set to that promise. The first version had 7.0 and the
 suite found the tie.
 
-`moveLimit(size)` is five times the board -- 405 moves on nine, 845 on thirteen
--- and it is a **[house rule]**. Chinese rules with full superko terminate on
+`moveLimit(size)` is five times the board -- 405 moves on nine, 845 on thirteen,
+1805 on nineteen -- and it is a **[house rule]**. Chinese rules with full superko terminate on
 their own, but the ring in `Game` remembers eight positions rather than every
 one, so a long enough cycle is not forbidden. An opponent that refuses to pass
 while losing (which is correct, below) will happily play into one, and a
@@ -139,9 +150,9 @@ made fail.
 
 The first tap aims, the second commits, and tapping elsewhere moves the aim.
 It costs one tap on a move you were sure of and saves a game on the one you were
-not: the pitch is 49px on nine and 33px on thirteen, which is at or under a
-fingertip, and a stone cannot be taken back in a match. It is also what makes
-the larger board offerable at all.
+not: the pitch is 49px on nine, 33px on thirteen and 23px on nineteen, which is
+at or under a fingertip, and a stone cannot be taken back in a match. It is also
+what makes the larger boards offerable at all.
 
 The pause is also the only place a warning can live. `go::cautionFor` returns
 `FillsOwnEye` or `SelfAtari` for a move that is legal and almost certainly a
@@ -431,8 +442,10 @@ games a level, both engines seeded per game:
 | Hard, 1,500                      | 69%  |
 | michi-c2's own build at N=9, 500 | 34%  |
 
-The last row is the control. This fork compiles michi for a 13x13 maximum and
-plays 9x9 inside it; the row says that costs nothing, which it did not always.
+The last row is the control. This ladder was measured with michi compiled for a
+13x13 maximum and playing 9x9 inside it, and the row says that cost nothing,
+which it did not always. Since 19x19 was offered michi is compiled for a 19x19
+maximum, upstream's own value, and **the ladder has not been re-run at it**.
 
 **What is not known is how any of this maps to a person.** Nobody has played
 this build against a human of known rank. The rungs are ordered and well
@@ -517,10 +530,19 @@ entire board: the playouts were right and the fixture was wrong.
 
 ## What is not done
 
-- **No 13x13 strength measurement.** The simulation counts come from michi-c2's
-  nine by nine ladder. Thirteen by thirteen is a bigger board for the same
-  search, so every level is weaker there in a way nobody here has quantified.
-  The clock, not the count, is what binds on that board.
+- **No 13x13 or 19x19 strength measurement.** The simulation counts come from
+  michi-c2's nine by nine ladder. The larger boards are bigger boards for the
+  same search, so every level is weaker there in a way nobody here has
+  quantified, nineteen most of all: the clock, not the count, is what binds,
+  and a 19x19 playout is about four times a 9x9 one. Expect Hard on nineteen to
+  be a beginner's opponent.
+- **19x19 on hardware is not measured.** michi's position is about 16KB at
+  N=19 (5.7KB at 13), so the ladder reader's 128-deep stack is about 2MB of
+  PSRAM. The search task's stack is re-measured with
+  `scripts_local/stack-budget.sh`; the timing of a 19x19 move on the chip is
+  the laptop's times twenty-six, which is an estimate. The counting screen's
+  dead-stone guess runs unclocked on the loop task: 29ms on the laptop at
+  nineteen, so roughly three quarters of a second on the chip.
 - **A match between two devices set to different boards** settles on the first
   seat's size as soon as its first move arrives. The size crosses the wire
   inside the game, and the second seat cannot place anything before that move,

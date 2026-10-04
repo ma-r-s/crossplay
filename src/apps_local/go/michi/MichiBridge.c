@@ -23,7 +23,7 @@ static uint32_t  gLastMs;
 // michi lays the board out as a bordered array indexed `row * (N + 1) + col`,
 // with row counted from the top and col one-based, and it plays a board of
 // `pos->size` inside an array sized for the compile-time maximum N. So a 9x9
-// game on an N=13 build sits in the bottom-left of the larger array, which is
+// game on an N=19 build sits in the bottom-left of the larger array, which is
 // what the `N - size` term is.
 static Point michi_point(int row, int col, int size)
 {

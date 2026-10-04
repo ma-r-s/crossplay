@@ -17,13 +17,14 @@ namespace {
 // move every other element on the screen and need two of every number here.
 //
 // Nine lines at 49 gives a 44px stone, which is a fingertip. Thirteen at 33
-// gives 28px, which is under one -- and is playable anyway because a stone goes
-// down in two taps and the first can be moved. Nineteen would give 23px with no
-// pad left at all, which is why it is not offered.
+// gives 28px and nineteen at 23 gives 18px, both under one -- and playable
+// anyway because a stone goes down in two taps and the first can be moved.
+// Twenty-three is the widest pitch nineteen allows: at 24 the pad shrinks to
+// eight pixels, under the stone's radius, and the edge row touches the frame.
 constexpr int16_t kBoardSide = 448;
 constexpr int16_t kFrame = toybox::kBoardFrame;
 
-constexpr int16_t pitchFor(const int size) { return size == go::kSmallSize ? 49 : 33; }
+constexpr int16_t pitchFor(const int size) { return size == go::kSmallSize ? 49 : (size == go::kLargeSize ? 33 : 23); }
 constexpr int16_t gridSpan(const int size) { return static_cast<int16_t>(pitchFor(size) * (size - 1)); }
 // Room outside the outermost line, so an edge stone has air round it rather
 // than sitting against the frame. It has to exceed the stone RADIUS: at half a
@@ -33,6 +34,12 @@ constexpr int16_t padFor(const int size) { return static_cast<int16_t>((kBoardSi
 
 // A seat band's height, variant 2 only.
 constexpr int16_t kSeatBand = 58;
+
+// Half the side of the square that marks a point of territory once the game is
+// counted. Smaller than the stone, so a marked point never reads as a stone.
+constexpr int16_t territoryMarkHalf(const int size) {
+  return size == go::kSmallSize ? 9 : (size == go::kLargeSize ? 6 : 4);
+}
 
 int16_t boardLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - kBoardSide) / 2); }
 
@@ -61,9 +68,13 @@ void lastMoveMark(toybox::Screen& screen, const int16_t cx, const int16_t cy, co
                   const uint8_t colour) {
   const fui::Color ink = colour == go::kBlack ? fui::Color::White : fui::Color::Black;
   // Scaled off the stone rather than fixed, or the mark that is a ring on a
-  // nine by nine board is a filled blob on a thirteen by thirteen one.
-  const int16_t outer = static_cast<int16_t>(radius * 8 / 22);
-  const int16_t inner = static_cast<int16_t>(radius * 5 / 22);
+  // nine by nine board is a filled blob on a thirteen by thirteen one. Floored,
+  // because the scale on nineteen's 9px stone is a 3px dot with a 2px hole: a
+  // ring one pixel wide, which the panel does not draw as a ring.
+  const int16_t scaledOuter = static_cast<int16_t>(radius * 8 / 22);
+  const int16_t outer = scaledOuter < 4 ? 4 : scaledOuter;
+  const int16_t scaledInner = static_cast<int16_t>(radius * 5 / 22);
+  const int16_t inner = scaledInner > outer - 2 ? static_cast<int16_t>(outer - 2) : scaledInner;
   toybox::disc(screen, cx, cy, outer, ink);
   toybox::disc(screen, cx, cy, inner, colour == go::kBlack ? fui::Color::Black : fui::Color::White);
 }
@@ -101,16 +112,21 @@ void drawGrid(toybox::Screen& screen, const fui::DeviceContext& device, const in
         fui::Paint::solid(fui::Color::Black));
   }
 
-  // Star points. Five on either board, at the corner stars and the middle, and
-  // they are not decoration: they are how a player reads where they are on a
-  // board with no coordinates. Nine takes them at the 3-3 points, thirteen at
-  // the 4-4s, which is where the handicap stones go -- one fact, two readers.
-  const int near = size == go::kSmallSize ? 2 : 3;
+  // Star points: the corner stars and the middle, plus the four side stars on
+  // nineteen, which is where every nineteen-line board has them. They are not
+  // decoration: they are how a player reads where they are on a board with no
+  // coordinates. Nine takes them at the 3-3 points, thirteen and nineteen at
+  // the 4-4s, which is where the handicap stones go -- one fact, two readers
+  // (go::starLine).
+  const int near = go::starLine(size);
   const int far = size - 1 - near;
   const int middle = size / 2;
-  const int stars[5][2] = {{near, near}, {near, far}, {far, near}, {far, far}, {middle, middle}};
-  const int16_t dot = size == go::kSmallSize ? 5 : 4;
-  for (const auto& star : stars) {
+  const int stars[9][2] = {{near, near},   {near, far},    {far, near},   {far, far},   {middle, middle},
+                           {near, middle}, {middle, near}, {far, middle}, {middle, far}};
+  const int starCount = size == go::kFullSize ? 9 : 5;
+  const int16_t dot = size == go::kSmallSize ? 5 : (size == go::kLargeSize ? 4 : 3);
+  for (int i = 0; i < starCount; ++i) {
+    const auto& star = stars[i];
     toybox::disc(screen, static_cast<int16_t>(x0 + star[1] * pitch), static_cast<int16_t>(y0 + star[0] * pitch), dot,
                  fui::Color::Black);
   }
@@ -319,7 +335,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // showed nothing at all on the screen the player reaches it from. Ornament
   // made of the app's own material carrying the app's own data: a screenshot of
   // it is different on every device, which is the whole test.
-  const int miniSize = model.boardSize == go::kLargeSize ? go::kLargeSize : go::kSmallSize;
+  const int miniSize = go::isBoardSize(model.boardSize) ? model.boardSize : go::kSmallSize;
   const int16_t kMiniSpan = 240;
   const int16_t mini = static_cast<int16_t>(kMiniSpan / (miniSize - 1));
   const int16_t span = static_cast<int16_t>(mini * (miniSize - 1));
@@ -600,7 +616,7 @@ void buildCount(toybox::Screen& screen, const CountModel& model) {
   // like any other. Tapping a group flips it, which is the whole negotiation:
   // the machine's opinion is a starting point, not a verdict.
   const int16_t radius = stoneRadius(size);
-  const int16_t markHalf = static_cast<int16_t>(size == go::kSmallSize ? 9 : 6);
+  const int16_t markHalf = territoryMarkHalf(size);
   for (int point = 0; point < points; ++point) {
     int16_t cx = 0;
     int16_t cy = 0;
@@ -706,7 +722,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   drawFrame(screen, device);
   drawGrid(screen, device, size);
   const int16_t radius = stoneRadius(size);
-  const int16_t markHalf = static_cast<int16_t>(size == go::kSmallSize ? 9 : 6);
+  const int16_t markHalf = territoryMarkHalf(size);
   for (int point = 0; point < points; ++point) {
     int16_t cx = 0;
     int16_t cy = 0;

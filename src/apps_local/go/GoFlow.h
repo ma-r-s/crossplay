@@ -48,10 +48,13 @@ enum class Opponent : uint8_t { Computer, Human };
 // given more time. See GoEngine.h.
 enum class Level : uint8_t { Easy, Medium, Hard, Count_ };
 
-// The two boards. A setting rather than a constant, and it takes effect on the
-// next NEW game: changing the board under a game in progress would have to
-// either discard it or reinterpret its stones, and both are worse than waiting.
-constexpr int nextBoardSize(const int size) { return size == kSmallSize ? kLargeSize : kSmallSize; }
+// The three boards, in the order the setting steps through them. A setting
+// rather than a constant, and it takes effect on the next NEW game: changing the
+// board under a game in progress would have to either discard it or
+// reinterpret its stones, and both are worse than waiting.
+constexpr int nextBoardSize(const int size) {
+  return size == kSmallSize ? kLargeSize : (size == kLargeSize ? kFullSize : kSmallSize);
+}
 
 constexpr Screen back(const Screen screen) {
   switch (screen) {

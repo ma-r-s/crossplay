@@ -170,7 +170,7 @@ int GoActivity::chooseComputerMove(const go::Game& snapshot) {
 void GoActivity::loadSave() {
 #if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
   if (!Storage.exists(kSavePath)) return;
-  char buffer[1600] = {};
+  char buffer[gosave::kMaxLine] = {};
   if (Storage.readFileToBuffer(kSavePath, buffer, sizeof(buffer)) == 0) return;
 
   gosave::Save save;
@@ -189,7 +189,7 @@ void GoActivity::loadSave() {
   level = save.level;
   playAs = save.playAs;
   handicap = save.handicap >= 2 && save.handicap <= go::kMaxHandicap ? save.handicap : 0;
-  boardSize = save.boardSize == go::kLargeSize ? go::kLargeSize : go::kSmallSize;
+  boardSize = go::isBoardSize(save.boardSize) ? save.boardSize : go::kSmallSize;
   inProgress = save.inProgress;
   if (inProgress) {
     game = save.game;
@@ -224,7 +224,7 @@ void GoActivity::writeSave() {
   save.game = game;
   save.seat = seat;
 
-  char line[1600];
+  char line[gosave::kMaxLine];
   const int bytes = gosave::pack(save, line, sizeof(line));
   if (bytes <= 0) {
     LOG_ERR("GO", "Save line did not fit %d bytes", static_cast<int>(sizeof(line)));

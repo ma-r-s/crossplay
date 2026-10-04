@@ -74,7 +74,9 @@ enum class GameId : uint16_t {
   // that has been on the deploy branch has to be assumed to be on a device.
   // Nothing had shipped with 0x0902, so this costs nobody a match.
   ToyBattle = 0x0902,
-  Go = 0x0A01,
+  // 0x0A01 held points in a byte; nineteen by nineteen widened the ko and the
+  // last move to two, which moved every field after them.
+  Go = 0x0A02,
   Hex = 0x0B01,
   // Reserved for host tests, which need an id no real game will ever use.
   Test = 0xFF01,

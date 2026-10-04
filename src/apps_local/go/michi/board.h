@@ -9,13 +9,11 @@
 #include "non_portable.h"
 //========================= Definition of Data Structures =====================
 // --------------------------- Board Constants --------------------------------
-// FORK CHANGE: 13, not 19. N is the compile-time MAXIMUM board size -- the
-// size actually played is pos->size, set at runtime -- so this one build serves
-// both 9x9 and 13x13, and the arrays are sized for the larger. Nineteen would
-// cost memory for a board this app does not offer: nineteen lines on a 480px
-// panel is a 24px pitch, which is below the fingertip this device is driven
-// with.
-#define N          13
+// N is the compile-time MAXIMUM board size -- the size actually played is
+// pos->size, set at runtime -- so this one build serves 9x9, 13x13 and 19x19.
+// 19 is upstream's own value. The fork ran 13 until 19x19 was offered (GitHub
+// #282); the arrays sized by it live in PSRAM, see michi_alloc.
+#define N          19
 #define W         (N+2)
 #define BOARDSIZE ((N+1)*W+1)
 #define BOARD_IMIN (N+1)

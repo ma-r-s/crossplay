@@ -31,7 +31,7 @@ struct Fast {
   int size;
   int points;
   int16_t komiHalves;
-  uint8_t ko;
+  go::Point ko;
   uint8_t toMove;
   uint8_t passes;
 };
@@ -56,14 +56,14 @@ int chainLiberties(const Fast& fast, const int start, uint8_t stones[kMaskBytes]
     counted[i] = 0;
     stones[i] = 0;
   }
-  uint8_t stack[go::kMaxPoints];
+  go::Point stack[go::kMaxPoints];
   int top = 0;
-  stack[top++] = static_cast<uint8_t>(start);
+  stack[top++] = static_cast<go::Point>(start);
   go::mark(stones, start);
   int liberties = 0;
   while (top > 0) {
     const int current = stack[--top];
-    uint8_t around[4];
+    go::Point around[4];
     const int count = go::neighbours(fast.size, current, around);
     for (int i = 0; i < count; ++i) {
       const int next = around[i];
@@ -76,14 +76,14 @@ int chainLiberties(const Fast& fast, const int start, uint8_t stones[kMaskBytes]
       }
       if (fast.point[next] != colour || go::marked(stones, next)) continue;
       go::mark(stones, next);
-      stack[top++] = static_cast<uint8_t>(next);
+      stack[top++] = static_cast<go::Point>(next);
     }
   }
   return liberties;
 }
 
 int captureAround(Fast& fast, const int at, const uint8_t colour, int& lastTaken) {
-  uint8_t around[4];
+  go::Point around[4];
   const int count = go::neighbours(fast.size, at, around);
   int taken = 0;
   for (int i = 0; i < count; ++i) {
@@ -103,7 +103,7 @@ int captureAround(Fast& fast, const int at, const uint8_t colour, int& lastTaken
 
 bool isEye(const Fast& fast, const int point, const uint8_t colour) {
   if (fast.point[point] != go::kEmpty) return false;
-  uint8_t around[4];
+  go::Point around[4];
   const int count = go::neighbours(fast.size, point, around);
   for (int i = 0; i < count; ++i) {
     if (fast.point[around[i]] != colour) return false;
@@ -139,7 +139,7 @@ bool playFast(Fast& fast, const int point) {
   // The fast path, and it is most moves: a stone with an empty neighbour has a
   // liberty, so it cannot be suicide and nothing has to be walked.
   bool hasAir = false;
-  uint8_t around[4];
+  go::Point around[4];
   const int count = go::neighbours(fast.size, point, around);
   for (int i = 0; i < count; ++i) {
     if (fast.point[around[i]] == go::kEmpty) {
@@ -168,7 +168,7 @@ bool playFast(Fast& fast, const int point) {
     for (int p = 0; p < fast.points; ++p) {
       if (go::marked(stones, p)) ++size;
     }
-    if (size == 1 && liberties == 1) fast.ko = static_cast<uint8_t>(lastTaken);
+    if (size == 1 && liberties == 1) fast.ko = static_cast<go::Point>(lastTaken);
   }
 
   fast.toMove = go::other(colour);
@@ -190,20 +190,20 @@ void fastOwner(const Fast& fast, uint8_t owner[go::kMaxPoints]) {
   for (int i = 0; i < kMaskBytes; ++i) seen[i] = 0;
   for (int i = 0; i < fast.points; ++i) owner[i] = fast.point[i];
 
-  uint8_t stack[go::kMaxPoints];
-  uint8_t region[go::kMaxPoints];
+  go::Point stack[go::kMaxPoints];
+  go::Point region[go::kMaxPoints];
   for (int start = 0; start < fast.points; ++start) {
     if (fast.point[start] != go::kEmpty || go::marked(seen, start)) continue;
     int top = 0;
     int found = 0;
-    stack[top++] = static_cast<uint8_t>(start);
+    stack[top++] = static_cast<go::Point>(start);
     go::mark(seen, start);
-    region[found++] = static_cast<uint8_t>(start);
+    region[found++] = static_cast<go::Point>(start);
     bool black = false;
     bool white = false;
     while (top > 0) {
       const int current = stack[--top];
-      uint8_t around[4];
+      go::Point around[4];
       const int count = go::neighbours(fast.size, current, around);
       for (int i = 0; i < count; ++i) {
         const int next = around[i];
@@ -217,8 +217,8 @@ void fastOwner(const Fast& fast, uint8_t owner[go::kMaxPoints]) {
         }
         if (go::marked(seen, next)) continue;
         go::mark(seen, next);
-        stack[top++] = static_cast<uint8_t>(next);
-        region[found++] = static_cast<uint8_t>(next);
+        stack[top++] = static_cast<go::Point>(next);
+        region[found++] = static_cast<go::Point>(next);
       }
     }
     const uint8_t belongsTo = (black && !white) ? go::kBlack : ((white && !black) ? go::kWhite : go::kEmpty);
@@ -254,14 +254,14 @@ int soleLiberty(const Fast& fast, const int start) {
   const uint8_t colour = fast.point[start];
   uint8_t seen[kMaskBytes];
   for (int i = 0; i < kMaskBytes; ++i) seen[i] = 0;
-  uint8_t stack[go::kMaxPoints];
+  go::Point stack[go::kMaxPoints];
   int top = 0;
-  stack[top++] = static_cast<uint8_t>(start);
+  stack[top++] = static_cast<go::Point>(start);
   go::mark(seen, start);
   int liberty = go::kNoPoint;
   while (top > 0) {
     const int current = stack[--top];
-    uint8_t around[4];
+    go::Point around[4];
     const int count = go::neighbours(fast.size, current, around);
     for (int i = 0; i < count; ++i) {
       const int next = around[i];
@@ -275,7 +275,7 @@ int soleLiberty(const Fast& fast, const int start) {
       }
       if (fast.point[next] != colour || go::marked(seen, next)) continue;
       go::mark(seen, next);
-      stack[top++] = static_cast<uint8_t>(next);
+      stack[top++] = static_cast<go::Point>(next);
     }
   }
   return liberty;
@@ -340,7 +340,7 @@ int playoutMove(Fast& fast, uint32_t& seed, const bool policy, const int lastMov
   if (policy && lastMove >= 0 && lastMove < fast.points) {
     // Candidates, in the order Mogo tries them: save what the last move put in
     // atari, else capture what put it there.
-    uint8_t around[4];
+    go::Point around[4];
     const int count = go::neighbours(fast.size, lastMove, around);
     int rescue = go::kNoPoint;
     int capture = go::kNoPoint;
@@ -384,7 +384,7 @@ int playoutMove(Fast& fast, uint32_t& seed, const bool policy, const int lastMov
   if (policy && lastMove >= 0 && lastMove < fast.points) {
     const int row = go::rowOf(fast.size, lastMove);
     const int col = go::colOf(fast.size, lastMove);
-    uint8_t matches[8];
+    go::Point matches[8];
     int found = 0;
     for (int dr = -1; dr <= 1; ++dr) {
       for (int dc = -1; dc <= 1; ++dc) {
@@ -393,7 +393,7 @@ int playoutMove(Fast& fast, uint32_t& seed, const bool policy, const int lastMov
         const int point = go::pointAt(fast.size, row + dr, col + dc);
         if (!sensible(fast, point)) continue;
         if (!matchesPattern(fast, point, fast.toMove)) continue;
-        matches[found++] = static_cast<uint8_t>(point);
+        matches[found++] = static_cast<go::Point>(point);
       }
     }
     // Chosen at random among the matches rather than by the first one found:

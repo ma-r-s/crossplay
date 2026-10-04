@@ -50,9 +50,10 @@ on the move, and an app that plays on where upstream would have passed.
 
 **The three ports:**
 
-- **`board.h`: `N` is 13, not 19.** `N` is the compile-time MAXIMUM; the size
-  actually played is `pos->size`, set at runtime. One build therefore serves
-  both 9x9 and 13x13, and the arrays are sized for the larger.
+- **`board.h`: `N` is the compile-time MAXIMUM**; the size actually played is
+  `pos->size`, set at runtime. One build therefore serves 9x9, 13x13 and 19x19,
+  and the arrays are sized for the largest. `N` is 19, upstream's own value; it
+  was 13 until 19x19 was offered (GitHub #282).
 - **`board_util.c`: `log_fmt_s` tolerates a null `flog`.** That FILE\* is opened
   by `ui.c`, which is not vendored, so null is the normal state here rather than
   an error. The other two log functions funnel through this one.

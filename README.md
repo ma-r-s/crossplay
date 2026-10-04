@@ -71,7 +71,7 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Forehead**     | Screen against your forehead, the room shouts clues, sixty seconds.          |
 | **Trivia**       | 50,000 questions off 42 years of Jeopardy. Read them out, or play alone.     |
 | **Wavelength**   | A hidden point on a spectrum, one clue, and the whole table arguing.         |
-| **Go**           | 9x9 or 13x13, against the device or someone next to you. It counts for you.  |
+| **Go**           | 9x9, 13x13 or 19x19, against the device or someone next to you. It counts.   |
 | **Hex**          | Join your two edges before they join theirs. No captures, and no draws.      |
 | **Underhand**    | The 2017 cult card game: bribe, sacrifice, dodge the police, summon a god.   |
 | **Wordle**       | Six guesses for the day's word, with every past day in an archive.           |

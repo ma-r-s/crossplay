@@ -51,7 +51,7 @@ constexpr int kPoints = kSize * kSize;
 constexpr int pointAt(const int row, const int col) { return go::pointAt(kSize, row, col); }
 constexpr int rowOf(const int point) { return go::rowOf(kSize, point); }
 constexpr int colOf(const int point) { return go::colOf(kSize, point); }
-inline int neighbours(const int point, uint8_t out[4]) { return go::neighbours(kSize, point, out); }
+inline int neighbours(const int point, Point out[4]) { return go::neighbours(kSize, point, out); }
 
 uint32_t rng = 20260912u;
 uint32_t nextRandom() {
@@ -108,7 +108,7 @@ bool samePosition(const Game& a, const Game& b) {
 // --- The board itself -------------------------------------------------------
 
 void testNeighboursNeverWrapRoundTheEdge() {
-  uint8_t out[4];
+  Point out[4];
 
   // A corner has two, an edge three, the middle four. The count is the easy
   // half; the point of this test is that the LEFT neighbour of column 0 is not
@@ -1114,7 +1114,7 @@ void testAHandicapIsStonesOnTheBoardAndWhiteToPlay() {
     CHECK(game.komiHalves == 1);
 
     // The stones are on star points, and no two on the same one.
-    uint8_t where[kMaxHandicap];
+    Point where[kMaxHandicap];
     CHECK(handicapPoints(kSize, stones, where) == stones);
     for (int i = 0; i < stones; ++i) {
       CHECK(game.at(where[i]) == kBlack);
@@ -1458,7 +1458,7 @@ void testTheLargeBoardIsTheSameGameOnMorePoints() {
   // The edge is where a hard-coded nine shows. The point one row below the top
   // right corner has three neighbours on either board, but they are DIFFERENT
   // points, and a `- 9` that should have been a `- 13` wraps.
-  uint8_t around[4];
+  Point around[4];
   CHECK(go::neighbours(go::kLargeSize, go::pointAt(go::kLargeSize, 0, 12), around) == 2);
   CHECK(go::neighbours(go::kLargeSize, go::pointAt(go::kLargeSize, 6, 6), around) == 4);
   CHECK(go::neighbours(go::kLargeSize, go::pointAt(go::kLargeSize, 0, 0), around) == 2);
@@ -1488,7 +1488,7 @@ void testTheLargeBoardIsTheSameGameOnMorePoints() {
   CHECK(moveLimit(go::kLargeSize) > moveLimit(go::kSmallSize));
 
   // A handicap goes on the 4-4 points, and the first two are opposite corners.
-  uint8_t where[kMaxHandicap];
+  Point where[kMaxHandicap];
   CHECK(handicapPoints(go::kLargeSize, 2, where) == 2);
   CHECK(go::rowOf(go::kLargeSize, where[0]) == 9);
   CHECK(go::colOf(go::kLargeSize, where[0]) == 3);
@@ -1508,6 +1508,216 @@ void testResetClearsTheTailOfTheLargerBoard() {
   reset(game, go::kSmallSize);
   CHECK(game.size == go::kSmallSize);
   for (int i = 0; i < go::kMaxPoints; ++i) CHECK(game.at(i) == kEmpty);
+}
+
+// --- Nineteen by nineteen ---------------------------------------------------
+//
+// The board real Go is played on (GitHub #282), and the first one with more
+// points than a byte can number: 361. Every point the game STORES -- the ko,
+// the last move, a flood fill's stack, a neighbour list -- was a uint8_t, and
+// a byte wraps at 256. So these tests live past the 256th point on purpose: a
+// test in the top rows passes with the old types.
+
+constexpr int kFull = go::kFullSize;
+constexpr int fullAt(const int row, const int col) { return go::pointAt(kFull, row, col); }
+
+void testTheFullBoardNumbersEveryPointPastTheByte() {
+  Game game;
+  reset(game, kFull);
+  CHECK(game.size == kFull);
+  CHECK(game.points() == 361);
+
+  // The bottom-right corner is point 360. Its neighbours are 341 and 359, and a
+  // byte-sized neighbour list turned them into 85 and 103.
+  Point around[4];
+  CHECK(go::neighbours(kFull, 360, around) == 2);
+  CHECK(around[0] == 341);
+  CHECK(around[1] == 359);
+
+  // A capture down there, played through the rules.
+  game.put(360, kWhite);
+  game.put(341, kBlack);
+  game.toMove = kBlack;
+  CHECK(play(game, 359));
+  CHECK(game.at(360) == kEmpty);
+  CHECK(game.capturedBy[kBlack] == 1);
+  CHECK(game.lastMove == 359);
+
+  // A group of 360 stones. The flood fill pushes every one of them, and with a
+  // byte for a stack the ones past 255 were pushed as somebody else.
+  Game snake;
+  reset(snake, kFull);
+  for (int i = 0; i < snake.points(); ++i) snake.put(i, kBlack);
+  snake.put(180, kEmpty);
+  int size = 0;
+  int liberties = 0;
+  group(snake, 0, nullptr, size, liberties);
+  CHECK(size == 360);
+  CHECK(liberties == 1);
+
+  // One stone, and 360 empty points that only it reaches: the territory fill
+  // walks all of them.
+  Game lone;
+  reset(lone, kFull);
+  lone.put(0, kBlack);
+  const Score counted = score(lone);
+  CHECK(counted.blackHalves == 361 * 2);
+  CHECK(counted.whiteHalves == kDefaultKomiHalves);
+
+  CHECK(moveLimit(kFull) > moveLimit(go::kLargeSize));
+}
+
+// The ko shape from testTheEngineIsToldAboutTheKo, moved to the bottom of a
+// nineteen by nineteen board, where the ko point is 325: stored in a byte it
+// was 69, so the rules forbade an empty point at the top and allowed the
+// immediate recapture.
+void setUpKoPastTheByte(Game& game) {
+  reset(game, kFull);
+  game.put(fullAt(16, 2), kBlack);
+  game.put(fullAt(16, 3), kWhite);
+  game.put(fullAt(17, 1), kBlack);
+  game.put(fullAt(17, 2), kWhite);
+  game.put(fullAt(17, 4), kWhite);
+  game.put(fullAt(18, 2), kBlack);
+  game.put(fullAt(18, 3), kWhite);
+  game.toMove = kBlack;
+}
+
+void testKoPastTheByteIsTheRightPoint() {
+  Game game;
+  setUpKoPastTheByte(game);
+  CHECK(play(game, fullAt(17, 3)));
+  CHECK(game.ko == fullAt(17, 2));
+  CHECK(game.ko == 325);
+  CHECK(!legal(game, 325, kWhite));
+  CHECK(legal(game, 325 - 256, kWhite));
+  CHECK(game.lastMove == 326);
+
+  // And the engine is told the same ko, and never plays it.
+  uint32_t seed = 1913u;
+  const int move = gomichi::chooseMove(game, go::Level::Easy, seed);
+  CHECK(move != kPass);
+  CHECK(move != 325);
+  CHECK(legal(game, move, kWhite));
+  const gomichi::Context context = gomichi::lastContext(kFull);
+  CHECK(context.ko == 325);
+  CHECK(context.lastMove == 326);
+  CHECK(context.moveNumber == game.moveNumber);
+}
+
+void testTheFullBoardTakesItsHandicapOnTheFourFourPoints() {
+  Point where[kMaxHandicap];
+  CHECK(handicapPoints(kFull, 5, where) == 5);
+  CHECK(where[0] == fullAt(15, 3));
+  CHECK(where[1] == fullAt(3, 15));
+  CHECK(where[2] == fullAt(3, 3));
+  CHECK(where[3] == fullAt(15, 15));
+  CHECK(where[4] == fullAt(9, 9));
+  Game game;
+  reset(game, kFull, 5, komiForHandicap(5));
+  CHECK(game.handicap == 5);
+  CHECK(game.toMove == kWhite);
+  for (int i = 0; i < 5; ++i) CHECK(game.at(where[i]) == kBlack);
+}
+
+void testTheBoardSettingStepsThroughAllThreeAndBack() {
+  CHECK(go::nextBoardSize(go::kSmallSize) == go::kLargeSize);
+  CHECK(go::nextBoardSize(go::kLargeSize) == kFull);
+  CHECK(go::nextBoardSize(kFull) == go::kSmallSize);
+  CHECK(go::isBoardSize(kFull));
+  CHECK(!go::isBoardSize(11));
+  // An unknown size is never kept: reset() falls back to nine.
+  Game game;
+  reset(game, 11);
+  CHECK(game.size == go::kSmallSize);
+}
+
+void testAFullBoardSaveComesBackExactlyAndFitsItsLine() {
+  Game game;
+  setUpKoPastTheByte(game);
+  CHECK(play(game, fullAt(17, 3)));
+  mark(game.dead, 300);
+  mark(game.dead, 360);
+
+  gosave::Save save;
+  save.inProgress = true;
+  save.game = game;
+  save.boardSize = kFull;
+  save.lastSize = kFull;
+  save.hasHistory = true;
+  for (int i = 0; i < go::kMaxPoints; ++i) save.lastPoints[i] = static_cast<uint8_t>(i % 3);
+  char line[gosave::kMaxLine];
+  CHECK(gosave::pack(save, line, sizeof(line)) > 0);
+  gosave::Save back;
+  CHECK(gosave::unpack(line, back));
+  CHECK(std::memcmp(&back.game, &game, sizeof(Game)) == 0);
+  CHECK(back.game.ko == 325);
+  CHECK(back.boardSize == kFull);
+  CHECK(back.lastSize == kFull);
+  CHECK(back.lastPoints[360] == 360 % 3);
+
+  // The longest line pack() can write, against the buffer the activity reads
+  // and writes it with. Every number at its widest.
+  gosave::Save worst;
+  worst.wins = 999999;
+  worst.losses = 999999;
+  worst.hasHistory = true;
+  worst.lastMarginHalves = 722;
+  worst.inProgress = true;
+  worst.boardSize = kFull;
+  worst.lastSize = kFull;
+  worst.handicap = kMaxHandicap;
+  for (int i = 0; i < go::kMaxPoints; ++i) worst.lastPoints[i] = kWhite;
+  reset(worst.game, kFull, kMaxHandicap, komiForHandicap(kMaxHandicap));
+  for (int i = 0; i < go::kCellBytes; ++i) worst.game.cell[i] = 0xAA;
+  for (int i = 0; i < go::kMaskBytes; ++i) worst.game.dead[i] = 0xFF;
+  worst.game.ko = kNoPoint;
+  worst.game.lastMove = kPass;
+  worst.game.moveNumber = moveLimit(kFull);
+  worst.game.capturedBy[kBlack] = 65535;
+  worst.game.capturedBy[kWhite] = 65535;
+  worst.game.recentCount = kHistory;
+  for (int i = 0; i < kHistory; ++i) worst.game.recent[i] = 0xFFFFFFFFu;
+  char longest[gosave::kMaxLine];
+  const int written = gosave::pack(worst, longest, sizeof(longest));
+  CHECK(written > 0);
+  CHECK(written < gosave::kMaxLine);
+  std::printf("  longest go.sav line: %d of %d bytes\n", written, gosave::kMaxLine);
+}
+
+void testTheEngineFindsTheDeadStoneOnTheFullBoard() {
+  // Black alive with two far-apart eyes; one white stone with one point of
+  // space at the bottom, past the byte. The playouts' own boards (GoEngine's
+  // Fast) carried byte-sized stacks and ko too.
+  Game game;
+  reset(game, kFull);
+  for (int i = 0; i < game.points(); ++i) game.put(i, kBlack);
+  game.put(fullAt(0, 0), kEmpty);
+  game.put(fullAt(9, 9), kEmpty);
+  game.put(fullAt(17, 10), kWhite);
+  game.put(fullAt(17, 11), kEmpty);
+  uint8_t dead[kMaskBytes];
+  goengine::opinionOnDead(game, dead);
+  CHECK(marked(dead, fullAt(17, 10)));
+  for (int i = 0; i < game.points(); ++i) {
+    if (game.at(i) == kBlack) CHECK(!marked(dead, i));
+  }
+}
+
+void testTheOpponentPlaysLegallyOnTheFullBoard() {
+  // Easy, and forty plies of each side, because what this asks -- does the
+  // bridge hand back a move the rules accept on a board michi now holds at its
+  // full size -- has no level in it, and a whole nineteen by nineteen game of
+  // searches is minutes of suite.
+  Game game;
+  reset(game, kFull);
+  uint32_t seed = 1919u;
+  for (int ply = 0; ply < 80 && game.stage == static_cast<uint8_t>(Stage::Playing); ++ply) {
+    const int move = gomichi::chooseMove(game, go::Level::Easy, seed);
+    CHECK(move == kPass || legal(game, move, game.toMove));
+    CHECK(play(game, move));
+  }
+  CHECK(game.moveNumber >= 60);
 }
 
 // --- Navigation and what is written down -----------------------------------
@@ -1975,6 +2185,13 @@ int main() {
   testEasyIsWeakWithoutLookingBroken();
   testTheLargeBoardIsTheSameGameOnMorePoints();
   testResetClearsTheTailOfTheLargerBoard();
+  testTheFullBoardNumbersEveryPointPastTheByte();
+  testKoPastTheByteIsTheRightPoint();
+  testTheFullBoardTakesItsHandicapOnTheFourFourPoints();
+  testTheBoardSettingStepsThroughAllThreeAndBack();
+  testAFullBoardSaveComesBackExactlyAndFitsItsLine();
+  testTheEngineFindsTheDeadStoneOnTheFullBoard();
+  testTheOpponentPlaysLegallyOnTheFullBoard();
   testTheOpponentBeatsARandomMoverAtEveryLevel();
 
   // Last, deliberately: it seeds michi's generator, and every test after it
