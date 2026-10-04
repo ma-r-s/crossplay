@@ -536,13 +536,18 @@ entire board: the playouts were right and the fixture was wrong.
   quantified, nineteen most of all: the clock, not the count, is what binds,
   and a 19x19 playout is about four times a 9x9 one. Expect Hard on nineteen to
   be a beginner's opponent.
-- **19x19 on hardware is not measured.** michi's position is about 16KB at
-  N=19 (5.7KB at 13), so the ladder reader's 128-deep stack is about 2MB of
-  PSRAM. The search task's stack is re-measured with
-  `scripts_local/stack-budget.sh`; the timing of a 19x19 move on the chip is
-  the laptop's times twenty-six, which is an estimate. The counting screen's
-  dead-stone guess runs unclocked on the loop task: 29ms on the laptop at
-  nineteen, so roughly three quarters of a second on the chip.
+- **19x19 has not run on hardware.** michi's position is about 16KB at N=19
+  (5.7KB at 13), so the ladder reader's 128-deep stack is about 2MB of PSRAM.
+  The search task's stack IS measured (`scripts_local/stack-budget.sh`, then
+  the ladder recursion summed by hand at `MICHI_LADDER_MAX` in michi.c): 26,848
+  of 32,768 bytes worst case. Raising N from 13 to 19 first took it to about
+  46KB, because upstream copies a whole position into `fix_atari()`'s frame
+  under the recursion; that copy and `expand()`'s board-sized arrays now live
+  in PSRAM scratch blocks. That applies to every board size, since N is
+  compile-time. The timing of a 19x19 move on the chip is the laptop's times
+  twenty-six, an estimate. The counting screen's dead-stone guess runs
+  unclocked on the loop task: 29ms on the laptop at nineteen, so roughly three
+  quarters of a second on the chip.
 - **A match between two devices set to different boards** settles on the first
   seat's size as soon as its first move arrives. The size crosses the wire
   inside the game, and the second seat cannot place anything before that move,
