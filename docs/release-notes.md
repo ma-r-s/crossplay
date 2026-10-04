@@ -21,6 +21,11 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.30
+
+- Stop web server before radio teardown (#285)
+- Create /study before saving the pairing
+
 ### 1.13.29
 
 - Every Home theme fits, keeps its margins and was reviewed blind

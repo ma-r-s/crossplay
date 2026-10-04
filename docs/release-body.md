@@ -1,6 +1,7 @@
 [Install it](https://crossplay.ma-r-s.com/#get) · [which file, and by hand](https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md) · [earlier releases](https://github.com/ma-r-s/crossplay/blob/xteink/docs/release-notes.md)
 
-### What is new in 1.13.29
+### What is new in 1.13.30
 
-- Every Home theme fits, keeps its margins and was reviewed blind
+- Stop web server before radio teardown (#285)
+- Create /study before saving the pairing
 
