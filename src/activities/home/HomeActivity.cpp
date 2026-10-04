@@ -20,7 +20,8 @@
 #include "../../apps_local/Shelf.h"  // fork-local seam
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "HomeMenuFit.h"  // fork-local seam
+#include "HomeMenuFit.h"    // fork-local seam
+#include "HomeShelfRows.h"  // fork-local
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
@@ -29,22 +30,10 @@
 #include "fontIds.h"
 
 // --- fork-local seam ---------------------------------------------------
-// How many rows indexToMenuItem() walks. NOT getMenuItemCount(), which also
-// counts the recent-book tiles above the menu -- the dispatch has already
-// subtracted those to get its menuIndex, so using it here subtracts them twice.
-// With one book on the card that put Games out of range and made Apps open it.
-int HomeActivity::upstreamMenuRows() const {
-  // Browse Files, Recents, File transfer, Settings, plus the library slot
-  // (Plugins when any is installed, else OPDS when a catalog is configured),
-  // plus the Continue Reading row the RoundedRaff theme inserts at the top.
-  //
-  // (indexToMenuItem() does not know about that Continue Reading row, so
-  // upstream's own dispatch is off by one under that theme. Not ours to fix,
-  // but it is why this counts the row and that function does not.)
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const bool continueRow = metrics.homeContinueReadingInMenu && !recentBooks.empty();
-  return 4 + (hasLibrarySlot() ? 1 : 0) + (continueRow ? 1 : 0);
-}
+// How many rows indexToMenuItem() walks. Never the recent books, in any theme,
+// including RoundedRaff's Continue Reading row: the dispatch has already
+// subtracted the books. See HomeShelfRows.h.
+int HomeActivity::upstreamMenuRows() const { return homeshelf::upstreamRows(hasLibrarySlot()); }
 
 int HomeActivity::getMenuItemCount() const {
   // --- fork-local seam ---------------------------------------------------
@@ -283,7 +272,7 @@ void HomeActivity::onEnter() {
   // activity's name against HomeMenuItem, which cannot know about shelf rows,
   // so leaving GAMES would otherwise drop the cursor on Browse Files.
   if (const int shelfRow = shelf::lastFolderOnHome(); shelfRow >= 0) {
-    selectorIndex = base + upstreamMenuRows() + shelfRow;
+    selectorIndex = homeshelf::selectorForFolder(shelfRow, base, hasLibrarySlot());
   }
 
   // fork-local seam: boot straight into a named app when the environment asks
@@ -369,10 +358,9 @@ void HomeActivity::loop() {
         break;
       default: {
         // fork-local seam: anything past upstream's rows is a shelf folder.
-        const int shelfRow = menuIndex - upstreamMenuRows();
-        if (shelfRow >= 0 && shelfRow < shelf::folderCount()) {
-          shelf::openFolder(shelfRow, renderer, mappedInput);
-        }
+        const int shelfRow = homeshelf::folderAt(selectorIndex, static_cast<int>(recentBooks.size()), hasLibrarySlot(),
+                                                 shelf::folderCount());
+        if (shelfRow >= 0) shelf::openFolder(shelfRow, renderer, mappedInput);
         break;
       }
     }
@@ -491,7 +479,7 @@ void HomeActivity::loop() {
                                               INT32_MAX, menuRowHeight);
   if (menuTouch != MappedInputManager::RowTouch::None) {
     const int touchedIndex =
-        metrics.homeContinueReadingInMenu ? menuRow : menuRow + static_cast<int>(recentBooks.size());
+        homeshelf::selectorForMenuRow(menuRow, static_cast<int>(recentBooks.size()), metrics.homeContinueReadingInMenu);
     if (menuTouch == MappedInputManager::RowTouch::Down) {
       if (selectorIndex != touchedIndex) {
         selectorIndex = touchedIndex;
