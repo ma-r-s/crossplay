@@ -301,11 +301,24 @@ void GoActivity::takeComputerTurn() {
   // ratio, and the spread in that estimate is a rank and a half -- so this is
   // the one line that turns an estimate into a fact, and it is also the line
   // somebody needs if a move ever takes long enough to trip the watchdog.
+  //
+  // And how close the search came to the end of its stack, lowest since the app
+  // opened: michi's ladder reader recurses, the budget for it is arithmetic
+  // rather than a measurement (see MICHI_LADDER_MAX), and a losing machine runs
+  // every simulation and so reads the most ladders. -1 means the search ran on
+  // the loop task because its own could not be created (onEnter logs why).
   const gomichi::Settings settings = gomichi::settingsFor(level);
-  LOG_INF("GO", "search: level %d, %ux%u, %u ms of %u, %d of %u sims (move %u)", static_cast<int>(level),
-          static_cast<unsigned>(game.size), static_cast<unsigned>(game.size), static_cast<unsigned>(took),
-          static_cast<unsigned>(settings.budgetMs), gomichi::lastSimulations(),
-          static_cast<unsigned>(settings.simulations), static_cast<unsigned>(game.moveNumber));
+  int stackFree = -1;
+#if defined(ARDUINO_ARCH_ESP32)
+  if (searchTask != nullptr) {
+    stackFree = static_cast<int>(uxTaskGetStackHighWaterMark(static_cast<TaskHandle_t>(searchTask)));
+  }
+#endif
+  LOG_INF("GO", "search: level %d, %ux%u, %u ms of %u, %d of %u sims (move %u), stack free %d of %d",
+          static_cast<int>(level), static_cast<unsigned>(game.size), static_cast<unsigned>(game.size),
+          static_cast<unsigned>(took), static_cast<unsigned>(settings.budgetMs), gomichi::lastSimulations(),
+          static_cast<unsigned>(settings.simulations), static_cast<unsigned>(game.moveNumber), stackFree,
+          GO_SEARCH_TASK_STACK);
   // Before the move lands, because playing it resets the pass count.
   passWasPlayedThrough = game.passes >= 1 && move != go::kPass;
   if (!go::play(game, move)) {
