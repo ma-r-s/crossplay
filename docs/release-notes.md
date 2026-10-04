@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.33
+
+- Games and Apps open the right shelf under RoundedRaff
+
 ### 1.13.32
 
 - Stop crashing when the player is winning
