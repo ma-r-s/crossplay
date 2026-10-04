@@ -175,7 +175,7 @@ static Position *michi_fix_atari_scratch(void)
 
 // Stack of Positions for use in recursive calls fix_atari/read_ladder_attack
 //
-// FORK CHANGE: allocated, not static, and 128 deep rather than 500.
+// FORK CHANGE: allocated, not static, and MICHI_LADDER_MAX + 1 deep rather than 500.
 //
 // sizeof(Position) is about 5.7KB at N=13, so upstream's `Position
 // stack_pos[500]` is 2.8MB of .bss. On a desktop that is nothing; on this chip
@@ -184,9 +184,10 @@ static Position *michi_fix_atari_scratch(void)
 // michi_malloc like everything else here, and michi_stack_free() gives it back
 // when the app closes.
 //
-// 128 rather than 500 because this stack is only the ladder reader's, and a
-// ladder cannot be longer than the board it runs across: twenty-six plies on
-// thirteen lines, plus the fix_atari nesting above it. 128 is five times that.
+// Sized by MICHI_LADDER_MAX, not 500 or 128: this stack is only the ladder
+// reader's, read_ladder_attack_r() pushes one position per level, and the
+// depth cap is the most levels there can be. At N=19 a position is about 16KB,
+// so 128 was 2MB of PSRAM of which twelve slots could ever be used.
 int avail_pos;
 static int stack_pos_depth;
 Position *stack_pos;
@@ -246,7 +247,7 @@ int fix_atari_r(Position *pos, Point pt, Slist moves);
 // it was about 46KB. A frame that grows with N lands here first. Past it the reader answers "not caught", which is the
 // conservative answer: the engine declines to claim a capture it has not
 // proved, rather than crashing on a board somebody is looking at.
-#define MICHI_LADDER_MAX 12
+// (MICHI_LADDER_MAX itself is in michi.h: MichiBridge sizes the stack by it.)
 static Point read_ladder_attack_r(Position *pos, Point pt, Slist libs);
 
 Point read_ladder_attack(Position *pos, Point pt, Slist libs)
@@ -352,9 +353,9 @@ int fix_atari_r(Position *pos, Point pt, Slist moves)
     Block b = point_block(pos, pt);
     int   in_atari=1;
     // FORK CHANGE: MAX_BLOCKS+1, not 256. This is a Slist of BLOCK ids and
-    // there are only MAX_BLOCKS of them (128 at N=13), so 256 is half a
-    // kilobyte of frame that cannot be used -- once per level of a recursion
-    // that is sixteen deep.
+    // there are only MAX_BLOCKS of them (256 at N=19, 128 at N=13), so this is
+    // the most the list can hold -- once per level of a recursion that is
+    // MICHI_LADDER_MAX deep.
     Point l, libs[5], blocks[MAX_BLOCKS+1], blibs[5];
 
     slist_clear(moves);

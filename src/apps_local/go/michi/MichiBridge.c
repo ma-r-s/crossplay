@@ -48,9 +48,10 @@ void michi_bridge_init(void)
     flog = NULL;
 
     make_pat3set();
-    // The ladder reader's Position stack, 128 deep. See the note in michi.c:
-    // upstream's static 500 is 2.8MB and does not fit this chip's DRAM at all.
-    michi_stack_alloc(128);
+    // The ladder reader's Position stack, one slot per level the depth cap
+    // allows and one spare. See the note in michi.c: upstream's static 500 is
+    // about 8MB at N=19.
+    michi_stack_alloc(MICHI_LADDER_MAX + 1);
     // The LARGE pattern board, which upstream initialises inside
     // init_large_patterns() -- the function that loads patterns.prob and
     // patterns.spat from disk. Those two files are several megabytes and are
@@ -154,7 +155,7 @@ int michi_bridge_genmove(int size, const uint8_t *board, int toMove, int komiHal
     michi_bridge_init();
     // Idempotent, and here rather than only in init because michi_bridge_forget
     // gives the stack back when the app closes.
-    michi_stack_alloc(128);
+    michi_stack_alloc(MICHI_LADDER_MAX + 1);
     adopt(size, board, toMove, komiHalves, ko, lastMove, moveNumber);
 
     // One search, bounded by a clock rather than sliced into chunks.

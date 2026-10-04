@@ -8,7 +8,7 @@
 // a finger has chosen but not yet committed -- which belongs to neither.
 //
 // **A stone goes down in two taps, not one.** Go is played on intersections at
-// a 49px pitch on nine lines and 33px on thirteen, which is at or under a
+// a 49px pitch on nine lines, 33px on thirteen and 23px on nineteen, at or under a
 // fingertip, and a stone cannot be taken back in a match. So the first tap aims
 // and the second commits, and tapping a different point moves the aim rather
 // than playing there. It costs one tap on a move you were sure of and saves a

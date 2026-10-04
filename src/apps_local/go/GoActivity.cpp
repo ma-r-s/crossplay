@@ -26,32 +26,18 @@
 // The search descends tree_search -> tree_descend -> expand, and from the
 // playout policy into fix_atari -> read_ladder_attack, which recurses through
 // fix_atari_r back into itself once per ply of a ladder. Upstream runs that on
-// a desktop with an eight megabyte stack; the Arduino loop task on this chip
-// gets eight KILOBYTES, and one frame of expand() alone was 8.5KB before the
-// vendored copy was trimmed.
+// a desktop with an eight megabyte stack; the loop task here gets 24KB
+// (main.cpp), under the worst case below, and one frame of expand() alone was
+// 8.5KB before the vendored copy was trimmed.
 //
 // So the search gets a task of its own, created when the app opens and ended
 // when it closes, and the loop waits on it.
 //
-// The number is measured, and here is the whole of the arithmetic, because
-// scripts_local/stack_budget.py can only do the first half of it -- it reports
-// cycles and never sums them:
-//
-//   12,192  the deepest ACYCLIC path, from that tool on gh_release_x4pro.
-//           searchLoop -> chooseMove -> genmove -> tree_search -> tree_descend
-//           -> expand (2,816) -> gen_playout_moves_capture -> fix_atari (6,496)
-//           -> one level of the ladder reader.
-//   11,792  eleven more levels of that reader at 1,072 bytes each
-//           (read_ladder_attack 32 + read_ladder_attack_r 448 + fix_atari_r
-//           592), which is MICHI_LADDER_MAX = 12 in michi.c.
-//    1,760  the deepest thing under the last level, undo_move.
-//   ------
-//   25,744  against 32,768, leaving about 7KB.
-//
-// Re-measure rather than trust this if any of those frames moves:
-//   PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" \
-//   PLATFORMIO_BUILD_CACHE_DIR= ./scripts_local/check.sh --flash gh_release_x4pro
-//   python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_x4pro
+// The number is measured. scripts_local/stack_budget.py can only do half of
+// the arithmetic -- it reports cycles and never sums them -- so the other half
+// is written at MICHI_LADDER_MAX in michi.c, at N=19: 26,848 of 32,768 worst
+// case. Re-measure rather than trust it if any michi frame or N moves:
+//   ./scripts_local/stack-budget.sh --verbose
 #define GO_SEARCH_TASK_STACK 32768
 
 std::unique_ptr<Activity> GoActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
@@ -897,7 +883,7 @@ void GoActivity::gameRender() {
       model.nothingLeft = !go::hasUsefulMove(game, game.toMove);
       model.disagreed = disagreed;
       model.itPlayedOn = passWasPlayedThrough && opponent == go::Opponent::Computer;
-      model.freePoints = static_cast<uint8_t>(go::freePoints(game, game.toMove));
+      model.freePoints = go::freePoints(game, game.toMove);
       player::shortName(inMatch() ? opponentName() : nullptr, theirName, sizeof(theirName));
       model.opponentName = inMatch() ? theirName : nullptr;
       model.sharedDevice = !inMatch() && opponent == go::Opponent::Human;

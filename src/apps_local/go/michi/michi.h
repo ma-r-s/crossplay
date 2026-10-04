@@ -123,6 +123,9 @@ void   make_pat3set(void);
 // static -- 500 of them is 2.8MB of .bss, which does not fit this chip's DRAM
 // segment at all. See michi.c.
 void   michi_stack_alloc(int depth);
+// FORK CHANGE: the ladder reader's depth cap; see the note above
+// read_ladder_attack() in michi.c. Also the depth of the position stack.
+#define MICHI_LADDER_MAX 12
 // FORK CHANGE: the search's wall clock. See michi.c; `now` NULL disables it.
 // uint32_t rather than unsigned int: the caller's clock is uint32_t, and on
 // Xtensa that is `long unsigned int`, so `unsigned int` here is a different

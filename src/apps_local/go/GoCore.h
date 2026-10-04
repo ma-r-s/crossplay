@@ -4,7 +4,7 @@
 //
 // **Three board sizes, nine, thirteen and nineteen, chosen per game.** Nine
 // gives a 49px grid pitch and a game that finishes in twenty minutes on a
-// train; thirteen gives 33px; nineteen gives 22px, which is below the fingertip
+// train; thirteen gives 33px; nineteen gives 23px, which is below the fingertip
 // this device is driven with. Both larger boards are playable because a stone
 // goes down in two taps rather than one and the first tap can be moved (see
 // GoFlow.h). Nineteen is offered because it is the board real Go is played on

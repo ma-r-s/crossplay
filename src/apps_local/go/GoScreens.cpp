@@ -567,7 +567,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     // fixed message already here, because this row never wraps.
     //
     // Sized for what the FORMAT can print, not for what this caller passes.
-    // freePoints is a byte and can never exceed three digits, but %u admits ten
+    // freePoints never exceeds three digits (361 points), but %u admits ten
     // and the buffer is the format's to fill: 22 fixed characters, ten digits
     // and the terminator.
     char played[40];

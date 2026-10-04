@@ -180,9 +180,9 @@ a sync greps for rather than a count to keep in step. Some are ports to a
 machine michi was not written for; the rest are bugs only a build like this one
 reaches:
 
-- `N` is **13**, not 19. It is the compile-time MAXIMUM; the size actually
-  played is `pos->size`, so one build serves both boards and a nine by nine game
-  sits in a corner of the larger array.
+- `N` is the compile-time MAXIMUM, 19 (upstream's value; it was 13 until 19x19
+  was offered); the size actually played is `pos->size`, so one build serves
+  every board and a nine by nine game sits in a corner of the larger array.
 - `log_fmt_s` tolerates a null sink. michi logs through a `FILE*` that `ui.c`
   opens, and `ui.c` is not vendored.
 - Every allocation goes through `michi_malloc`/`michi_calloc`, and on ESP32
@@ -537,7 +537,9 @@ entire board: the playouts were right and the fixture was wrong.
   and a 19x19 playout is about four times a 9x9 one. Expect Hard on nineteen to
   be a beginner's opponent.
 - **19x19 has not run on hardware.** michi's position is about 16KB at N=19
-  (5.7KB at 13), so the ladder reader's 128-deep stack is about 2MB of PSRAM.
+  (5.7KB at 13), so the ladder reader's position stack, one slot per level the
+  depth cap allows (13), is about 200KB of PSRAM; it was 128 deep, about 2MB,
+  until review pointed out that twelve slots are the most ever in use.
   The search task's stack IS measured (`scripts_local/stack-budget.sh`, then
   the ladder recursion summed by hand at `MICHI_LADDER_MAX` in michi.c): 26,848
   of 32,768 bytes worst case. Raising N from 13 to 19 first took it to about

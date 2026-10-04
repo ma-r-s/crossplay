@@ -773,47 +773,59 @@ void testTheFastBoardIsTheSameGame() {
   // repetition is one the fast board may legally accept; that difference is
   // asserted to be the ONLY one, which is what pins it as a decision rather
   // than a bug.
+  //
+  // Nine by nine for volume, and a short nineteen by nineteen run so the
+  // comparison also covers points past the 256th.
   int checked = 0;
   int superkoOnly = 0;
-  for (int trial = 0; trial < 200; ++trial) {
-    Game game;
-    reset(game);
+  struct Run {
+    int size;
+    int trials;
+    int plies;
+  };
+  const Run runs[] = {{kSize, 200, 200}, {go::kFullSize, 2, 250}};
+  for (const Run& run : runs) {
+    const int kPoints = run.size * run.size;
+    for (int trial = 0; trial < run.trials; ++trial) {
+      Game game;
+      reset(game, run.size);
 
-    for (int ply = 0; ply < 200 && game.stage == static_cast<uint8_t>(Stage::Playing); ++ply) {
-      for (int point = 0; point < kPoints; ++point) {
-        Game slow = game;
-        Game fast = game;
-        const bool slowOk = play(slow, point);
-        const bool fastOk = goengine::fastPlayForTest(fast, point);
-        ++checked;
+      for (int ply = 0; ply < run.plies && game.stage == static_cast<uint8_t>(Stage::Playing); ++ply) {
+        for (int point = 0; point < kPoints; ++point) {
+          Game slow = game;
+          Game fast = game;
+          const bool slowOk = play(slow, point);
+          const bool fastOk = goengine::fastPlayForTest(fast, point);
+          ++checked;
 
-        if (slowOk != fastOk) {
-          // The only licensed disagreement: the game refused a repetition the
-          // fast board cannot see. Anything else is a rules bug in one of them.
-          CHECK(fastOk && !slowOk);
-          CHECK(game.at(point) == kEmpty);
-          CHECK(point != game.ko);
-          CHECK(libertiesAfter(game, point, game.toMove) > 0);
-          ++superkoOnly;
+          if (slowOk != fastOk) {
+            // The only licensed disagreement: the game refused a repetition the
+            // fast board cannot see. Anything else is a rules bug in one of them.
+            CHECK(fastOk && !slowOk);
+            CHECK(game.at(point) == kEmpty);
+            CHECK(point != game.ko);
+            CHECK(libertiesAfter(game, point, game.toMove) > 0);
+            ++superkoOnly;
+            continue;
+          }
+          if (!slowOk) continue;
+
+          for (int i = 0; i < kPoints; ++i) CHECK(slow.at(i) == fast.at(i));
+          CHECK(slow.toMove == fast.toMove);
+          CHECK(slow.ko == fast.ko);
+        }
+
+        int candidates[go::kMaxPoints];
+        int count = 0;
+        for (int point = 0; point < kPoints; ++point) {
+          if (legal(game, point, game.toMove) && !isEye(game, point, game.toMove)) candidates[count++] = point;
+        }
+        if (count == 0) {
+          CHECK(play(game, kPass));
           continue;
         }
-        if (!slowOk) continue;
-
-        for (int i = 0; i < kPoints; ++i) CHECK(slow.at(i) == fast.at(i));
-        CHECK(slow.toMove == fast.toMove);
-        CHECK(slow.ko == fast.ko);
+        CHECK(play(game, candidates[nextRandom() % static_cast<uint32_t>(count)]));
       }
-
-      int candidates[kPoints];
-      int count = 0;
-      for (int point = 0; point < kPoints; ++point) {
-        if (legal(game, point, game.toMove) && !isEye(game, point, game.toMove)) candidates[count++] = point;
-      }
-      if (count == 0) {
-        CHECK(play(game, kPass));
-        continue;
-      }
-      CHECK(play(game, candidates[nextRandom() % static_cast<uint32_t>(count)]));
     }
   }
   // The comparison has to have actually happened. A loop that exits on its
@@ -1586,6 +1598,15 @@ void setUpKoPastTheByte(Game& game) {
 void testKoPastTheByteIsTheRightPoint() {
   Game game;
   setUpKoPastTheByte(game);
+
+  // The playout board keeps its own ko (GoEngine's Fast), and held it in a
+  // byte too. fastPlayForTest copies it back into the game.
+  Game fast = game;
+  CHECK(goengine::fastPlayForTest(fast, fullAt(17, 3)));
+  CHECK(fast.ko == 325);
+  Game recapture = fast;
+  CHECK(!goengine::fastPlayForTest(recapture, 325));
+
   CHECK(play(game, fullAt(17, 3)));
   CHECK(game.ko == fullAt(17, 2));
   CHECK(game.ko == 325);
