@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.32
+
+- Stop crashing when the player is winning
+
 ### 1.13.31
 
 - Offer a 19x19 board
