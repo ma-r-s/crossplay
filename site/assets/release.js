@@ -13,6 +13,15 @@
  * the Install button still installs, the report form just has no placeholder.
  * The repository name lives here rather than in each caller so the two cannot
  * ask about different repositories.
+ *
+ * When the visitor's own request fails -- their IP spent its 60, or their
+ * network cannot reach api.github.com -- it asks /api/latest once. That is
+ * the site's proxy of the same GitHub answer: it keeps its last good copy and
+ * serves it stale when GitHub refuses it, so it can still name a version when
+ * GitHub cannot be asked at all. Second, not first: its budget is Vercel's
+ * shared egress, which is exactly the budget the browser request exists to
+ * avoid. A null here used to end the install with "Could not reach GitHub to
+ * find the latest release" (card #585) even while the site held a good answer.
  */
 (function () {
   "use strict";
@@ -20,17 +29,26 @@
   var REPO = "ma-r-s/crossplay";
   var pending = null;
 
+  function ask(url) {
+    return fetch(url)
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (body) {
+        return body && body.tag_name ? body : null;
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
   window.crossplayLatestRelease = function () {
     if (!pending)
-      pending = fetch(
-        "https://api.github.com/repos/" + REPO + "/releases/latest",
-      )
-        .then(function (r) {
-          return r.ok ? r.json() : null;
-        })
-        .catch(function () {
-          return null;
-        });
+      pending = ask("https://api.github.com/repos/" + REPO + "/releases/latest").then(
+        function (release) {
+          return release || ask("/api/latest");
+        },
+      );
     return pending;
   };
 })();

@@ -408,6 +408,17 @@ for field in url anonKey; do
     && ok || bad "install.js and board-config.js disagree on the field '$field'"
 done
 
+# The Install button's version: GitHub from the visitor's browser, then the
+# site's own cached copy (card #585). release.js is run under node.
+if release_out="$(node "$HERE/release_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$release_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "release_fn: $line"; done < <(printf '%s\n' "$release_out" | grep '^  FAIL'); }
+else
+  bad "release_fn.js could not run, so release.js went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$release_out"
+fi
+
 # A failed install is a card only when the failure is the page's, not the
 # person's (cards 153 and 157 were a closed port picker and a silent cable).
 # The decision function is lifted from install.js and run under node.

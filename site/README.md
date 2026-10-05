@@ -520,6 +520,14 @@ the reason it asks from the visitor's browser rather than from `/api/firmware`.
 scripts that call it. The suite checks that neither caller has gone back to
 fetching for itself, and that every page carrying one loads the helper first.
 
+When the browser's own request fails (its IP spent the 60, or it cannot reach
+api.github.com) it asks `/api/latest` once, the site's proxy of the same answer,
+which serves its last good copy stale when GitHub refuses it. Second, never
+first: the proxy spends Vercel's shared egress budget, the one the browser
+request exists to avoid. An install used to end on "Could not reach GitHub"
+(card #585) while the site held a good answer. `host-tests/site/release_fn.js`
+runs the page's own file against a stubbed fetch.
+
 ## The study wizard is one step at a time, not one screen
 
 `study/study.css` sizes the wizard to the window when the step fits and lets
