@@ -13,8 +13,8 @@ namespace studyui {
 // The deck's own name, not its path: "United States Immigration Exam
 // (2025)::Famous Americans" alone fills three of the body's four lines, and the
 // first version of this pushed the reason off the screen.
-inline void partWayDetail(char* out, size_t size, const std::vector<std::string>& failed,
-                          const std::string& firstWhy, bool othersUpToDate) {
+inline void partWayDetail(char* out, size_t size, const std::vector<std::string>& failed, const std::string& firstWhy,
+                          bool othersUpToDate) {
   if (failed.empty()) {
     if (size) out[0] = '\0';
     return;
@@ -28,8 +28,8 @@ inline void partWayDetail(char* out, size_t size, const std::vector<std::string>
   } else if (failed.size() == 1) {
     std::snprintf(out, size, "%s could not be built.%s", first, others);
   } else {
-    std::snprintf(out, size, "%u decks could not be built, starting with %s.%s",
-                  static_cast<unsigned>(failed.size()), first, others);
+    std::snprintf(out, size, "%u decks could not be built, starting with %s.%s", static_cast<unsigned>(failed.size()),
+                  first, others);
   }
 }
 
