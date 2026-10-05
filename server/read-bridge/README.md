@@ -34,7 +34,8 @@ Since 2026-09-30 Instapaper's `get_text` answers error 1044 for every
 article of every account but the developer's own unless the request carries
 one, so without it a sync lists articles and prepares none ("0 new or
 updated. 12 Instapaper could not prepare", GitHub #298). Each article
-prepared spends one credit, once: the text is cached per bookmark. The free
+prepared spends one credit, once: the text is cached per bookmark, and an
+article Instapaper has no text for is remembered rather than retried. The free
 tier is 1,000 credits a month at one request a second, and the bridge keeps
 to that rate whenever a key is set. September 2026, before the change: 604
 articles for 38 accounts.

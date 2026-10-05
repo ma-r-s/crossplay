@@ -46,6 +46,7 @@ goes in the Authorization header. Only HMAC-SHA1 is supported by the server.
 """
 
 import base64
+import contextlib
 import hashlib
 import hmac
 import logging
@@ -88,13 +89,20 @@ def instaparser_key() -> str:
     return os.environ.get("INSTAPARSER_API_KEY", "")
 
 
-def _await_parse_slot() -> None:
+@contextlib.contextmanager
+def _parse_slot():
+    """Held across the request, and the gap runs from its END: timed from
+    the start, a slow TLS handshake on one call could land the next inside
+    Instaparser's second."""
     global _parse_last
     with _parse_lock:
         wait = _parse_last + PARSE_GAP_S - time.monotonic()
         if wait > 0:
             time.sleep(wait)
-        _parse_last = time.monotonic()
+        try:
+            yield
+        finally:
+            _parse_last = time.monotonic()
 
 
 def consumer() -> tuple[str, str]:
@@ -460,8 +468,10 @@ class Instapaper:
         key = instaparser_key()
         if key:
             body["instaparser_api_key"] = key
-            _await_parse_slot()
-        r = self._post("/api/1/bookmarks/get_text", body)
+            with _parse_slot():
+                r = self._post("/api/1/bookmarks/get_text", body)
+        else:
+            r = self._post("/api/1/bookmarks/get_text", body)
         if r.status_code == 200:
             return r.text
         try:

@@ -95,6 +95,7 @@ so it is never copied up and never overwritten.
     READ_CONSUMER_KEY=<from instapaper.com/main/request_oauth_consumer_token>
     READ_CONSUMER_SECRET=<same page>
     READ_ALLOWLIST=<mario's instapaper address>
+    INSTAPARSER_API_KEY=<from instaparser.com; without it no article text arrives>
     ENV
     ssh orange 'chmod 600 /srv/readbridge/.env && ls -l /srv/readbridge/.env'
 

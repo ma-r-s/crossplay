@@ -31,6 +31,8 @@ import logging
 import os
 import pathlib
 import sys
+import threading
+import time
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
@@ -314,6 +316,45 @@ def main():
     except ip.ApiError:
         pass
     ok("instaparser_api_key" not in sent, "with no key set, nothing extra is sent")
+
+    # Two users' syncs run in two threads and spend one key, so the gap
+    # between parses holds across clients, not within one.
+    class Arrived:
+        status_code = 200
+        text = "<p>x</p>"
+        content = b"x"
+
+    starts = []
+
+    def timed(path, body, extra=None):
+        starts.append(time.monotonic())
+        time.sleep(0.02)
+        return Arrived()
+
+    os.environ["INSTAPARSER_API_KEY"] = "ipk-secret-value"
+    original_gap = ip.PARSE_GAP_S
+    ip.PARSE_GAP_S = 0.2
+    try:
+        first, second = ip.Instapaper("t1", "s1"), ip.Instapaper("t2", "s2")
+        first._post = timed
+        second._post = timed
+        workers = [
+            threading.Thread(target=lambda c=c: [c.get_text(i) for i in range(3)])
+            for c in (first, second)
+        ]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+    finally:
+        ip.PARSE_GAP_S = original_gap
+        os.environ.pop("INSTAPARSER_API_KEY", None)
+    starts.sort()
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    ok(
+        len(starts) == 6 and min(gaps) >= 0.2,
+        f"two clients in two threads share one gap (closest {min(gaps):.3f}s)",
+    )
 
     print(f"{checks} checks, {failures} failed")
     return 1 if failures else 0
