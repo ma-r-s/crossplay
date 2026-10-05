@@ -364,3 +364,26 @@ def page(title: str, body: str, *, step: int | None = None) -> HTMLResponse:
         f"<span class=note>{SERVICE}</span></header><div class=rule></div>"
         f"<main>{rail}{body}</main></html>"
     )
+
+# ONE SCAN, NOT TWO (card #112). The reader's QR puts its pairing code in the
+# URL FRAGMENT, which never reaches this server, so a person who scans while
+# signed out used to be sent to sign in with the code dropped on the floor, and
+# told to come back with a fresh one. The code now rides through sign-in in the
+# tab's own sessionStorage: kept by the signed-out pair page, picked up by the
+# page sign-in lands on, which goes straight back to /pair with it filled in.
+# It still has to be submitted by hand ("only for a device in your hands"),
+# only a code-shaped string is carried, and it is dropped after the five
+# minutes a code lives.
+PAIR_CARRY_SCRIPT = (
+    "<script>try{const c=location.hash.slice(1);"
+    "if(/^[A-Za-z0-9-]{4,16}$/.test(c))"
+    "sessionStorage.setItem('pairCode',JSON.stringify({c:c,t:Date.now()}))"
+    "}catch(e){}</script>"
+)
+PAIR_RESUME_SCRIPT = (
+    "<script>try{const v=JSON.parse(sessionStorage.getItem('pairCode')||'null');"
+    "sessionStorage.removeItem('pairCode');"
+    "if(v&&/^[A-Za-z0-9-]{4,16}$/.test(v.c)&&Date.now()-v.t<300000)"
+    "location.replace('/pair#'+v.c)"
+    "}catch(e){}</script>"
+)

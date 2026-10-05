@@ -318,8 +318,9 @@ async def pair_page(request: Request):
             " and this browser is not signed in to one yet.</p>"
             + chrome.service_flow() +
             "<a class=btn href=\"/\">Sign in</a>"
-            "<p class=small>Then ask the reader for a fresh code: they last"
-            " five minutes.</p>",
+            "<p class=small>After you sign in you come straight back here with"
+            " the reader's code filled in. Codes last five minutes.</p>"
+            + chrome.PAIR_CARRY_SCRIPT,
             step=1,
         )
     return page(
@@ -394,7 +395,8 @@ async def devices_page(request: Request):
         + "<footer><p class=small>Sync refusing on every device? "
         "<a href='/?again=1'>Reconnect your Instapaper account</a>.</p>"
         "<p class=small>CrossPlay can read your articles and archive them. It"
-        " never deletes anything.</p></footer>",
+        " never deletes anything.</p></footer>"
+        + chrome.PAIR_RESUME_SCRIPT,
         step=3 if rows else 2,
     )
 
