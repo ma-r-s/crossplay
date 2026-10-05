@@ -555,6 +555,7 @@ std::string StudySync::syncStatus(const BridgeState& state, const std::string& j
   }
   const std::string jobStatus = doc["status"].as<const char*>();
   failedDecks.clear();
+  firstFailedWhy.clear();
   reviewsMissing = doc["summary"]["missing"] | 0;
   if (jobStatus == "error" || jobStatus == "frozen") {
     message = doc["message"] | "Syncing hit a problem on the bridge. Try again in a while.";
@@ -562,6 +563,10 @@ std::string StudySync::syncStatus(const BridgeState& state, const std::string& j
     for (JsonVariant name : doc["summary"]["failedDecks"].as<JsonArray>()) {
       const char* text = name.as<const char*>();
       if (text && *text) failedDecks.push_back(text);
+    }
+    if (!failedDecks.empty()) {
+      const char* why = doc["summary"]["failedWhy"][failedDecks.front()] | "";
+      firstFailedWhy = why;
     }
     for (JsonObject m : doc["summary"]["manifests"].as<JsonArray>()) {
       DeckManifest deck;

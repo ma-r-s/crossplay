@@ -640,6 +640,10 @@ async def start_sync(request: Request, dev=Depends(require_device)):
         # decks, and no route back to the picker, repeating identically
         # forever because the state below was never saved.
         failed = []
+        # Why, per failed deck, as the sentence the reader prints after "<deck>
+        # could not be built: ". Its own key rather than objects in failedDecks,
+        # which a reader already in the field parses as a list of names.
+        why = {}
         for name in fresh["chosen_decks"]:
             try:
                 content_now, schedule_now = decks.deck_fingerprints(st, name)
@@ -655,14 +659,18 @@ async def start_sync(request: Request, dev=Depends(require_device)):
                 else:
                     manifests.append(decks.build_deck(st, name))
                 prints[name] = {"content": content_now, "schedule": schedule_now}
-            except Exception:
+            except Exception as exc:
                 log.exception("deck build failed, skipping: %s", name)
                 failed.append(name)
+                sentence = decks.reason_sentence(exc)
+                if sentence:
+                    why[name] = sentence
         fresh["status"] = "ok"
         fresh["last_sync"] = int(time.time())
         st.save_state(fresh)
         summary["manifests"] = manifests
         summary["failedDecks"] = failed
+        summary["failedWhy"] = why
         return summary
 
     job = jobs.JOBS.start(
@@ -743,7 +751,14 @@ async def startup():
         if candidate.is_dir():
             decks.TOOLS = candidate
             break
+    # The bundled CJK face, beside the tools. deploy.sh puts a raw copy there;
+    # the repo's site/study/NotoSansCJK.otf is NOT a fallback, because it is
+    # stored brotli-compressed for the page and make_fonts cannot read it.
+    if decks.TOOLS is not None and (decks.TOOLS / "NotoSansCJK.otf").is_file():
+        decks.BUNDLED_CJK = decks.TOOLS / "NotoSansCJK.otf"
     logging.basicConfig(level=logging.INFO)
+    if decks.BUNDLED_CJK is None:
+        log.error("NotoSansCJK.otf not found; a CJK deck without its own faces will fail")
     if decks.TOOLS is None:
         log.error("tools_local/study not found; deck builds will fail loudly")
     # Says "events are off" once when the two variables are not both set.

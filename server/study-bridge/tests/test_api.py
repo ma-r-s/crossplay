@@ -375,6 +375,13 @@ async def run(tmp):
             status["summary"]["failedDecks"] == ["Empty Parent"],
             f"the failed deck should be named, got {status['summary'].get('failedDecks')}",
         )
+        # And WHY, as the clause the reader prints after "could not be built: ".
+        # Without it a user who cannot read the bridge's log can only guess what
+        # to change in Anki.
+        ok(
+            status["summary"].get("failedWhy") == {"Empty Parent": decks_mod.REASONS["empty-deck"]},
+            f"the failed deck's reason should travel, got {status['summary'].get('failedWhy')}",
+        )
         ok(
             any(m["deck"] == "Default" for m in status["summary"]["manifests"]),
             "the buildable deck should still be built",

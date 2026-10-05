@@ -46,6 +46,7 @@ which.
 | Bold, italic, colour, font size | **Dropped.** One bit, one weight per face; a synthesised bold on this panel is an antialiasing flood in another costume. The one exception is the emphasis span (below). |
 | The example sentence's `<b>` target, and a cloze card's revealed hole | **Kept as an underline.** Recorded as a codepoint span rather than as markup, and drawn by the same wrap that lays the line out. |
 | Images (`<img>`) | **Yes**, through `make_images.py`: scaled and dithered to one bit at conversion time and shown full screen by **PHOTO** on the answer face. |
+| A picture as the whole question (front is only `<img>`) | **No.** The question face is text, so a card whose front is only a picture has nothing to ask with. A deck made of them converts to nothing, and the converter says so as `reason: picture-front`, which the sync turns into *"&lt;deck&gt; could not be built: its fronts are pictures."* on the reader. A deck that mixes them with text cards converts, without the picture cards. |
 | Audio and video (`[sound:...]`) | **Dropped.** No speaker. |
 | Text-to-speech (`[anki:tts]`) | **Tag dropped, words kept.** The text inside is usually the answer. |
 | LaTeX and MathJax | **Delimiters dropped, source kept.** Anki renders these through a TeX install; there is none here. A formula whose source you can read beats a card that shows `[latex]` and beats one that shows nothing. |
@@ -62,7 +63,7 @@ mirrors the half of it the wrap needs.
 | | Status |
 | --- | --- |
 | English / Latin | **Yes**, built-in serif, or a large headword face built from any TTF. |
-| Chinese, simplified or traditional | **Yes.** Five CJK faces built from the TTFs in your Anki media folder, randomised per card, or any TTF via `--font`. |
+| Chinese, simplified or traditional | **Yes.** Five CJK faces built from the TTFs in your Anki media folder, randomised per card, or any TTF via `--font`. A deck whose media holds none of those five gets the bundled Noto Sans CJK instead, on the installer page and on the sync bridge alike; a deck with no CJK characters gets no face build at all, whatever fonts its media folder happens to carry. |
 | Japanese | **Yes**, kanji and both kana, and **furigana is drawn as ruby**: see below. |
 | Korean | **Yes**, with a Korean TTF via `--font`. Hangul used to be classified as Latin, which routed it to the built-in serif (1070 glyphs, none of them Hangul) so a Korean deck converted with no error and no readable card. It now goes into the deck's own face and asks the font pipeline for the `hangul` interval. |
 | Arabic, Hebrew | **No.** Both need bidirectional layout and contextual shaping, and the renderer has neither: it walks a string placing one glyph after another left to right. This is a real piece of work, not a missing font. |

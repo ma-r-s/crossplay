@@ -25,6 +25,8 @@ SRC=../../src/apps_local/study
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyFsrs.cpp" test_fsrs.cpp -o "$BUILD_DIR/test_fsrs"
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
+  test_verdict.cpp -o "$BUILD_DIR/test_verdict"
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_deck.cpp -o "$BUILD_DIR/test_deck"
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyScheduler.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_scheduler.cpp \
@@ -62,6 +64,7 @@ fi
 "$BUILD_DIR/test_text"
 "$BUILD_DIR/test_bridge_file"
 "$BUILD_DIR/test_fsrs"
+"$BUILD_DIR/test_verdict"
 "$BUILD_DIR/test_deck" "$DECK"
 "$BUILD_DIR/test_scheduler"
 "$BUILD_DIR/test_stats"

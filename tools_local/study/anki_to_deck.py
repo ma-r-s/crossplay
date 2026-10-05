@@ -70,6 +70,13 @@ SENTENCE_ON_QUESTION_TYPES = {"HSK", "HSK+"}
 # user "correcting" the page's version made their deck worse.
 USED_PROFILES = {}
 
+# Filled during a run: why each dropped card was dropped. When a deck converts
+# to nothing, main() names the commonest cause on stderr as `reason: <code>`,
+# because "no convertible cards" alone sent a user who could not see the
+# reason to retype his deck under every note type Anki has (2026-10-04): his
+# fronts were pictures, and no note type was ever going to change that.
+DROPPED = {}
+
 # Card states, matching study::State on the device. Anki's `cards.type` uses
 # the same first four values, which is not a coincidence -- keeping them equal
 # is what lets a card round-trip without a translation table.
@@ -764,6 +771,7 @@ def collect_notes(db, deck_name, limit=None, override=None):
     }
 
     USED_PROFILES.clear()
+    DROPPED.clear()
     announced = set()
     notes, skipped, cloze_empty = [], 0, 0
     for (
@@ -792,12 +800,14 @@ def collect_notes(db, deck_name, limit=None, override=None):
             cloze_index = cloze_field_index(parts)
             if cloze_index < 0:
                 skipped += 1
+                DROPPED["blank-front"] = DROPPED.get("blank-front", 0) + 1
                 continue
             # Anki numbers a cloze card's template ordinal from zero and its
             # cloze from one, so this card is the hole {{c<ord+1>::}}.
             rendered = render_cloze(parts[cloze_index], card_ord + 1)
             if rendered is None:
                 cloze_empty += 1
+                DROPPED["empty-cloze"] = DROPPED.get("empty-cloze", 0) + 1
                 continue
             question, answer, bold_off, bold_len = rendered
             extra_index = cloze_extra_index(
@@ -899,6 +909,16 @@ def collect_notes(db, deck_name, limit=None, override=None):
         headword = slot("headword")
         if not headword:
             skipped += 1
+            # A front that is only <img> has no text after clean(), so the
+            # generic guess will not even map the word onto it (an empty
+            # field reads as abandoned) and the headword arrives here blank.
+            # Field 0 is the field that guess would have used. Study draws
+            # text faces; a picture can be a second view of an answer
+            # (make_images.py) but never the question.
+            first = parts[0] if parts else ""
+            pictured = "<img" in first.lower() or "<img" in get("headword").lower()
+            why = "picture-front" if pictured else "blank-front"
+            DROPPED[why] = DROPPED.get(why, 0) + 1
             continue
         # Where a Japanese deck actually keeps its furigana.
         #
@@ -1343,6 +1363,28 @@ def main():
 
     notes, skipped = collect_notes(db, args.deck, args.limit, override or None)
     if not notes:
+        # One machine-readable line for the sync bridge, which turns it into
+        # a sentence the reader can show; the human sentence follows it.
+        if not skipped:
+            # Nothing was even considered: the deck is empty, or it is not in
+            # the collection at all -- renamed or deleted on the desktop side.
+            exists = db.execute(
+                "select 1 from decks where name = ?", (args.deck.replace("::", "\x1f"),)
+            ).fetchone()
+            reason = "empty-deck" if exists else "missing-deck"
+        else:
+            reason = max(DROPPED, key=DROPPED.get) if DROPPED else "unconvertible"
+        print(f"reason: {reason}", file=sys.stderr)
+        if reason == "missing-deck":
+            sys.exit(f"there is no deck called '{args.deck}' in this collection.")
+        if reason == "empty-deck":
+            sys.exit(f"'{args.deck}' has no cards in this collection.")
+        if reason == "picture-front":
+            sys.exit(
+                f"no convertible cards in '{args.deck}': the front of its cards is"
+                f" a picture, and Study shows text on the question side. A note type"
+                f" with text on the front converts."
+            )
         sys.exit(
             f"no convertible cards in '{args.deck}'. Cards convert when their note type"
             f" has a profile ({', '.join(PROFILES)}), generically by field order, or"

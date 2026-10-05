@@ -22,6 +22,7 @@
 #include "../ui/ToyboxTheme.h"
 #include "StudyStats.h"
 #include "StudyText.h"
+#include "StudyVerdict.h"
 #include "fontIds.h"
 
 namespace {
@@ -197,6 +198,20 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
     for (int i = 0; i < 4; ++i) m.stages[i] = studyui::SyncStageState::Done;
     std::snprintf(m.title, sizeof(m.title), "PART WAY");
     std::snprintf(m.body, sizeof(m.body), "Mandarin: Vocabulary could not be built. Everything else is up to date.");
+    std::snprintf(m.whatNow, sizeof(m.whatNow), "Choose your decks again to drop it, or fix it in Anki.");
+    std::snprintf(m.factLines[0], sizeof(m.factLines[0]), "142 SENT, 3 HAD NO CARD IN ANKI");
+    m.factCount = 1;
+    m.safety = studyui::SyncSafety::ReviewsSafePartialDecks;
+    previewFlowSet_ = true;
+  } else if (std::strcmp(state, "partwaywhy") == 0) {
+    // The case that failed in the field, as the verdict now prints it.
+    m.verdict = studyui::SyncVerdictKind::Neutral;
+    for (int i = 0; i < 4; ++i) m.stages[i] = studyui::SyncStageState::Done;
+    std::snprintf(m.title, sizeof(m.title), "PART WAY");
+    // Through the same formatter the sync uses, with the deck path and clause
+    // the bridge actually sent in the field.
+    studyui::partWayDetail(m.body, sizeof(m.body), {"United States Immigration Exam (2025)::Famous Americans"},
+                           "its fronts are pictures", true);
     std::snprintf(m.whatNow, sizeof(m.whatNow), "Choose your decks again to drop it, or fix it in Anki.");
     std::snprintf(m.factLines[0], sizeof(m.factLines[0]), "142 SENT, 3 HAD NO CARD IN ANKI");
     m.factCount = 1;
@@ -2478,14 +2493,7 @@ void StudyActivity::runSyncFlow() {
     char detail[192];
     const size_t failed = sync_.failedDecks.size();
     const bool others = decksUpdated > 0 || deckCount_ > static_cast<int>(failed);
-    if (failed == 1) {
-      std::snprintf(detail, sizeof(detail), "%s could not be built.%s", sync_.failedDecks.front().c_str(),
-                    others ? " Everything else is up to date." : "");
-    } else {
-      std::snprintf(detail, sizeof(detail), "%u decks could not be built, starting with %s.%s",
-                    static_cast<unsigned>(failed), sync_.failedDecks.front().c_str(),
-                    others ? " Everything else is up to date." : "");
-    }
+    studyui::partWayDetail(detail, sizeof(detail), sync_.failedDecks, sync_.firstFailedWhy, others);
     // The dropped-review count belongs here most of all: a deck deleted on
     // the desktop fails to build AND leaves every review of it with no card
     // to land on, so this verdict is the one that hides the biggest loss.

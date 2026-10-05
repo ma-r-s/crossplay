@@ -51,6 +51,25 @@ mkdir -p "$STAGE/tools_local"
 rsync -a --exclude __pycache__ \
   "$REPO_ROOT/tools_local/study/" "$STAGE/tools_local/study/"
 
+# The face a CJK deck gets when its collection carries none of its template's
+# own: the installer page's copy, so the bridge and the page build a deck the
+# same way. The bridge looks for it beside the tools. The repo stores it
+# brotli-compressed for the page (tools_local/site/precompress.py), so it is
+# unpacked here, and refused if what comes out is not a font.
+uv run --quiet --with brotli python - "$REPO_ROOT/site/study/NotoSansCJK.otf" \
+  "$STAGE/tools_local/study/NotoSansCJK.otf" <<'PY'
+import sys
+import brotli
+data = open(sys.argv[1], "rb").read()
+try:
+    data = brotli.decompress(data)
+except brotli.error:
+    pass  # already a raw font
+if data[:4] not in (b"OTTO", b"\x00\x01\x00\x00"):
+    sys.exit("site/study/NotoSansCJK.otf did not unpack to a font")
+open(sys.argv[2], "wb").write(data)
+PY
+
 # make_fonts.py shells out to the repo's stock font converter, resolved
 # repo-relative (which in the image means /app/lib/EpdFont/scripts). The web
 # installer bundles these same two files into tools.zip for the same reason.

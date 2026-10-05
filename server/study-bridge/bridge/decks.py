@@ -21,8 +21,83 @@ import time
 log = logging.getLogger("bridge.decks")
 
 TOOLS = None  # set by app startup to the tools_local/study directory
-FONT_SUFFIXES = {".ttf", ".otf", ".ttc"}
 KEEP_BUILDS = 3
+
+# What the reader says after "<deck> could not be built: ". Keyed by the
+# `reason:` line the converter prints when a deck converts to nothing, plus
+# "font" for the face step. A code missing here sends no sentence, and the
+# reader falls back to its plain "could not be built." SHORT ON PURPOSE: the
+# verdict's body is four lines at the large face, and the first version
+# ("its cards have a picture on the front, and the reader shows text there")
+# was cut off at "its cards have a pi..." -- the reason, which is the point.
+REASONS = {
+    "picture-front": "its fronts are pictures",
+    "blank-front": "its fronts are empty",
+    "empty-cloze": "every cloze in it was edited out",
+    "empty-deck": "it has no cards",
+    "missing-deck": "it is gone from Anki",
+    "font": "its Chinese fonts would not convert",
+}
+
+
+class BuildFailed(RuntimeError):
+    """A deck that could not be built, and the converter's reason code for it."""
+
+    def __init__(self, reason: str, detail: str):
+        super().__init__(detail)
+        self.reason = reason
+
+
+def reason_sentence(exc: BaseException) -> str:
+    return REASONS.get(getattr(exc, "reason", ""), "")
+
+
+# The face the installer page builds a CJK deck from when its package carries
+# none (site/study/NotoSansCJK.otf). deploy.sh ships the same file into the
+# image beside the tools, so the bridge and the page give a deck the same face.
+BUNDLED_CJK = None  # set by app startup
+
+
+def _needs_faces(deck_dir: pathlib.Path) -> bool:
+    """study.deck_has_cjk: the decision the installer page makes, from the glyph
+    files the converter wrote. study.py imports only the standard library, so
+    unlike make_fonts it is safe to load into the service."""
+    if str(TOOLS) not in sys.path:
+        sys.path.insert(0, str(TOOLS))
+    import study
+
+    return study.deck_has_cjk(deck_dir)
+
+
+_FACE_FILES = None
+
+
+def face_files() -> set[str]:
+    """The media filenames make_fonts.py builds faces from, read out of its own
+    FACES table rather than retyped here.
+
+    The build used to run the face step whenever the media folder held ANY font
+    file, while make_fonts.py only ever looks for these five. Three users on
+    2026-10-05 had convertible decks -- two of them pure Latin -- failing whole
+    on "no faces built", because a note template somewhere in their collection
+    had left _inter-regular.ttf or _NotoSansJP-Regular.ttf in the media folder.
+    Parsed, not imported: importing make_fonts would load fontTools and freetype
+    into the service, and the subprocess boundary exists to keep them out."""
+    global _FACE_FILES
+    if _FACE_FILES is None:
+        import ast
+
+        tree = ast.parse((TOOLS / "make_fonts.py").read_text())
+        for node in tree.body:
+            if (
+                isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "FACES" for t in node.targets)
+            ):
+                _FACE_FILES = {filename for filename, _family in ast.literal_eval(node.value)}
+                break
+        else:
+            raise RuntimeError("make_fonts.py has no FACES table; the face step cannot be gated")
+    return _FACE_FILES
 
 
 def slugify(deck_name: str) -> str:
@@ -66,18 +141,27 @@ def build_deck(store, deck_name: str) -> dict:
     )
     if convert.returncode != 0:
         shutil.rmtree(out, ignore_errors=True)
-        raise RuntimeError(f"deck convert failed: {convert.stderr.strip()[-400:]}")
+        m = re.search(r"^reason: (\S+)$", convert.stderr, re.M)
+        raise BuildFailed(
+            m.group(1) if m else "", f"deck convert failed: {convert.stderr.strip()[-400:]}"
+        )
 
-    media = store.collection_path.with_suffix(".media")
-    has_cjk_fonts = media.is_dir() and any(
-        p.suffix.lower() in FONT_SUFFIXES for p in media.iterdir()
-    )
-    if has_cjk_fonts:
+    # Faces are built when the DECK needs them, decided from the characters the
+    # converter just wrote out, and from the same source the installer page
+    # uses: the template's own faces when the collection carries them, else
+    # the bundled Noto CJK. It used to be decided by "is there any font file
+    # in the media folder", which built SimSun for Portuguese and failed every
+    # Latin deck whose collection happened to hold an unrelated font.
+    if _needs_faces(out):
+        media = store.collection_path.with_suffix(".media")
+        if media.is_dir() and any((media / name).is_file() for name in face_files()):
+            source = ["--media", str(media)]
+        else:
+            source = ["--font", str(BUNDLED_CJK)]
         fonts = _run(
             [
                 str(TOOLS / "make_fonts.py"),
-                "--media",
-                str(media),
+                *source,
                 "--deck",
                 str(out),
                 "--out",
@@ -86,7 +170,7 @@ def build_deck(store, deck_name: str) -> dict:
         )
         if fonts.returncode != 0:
             shutil.rmtree(out, ignore_errors=True)
-            raise RuntimeError(f"font build failed: {fonts.stderr.strip()[-400:]}")
+            raise BuildFailed("font", f"font build failed: {fonts.stderr.strip()[-400:]}")
 
     files = {}
     for p in sorted(out.rglob("*")):

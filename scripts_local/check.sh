@@ -871,7 +871,8 @@ if [ -n "$STUDY_PY" ]; then
               "tools_local/study/test_web_glue.py" \
               "tools_local/study/test_web_glue.py --from-zip" \
               "tools_local/study/test_slug_parity.py" \
-              "tools_local/study/test_font_parity.py"; do
+              "tools_local/study/test_font_parity.py" \
+              "tools_local/study/test_unbuildable.py"; do
     step="$(echo "$args" | sed 's|tools_local/study/||')"
     # One log per step: a failing step's output used to be overwritten by the
     # next step's, so the tail printed on failure showed a suite that passed.
@@ -1001,7 +1002,7 @@ fi
 # takes 12; fridgebridge takes 13. Sharing an offset would only bite when two
 # trees gate at once, which is exactly when nobody is looking.
 for entry in \
-  "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py tests/test_window.py tests/test_events.py tests/test_pages.py" \
+  "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py tests/test_decks.py tests/test_window.py tests/test_events.py tests/test_pages.py" \
   "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_listing.py tests/test_window.py tests/test_lockout.py tests/test_engine.py tests/test_api.py tests/test_events.py tests/test_pages.py" \
   "server/fridge-bridge:fridgebridge:13:tests/test_events.py tests/test_live_events.py"
 do
