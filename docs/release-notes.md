@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.13.34
+
+- Study sync: decks failed for a stray font, and the reader never said why
+
 ### 1.13.33
 
 - Games and Apps open the right shelf under RoundedRaff
