@@ -281,6 +281,21 @@ async def bookmarks_list(request: Request):
 async def get_text(request: Request):
     _, body, _ = await authed(request)
     state = load()
+    # Since 2026-09-30 the live API refuses parsed text to an application
+    # acting for anyone but its developer unless the request carries an
+    # Instaparser key. The code and message are the ones the live API sent
+    # this bridge on 2026-10-05. A state without "instaparser_key" keeps the
+    # old behaviour, so the suites written before the change still mean what
+    # they meant.
+    want_key = state.get("instaparser_key")
+    if want_key and body.get("instaparser_api_key") != want_key:
+        message = (
+            "Application is not authorized for non-personal content access;"
+            " an Instaparser API key is required"
+        )
+        return JSONResponse(
+            [{"type": "error", "error_code": 1044, "message": message}], status_code=400
+        )
     try:
         bid = int(body.get("bookmark_id", ""))
     except ValueError:

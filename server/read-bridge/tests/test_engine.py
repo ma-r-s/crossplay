@@ -228,6 +228,47 @@ def main():
             "and the bridge drops its cached text for it",
         )
 
+        # --- the Instaparser key (GitHub #298, card #655)
+        # From 2026-09-30 Instapaper answers get_text with error 1044 unless
+        # the request carries an Instaparser key, and every article of every
+        # sync failed: "0 new or updated. 12 Instapaper could not prepare".
+        remote = json.loads(state_file.read_text())
+        remote["instaparser_key"] = "ipk-test"
+        state_file.write_text(json.dumps(remote))
+        keyed = store.UserStore("instaparser-test").ensure()
+        os.environ.pop("INSTAPARSER_API_KEY", None)
+        bare = engine.sync_cycle(keyed, "tok-1", "sec-1", [], [])
+        ok(
+            not bare["articles"] and len(bare["failed"]) == len(remote["bookmarks"]),
+            f"without a key every article fails, as it did live ({len(bare['failed'])})",
+        )
+        ok(
+            all("1044" not in f["why"] for f in bare["failed"]),
+            "and the reader is given a sentence, not an error code",
+        )
+
+        os.environ["INSTAPARSER_API_KEY"] = "ipk-test"
+        original_gap = instapaper.PARSE_GAP_S
+        instapaper.PARSE_GAP_S = 0.3
+        try:
+            started = time.monotonic()
+            fixed = engine.sync_cycle(keyed, "tok-1", "sec-1", [], [])
+            took = time.monotonic() - started
+        finally:
+            instapaper.PARSE_GAP_S = original_gap
+            os.environ.pop("INSTAPARSER_API_KEY", None)
+        n = len(remote["bookmarks"])
+        # The fake checks the OAuth signature over every body field, so an
+        # article arriving proves the key was both sent and signed.
+        ok(
+            len(fixed["articles"]) == n and not fixed["failed"],
+            f"with the key every article arrives ({len(fixed['articles'])}/{n})",
+        )
+        ok(
+            took >= (n - 1) * 0.3,
+            f"one parse per gap, the free tier's rate ({took:.2f}s for {n})",
+        )
+
         print(f"{checks} checks, {failures} failed")
         return 1 if failures else 0
     finally:
