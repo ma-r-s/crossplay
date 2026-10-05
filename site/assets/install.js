@@ -271,32 +271,80 @@
 
   /* --- the flash --------------------------------------------------------- */
 
-  function friendly(err) {
-    var message = (err && err.message) || String(err);
-    // Chrome throws NotFoundError when the port picker is dismissed. It reads
-    // like a failure and is not one.
-    if (err && err.name === "NotFoundError") {
-      return "No device chosen. Press Install again, then pick your device from the list the browser shows.";
-    }
-    if (/Failed to open serial port|NetworkError|already open/i.test(message)) {
-      return (
-        "That port would not open. Close anything else talking to the device " +
+  // EVERY FAILURE THE FLASHER CAN HAND BACK, ONCE. Two functions used to read
+  // two lists: friendly() chose what the person reads, userSide() chose
+  // whether the failure opens a bug card. They drifted. "Failed to open port"
+  // matched neither (both said "serial port"), and neither knew "No serial
+  // data received", "The device has been lost", setSignals or "Invalid head of
+  // packet" -- so eight cards (#432 #433 #451 #524 #596 #599 #619 #637) were
+  // people's cables and ports, each of whom read raw esptool text. One table,
+  // both read it, first match wins.
+  //   name  the DOMException name, or null
+  //   msg   a pattern over the message, or null
+  //   mine  true: the person's environment, counted as info, never carded
+  //   say   what the person reads; a function of the device for the one
+  //         line that differs by board; null keeps the raw message
+  var DEVICE_DID_NOT_ANSWER =
+    "The device did not answer. Wake it with a button press, make sure the " +
+    "cable carries data and not only power, and try again. If the browser " +
+    "never lists your device at all, it may be one of the units that ship " +
+    "with USB flashing locked; crosspointreader.com/#unlock-tool opens those.";
+  var INSTALL_ERRORS = [
+    { name: "NotFoundError", msg: null, mine: true,
+      say: "No device chosen. Press Install again, then pick your device from the list the browser shows." },
+    { name: null, msg: /No port selected/i, mine: true,
+      say: "No device chosen. Press Install again, then pick your device from the list the browser shows." },
+    { name: "NotAllowedError", msg: null, mine: true,
+      say: "The browser was not allowed to use the device. Press Install again and allow it when Chrome asks." },
+    { name: "SecurityError", msg: null, mine: true, say: null },
+    { name: "AbortError", msg: null, mine: true, say: null },
+    // Chrome's own "Failed to open serial port." AND the shorter "Failed to
+    // open port" some builds send; the old pattern wanted "serial" and missed
+    // the second entirely.
+    { name: null, msg: /The port is already open|already open|Failed to open (serial )?port/i, mine: true,
+      say: "That port would not open. Close anything else talking to the device " +
         "(a serial monitor, the Arduino IDE), unplug the cable, plug it back " +
-        "in, and try again."
-      );
+        "in, and try again." },
+    { name: null, msg: /Timed out waiting for packet|Failed to connect|No serial data received|Wrong boot mode/i, mine: true,
+      say: function (device) {
+        return device === "papermono"
+          ? "The device did not answer. Hold the power button for about two seconds until the red LED flashes, release it, then try again with a data-capable USB cable."
+          : DEVICE_DID_NOT_ANSWER;
+      } },
+    // The cable went away partway: the device slept, reset or was knocked.
+    // setSignals is the reset sequence failing on a port that is gone.
+    { name: null, msg: /The device has been lost|setSignals|Failed to set control signals|Packet content transfer stopped/i, mine: true,
+      say: "The device dropped off the cable partway through. Keep it awake and " +
+        "the cable still, unplug it and plug it back in, and press Install " +
+        "again. A half-finished install is fixed by finishing one." },
+    { name: null, msg: /Invalid head of packet|Invalid SLIP escape|serial noise/i, mine: true,
+      say: "The data arrived garbled. Plug the cable straight into the computer " +
+        "rather than through a hub or adapter, or try another cable, and press " +
+        "Install again." },
+    // A download that got no answer at all. NOT the person's: our download
+    // can be down as easily as their connection, so it still cards. (Chrome's
+    // serial open throws a DOMException NAMED NetworkError whose message is
+    // "Failed to open serial port.", caught above by message; the old port
+    // pattern tested the MESSAGE for "NetworkError", which only ever matched
+    // Firefox's fetch failure and told a download failure to unplug a cable.)
+    { name: null, msg: /NetworkError when attempting to fetch|Failed to fetch|^network error$|Load failed/i, mine: false,
+      say: "The firmware did not download. Check the connection and press Install again." },
+  ];
+
+  function installError(err) {
+    var name = (err && err.name) || "";
+    var msg = String((err && err.message) || err || "");
+    for (var i = 0; i < INSTALL_ERRORS.length; i++) {
+      var rule = INSTALL_ERRORS[i];
+      if ((rule.name && rule.name === name) || (rule.msg && rule.msg.test(msg))) return rule;
     }
-    if (/Timed out waiting for packet|Failed to connect/i.test(message)) {
-      if (state.device === "papermono") {
-        return "The device did not answer. Hold the power button for about two seconds until the red LED flashes, release it, then try again with a data-capable USB cable.";
-      }
-      return (
-        "The device did not answer. Wake it with a button press, make sure the " +
-        "cable carries data and not only power, and try again. If the browser " +
-        "never lists your device at all, it may be one of the units that ship " +
-        "with USB flashing locked; crosspointreader.com/#unlock-tool opens those."
-      );
-    }
-    return message;
+    return null;
+  }
+
+  function friendly(err) {
+    var rule = installError(err);
+    var said = rule && (typeof rule.say === "function" ? rule.say(state.device) : rule.say);
+    return said || (err && err.message) || String(err);
   }
 
   function flash(port, bytes) {
@@ -481,17 +529,8 @@
   // flasher's, with nothing about the person. Best effort throughout: no
   // board, no key, no network, and the install itself is unaffected.
   function userSide(err) {
-    var name = (err && err.name) || "";
-    var msg = String((err && err.message) || err || "");
-    return (
-      name === "NotFoundError" || // "No port selected by the user"
-      name === "NotAllowedError" || // the browser's permission prompt, declined
-      name === "SecurityError" || // not a secure context, or a policy
-      name === "AbortError" ||
-      /No port selected/i.test(msg) ||
-      /Failed to connect with the device/i.test(msg) || // esptool-js: no sync on the cable
-      /The port is already open|Failed to open serial port/i.test(msg)
-    );
+    var rule = installError(err);
+    return !!(rule && rule.mine);
   }
   function tellBoard(level, message) {
     if (typeof fetch !== "function") return;
