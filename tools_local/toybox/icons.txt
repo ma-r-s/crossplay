@@ -465,3 +465,9 @@ wordle        = spell-check
 # The keyboard's delete key: Lucide's `delete` is a backspace key, which is the
 # thing on every phone keyboard, where an arrow alone read as "go back".
 wordle_delete = delete
+
+# WAPPO is a chase on a grid, and the game is finding the way round: lead the
+# monsters into walls and pits, then take the path to the exit. `route` is that
+# path -- a start, a winding line, an end. `ghost` stood here first, but it is
+# already cat_myths' and it showed the monster rather than the puzzle.
+wappo         = route

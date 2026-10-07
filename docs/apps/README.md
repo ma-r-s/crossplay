@@ -33,6 +33,7 @@ them. These are the ones worth a stranger's time.
 | [`yahtzee.md`](yahtzee.md) | The Joker rules are three rules, and conflating them is the bug. |
 | [`knucklebones.md`](knucklebones.md) | The dice duel, and what the critic agents found after "finished". |
 | [`minesweeper.md`](minesweeper.md) | Flagging without a right button. |
+| [`wappo.md`](wappo.md) | A chase puzzle whose 125 levels are searched for, with par proved optimal. |
 | [`sudoku.md`](sudoku.md) | Difficulty proved by a grader rather than estimated. |
 | [`jaipur.md`](jaipur.md) | The two-player trading game, solo or nearby. |
 | [`seasalt.md`](seasalt.md) | Sea Salt & Paper, and the rulebook contradiction Mario settled. |
