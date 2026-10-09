@@ -39,6 +39,8 @@
 #include "sudoku/SudokuActivity.h"
 #include "toybattle/ToyBattleActivity.h"
 #include "trivia/TriviaActivity.h"
+#include "trmnl/TrmnlActivity.h"
+#include "trmnl/TrmnlIcons.h"
 #include "ui/ToyboxIcons.h"
 #include "underhand/UnderhandActivity.h"
 #include "wallpapers/WallpapersActivity.h"
@@ -91,6 +93,7 @@ constexpr shelf::Item kApps[] = {
     // Card #516. The icon is the Lucide list mark borrowed from Murdle while
     // the screens are being chosen; a Notes mark comes with the real app.
     {"NOTES", &icon_murdle_face_clues_32, &NotesActivity::create},
+    {"TRMNL", &icon_trmnl_32, &TrmnlActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because

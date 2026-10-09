@@ -1,0 +1,8 @@
+# Icons for the TRMNL app, generated into src/apps_local/trmnl/TrmnlIcons.h by
+# tools_local/trmnl/gen_icons.sh. Format: alias = lucide-name.
+
+# The shelf row. A dashboard of tiles is what a TRMNL screen is, and no other
+# app on the shelf uses a grid of unequal panels.
+trmnl       = layout-dashboard
+# The header's way to the phone page.
+t_phone     = smartphone

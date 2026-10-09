@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111110">
+<title>TRMNL</title>
+<style>
+/* The Notes page's tokens, which are the site's (site/styles.css). No webfont:
+   the reader serves this with no internet. */
+:root{
+  --ink:#111110; --paper:#f5f2ea; --paper-2:#ebe7db; --edge:#a9a494; --muted:#46443c;
+  --display:"Arial Narrow",Helvetica,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --gutter:clamp(1.25rem,4vw,2rem);
+}
+@media (prefers-color-scheme:dark){
+  :root{--ink:#f2f1ec; --paper:#100f0e; --paper-2:#1a1917; --edge:#5a564c; --muted:#b8b5aa}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.5 var(--body);-webkit-text-size-adjust:100%}
+.band{background:#111110;color:#faf9f6;font-family:var(--display);font-size:clamp(1.6rem,7vw,2.2rem);
+  letter-spacing:.02em;padding:.45em var(--gutter) .3em;display:flex;align-items:baseline;
+  justify-content:space-between;gap:1rem}
+.band-note{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
+.band-rule{height:3px;background:var(--ink)}
+main{max-width:34rem;margin:0 auto;padding:1.6rem var(--gutter) 3rem}
+.eyebrow{font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);margin:1.8rem 0 .8rem;display:flex;align-items:center}
+.eyebrow:first-child{margin-top:0}
+.eyebrow::before{content:"";width:2rem;height:1px;background:currentColor;margin-right:.7rem}
+.card{border:3px solid var(--ink);background:var(--paper)}
+.field{display:block;padding:.7rem .85rem .8rem;border-bottom:1px solid var(--edge)}
+.field:last-child{border-bottom:0}
+.label{display:block;font-family:var(--display);font-size:1.25rem;line-height:1.2}
+.hint{display:block;font-size:.85rem;color:var(--muted);margin:.15rem 0 .45rem}
+input[type=text],input[type=url],input[type=number],select{width:100%;font:inherit;color:var(--ink);
+  background:var(--paper-2);border:2px solid var(--ink);border-radius:0;padding:.5rem .6rem;-webkit-appearance:none;
+  appearance:none}
+select{background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);
+  background-position:calc(100% - 1.1rem) 55%,calc(100% - .75rem) 55%;background-size:.35rem .35rem;
+  background-repeat:no-repeat;padding-right:2rem}
+.choice{display:flex;gap:.5rem;margin:.2rem 0 .5rem}
+.choice label{flex:1;text-align:center;border:2px solid var(--ink);padding:.45rem .3rem;cursor:pointer;
+  font-family:var(--mono);font-size:.75rem;letter-spacing:.08em;text-transform:uppercase}
+.choice input{position:absolute;opacity:0;pointer-events:none}
+.choice input:checked+span{display:block}
+.choice label.on{background:var(--ink);color:var(--paper)}
+.row{display:flex;gap:.5rem;align-items:center}
+.row input{flex:1}
+.check{display:flex;gap:.7rem;align-items:flex-start;cursor:pointer}
+.check input{width:1.4rem;height:1.4rem;margin:.15rem 0 0;accent-color:var(--ink);flex:0 0 auto}
+.small{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);
+  background:transparent;border:2px solid var(--ink);padding:.5rem .6rem;cursor:pointer;white-space:nowrap}
+.btn{display:block;width:100%;margin-top:1.4rem;font-family:var(--display);font-size:1.3rem;letter-spacing:.03em;
+  padding:.5em 1.15em .38em;border:3px solid var(--ink);background:var(--ink);color:var(--paper);cursor:pointer}
+.btn[disabled]{opacity:.42;cursor:default}
+.facts{font-family:var(--mono);font-size:.8rem;margin:0;padding:.7rem .85rem;display:grid;
+  grid-template-columns:auto 1fr;gap:.25rem 1rem}
+.facts dt{color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-size:.7rem;padding-top:.1rem}
+.facts dd{margin:0;word-break:break-all}
+.foot{font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:1.4rem 0 0}
+</style>
+</head>
+<body>
+<div class="band"><span>TRMNL</span><span class="band-note" id="state">Loading</span></div>
+<div class="band-rule"></div>
+<main>
+<form id="form" autocomplete="off">
+<p class="eyebrow">Server</p>
+<div class="card">
+  <div class="field">
+    <span class="label">Where your screens come from</span>
+    <div class="choice" id="where">
+      <label data-v="cloud"><input type="radio" name="where" value="cloud">TRMNL cloud</label>
+      <label data-v="own"><input type="radio" name="where" value="own">My own server</label>
+    </div>
+    <div id="own-wrap">
+      <span class="hint">The address of your Terminus, LaraPaper or other TRMNL server, with its port.
+        For example http://192.168.1.20:2300</span>
+      <input type="url" id="server" inputmode="url" spellcheck="false" autocapitalize="off" placeholder="http://192.168.1.20:2300">
+    </div>
+  </div>
+  <div class="field">
+    <span class="label">Device ID</span>
+    <span class="hint" id="id-hint">What the server knows this reader by. Leave it empty to use the reader's own MAC address,
+      which is what a TRMNL sends.</span>
+    <input type="text" id="device_id" spellcheck="false" autocapitalize="characters">
+  </div>
+  <div class="field">
+    <span class="label">API key</span>
+    <span class="hint">Leave it empty and the reader asks the server for one the first time. Paste one if your
+      server shows it to you instead.</span>
+    <div class="row"><input type="text" id="api_key" spellcheck="false" autocapitalize="off">
+      <button class="small" type="button" id="forget">Forget</button></div>
+  </div>
+</div>
+
+<p class="eyebrow">The screen</p>
+<div class="card">
+  <div class="field">
+    <span class="label">New picture</span>
+    <span class="hint">How often the reader asks for the next screen.</span>
+    <select id="refresh">
+      <option value="0">When the server says</option>
+      <option value="1">Every minute</option>
+      <option value="5">Every 5 minutes</option>
+      <option value="15">Every 15 minutes</option>
+      <option value="30">Every 30 minutes</option>
+      <option value="60">Every hour</option>
+      <option value="120">Every 2 hours</option>
+      <option value="240">Every 4 hours</option>
+      <option value="720">Every 12 hours</option>
+      <option value="1440">Every day</option>
+      <option value="custom">Other, in minutes</option>
+    </select>
+    <input type="number" id="refresh-custom" min="1" max="1440" placeholder="Minutes" style="margin-top:.5rem;display:none">
+  </div>
+  <div class="field">
+    <span class="label">Hold the reader</span>
+    <select id="orientation">
+      <option value="0">Sideways</option>
+      <option value="1">Sideways, turned over</option>
+      <option value="2">Upright</option>
+      <option value="3">Upside down</option>
+    </select>
+    <span class="hint" style="margin-top:.45rem">Upright asks the server for a 480 by 800 picture. Servers that
+      only make TRMNL's 800 by 480 get it scaled down to fit.</span>
+  </div>
+  <div class="field">
+    <span class="label">Clean refresh</span>
+    <span class="hint">A clean refresh flashes the panel and wipes away ghosting. The ones between are quick and quiet.</span>
+    <select id="clean_every">
+      <option value="1">Every picture</option>
+      <option value="3">Every 3rd picture</option>
+      <option value="5">Every 5th picture</option>
+      <option value="10">Every 10th picture</option>
+      <option value="20">Every 20th picture</option>
+    </select>
+  </div>
+</div>
+
+<p class="eyebrow">Battery</p>
+<div class="card">
+  <label class="field check"><input type="checkbox" id="wifi_off">
+    <span><span class="label">Turn Wi-Fi off between pictures</span>
+    <span class="hint">Saves battery. Each picture then takes a few seconds longer to arrive.</span></span></label>
+  <label class="field check"><input type="checkbox" id="keep_awake">
+    <span><span class="label">Keep the reader awake</span>
+    <span class="hint">Leave it on to use the reader as a dashboard. Off lets it go to sleep on its usual timer.</span></span></label>
+</div>
+
+<button class="btn" id="save" type="submit" disabled>Save to the reader</button>
+</form>
+
+<p class="eyebrow">This reader</p>
+<div class="card"><dl class="facts" id="facts"></dl></div>
+<p class="foot">Served by the reader itself. Nothing leaves your network.</p>
+</main>
+<script>
+(function () {
+var CLOUD = 'https://trmnl.app';
+var $ = function (id) { return document.getElementById(id); };
+var form = $('form'), save = $('save'), state = $('state');
+var info = {};
+
+function say(msg) { state.textContent = msg; }
+// The file is key=value lines, so a value may carry no line break.
+function clean(v) { return String(v).replace(/[\r\n]/g, ' ').trim(); }
+
+function parse(text) {
+  var out = {};
+  text.split('\n').forEach(function (line) {
+    var eq = line.indexOf('=');
+    if (eq > 0) out[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  });
+  return out;
+}
+
+function setWhere(v) {
+  Array.prototype.forEach.call(document.querySelectorAll('#where label'), function (l) {
+    var on = l.getAttribute('data-v') === v;
+    l.classList.toggle('on', on);
+    l.querySelector('input').checked = on;
+  });
+  $('own-wrap').style.display = v === 'own' ? '' : 'none';
+}
+function where() {
+  var on = document.querySelector('#where input:checked');
+  return on ? on.value : 'cloud';
+}
+
+function fill(cfg) {
+  var server = cfg.server || CLOUD;
+  var own = server.replace(/\/+$/, '') !== CLOUD;
+  setWhere(own ? 'own' : 'cloud');
+  $('server').value = own ? server : '';
+  $('device_id').value = cfg.device_id || '';
+  $('device_id').placeholder = cfg.mac || '';
+  $('api_key').value = cfg.api_key || '';
+  var minutes = cfg.refresh_minutes || '0';
+  var known = Array.prototype.some.call($('refresh').options, function (o) { return o.value === minutes; });
+  $('refresh').value = known ? minutes : 'custom';
+  $('refresh-custom').value = known ? '' : minutes;
+  $('refresh-custom').style.display = known ? 'none' : '';
+  $('orientation').value = cfg.orientation || '0';
+  var clean = cfg.clean_every || '1';
+  if (!Array.prototype.some.call($('clean_every').options, function (o) { return o.value === clean; })) {
+    var o = document.createElement('option');
+    o.value = clean; o.textContent = 'Every ' + clean + ' pictures';
+    $('clean_every').appendChild(o);
+  }
+  $('clean_every').value = clean;
+  $('wifi_off').checked = cfg.wifi_off !== '0';
+  $('keep_awake').checked = cfg.keep_awake !== '0';
+
+  var facts = [['MAC address', cfg.mac], ['Friendly ID', cfg.friendly_id], ['Last word', cfg.status]];
+  $('facts').innerHTML = '';
+  facts.forEach(function (f) {
+    if (!f[1]) return;
+    var dt = document.createElement('dt'); dt.textContent = f[0];
+    var dd = document.createElement('dd'); dd.textContent = f[1];
+    $('facts').appendChild(dt); $('facts').appendChild(dd);
+  });
+}
+
+function collect() {
+  var minutes = $('refresh').value === 'custom' ? (parseInt($('refresh-custom').value, 10) || 0) : $('refresh').value;
+  var server = where() === 'own' ? clean($('server').value) : CLOUD;
+  return [
+    'server=' + server,
+    'device_id=' + clean($('device_id').value),
+    'api_key=' + clean($('api_key').value),
+    'refresh_minutes=' + minutes,
+    'orientation=' + $('orientation').value,
+    'clean_every=' + $('clean_every').value,
+    'wifi_off=' + ($('wifi_off').checked ? 1 : 0),
+    'keep_awake=' + ($('keep_awake').checked ? 1 : 0)
+  ].join('\n') + '\n';
+}
+
+function dirty() { save.disabled = false; say('Not saved'); }
+form.addEventListener('input', dirty);
+form.addEventListener('change', dirty);
+Array.prototype.forEach.call(document.querySelectorAll('#where input'), function (r) {
+  r.addEventListener('change', function () { setWhere(r.value); if (r.value === 'own') $('server').focus(); });
+});
+$('refresh').addEventListener('change', function () {
+  var custom = $('refresh').value === 'custom';
+  $('refresh-custom').style.display = custom ? '' : 'none';
+  if (custom) $('refresh-custom').focus();
+});
+$('forget').addEventListener('click', function () { $('api_key').value = ''; dirty(); });
+
+form.addEventListener('submit', function (e) {
+  e.preventDefault();
+  if (where() === 'own' && !clean($('server').value)) { say('Add your server'); $('server').focus(); return; }
+  save.disabled = true;
+  say('Saving');
+  fetch('/trmnl/config', {method: 'PUT', body: collect(), headers: {'Content-Type': 'text/plain'}})
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then(function (t) { info = parse(t); fill(info); say('Saved'); })
+    .catch(function () { save.disabled = false; say('Not saved. Try again'); });
+});
+
+fetch('/trmnl/config', {cache: 'no-store'})
+  .then(function (r) { return r.text(); })
+  .then(function (t) { info = parse(t); fill(info); say('Up to date'); })
+  .catch(function () { fill({}); say('Reader not answering'); });
+})();
+</script>
+</body>
+</html>
