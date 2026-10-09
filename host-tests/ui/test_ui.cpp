@@ -57,6 +57,7 @@
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 #include "../../src/apps_local/wikipedia/WikipediaScreens.h"
 #include "../../src/apps_local/wordle/WordleScreens.h"
+#include "../../src/apps_local/workouts/WorkoutsScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
 #include "../../src/apps_local/yahtzee/YahtzeeScreens.h"
 
@@ -14784,7 +14785,259 @@ void theMenuOffersTodayOnlyWhenThereIsOne() {
 
 }  // namespace wordletest
 
+// --- Workouts: every visible row is a target, and the week has seven days ----
+
+namespace workoutstest {
+
+template <typename Build>
+void build(Rendered& out, Build&& fn) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  fn(screen);
+}
+
+int countAction(const Rendered& out, const fui::ActionId action) {
+  int n = 0;
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    if (out.interactions.data()[i].action == action) n++;
+  }
+  return n;
+}
+
+// Rows whose target is split around the weight's buttons count once each.
+int rowsWith(const Rendered& out, const fui::ActionId action) {
+  std::vector<int> seen;
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    const auto& hit = out.interactions.data()[i];
+    if (hit.action != action) continue;
+    if (std::find(seen.begin(), seen.end(), hit.value) == seen.end()) seen.push_back(hit.value);
+  }
+  return static_cast<int>(seen.size());
+}
+
+bool drew(const Rendered& out, const char* text) {
+  for (const auto& run : out.target.texts) {
+    if (run.text == text) return true;
+  }
+  return false;
+}
+
+workoutsui::HomeModel homeWith(const workoutsui::ScheduleCard* cards, const int count) {
+  workoutsui::HomeModel model;
+  model.cards = cards;
+  model.count = count;
+  model.clockSet = true;
+  std::vector<workouts::LogEntry> log = workouts::parseLog("20730|arms|Upper\n20732|legs|Lower\n");
+  workouts::calendarCells(log, 20732, model.days);
+  return model;
+}
+
+void theHomeScreenOpensEveryVisibleSchedule() {
+  const workoutsui::ScheduleCard cards[] = {
+      {"Upper Body", 1, 5, 17, 6}, {"Lower Body", 2, 4, 15, 0}, {"Push", 3, 3, 10, 10},
+      {"Pull", 4, 4, 13, 0},       {"Cardio", 6, 1, 6, 0},      {"Swim", 8, 1, 2, 0},
+  };
+  const int capacity = workoutsui::homeCapacity(device());
+  CHECK(capacity >= 3);
+  Rendered out;
+  workoutsui::HomeModel model = homeWith(cards, 6);
+  model.pageLabel = "1/2";
+  build(out, [&](toybox::Screen& screen) { workoutsui::buildHome(screen, model); });
+  // One target per card the page holds, by the same layout the Activity pages
+  // with, so the keys and the glass agree about what a page is.
+  CHECK(countAction(out, workoutsui::ActionOpenSchedule) == capacity);
+  // The phone page is the pencil on the band, and nothing below it.
+  CHECK(countAction(out, workoutsui::ActionUsePhone) == 1);
+  CHECK(!drew(out, "EDIT ON YOUR PHONE"));
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    const auto& hit = out.interactions.data()[i];
+    if (hit.action == workoutsui::ActionUsePhone) {
+      CHECK(hit.rect.y + hit.rect.height <= 119);
+      CHECK(hit.rect.x > 240);
+    }
+  }
+  CHECK(drew(out, "6 OF 17 SETS TODAY"));
+  CHECK(drew(out, "4 EXERCISES, 15 SETS"));
+  CHECK(drew(out, "DONE TODAY"));
+  CHECK(drew(out, "1/2"));
+  // The second card opens the second schedule.
+  bool second = false;
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    const auto& hit = out.interactions.data()[i];
+    if (hit.action == workoutsui::ActionOpenSchedule && hit.value == 1) second = true;
+  }
+  CHECK(second);
+}
+
+void theCalendarShowsLastWeekAndThisFromMonday() {
+  const workoutsui::ScheduleCard cards[] = {{"Upper Body", 1, 5, 17, 0}};
+  Rendered out;
+  const workoutsui::HomeModel model = homeWith(cards, 1);
+  build(out, [&](toybox::Screen& screen) { workoutsui::buildHome(screen, model); });
+  // 2026-10-06 is a Tuesday, so the calendar runs Monday the 28th of
+  // September to Sunday the 11th.
+  CHECK(drew(out, "M 28"));
+  CHECK(drew(out, "S 4"));
+  CHECK(drew(out, "T 6"));
+  CHECK(drew(out, "S 11"));
+  CHECK(!drew(out, "M 12"));
+  CHECK(drew(out, "2 DAYS TRAINED"));
+  // Every cell inside the panel, the second week still above the bottom edge.
+  for (const auto& run : out.target.texts) {
+    CHECK(run.rect.y + run.rect.height <= 800 - 16);
+  }
+  // Trained days are solid squares carrying their mark; rest days are not.
+  CHECK(out.target.blits.size() >= 2 + 1);
+  // Nothing in the strip is a control.
+  CHECK(countAction(out, workoutsui::ActionOpenSchedule) == 1);
+}
+
+void anUnsetClockSaysSoInsteadOfDrawing1970() {
+  Rendered out;
+  workoutsui::HomeModel model;
+  model.clockSet = false;
+  build(out, [&](toybox::Screen& screen) { workoutsui::buildHome(screen, model); });
+  CHECK(out.has(workoutsui::ActionUsePhone));
+  CHECK(!drew(out, "T 1"));
+  CHECK(!drew(out, "0 DAYS TRAINED"));
+  bool said = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text.find("CLOCK") != std::string::npos) said = true;
+  }
+  CHECK(said);
+}
+
+void everyExerciseRowAddsASetAndUndoIsOnlyThereToUse() {
+  const workoutsui::ExerciseRow rows[] = {
+      {"Bench press", 4, 4, 60}, {"Pull-ups", 3, 1, 0}, {"Hanging leg raises to toes on the bar", 10, 0, 999}};
+  workoutsui::ScheduleModel model;
+  model.title = "Upper Body";
+  model.rows = rows;
+  model.count = 3;
+  model.tally = "5/17";
+  {
+    Rendered out;
+    build(out, [&](toybox::Screen& screen) { workoutsui::buildSchedule(screen, model); });
+    CHECK(rowsWith(out, workoutsui::ActionAddSet) == 3);
+    CHECK(out.has(workoutsui::ActionDone));
+    CHECK(!out.has(workoutsui::ActionUndo));
+    CHECK(!out.has(workoutsui::ActionReset));
+    CHECK(drew(out, "DONE"));
+    CHECK(drew(out, "5/17"));
+    // Every row carries its weight between a - and a +.
+    CHECK(drew(out, "60 KG"));
+    CHECK(drew(out, "0 KG"));
+    CHECK(drew(out, "999 KG"));
+    CHECK(countAction(out, workoutsui::ActionWeightDown) == 3);
+    CHECK(countAction(out, workoutsui::ActionWeightUp) == 3);
+    // The buttons are their own targets: a tap on + moves the weight, never a
+    // set, and nothing the row draws overlaps them.
+    for (size_t i = 0; i < out.interactions.count(); ++i) {
+      const auto& hit = out.interactions.data()[i];
+      if (hit.action != workoutsui::ActionWeightUp && hit.action != workoutsui::ActionWeightDown) continue;
+      CHECK(hit.rect.width >= 44 && hit.rect.height >= 44);
+      CHECK(hit.rect.x + hit.rect.width <= 480 - 16);
+      const fui::ActionEvent e = out.tap(hit.rect.x + hit.rect.width / 2, hit.rect.y + hit.rect.height / 2);
+      CHECK(e.action == hit.action && e.value == hit.value);
+      for (size_t j = 0; j < out.interactions.count(); ++j) {
+        const auto& other = out.interactions.data()[j];
+        if (other.action != workoutsui::ActionAddSet) continue;
+        const bool apart =
+            other.rect.x + other.rect.width <= hit.rect.x || hit.rect.x + hit.rect.width <= other.rect.x ||
+            other.rect.y + other.rect.height <= hit.rect.y || hit.rect.y + hit.rect.height <= other.rect.y;
+        CHECK(apart);
+      }
+    }
+    // A tap in the middle of the second row adds to the second exercise.
+    bool hitsSecond = false;
+    for (size_t i = 0; i < out.interactions.count(); ++i) {
+      const auto& hit = out.interactions.data()[i];
+      if (hit.action != workoutsui::ActionAddSet || hit.value != 1) continue;
+      const fui::ActionEvent e = out.tap(hit.rect.x + hit.rect.width / 2, hit.rect.y + hit.rect.height / 2);
+      hitsSecond = e.action == workoutsui::ActionAddSet && e.value == 1;
+    }
+    CHECK(hitsSecond);
+    // Ten sets still fit the row: every box inside the panel's margins.
+    int boxes = 0;
+    for (const auto& stroke : out.target.strokes) {
+      if (stroke.width != 3) continue;
+      boxes++;
+      CHECK(stroke.rect.x >= 16);
+      CHECK(stroke.rect.x + stroke.rect.width <= 480 - 16);
+    }
+    CHECK(boxes == 4 + 3 + 10);
+  }
+  model.canUndo = true;
+  {
+    Rendered out;
+    build(out, [&](toybox::Screen& screen) { workoutsui::buildSchedule(screen, model); });
+    CHECK(out.has(workoutsui::ActionUndo));
+  }
+  // Finished, RESET takes UNDO's place on the right of the bar.
+  model.canReset = true;
+  Rendered out;
+  build(out, [&](toybox::Screen& screen) { workoutsui::buildSchedule(screen, model); });
+  CHECK(out.has(workoutsui::ActionReset));
+  CHECK(!out.has(workoutsui::ActionUndo));
+  fui::Rect reset{};
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    if (out.interactions.data()[i].action == workoutsui::ActionReset) reset = out.interactions.data()[i].rect;
+  }
+  // A second jab at RESET while the confirm paints lands on KEEP IT.
+  Rendered confirm;
+  build(confirm, [&](toybox::Screen& screen) {
+    workoutsui::buildResetConfirm(screen, "Upper Body", "Clear all 17 sets and take today off the calendar?");
+  });
+  CHECK(confirm.has(workoutsui::ActionResetConfirm));
+  CHECK(confirm.tap(reset.x + reset.width / 2, reset.y + reset.height / 2).action == workoutsui::ActionResetKeep);
+  CHECK(drew(confirm, "KEEP IT"));
+  CHECK(drew(confirm, "RESET IT"));
+}
+
+void aLongScheduleIsPagedByTheSameCapacity() {
+  std::vector<workoutsui::ExerciseRow> rows(12, workoutsui::ExerciseRow{"Squat", 5, 0});
+  const int capacity = workoutsui::scheduleCapacity(device());
+  CHECK(capacity >= 4);
+  workoutsui::ScheduleModel model;
+  model.title = "Legs";
+  model.rows = rows.data();
+  model.count = 12;
+  model.pageLabel = "1 / 3";
+  Rendered out;
+  build(out, [&](toybox::Screen& screen) { workoutsui::buildSchedule(screen, model); });
+  CHECK(rowsWith(out, workoutsui::ActionAddSet) == capacity);
+  CHECK(drew(out, "1 / 3"));
+  // The last row ends above the action bar.
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    const auto& hit = out.interactions.data()[i];
+    if (hit.action == workoutsui::ActionAddSet) CHECK(hit.rect.y + hit.rect.height <= 800 - 16 - 52);
+  }
+}
+
+void thePhoneScreenReservesTheCodeAndLeavesOneWayOut() {
+  workoutsui::PhoneModel model;
+  model.url = "http://192.168.1.20/gym";
+  model.readable = "http://crossplay.local/gym";
+  Rendered out;
+  fui::Rect qr{};
+  build(out, [&](toybox::Screen& screen) { qr = workoutsui::buildPhone(screen, model); });
+  CHECK(qr.width >= 120 && qr.width == qr.height);
+  CHECK(drew(out, "http://crossplay.local/gym"));
+  CHECK(drew(out, "WAITING FOR YOUR PHONE"));
+  CHECK(out.has(workoutsui::ActionDismiss));
+}
+
+}  // namespace workoutstest
+
 int main() {
+  workoutstest::theHomeScreenOpensEveryVisibleSchedule();
+  workoutstest::theCalendarShowsLastWeekAndThisFromMonday();
+  workoutstest::anUnsetClockSaysSoInsteadOfDrawing1970();
+  workoutstest::everyExerciseRowAddsASetAndUndoIsOnlyThereToUse();
+  workoutstest::aLongScheduleIsPagedByTheSameCapacity();
+  workoutstest::thePhoneScreenReservesTheCodeAndLeavesOneWayOut();
   notestest::aNoteAsleepIsReadOnlyAndTaller();
   wordletest::everyKeyIsWhereItIsDrawn();
   wordletest::aFinishedGameShowsTheAnswerAndLetsGo();

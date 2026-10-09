@@ -1,0 +1,25 @@
+# Icons for the Workouts app, generated into src/apps_local/workouts/WorkoutsIcons.h
+# by tools_local/workouts/gen_icons.sh. Format: alias = lucide-name.
+#
+# Kept apart from tools_local/toybox/icons.txt so regenerating these never has
+# to round-trip the shelf's own header (see the warning at the top of that file).
+#
+# The marks a schedule can carry, picked on the phone. Each is drawn at 32 on
+# the schedule list and at 24 in the week strip, so they are chosen for
+# silhouette: no two share an outline at 24px in one bit. The first doubles as
+# the app's own mark on the shelf.
+w_dumbbell = dumbbell
+w_arms     = biceps-flexed
+w_legs     = footprints
+w_push     = arrow-up-from-line
+w_pull     = arrow-down-to-line
+w_core     = flame
+w_cardio   = heart-pulse
+w_bike     = bike
+w_swim     = waves-ladder
+w_hike     = mountain
+w_stretch  = person-standing
+w_power    = zap
+
+# The opening screen's one action, on the band: write the schedules on a phone.
+w_edit     = pencil

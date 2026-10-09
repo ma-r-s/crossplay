@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111110">
+<title>Workouts</title>
+<style>
+/* The Notes page's tokens, which are the site's (site/styles.css:35-51). No
+   webfont: the reader serves this with no internet. */
+:root{
+  --ink:#111110; --paper:#f5f2ea; --paper-2:#ebe7db; --edge:#a9a494; --muted:#46443c;
+  --display:"Arial Narrow",Helvetica,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --gutter:clamp(1.25rem,4vw,2rem);
+}
+@media (prefers-color-scheme:dark){
+  :root{--ink:#f2f1ec; --paper:#100f0e; --paper-2:#1a1917; --edge:#5a564c; --muted:#b8b5aa}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.5 var(--body);-webkit-text-size-adjust:100%}
+
+/* The black band and its rule: the one element that is the same object on the
+   panel and on the web, so it stays black in both themes. */
+.band{background:#111110;color:#faf9f6;font-family:var(--display);font-weight:400;
+  font-size:clamp(1.6rem,7vw,2.2rem);letter-spacing:.02em;
+  padding:.45em var(--gutter) .3em;display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
+.band-note{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
+.band-rule{height:3px;background:var(--ink)}
+
+main{max-width:34rem;margin:0 auto;padding:1.6rem var(--gutter) 3rem}
+.eyebrow{font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 1rem;display:flex;align-items:center}
+.eyebrow::before{content:"";width:2rem;height:1px;background:currentColor;margin-right:.7rem}
+
+/* A schedule is a card: a black badge carrying its mark, the name beside it,
+   the same arrangement the reader draws. */
+.sched{border:3px solid var(--ink);margin:0 0 1.4rem;background:var(--paper)}
+.head{display:flex;align-items:stretch;border-bottom:1px solid var(--edge)}
+.badge{flex:0 0 auto;width:4rem;background:var(--ink);color:var(--paper);border:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;padding:0}
+.badge svg{width:2rem;height:2rem}
+.title{flex:1 1 auto;min-width:0;font-family:var(--display);font-size:1.45rem;color:var(--ink);background:transparent;
+  border:0;border-radius:0;padding:.55rem .75rem;outline-offset:-3px}
+.title::placeholder{color:var(--muted)}
+
+.icons{display:none;grid-template-columns:repeat(6,1fr);gap:.35rem;padding:.6rem;background:var(--paper-2);
+  border-bottom:1px solid var(--edge)}
+.icons.open{display:grid}
+.icons button{aspect-ratio:1;border:2px solid var(--ink);background:var(--paper);color:var(--ink);
+  cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:.2rem}
+.icons button svg{width:1.6rem;height:1.6rem}
+.icons button span{font-family:var(--mono);font-size:.55rem;letter-spacing:.06em;text-transform:uppercase;margin-top:.1rem}
+.icons button.on{background:var(--ink);color:var(--paper)}
+
+ul{list-style:none;margin:0;padding:0}
+li{display:flex;flex-wrap:wrap;align-items:center;gap:0 .5rem;border-bottom:1px solid var(--edge);
+  padding:.15rem .5rem .4rem .75rem}
+li input.name{flex:1 0 100%;min-width:0;font:inherit;color:var(--ink);background:transparent;border:0;border-radius:0;
+  padding:.6rem 0;outline-offset:2px}
+li.new input.name{background:var(--paper-2);padding-left:.5rem}
+.sets{flex:0 0 auto;display:flex;align-items:center;font-family:var(--mono);font-size:.85rem}
+.sets button{width:2.1rem;height:2.1rem;border:2px solid var(--ink);background:var(--paper);color:var(--ink);
+  font:700 1.1rem/1 var(--mono);cursor:pointer;padding:0}
+.sets output{min-width:3.6rem;text-align:center;letter-spacing:.06em}
+.drop{flex:0 0 auto;font-family:var(--mono);font-size:.8rem;letter-spacing:.1em;color:var(--muted);
+  background:transparent;border:0;padding:.5rem .3rem;cursor:pointer}
+li.new .sets,li.new .kg,li.new .drop{display:none}
+li.new{padding-bottom:.15rem}
+.kg{flex:0 0 auto;display:flex;align-items:center;gap:.3rem;font-family:var(--mono);font-size:.85rem;margin-left:auto}
+.kg input{width:3.6rem;font:inherit;text-align:right;color:var(--ink);background:var(--paper);
+  border:2px solid var(--ink);border-radius:0;padding:.35rem .4rem}
+
+.tools{display:flex;justify-content:space-between;padding:.4rem .5rem}
+.tools button{font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+  background:transparent;border:0;padding:.5rem .3rem;cursor:pointer}
+
+.btn{display:block;width:100%;margin-top:1rem;font-family:var(--display);font-weight:400;font-size:1.3rem;
+  letter-spacing:.03em;padding:.5em 1.15em .38em;border:3px solid var(--ink);
+  background:var(--ink);color:var(--paper);cursor:pointer}
+.btn.outline{background:transparent;color:var(--ink)}
+.btn[disabled]{opacity:.42;cursor:default}
+.foot{font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);margin:1.4rem 0 0}
+</style>
+</head>
+<body>
+<div class="band"><span>Workouts</span><span class="band-note" id="state">Loading</span></div>
+<div class="band-rule"></div>
+<main>
+<p class="eyebrow">Schedules and their exercises</p>
+<div id="list"></div>
+<button class="btn outline" id="add" type="button">Add a schedule</button>
+<button class="btn" id="save" type="button" disabled>Save to the reader</button>
+<p class="foot">Served by the reader itself. Nothing leaves your network.</p>
+</main>
+<script>
+(function () {
+// The reader's own icon keys, in its order (WorkoutsCore.h kIcons), each with
+// the Lucide drawing the panel's bitmap was made from.
+var ICONS = [
+  ['dumbbell', 'Weights', '<path d="M17.596 12.768a2 2 0 1 0 2.829-2.829l-1.768-1.767a2 2 0 0 0 2.828-2.829l-2.828-2.828a2 2 0 0 0-2.829 2.828l-1.767-1.768a2 2 0 1 0-2.829 2.829z"/><path d="m2.5 21.5 1.4-1.4"/><path d="m20.1 3.9 1.4-1.4"/><path d="M5.343 21.485a2 2 0 1 0 2.829-2.828l1.767 1.768a2 2 0 1 0 2.829-2.829l-6.364-6.364a2 2 0 1 0-2.829 2.829l1.768 1.767a2 2 0 0 0-2.828 2.829z"/><path d="m9.6 14.4 4.8-4.8"/>'],
+  ['arms', 'Arms', '<path d="M12.409 13.017A5 5 0 0 1 22 15c0 3.866-4 7-9 7-4.077 0-8.153-.82-10.371-2.462-.426-.316-.631-.832-.62-1.362C2.118 12.723 2.627 2 10 2a3 3 0 0 1 3 3 2 2 0 0 1-2 2c-1.105 0-1.64-.444-2-1"/><path d="M15 14a5 5 0 0 0-7.584 2"/><path d="M9.964 6.825C8.019 7.977 9.5 13 8 15"/>'],
+  ['legs', 'Legs', '<path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/>'],
+  ['push', 'Push', '<path d="m18 9-6-6-6 6"/><path d="M12 3v14"/><path d="M5 21h14"/>'],
+  ['pull', 'Pull', '<path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/>'],
+  ['core', 'Core', '<path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4"/>'],
+  ['cardio', 'Cardio', '<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/><path d="M3.22 13H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/>'],
+  ['bike', 'Bike', '<circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/>'],
+  ['swim', 'Swim', '<path d="M19 5a2 2 0 0 0-2 2v11"/><path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M7 13h10"/><path d="M7 9h10"/><path d="M9 5a2 2 0 0 0-2 2v11"/>'],
+  ['hike', 'Hike', '<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>'],
+  ['stretch', 'Stretch', '<circle cx="12" cy="5" r="1"/><path d="m9 20 3-6 3 6"/><path d="m6 8 6 2 6-2"/><path d="M12 10v4"/>'],
+  ['power', 'Power', '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>']
+];
+// The reader's limits (WorkoutsCore.h), so the page cannot offer what the
+// reader would quietly clamp.
+var MAX_SETS = 10, MAX_WEIGHT = 999, MAX_SCHEDULES = 16, MAX_EXERCISES = 24, MAX_TITLE = 40, MAX_NAME = 48;
+
+var listEl = document.getElementById('list');
+var addEl = document.getElementById('add');
+var saveEl = document.getElementById('save');
+var stateEl = document.getElementById('state');
+var plan = [];
+var dirty = false;
+
+function say(msg) { stateEl.textContent = msg; }
+function svg(i) {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+    'stroke-linejoin="round" aria-hidden="true">' + ICONS[i][2] + '</svg>';
+}
+function iconIndex(key) {
+  for (var i = 0; i < ICONS.length; i++) if (ICONS[i][0] === key) return i;
+  return 0;
+}
+// The file's punctuation is '|' and the line break, so a name may carry neither.
+function clean(text, max) {
+  return text.replace(/[|\r\n\t]/g, ' ').replace(/^\s+|\s+$/g, '').slice(0, max);
+}
+
+// The reader's file format (WorkoutsCore.h): "= Title | icon", then
+// "Exercise | sets | kg" lines under it, the weight optional.
+function parse(text) {
+  var out = [], cur = null;
+  text.split('\n').forEach(function (raw) {
+    var line = raw.trim();
+    if (!line || line[0] === '#') return;
+    var bar = line.lastIndexOf('|');
+    var left = (bar < 0 ? line : line.slice(0, bar)).trim();
+    var right = bar < 0 ? '' : line.slice(bar + 1).trim();
+    if (line[0] === '=') {
+      left = (bar < 0 ? line.slice(1) : line.slice(1, bar)).trim();
+      cur = { title: left, icon: iconIndex(right), exercises: [] };
+      out.push(cur);
+      return;
+    }
+    if (!cur) return;
+    var f = line.split('|').map(function (x) { return x.trim(); });
+    var n = parseInt(f[1], 10), kg = /^\d+$/.test(f[2] || '') ? parseInt(f[2], 10) : 0;
+    cur.exercises.push({ name: f[0], sets: isNaN(n) ? 3 : Math.max(1, Math.min(MAX_SETS, n)),
+      weight: Math.min(MAX_WEIGHT, kg) });
+  });
+  return out;
+}
+
+function serialise() {
+  var seen = {}, out = '';
+  plan.forEach(function (s) {
+    var title = clean(s.title, MAX_TITLE);
+    if (!title || seen[title.toLowerCase()]) return;
+    seen[title.toLowerCase()] = true;
+    out += '= ' + title + ' | ' + ICONS[s.icon][0] + '\n';
+    s.exercises.forEach(function (e) {
+      var name = clean(e.name, MAX_NAME);
+      if (name) out += name + ' | ' + e.sets + (e.weight > 0 ? ' | ' + e.weight : '') + '\n';
+    });
+  });
+  return out;
+}
+
+function touched() {
+  dirty = true;
+  saveEl.disabled = false;
+  say('Not saved');
+}
+
+function exerciseRow(s, ul, e, isNew) {
+  var li = document.createElement('li');
+  if (isNew) li.className = 'new';
+  var name = document.createElement('input');
+  name.className = 'name';
+  name.value = e.name;
+  name.maxLength = MAX_NAME;
+  name.placeholder = isNew ? 'Add an exercise' : '';
+  name.setAttribute('aria-label', 'Exercise');
+  var sets = document.createElement('div');
+  sets.className = 'sets';
+  var less = document.createElement('button');
+  less.type = 'button'; less.textContent = '−'; less.setAttribute('aria-label', 'One set fewer');
+  var count = document.createElement('output');
+  var more = document.createElement('button');
+  more.type = 'button'; more.textContent = '+'; more.setAttribute('aria-label', 'One set more');
+  function show() { count.textContent = e.sets + (e.sets === 1 ? ' set' : ' sets'); }
+  show();
+  less.onclick = function () { if (e.sets > 1) { e.sets--; show(); touched(); } };
+  more.onclick = function () { if (e.sets < MAX_SETS) { e.sets++; show(); touched(); } };
+  sets.appendChild(less); sets.appendChild(count); sets.appendChild(more);
+  // The starting weight. The reader's + and - move it from there, a kilogram a
+  // tap, and what it was last set to is what this shows next time.
+  var kg = document.createElement('label');
+  kg.className = 'kg';
+  var kgIn = document.createElement('input');
+  kgIn.type = 'number'; kgIn.inputMode = 'numeric'; kgIn.min = '0'; kgIn.max = String(MAX_WEIGHT); kgIn.step = '1';
+  kgIn.placeholder = '0';
+  kgIn.value = e.weight > 0 ? String(e.weight) : '';
+  kgIn.setAttribute('aria-label', 'Weight in kilograms');
+  kgIn.addEventListener('input', function () {
+    var v = parseInt(kgIn.value, 10);
+    e.weight = isNaN(v) || v < 0 ? 0 : Math.min(MAX_WEIGHT, v);
+    touched();
+  });
+  kg.appendChild(kgIn); kg.appendChild(document.createTextNode('kg'));
+  var drop = document.createElement('button');
+  drop.type = 'button'; drop.className = 'drop'; drop.textContent = 'X';
+  drop.setAttribute('aria-label', 'Remove this exercise');
+  drop.onclick = function () {
+    var i = s.exercises.indexOf(e);
+    if (i >= 0) s.exercises.splice(i, 1);
+    ul.removeChild(li);
+    touched();
+  };
+  // Typing in the empty row at the foot makes it real and grows a fresh one,
+  // so a schedule is written without reaching for a button between lines.
+  name.addEventListener('input', function () {
+    e.name = name.value;
+    touched();
+    if (!li.classList.contains('new') || name.value === '') return;
+    if (s.exercises.length >= MAX_EXERCISES) return;
+    li.classList.remove('new');
+    name.placeholder = '';
+    s.exercises.push(e);
+    if (s.exercises.length < MAX_EXERCISES) exerciseRow(s, ul, { name: '', sets: 3, weight: 0 }, true);
+  });
+  name.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    var next = li.nextSibling && li.nextSibling.querySelector('input');
+    if (next) next.focus();
+  });
+  li.appendChild(name); li.appendChild(sets); li.appendChild(kg); li.appendChild(drop);
+  ul.appendChild(li);
+}
+
+function scheduleCard(s) {
+  var card = document.createElement('section');
+  card.className = 'sched';
+  var head = document.createElement('div');
+  head.className = 'head';
+  var badge = document.createElement('button');
+  badge.type = 'button'; badge.className = 'badge'; badge.innerHTML = svg(s.icon);
+  badge.setAttribute('aria-label', 'Choose an icon');
+  var title = document.createElement('input');
+  title.className = 'title'; title.value = s.title; title.maxLength = MAX_TITLE;
+  title.placeholder = 'Upper Body, Push, Legs...';
+  title.setAttribute('aria-label', 'Schedule name');
+  title.addEventListener('input', function () { s.title = title.value; touched(); });
+  head.appendChild(badge); head.appendChild(title);
+
+  var picker = document.createElement('div');
+  picker.className = 'icons';
+  ICONS.forEach(function (icon, i) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.innerHTML = svg(i) + '<span>' + icon[1] + '</span>';
+    if (i === s.icon) b.className = 'on';
+    b.onclick = function () {
+      s.icon = i;
+      badge.innerHTML = svg(i);
+      Array.prototype.forEach.call(picker.children, function (c, j) { c.className = j === i ? 'on' : ''; });
+      picker.classList.remove('open');
+      touched();
+    };
+    picker.appendChild(b);
+  });
+  badge.onclick = function () { picker.classList.toggle('open'); };
+
+  var ul = document.createElement('ul');
+  s.exercises.forEach(function (e) { exerciseRow(s, ul, e, false); });
+  if (s.exercises.length < MAX_EXERCISES) exerciseRow(s, ul, { name: '', sets: 3, weight: 0 }, true);
+
+  var tools = document.createElement('div');
+  tools.className = 'tools';
+  var up = document.createElement('button');
+  up.type = 'button'; up.textContent = 'Move up';
+  up.onclick = function () {
+    var i = plan.indexOf(s);
+    if (i <= 0) return;
+    plan.splice(i, 1); plan.splice(i - 1, 0, s);
+    render(); touched();
+  };
+  var remove = document.createElement('button');
+  remove.type = 'button'; remove.textContent = 'Delete schedule';
+  remove.onclick = function () {
+    if (!confirm('Delete "' + (s.title || 'this schedule') + '"?')) return;
+    plan.splice(plan.indexOf(s), 1);
+    render(); touched();
+  };
+  tools.appendChild(up); tools.appendChild(remove);
+
+  card.appendChild(head); card.appendChild(picker); card.appendChild(ul); card.appendChild(tools);
+  return card;
+}
+
+function render() {
+  listEl.innerHTML = '';
+  plan.forEach(function (s) { listEl.appendChild(scheduleCard(s)); });
+  addEl.disabled = plan.length >= MAX_SCHEDULES;
+}
+
+addEl.onclick = function () {
+  if (plan.length >= MAX_SCHEDULES) return;
+  var s = { title: '', icon: 0, exercises: [] };
+  plan.push(s);
+  render();
+  var inputs = listEl.querySelectorAll('.title');
+  inputs[inputs.length - 1].focus();
+  touched();
+};
+
+saveEl.onclick = function () {
+  saveEl.disabled = true;
+  say('Saving');
+  var x = new XMLHttpRequest();
+  x.open('PUT', '/gym/plan');
+  x.setRequestHeader('Content-Type', 'text/plain; charset=utf-8');
+  // The reader takes its date from this when its own clock was never set.
+  x.setRequestHeader('X-Phone-Time', String(Math.floor(Date.now() / 1000)));
+  x.onload = function () {
+    if (x.status !== 200) { say('Not saved'); saveEl.disabled = false; alert(x.responseText || 'The reader refused it.'); return; }
+    // What the reader kept, which is what it will show: limits applied, empty
+    // rows gone.
+    plan = parse(x.responseText);
+    render();
+    dirty = false;
+    say('Saved');
+  };
+  x.onerror = function () { say('Not saved'); saveEl.disabled = false; alert('The reader did not answer. Is it still on this screen?'); };
+  x.send(serialise());
+};
+
+window.addEventListener('beforeunload', function (e) {
+  if (!dirty) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
+var x = new XMLHttpRequest();
+x.open('GET', '/gym/plan');
+x.onload = function () {
+  if (x.status !== 200) { say('Could not load'); return; }
+  plan = parse(x.responseText);
+  // A first visit gets one empty schedule to type into rather than a button.
+  if (plan.length === 0) { plan.push({ title: '', icon: 0, exercises: [] }); }
+  render();
+  say(plan.length === 1 && !plan[0].title ? 'New' : 'Loaded');
+};
+x.onerror = function () { say('Could not load'); };
+x.send();
+})();
+</script>
+</body>
+</html>
