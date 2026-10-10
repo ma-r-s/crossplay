@@ -25,6 +25,13 @@ notice and permission notice in all copies, and the icons are rasterised into
 bitmaps at build time, so this entry is how that notice reaches a flashed
 device.
 
+**ZXing for JavaScript** (`@zxing/library`) 0.21.3, Apache License 2.0,
+Copyright the ZXing authors. The Cards phone page uses it to read a QR code or
+barcode out of a picture on the phone. Its minified build, unmodified, is
+`src/apps_local/wallet/WalletZxing.js`, served from the firmware; full text at
+`src/apps_local/wallet/zxing-LICENSE`. The Code 128, Code 39 and UPC/EAN
+pattern tables in `src/apps_local/wallet/WalletBars.cpp` are ZXing's.
+
 **Noto Sans Symbols 2**, SIL Open Font License 1.1. The Solitaire suit glyphs
 are drawn from it. Full text at `src/apps_local/solitaire/art/OFL.txt`, with the
 derivation documented in `src/apps_local/solitaire/art/README.md`.

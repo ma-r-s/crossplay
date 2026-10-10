@@ -47,6 +47,7 @@ static_assert(wallpapers::kSleepQuickResume == CrossPointSettings::SLEEP_SCREEN_
 static_assert(wallpapers::kSleepTransparentCustom == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM,
               "sleep mode mirror drifted");
 static_assert(wallpapers::kSleepNote == CrossPointSettings::SLEEP_SCREEN_MODE::NOTE, "sleep mode mirror drifted");
+static_assert(wallpapers::kSleepCard == CrossPointSettings::SLEEP_SCREEN_MODE::CARD, "sleep mode mirror drifted");
 static_assert(wallpapers::kSleepModeCount == CrossPointSettings::SLEEP_SCREEN_MODE::SLEEP_SCREEN_MODE_COUNT,
               "a sleep screen mode was added upstream; WallpapersCore's mirror and its rules must be updated");
 

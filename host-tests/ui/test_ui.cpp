@@ -52,6 +52,7 @@
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/ToyboxWrappedText.h"
+#include "../../src/apps_local/wallet/WalletScreens.h"
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
 #include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
@@ -14784,7 +14785,253 @@ void theMenuOffersTodayOnlyWhenThereIsOne() {
 
 }  // namespace wordletest
 
+// --- Cards: the code has its square to itself, and every card can be left --
+
+namespace wallettest {
+
+template <typename Build>
+void build(Rendered& out, Build&& fn) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  fn(screen);
+}
+
+int countAction(const Rendered& out, const fui::ActionId action) {
+  int n = 0;
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    if (out.interactions.data()[i].action == action) n++;
+  }
+  return n;
+}
+
+const fui::Rect* hitFor(const Rendered& out, const fui::ActionId action) {
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    if (out.interactions.data()[i].action == action) return &out.interactions.data()[i].rect;
+  }
+  return nullptr;
+}
+
+bool drew(const Rendered& out, const char* text) {
+  for (const auto& run : out.target.texts) {
+    if (run.text == text) return true;
+  }
+  return false;
+}
+
+bool overlaps(const fui::Rect& a, const fui::Rect& b) {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+void theListOpensEveryVisibleCardAndThePencilIsOnTheBand() {
+  const walletui::ListRow rows[] = {{"Lidl Plus", "Member 4821"},
+                                    {"Boarding pass", "LH 1234, seat 14C"},
+                                    {"My contact", ""},
+                                    {"Gym", ""},
+                                    {"Library", "Card 22"},
+                                    {"Wi-Fi", "Guests"},
+                                    {"Bakery", ""},
+                                    {"Museum", ""}};
+  const int capacity = walletui::listCapacity(device());
+  CHECK(capacity >= 5);
+  CHECK(capacity < 8);
+  Rendered out;
+  walletui::ListModel model;
+  model.rows = rows;
+  model.count = 8;
+  model.pageLabel = "1/2";
+  build(out, [&](toybox::Screen& screen) { walletui::buildList(screen, model); });
+  CHECK(countAction(out, walletui::ActionOpenCard) == capacity);
+  CHECK(countAction(out, walletui::ActionUsePhone) == 1);
+  const fui::Rect* pencil = hitFor(out, walletui::ActionUsePhone);
+  CHECK(pencil != nullptr && pencil->y + pencil->height <= 119 && pencil->x > 240);
+  CHECK(drew(out, "Lidl Plus"));
+  CHECK(drew(out, "Member 4821"));
+  CHECK(drew(out, "1/2"));
+  // Every row inside the panel.
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    const auto& hit = out.interactions.data()[i];
+    CHECK(hit.rect.y + hit.rect.height <= 800);
+  }
+}
+
+void anEmptyListSaysWhereCardsComeFrom() {
+  Rendered out;
+  walletui::ListModel model;
+  build(out, [&](toybox::Screen& screen) { walletui::buildList(screen, model); });
+  CHECK(countAction(out, walletui::ActionOpenCard) == 0);
+  CHECK(countAction(out, walletui::ActionUsePhone) == 1);
+  bool said = false;
+  for (const auto& run : out.target.texts) said = said || run.text.find("pencil") != std::string::npos;
+  CHECK(said);
+}
+
+walletui::CardModel cardAt(const bool prev, const bool next, const char* caption) {
+  walletui::CardModel model;
+  model.title = "Boarding pass";
+  model.caption = caption;
+  model.position = "2/3";
+  model.hasPrev = prev;
+  model.hasNext = next;
+  return model;
+}
+
+void theCodeHasItsSquareToItself() {
+  const char* captions[] = {"", "LH 1234 Munich to Lisbon, boarding 06:40, seat 14C, group 2"};
+  for (const char* caption : captions) {
+    Rendered out;
+    fui::Rect square{};
+    const walletui::CardModel model = cardAt(true, true, caption);
+    build(out, [&](toybox::Screen& screen) { square = walletui::buildCard(screen, model); });
+    // Big enough that a version 29 code still gets three pixels a module.
+    CHECK(square.width == square.height);
+    CHECK(square.width >= 133 * 3);
+    CHECK(square.y >= 99);
+    CHECK(square.x >= 16 && square.x + square.width <= 480 - 16);
+    // Nothing drawn or tappable inside it: the code's quiet zone stays white.
+    for (const auto& run : out.target.texts) CHECK(!overlaps(run.rect, square));
+    for (size_t i = 0; i < out.interactions.count(); ++i) {
+      CHECK(!overlaps(out.interactions.data()[i].rect, square));
+    }
+    CHECK(drew(out, "2/3"));
+    CHECK(countAction(out, walletui::ActionDelete) == 1);
+  }
+}
+
+void prevAndNextAreOnlyThereWhenThereIsACardThatWay() {
+  {
+    Rendered out;
+    const walletui::CardModel model = cardAt(false, true, "");
+    build(out, [&](toybox::Screen& screen) { walletui::buildCard(screen, model); });
+    CHECK(countAction(out, walletui::ActionPrev) == 0);
+    CHECK(countAction(out, walletui::ActionNext) == 1);
+  }
+  {
+    Rendered out;
+    const walletui::CardModel model = cardAt(true, false, "");
+    build(out, [&](toybox::Screen& screen) { walletui::buildCard(screen, model); });
+    CHECK(countAction(out, walletui::ActionPrev) == 1);
+    CHECK(countAction(out, walletui::ActionNext) == 0);
+  }
+}
+
+bool covers(const fui::Rect& outer, const fui::Rect& inner) {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width &&
+         inner.y + inner.height <= outer.y + outer.height;
+}
+
+void keepItSitsWhereNextWas() {
+  Rendered card;
+  const walletui::CardModel model = cardAt(true, true, "");
+  build(card, [&](toybox::Screen& screen) { walletui::buildCard(screen, model); });
+  Rendered confirm;
+  build(confirm, [&](toybox::Screen& screen) {
+    walletui::buildDeleteConfirm(screen, "Boarding pass", "Delete this card from the reader?");
+  });
+  const fui::Rect* next = hitFor(card, walletui::ActionNext);
+  const fui::Rect* moon = hitFor(card, walletui::ActionSleep);
+  const fui::Rect* keep = hitFor(confirm, walletui::ActionDeleteKeep);
+  const fui::Rect* bin = hitFor(card, walletui::ActionDelete);
+  const fui::Rect* yes = hitFor(confirm, walletui::ActionDeleteConfirm);
+  CHECK(next != nullptr && moon != nullptr && keep != nullptr && bin != nullptr && yes != nullptr);
+  if (next && moon && keep) CHECK(covers(*keep, *next) && covers(*keep, *moon));
+  if (moon && yes) CHECK(!overlaps(*moon, *yes));
+  // A second jab at the bin during the repaint lands on nothing that deletes.
+  if (bin && yes) CHECK(!overlaps(*bin, *yes));
+}
+
+void theMoonIsAlwaysThereAndNeverTouchesItsNeighbours() {
+  const bool ends[][2] = {{false, false}, {true, true}, {false, true}};
+  for (const auto& e : ends) {
+    Rendered out;
+    walletui::CardModel model = cardAt(e[0], e[1], "");
+    build(out, [&](toybox::Screen& screen) { walletui::buildCard(screen, model); });
+    CHECK(countAction(out, walletui::ActionSleep) == 1);
+    const fui::Rect* moon = hitFor(out, walletui::ActionSleep);
+    const fui::Rect* prev = hitFor(out, walletui::ActionPrev);
+    const fui::Rect* next = hitFor(out, walletui::ActionNext);
+    if (moon && prev) CHECK(!overlaps(*moon, *prev));
+    if (moon && next) CHECK(!overlaps(*moon, *next));
+  }
+}
+
+void asleepTheCardHasNoButtonsAndTheCodeIsCentred() {
+  Rendered out;
+  walletui::CardModel model = cardAt(true, true, "LH 1234 Munich to Lisbon, seat 14C");
+  model.asleep = true;
+  model.shownAsleep = true;
+  fui::Rect square{};
+  build(out, [&](toybox::Screen& screen) { square = walletui::buildCard(screen, model); });
+  CHECK(out.interactions.count() == 0);
+  CHECK(!drew(out, "2/3"));
+  CHECK(drew(out, "Boarding pass"));
+  CHECK(square.width >= 400 && square.width == square.height);
+  // Centred in the page under the band: more room below the code than the
+  // awake card leaves, where the footer was.
+  Rendered awake;
+  fui::Rect awakeSquare{};
+  const walletui::CardModel open = cardAt(true, true, "LH 1234 Munich to Lisbon, seat 14C");
+  build(awake, [&](toybox::Screen& screen) { awakeSquare = walletui::buildCard(screen, open); });
+  CHECK(square.y > awakeSquare.y);
+  CHECK(square.y + square.height < device().height);
+}
+
+void aBarcodeRunsAcrossThePageAtWholePixelsAndCarriesItsNumber() {
+  // EAN-13: 95 modules and two quiet zones of ten.
+  Rendered out;
+  walletui::CardModel model = cardAt(true, true, "Member since 2021");
+  model.barModules = 115;
+  model.barText = "4006381333931";
+  fui::Rect bars{};
+  build(out, [&](toybox::Screen& screen) { bars = walletui::buildCard(screen, model); });
+  CHECK(!walletui::barsRotated(bars));
+  CHECK(bars.width % 115 == 0 && bars.width / 115 >= 3);
+  CHECK(drew(out, "4006381333931") && drew(out, "Member since 2021"));
+  const fui::Rect* prev = hitFor(out, walletui::ActionPrev);
+  if (prev) CHECK(bars.y + bars.height < prev->y);
+}
+
+void aLongBarcodeTurnsDownThePageRatherThanThinning() {
+  Rendered out;
+  walletui::CardModel model = cardAt(true, true, "");
+  model.barModules = 250;  // one pixel a module across 448
+  model.barText = "MEMBER-00042-XY-LIB-2026";
+  fui::Rect bars{};
+  build(out, [&](toybox::Screen& screen) { bars = walletui::buildCard(screen, model); });
+  CHECK(walletui::barsRotated(bars));
+  CHECK(bars.height % 250 == 0 && bars.height / 250 >= 2);
+  const fui::Rect* prev = hitFor(out, walletui::ActionPrev);
+  if (prev) CHECK(bars.y + bars.height < prev->y);
+}
+
+void thePhoneScreenLeavesOneWayOut() {
+  Rendered out;
+  walletui::PhoneModel model;
+  model.url = "http://192.168.1.20/cards";
+  model.readable = "http://crossplay.local/cards";
+  model.added = 2;
+  fui::Rect qr{};
+  build(out, [&](toybox::Screen& screen) { qr = walletui::buildPhone(screen, model); });
+  CHECK(qr.width >= 120 && qr.width == qr.height);
+  CHECK(countAction(out, walletui::ActionDismiss) == 1);
+  CHECK(drew(out, "2 CARDS ADDED"));
+  CHECK(drew(out, "http://crossplay.local/cards"));
+}
+
+}  // namespace wallettest
+
 int main() {
+  wallettest::theListOpensEveryVisibleCardAndThePencilIsOnTheBand();
+  wallettest::anEmptyListSaysWhereCardsComeFrom();
+  wallettest::theCodeHasItsSquareToItself();
+  wallettest::prevAndNextAreOnlyThereWhenThereIsACardThatWay();
+  wallettest::keepItSitsWhereNextWas();
+  wallettest::theMoonIsAlwaysThereAndNeverTouchesItsNeighbours();
+  wallettest::asleepTheCardHasNoButtonsAndTheCodeIsCentred();
+  wallettest::thePhoneScreenLeavesOneWayOut();
+  wallettest::aBarcodeRunsAcrossThePageAtWholePixelsAndCarriesItsNumber();
+  wallettest::aLongBarcodeTurnsDownThePageRatherThanThinning();
   notestest::aNoteAsleepIsReadOnlyAndTaller();
   wordletest::everyKeyIsWhereItIsDrawn();
   wordletest::aFinishedGameShowsTheAnswerAndLetsGo();

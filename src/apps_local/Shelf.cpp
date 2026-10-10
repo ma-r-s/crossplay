@@ -41,6 +41,8 @@
 #include "trivia/TriviaActivity.h"
 #include "ui/ToyboxIcons.h"
 #include "underhand/UnderhandActivity.h"
+#include "wallet/WalletActivity.h"
+#include "wallet/WalletIcons.h"
 #include "wallpapers/WallpapersActivity.h"
 #include "wavelength/WavelengthActivity.h"
 #include "wikipedia/WikipediaActivity.h"
@@ -85,6 +87,7 @@ constexpr shelf::Item kApps[] = {
     {"HACKER NEWS", &icon_hackernews_32, &HackerNewsActivity::create},
     {"XKCD", &icon_xkcd_32, &XkcdActivity::create},
     {"INSTAPAPER", &icon_instapaper_32, &InstapaperActivity::create},
+    {"CARDS", &icon_wallet_mark_32, &WalletActivity::create},
     {"WALLPAPERS", &icon_wallpapers_32, &WallpapersActivity::create},
     {"WIKIPEDIA", &icon_wikipedia_32, &WikipediaActivity::create},
     {"CALCULATOR", &icon_calculator_32, &CalculatorActivity::create},

@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111110">
+<title>Cards</title>
+<style>
+/* The Notes and Workouts pages' tokens, which are the site's
+   (site/styles.css:35-51). No webfont: the reader serves this with no internet. */
+:root{
+  --ink:#111110; --paper:#f5f2ea; --paper-2:#ebe7db; --edge:#a9a494; --muted:#46443c;
+  --display:"Arial Narrow",Helvetica,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --gutter:clamp(1.25rem,4vw,2rem);
+}
+@media (prefers-color-scheme:dark){
+  :root{--ink:#f2f1ec; --paper:#100f0e; --paper-2:#1a1917; --edge:#5a564c; --muted:#b8b5aa}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.5 var(--body);-webkit-text-size-adjust:100%}
+
+/* The black band and its rule: the same object on the panel and on the web, so
+   it stays black in both themes. */
+.band{background:#111110;color:#faf9f6;font-family:var(--display);font-weight:400;
+  font-size:clamp(1.6rem,7vw,2.2rem);letter-spacing:.02em;
+  padding:.45em var(--gutter) .3em;display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
+.band-note{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
+.band-rule{height:3px;background:var(--ink)}
+
+main{max-width:34rem;margin:0 auto;padding:1.6rem var(--gutter) 3rem}
+.eyebrow{font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);margin:2rem 0 1rem;display:flex;align-items:center}
+.eyebrow:first-child{margin-top:0}
+.eyebrow::before{content:"";width:2rem;height:1px;background:currentColor;margin-right:.7rem}
+
+/* The new card, framed like a card on the reader: the title on top, the code
+   in the middle, the caption under it. */
+.card{border:3px solid var(--ink);background:var(--paper)}
+.card input[type=text],.card textarea{display:block;width:100%;font:inherit;color:var(--ink);background:transparent;
+  border:0;border-radius:0;padding:.7rem .85rem;outline-offset:-3px}
+.card input::placeholder,.card textarea::placeholder{color:var(--muted)}
+.card .title{font-family:var(--display);font-size:1.45rem;border-bottom:1px solid var(--edge)}
+.card .caption{border-top:1px solid var(--edge)}
+.code{padding:1rem .85rem;display:flex;flex-direction:column;align-items:center;gap:.7rem}
+.pick{display:block;width:100%;text-align:center;font-family:var(--display);font-size:1.15rem;letter-spacing:.03em;
+  padding:.6em 1em .5em;border:2px dashed var(--ink);cursor:pointer}
+.pick input{position:absolute;width:1px;height:1px;opacity:0}
+#preview{max-width:100%;max-height:14rem;display:none;border:1px solid var(--edge)}
+.found{width:100%;font-family:var(--mono);font-size:.8rem;line-height:1.4;word-break:break-all;white-space:pre-wrap;
+  background:var(--paper-2);padding:.6rem .7rem;display:none;max-height:9rem;overflow:auto}
+.status{font-family:var(--mono);font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  text-align:center;margin:0}
+.status.bad{color:var(--ink);font-weight:700}
+.typed{width:100%;display:none}
+.typed textarea{border:2px solid var(--ink);min-height:6rem;resize:vertical;font-family:var(--mono);font-size:.9rem}
+.typed select{display:block;width:100%;margin-top:.5rem;font:inherit;color:var(--ink);background:var(--paper);
+  border:2px solid var(--ink);border-radius:0;padding:.45rem .6rem}
+.link{font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+  background:transparent;border:0;padding:.3rem;cursor:pointer;text-decoration:underline}
+
+.btn{display:block;width:100%;margin-top:1rem;font-family:var(--display);font-weight:400;font-size:1.3rem;
+  letter-spacing:.03em;padding:.5em 1.15em .38em;border:3px solid var(--ink);
+  background:var(--ink);color:var(--paper);cursor:pointer}
+.btn[disabled]{opacity:.42;cursor:default}
+
+ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--edge)}
+li{display:flex;align-items:center;gap:.75rem;border-bottom:1px solid var(--edge);padding:.55rem 0 .55rem .1rem}
+li .badge{flex:0 0 auto;width:2.6rem;height:2.6rem;background:var(--ink);color:var(--paper);
+  display:flex;align-items:center;justify-content:center}
+li .badge svg{width:1.4rem;height:1.4rem}
+li .text{flex:1 1 auto;min-width:0}
+li .name{font-family:var(--display);font-size:1.2rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+li .sub{font-size:.85rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+li .drop{flex:0 0 auto;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);background:transparent;border:0;padding:.6rem .3rem;cursor:pointer}
+.empty{color:var(--muted);margin:.8rem 0}
+.foot{font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);margin:1.4rem 0 0}
+</style>
+</head>
+<body>
+<div class="band"><span>Cards</span><span class="band-note" id="state">Loading</span></div>
+<div class="band-rule"></div>
+<main>
+<p class="eyebrow">Add a card</p>
+<section class="card">
+  <input class="title" id="title" type="text" maxlength="40" placeholder="Title: Lidl Plus, Boarding pass..." aria-label="Title">
+  <div class="code">
+    <label class="pick" id="pick">Choose a screenshot or photo of the code or barcode<input id="file" type="file" accept="image/*"></label>
+    <img id="preview" alt="">
+    <p class="status" id="status">The code is read here, on your phone</p>
+    <div class="found" id="found"></div>
+    <div class="typed" id="typed"><textarea id="text" maxlength="1200" placeholder="The text the code holds: a link, a member number..." aria-label="The code's text"></textarea>
+      <select id="kind" aria-label="Kind of code">
+        <option value="qr">QR code</option>
+        <option value="code128">Barcode: Code 128 (most loyalty cards)</option>
+        <option value="ean13">Barcode: EAN-13 (13 digits)</option>
+        <option value="ean8">Barcode: EAN-8 (8 digits)</option>
+        <option value="upca">Barcode: UPC-A (12 digits)</option>
+        <option value="upce">Barcode: UPC-E (8 digits)</option>
+        <option value="code39">Barcode: Code 39</option>
+        <option value="itf">Barcode: ITF (an even number of digits)</option>
+        <option value="codabar">Barcode: Codabar</option>
+      </select></div>
+    <button class="link" id="toggle" type="button">Type the code's text instead</button>
+  </div>
+  <input class="caption" id="caption" type="text" maxlength="120" placeholder="Caption, optional: member number, seat 14C..." aria-label="Caption">
+</section>
+<button class="btn" id="save" type="button" disabled>Save to the reader</button>
+
+<p class="eyebrow">On the reader</p>
+<ul id="list"></ul>
+<p class="empty" id="empty" hidden>No cards yet.</p>
+<p class="foot">Served by the reader itself. The picture never leaves your phone; only the code's text is sent.</p>
+</main>
+<script src="/cards/zxing.js"></script>
+<script>
+(function () {
+// The reader's limits (WalletCore.h).
+var MAX_PAYLOAD = 1200, MAX_TITLE = 40;
+var QR_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+  'stroke-linejoin="round" aria-hidden="true"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" ' +
+  'x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/>' +
+  '<path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/>' +
+  '<path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>';
+var BAR_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+  'stroke-linejoin="round" aria-hidden="true"><path d="M3 5v14"/><path d="M8 5v14"/><path d="M12 5v14"/>' +
+  '<path d="M17 5v14"/><path d="M21 5v14"/></svg>';
+
+// What the reader can draw (WalletBars.h), by the names the two decoders use.
+var KINDS = {
+  qr_code: 'qr', code_128: 'code128', code_39: 'code39', ean_13: 'ean13', ean_8: 'ean8',
+  upc_a: 'upca', upc_e: 'upce', itf: 'itf', codabar: 'codabar'
+};
+var LABELS = {
+  qr: 'QR code', code128: 'Code 128 barcode', code39: 'Code 39 barcode', ean13: 'EAN-13 barcode',
+  ean8: 'EAN-8 barcode', upca: 'UPC-A barcode', upce: 'UPC-E barcode', itf: 'ITF barcode', codabar: 'Codabar barcode'
+};
+// What they can read and the reader cannot draw yet, so the phone says what it
+// found rather than "nothing".
+var UNDRAWABLE = {
+  aztec: 'an Aztec code', pdf417: 'a PDF417 code', data_matrix: 'a Data Matrix code', code_93: 'a Code 93 barcode',
+  rss_14: 'a GS1 DataBar', rss_expanded: 'a GS1 DataBar', maxicode: 'a MaxiCode'
+};
+
+var $ = function (id) { return document.getElementById(id); };
+var titleEl = $('title'), captionEl = $('caption'), fileEl = $('file'), previewEl = $('preview');
+var statusEl = $('status'), foundEl = $('found'), typedEl = $('typed'), textEl = $('text');
+var toggleEl = $('toggle'), saveEl = $('save'), listEl = $('list'), emptyEl = $('empty'), stateEl = $('state');
+var kindEl = $('kind');
+
+var decoded = null;  // { bytes, text, kind } of the picture's code, once one is found
+var typing = false;
+
+function say(msg) { stateEl.textContent = msg; }
+function status(msg, bad) { statusEl.textContent = msg; statusEl.className = bad ? 'status bad' : 'status'; }
+
+function utf8(text) {
+  if (window.TextEncoder) return Array.prototype.slice.call(new TextEncoder().encode(text));
+  var s = unescape(encodeURIComponent(text)), out = [];
+  for (var i = 0; i < s.length; i++) out.push(s.charCodeAt(i));
+  return out;
+}
+function hex(bytes) {
+  var out = '';
+  for (var i = 0; i < bytes.length; i++) out += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
+  return out;
+}
+// Line ends at the very end are dropped by the reader (WalletCore.cpp), so they
+// are dropped here and the phone saves exactly what the reader will draw.
+function trimEnd(bytes) {
+  var n = bytes.length;
+  while (n > 0 && (bytes[n - 1] === 10 || bytes[n - 1] === 13)) n--;
+  return bytes.slice(0, n);
+}
+
+function payload() { return trimEnd(typing ? utf8(textEl.value) : (decoded ? decoded.bytes : [])); }
+function kind() { return typing ? kindEl.value : (decoded ? decoded.kind : 'qr'); }
+
+function refresh() {
+  var bytes = payload();
+  saveEl.disabled = !titleEl.value.trim() || bytes.length === 0 || bytes.length > MAX_PAYLOAD;
+}
+
+// --- Reading the code out of a picture ---------------------------------
+
+function loadImage(file) {
+  return new Promise(function (resolve, reject) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () { resolve({ img: img, url: url }); };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('unreadable')); };
+    img.src = url;
+  });
+}
+
+// The phone's own detector where it has one (Chrome on Android): fast, and
+// good with photos.
+function viaDetector(img) {
+  if (!('BarcodeDetector' in window)) return Promise.resolve(null);
+  return BarcodeDetector.getSupportedFormats().then(function (formats) {
+    if (!formats.length) return null;
+    return new BarcodeDetector({ formats: formats }).detect(img).then(function (codes) {
+      if (!codes.length || !codes[0].rawValue) return null;
+      var c = codes[0];
+      return { bytes: utf8(c.rawValue), text: c.rawValue, kind: KINDS[c.format] || null, format: c.format };
+    });
+  }).catch(function () { return null; });
+}
+
+// ZXing everywhere else, at a few sizes and both ways up: a screenshot reads
+// best near its own size, a 12-megapixel photo faster and often better scaled
+// down, and a barcode photographed sideways only along its bars.
+var ZX_FORMATS = {
+  QR_CODE: 'qr_code', CODE_128: 'code_128', CODE_39: 'code_39', EAN_13: 'ean_13', EAN_8: 'ean_8', UPC_A: 'upc_a',
+  UPC_E: 'upc_e', ITF: 'itf', CODABAR: 'codabar', AZTEC: 'aztec', PDF_417: 'pdf417', DATA_MATRIX: 'data_matrix',
+  CODE_93: 'code_93', RSS_14: 'rss_14', RSS_EXPANDED: 'rss_expanded', MAXICODE: 'maxicode'
+};
+function viaZXing(img) {
+  if (!window.ZXing) return null;
+  var Z = window.ZXing;
+  var reader = new Z.MultiFormatReader();
+  var hints = new Map();
+  hints.set(Z.DecodeHintType.TRY_HARDER, true);
+  reader.setHints(hints);
+  var canvas = document.createElement('canvas');
+  var ctx = canvas.getContext('2d', { willReadFrequently: true });
+  var long = Math.max(img.naturalWidth, img.naturalHeight), sides = [];
+  [1600, 1000, 2400, 700].forEach(function (side) {
+    side = Math.min(side, long);
+    if (sides.indexOf(side) < 0) sides.push(side);
+  });
+  for (var i = 0; i < sides.length; i++) {
+    for (var turn = 0; turn < 2; turn++) {
+      var scale = sides[i] / long;
+      var w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
+      canvas.width = turn ? h : w; canvas.height = turn ? w : h;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (turn) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); }
+      ctx.drawImage(img, 0, 0, w, h);
+      try {
+        var bitmap = new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
+        var result = reader.decodeWithState(bitmap);
+        var format = ZX_FORMATS[Z.BarcodeFormat[result.getBarcodeFormat()]] || 'unknown';
+        var text = result.getText();
+        // A QR code in byte mode can carry bytes that are not text; ZXing
+        // keeps them as the byte segments.
+        var bytes = null, meta = result.getResultMetadata();
+        var segments = meta && meta.get(Z.ResultMetadataType.BYTE_SEGMENTS);
+        if (format === 'qr_code' && segments && segments.length === 1) bytes = Array.prototype.slice.call(segments[0]);
+        return { bytes: bytes || utf8(text), text: text, kind: KINDS[format] || null, format: format };
+      } catch (e) {
+        reader.reset();
+      }
+    }
+  }
+  return null;
+}
+
+fileEl.addEventListener('change', function () {
+  var file = fileEl.files && fileEl.files[0];
+  if (!file) return;
+  decoded = null;
+  foundEl.style.display = 'none';
+  status('Looking for a code');
+  refresh();
+  loadImage(file).then(function (loaded) {
+    previewEl.src = loaded.url;
+    previewEl.style.display = 'block';
+    return viaDetector(loaded.img).then(function (hit) {
+      return hit || new Promise(function (resolve) {
+        // Let the status paint before ZXing holds the page for a moment.
+        setTimeout(function () { resolve(viaZXing(loaded.img)); }, 30);
+      });
+    });
+  }).then(function (hit) {
+    if (!hit) {
+      status('No code found. Try a closer picture, or type its text instead.', true);
+      return;
+    }
+    if (!hit.kind) {
+      var what = UNDRAWABLE[hit.format] || 'a kind of code';
+      status('Found ' + what + ', which the reader cannot draw yet. It says: ' + hit.text, true);
+      return;
+    }
+    if (hit.bytes.length > MAX_PAYLOAD) {
+      status('That code holds too much for the reader to draw.', true);
+      return;
+    }
+    decoded = hit;
+    kindEl.value = hit.kind;
+    typing = false;
+    typedEl.style.display = 'none';
+    toggleEl.textContent = "Type the code's text instead";
+    foundEl.textContent = hit.text;
+    foundEl.style.display = 'block';
+    status('Found a ' + LABELS[hit.kind] + '. This is what it says:');
+    refresh();
+  }).catch(function () {
+    status('That picture could not be opened.', true);
+  });
+});
+
+toggleEl.onclick = function () {
+  typing = !typing;
+  typedEl.style.display = typing ? 'block' : 'none';
+  toggleEl.textContent = typing ? 'Use a picture instead' : "Type the code's text instead";
+  if (typing) {
+    if (!textEl.value && decoded) textEl.value = decoded.text;
+    textEl.focus();
+  }
+  refresh();
+};
+titleEl.addEventListener('input', refresh);
+kindEl.addEventListener('change', refresh);
+textEl.addEventListener('input', refresh);
+
+// --- Saving and the list -------------------------------------------------
+
+function clean(text, max) { return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max); }
+
+saveEl.onclick = function () {
+  var bytes = payload();
+  if (!bytes.length) return;
+  saveEl.disabled = true;
+  say('Saving');
+  var x = new XMLHttpRequest();
+  x.open('PUT', '/cards/card');
+  x.setRequestHeader('Content-Type', 'text/plain; charset=utf-8');
+  x.onload = function () {
+    if (x.status !== 200) { say('Not saved'); refresh(); alert(x.responseText || 'The reader refused it.'); return; }
+    say('Saved');
+    titleEl.value = ''; captionEl.value = ''; textEl.value = '';
+    decoded = null; typing = false; fileEl.value = ''; kindEl.value = 'qr';
+    previewEl.style.display = 'none'; foundEl.style.display = 'none'; typedEl.style.display = 'none';
+    toggleEl.textContent = "Type the code's text instead";
+    status('Saved. Add another, or tap DONE on the reader.');
+    refresh();
+    load();
+  };
+  x.onerror = function () { say('Not saved'); refresh(); alert('The reader did not answer. Is it still on this screen?'); };
+  x.send(clean(titleEl.value, MAX_TITLE) + '\n' + clean(captionEl.value, 120) + '\n' + hex(bytes) + '\n' + kind());
+};
+
+function row(file, title, caption, kind) {
+  var li = document.createElement('li');
+  var badge = document.createElement('span');
+  badge.className = 'badge'; badge.innerHTML = kind && kind !== 'qr' ? BAR_ICON : QR_ICON;
+  var text = document.createElement('div');
+  text.className = 'text';
+  var name = document.createElement('div');
+  name.className = 'name'; name.textContent = title || 'Untitled';
+  text.appendChild(name);
+  if (caption) {
+    var sub = document.createElement('div');
+    sub.className = 'sub'; sub.textContent = caption;
+    text.appendChild(sub);
+  }
+  var drop = document.createElement('button');
+  drop.type = 'button'; drop.className = 'drop'; drop.textContent = 'Delete';
+  drop.onclick = function () {
+    if (!confirm('Delete "' + (title || 'this card') + '" from the reader?')) return;
+    var x = new XMLHttpRequest();
+    x.open('DELETE', '/cards/card?file=' + encodeURIComponent(file));
+    x.onload = function () {
+      if (x.status !== 204 && x.status !== 200) { alert(x.responseText || 'The reader refused it.'); return; }
+      load();
+    };
+    x.onerror = function () { alert('The reader did not answer. Is it still on this screen?'); };
+    x.send();
+  };
+  li.appendChild(badge); li.appendChild(text); li.appendChild(drop);
+  return li;
+}
+
+function load() {
+  var x = new XMLHttpRequest();
+  x.open('GET', '/cards/card');
+  x.onload = function () {
+    if (x.status !== 200) { say('Could not load'); return; }
+    listEl.innerHTML = '';
+    var lines = x.responseText.split('\n').filter(function (l) { return l; });
+    lines.forEach(function (line) {
+      var f = line.split('\t');
+      listEl.appendChild(row(f[0], f[1] || '', f[2] || '', f[3] || 'qr'));
+    });
+    emptyEl.hidden = lines.length > 0;
+    if (stateEl.textContent === 'Loading') say(lines.length === 1 ? '1 card' : lines.length + ' cards');
+  };
+  x.onerror = function () { say('Could not load'); };
+  x.send();
+}
+
+if (!window.ZXing && !('BarcodeDetector' in window)) status('This browser cannot read codes from pictures. Type the text instead.', true);
+load();
+})();
+</script>
+</body>
+</html>

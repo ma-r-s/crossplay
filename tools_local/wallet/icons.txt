@@ -1,0 +1,12 @@
+# Icons for the Cards app, generated into src/apps_local/wallet/WalletIcons.h by
+# tools_local/wallet/gen_icons.sh. Format: alias = lucide-name.
+#
+# Kept apart from tools_local/toybox/icons.txt so regenerating these never has
+# to round-trip the shelf's own header (see the warning at the top of that file).
+
+wallet_mark  = wallet-cards  # the app on the shelf: a stack of cards, not a code
+wallet_qr    = qr-code       # the badge beside each card in the list
+wallet_bars  = barcode       # the same badge for a barcode card
+wallet_edit  = square-pen    # the band's way to the phone page, as in Workouts
+wallet_trash = trash-2       # the band's delete on an open card
+wallet_sleep = moon          # put the open card on the sleep screen
