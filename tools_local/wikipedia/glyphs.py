@@ -25,8 +25,17 @@ _ENTRY_RE = re.compile(
 _cache = {}
 
 
-def load_intervals(path=DEFAULT_FONT_HEADER):
+def font_header():
+    """The header "drawable" is read from: the device's serif, unless
+    CROSSPLAY_WIKI_FONT_HEADER names a pinned copy. The tests pin the table
+    their expected outputs were written against, so a font that gains a glyph
+    upstream moves the builder's output and not their verdict."""
+    return os.environ.get("CROSSPLAY_WIKI_FONT_HEADER") or DEFAULT_FONT_HEADER
+
+
+def load_intervals(path=None):
     """[(first, last), ...] as written in the header, in file order."""
+    path = path or font_header()
     if path in _cache:
         return _cache[path]
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -41,7 +50,7 @@ def load_intervals(path=DEFAULT_FONT_HEADER):
     return intervals
 
 
-def drawable_class(path=DEFAULT_FONT_HEADER):
+def drawable_class(path=None):
     """A regex character class body matching every drawable code point,
     with the whitespace the text pipeline keeps (space) always included."""
     parts = []
@@ -59,7 +68,7 @@ def drawable_class(path=DEFAULT_FONT_HEADER):
     return "".join(parts)
 
 
-def is_drawable(cp, path=DEFAULT_FONT_HEADER):
+def is_drawable(cp, path=None):
     for lo, hi in load_intervals(path):
         if lo <= cp <= hi:
             return True

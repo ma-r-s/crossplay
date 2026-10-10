@@ -153,6 +153,10 @@ bool HalGPIO::isPressed(uint8_t buttonIndex) const {
   return inputMgr.isPressed(buttonIndex);
 }
 
+void HalGPIO::prepareForDeepSleep() {
+  if (!inputMgr.prepareForDeepSleep()) LOG_ERR("GPIO", "Failed to put touch controller to sleep");
+}
+
 bool HalGPIO::wasPressed(uint8_t buttonIndex) const {
   DEV_INPUT(devinput::wasPressed(buttonIndex))
   return inputMgr.wasPressed(buttonIndex);

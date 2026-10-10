@@ -706,6 +706,26 @@ def main(env):
         "HalDisplay: CROSSPOINT_SIM_HIDDEN opens the window hidden",
         marker="CROSSPOINT_SIM_HIDDEN",
     )
+    # main.cpp steps a BQ27220 design-capacity load on every loop until it
+    # reports done (upstream, 2026-10). A host has no gauge: done at once.
+    patch(
+        src / "BatteryMonitor.h",
+        "  int getPercentage() { return 100; }",
+        "  int getPercentage() { return 100; }\n"
+        "  static bool loadDesignCapacity() { return false; }",
+        "BatteryMonitor::loadDesignCapacity (no gauge on a host)",
+        marker="loadDesignCapacity",
+    )
+    # The reader branches on the EEGO A4 (upstream, 2026-10); the simulator's
+    # BoardConfig has no such board, and is never one.
+    patch(
+        src / "BoardConfig.h",
+        "inline bool isPaperMono() { return ACTIVE.board == Board::PaperMono; }",
+        "inline bool isPaperMono() { return ACTIVE.board == Board::PaperMono; }\n"
+        "inline bool isEegoA4() { return false; }",
+        "BoardConfig::isEegoA4 (never, on a host)",
+        marker="isEegoA4",
+    )
     # Upstream's capacitive page keys (Metalio E-Ink 4, 2026-10): MappedInputManager
     # asks for them on every board, and a host has none.
     patch(

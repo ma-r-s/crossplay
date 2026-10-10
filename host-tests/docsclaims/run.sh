@@ -185,8 +185,11 @@ EXEMPT = {
     # a C3 image. That note is asserted below.
     "docs/crosspoint-readme.md",
 }
+# `.agents` is upstream's agent rulebook (#3890), written for upstream's C3
+# default and linked from nowhere in this fork's AGENTS.md; a raw build is
+# refused by the guard hook here whatever it says.
 SKIP_DIRS = {".git", ".pio", "freeink-sdk", "node_modules", "fs_agent",
-             "fs_mario", "qa-artifacts", "emulator", ".cache", "archive"}
+             "fs_mario", "qa-artifacts", "emulator", ".cache", "archive", ".agents"}
 # Deliberately NOT fence-aware. Fence tracking was a toggle that a nested or
 # `~~~` block desynced silently, and it made a four-space indented code block
 # invisible. The whole tree has exactly one env-less invocation outside a fence
@@ -374,33 +377,6 @@ for label, names in ROWS:
         real = sum(1 for s in button_use.values() if s & set(names))
         check(int(m.group(1)) == real, "docs/buttons.md button census is stale",
               f"{label}: says {m.group(1)}, {real} app directories read it")
-
-# ---------------------------------------------------------------------------
-# `.github/skills/crosspoint-reader.md` is a SYMLINK to AGENTS.md, and it has to
-# stay one.
-#
-# It reads as a 41KB byte-identical duplicate to anything that resolves it --
-# `md5` agrees, and a link checker walking the tree resolves AGENTS.md's
-# root-relative links from `.github/skills/` and reports about twenty dead
-# links, which is most of the dead links in the repository. Both are artefacts
-# of the symlink, not a second copy: the links are correct at AGENTS.md's own
-# path. Upstream added this link (a77419be) pointing at `.skills/SKILL.md`,
-# then deleted that file and left it dangling; f6d6482d re-pointed it here.
-#
-# The check exists because "de-duplicate this" is the obvious wrong fix, and
-# making it a real file is how the repository would grow a 41KB copy that
-# drifts.
-# ---------------------------------------------------------------------------
-skill_link = os.path.join(root, ".github/skills/crosspoint-reader.md")
-check(os.path.islink(skill_link),
-      ".github/skills/crosspoint-reader.md is no longer a symlink",
-      "it must point at AGENTS.md, never hold a copy of it")
-if os.path.islink(skill_link):
-    check(os.path.basename(os.readlink(skill_link)) == "AGENTS.md",
-          ".github/skills/crosspoint-reader.md points somewhere other than AGENTS.md",
-          os.readlink(skill_link))
-    check(os.path.exists(skill_link),
-          ".github/skills/crosspoint-reader.md dangles, which aborts any tree walk that opens it")
 
 # ---------------------------------------------------------------------------
 # docs/contributing/README.md is the index of its own directory. It went stale

@@ -192,6 +192,16 @@ ALLOWED = {
     "crosspointreadercom": "the same sync-server hostname inside a markdown anchor",
     "CrossPoint upstream": "the site pointing other devices at upstream",
     "CrossPoint first": "the site's flashing instructions",
+    # Upstream renamed its reading-progress sync from KOReader Sync to
+    # CrossPoint Sync (#3804, 2026-10): the feature now names upstream's own
+    # service and account, and its server types include CrossPoint's.
+    "CrossPoint Sync": "upstream's progress-sync service and the feature named after it",
+    "CrossPoint sync": "the same, in a sentence",
+    "CrossPoint Username": "an account on upstream's sync service",
+    "CrossPoint Password": "the same account's password",
+    "CrossPoint-compatible": "servers speaking upstream's sync protocol",
+    "CrossPoint-specific": "the same protocol's extra position data, by name",
+    "**CrossPoint**": "the sync server type named CrossPoint",
 }
 
 # Literals that are protocol or persisted keys rather than labels. Allowed only
@@ -202,8 +212,21 @@ ALLOWED_EXACT = {
 }
 
 # Translation keys naming something upstream publishes, so the words stay
-# whatever language they are in.
-ALLOWED_KEYS = ("STR_CALIBRE_INSTRUCTION_1",)
+# whatever language they are in. STR_CROSSPOINT is the KOReader sync server
+# type that means CrossPoint's own server (sync.crosspointreader.com), a
+# choice beside "KOSync server" and "Other", not this app's name.
+ALLOWED_KEYS = (
+    "STR_CALIBRE_INSTRUCTION_1",
+    "STR_CROSSPOINT:",
+    # The sync feature's labels, translated: each names upstream's service or
+    # an account on it (see "CrossPoint Sync" above).
+    "STR_KOREADER_SYNC:",
+    "STR_KOREADER_USERNAME:",
+    "STR_KOREADER_PASSWORD:",
+    "STR_KOREADER_AUTH:",
+    "STR_SYNC_READY:",
+    "STR_KOSYNC:",
+)
 SCAN = [
     ("src", (".cpp", ".h", ".html", ".js", ".c")),
     ("lib", (".cpp", ".h", ".c")),

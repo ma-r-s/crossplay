@@ -422,7 +422,7 @@ they look:
 | `toybox_14/20/30/44/64` | button, UI, display | U+0020..U+007E and nothing else |
 | `reading_serif_*` | body, on the reading screens | ASCII plus Latin-1, and nothing above U+00FF |
 | `toybox_10`, `instrument_*` | small / tile | most of Latin-1, most of Latin Extended-A, the curly quotes, U+2013 and U+2014, U+2026, U+20AC |
-| `ubuntu_10/12` | the system UI, the OPDS browser, the Wi-Fi picker | the common punctuation, but no U+FFFD, so what it lacks is a hole like anywhere else |
+| `ubuntu_10/12` | the system UI, the OPDS browser, the Wi-Fi picker | the common punctuation, and since upstream #3842 (a Noto Sans fallback) a U+FFFD box for what it lacks |
 | `notosans_*`, `notoserif_*` | the EPUB reader's page | the widest set, plus a U+FFFD box for the rest |
 
 Read that third row carefully: "most of" is doing work. `toybox_10` is missing
@@ -436,8 +436,8 @@ So an accented letter is safe in body copy and lost in a Jersey title band.
 Three gaps stay open on purpose and are asserted in that suite: Latin
 Extended-A (a Polish or Turkish name still loses a letter in the reading cut);
 any non-ASCII in a Jersey cut; and the rarer marks in the system UI, where
-`ubuntu_12` cannot draw 32 of the 67 folded codepoints and has no U+FFFD to
-show a box with. The first two are not folded because folding a letter means
+`ubuntu_12` cannot draw some of the folded codepoints and shows a U+FFFD box
+for them (a box since upstream #3842; it used to be a hole). The first two are not folded because folding a letter means
 writing a DIFFERENT letter. The third is not folded because the OPDS title also
 becomes a FILENAME (`src/util/OpdsFilename.cpp`), and rewriting a character
 there renames a book on the card.
