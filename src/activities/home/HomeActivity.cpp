@@ -451,12 +451,17 @@ void HomeActivity::loop() {
   // the static formula, which is what render() uses when nothing shrank.
   const int coverBottomDrawn =
       menuTopRendered > 0 ? coverRectY + coverRectH : metrics.homeTopPadding + metrics.homeCoverTileHeight;
+  // Match the rendered cover grid, which lays tiles inside getContentArea()
+  // (origin content.x + contentSidePadding, span content.width). Using
+  // screen-relative getScreenWidth()/contentSidePadding here offset the touch
+  // targets from the drawn covers by content.x on bezel-inset panels (EEGO A4).
+  const Rect content = UITheme::getInstance().getContentArea(renderer);
   const int coverColumnCount = std::max(1, metrics.homeRecentBooksCount);
   const int recentCount = std::min(static_cast<int>(recentBooks.size()), coverColumnCount);
-  const int coverColumnWidth = (renderer.getScreenWidth() - 2 * metrics.contentSidePadding) / coverColumnCount;
+  const int coverColumnWidth = (content.width - 2 * metrics.contentSidePadding) / coverColumnCount;
   int touchedBook = -1;
-  const auto coverTouch = mappedInput.colTouch(touchedBook, metrics.contentSidePadding, coverColumnWidth, recentCount,
-                                               metrics.homeTopPadding, coverBottomDrawn, coverColumnWidth);
+  const auto coverTouch = mappedInput.colTouch(touchedBook, content.x + metrics.contentSidePadding, coverColumnWidth,
+                                               recentCount, metrics.homeTopPadding, coverBottomDrawn, coverColumnWidth);
   if (coverTouch != MappedInputManager::RowTouch::None) {
     if (coverTouch == MappedInputManager::RowTouch::Down) {
       if (selectorIndex != touchedBook) {
@@ -509,6 +514,9 @@ void HomeActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
+  // Content columns clear the bezel insets on rounded panels. The header
+  // self-insets in drawHeader, so only the cover/menu need it here.
+  const Rect content = UITheme::getInstance().getContentArea(renderer);
 
   renderer.clearScreen();
   if (coverGridUi) {
@@ -617,22 +625,22 @@ void HomeActivity::render(RenderLock&&) {
 
   // Recorded so storeCoverBuffer (called from the theme) knows which
   // sub-region of the framebuffer to snapshot, rather than all 48 KB.
-  coverRectX = 0;
+  coverRectX = content.x;
   coverRectY = metrics.homeTopPadding;
-  coverRectW = pageWidth;
+  coverRectW = content.width;
   coverRectH = coverTileHeight;
   // The menu rect's top; the touch grid in loop() adds menuLeadInRendered to
   // reach the first row, exactly as drawButtonMenu below does.
   menuTopRendered = menuRectTop;
 
   if (coverTileHeight > 0) {
-    GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, coverTileHeight}, recentBooks,
+    GUI.drawRecentBookCover(renderer, Rect{content.x, metrics.homeTopPadding, content.width, coverTileHeight}, recentBooks,
                             selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                             std::bind(&HomeActivity::storeCoverBuffer, this));
   }
 
   GUI.drawButtonMenu(
-      renderer, Rect{0, menuRectTop, pageWidth, menuRectBottom - menuRectTop}, static_cast<int>(menuItems.size()),
+      renderer, Rect{content.x, menuRectTop, content.width, menuRectBottom - menuRectTop}, static_cast<int>(menuItems.size()),
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },
       [&menuIcons](int index) { return menuIcons[index]; }, menuSpacing, menuRowHeight);
