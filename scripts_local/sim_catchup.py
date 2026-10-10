@@ -691,6 +691,21 @@ def main(env):
         "NetworkClient is a Print, as on the device",
         marker="class NetworkClient : public Print",
     )
+    # A scripted run (sim-shot.sh) opens no visible window. A shown window is
+    # activated by macOS whatever SDL is told (SDL_MAC_BACKGROUND_APP and
+    # SDL_WINDOW_NO_ACTIVATION_WHEN_SHOWN both measured: the simulator still
+    # took the front for ~2s), which pulled Mario off whatever he was looking
+    # at on every screenshot an agent took. Hidden, it still renders and
+    # SDL_RenderReadPixels still reads the 2x frame. dev.sh and sim.sh do not
+    # set it, so the interactive window is unchanged.
+    patch(
+        src / "HalDisplay.cpp",
+        "SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);",
+        "(std::getenv(\"CROSSPOINT_SIM_HIDDEN\") ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) |\n"
+        "                                SDL_WINDOW_ALLOW_HIGHDPI);",
+        "HalDisplay: CROSSPOINT_SIM_HIDDEN opens the window hidden",
+        marker="CROSSPOINT_SIM_HIDDEN",
+    )
     # Upstream's capacitive page keys (Metalio E-Ink 4, 2026-10): MappedInputManager
     # asks for them on every board, and a host has none.
     patch(

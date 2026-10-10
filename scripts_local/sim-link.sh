@@ -67,6 +67,14 @@ seed_fs "$SD_B"
 build
 mkdir -p "$OUT_DIR"
 
+# Scripted runs open no visible window: a shown one is brought to the front by
+# macOS, which pulled Mario off whatever he was looking at every time an agent
+# took a screenshot (2026-10-10). The frame still renders and is captured at
+# 2x. CROSSPOINT_SIM_SHOW=1 shows the window when you want to watch a run.
+if [ -z "${CROSSPOINT_SIM_SHOW:-}" ]; then
+  export CROSSPOINT_SIM_HIDDEN=1 SDL_MAC_BACKGROUND_APP=1
+fi
+
 cd "$REPO"
 LOG_A="$OUT_DIR/sim-link-a.log"
 LOG_B="$OUT_DIR/sim-link-b.log"

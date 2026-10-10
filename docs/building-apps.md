@@ -20,6 +20,10 @@ You have a full desktop simulator. Use it for everything.
 ./scripts/sim-shot.sh '<input>' '<screenshots>'   # scripted, headless, for you
 ```
 
+`sim-shot.sh` and `sim-link.sh` open no visible window (a shown one is brought
+to the front by macOS and pulls Mario off his screen); `CROSSPOINT_SIM_SHOW=1`
+shows it when you want to watch a run.
+
 Two instances run at once with separate SD cards (`fs_mario/`, `fs_agent/` via
 `CROSSPOINT_SIM_SD`), so agent test runs cannot disturb a game in progress. A
 build is ~7 seconds. There is no excuse for guessing.
