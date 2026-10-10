@@ -17,6 +17,7 @@
 
 #include <HalStorage.h>
 
+#include <climits>
 #include <memory>
 #include <vector>
 
@@ -116,18 +117,31 @@ class StudyActivity final : public Activity {
   // answer in colour and bolds the target word in an example sentence; this
   // panel has neither colour nor a bold CJK face, so the mark is a rule under
   // the glyphs. `spanLength` of 0 draws exactly what drawWrapped would.
-  int drawWrappedUnderlined(int fontId, int y, int maxWidth, const char* text, int spanStart, int spanLength) const;
+  int drawWrappedUnderlined(int fontId, int y, int maxWidth, const char* text, int spanStart, int spanLength,
+                            bool measureOnly = false) const;
   // The one body behind both. Kept private and named for what it does rather
   // than folded into drawWrapped with two defaulted arguments: every call
   // site says whether it is marking something, and "0, 0, false" at the end
   // of a draw call says nothing to anybody.
   int drawWrappedMarked(int fontId, int y, int maxWidth, const char* text, int spanStart, int spanLength,
                         bool measureOnly) const;
+  // The two faces, laid out from the top of the body. Each returns where its
+  // content ends; with measureOnly nothing is drawn, so drawCard can find the
+  // largest type that fits before it draws anything.
+  int layoutVocabCard(const Rect& body, bool measureOnly);
   // The cloze face, drawn instead of the vocabulary one when the note carries
   // a cloze question. Split out because the two share only the body rect: a
   // cloze card has no headword, no reading and no example sentence, and
   // threading four more conditionals through drawCard hid both.
-  void drawClozeCard(const Rect& body);
+  int layoutClozeCard(const Rect& body, bool measureOnly);
+  // A built-in serif size, `fontStep_` steps smaller; a deck's own face as it
+  // is, since it is subset to the deck and has no smaller cut.
+  int sized(int fontId) const;
+  // How far down the built-in serif sizes the current card had to step to fit,
+  // the last row its text may reach, and whether anything was left below it.
+  int fontStep_ = 0;
+  int clipBottom_ = INT_MAX;
+  mutable bool clipped_ = false;
 
   HalFile deckFile_;
   HalFile cardFile_;

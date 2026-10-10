@@ -1,5 +1,7 @@
 #pragma once
 
+#include <climits>
+
 // Line breaking for the card face, with the one thing the renderer cannot
 // tell you: which codepoints ended up on which line.
 //
@@ -539,10 +541,16 @@ inline bool spanOnLine(const WrappedLine& line, const int spanStart, const int s
 //   int  getTextHeight(int fontId) const
 //   void drawText(int fontId, int x, int y, const char* text, bool black) const
 //   void fillRect(int x, int y, int w, int h, bool black) const
+//
+// `bottom`, when given, is the last pixel row a line may reach: a line that
+// would cross it is not drawn and `*clipped` is set, so a card longer than its
+// body stops above the grading buttons instead of printing over them. The
+// return value is still the full height, so a measure and a draw agree.
 template <typename Target>
 int drawWrappedMarked(const Target& target, const int fontId, int y, const int maxWidth, const char* text,
                       const int spanStart, const int spanLength, const bool measureOnly, char* line,
-                      const int lineBytes, char* scratch, const int rubyFontId = 0) {
+                      const int lineBytes, char* scratch, const int rubyFontId = 0, const int bottom = INT_MAX,
+                      bool* clipped = nullptr) {
   if (text == nullptr || *text == '\0') return y;
 
   const int lineHeight = target.getTextHeight(fontId);
@@ -563,7 +571,9 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
     // only that line: a card whose first sentence has furigana and whose
     // second does not should not be double-spaced throughout.
     const int above = (rubyFontId != 0 && hasRuby(laid.text)) ? rubyHeight : 0;
-    if (!measureOnly) {
+    const bool past = y + above + lineHeight > bottom;
+    if (past && clipped != nullptr) *clipped = true;
+    if (!measureOnly && !past) {
       const int totalWidth = measureLine(laid.text);
       int x = (screenWidth - totalWidth) / 2;
       int cp = laid.startCodepoint;

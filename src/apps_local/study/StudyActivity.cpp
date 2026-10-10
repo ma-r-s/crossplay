@@ -12,6 +12,7 @@
 #include "../../DevMode.h"
 #include "../../SilentRestart.h"
 #include "../../activities/network/WifiSelectionActivity.h"
+#include "../../components/HeaderBackTapTarget.h"
 #include "../../components/UITheme.h"
 #include "../../util/QrUtils.h"
 #include "../Shelf.h"
@@ -59,6 +60,13 @@ constexpr int kPhotoTapHalfWidth = 90;
 constexpr int kReadingFontId = NOTOSERIF_18_FONT_ID;
 constexpr int kMeaningFontId = NOTOSERIF_16_FONT_ID;
 constexpr int kSmallFontId = NOTOSERIF_12_FONT_ID;
+
+// The built-in serif sizes, largest first: the steps a card takes down when
+// it does not fit its body. 12pt is the floor; below it the panel's dither
+// eats the strokes.
+constexpr int kSerifLadder[] = {NOTOSERIF_18_FONT_ID, NOTOSERIF_16_FONT_ID, NOTOSERIF_14_FONT_ID, NOTOSERIF_12_FONT_ID};
+constexpr int kSerifSteps = static_cast<int>(sizeof(kSerifLadder) / sizeof(kSerifLadder[0]));
+constexpr int kMaxFontStep = kSerifSteps - 1;
 
 // Longest line the wrapper assembles. The widest field in the deck is 178
 // bytes; 256 leaves room, and two of these are live at once.
@@ -1080,8 +1088,8 @@ int StudyActivity::drawWrapped(const int fontId, const int y, const int maxWidth
 }
 
 int StudyActivity::drawWrappedUnderlined(const int fontId, const int y, const int maxWidth, const char* text,
-                                         const int spanStart, const int spanLength) const {
-  return drawWrappedMarked(fontId, y, maxWidth, text, spanStart, spanLength, false);
+                                         const int spanStart, const int spanLength, const bool measureOnly) const {
+  return drawWrappedMarked(fontId, y, maxWidth, text, spanStart, spanLength, measureOnly);
 }
 
 int StudyActivity::drawWrappedMarked(const int fontId, const int y, const int maxWidth, const char* text,
@@ -1094,7 +1102,7 @@ int StudyActivity::drawWrappedMarked(const int fontId, const int y, const int ma
   // are drawn above their base rather than lost.
   const int rubyFontId = fontsReady_ ? fonts_.rubyFontId() : 0;
   return study::drawWrappedMarked(renderer, fontId, y, maxWidth, text, spanStart, spanLength, measureOnly, line,
-                                  kLineBytes, scratch, rubyFontId);
+                                  kLineBytes, scratch, rubyFontId, clipBottom_, &clipped_);
 }
 
 bool StudyActivity::fitsAsDrawn(const int fontId, const char* text, const int maxWidth) const {
@@ -1104,7 +1112,7 @@ bool StudyActivity::fitsAsDrawn(const int fontId, const char* text, const int ma
       kLineBytes);
 }
 
-void StudyActivity::drawClozeCard(const Rect& body) {
+int StudyActivity::layoutClozeCard(const Rect& body, const bool measureOnly) {
   const int maxWidth = renderer.getScreenWidth() - 2 * toybox::kMargin;
   const bool answer = face_ == Face::Answer;
   // A cloze card is a sentence with a hole in it, so it is drawn in the
@@ -1130,30 +1138,66 @@ void StudyActivity::drawClozeCard(const Rect& body) {
     // The span the converter recorded over the revealed text. Anki paints it;
     // here it is underlined, which is the only mark this panel has that does
     // not cost a second font.
-    y = drawWrappedUnderlined(textFont, y, maxWidth, revealed, note_.emphasisOffset(), note_.emphasisLength());
+    y = drawWrappedUnderlined(sized(textFont), y, maxWidth, revealed, note_.emphasisOffset(), note_.emphasisLength(),
+                              measureOnly);
     // Back Extra, under a hairline, in the same relationship the vocabulary
     // face gives the example sentence: the same rule, so the two card kinds
     // read as one app.
     if (!note_.empty(study::Field::Meaning)) {
       y += 20;
-      toybox::rule(renderer, y, toybox::kHairline);
+      if (!measureOnly) toybox::rule(renderer, y, toybox::kHairline);
       y += 20;
-      drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::Meaning));
+      y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::Meaning), measureOnly);
     }
   } else {
-    drawWrapped(textFont, y, maxWidth, shown);
+    y = drawWrapped(sized(textFont), y, maxWidth, shown, measureOnly);
   }
+  return y;
 }
 
 void StudyActivity::drawCard(const Rect& body) {
-  // A cloze note has no headword and no example sentence; everything below
-  // reads those two fields. Dispatched here rather than inside each block so
-  // there is one place that says which kind of card this is.
-  if (note_.isCloze()) {
-    drawClozeCard(body);
-    return;
+  // Fit before drawing. A card is laid out at the built-in sizes it asks for
+  // and, while it would run past the foot of the body, again one serif size
+  // smaller, down to 12pt. Whatever still does not fit stops at the foot under
+  // a mark that says there is more, rather than printing over the grading
+  // buttons (report box #669: a long answer ran through AGAIN/HARD/GOOD/EASY
+  // and off the panel).
+  const int bottom = body.y + body.height - toybox::kMargin;
+  for (fontStep_ = 0; fontStep_ < kMaxFontStep; ++fontStep_) {
+    const int end = note_.isCloze() ? layoutClozeCard(body, true) : layoutVocabCard(body, true);
+    if (end <= bottom) break;
   }
+  clipBottom_ = bottom;
+  clipped_ = false;
+  // A cloze note has no headword and no example sentence; everything in the
+  // vocabulary face reads those two fields. Dispatched here rather than inside
+  // each block so there is one place that says which kind of card this is.
+  if (note_.isCloze()) {
+    layoutClozeCard(body, false);
+  } else {
+    layoutVocabCard(body, false);
+  }
+  clipBottom_ = INT_MAX;
+  if (clipped_) {
+    // The built-in serif has the ellipsis; the toybox cuts do not.
+    const char* more = "\xe2\x80\xa6";
+    const int width = renderer.getTextWidth(kMeaningFontId, more);
+    renderer.drawText(kMeaningFontId, (renderer.getScreenWidth() - width) / 2,
+                      bottom - renderer.getTextHeight(kMeaningFontId) + 4, more, true);
+  }
+}
 
+int StudyActivity::sized(const int fontId) const {
+  for (int i = 0; i < kSerifSteps; ++i) {
+    if (kSerifLadder[i] == fontId) {
+      const int stepped = i + fontStep_;
+      return kSerifLadder[stepped < kSerifSteps ? stepped : kSerifSteps - 1];
+    }
+  }
+  return fontId;
+}
+
+int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
   const int maxWidth = renderer.getScreenWidth() - 2 * toybox::kMargin;
   int headwordFont = fontsReady_ ? fonts_.headwordFontId() : kReadingFontId;
   int sentenceFont = fontsReady_ ? fonts_.sentenceFontId() : kMeaningFontId;
@@ -1184,13 +1228,13 @@ void StudyActivity::drawCard(const Rect& body) {
   // Measured, not guessed: tools_local/study/measure_layout.py.
   int y = body.y + 8;
 
-  y = drawWrapped(headwordFont, y, maxWidth, note_.field(study::Field::Headword));
+  y = drawWrapped(sized(headwordFont), y, maxWidth, note_.field(study::Field::Headword), measureOnly);
   if (answer) {
     y += 6;
-    y = drawWrapped(kReadingFontId, y, maxWidth, note_.field(study::Field::Reading));
+    y = drawWrapped(sized(kReadingFontId), y, maxWidth, note_.field(study::Field::Reading), measureOnly);
     y += 2;
-    y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::Meaning));
-    y = drawWrapped(kSmallFontId, y, maxWidth, note_.field(study::Field::PartOfSpeech));
+    y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::Meaning), measureOnly);
+    y = drawWrapped(sized(kSmallFontId), y, maxWidth, note_.field(study::Field::PartOfSpeech), measureOnly);
   }
 
   // The sentence follows the deck's own habit: an HSK card wants it in front of
@@ -1201,26 +1245,26 @@ void StudyActivity::drawCard(const Rect& body) {
     // lives in below. Hairline against the footer's kRule, so the two dividers
     // read as different weights rather than competing.
     y += 20;
-    toybox::rule(renderer, y, toybox::kHairline);
+    if (!measureOnly) toybox::rule(renderer, y, toybox::kHairline);
     y += 20;
     // Underlined only on the answer face: on the question face the emphasis
     // is over the very word being asked for, and drawing it there points at
     // the answer.
     if (answer) {
-      y = drawWrappedUnderlined(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence), note_.emphasisOffset(),
-                                note_.emphasisLength());
+      y = drawWrappedUnderlined(sized(sentenceFont), y, maxWidth, note_.field(study::Field::Sentence),
+                                note_.emphasisOffset(), note_.emphasisLength(), measureOnly);
     } else {
-      y = drawWrapped(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence));
+      y = drawWrapped(sized(sentenceFont), y, maxWidth, note_.field(study::Field::Sentence), measureOnly);
     }
     if (answer) {
       y += 6;
-      y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceReading));
+      y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::SentenceReading), measureOnly);
       y += 2;
-      drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceMeaning));
+      y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::SentenceMeaning), measureOnly);
     }
   }
 
-  if (answer) {
+  if (answer && !measureOnly) {
     // The card's own record, anchored to the bottom of the body rather than
     // left to float after the sentence. With the content anchored under the
     // header and the footer pinned below, this is the third anchor that turns
@@ -1248,6 +1292,7 @@ void StudyActivity::drawCard(const Rect& body) {
       renderer.drawText(kSmallFontId, (renderer.getScreenWidth() - recordWidth) / 2, recordY, record, true);
     }
   }
+  return y;
 }
 
 void StudyActivity::drawImage(const Rect& body) {
@@ -1685,8 +1730,12 @@ void StudyActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, headerBand, "");
 
   if (title[0] != '\0') {
-    toybox::drawCapsCentered(renderer, toybox::kUiFontId, toybox::kMargin, headerBand.y, headerBand.height, title,
-                             true);
+    // The theme puts a back arrow at the start of the band on a touch panel,
+    // and a tap on it is Back. The title starts after it rather than on top of
+    // it ("2 LEFT" was drawn through the arrow since the 1.13.28 sync).
+    const int titleX =
+        HeaderBackTapTarget::w > 0 ? HeaderBackTapTarget::x + HeaderBackTapTarget::w + 4 : toybox::kMargin;
+    toybox::drawCapsCentered(renderer, toybox::kUiFontId, titleX, headerBand.y, headerBand.height, title, true);
   }
 
   // One control, one place. It says PHOTO on the answer and BACK on the
