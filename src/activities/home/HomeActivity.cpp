@@ -271,9 +271,12 @@ void HomeActivity::onEnter() {
 
   // fork-local seam: goHome() restores the selection by matching the departing
   // activity's name against HomeMenuItem, which cannot know about shelf rows,
-  // so leaving GAMES would otherwise drop the cursor on Browse Files.
-  if (const int shelfRow = shelf::lastFolderOnHome(); shelfRow >= 0) {
-    selectorIndex = homeshelf::selectorForFolder(shelfRow, base, hasLibrarySlot());
+  // so leaving GAMES would otherwise drop the cursor on Browse Files. Only when
+  // the shelf was what we came back from: see shelf::takeHomeReturn().
+  if (shelf::takeHomeReturn()) {
+    if (const int shelfRow = shelf::lastFolderOnHome(); shelfRow >= 0) {
+      selectorIndex = homeshelf::selectorForFolder(shelfRow, base, hasLibrarySlot());
+    }
   }
 
   // fork-local seam: boot straight into a named app when the environment asks

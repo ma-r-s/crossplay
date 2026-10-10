@@ -142,6 +142,10 @@ constexpr char kHiddenPath[] = "/.crosspoint/shelf-hidden.cfg";
 // -1 means "nothing is open below Home", which is what a folder itself sees.
 int openFolderIndex = -1;
 
+// Set when a folder or an app of ours is opened, taken by Home on entry. See
+// takeHomeReturn().
+bool homeReturn = false;
+
 // The remembered position, mirroring /.crosspoint/shelf.cfg:
 //
 // - `lastFolder`: which shelf row Home should land on when you come back out.
@@ -338,6 +342,7 @@ void openFolder(const int index, GfxRenderer& renderer, MappedInputManager& mapp
   // rather than in leave() keeps the fact true even when a folder is reached by
   // some route that did not go through leave().
   openFolderIndex = -1;
+  homeReturn = true;
   ensureLoaded();
   saveIfChanged(index, state.resumeRow[index]);
   setOpenTitle(nullptr);
@@ -358,6 +363,7 @@ bool openItem(const int folder, const int item, GfxRenderer& renderer, MappedInp
   // Recorded before the launch, not after: replaceActivity destroys the caller,
   // so there is no "after" to run in.
   openFolderIndex = folder;
+  homeReturn = true;
   saveIfChanged(folder, item);
   setOpenTitle(parent.items[item].title);
   if (!replaceWith(parent.items[item].create(renderer, mappedInput), parent.items[item].title)) {
@@ -475,6 +481,7 @@ void openPlayer(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   // the same reason openItem does it: replaceActivity destroys the caller.
   ensureLoaded();
   openFolderIndex = state.lastFolder;
+  homeReturn = true;
   setOpenTitle(nullptr);
   if (!replaceWith(PlayerActivity::create(renderer, mappedInput), "Player")) {
     openFolderIndex = -1;
@@ -492,6 +499,12 @@ void leave(GfxRenderer& renderer, MappedInputManager& mappedInput) {
 int lastFolderOnHome() {
   ensureLoaded();
   return state.lastFolder;
+}
+
+bool takeHomeReturn() {
+  const bool was = homeReturn;
+  homeReturn = false;
+  return was;
 }
 
 int resumeRowIn(const int index) {
