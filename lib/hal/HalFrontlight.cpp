@@ -20,7 +20,6 @@ void HalFrontlight::begin(const uint8_t brightness, const uint8_t warmth, const 
   ready = manager.begin();
   if (!manager.present()) return;
 
-
   lastBrightness = brightness > 100 ? 100 : brightness;
   manager.setColorTemperature(warmth > 100 ? 100 : warmth);
   lit = on;

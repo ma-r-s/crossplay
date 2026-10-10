@@ -525,11 +525,13 @@ int main() {
       if (!all) failed++;
     }
 
-    // And the half that is NOT true, pinned so it cannot be believed again. The
-    // Ubuntu faces carry no U+FFFD, so a codepoint they lack draws as nothing
-    // there too -- the same failure, in the system UI, for the rarer marks.
-    ok(!draws(&ubuntu_12_regular, 0xFFFD),
-       "ubuntu_12_regular has NO replacement glyph, so a missing codepoint is a hole there too");
+    // And what a codepoint the system faces lack turns into, pinned so it is
+    // never assumed. Upstream #3842 (2026-10-09) regenerated the Ubuntu UI cuts
+    // with Noto Sans as their fallback, which brought U+FFFD with it: in the
+    // system UI a missing mark is now a visible replacement box, not a hole.
+    // The toybox cuts above are still subset and still draw nothing.
+    ok(draws(&ubuntu_12_regular, 0xFFFD),
+       "ubuntu_12_regular carries a replacement glyph, so a missing codepoint there is a box, not a hole");
     ok(draws(&notoserif_16_regular, 0xFFFD), "the Noto faces do have one, which is where the belief came from");
     for (const SystemCut& cut : kSystem) {
       int missing = 0;

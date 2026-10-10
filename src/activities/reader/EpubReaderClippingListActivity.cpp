@@ -179,10 +179,10 @@ void EpubReaderClippingListActivity::buildScreen(UiScreen& screen) {
   // fork-local seam: these margins are already measured from the panel edge
   // with the bezel folded in, so they go through the idempotent call; plain
   // setContentMargin() applies the safe area a second time on the X4 Pro.
-  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
-                                      static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
-                                      static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)),
-                                      static_cast<int16_t>(safe.x)});
+  screen.setContentMarginFromScreen(fui::Insets{
+      static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
+      static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
+      static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)), static_cast<int16_t>(safe.x)});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
   if (listCount() == 0) {
     screen.centeredText(tr(STR_NO_CLIPPINGS), screen.theme().bodyText);

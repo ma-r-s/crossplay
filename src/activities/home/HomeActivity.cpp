@@ -634,13 +634,14 @@ void HomeActivity::render(RenderLock&&) {
   menuTopRendered = menuRectTop;
 
   if (coverTileHeight > 0) {
-    GUI.drawRecentBookCover(renderer, Rect{content.x, metrics.homeTopPadding, content.width, coverTileHeight}, recentBooks,
-                            selectorIndex, coverRendered, coverBufferStored, bufferRestored,
+    GUI.drawRecentBookCover(renderer, Rect{content.x, metrics.homeTopPadding, content.width, coverTileHeight},
+                            recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                             std::bind(&HomeActivity::storeCoverBuffer, this));
   }
 
   GUI.drawButtonMenu(
-      renderer, Rect{content.x, menuRectTop, content.width, menuRectBottom - menuRectTop}, static_cast<int>(menuItems.size()),
+      renderer, Rect{content.x, menuRectTop, content.width, menuRectBottom - menuRectTop},
+      static_cast<int>(menuItems.size()),
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },
       [&menuIcons](int index) { return menuIcons[index]; }, menuSpacing, menuRowHeight);
