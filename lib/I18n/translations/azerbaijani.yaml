@@ -3,7 +3,7 @@ _language_code: "AZ"
 _order: "32"
 _bcp47: "az"
 
-STR_CROSSPOINT: "CrossPoint"
+STR_CROSSPLAY: "CrossPlay"
 STR_BOOTING: "YÜKLƏNİR"
 STR_SLEEPING: "YUXU REJİMİ"
 STR_ENTERING_SLEEP: "Yuxu rejiminə keçir"

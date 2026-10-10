@@ -431,11 +431,11 @@ Behavior notes:
 CrossPlay can sync reading progress with KOReader-compatible sync servers.
 It also interoperates with KOReader apps/devices when they use the same server and credentials.
 
-**Server Type** controls which progress and metadata format CrossPoint sends:
+**Server Type** controls which progress and metadata format CrossPlay sends:
 
 - **CrossPoint** - For the default service or a self-hosted CrossPoint-compatible sync server. Sends standard KOReader progress plus CrossPoint's richer reading position when available.
 - **KoSync** - For standard KOReader Sync servers such as `sync.koreader.rocks` or `koreader/kosync`. Uses the strict standard payload without CrossPoint-specific rich position data.
-- **Other** - For custom servers that explicitly support CrossPoint's enhanced payload. Rich position is enabled, and when **Send Metadata** is on CrossPoint may also send recognized ISBN, ASIN, series name, and series index in addition to title/author metadata.
+- **Other** - For custom servers that explicitly support CrossPoint's enhanced payload. Rich position is enabled, and when **Send Metadata** is on CrossPlay may also send recognized ISBN, ASIN, series name, and series index in addition to title/author metadata.
 
 **Send Metadata** remains the privacy switch for bibliographic data. Turn it off if you want to sync progress without sending title, author, ISBN/ASIN, or series information.
 
@@ -752,7 +752,7 @@ Select **View Clippings** to browse saved excerpts for the current book. Press *
 
 Each book can store up to **1,024 clippings on ESP32-S3 devices** or **256 on ESP32-C3 devices**. These limits also apply to clippings downloaded through sync.
 
-The structured clipping store under `.crosspoint/clippings` keeps up to **4 KiB of UTF-8 text per clipping**. Longer selections must be shortened before saving. CrossPoint also appends up to **2,000 UTF-8 bytes** of each saved excerpt to `My Clippings.txt` in the root of the SD card, using Kindle-compatible formatting. If that export fails, the clipping remains saved and the message reports the export failure.
+The structured clipping store under `.crosspoint/clippings` keeps up to **4 KiB of UTF-8 text per clipping**. Longer selections must be shortened before saving. CrossPlay also appends up to **2,000 UTF-8 bytes** of each saved excerpt to `My Clippings.txt` in the root of the SD card, using Kindle-compatible formatting. If that export fails, the clipping remains saved and the message reports the export failure.
 
 Local book and folder moves carry clipping data with them. Deleting a local book removes its local clipping data; it does not delete already synced server copies or historical entries in `My Clippings.txt`. Deleting an individual clipping likewise leaves the text export untouched, but queues its server deletion for the next enabled manual sync. `My Clippings.txt` is an independent append-only export, not the source used to restore or sync highlights.
 
