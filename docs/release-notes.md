@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.14.1
+
+- Study long cards and header, Home row after the shelf, and a simulator that stays out of the way
+
 ### 1.14.0
 
 - Sync CrossPoint develop (22 commits)

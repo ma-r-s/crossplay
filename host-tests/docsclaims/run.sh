@@ -444,8 +444,16 @@ if ref is None:
               "docs/README.md's ownership claims were NOT verified "
               "(git fetch crosspoint develop)")
 else:
+    # Upstream as of our last sync, not its tip. "Verbatim" means we have not
+    # touched it since we took it; upstream editing it a week later does not
+    # make our copy edited. 2026-10-10: upstream rewrote touch-and-ui.md after
+    # the 1.14.0 sync and the tip lookup called our untouched copy "edited".
+    base_r = subprocess.run(["git", "-C", root, "merge-base", "HEAD", ref],
+                            capture_output=True, text=True)
+    base = base_r.stdout.strip() if base_r.returncode == 0 and base_r.stdout.strip() else ref
+
     def upstream_blob(path):
-        r = subprocess.run(["git", "-C", root, "rev-parse", f"{ref}:{path}"],
+        r = subprocess.run(["git", "-C", root, "rev-parse", f"{base}:{path}"],
                            capture_output=True, text=True)
         return r.stdout.strip() if r.returncode == 0 else None
 
