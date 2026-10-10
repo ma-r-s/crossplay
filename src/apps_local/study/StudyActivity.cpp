@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <esp_sntp.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -1729,13 +1730,21 @@ void StudyActivity::render(RenderLock&&) {
   const Rect headerBand{0, metrics.topPadding, width, metrics.headerHeight};
   GUI.drawHeader(renderer, headerBand, "");
 
+  // The theme puts a back arrow at the start of the band on a touch panel,
+  // and a tap on it is Back. The title starts after it rather than on top of
+  // it ("2 LEFT" was drawn through the arrow since the 1.13.28 sync).
+  const int titleX = HeaderBackTapTarget::w > 0 ? HeaderBackTapTarget::x + HeaderBackTapTarget::w + 4 : toybox::kMargin;
   if (title[0] != '\0') {
-    // The theme puts a back arrow at the start of the band on a touch panel,
-    // and a tap on it is Back. The title starts after it rather than on top of
-    // it ("2 LEFT" was drawn through the arrow since the 1.13.28 sync).
-    const int titleX =
-        HeaderBackTapTarget::w > 0 ? HeaderBackTapTarget::x + HeaderBackTapTarget::w + 4 : toybox::kMargin;
     toybox::drawCapsCentered(renderer, toybox::kUiFontId, titleX, headerBand.y, headerBand.height, title, true);
+  }
+  // Where the card count ends, measured on the photograph too, where it is not
+  // drawn: the pill below keeps clear of it, and has to land in the same place
+  // on both screens.
+  int countEnd = titleX;
+  if (view_ == View::Card || view_ == View::Image) {
+    char count[32];
+    std::snprintf(count, sizeof(count), "%d LEFT", (queueCount_ - queuePos_) + learningCount_ + 1);
+    countEnd = titleX + renderer.getTextWidth(toybox::kUiFontId, count);
   }
 
   // One control, one place. It says PHOTO on the answer and BACK on the
@@ -1750,7 +1759,9 @@ void StudyActivity::render(RenderLock&&) {
     const char* label = (view_ == View::Image) ? kBackLabel : kPhotoLabel;
     const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, label);
     const int pillWidth = labelWidth + 2 * kPillPadding;
-    const int pillX = (width - pillWidth) / 2;
+    // Centred, unless the count reaches it ("256 LEFT" did once the count
+    // moved clear of the back arrow): then just after the count.
+    const int pillX = std::max((width - pillWidth) / 2, countEnd + kPillPadding);
     const int pillY = headerBand.y + (headerBand.height - kPillHeight) / 2;
 
     renderer.fillRoundedRect(pillX, pillY, pillWidth, kPillHeight, kPillHeight / 2, White);
