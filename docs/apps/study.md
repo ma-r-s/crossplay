@@ -223,7 +223,7 @@ than by position or by content:
 
 | | |
 | --- | --- |
-| `deck.dat`, `meta.dat`, `glyphs-*.txt`, `fonts/` | Card text, parameters, faces. Rewritten every conversion. |
+| `deck.dat`, `meta.dat`, `glyphs-*.lst`, `fonts/` | Card text, parameters, faces. Rewritten every conversion. |
 | `cards.dat` | Scheduling state -- each record carries the Anki card id it belongs to. |
 | `revlog.dat` | Every review, keyed by card id and the millisecond it was answered, which is Anki's own revlog primary key. |
 

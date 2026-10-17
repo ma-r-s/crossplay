@@ -1305,7 +1305,7 @@ def write_glyphs(notes, out_dir):
         # same as "this deck was converted by an older tool".
         ("ruby", ruby),
     ):
-        path = out_dir / f"glyphs-{name}.txt"
+        path = scripts.glyph_list_path(out_dir, name)
         path.write_text("".join(sorted(chars)), encoding="utf-8")
         sizes[name] = len(chars)
     return sizes

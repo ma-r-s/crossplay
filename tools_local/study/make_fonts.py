@@ -284,7 +284,7 @@ def main():
         "--deck",
         required=True,
         type=pathlib.Path,
-        help="converted deck dir (for glyphs-*.txt)",
+        help="converted deck dir (for glyphs-*.lst)",
     )
     ap.add_argument(
         "--out",
@@ -319,8 +319,14 @@ def main():
     if not script.exists():
         sys.exit(f"stock converter not found at {script}")
 
-    headword = (args.deck / "glyphs-headword.txt").read_text(encoding="utf-8")
-    sentence = (args.deck / "glyphs-sentence.txt").read_text(encoding="utf-8")
+    def required_list(name):
+        text = scripts.read_glyph_list(args.deck, name)
+        if text is None:
+            sys.exit(f"{args.deck} has no glyphs-{name}.lst: convert the deck first")
+        return text
+
+    headword = required_list("headword")
+    sentence = required_list("sentence")
 
     # The Latin set goes into both CJK cuts as well as its own.
     #
@@ -328,7 +334,7 @@ def main():
     # headword is, so a face with no ASCII draws nothing at all for "T恤" or for
     # a deck of English words -- silently, since a missing glyph is simply not
     # painted. 131 codepoints against 2663 is nothing; a blank headword is not.
-    latin = (args.deck / "glyphs-latin.txt").read_text(encoding="utf-8")
+    latin = required_list("latin")
     headword += latin
     sentence += latin
 
@@ -338,10 +344,9 @@ def main():
     # rather than its whole sentence set at a third size.
     #
     # Absent or empty means this deck has no furigana, and no third cut is
-    # built. A deck converted before glyphs-ruby.txt existed reads as the
+    # built. A deck converted before the ruby list existed reads as the
     # same thing, which is correct: it has no ruby markup in it either.
-    ruby_path = args.deck / "glyphs-ruby.txt"
-    ruby = ruby_path.read_text(encoding="utf-8") if ruby_path.is_file() else ""
+    ruby = scripts.read_glyph_list(args.deck, "ruby") or ""
     if ruby:
         ruby += latin
 
